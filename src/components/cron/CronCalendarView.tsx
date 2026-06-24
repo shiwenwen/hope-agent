@@ -27,6 +27,8 @@ import {
   Trash2,
   Zap,
   Pencil,
+  Check,
+  Layers,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
@@ -65,6 +67,15 @@ export default function CronCalendarView({
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [pendingDeleteJob, setPendingDeleteJob] = useState<CronJob | null>(null)
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
+
+  // Global cron concurrency cap (§4). Loaded once; persisted on blur with the
+  // standard three-state save feedback. 0 = unlimited. `maxConcurrent` is the
+  // committed value (also the dirty-check baseline); `mcInput` is the raw field
+  // text so clearing/retyping doesn't snap to 0 mid-edit.
+  const [maxConcurrent, setMaxConcurrent] = useState<number>(5)
+  const [mcInput, setMcInput] = useState<string>("5")
+  const [savingCron, setSavingCron] = useState(false)
+  const [cronSaveStatus, setCronSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -105,9 +116,50 @@ export default function CronCalendarView({
     if (jobsLoaded) fetchJobs()
   }, [fetchEvents, fetchJobs, jobsLoaded])
 
+  const commitMaxConcurrent = useCallback(async () => {
+    const raw = mcInput.trim()
+    // Empty / invalid field on blur → keep the previous value (don't coerce the
+    // "cleared field" gesture into 0 = unlimited).
+    if (raw === "" || Number.isNaN(Number(raw))) {
+      setMcInput(String(maxConcurrent))
+      return
+    }
+    const n = Math.max(0, Math.min(1000, Math.floor(Number(raw))))
+    setMcInput(String(n))
+    // Dirty check: skip the disk write + autosave snapshot when nothing changed.
+    if (n === maxConcurrent) return
+    setMaxConcurrent(n)
+    setSavingCron(true)
+    setCronSaveStatus("idle")
+    try {
+      await getTransport().call("save_cron_config", { config: { maxConcurrent: n } })
+      setCronSaveStatus("saved")
+    } catch {
+      setCronSaveStatus("failed")
+    } finally {
+      setSavingCron(false)
+      setTimeout(() => setCronSaveStatus("idle"), 2000)
+    }
+  }, [mcInput, maxConcurrent])
+
   useEffect(() => {
     fetchEvents()
   }, [fetchEvents])
+
+  // Load the global cron concurrency cap once on mount.
+  useEffect(() => {
+    getTransport()
+      .call<{ maxConcurrent?: number }>("get_cron_config")
+      .then((c) => {
+        if (c && typeof c.maxConcurrent === "number") {
+          setMaxConcurrent(c.maxConcurrent)
+          setMcInput(String(c.maxConcurrent))
+        }
+      })
+      .catch(() => {
+        // ignore — keep the default
+      })
+  }, [])
 
   // Lazily load jobs on first switch to list mode
   useEffect(() => {
@@ -392,6 +444,33 @@ export default function CronCalendarView({
             </select>
           </>
         )}
+
+        {/* Global concurrency cap (§4): 0 = unlimited */}
+        <IconTip label={t("cron.maxConcurrentHint")}>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Layers className="h-3.5 w-3.5" />
+            <span className="hidden md:inline">{t("cron.maxConcurrent")}</span>
+            <Input
+              type="number"
+              min={0}
+              max={1000}
+              className="h-7 w-14 text-xs"
+              value={mcInput}
+              onChange={(e) => setMcInput(e.target.value)}
+              onBlur={commitMaxConcurrent}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+              }}
+            />
+            {savingCron ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : cronSaveStatus === "saved" ? (
+              <Check className="h-3 w-3 text-green-500" />
+            ) : cronSaveStatus === "failed" ? (
+              <span className="text-red-500 font-semibold">!</span>
+            ) : null}
+          </div>
+        </IconTip>
 
         <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handleNewJob}>
           <Plus className="h-3.5 w-3.5" />

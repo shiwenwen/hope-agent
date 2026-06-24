@@ -616,6 +616,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 |---|---|---|
 | `get_async_tools_config` | `GET /api/config/async-tools` | ✅ |
 | `save_async_tools_config` | `PUT /api/config/async-tools` | ✅ |
+| `get_cron_config` | `GET /api/config/cron` | ✅ |
+| `save_cron_config` | `PUT /api/config/cron` | ✅ |
 | `get_deferred_tools_config` | `GET /api/config/deferred-tools` | ✅ |
 | `save_deferred_tools_config` | `PUT /api/config/deferred-tools` | ✅ |
 | `get_memory_selection_config` | `GET /api/config/memory-selection` | ✅ |

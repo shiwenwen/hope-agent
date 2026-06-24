@@ -781,6 +781,8 @@ fn build_router_with_cors(
             "/config/async-tools",
             put(routes::config::save_async_tools_config),
         )
+        .route("/config/cron", get(routes::config::get_cron_config))
+        .route("/config/cron", put(routes::config::save_cron_config))
         .route(
             "/config/deferred-tools",
             get(routes::config::get_deferred_tools_config),

@@ -679,6 +679,8 @@
     "viewSystemPrompt": "システムプロンプト"
   },
   "cron": {
+    "maxConcurrent": "最大同時実行",
+    "maxConcurrentHint": "同時に実行するスケジュールタスクの上限（0 = 無制限）。超過分は次回チェックまで待機します。",
     "timezone": "タイムゾーン",
     "timezoneHint": "スケジュールの時刻はこのタイムゾーンで解釈されます（夏時間に対応）。",
     "active": "実行中",

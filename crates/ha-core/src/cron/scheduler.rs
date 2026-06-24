@@ -4,6 +4,98 @@ use std::sync::Arc;
 
 use super::db::CronDB;
 use super::executor::execute_claimed_job;
+use super::types::CronJob;
+
+// ── Concurrency gate (§4) ───────────────────────────────────────
+
+/// How many more cron jobs may be dispatched this pass, given the configured
+/// cap and the count already running. `max == None` (unlimited) returns `None`
+/// (unbounded); a full cap returns `Some(0)`. Pure so the slot arithmetic is
+/// unit-testable without a scheduler or DB.
+fn available_slots(max: Option<usize>, running: usize) -> Option<usize> {
+    max.map(|m| m.saturating_sub(running))
+}
+
+/// Claim and spawn due jobs up to the available concurrency budget, acquiring a
+/// slot **before** the claim that advances `next_run_at` (slot-before-claim):
+/// jobs beyond the cap keep their schedule untouched and are retried on the next
+/// tick instead of silently skipping the occurrence. Manual `run now` runs
+/// bypass this gate but their running markers are counted by `count_running`, so
+/// the scheduler won't over-spawn while a manual run is in flight. Returns the
+/// number of jobs actually dispatched.
+fn dispatch_due_jobs(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<crate::session::SessionDB>,
+    due_jobs: Vec<CronJob>,
+) -> usize {
+    if due_jobs.is_empty() {
+        return 0;
+    }
+    let max = crate::config::cached_config()
+        .cron
+        .effective_max_concurrent();
+    // Fail closed on a count error: skip this pass rather than risk an unbounded
+    // spawn (a poisoned lock would fail the claims below anyway; next tick retries).
+    let running = match cron_db.count_running() {
+        Ok(n) => n,
+        Err(e) => {
+            app_error!(
+                "cron",
+                "scheduler",
+                "Failed to count running jobs; deferring this pass: {}",
+                e
+            );
+            return 0;
+        }
+    };
+    let mut available = available_slots(max, running);
+    let total = due_jobs.len();
+    let mut dispatched = 0usize;
+    for (idx, job) in due_jobs.into_iter().enumerate() {
+        if available == Some(0) {
+            app_info!(
+                "cron",
+                "scheduler",
+                "At cron concurrency cap ({} running); deferring {} due job(s) to next tick",
+                running,
+                total - idx
+            );
+            break;
+        }
+        match cron_db.claim_scheduled_job_for_execution(&job) {
+            Ok(Some(claimed)) => {
+                if let Some(a) = available.as_mut() {
+                    *a -= 1;
+                }
+                dispatched += 1;
+                let db = cron_db.clone();
+                let sdb = session_db.clone();
+                tokio::spawn(async move {
+                    execute_claimed_job(&db, &sdb, claimed).await;
+                });
+            }
+            // Lost the race / already claimed elsewhere — do NOT consume a slot.
+            Ok(None) => {
+                app_debug!(
+                    "cron",
+                    "scheduler",
+                    "Job '{}' already claimed, skipping",
+                    job.name
+                );
+            }
+            Err(e) => {
+                app_error!(
+                    "cron",
+                    "scheduler",
+                    "Failed to claim job '{}': {}",
+                    job.name,
+                    e
+                );
+            }
+        }
+    }
+    dispatched
+}
 
 // ── Scheduler ───────────────────────────────────────────────────
 
@@ -51,7 +143,7 @@ pub fn start_scheduler(
                     app_error!("cron", "scheduler", "Failed to mark missed at jobs: {}", e);
                 }
 
-                // Run catch-up for overdue recurring jobs
+                // Run catch-up for overdue recurring jobs (slot-before-claim cap applies).
                 if let Ok(due_jobs) = cron_db.get_due_jobs(&Utc::now()) {
                     if !due_jobs.is_empty() {
                         app_info!(
@@ -60,27 +152,7 @@ pub fn start_scheduler(
                             "Catch-up: {} overdue jobs found at startup",
                             due_jobs.len()
                         );
-                        for job in due_jobs {
-                            match cron_db.claim_scheduled_job_for_execution(&job) {
-                                Ok(Some(claimed)) => {
-                                    let db = cron_db.clone();
-                                    let sdb = session_db.clone();
-                                    tokio::spawn(async move {
-                                        execute_claimed_job(&db, &sdb, claimed).await;
-                                    });
-                                }
-                                Ok(None) => {}
-                                Err(e) => {
-                                    app_error!(
-                                        "cron",
-                                        "scheduler",
-                                        "Failed to claim catch-up job '{}': {}",
-                                        job.name,
-                                        e
-                                    );
-                                }
-                            }
-                        }
+                        dispatch_due_jobs(&cron_db, &session_db, due_jobs);
                     }
                 }
 
@@ -102,36 +174,11 @@ pub fn start_scheduler(
 
                     let now = Utc::now();
                     match cron_db.get_due_jobs(&now) {
+                        // Slot-before-claim: dispatch only up to the configured
+                        // concurrency cap; remaining due jobs stay due and are
+                        // retried next tick (their schedule is untouched).
                         Ok(due_jobs) => {
-                            for job in due_jobs {
-                                // Claim job first to prevent duplicate execution
-                                match cron_db.claim_scheduled_job_for_execution(&job) {
-                                    Ok(Some(claimed)) => {
-                                        let db = cron_db.clone();
-                                        let sdb = session_db.clone();
-                                        tokio::spawn(async move {
-                                            execute_claimed_job(&db, &sdb, claimed).await;
-                                        });
-                                    }
-                                    Ok(None) => {
-                                        app_debug!(
-                                            "cron",
-                                            "scheduler",
-                                            "Job '{}' already claimed, skipping",
-                                            job.name
-                                        );
-                                    }
-                                    Err(e) => {
-                                        app_error!(
-                                            "cron",
-                                            "scheduler",
-                                            "Failed to claim job '{}': {}",
-                                            job.name,
-                                            e
-                                        );
-                                    }
-                                }
-                            }
+                            dispatch_due_jobs(&cron_db, &session_db, due_jobs);
                         }
                         Err(e) => {
                             app_error!("cron", "scheduler", "Failed to query due jobs: {}", e);
@@ -143,4 +190,26 @@ pub fn start_scheduler(
             });
         })
         .expect("Failed to spawn cron scheduler thread")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::available_slots;
+
+    #[test]
+    fn available_slots_unlimited_is_unbounded() {
+        // max=None (max_concurrent == 0) → never gated, regardless of running.
+        assert_eq!(available_slots(None, 0), None);
+        assert_eq!(available_slots(None, 1000), None);
+    }
+
+    #[test]
+    fn available_slots_caps_at_remaining_budget() {
+        assert_eq!(available_slots(Some(5), 0), Some(5));
+        assert_eq!(available_slots(Some(5), 3), Some(2));
+        assert_eq!(available_slots(Some(5), 5), Some(0));
+        // Over-occupancy (e.g. manual run-now pushed past the cap) saturates at 0,
+        // never underflows — the scheduler simply dispatches nothing this pass.
+        assert_eq!(available_slots(Some(5), 8), Some(0));
+    }
 }

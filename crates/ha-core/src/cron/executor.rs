@@ -36,6 +36,42 @@ pub async fn execute_job_public(
     }
 }
 
+/// Panic-safe backstop that releases a cron job's concurrency slot if the run
+/// unwinds before reaching one of its normal terminal paths. Without this, a
+/// panic anywhere inside `run_chat_engine` would leave `running_at` set until the
+/// next process restart — and since §4 counts every `running_at` marker against
+/// the global concurrency cap, a handful of leaked markers would permanently
+/// starve the cap and stall the whole scheduler. The clear is **owner-checked**
+/// (only fires when `running_at` still equals this run's claim timestamp), so on
+/// the normal path (already cleared) and after a later re-claim (new timestamp)
+/// it harmlessly no-ops.
+struct RunningMarkerGuard {
+    cron_db: Arc<CronDB>,
+    job_id: String,
+    claimed_at: String,
+}
+
+impl Drop for RunningMarkerGuard {
+    fn drop(&mut self) {
+        match self.cron_db.clear_running_if_owner(&self.job_id, &self.claimed_at) {
+            Ok(true) => app_warn!(
+                "cron",
+                "executor",
+                "Released leaked running marker for job {} (run did not reach a normal terminal path — likely panicked)",
+                self.job_id
+            ),
+            Ok(false) => {} // normal path already cleared, or re-claimed since
+            Err(e) => app_error!(
+                "cron",
+                "executor",
+                "Failed to release running marker for job {}: {}",
+                self.job_id,
+                e
+            ),
+        }
+    }
+}
+
 /// Execute a job whose running marker was already claimed by the DB.
 pub(crate) async fn execute_claimed_job(
     cron_db: &Arc<CronDB>,
@@ -45,6 +81,14 @@ pub(crate) async fn execute_claimed_job(
     let start_time = std::time::Instant::now();
     let started_at = claimed.claimed_at.clone();
     let job = claimed.job;
+
+    // Panic-safe slot release: held for the whole run, fires only if an abnormal
+    // unwind skips the explicit `clear_running` on the terminal paths below.
+    let _running_guard = RunningMarkerGuard {
+        cron_db: cron_db.clone(),
+        job_id: job.id.clone(),
+        claimed_at: started_at.clone(),
+    };
 
     app_info!(
         "cron",

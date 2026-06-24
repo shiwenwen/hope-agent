@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "maxConcurrent": "Maks. eşzamanlı",
+    "maxConcurrentHint": "Aynı anda çalışan zamanlanmış görev üst sınırı (0 = sınırsız). Fazlalık görevler bir sonraki kontrolü bekler.",
     "timezone": "Saat dilimi",
     "timezoneHint": "Zamanlamanın saati bu saat diliminde yorumlanır (yaz saati dahil).",
     "active": "Aktif",

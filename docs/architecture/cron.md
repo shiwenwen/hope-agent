@@ -201,6 +201,23 @@ sequenceDiagram
     end
 ```
 
+### 并发配额：slot-before-claim（§4）
+
+每个 cron 运行是一轮完整 agent turn（可再起 subagent / 工具），N 个任务同一时刻齐发会 spawn N 个并发 LLM turn，足以打满机器 / 触发供应商限流。`CronConfig.max_concurrent`（`AppConfig.cron`，默认 5，`0` = 不限）给调度器一个全局并发上限。
+
+关键是**先抢 slot 再 claim**（slot-before-claim）。`claim_scheduled_job_for_execution` 的副作用是**推进 `next_run_at`**，所以若先 claim 再发现没空位跑，就白白跳过了一次执行。调度器（catch-up + 每 tick 共用 `dispatch_due_jobs`）改为：
+
+1. 读 `cron.effective_max_concurrent()`（`None` = 不限）。
+2. `count_running()`（`COUNT(running_at IS NOT NULL)`，是并发计数的单一真相源——覆盖 scheduled / catch-up / 手动 run-now 三条路径，因为三者都 set `running_at`）。
+3. `available = max - running`（`available_slots` 纯函数，`saturating_sub` 防下溢；不限则 `None`）。
+4. 逐个 claim，**至多 `available` 个**；到上限即 `break`，**剩余到期任务保持 `running_at=NULL` / `next_run_at` 不变**，下个 tick（15s 后）重试——不丢、不跳。
+
+边界：
+- **手动「立即运行」(`run now`) 绕过上限**（用户显式操作即时生效），但其 `running_at` 计入 `count_running`，故调度器不会在手动任务在跑时超额 spawn。
+- `count_running()` 失败时**保守跳过本 pass**（fail closed），下个 tick 重试——poisoned lock 下 claim 本也会失败。
+- 计数取 tick 起始快照；pass 内每成功 claim 本地 `available -= 1`，期间完成的任务释放的 slot 留到下个 tick 回收（保守、无害）。
+- **泄漏 slot 的 panic 安全兜底（红线）**：因 `count_running` 现在是**全局**配额分母，一个泄漏的 `running_at` marker 会永久占一个 slot——若干次 panic 即可让 `available=0` 永真、整个调度器停摆到重启。故 `execute_claimed_job` 顶部挂一个 RAII `RunningMarkerGuard`：drop 时做 **owner-checked 清除**（`clear_running_if_owner` = `UPDATE … WHERE id=? AND running_at=?` 本次 claimed_at）。正常终态路径已 `clear_running`（running_at=NULL 不匹配 → no-op）；run_chat_engine 任意 await 点 panic 解栈时 guard 释放 slot；被后续 re-claim 的 marker（running_at=新时间戳 ≠ 旧 claimed_at）guard 不动——三种情况都对，happy path 零改动。进程崩溃（非 panic）仍由启动期 `clear_all_running` 兜底。
+
 ## 执行流程
 
 ```mermaid

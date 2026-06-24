@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "maxConcurrent": "Maks. serentak",
+    "maxConcurrentHint": "Bilangan maksimum tugas berjadual yang berjalan serentak (0 = tanpa had). Tugas tertunggak lebihan menunggu semakan seterusnya.",
     "timezone": "Zon waktu",
     "timezoneHint": "Masa jadual ditafsirkan mengikut zon waktu ini (mengambil kira waktu siang).",
     "active": "Aktif",

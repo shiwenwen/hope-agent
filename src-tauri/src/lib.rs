@@ -512,6 +512,8 @@ pub fn run() {
             // Async tool execution
             commands::config::get_async_tools_config,
             commands::config::save_async_tools_config,
+            commands::config::get_cron_config,
+            commands::config::save_cron_config,
             // Deferred tool loading
             commands::config::get_deferred_tools_config,
             commands::config::save_deferred_tools_config,

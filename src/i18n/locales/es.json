@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "maxConcurrent": "Máx. concurrentes",
+    "maxConcurrentHint": "Máximo de tareas programadas ejecutándose a la vez (0 = sin límite). Las tareas vencidas adicionales esperan a la siguiente comprobación.",
     "timezone": "Zona horaria",
     "timezoneHint": "La hora de la programación se interpreta en esta zona horaria (considera el horario de verano).",
     "active": "Activa",

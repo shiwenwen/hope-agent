@@ -390,6 +390,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Async / Deferred tools + Memory selection --
   get_async_tools_config:          { method: "GET",    path: "/api/config/async-tools" },
   save_async_tools_config:         { method: "PUT",    path: "/api/config/async-tools" },
+  get_cron_config:                 { method: "GET",    path: "/api/config/cron" },
+  save_cron_config:                { method: "PUT",    path: "/api/config/cron" },
   get_deferred_tools_config:       { method: "GET",    path: "/api/config/deferred-tools" },
   save_deferred_tools_config:      { method: "PUT",    path: "/api/config/deferred-tools" },
   get_memory_selection_config:     { method: "GET",    path: "/api/config/memory-selection" },

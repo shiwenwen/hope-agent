@@ -796,6 +796,42 @@ impl CronDB {
         Ok(())
     }
 
+    /// Count jobs currently executing (running marker set). The single source of
+    /// truth for cron concurrency accounting — covers scheduled, catch-up, and
+    /// manual `run now` paths, since all three set `running_at`. Used by the
+    /// scheduler's slot-before-claim gate (§4).
+    pub fn count_running(&self) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM cron_jobs WHERE running_at IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Clear the running marker **only if it still belongs to this run**
+    /// (`running_at` equals the value stamped when the job was claimed). Used by
+    /// the panic-safe RAII backstop in `execute_claimed_job` so a cron run that
+    /// unwinds (rather than reaching one of its normal terminal paths) still
+    /// releases its concurrency slot — without disturbing a marker that a *later*
+    /// re-claim has since replaced (the timestamp won't match, so it no-ops).
+    /// Returns whether a row was actually cleared.
+    pub fn clear_running_if_owner(&self, id: &str, expected_running_at: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let rows = conn.execute(
+            "UPDATE cron_jobs SET running_at=NULL WHERE id=?1 AND running_at=?2",
+            params![id, expected_running_at],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Clear all stale running_at markers (for startup recovery after crash).
     pub fn clear_all_running(&self) -> Result<usize> {
         let conn = self
@@ -1627,6 +1663,94 @@ mod tests {
             .claim_immediate_job_for_execution(&job)
             .expect("second claim")
             .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn count_running_tracks_running_markers() {
+        // §4: count_running is the concurrency-accounting source of truth for the
+        // scheduler's slot-before-claim gate. It must count every job whose
+        // running marker is set (claimed, regardless of path) and drop back as
+        // they clear.
+        let path = temp_db_path("count-running");
+        let db = CronDB::open(&path).expect("open db");
+        let mk = |name: &str| NewCronJob {
+            name: name.into(),
+            description: None,
+            project_id: None,
+            schedule: CronSchedule::At {
+                timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+            },
+            payload: CronPayload::AgentTurn {
+                prompt: "p".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: None,
+        };
+        let a = db.add_job(&mk("a")).expect("add a");
+        let b = db.add_job(&mk("b")).expect("add b");
+
+        assert_eq!(db.count_running().expect("count"), 0);
+        db.claim_immediate_job_for_execution(&a)
+            .expect("claim a")
+            .expect("leased a");
+        assert_eq!(db.count_running().expect("count"), 1);
+        db.claim_immediate_job_for_execution(&b)
+            .expect("claim b")
+            .expect("leased b");
+        assert_eq!(db.count_running().expect("count"), 2);
+        db.clear_running(&a.id).expect("clear a");
+        assert_eq!(db.count_running().expect("count"), 1);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn clear_running_if_owner_only_clears_matching_marker() {
+        // §4 panic-safe backstop: the owner-checked clear must release THIS run's
+        // marker but never disturb a marker a later re-claim has replaced.
+        let path = temp_db_path("clear-if-owner");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "j".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("leased");
+
+        // Wrong timestamp (e.g. a stale guard after a re-claim) → no-op.
+        assert!(!db
+            .clear_running_if_owner(&job.id, "1999-01-01T00:00:00+00:00")
+            .expect("clear mismatch"));
+        assert_eq!(db.count_running().expect("count"), 1);
+
+        // Matching timestamp → releases the slot.
+        assert!(db
+            .clear_running_if_owner(&job.id, &claimed.claimed_at)
+            .expect("clear match"));
+        assert_eq!(db.count_running().expect("count"), 0);
+        // Second call is now a no-op (already cleared).
+        assert!(!db
+            .clear_running_if_owner(&job.id, &claimed.claimed_at)
+            .expect("clear again"));
 
         cleanup_db_files(&path);
     }

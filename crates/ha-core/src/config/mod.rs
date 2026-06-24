@@ -431,10 +431,50 @@ impl Default for AsyncToolsConfig {
     }
 }
 
+/// Cron (scheduled task) subsystem configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CronConfig {
+    /// Maximum number of cron jobs that may execute concurrently. Each cron run
+    /// is a full agent turn (it can spawn sub-agents / tools), so a herd of jobs
+    /// all due at the same instant could otherwise spawn dozens of simultaneous
+    /// LLM turns and exhaust the machine / trip provider rate limits. The
+    /// scheduler acquires a slot **before** claiming a due job, so a job it
+    /// can't run yet keeps its `next_run_at` and is retried next tick instead of
+    /// silently skipping the occurrence (slot-before-claim). Manual `run now`
+    /// bypasses the cap but its running marker still counts toward occupancy, so
+    /// the scheduler won't over-spawn while a manual run is in flight.
+    /// Default: 5. `0` = unlimited.
+    #[serde(default = "default_cron_max_concurrent")]
+    pub max_concurrent: u32,
+}
+
+impl Default for CronConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: default_cron_max_concurrent(),
+        }
+    }
+}
+
+impl CronConfig {
+    /// Effective concurrency limit. `None` means unlimited (`max_concurrent == 0`).
+    pub fn effective_max_concurrent(&self) -> Option<usize> {
+        match self.max_concurrent {
+            0 => None,
+            n => Some(n as usize),
+        }
+    }
+}
+
 pub use crate::permission::ApprovalTimeoutAction;
 pub use crate::permission::UnattendedApprovalAction;
 
 // ── Default helpers ─────────────────────────────────────────────
+
+fn default_cron_max_concurrent() -> u32 {
+    5
+}
 
 fn default_skill_env_check() -> bool {
     true
@@ -880,6 +920,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub async_tools: AsyncToolsConfig,
 
+    /// Cron (scheduled task) subsystem configuration (concurrency cap, etc.)
+    #[serde(default)]
+    pub cron: CronConfig,
+
     /// Behavior awareness configuration. Provides each chat with a
     /// dynamically-refreshed view of what the user is doing in other
     /// parallel sessions.
@@ -1071,6 +1115,7 @@ impl Default for AppConfig {
             server: EmbeddedServerConfig::default(),
             recap: RecapConfig::default(),
             async_tools: AsyncToolsConfig::default(),
+            cron: CronConfig::default(),
             awareness: crate::awareness::AwarenessConfig::default(),
             sprite: crate::sprite::SpriteConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),

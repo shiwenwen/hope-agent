@@ -679,6 +679,8 @@
     "viewSystemPrompt": "시스템 프롬프트"
   },
   "cron": {
+    "maxConcurrent": "최대 동시 실행",
+    "maxConcurrentHint": "동시에 실행되는 예약 작업 수 상한 (0 = 무제한). 초과된 작업은 다음 확인까지 대기합니다.",
     "timezone": "시간대",
     "timezoneHint": "예약 시각은 이 시간대 기준으로 해석됩니다(서머타임 자동 처리).",
     "active": "활성",

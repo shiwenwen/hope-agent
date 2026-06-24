@@ -679,6 +679,8 @@
     "viewSystemPrompt": "系統提示詞"
   },
   "cron": {
+    "maxConcurrent": "最大並行",
+    "maxConcurrentHint": "同時執行的定時任務上限（0 = 不限）；超出的到期任務等待下次檢查。",
     "timezone": "時區",
     "timezoneHint": "定時時間按此時區解釋（自動處理夏令時）。",
     "active": "運行中",

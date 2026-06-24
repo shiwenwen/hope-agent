@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "maxConcurrent": "Tối đa đồng thời",
+    "maxConcurrentHint": "Số tác vụ định kỳ chạy đồng thời tối đa (0 = không giới hạn). Các tác vụ đến hạn dư sẽ chờ lần kiểm tra tiếp theo.",
     "timezone": "Múi giờ",
     "timezoneHint": "Thời gian của lịch được hiểu theo múi giờ này (tự xử lý giờ mùa hè).",
     "active": "Hoạt động",

@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "maxConcurrent": "Máx. simultâneas",
+    "maxConcurrentHint": "Máximo de tarefas agendadas em execução simultânea (0 = ilimitado). As tarefas vencidas excedentes aguardam a próxima verificação.",
     "timezone": "Fuso horário",
     "timezoneHint": "O horário do agendamento é interpretado neste fuso horário (considera o horário de verão).",
     "active": "Ativa",
