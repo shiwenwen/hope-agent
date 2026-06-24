@@ -1192,6 +1192,35 @@ impl SessionDB {
         )
     }
 
+    /// Recent regular user-facing chats, ordered by activity. This mirrors
+    /// [`SessionMeta::is_regular_chat`] at the SQL layer so small LIMIT windows
+    /// cannot be consumed by cron / subagent / channel / incognito / knowledge
+    /// sessions before the caller gets a chance to filter them.
+    pub fn list_recent_regular_chats(&self, limit: u32) -> Result<(Vec<SessionMeta>, u32)> {
+        let conn = self.read_conn()?;
+        let regular_where = " WHERE s.is_cron = 0
+            AND s.parent_session_id IS NULL
+            AND s.incognito = 0
+            AND s.kind = 'regular'
+            AND NOT EXISTS (
+                SELECT 1 FROM channel_conversations cc_filter
+                WHERE cc_filter.session_id = s.id
+            )";
+        let count_sql = format!("SELECT COUNT(*) FROM sessions s{regular_where}");
+        let total: u32 = conn.query_row(&count_sql, [], |r| r.get::<_, u32>(0))?;
+        let sql =
+            format!("{SESSION_META_SELECT}{regular_where} ORDER BY s.updated_at DESC LIMIT ?1");
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![limit], Self::row_to_session_meta)?;
+        let mut sessions = Vec::new();
+        for row in rows {
+            sessions.push(row?);
+        }
+
+        Ok((sessions, total))
+    }
+
     fn list_sessions_paged_inner(
         &self,
         agent_id: Option<&str>,
@@ -3630,6 +3659,15 @@ mod tests {
         std::env::temp_dir().join(unique)
     }
 
+    fn set_session_updated_at(db: &SessionDB, session_id: &str, updated_at: &str) {
+        let conn = db.conn.lock().expect("lock connection");
+        conn.execute(
+            "UPDATE sessions SET updated_at = ?1 WHERE id = ?2",
+            rusqlite::params![updated_at, session_id],
+        )
+        .expect("update session timestamp");
+    }
+
     #[test]
     fn sessions_table_includes_incognito_column() {
         let db_path = temp_db_path("session-incognito-schema");
@@ -3653,6 +3691,59 @@ mod tests {
 
         drop(stmt);
         drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn list_recent_regular_chats_filters_regular_sessions_before_limit() {
+        let db_path = temp_db_path("session-recent-regular");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let regular_old = db.create_session("ha-main").expect("regular old");
+        let regular_new = db.create_session("ha-main").expect("regular new");
+        let cron = db.create_session("ha-main").expect("cron session");
+        db.mark_session_cron(&cron.id).expect("mark cron");
+        let subagent = db
+            .create_session_full("ha-main", Some(&regular_new.id), None, false)
+            .expect("subagent session");
+        let knowledge = db.create_session("ha-main").expect("knowledge session");
+        db.set_session_kind(&knowledge.id, SessionKind::Knowledge)
+            .expect("mark knowledge");
+        let incognito = db
+            .create_session_full("ha-main", None, None, true)
+            .expect("incognito session");
+        let channel = db.create_session("ha-main").expect("channel session");
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            conn.execute(
+                "INSERT INTO channel_conversations
+                    (channel_id, account_id, chat_id, session_id, chat_type, source, created_at, updated_at)
+                 VALUES
+                    ('slack', 'acct', 'chat', ?1, 'dm', 'inbound', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z')",
+                rusqlite::params![channel.id],
+            )
+            .expect("insert channel conversation");
+        }
+
+        set_session_updated_at(&db, &regular_old.id, "2026-05-01T00:00:00Z");
+        set_session_updated_at(&db, &regular_new.id, "2026-05-02T00:00:00Z");
+        set_session_updated_at(&db, &cron.id, "2026-05-10T00:00:00Z");
+        set_session_updated_at(&db, &subagent.id, "2026-05-11T00:00:00Z");
+        set_session_updated_at(&db, &knowledge.id, "2026-05-12T00:00:00Z");
+        set_session_updated_at(&db, &incognito.id, "2026-05-13T00:00:00Z");
+        set_session_updated_at(&db, &channel.id, "2026-05-14T00:00:00Z");
+
+        let (sessions, total) = db
+            .list_recent_regular_chats(5)
+            .expect("list recent regular chats");
+
+        assert_eq!(total, 2);
+        assert_eq!(
+            sessions.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
+            vec![regular_new.id.as_str(), regular_old.id.as_str()]
+        );
+
         let _ = std::fs::remove_file(&db_path);
     }
 

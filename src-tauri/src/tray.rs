@@ -514,6 +514,12 @@ fn select_tray_session_candidates(
     }
 }
 
+fn tray_selection_has_in_progress(selected: &[(SessionMeta, bool, bool)]) -> bool {
+    selected
+        .iter()
+        .any(|(_, streaming, pending)| *streaming || *pending)
+}
+
 /// Resolve the regular conversations shown in the tray dropdown.
 ///
 /// In-progress conversations win. They combine two condition sources:
@@ -602,8 +608,37 @@ async fn compute_tray_regular_sessions(
         );
     }
 
-    let selected = select_tray_session_candidates(sessions, &streaming_ids);
-    let total = selected.len();
+    let mut selected = select_tray_session_candidates(sessions, &streaming_ids);
+    let mut total = selected.len();
+    if !tray_selection_has_in_progress(&selected) {
+        match db.list_recent_regular_chats(TRAY_ACTIVE_SESSIONS_CAP as u32 + 1) {
+            Ok((mut rows, regular_total)) => {
+                if let Err(e) = ha_core::session::enrich_pending_interactions(&mut rows, &db).await
+                {
+                    app_warn!(
+                        "tray",
+                        "active_sessions",
+                        "enrich fallback regular sessions failed: {:#}",
+                        e
+                    );
+                }
+                selected = select_tray_session_candidates(rows, &streaming_ids);
+                total = if tray_selection_has_in_progress(&selected) {
+                    selected.len()
+                } else {
+                    regular_total as usize
+                };
+            }
+            Err(e) => {
+                app_warn!(
+                    "tray",
+                    "active_sessions",
+                    "list_recent_regular_chats failed: {:#}",
+                    e
+                );
+            }
+        }
+    }
     let truncated = total.saturating_sub(TRAY_ACTIVE_SESSIONS_CAP);
     let mut agent_names = HashMap::new();
     let kept: Vec<TraySessionEntry> = selected
