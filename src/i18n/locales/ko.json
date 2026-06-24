@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "음성 메시지 자동 전사",
     "autoTranscribeVoiceHint": "수신 음성/오디오를 STT 서브시스템으로 전사합니다. 메시지당 STT API 할당량을 사용합니다.",
     "kbAccessOptIn": "지식 베이스 접근",
-    "kbAccessOptInHint": "이 채널이 연결된 지식 공간을 읽고 쓰도록 허용합니다. 기본값은 꺼짐입니다. 그룹 채팅에서는 채팅에서 /kb on 을 실행해 별도로 확인하세요."
+    "kbAccessOptInHint": "이 채널이 연결된 지식 공간을 읽고 쓰도록 허용합니다. 기본값은 꺼짐입니다. 그룹 채팅에서는 채팅에서 /kb on 을 실행해 별도로 확인하세요.",
+    "removeWithCronTitle": "계정을 삭제하시겠습니까?",
+    "removeWithCronDesc": "“{{account}}”은(는) {{count}}개 예약 작업의 전달 대상입니다. 삭제하면 해당 대상이 만료로 표시됩니다.",
+    "removeWithCronTargets": "대상 {{count}}개"
   },
   "chat": {
     "addWorkingDirectory": "작업 디렉터리 추가",
@@ -777,7 +780,15 @@
     "weekSun": "일",
     "weekThu": "목",
     "weekTue": "화",
-    "weekWed": "수"
+    "weekWed": "수",
+    "deliveryTargetStale": "계정이 삭제됨 — 전달 불가",
+    "prefixDeliveryWithName": "작업 이름 접두사 추가",
+    "prefixDeliveryWithNameDesc": "성공한 전달에 [Cron] {이름} 접두사를 붙여 같은 대화로 전달되는 여러 작업을 구분합니다",
+    "deliveryStatus": {
+      "delivered": "전달됨",
+      "partial": "일부 전달",
+      "failed": "전달 실패"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "위험 모드 활성 (CLI + 설정) — 모든 도구 승인을 건너뜀",

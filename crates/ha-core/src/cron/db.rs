@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use cron::Schedule as CronExpression;
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Mutex;
 
@@ -101,6 +102,24 @@ impl CronDB {
         if !has_project_id {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN project_id TEXT;")?;
         }
+
+        // Migration (§8): add prefix_delivery_with_name column if missing
+        let has_prefix: bool = conn
+            .prepare("SELECT prefix_delivery_with_name FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_prefix {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN prefix_delivery_with_name INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
+        // Migration (§8): add delivery_status column to run logs if missing
+        let has_delivery_status: bool = conn
+            .prepare("SELECT delivery_status FROM cron_run_logs LIMIT 0")
+            .is_ok();
+        if !has_delivery_status {
+            conn.execute_batch("ALTER TABLE cron_run_logs ADD COLUMN delivery_status TEXT;")?;
+        }
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_cron_jobs_project
                 ON cron_jobs(project_id);",
@@ -148,6 +167,7 @@ impl CronDB {
         };
 
         let notify = input.notify_on_complete.unwrap_or(true);
+        let prefix_delivery_with_name = input.prefix_delivery_with_name.unwrap_or(false);
         let delivery_targets = input.delivery_targets.clone().unwrap_or_default();
         let delivery_targets_json = serde_json::to_string(&delivery_targets)?;
 
@@ -156,8 +176,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?11, ?11)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11)",
             params![
                 id,
                 input.name,
@@ -170,7 +190,8 @@ impl CronDB {
                 notify as i32,
                 delivery_targets_json,
                 now_str,
-                initial_status.as_str()
+                initial_status.as_str(),
+                prefix_delivery_with_name as i32
             ],
         )?;
 
@@ -191,6 +212,7 @@ impl CronDB {
             updated_at: now_str,
             notify_on_complete: notify,
             delivery_targets,
+            prefix_delivery_with_name,
         })
     }
 
@@ -230,7 +252,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, updated_at=?11
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, updated_at=?11
              WHERE id=?12",
             params![
                 job.name,
@@ -244,10 +266,115 @@ impl CronDB {
                 job.notify_on_complete as i32,
                 delivery_targets_json,
                 now_str,
-                job.id
+                job.id,
+                job.prefix_delivery_with_name as i32
             ],
         )?;
         Ok(())
+    }
+
+    /// §8: atomically flip `stale` flags on a job's **current** delivery targets,
+    /// keyed by `account_id`, under a single lock (read-modify-write). Targets
+    /// whose account is in `mark_stale` become stale; those in `clear_stale` are
+    /// un-staled. Returns whether anything changed.
+    ///
+    /// Re-reading the live row (rather than overwriting from a caller-held
+    /// snapshot) is the whole point: a cron run can last up to 2h, and the
+    /// delivery-time writeback must not clobber a `delivery_targets` edit the
+    /// user made via `update_job` mid-run. Only the `stale` field of
+    /// account-matched targets is touched; the schedule is never re-validated
+    /// (so a since-§6-rejected schedule can't block the flag), and the rest of
+    /// the live target list (additions / removals) is preserved verbatim.
+    pub fn apply_delivery_target_stale_flags(
+        &self,
+        job_id: &str,
+        mark_stale: &HashSet<String>,
+        clear_stale: &HashSet<String>,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let json: String = match conn.query_row(
+            "SELECT delivery_targets_json FROM cron_jobs WHERE id=?1",
+            params![job_id],
+            |r| r.get::<_, String>(0),
+        ) {
+            Ok(j) => j,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
+            Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
+        };
+        let mut targets: Vec<CronDeliveryTarget> = serde_json::from_str(&json).unwrap_or_default();
+        let mut changed = false;
+        for target in &mut targets {
+            if mark_stale.contains(&target.account_id) && !target.stale {
+                target.stale = true;
+                changed = true;
+            } else if clear_stale.contains(&target.account_id) && target.stale {
+                target.stale = false;
+                changed = true;
+            }
+        }
+        if changed {
+            let targets_json = serde_json::to_string(&targets)?;
+            let now = Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE cron_jobs SET delivery_targets_json=?1, updated_at=?2 WHERE id=?3",
+                params![targets_json, now, job_id],
+            )?;
+        }
+        Ok(changed)
+    }
+
+    /// §8: jobs whose `delivery_targets` reference `account_id`, with the count
+    /// of matching targets. Feeds the channel-account delete confirmation
+    /// ("N cron jobs reference this account").
+    pub fn jobs_referencing_account(&self, account_id: &str) -> Result<Vec<CronAccountRef>> {
+        let jobs = self.list_jobs()?;
+        let mut refs = Vec::new();
+        for job in jobs {
+            let count = job
+                .delivery_targets
+                .iter()
+                .filter(|t| t.account_id == account_id)
+                .count();
+            if count > 0 {
+                refs.push(CronAccountRef {
+                    job_id: job.id,
+                    job_name: job.name,
+                    target_count: count,
+                });
+            }
+        }
+        Ok(refs)
+    }
+
+    /// §8: eagerly flag every delivery target pointing at `account_id` as stale
+    /// (the account was just removed). Returns the number of jobs touched.
+    /// Idempotent — already-stale targets are not rewritten. The per-job write
+    /// goes through the atomic [`Self::apply_delivery_target_stale_flags`] so a
+    /// concurrent edit is not clobbered (the candidate scan is only used to find
+    /// which jobs to flip).
+    pub fn mark_account_delivery_targets_stale(&self, account_id: &str) -> Result<usize> {
+        let candidate_ids: Vec<String> = self
+            .list_jobs()?
+            .into_iter()
+            .filter(|job| {
+                job.delivery_targets
+                    .iter()
+                    .any(|t| t.account_id == account_id)
+            })
+            .map(|job| job.id)
+            .collect();
+        let mark: HashSet<String> = std::iter::once(account_id.to_string()).collect();
+        let empty: HashSet<String> = HashSet::new();
+        let mut touched = 0usize;
+        for job_id in candidate_ids {
+            if self.apply_delivery_target_stale_flags(&job_id, &mark, &empty)? {
+                touched += 1;
+            }
+        }
+        Ok(touched)
     }
 
     /// Clear a job's Project association without changing its schedule.
@@ -281,7 +408,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -326,7 +453,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -352,7 +479,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
@@ -493,14 +620,30 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 log.job_id, log.session_id, log.status, log.started_at,
-                log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error
+                log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error,
+                log.delivery_status
             ],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// §8: stamp a run log's delivery outcome after fan-out completes (the run
+    /// log is inserted before delivery so its id is known). No-op-safe — a
+    /// missing row simply updates nothing.
+    pub fn update_run_log_delivery_status(&self, run_log_id: i64, status: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_run_logs SET delivery_status=?1 WHERE id=?2",
+            params![status, run_log_id],
+        )?;
+        Ok(())
     }
 
     /// Get run logs for a job, ordered by most recent first.
@@ -510,7 +653,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
              FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2"
         )?;
         let rows = stmt.query_map(params![job_id, limit as i64], |row| {
@@ -524,6 +667,7 @@ impl CronDB {
                 duration_ms: crate::sql_opt_u64(row, 6)?,
                 result_preview: row.get(7)?,
                 error: row.get(8)?,
+                delivery_status: row.get(9)?,
             })
         })?;
         let mut logs = Vec::new();
@@ -709,7 +853,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
              FROM cron_run_logs WHERE job_id=?1 AND started_at >= ?2 AND started_at <= ?3
              ORDER BY started_at ASC"
         )?;
@@ -724,6 +868,7 @@ impl CronDB {
                 duration_ms: crate::sql_opt_u64(row, 6)?,
                 result_preview: row.get(7)?,
                 error: row.get(8)?,
+                delivery_status: row.get(9)?,
             })
         })?;
         let mut logs = Vec::new();
@@ -1235,6 +1380,9 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         updated_at: row.get(12)?,
         notify_on_complete: row.get::<_, i32>(13).unwrap_or(1) != 0,
         delivery_targets,
+        // Index 16, appended after project_id (15). `.ok()` keeps narrower
+        // test SELECTs that stop before this column defaulting to false.
+        prefix_delivery_with_name: row.get::<_, i32>(16).ok().map(|v| v != 0).unwrap_or(false),
     })
 }
 
@@ -1242,7 +1390,7 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
 mod tests {
     use super::{match_run_logs_to_occurrences, row_to_cron_job, CronDB};
     use crate::cron::types::CronJobStatus;
-    use crate::cron::{CronPayload, CronSchedule, NewCronJob};
+    use crate::cron::{CronDeliveryTarget, CronPayload, CronSchedule, NewCronJob};
     use chrono::{DateTime, Utc};
     use rusqlite::params;
     use std::path::{Path, PathBuf};
@@ -1285,6 +1433,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
 
@@ -1298,6 +1447,7 @@ mod tests {
             duration_ms: None,
             result_preview: None,
             error: None,
+            delivery_status: None,
         })
         .expect("add run log");
 
@@ -1310,6 +1460,239 @@ mod tests {
             .find_job_by_session("no-such-session")
             .expect("query ok")
             .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    // §8 helpers ───────────────────────────────────────────────────
+
+    fn target(account_id: &str) -> CronDeliveryTarget {
+        CronDeliveryTarget {
+            channel_id: "telegram".into(),
+            account_id: account_id.into(),
+            chat_id: "c1".into(),
+            thread_id: None,
+            label: None,
+            stale: false,
+        }
+    }
+
+    fn every_job(name: &str, targets: Vec<CronDeliveryTarget>, prefix: Option<bool>) -> NewCronJob {
+        NewCronJob {
+            name: name.into(),
+            description: None,
+            project_id: None,
+            schedule: CronSchedule::Every {
+                interval_ms: 300_000,
+                start_at: None,
+            },
+            payload: CronPayload::AgentTurn {
+                prompt: "x".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: Some(targets),
+            prefix_delivery_with_name: prefix,
+        }
+    }
+
+    #[test]
+    fn prefix_delivery_with_name_round_trips() {
+        let path = temp_db_path("prefix-roundtrip");
+        let db = CronDB::open(&path).expect("open db");
+
+        // Default (None) persists as false.
+        let def = db
+            .add_job(&every_job("default", vec![], None))
+            .expect("add");
+        assert!(!def.prefix_delivery_with_name);
+        assert!(
+            !db.get_job(&def.id)
+                .expect("get")
+                .expect("exists")
+                .prefix_delivery_with_name
+        );
+
+        // Opt-in persists and survives update.
+        let on = db
+            .add_job(&every_job("on", vec![], Some(true)))
+            .expect("add");
+        assert!(on.prefix_delivery_with_name);
+        let mut reloaded = db.get_job(&on.id).expect("get").expect("exists");
+        assert!(reloaded.prefix_delivery_with_name);
+        reloaded.prefix_delivery_with_name = false;
+        db.update_job(&reloaded).expect("update");
+        assert!(
+            !db.get_job(&on.id)
+                .expect("get")
+                .expect("exists")
+                .prefix_delivery_with_name
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn delivery_status_persists_on_run_log() {
+        let path = temp_db_path("delivery-status");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db.add_job(&every_job("job", vec![], None)).expect("add");
+
+        // Inserted with no status, then stamped after fan-out (the executor path).
+        let id = db
+            .add_run_log(&crate::cron::CronRunLog {
+                id: 0,
+                job_id: job.id.clone(),
+                session_id: "s1".into(),
+                status: "success".into(),
+                started_at: "2026-01-01T00:00:00Z".into(),
+                finished_at: Some("2026-01-01T00:00:01Z".into()),
+                duration_ms: Some(1000),
+                result_preview: None,
+                error: None,
+                delivery_status: None,
+            })
+            .expect("add run log");
+        db.update_run_log_delivery_status(id, "partial")
+            .expect("stamp status");
+
+        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].delivery_status.as_deref(), Some("partial"));
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn jobs_referencing_account_and_mark_stale() {
+        let path = temp_db_path("account-refs");
+        let db = CronDB::open(&path).expect("open db");
+
+        // Job A: two targets on acc-1 + one on acc-2. Job B: one on acc-2 only.
+        let a = db
+            .add_job(&every_job(
+                "A",
+                vec![target("acc-1"), target("acc-1"), target("acc-2")],
+                None,
+            ))
+            .expect("add A");
+        let _b = db
+            .add_job(&every_job("B", vec![target("acc-2")], None))
+            .expect("add B");
+
+        // Reverse scan: acc-1 referenced only by A (2 targets); acc-2 by both.
+        let refs1 = db.jobs_referencing_account("acc-1").expect("scan acc-1");
+        assert_eq!(refs1.len(), 1);
+        assert_eq!(refs1[0].job_id, a.id);
+        assert_eq!(refs1[0].target_count, 2);
+        assert_eq!(db.jobs_referencing_account("acc-2").expect("scan").len(), 2);
+        assert!(db
+            .jobs_referencing_account("ghost")
+            .expect("scan")
+            .is_empty());
+
+        // Mark acc-1 stale: only job A touched; acc-2 targets untouched.
+        assert_eq!(
+            db.mark_account_delivery_targets_stale("acc-1")
+                .expect("mark"),
+            1
+        );
+        let a_reloaded = db.get_job(&a.id).expect("get").expect("exists");
+        let acc1_stale = a_reloaded
+            .delivery_targets
+            .iter()
+            .filter(|t| t.account_id == "acc-1")
+            .all(|t| t.stale);
+        let acc2_fresh = a_reloaded
+            .delivery_targets
+            .iter()
+            .filter(|t| t.account_id == "acc-2")
+            .all(|t| !t.stale);
+        assert!(acc1_stale, "acc-1 targets should be stale");
+        assert!(acc2_fresh, "acc-2 target should stay fresh");
+
+        // Idempotent: a second mark touches nothing.
+        assert_eq!(
+            db.mark_account_delivery_targets_stale("acc-1")
+                .expect("mark"),
+            0
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn apply_stale_flags_reads_live_targets_not_caller_snapshot() {
+        // Regression guard for the §8 review finding: the post-run stale
+        // writeback must re-read the live target list, not overwrite from a
+        // claim-time snapshot — otherwise a delivery-target edit the user made
+        // mid-run is silently reverted.
+        let path = temp_db_path("apply-stale-live");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job(
+                "J",
+                vec![target("acc-1"), target("acc-2")],
+                None,
+            ))
+            .expect("add");
+
+        // Simulate a concurrent edit DURING a long run: drop acc-2, add acc-3,
+        // change acc-1's chat. A claim-time snapshot still says [acc-1, acc-2].
+        let mut edited = db.get_job(&job.id).expect("get").expect("exists");
+        edited.delivery_targets = vec![
+            CronDeliveryTarget {
+                chat_id: "c-new".into(),
+                ..target("acc-1")
+            },
+            target("acc-3"),
+        ];
+        db.update_job(&edited).expect("concurrent edit");
+
+        // Post-run delivery flips stale on acc-1 (missing account).
+        let acc1: std::collections::HashSet<String> =
+            std::iter::once("acc-1".to_string()).collect();
+        let empty = std::collections::HashSet::new();
+        assert!(db
+            .apply_delivery_target_stale_flags(&job.id, &acc1, &empty)
+            .expect("apply"));
+
+        let reloaded = db.get_job(&job.id).expect("get").expect("exists");
+        // The user's edit survived: acc-3 kept, acc-2 NOT resurrected, acc-1 chat preserved.
+        let accounts: Vec<&str> = reloaded
+            .delivery_targets
+            .iter()
+            .map(|t| t.account_id.as_str())
+            .collect();
+        assert_eq!(accounts, vec!["acc-1", "acc-3"]);
+        let t1 = reloaded
+            .delivery_targets
+            .iter()
+            .find(|t| t.account_id == "acc-1")
+            .expect("acc-1 present");
+        assert_eq!(t1.chat_id, "c-new", "user's chat edit preserved");
+        assert!(t1.stale, "acc-1 marked stale");
+        assert!(
+            !reloaded
+                .delivery_targets
+                .iter()
+                .find(|t| t.account_id == "acc-3")
+                .expect("acc-3 present")
+                .stale,
+            "unrelated target untouched"
+        );
+
+        // Clear path + idempotency + missing-row safety.
+        assert!(db
+            .apply_delivery_target_stale_flags(&job.id, &empty, &acc1)
+            .expect("clear"));
+        assert!(!db
+            .apply_delivery_target_stale_flags(&job.id, &empty, &acc1)
+            .expect("clear no-op"));
+        assert!(!db
+            .apply_delivery_target_stale_flags("ghost", &acc1, &empty)
+            .expect("missing row → false"));
 
         cleanup_db_files(&path);
     }
@@ -1335,6 +1718,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
 
@@ -1379,6 +1763,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
 
@@ -1514,6 +1899,7 @@ mod tests {
                 duration_ms: None,
                 result_preview: None,
                 error: None,
+                delivery_status: None,
             }],
         )
         .expect("matches");
@@ -1594,6 +1980,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
         let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
@@ -1646,6 +2033,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
 
@@ -1676,6 +2064,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
         let original_next_run = job.next_run_at.clone();
@@ -1722,6 +2111,7 @@ mod tests {
             max_failures: None,
             notify_on_complete: None,
             delivery_targets: None,
+            prefix_delivery_with_name: None,
         };
         let a = db.add_job(&mk("a")).expect("add a");
         let b = db.add_job(&mk("b")).expect("add b");
@@ -1762,6 +2152,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
         let claimed = db
@@ -1810,6 +2201,7 @@ mod tests {
                 max_failures: Some(2),
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
 
@@ -1865,6 +2257,7 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add")
         };
@@ -1925,6 +2318,7 @@ mod tests {
             max_failures: None,
             notify_on_complete: None,
             delivery_targets: None,
+            prefix_delivery_with_name: None,
         };
 
         let past = db

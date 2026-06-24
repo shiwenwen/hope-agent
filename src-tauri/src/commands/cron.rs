@@ -63,6 +63,17 @@ pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), 
 }
 
 #[tauri::command]
+pub async fn cron_jobs_referencing_account(
+    account_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<cron::CronAccountRef>, CmdError> {
+    state
+        .cron_db
+        .jobs_referencing_account(&account_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn cron_get_run_logs(
     job_id: String,
     limit: Option<usize>,

@@ -680,6 +680,7 @@ pub fn run() {
             commands::cron::cron_delete_job,
             commands::cron::cron_toggle_job,
             commands::cron::cron_run_now,
+            commands::cron::cron_jobs_referencing_account,
             commands::cron::cron_get_run_logs,
             commands::cron::cron_get_calendar_events,
             // Sub-agent management

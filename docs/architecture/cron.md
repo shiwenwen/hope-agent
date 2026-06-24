@@ -96,6 +96,7 @@ serde tag 区分，目前仅一种类型：
 | `updated_at` | `String` | 最后更新时间 |
 | `notify_on_complete` | `bool` | 完成后是否发送桌面通知（默认 `true`，`default_true` 函数） |
 | `delivery_targets` | `Vec<CronDeliveryTarget>` | IM 渠道 fan-out 目标列表。空 = 仅落入隔离会话不发送；非空 = 任务收尾时把 final assistant 文本投递到列出的 IM 会话（每 target 10s 超时保护，详见 `cron/delivery.rs`） |
+| `prefix_delivery_with_name` | `bool` | §8 opt-in（默认 `false`）：成功投递加 `[Cron] {name}` 前缀。见「投递健壮性」 |
 
 ### CronDeliveryTarget（IM 渠道投递目标）
 
@@ -108,6 +109,7 @@ serde tag 区分，目前仅一种类型：
 | `chat_id` | `String` | 目标 `ChannelConversation.chat_id`（群 / 私聊） |
 | `thread_id` | `Option<String>` | 可选话题 / 线程 id（飞书 topic、Slack thread 等） |
 | `label` | `Option<String>` | 缓存的人类可读标签，仅用于 UI 显示，不参与发送时寻址 |
+| `stale` | `bool` | §8：发送账号已删除（投递期检测或删账号时 eager 标记）。投递时跳过 + GUI 标红；账号恢复则清回 |
 
 ### CronRunLog（执行日志）
 
@@ -122,6 +124,7 @@ serde tag 区分，目前仅一种类型：
 | `duration_ms` | `Option<u64>` | 执行耗时（毫秒） |
 | `result_preview` | `Option<String>` | 结果预览（截断至 500 字节） |
 | `error` | `Option<String>` | 错误信息 |
+| `delivery_status` | `Option<String>` | §8：fan-out 结果——`None`=无目标 / `"delivered"` / `"partial"` / `"failed"`。见「投递健壮性」 |
 
 ### NewCronJob（创建输入）
 
@@ -168,6 +171,16 @@ cron 投递携 IM 账号身份、可周期触发、且 `manage_cron` 标 `intern
 - **Default** 弹标准审批；**Smart** 交 judge 模型自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
 - 非 strict（不进 `forbids_allow_always`）只约束 **timeout / unattended 轴**（超时不强制 deny、可按配置 proceed、Smart 可降级 judge）。**AllowAlways 刻意抑制**（红线）：`gate_cron_delete` 对该审批强制 `allow_always_forbidden=true`，前端 `barsAllowAlways` 同步禁用按钮——因为 `manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**（`stable_field_matchers`），一旦持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 在 `check_cron_delete` 之前命中会绕过本门。故每次 delete 都需逐次确认，永不留常驻 grant。`ApprovalReasonKind::CronDelete` 与前端 `ApprovalDialog.tsx` union / 12 语言 `approval.reasons.cron_delete` 文案同步。
 - delete 成功落 `app_info!("cron","manage",...)` 审计；不做 creator 作用域隔离（模型需管理用户全部提醒）。
+
+## 投递健壮性（§8）
+
+[`deliver_results`](../../crates/ha-core/src/cron/delivery.rs) 在白名单（上节）之上叠加四项健壮性，返回 [`DeliveryReport`](../../crates/ha-core/src/cron/delivery.rs) 汇总「结果到底有没有到人」：
+
+- **有界退避重投**：每个 target 的 send 超时 / 报错时按 `SEND_BACKOFF_BASE_MS=500ms` 指数退避重投，至多 `MAX_SEND_ATTEMPTS=3` 次。与 [`async_jobs::retry`](../../crates/ha-core/src/async_jobs/retry.rs)（计费工具、config-gated、默认关）不同——IM 投递不计费，故**默认开 + 固定小次数、非用户旋钮**。语义是 **at-least-once**：超时的 send 可能已落地，重投极少数情况会重复一条消息；但对周期任务而言「静默丢掉唯一一份结果」（IM 限流 / token 过期 / server 重启）是更坏的失败，故取此权衡。
+- **`cron_run_logs.delivery_status`**（迁移列，nullable）：`DeliveryReport::run_log_status()` 派生——`None`=无投递目标（无可 fan-out，区别于「投了但没人收到」）/ `"delivered"`=全部到达 / `"partial"`=部分失败或跳过 / `"failed"`=有目标但无人收到。success 路 run log 先插入拿 id、fan-out 后经 `update_run_log_delivery_status` 回写；failure 路经 `record_failure` 的新增参数带入。GUI `CronJobDetail` run-log 列表展示。
+- **失效目标可见（`CronDeliveryTarget.stale`）**：投递期账号已删 → 该 target 标 `stale` 经 [`apply_delivery_target_stale_flags`](../../crates/ha-core/src/cron/db.rs)（**单锁内 read-modify-write、按 `account_id` 翻转 stale**——绝不经 `update_job` 重校验整条 schedule（§6 chokepoint 对坏行的副作用见上「遗留坏行的取舍」），且**绝不用 claim 时快照整列覆盖**：cron 单次可跑至 2h，期间用户经 `update_job` 改了投递目标，写回必须读 DB 当前列、只改匹配 account 的 stale 位，保留用户的增删改）写回；账号又恢复（同 id）则投递成功时清回 `stale=false`。删账号入口 [`channel::accounts::remove_account`](../../crates/ha-core/src/channel/accounts.rs) 经 `mark_account_delivery_targets_stale`（幂等、返回触达 job 数、每 job 走同一原子方法）**eager 标记**，避免 UI 仍显示一个永远投不出去的目标。GUI `CronJobForm` 目标行标红。
+- **删账号反向提醒**：`jobs_referencing_account(account_id)` → `Vec<CronAccountRef{job_id, job_name, target_count}>`，owner 平面 Tauri `cron_jobs_referencing_account` / HTTP `GET /api/cron/jobs-referencing-account/{account_id}`。前端 `ChannelPanel` 删除前先扫，命中则弹 `AlertDialog` 列出受影响任务，零命中沿用直接删。
+- **per-job 成功前缀（`prefix_delivery_with_name`，opt-in 默认关）**：开启后成功投递加 `[Cron] {name}\n\n` 前缀（失败投递本就带 `⚠️ [Cron] {name} failed:`），便于区分投到同一群的多个任务。迁移列 + `manage_cron` schema 字段 + `CronJobForm` 开关（仅有投递目标时显示）。**job 级字段、非 `AppConfig`**，故不走设置三件套。
 
 ## 调度机制
 

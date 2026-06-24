@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Plus, Send, FolderOpen } from "lucide-react"
+import { X, Plus, Send, FolderOpen, AlertTriangle } from "lucide-react"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
 
@@ -161,6 +161,9 @@ export default function CronJobForm({
   )
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
+  const [prefixDeliveryWithName, setPrefixDeliveryWithName] = useState(
+    job?.prefixDeliveryWithName ?? false,
+  )
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
     () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
   )
@@ -312,6 +315,7 @@ export default function CronJobForm({
           maxFailures: parseInt(maxFailures) || 5,
           notifyOnComplete,
           deliveryTargets: validTargets,
+          prefixDeliveryWithName,
         }
         await getTransport().call("cron_update_job", { job: updated })
       } else {
@@ -330,6 +334,7 @@ export default function CronJobForm({
             maxFailures: parseInt(maxFailures) || 5,
             notifyOnComplete,
             deliveryTargets: validTargets,
+            prefixDeliveryWithName,
           },
         })
       }
@@ -635,9 +640,19 @@ export default function CronJobForm({
                   return (
                     <div
                       key={idx}
-                      className="flex items-start gap-2 p-2 border border-border rounded-md bg-muted/20"
+                      className={`flex items-start gap-2 p-2 border rounded-md ${
+                        target.stale
+                          ? "border-destructive/60 bg-destructive/5"
+                          : "border-border bg-muted/20"
+                      }`}
                     >
                       <div className="flex-1 space-y-1.5">
+                        {target.stale && (
+                          <p className="text-[11px] text-destructive flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            {t("cron.deliveryTargetStale")}
+                          </p>
+                        )}
                         <Select
                           value={target.accountId || undefined}
                           onValueChange={(v) => handlePickAccount(idx, v)}
@@ -713,6 +728,25 @@ export default function CronJobForm({
               </div>
             )}
           </div>
+
+          {/* §8: prefix successful deliveries with the task name (opt-in,
+              only meaningful when there are delivery targets) */}
+          {deliveryTargets.length > 0 && (
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block">
+                  {t("cron.prefixDeliveryWithName")}
+                </label>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">
+                  {t("cron.prefixDeliveryWithNameDesc")}
+                </p>
+              </div>
+              <Switch
+                checked={prefixDeliveryWithName}
+                onCheckedChange={setPrefixDeliveryWithName}
+              />
+            </div>
+          )}
 
           {/* Notify on complete */}
           <div className="flex items-center justify-between">

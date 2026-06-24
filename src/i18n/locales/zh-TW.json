@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "自動轉錄語音訊息",
     "autoTranscribeVoiceHint": "透過 STT 子系統轉錄收到的語音 / 音訊；每則訊息會消耗 STT API 額度。",
     "kbAccessOptIn": "知識空間存取",
-    "kbAccessOptInHint": "允許此頻道讀寫已掛載的知識空間。預設關閉。群組聊天還需在聊天中執行 /kb on 單獨確認。"
+    "kbAccessOptInHint": "允許此頻道讀寫已掛載的知識空間。預設關閉。群組聊天還需在聊天中執行 /kb on 單獨確認。",
+    "removeWithCronTitle": "刪除帳號？",
+    "removeWithCronDesc": "「{{account}}」是 {{count}} 個定時任務的投遞目標。刪除後這些目標將被標記為失效。",
+    "removeWithCronTargets": "{{count}} 個目標"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
@@ -777,7 +780,15 @@
     "weekSun": "日",
     "weekThu": "四",
     "weekTue": "二",
-    "weekWed": "三"
+    "weekWed": "三",
+    "deliveryTargetStale": "帳號已刪除 — 無法投遞",
+    "prefixDeliveryWithName": "投遞時加任務名前綴",
+    "prefixDeliveryWithNameDesc": "成功投遞時加上 [Cron] {名稱} 前綴，便於區分投遞到同一會話的多個任務",
+    "deliveryStatus": {
+      "delivered": "已投遞",
+      "partial": "部分投遞",
+      "failed": "投遞失敗"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "危險模式已啟用（CLI + 設定）—— 所有工具呼叫跳過審批",

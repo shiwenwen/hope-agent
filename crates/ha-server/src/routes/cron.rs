@@ -79,6 +79,14 @@ pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "scheduled": true })))
 }
 
+/// `GET /api/cron/jobs-referencing-account/{accountId}` — §8: cron jobs whose
+/// delivery targets reference the channel account, for the delete confirmation.
+pub async fn jobs_referencing_account(
+    Path(account_id): Path<String>,
+) -> Result<Json<Vec<cron::CronAccountRef>>, AppError> {
+    Ok(Json(db()?.jobs_referencing_account(&account_id)?))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
     pub limit: Option<usize>,

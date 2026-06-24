@@ -23,6 +23,8 @@ export interface CronDeliveryTarget {
   chatId: string
   threadId?: string | null
   label?: string | null
+  /** §8: the sending account was deleted; target is skipped + shown red. */
+  stale?: boolean
 }
 
 export interface CronJob {
@@ -42,6 +44,8 @@ export interface CronJob {
   updatedAt: string
   notifyOnComplete: boolean
   deliveryTargets: CronDeliveryTarget[]
+  /** §8: prefix successful deliveries with `[Cron] {name}` (opt-in). */
+  prefixDeliveryWithName?: boolean
 }
 
 export interface CronRunLog {
@@ -54,6 +58,15 @@ export interface CronRunLog {
   durationMs?: number | null
   resultPreview?: string | null
   error?: string | null
+  /** §8: "delivered" | "partial" | "failed" | null (no targets). */
+  deliveryStatus?: string | null
+}
+
+/** §8: a cron job referencing a channel account in its delivery targets. */
+export interface CronAccountRef {
+  jobId: string
+  jobName: string
+  targetCount: number
 }
 
 export interface CalendarEvent {

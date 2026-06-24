@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "Transkripsi mesej suara secara automatik",
     "autoTranscribeVoiceHint": "Mentranskripsi suara / audio masuk melalui subsistem STT yang dikonfigurasi. Setiap mesej menggunakan kuota API STT.",
     "kbAccessOptIn": "Akses pangkalan pengetahuan",
-    "kbAccessOptInHint": "Benarkan saluran ini membaca dan menulis ruang pengetahuan yang dilampirkan. Dimatikan secara lalai. Dalam sembang kumpulan, jalankan juga /kb on dalam sembang untuk mengesahkannya."
+    "kbAccessOptInHint": "Benarkan saluran ini membaca dan menulis ruang pengetahuan yang dilampirkan. Dimatikan secara lalai. Dalam sembang kumpulan, jalankan juga /kb on dalam sembang untuk mengesahkannya.",
+    "removeWithCronTitle": "Padam akaun?",
+    "removeWithCronDesc": "“{{account}}” ialah sasaran penghantaran bagi {{count}} tugas berjadual. Memadamkannya akan menanda sasaran tersebut sebagai usang.",
+    "removeWithCronTargets": "{{count}} sasaran"
   },
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
@@ -777,7 +780,15 @@
     "weekSun": "Aha",
     "weekThu": "Kha",
     "weekTue": "Sel",
-    "weekWed": "Rab"
+    "weekWed": "Rab",
+    "deliveryTargetStale": "Akaun dipadam — tidak akan dihantar",
+    "prefixDeliveryWithName": "Tambah nama tugas di hadapan",
+    "prefixDeliveryWithNameDesc": "Tambah awalan [Cron] {nama} pada penghantaran berjaya supaya berbilang tugas ke sembang yang sama dapat dibezakan",
+    "deliveryStatus": {
+      "delivered": "Dihantar",
+      "partial": "Sebahagian dihantar",
+      "failed": "Penghantaran gagal"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "Mod Berbahaya aktif (CLI + konfig) — semua kelulusan alat dipintas",

@@ -154,6 +154,7 @@ pub(crate) async fn execute_claimed_job(
                     "no_session",
                     &e.to_string(),
                     "",
+                    None,
                 );
                 return;
             }
@@ -252,11 +253,17 @@ pub(crate) async fn execute_claimed_job(
                 duration_ms: Some(duration_ms),
                 result_preview: preview,
                 error: None,
+                delivery_status: None,
             };
-            let _ = cron_db.add_run_log(&run_log);
+            // Insert before delivery so the row id is known, then stamp the
+            // delivery outcome once fan-out completes (§8).
+            let run_log_id = cron_db.add_run_log(&run_log).unwrap_or(0);
             let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
 
-            deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
+            let report = deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
+            if let Some(status) = report.run_log_status() {
+                let _ = cron_db.update_run_log_delivery_status(run_log_id, status);
+            }
 
             let _ = cron_db.clear_running(&job.id);
 
@@ -277,7 +284,7 @@ pub(crate) async fn execute_claimed_job(
             persist_failure_message_if_missing(session_db, &session_id, &err_text);
 
             // Notify IM channel targets of the failure before bookkeeping.
-            deliver_results(&job, DeliveryOutcome::Failure { error: &err_text }).await;
+            let report = deliver_results(&job, DeliveryOutcome::Failure { error: &err_text }).await;
 
             record_failure(
                 cron_db,
@@ -287,6 +294,7 @@ pub(crate) async fn execute_claimed_job(
                 class.run_log_status(),
                 &err_text,
                 &session_id,
+                report.run_log_status(),
             );
         }
     }
@@ -543,6 +551,7 @@ fn persist_failure_message_if_missing(
 }
 
 /// Record a failure run log and update job state.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn record_failure(
     cron_db: &Arc<CronDB>,
     job: &CronJob,
@@ -551,6 +560,7 @@ pub(crate) fn record_failure(
     status: &str,
     error: &str,
     session_id: &str,
+    delivery_status: Option<&str>,
 ) {
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
@@ -565,6 +575,7 @@ pub(crate) fn record_failure(
         duration_ms: Some(duration_ms),
         result_preview: None,
         error: Some(error.to_string()),
+        delivery_status: delivery_status.map(|s| s.to_string()),
     };
     let _ = cron_db.add_run_log(&run_log);
     let auto_disabled = cron_db
@@ -611,6 +622,7 @@ fn record_cancelled(
         duration_ms: Some(duration_ms),
         result_preview: None,
         error: Some("Cancelled by user".to_string()),
+        delivery_status: None,
     };
     let _ = cron_db.add_run_log(&run_log);
     let _ = cron_db.clear_running(&job.id);
@@ -736,6 +748,7 @@ mod tests {
                 max_failures: Some(5),
                 notify_on_complete: Some(false),
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
             })
             .expect("add job");
         {

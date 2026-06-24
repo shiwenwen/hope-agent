@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "Auto-transcribe voice messages",
     "autoTranscribeVoiceHint": "Transcribes inbound voice / audio via the configured Speech-to-Text model. Each message consumes STT API quota.",
     "kbAccessOptIn": "Knowledge-base access",
-    "kbAccessOptInHint": "Allow this channel to read and write attached knowledge spaces. Off by default. In group chats, also run /kb on in the chat to confirm it."
+    "kbAccessOptInHint": "Allow this channel to read and write attached knowledge spaces. Off by default. In group chats, also run /kb on in the chat to confirm it.",
+    "removeWithCronTitle": "Remove account?",
+    "removeWithCronDesc": "“{{account}}” is a delivery target for {{count}} scheduled task(s). Removing it will mark those targets as stale.",
+    "removeWithCronTargets": "{{count}} target(s)"
   },
   "chat": {
     "addWorkingDirectory": "Add working directory",
@@ -777,7 +780,15 @@
     "weekSun": "Sun",
     "weekThu": "Thu",
     "weekTue": "Tue",
-    "weekWed": "Wed"
+    "weekWed": "Wed",
+    "deliveryTargetStale": "Account deleted — won't deliver",
+    "prefixDeliveryWithName": "Prefix with task name",
+    "prefixDeliveryWithNameDesc": "Prefix successful deliveries with [Cron] {name} so multiple tasks delivering to the same chat stay distinguishable",
+    "deliveryStatus": {
+      "delivered": "Delivered",
+      "partial": "Partially delivered",
+      "failed": "Delivery failed"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "Dangerous Mode active (CLI + config) — all tool approvals bypassed",

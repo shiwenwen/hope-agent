@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "自动转录语音消息",
     "autoTranscribeVoiceHint": "通过 STT 子系统转录入站语音/音频消息；每条消耗 STT API 配额。",
     "kbAccessOptIn": "知识空间访问",
-    "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。"
+    "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。",
+    "removeWithCronTitle": "删除账号？",
+    "removeWithCronDesc": "「{{account}}」是 {{count}} 个定时任务的投递目标。删除后这些目标将被标记为失效。",
+    "removeWithCronTargets": "{{count}} 个目标"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目录",
@@ -777,7 +780,15 @@
     "weekSun": "日",
     "weekThu": "四",
     "weekTue": "二",
-    "weekWed": "三"
+    "weekWed": "三",
+    "deliveryTargetStale": "账号已删除 — 无法投递",
+    "prefixDeliveryWithName": "投递时加任务名前缀",
+    "prefixDeliveryWithNameDesc": "成功投递时加上 [Cron] {名称} 前缀，便于区分投递到同一会话的多个任务",
+    "deliveryStatus": {
+      "delivered": "已投递",
+      "partial": "部分投递",
+      "failed": "投递失败"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "危险模式已启用（CLI + 配置）—— 所有工具调用跳过审批",

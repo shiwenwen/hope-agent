@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "Transcribir mensajes de voz automáticamente",
     "autoTranscribeVoiceHint": "Transcribe el audio / voz entrante mediante el subsistema STT configurado. Cada mensaje consume cuota de la API STT.",
     "kbAccessOptIn": "Acceso a la base de conocimiento",
-    "kbAccessOptInHint": "Permite que este canal lea y escriba en los espacios de conocimiento adjuntos. Desactivado de forma predeterminada. En los chats de grupo, ejecuta además /kb on en el chat para confirmarlo."
+    "kbAccessOptInHint": "Permite que este canal lea y escriba en los espacios de conocimiento adjuntos. Desactivado de forma predeterminada. En los chats de grupo, ejecuta además /kb on en el chat para confirmarlo.",
+    "removeWithCronTitle": "¿Eliminar cuenta?",
+    "removeWithCronDesc": "«{{account}}» es destino de entrega de {{count}} tarea(s) programada(s). Al eliminarla, esos destinos quedarán marcados como obsoletos.",
+    "removeWithCronTargets": "{{count}} destino(s)"
   },
   "chat": {
     "addWorkingDirectory": "Agregar directorio de trabajo",
@@ -777,7 +780,15 @@
     "weekSun": "Dom",
     "weekThu": "Jue",
     "weekTue": "Mar",
-    "weekWed": "Mié"
+    "weekWed": "Mié",
+    "deliveryTargetStale": "Cuenta eliminada: no se entregará",
+    "prefixDeliveryWithName": "Anteponer el nombre de la tarea",
+    "prefixDeliveryWithNameDesc": "Antepone [Cron] {nombre} a las entregas exitosas para distinguir varias tareas que llegan al mismo chat",
+    "deliveryStatus": {
+      "delivered": "Entregado",
+      "partial": "Entrega parcial",
+      "failed": "Entrega fallida"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "Modo Peligroso activo (CLI + config) — todas las aprobaciones de herramientas se omiten",

@@ -538,6 +538,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "boolean",
                         "description": "Show a desktop notification when this job completes (default true)"
                     },
+                    "prefix_delivery_with_name": {
+                        "type": "boolean",
+                        "description": "Prefix successful IM deliveries with `[Cron] {name}` so multiple jobs fanning out to the same chat are distinguishable (default false; failure deliveries always carry the name)."
+                    },
                     "delivery_targets": {
                         "type": "array",
                         "description": "IM channel conversations to fan the job's final output out to. If this field is omitted on `create` and the user is currently chatting via an IM channel, the job's output will be delivered back to that same chat by default. Pass `[]` to explicitly opt out. To deliver to other channels, first call `action='list_channel_targets'` to discover the exact channel_id/account_id/chat_id triples.",

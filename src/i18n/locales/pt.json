@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "Transcrever mensagens de voz automaticamente",
     "autoTranscribeVoiceHint": "Transcreve voz / áudio recebidos pelo subsistema STT configurado. Cada mensagem consome cota da API STT.",
     "kbAccessOptIn": "Acesso à base de conhecimento",
-    "kbAccessOptInHint": "Permite que este canal leia e grave nos espaços de conhecimento anexados. Desativado por padrão. Em grupos, execute também /kb on no chat para confirmar."
+    "kbAccessOptInHint": "Permite que este canal leia e grave nos espaços de conhecimento anexados. Desativado por padrão. Em grupos, execute também /kb on no chat para confirmar.",
+    "removeWithCronTitle": "Remover conta?",
+    "removeWithCronDesc": "“{{account}}” é destino de entrega de {{count}} tarefa(s) agendada(s). Removê-la marcará esses destinos como obsoletos.",
+    "removeWithCronTargets": "{{count}} destino(s)"
   },
   "chat": {
     "addWorkingDirectory": "Adicionar diretório de trabalho",
@@ -777,7 +780,15 @@
     "weekSun": "Dom",
     "weekThu": "Qui",
     "weekTue": "Ter",
-    "weekWed": "Qua"
+    "weekWed": "Qua",
+    "deliveryTargetStale": "Conta excluída — não será entregue",
+    "prefixDeliveryWithName": "Prefixar com o nome da tarefa",
+    "prefixDeliveryWithNameDesc": "Prefixa entregas bem-sucedidas com [Cron] {nome} para distinguir várias tarefas entregues no mesmo chat",
+    "deliveryStatus": {
+      "delivered": "Entregue",
+      "partial": "Entrega parcial",
+      "failed": "Falha na entrega"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "Modo Perigoso ativo (CLI + config) — todas as aprovações de ferramentas são ignoradas",

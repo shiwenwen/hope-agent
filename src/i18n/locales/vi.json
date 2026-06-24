@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "Tự động phiên âm tin nhắn thoại",
     "autoTranscribeVoiceHint": "Phiên âm giọng nói / âm thanh đến qua hệ thống STT đã cấu hình. Mỗi tin nhắn tiêu thụ hạn ngạch API STT.",
     "kbAccessOptIn": "Truy cập kho tri thức",
-    "kbAccessOptInHint": "Cho phép kênh này đọc và ghi các không gian tri thức đã đính kèm. Mặc định tắt. Trong nhóm chat, hãy chạy /kb on trong cuộc trò chuyện để xác nhận riêng."
+    "kbAccessOptInHint": "Cho phép kênh này đọc và ghi các không gian tri thức đã đính kèm. Mặc định tắt. Trong nhóm chat, hãy chạy /kb on trong cuộc trò chuyện để xác nhận riêng.",
+    "removeWithCronTitle": "Xóa tài khoản?",
+    "removeWithCronDesc": "“{{account}}” là đích gửi của {{count}} tác vụ định kỳ. Xóa nó sẽ đánh dấu các đích đó là không còn hiệu lực.",
+    "removeWithCronTargets": "{{count}} đích"
   },
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
@@ -777,7 +780,15 @@
     "weekSun": "CN",
     "weekThu": "T5",
     "weekTue": "T3",
-    "weekWed": "T4"
+    "weekWed": "T4",
+    "deliveryTargetStale": "Tài khoản đã xóa — không thể gửi",
+    "prefixDeliveryWithName": "Thêm tên tác vụ vào đầu",
+    "prefixDeliveryWithNameDesc": "Thêm [Cron] {tên} vào các lần gửi thành công để phân biệt nhiều tác vụ gửi đến cùng một cuộc trò chuyện",
+    "deliveryStatus": {
+      "delivered": "Đã gửi",
+      "partial": "Gửi một phần",
+      "failed": "Gửi thất bại"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "Chế độ Nguy hiểm đang bật (CLI + config) — mọi phê duyệt công cụ bị bỏ qua",

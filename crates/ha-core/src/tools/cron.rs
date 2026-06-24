@@ -72,6 +72,9 @@ pub(crate) fn tool_manage_cron<'a>(
                         .map(|v| v as u32),
                     notify_on_complete: args.get("notify_on_complete").and_then(|v| v.as_bool()),
                     delivery_targets: Some(delivery_targets),
+                    prefix_delivery_with_name: args
+                        .get("prefix_delivery_with_name")
+                        .and_then(|v| v.as_bool()),
                 };
 
                 let job = cron_db.add_job(&input)?;
@@ -132,6 +135,12 @@ pub(crate) fn tool_manage_cron<'a>(
                 }
                 if let Some(b) = args.get("notify_on_complete").and_then(|v| v.as_bool()) {
                     job.notify_on_complete = b;
+                }
+                if let Some(b) = args
+                    .get("prefix_delivery_with_name")
+                    .and_then(|v| v.as_bool())
+                {
+                    job.prefix_delivery_with_name = b;
                 }
                 if let Some(v) = args.get("project_id") {
                     job.project_id = parse_project_id_value(v)?;
@@ -512,6 +521,7 @@ fn resolve_delivery_targets_for_create(
                         chat_id: conv.chat_id,
                         thread_id: conv.thread_id,
                         label,
+                        stale: false,
                     };
                     return Ok((vec![target], true));
                 }

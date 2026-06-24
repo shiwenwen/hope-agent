@@ -285,7 +285,10 @@
     "autoTranscribeVoice": "音声メッセージを自動文字起こし",
     "autoTranscribeVoiceHint": "受信した音声 / オーディオを STT サブシステムで文字起こし。1 件ごとに STT API クォータを消費します。",
     "kbAccessOptIn": "ナレッジベースへのアクセス",
-    "kbAccessOptInHint": "このチャネルから、紐付けたナレッジスペースの読み書きを許可します。既定はオフです。グループチャットでは、チャット内で /kb on を実行して個別に確認してください。"
+    "kbAccessOptInHint": "このチャネルから、紐付けたナレッジスペースの読み書きを許可します。既定はオフです。グループチャットでは、チャット内で /kb on を実行して個別に確認してください。",
+    "removeWithCronTitle": "アカウントを削除しますか？",
+    "removeWithCronDesc": "「{{account}}」は {{count}} 件のスケジュールタスクの配信先です。削除するとこれらの配信先は無効としてマークされます。",
+    "removeWithCronTargets": "{{count}} 件"
   },
   "chat": {
     "addWorkingDirectory": "作業ディレクトリを追加",
@@ -777,7 +780,15 @@
     "weekSun": "日",
     "weekThu": "木",
     "weekTue": "火",
-    "weekWed": "水"
+    "weekWed": "水",
+    "deliveryTargetStale": "アカウントが削除されました — 配信できません",
+    "prefixDeliveryWithName": "タスク名を先頭に付ける",
+    "prefixDeliveryWithNameDesc": "成功した配信に [Cron] {名前} を付け、同じチャットへ配信する複数タスクを区別しやすくします",
+    "deliveryStatus": {
+      "delivered": "配信済み",
+      "partial": "一部配信",
+      "failed": "配信失敗"
+    }
   },
   "dangerousMode": {
     "bannerBoth": "危険モード有効（CLI + 設定）— すべてのツール承認をバイパス中",
