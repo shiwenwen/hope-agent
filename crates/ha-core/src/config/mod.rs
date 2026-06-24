@@ -456,6 +456,17 @@ pub struct CronConfig {
     /// `[30, 7200]` (30s–2h). Default: 300 (5min).
     #[serde(default = "default_cron_job_timeout_secs")]
     pub job_timeout_secs: u64,
+
+    /// Grace window (seconds) for late-firing a one-shot `At` job that came due
+    /// while the app was down. On startup an `At` job past its scheduled time by
+    /// **no more than** this window still fires (catch-up); one past it by more is
+    /// marked `missed`. `0` = strict (any past-due `At` is missed — the pre-§7
+    /// behavior); capped at read to 7 days. Default: 300 (5min) so a brief restart
+    /// doesn't silently drop a scheduled one-shot. (A claimed-then-crashed `At` —
+    /// `next_run_at` already cleared — is always marked `missed`, never re-fired,
+    /// regardless of this window, since it may have partially executed.)
+    #[serde(default = "default_cron_at_grace_secs")]
+    pub at_grace_secs: u64,
 }
 
 impl Default for CronConfig {
@@ -463,6 +474,7 @@ impl Default for CronConfig {
         Self {
             max_concurrent: default_cron_max_concurrent(),
             job_timeout_secs: default_cron_job_timeout_secs(),
+            at_grace_secs: default_cron_at_grace_secs(),
         }
     }
 }
@@ -482,6 +494,13 @@ impl CronConfig {
     pub fn effective_job_timeout_secs(&self) -> u64 {
         self.job_timeout_secs.clamp(30, 7200)
     }
+
+    /// Late-fire grace window in seconds, capped at 7 days. Unlike the timeout,
+    /// `0` is preserved (it means "strict — no late-fire"), so only the upper
+    /// bound is clamped.
+    pub fn effective_at_grace_secs(&self) -> u64 {
+        self.at_grace_secs.min(604_800)
+    }
 }
 
 pub use crate::permission::ApprovalTimeoutAction;
@@ -494,6 +513,10 @@ fn default_cron_max_concurrent() -> u32 {
 }
 
 fn default_cron_job_timeout_secs() -> u64 {
+    300
+}
+
+fn default_cron_at_grace_secs() -> u64 {
     300
 }
 
@@ -1350,11 +1373,13 @@ mod async_tools_defaults_tests {
 
     #[test]
     fn cron_config_defaults_and_clamps() {
-        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 300s.
+        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 300s, grace 300s.
         let d = CronConfig::default();
         assert_eq!(d.max_concurrent, 5);
         assert_eq!(d.job_timeout_secs, 300);
+        assert_eq!(d.at_grace_secs, 300);
         assert_eq!(d.effective_max_concurrent(), Some(5));
+        assert_eq!(d.effective_at_grace_secs(), 300);
         assert_eq!(
             CronConfig {
                 max_concurrent: 0,
@@ -1392,10 +1417,28 @@ mod async_tools_defaults_tests {
         assert_eq!(
             CronConfig {
                 job_timeout_secs: 999_999,
-                ..d
+                ..d.clone()
             }
             .effective_job_timeout_secs(),
             7200
+        );
+        // Grace caps at 7 days but, unlike timeout, preserves 0 (= strict, no
+        // late-fire) rather than flooring it.
+        assert_eq!(
+            CronConfig {
+                at_grace_secs: 0,
+                ..d.clone()
+            }
+            .effective_at_grace_secs(),
+            0
+        );
+        assert_eq!(
+            CronConfig {
+                at_grace_secs: 999_999_999,
+                ..d
+            }
+            .effective_at_grace_secs(),
+            604_800
         );
     }
 

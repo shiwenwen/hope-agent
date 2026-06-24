@@ -623,7 +623,11 @@ fn get_all_overview() -> Result<String> {
         },
         "sessionTitle": cfg.session_title,
         "asyncTools": { "enabled": cfg.async_tools.enabled },
-        "cron": { "maxConcurrent": cfg.cron.max_concurrent },
+        "cron": {
+            "maxConcurrent": cfg.cron.max_concurrent,
+            "jobTimeoutSecs": cfg.cron.job_timeout_secs,
+            "atGraceSecs": cfg.cron.at_grace_secs,
+        },
         "issueReporting": {
             "enabled": cfg.issue_reporting.enabled,
             "owner": cfg.issue_reporting.owner,

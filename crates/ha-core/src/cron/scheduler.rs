@@ -139,7 +139,13 @@ pub fn start_scheduler(
                     ),
                     _ => {}
                 }
-                if let Err(e) = cron_db.mark_missed_at_jobs() {
+                // Mark un-fireable At jobs missed BEFORE catch-up: those past the
+                // late-fire grace window (or claimed-then-crashed) are taken out
+                // so catch-up only late-fires At jobs still within grace (§7).
+                let at_grace_secs = crate::config::cached_config()
+                    .cron
+                    .effective_at_grace_secs();
+                if let Err(e) = cron_db.mark_missed_at_jobs(at_grace_secs) {
                     app_error!("cron", "scheduler", "Failed to mark missed at jobs: {}", e);
                 }
 

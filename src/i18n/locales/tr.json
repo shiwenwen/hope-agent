@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Tolerans (sn)",
+    "atGraceHint": "Geç çalıştırma penceresi: uygulama kapalıyken zamanı gelen tek seferlik bir görev, gecikme bu saniyeyi aşmadıysa yine de çalışır; aşarsa kaçırıldı olarak işaretlenir (0 = katı, geç çalıştırma yok).",
     "jobTimeout": "Zaman aşımı (sn)",
     "jobTimeoutHint": "Tek bir zamanlanmış görevin terk edilip yuvasının boşaltılmasından önce çalışabileceği maksimum saniye (30–7200 sn).",
     "maxConcurrent": "Maks. eşzamanlı",

@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Margen (s)",
+    "atGraceHint": "Ventana de ejecución tardía: una tarea única cuya hora venció con la app cerrada aún se ejecuta si el retraso no supera estos segundos; más allá se marca como perdida (0 = estricto, sin ejecución tardía).",
     "jobTimeout": "Tiempo límite (s)",
     "jobTimeoutHint": "Segundos máximos que una tarea programada puede ejecutarse antes de abandonarse y liberar su ranura (30–7200 s).",
     "maxConcurrent": "Máx. concurrentes",

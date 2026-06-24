@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Bù trễ (giây)",
+    "atGraceHint": "Cửa sổ chạy bù: một tác vụ một lần đến hạn khi ứng dụng đang đóng vẫn chạy nếu trễ không quá số giây này; quá thì bị đánh dấu là bỏ lỡ (0 = nghiêm ngặt, không chạy bù).",
     "jobTimeout": "Hết giờ (giây)",
     "jobTimeoutHint": "Số giây tối đa một tác vụ định kỳ có thể chạy trước khi bị hủy và giải phóng vị trí (30–7200 giây).",
     "maxConcurrent": "Tối đa đồng thời",

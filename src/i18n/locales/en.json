@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Grace (s)",
+    "atGraceHint": "Late-fire window: a one-shot 'at' task that came due while the app was closed still runs if it's no more than this many seconds overdue; beyond that it's marked missed (0 = strict, no late-fire).",
     "jobTimeout": "Timeout (s)",
     "jobTimeoutHint": "Maximum seconds a single scheduled task may run before it is abandoned and its slot freed (30–7200s).",
     "maxConcurrent": "Max concurrent",

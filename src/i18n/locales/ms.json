@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Tempoh (s)",
+    "atGraceHint": "Tetingkap larian lewat: tugas sekali sahaja yang tiba masanya semasa apl ditutup masih dijalankan jika lewat tidak melebihi saat ini; selepas itu ditanda terlepas (0 = ketat, tiada larian lewat).",
     "jobTimeout": "Had masa (s)",
     "jobTimeoutHint": "Saat maksimum satu tugas berjadual boleh berjalan sebelum ditinggalkan dan slotnya dibebaskan (30–7200 s).",
     "maxConcurrent": "Maks. serentak",

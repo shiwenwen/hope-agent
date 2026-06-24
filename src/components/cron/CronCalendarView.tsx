@@ -30,6 +30,7 @@ import {
   Check,
   Layers,
   Clock,
+  Hourglass,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
@@ -79,6 +80,8 @@ export default function CronCalendarView({
   const [mcInput, setMcInput] = useState<string>("5")
   const [jobTimeout, setJobTimeout] = useState<number>(300)
   const [jtInput, setJtInput] = useState<string>("300")
+  const [atGrace, setAtGrace] = useState<number>(300)
+  const [agInput, setAgInput] = useState<string>("300")
   const [savingCron, setSavingCron] = useState(false)
   const [cronSaveStatus, setCronSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
@@ -121,11 +124,11 @@ export default function CronCalendarView({
     if (jobsLoaded) fetchJobs()
   }, [fetchEvents, fetchJobs, jobsLoaded])
 
-  // Single idle-reset timer shared by both cron-setting inputs, so two saves in
+  // Single idle-reset timer shared by all cron-setting inputs, so two saves in
   // quick succession don't have an earlier timer blank a later save's status.
   const cronStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const persistCron = useCallback(
-    async (cfg: { maxConcurrent: number; jobTimeoutSecs: number }) => {
+    async (cfg: { maxConcurrent: number; jobTimeoutSecs: number; atGraceSecs: number }) => {
       setSavingCron(true)
       setCronSaveStatus("idle")
       try {
@@ -154,8 +157,8 @@ export default function CronCalendarView({
     setMcInput(String(n))
     if (n === maxConcurrent) return // dirty check: skip a no-op write
     setMaxConcurrent(n)
-    await persistCron({ maxConcurrent: n, jobTimeoutSecs: jobTimeout })
-  }, [mcInput, maxConcurrent, jobTimeout, persistCron])
+    await persistCron({ maxConcurrent: n, jobTimeoutSecs: jobTimeout, atGraceSecs: atGrace })
+  }, [mcInput, maxConcurrent, jobTimeout, atGrace, persistCron])
 
   const commitJobTimeout = useCallback(async () => {
     const raw = jtInput.trim()
@@ -169,8 +172,23 @@ export default function CronCalendarView({
     setJtInput(String(n))
     if (n === jobTimeout) return
     setJobTimeout(n)
-    await persistCron({ maxConcurrent, jobTimeoutSecs: n })
-  }, [jtInput, jobTimeout, maxConcurrent, persistCron])
+    await persistCron({ maxConcurrent, jobTimeoutSecs: n, atGraceSecs: atGrace })
+  }, [jtInput, jobTimeout, maxConcurrent, atGrace, persistCron])
+
+  const commitAtGrace = useCallback(async () => {
+    const raw = agInput.trim()
+    if (raw === "" || Number.isNaN(Number(raw))) {
+      setAgInput(String(atGrace))
+      return
+    }
+    // Clamp to [0, 604800] (0 = strict, no late-fire; 7-day cap) to mirror the
+    // backend's read-time clamp.
+    const n = Math.max(0, Math.min(604800, Math.floor(Number(raw))))
+    setAgInput(String(n))
+    if (n === atGrace) return
+    setAtGrace(n)
+    await persistCron({ maxConcurrent, jobTimeoutSecs: jobTimeout, atGraceSecs: n })
+  }, [agInput, atGrace, maxConcurrent, jobTimeout, persistCron])
 
   useEffect(() => {
     fetchEvents()
@@ -179,7 +197,9 @@ export default function CronCalendarView({
   // Load the global cron settings once on mount.
   useEffect(() => {
     getTransport()
-      .call<{ maxConcurrent?: number; jobTimeoutSecs?: number }>("get_cron_config")
+      .call<{ maxConcurrent?: number; jobTimeoutSecs?: number; atGraceSecs?: number }>(
+        "get_cron_config",
+      )
       .then((c) => {
         if (c && typeof c.maxConcurrent === "number") {
           setMaxConcurrent(c.maxConcurrent)
@@ -188,6 +208,10 @@ export default function CronCalendarView({
         if (c && typeof c.jobTimeoutSecs === "number") {
           setJobTimeout(c.jobTimeoutSecs)
           setJtInput(String(c.jobTimeoutSecs))
+        }
+        if (c && typeof c.atGraceSecs === "number") {
+          setAtGrace(c.atGraceSecs)
+          setAgInput(String(c.atGraceSecs))
         }
       })
       .catch(() => {
@@ -512,6 +536,24 @@ export default function CronCalendarView({
                 value={jtInput}
                 onChange={(e) => setJtInput(e.target.value)}
                 onBlur={commitJobTimeout}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                }}
+              />
+            </div>
+          </IconTip>
+          <IconTip label={t("cron.atGraceHint")}>
+            <div className="flex items-center gap-1.5">
+              <Hourglass className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">{t("cron.atGrace")}</span>
+              <Input
+                type="number"
+                min={0}
+                max={604800}
+                className="h-7 w-16 text-xs"
+                value={agInput}
+                onChange={(e) => setAgInput(e.target.value)}
+                onBlur={commitAtGrace}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") (e.target as HTMLInputElement).blur()
                 }}

@@ -137,6 +137,15 @@ impl CronDB {
 
         // Compute initial next_run_at
         let next_run = compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339());
+        // A one-shot `At` whose time is already past has no next run — terminalize
+        // it as `missed` at create time instead of persisting a perpetual
+        // active/never-fires zombie that only mark_missed_at_jobs would reap on the
+        // next restart (§7). Recurring schedules always produce a future next_run.
+        let initial_status = if matches!(schedule, CronSchedule::At { .. }) && next_run.is_none() {
+            CronJobStatus::Missed
+        } else {
+            CronJobStatus::Active
+        };
 
         let notify = input.notify_on_complete.unwrap_or(true);
         let delivery_targets = input.delivery_targets.clone().unwrap_or_default();
@@ -148,7 +157,7 @@ impl CronDB {
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
             "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9, ?10, ?11, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?11, ?11)",
             params![
                 id,
                 input.name,
@@ -160,7 +169,8 @@ impl CronDB {
                 max_failures,
                 notify as i32,
                 delivery_targets_json,
-                now_str
+                now_str,
+                initial_status.as_str()
             ],
         )?;
 
@@ -171,7 +181,7 @@ impl CronDB {
             project_id: normalize_optional_string(input.project_id.as_deref()),
             schedule,
             payload: input.payload.clone(),
-            status: CronJobStatus::Active,
+            status: initial_status,
             next_run_at: next_run,
             last_run_at: None,
             running_at: None,
@@ -203,6 +213,17 @@ impl CronDB {
         } else {
             job.next_run_at.clone()
         };
+        // Editing an Active `At` to a past time leaves no next run — terminalize as
+        // `missed` rather than persisting an active/never-fires zombie (§7, mirrors
+        // add_job). Non-active statuses (paused/disabled/…) are preserved as-is.
+        let status = if job.status == CronJobStatus::Active
+            && matches!(schedule, CronSchedule::At { .. })
+            && next_run.is_none()
+        {
+            CronJobStatus::Missed
+        } else {
+            job.status.clone()
+        };
 
         let conn = self
             .conn
@@ -217,7 +238,7 @@ impl CronDB {
                 normalize_optional_string(job.project_id.as_deref()),
                 schedule_json,
                 payload_json,
-                job.status.as_str(),
+                status.as_str(),
                 next_run,
                 job.max_failures,
                 job.notify_on_complete as i32,
@@ -843,19 +864,32 @@ impl CronDB {
         Ok(count)
     }
 
-    /// Mark missed one-shot At jobs as 'missed'.
-    pub fn mark_missed_at_jobs(&self) -> Result<usize> {
-        let now = Utc::now().to_rfc3339();
+    /// Drive un-fireable one-shot `At` jobs to the `missed` terminal state at
+    /// startup (§7). Marks an active `At` job `missed` when EITHER:
+    /// - it is past its scheduled time by **more than** `grace_secs` (too late to
+    ///   late-fire); or
+    /// - its `next_run_at IS NULL` — created with a past timestamp
+    ///   (`compute_next_run` returned `None`) or **claimed-then-crashed** (the run
+    ///   may have partially executed, so it is missed, never re-fired — the
+    ///   one-shot side-effect-safety choice).
+    ///
+    /// `At` jobs past-due by no more than `grace_secs` are LEFT active so the
+    /// startup catch-up can late-fire them (slot-aware via §4's `dispatch_due_jobs`).
+    /// `grace_secs = 0` ⇒ strict: any past-due `At` is missed (pre-§7 behavior).
+    /// Returns the number of rows marked.
+    pub fn mark_missed_at_jobs(&self, grace_secs: u64) -> Result<usize> {
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let cutoff = (now - Duration::seconds(grace_secs as i64)).to_rfc3339();
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        // Find active At jobs whose next_run_at is in the past
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1
-             WHERE status='active' AND next_run_at IS NOT NULL AND next_run_at < ?1
-             AND schedule_json LIKE '%\"type\":\"at\"%'",
-            params![now],
+             WHERE status='active' AND schedule_json LIKE '%\"type\":\"at\"%'
+               AND (next_run_at IS NULL OR next_run_at < ?2)",
+            params![now_str, cutoff],
         )?;
         Ok(count)
     }
@@ -1807,6 +1841,115 @@ mod tests {
             "count must not grow once disabled"
         );
         assert_eq!(after3.status, CronJobStatus::Disabled);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn mark_missed_respects_grace_and_recovers_zombies() {
+        // §7: late-fire grace + terminal-state recovery for one-shot At jobs.
+        let path = temp_db_path("at-grace");
+        let db = CronDB::open(&path).expect("open db");
+        let mk_at = |name: &str| {
+            db.add_job(&NewCronJob {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add")
+        };
+        let within = mk_at("within"); // past-due within grace → stays active (late-fires)
+        let beyond = mk_at("beyond"); // past-due beyond grace → missed
+        let zombie = mk_at("zombie"); // next_run_at NULL (claimed-then-crashed) → missed
+        let future = mk_at("future"); // not yet due → stays active
+
+        {
+            let conn = db.conn.lock().unwrap();
+            let now = Utc::now();
+            let set = |id: &str, val: Option<String>| {
+                conn.execute(
+                    "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                    params![val, id],
+                )
+                .unwrap();
+            };
+            set(
+                &within.id,
+                Some((now - chrono::Duration::seconds(100)).to_rfc3339()),
+            );
+            set(
+                &beyond.id,
+                Some((now - chrono::Duration::seconds(1000)).to_rfc3339()),
+            );
+            set(&zombie.id, None);
+            // `future` keeps its ~1h-ahead next_run_at from add_job.
+        }
+
+        let marked = db.mark_missed_at_jobs(300).expect("mark");
+        assert_eq!(marked, 2, "only beyond-grace + zombie are missed");
+        let status = |id: &str| db.get_job(id).unwrap().unwrap().status;
+        assert_eq!(status(&within.id), CronJobStatus::Active);
+        assert_eq!(status(&beyond.id), CronJobStatus::Missed);
+        assert_eq!(status(&zombie.id), CronJobStatus::Missed);
+        assert_eq!(status(&future.id), CronJobStatus::Active);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn add_job_terminalizes_past_at_as_missed() {
+        // §7: a one-shot At created with an already-past timestamp has no next run,
+        // so it's persisted as `missed` immediately instead of an active zombie
+        // that only the next restart's mark_missed would reap.
+        let path = temp_db_path("past-at-missed");
+        let db = CronDB::open(&path).expect("open db");
+        let mk = |name: &str, ts: String| NewCronJob {
+            name: name.into(),
+            description: None,
+            project_id: None,
+            schedule: CronSchedule::At { timestamp: ts },
+            payload: CronPayload::AgentTurn {
+                prompt: "p".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: None,
+        };
+
+        let past = db
+            .add_job(&mk(
+                "past",
+                (Utc::now() - chrono::Duration::hours(1)).to_rfc3339(),
+            ))
+            .expect("add past");
+        assert_eq!(past.status, CronJobStatus::Missed);
+        assert!(past.next_run_at.is_none());
+        // Confirm persisted, not just the returned struct.
+        assert_eq!(
+            db.get_job(&past.id).unwrap().unwrap().status,
+            CronJobStatus::Missed
+        );
+
+        // A future At stays active with a next_run.
+        let future = db
+            .add_job(&mk(
+                "future",
+                (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            ))
+            .expect("add future");
+        assert_eq!(future.status, CronJobStatus::Active);
+        assert!(future.next_run_at.is_some());
 
         cleanup_db_files(&path);
     }
