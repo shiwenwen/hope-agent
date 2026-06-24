@@ -15,10 +15,11 @@ use crate::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJo
 /// cannot compute the infinite recursive future type to verify `Send`.
 pub(crate) fn tool_manage_cron<'a>(
     args: &'a Value,
-    session_id: Option<&'a str>,
+    ctx: &'a super::ToolExecContext,
 ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
-    // Own the session_id so the returned future doesn't borrow from the caller.
-    let session_id = session_id.map(String::from);
+    // Own the session_id so the returned future doesn't borrow from the caller;
+    // `ctx` itself is only needed by the `delete` approval gate below.
+    let session_id = ctx.session_id.clone();
     Box::pin(async move {
         let cron_db =
             crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
@@ -142,6 +143,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     if !v.is_null() {
                         let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
                             .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
+                        validate_delivery_targets(&parsed)?;
                         job.delivery_targets = parsed;
                     }
                 }
@@ -216,7 +218,24 @@ pub(crate) fn tool_manage_cron<'a>(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                // Best-effort human-readable name for the approval dialog before
+                // we touch anything.
+                let desc = match cron_db.get_job(id) {
+                    Ok(Some(job)) => format!("Delete scheduled task '{}' (id={})", job.name, id),
+                    _ => format!("Delete scheduled task (id={})", id),
+                };
+                // OQ6: delete is the one consequential `manage_cron` action, so it
+                // takes an explicit trip through the unified permission engine
+                // (every other action stays internal-exempt). `?` aborts with an
+                // already-rendered rejection on deny / unattended / timeout.
+                gate_cron_delete(args, ctx, desc).await?;
                 cron_db.delete_job(id)?;
+                app_info!(
+                    "cron",
+                    "manage",
+                    "manage_cron deleted scheduled task '{}' (approved)",
+                    id
+                );
                 Ok(format!("Deleted scheduled task '{}'.", id))
             }
 
@@ -283,6 +302,48 @@ pub(crate) fn tool_manage_cron<'a>(
             )),
         }
     })
+}
+
+/// Gate a `manage_cron action=delete` through the unified permission engine
+/// (OQ6). `manage_cron` stays `internal:true`, so every other action runs
+/// approval-free; delete alone re-enters the engine with `is_internal=false`,
+/// where the engine's `check_cron_delete` rule emits the non-strict
+/// `AskReason::CronDelete`. That makes the outcome session-mode-aware for free:
+/// Default prompts, Smart lets the judge model decide, YOLO / global-YOLO /
+/// AllowAlways bypass, and an unattended surface (a cron run with no human to
+/// answer) fail-closes per `unattended_approval_action`. The shared
+/// `run_tool_approval` keeps the strict-timeout / unattended / AllowAlways
+/// handling in one place. Returns `Ok(())` to proceed or an already-rendered
+/// `ToolRejection` to abort the delete.
+async fn gate_cron_delete(args: &Value, ctx: &super::ToolExecContext, desc: String) -> Result<()> {
+    let decision =
+        super::execution::resolve_tool_permission(super::TOOL_MANAGE_CRON, args, ctx, false).await;
+    match decision {
+        crate::permission::Decision::Allow => Ok(()),
+        crate::permission::Decision::Deny { reason } => Err(
+            super::rejection::ToolRejection::denied_by_policy(super::TOOL_MANAGE_CRON, reason),
+        ),
+        crate::permission::Decision::Ask { reason } => {
+            // Force `allow_always_forbidden=true`: a one-off "Allow Always" on a
+            // cron delete must NOT persist a standing grant. The allowlist matcher
+            // for `manage_cron` keys on `action` only (not the job `id`), so a
+            // persisted rule would silently authorize deleting *any* scheduled task
+            // forever — and `allows_tool_call` is consulted before this gate, so it
+            // would bypass the prompt on every future delete. CronDelete stays
+            // non-strict for the timeout / unattended axis (this flag only governs
+            // AllowAlways persistence); the frontend likewise disables the button.
+            super::execution::run_tool_approval(
+                super::TOOL_MANAGE_CRON,
+                args,
+                ctx,
+                Some(super::approval::ApprovalReasonPayload::from(&reason)),
+                true,
+                Some(desc),
+            )
+            .await
+            .map(|_origin| ())
+        }
+    }
 }
 
 fn resolve_project_id_for_create(args: &Value, session_id: Option<&str>) -> Result<Option<String>> {
@@ -452,9 +513,52 @@ fn resolve_delivery_targets_for_create(
         Some(v) => {
             let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
                 .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
+            validate_delivery_targets(&parsed)?;
             Ok((parsed, false))
         }
     }
+}
+
+/// Create/update half of the delivery whitelist (OQ5). Every target the model
+/// supplies explicitly must point at a conversation already recorded in
+/// `channel_conversations` — the same set `action='list_channel_targets'`
+/// surfaces. Rejecting unknown targets at create/update time stops a
+/// prompt-injected model from *persisting* a cron job that fans output out to an
+/// attacker-controlled chat (a periodic, account-authenticated exfil channel),
+/// and is the create-time complement to the runtime skip-and-warn guard in
+/// `cron::delivery`. Inferred targets (derived from the caller's own IM
+/// conversation row) skip this — they are recorded by construction.
+fn validate_delivery_targets(targets: &[CronDeliveryTarget]) -> Result<()> {
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let Some(db) = crate::get_channel_db() else {
+        anyhow::bail!(
+            "Cannot validate delivery_targets: the IM channel subsystem is not available. \
+             Configure an IM channel account first."
+        );
+    };
+    for t in targets {
+        let known = db
+            .conversation_exists(
+                &t.channel_id,
+                &t.account_id,
+                &t.chat_id,
+                t.thread_id.as_deref(),
+            )
+            .unwrap_or(false);
+        if !known {
+            anyhow::bail!(
+                "delivery_target {}:{} (account '{}') is not a recorded conversation. \
+                 Call action='list_channel_targets' to discover valid \
+                 channel_id/account_id/chat_id triples before setting delivery_targets.",
+                t.channel_id,
+                t.chat_id,
+                t.account_id
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Compact single-line summary of delivery targets for status messages.

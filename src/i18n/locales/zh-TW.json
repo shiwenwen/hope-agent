@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "刪除定時任務",
+        "body": "模型即將永久刪除你的一個定時任務。預設模式每次詢問；智慧模式可自行判斷，YOLO 略過。可選「永遠允許」。"
+      },
       "agent_custom_list": {
         "body": "Agent 設定中勾選了此工具進入「自訂工具審批」清單，僅 Default 模式下生效。",
         "title": "Agent 自訂審批清單"

@@ -30,6 +30,7 @@ export interface ApprovalRequest {
       | "mac_control_action"
       | "mac_control_dangerous_action"
       | "plan_mode_ask"
+      | "cron_delete"
     /** Pattern / path / rationale text to display. */
     detail?: string
   }
@@ -58,6 +59,21 @@ function isStrictReasonKind(
     kind === "mac_control_dangerous_action" ||
     kind === "plan_mode_ask"
   )
+}
+
+/**
+ * Reason kinds that bar the AllowAlways button. Strict reasons bar it (per-call
+ * confirmation), and `cron_delete` also bars it without being strict: the
+ * allowlist matcher for `manage_cron` keys on `action` only (not the job id), so
+ * a persisted AllowAlways grant would silently authorize deleting ANY scheduled
+ * task forever. Cron delete stays non-strict (normal palette + normal
+ * timeout/unattended handling) — it just never offers a standing grant. Mirrors
+ * the backend `gate_cron_delete` forcing `allow_always_forbidden=true`.
+ */
+function barsAllowAlways(
+  kind: NonNullable<ApprovalRequest["reason"]>["kind"] | undefined,
+): boolean {
+  return isStrictReasonKind(kind) || kind === "cron_delete"
 }
 
 interface ApprovalDialogProps {
@@ -126,7 +142,11 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
 
   const total = requests.length
   const reason = current.reason
+  // `isStrict` drives the destructive (red) header palette; `allowAlwaysBarred`
+  // gates the AllowAlways button. They differ for `cron_delete`: non-strict
+  // (amber, normal timeout/unattended) but still bars AllowAlways.
   const isStrict = isStrictReasonKind(reason?.kind)
+  const allowAlwaysBarred = barsAllowAlways(reason?.kind)
   // E5 (INCOG-6): incognito sessions never persist an AllowAlways grant — hide
   // the button entirely and explain why below the actions.
   const incognito = current.incognito === true
@@ -210,8 +230,8 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
             <Button
               size="sm"
               onClick={() => onRespond(current.request_id, "allow_always")}
-              disabled={isStrict}
-              title={isStrict ? t("approval.allowAlwaysDisabled") : undefined}
+              disabled={allowAlwaysBarred}
+              title={allowAlwaysBarred ? t("approval.allowAlwaysDisabled") : undefined}
             >
               {t("approval.allowAlways")}
             </Button>

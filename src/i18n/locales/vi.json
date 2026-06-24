@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Xóa tác vụ định kỳ",
+        "body": "Mô hình sắp xóa vĩnh viễn một trong các tác vụ định kỳ của bạn. Chế độ mặc định hỏi mỗi lần; chế độ thông minh có thể tự quyết định và YOLO bỏ qua. Có thể chọn Luôn cho phép."
+      },
       "agent_custom_list": {
         "body": "Công cụ này nằm trong danh sách phê duyệt tùy chỉnh của agent (chỉ chế độ Default).",
         "title": "Danh sách phê duyệt tùy chỉnh của agent"

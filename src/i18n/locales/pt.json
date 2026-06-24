@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Excluir tarefa agendada",
+        "body": "O modelo vai excluir permanentemente uma das suas tarefas agendadas. O modo padrão pergunta sempre; o modo inteligente pode decidir e o YOLO ignora. Permitir sempre está disponível."
+      },
       "agent_custom_list": {
         "body": "Esta ferramenta está na lista de aprovação personalizada do agente (somente modo Default).",
         "title": "Lista de aprovação personalizada do agente"

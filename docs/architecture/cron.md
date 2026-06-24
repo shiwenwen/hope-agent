@@ -1,5 +1,5 @@
 # Cron 定时任务架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-06-06
+> 返回 [文档索引](../README.md) | 更新时间：2026-06-24
 
 ## 概述
 
@@ -20,7 +20,7 @@ Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（E
 | `cron/schedule.rs` | `compute_next_run` 三种调度计算、cron 表达式验证、`backoff_delay_ms` 指数退避、时间戳灵活解析 |
 | `cron/scheduler.rs` | `start_scheduler` 后台调度循环 + 启动恢复 + 追赶执行 |
 | `cron/executor.rs` | `execute_job` 任务执行 + `build_and_run_agent` 含 failover + `record_failure` + 事件发射 |
-| `cron/delivery.rs` | `deliver_results` 把执行结果文本 fan-out 到 IM 渠道会话（每 target 10s 超时保护）；`deliver_injection_for_session`（G2）按会话反查 `cron_run_logs → job` 后,把**后台 job/subagent 完成的注入 turn** 同样下发到 `delivery_targets`——cron turn 里 spawn 的后台任务稍后完成时不再投递给无人 |
+| `cron/delivery.rs` | `deliver_results` 把执行结果文本 fan-out 到 IM 渠道会话（每 target 10s 超时保护 + **投递前白名单校验**，详见「投递白名单与 delete 审批门控」）；`deliver_injection_for_session`（G2）按会话反查 `cron_run_logs → job` 后,把**后台 job/subagent 完成的注入 turn** 同样下发到 `delivery_targets`——cron turn 里 spawn 的后台任务稍后完成时不再投递给无人 |
 | `cron/cancel.rs` | 任务级 cancel token 注册 / 触发 / 清理，供 `stop_running_job` 等取消路径使用 |
 | `cron/db.rs` | `CronDB` SQLite 持久化（CRUD、claim、running 标记、calendar 查询、启动恢复） |
 
@@ -131,6 +131,21 @@ serde tag 区分，目前仅一种类型：
 - `create`：省略 `project_id` 时若当前会话在 Project 内，则自动继承该 Project；传 `project_id=null` 或空串表示显式不关联 Project
 - `update`：省略 `project_id` 保持原值；传 Project id 切换关联；传 `null` 或空串清空关联
 - 工具层会校验显式传入的 Project id 必须存在；执行层仍保留 Project 删除后的降级自愈兜底
+
+## 投递白名单与 delete 审批门控
+
+cron 投递携 IM 账号身份、可周期触发、且 `manage_cron` 标 `internal:true`（走权限引擎直接 Allow、无审批），故对**被 prompt 注入的模型**是潜在数据外泄面。两道防线（来源：cron 优化 OQ5 / OQ6）：
+
+**投递目标白名单**——`delivery_targets` 的 `(channel_id, account_id, chat_id, thread_id)` 必须命中 `channel_conversations`（与 `action=list_channel_targets` 同源：[`ChannelDB::conversation_exists`](../../crates/ha-core/src/channel/db.rs) = `get_session(...).is_some()`）：
+
+- **创建/更新期**（[`tools/cron.rs`](../../crates/ha-core/src/tools/cron.rs) `validate_delivery_targets`）：模型**显式提供**的未命中目标直接 `bail!` 拒绝，引导其先调 `list_channel_targets` 发现合法坐标。从当前会话 IM 对话**推断**出的目标可信、不校验（构造自真实会话行）。`Some([])` 显式关闭 fan-out 不受影响。
+- **投递期/运行时**（[`cron/delivery.rs`](../../crates/ha-core/src/cron/delivery.rs) `deliver_results`）：每个 target 投递前再查一次白名单，未命中 / channel_db 不可用 → **fail-closed 跳过 + `app_warn!("cron","delivery",...)`**（防御会话事后被删/接管）。`deliver_injection_for_session`（G2）委托 `deliver_results`，自动继承该 guard。投递目标已被白名单约束在「已记录的 IM 会话」（非任意 URL），故投递路径**不再叠加 SSRF 检查**——白名单即边界。
+
+**delete 审批**——`manage_cron action=delete` 是唯一对接统一权限引擎 v2 的 action（其余 action 维持 internal 免审）。delete 分支单独以 `is_internal=false` 调一次 [`resolve_tool_permission`](../../crates/ha-core/src/tools/execution.rs)，引擎 [`check_cron_delete`](../../crates/ha-core/src/permission/engine.rs)（落在 `resolve_soft_approval_layer`，YOLO 短路与 AllowAlways 累加器之后）发**非 strict** `AskReason::CronDelete`：
+
+- **Default** 弹标准审批；**Smart** 交 judge 模型自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
+- 非 strict（不进 `forbids_allow_always`）只约束 **timeout / unattended 轴**（超时不强制 deny、可按配置 proceed、Smart 可降级 judge）。**AllowAlways 刻意抑制**（红线）：`gate_cron_delete` 对该审批强制 `allow_always_forbidden=true`，前端 `barsAllowAlways` 同步禁用按钮——因为 `manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**（`stable_field_matchers`），一旦持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 在 `check_cron_delete` 之前命中会绕过本门。故每次 delete 都需逐次确认，永不留常驻 grant。`ApprovalReasonKind::CronDelete` 与前端 `ApprovalDialog.tsx` union / 12 语言 `approval.reasons.cron_delete` 文案同步。
+- delete 成功落 `app_info!("cron","manage",...)` 审计；不做 creator 作用域隔离（模型需管理用户全部提醒）。
 
 ## 调度机制
 

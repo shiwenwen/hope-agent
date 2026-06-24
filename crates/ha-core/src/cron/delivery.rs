@@ -73,6 +73,41 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) {
         let registry = registry.clone();
         let store = store.clone();
         async move {
+            // Delivery whitelist (runtime half of OQ5). Only fan out to chats
+            // this system has on record in `channel_conversations` — the same
+            // source `list_channel_targets` exposes to the model when it picks
+            // targets. A prompt-injected model could otherwise name an
+            // attacker-controlled chat_id and turn cron's account-authenticated,
+            // periodically-firing delivery into a silent exfil channel. Because
+            // the destination is constrained to a recorded IM conversation (not
+            // an arbitrary URL), delivery intentionally does not go through an
+            // SSRF check — this whitelist *is* the boundary. Unknown or
+            // unverifiable target → skip + audit warn (fail-closed per target;
+            // a sibling broken target never blocks the others).
+            let whitelisted = crate::get_channel_db()
+                .map(|db| {
+                    db.conversation_exists(
+                        &target.channel_id,
+                        &target.account_id,
+                        &target.chat_id,
+                        target.thread_id.as_deref(),
+                    )
+                    .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if !whitelisted {
+                app_warn!(
+                    "cron",
+                    "delivery",
+                    "refusing delivery of job '{}' to unrecorded target {}:{} \
+                     (not in channel_conversations whitelist)",
+                    job.name,
+                    target.channel_id,
+                    target.chat_id
+                );
+                return;
+            }
+
             let Some(account) = store.channels.find_account(&target.account_id) else {
                 app_warn!(
                     "cron",

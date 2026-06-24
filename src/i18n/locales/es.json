@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Eliminar tarea programada",
+        "body": "El modelo va a eliminar permanentemente una de tus tareas programadas. El modo predeterminado pregunta cada vez; el modo inteligente puede decidir y YOLO lo omite. Permitir siempre está disponible."
+      },
       "agent_custom_list": {
         "body": "Esta herramienta está en la lista de aprobaciones personalizadas del agente (solo modo Default).",
         "title": "Lista de aprobación personalizada del agente"

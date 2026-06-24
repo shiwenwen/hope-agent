@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Padam tugas berjadual",
+        "body": "Model akan memadamkan salah satu tugas berjadual anda secara kekal. Mod lalai bertanya setiap kali; mod pintar boleh membuat keputusan dan YOLO melangkaunya. Benarkan sentiasa tersedia."
+      },
       "agent_custom_list": {
         "body": "Alat ini berada dalam senarai kelulusan tersuai ejen (mod Default sahaja).",
         "title": "Senarai kelulusan tersuai ejen"

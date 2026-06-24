@@ -61,6 +61,10 @@
     "deny": "拒绝",
     "queueIndicator": "第 {{current}} 个，共 {{total}} 个",
     "reasons": {
+      "cron_delete": {
+        "title": "删除定时任务",
+        "body": "模型即将永久删除你的一个定时任务。默认模式每次询问；智能模式可自行判断，YOLO 跳过。可选「始终允许」。"
+      },
       "agent_custom_list": {
         "body": "Agent 配置里勾选了该工具进入「自定义工具审批」清单，仅 Default 模式下生效。",
         "title": "Agent 自定义审批清单"

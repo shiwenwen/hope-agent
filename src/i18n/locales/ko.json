@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "예약 작업 삭제",
+        "body": "모델이 예약 작업 중 하나를 영구적으로 삭제하려고 합니다. 기본 모드는 매번 확인하고, 스마트 모드는 자동 판단하며, YOLO는 건너뜁니다. '항상 허용'도 사용할 수 있습니다."
+      },
       "agent_custom_list": {
         "body": "이 도구는 에이전트의 사용자 지정 승인 목록에 있습니다(Default 모드에서만 적용).",
         "title": "에이전트 사용자 지정 승인 목록"

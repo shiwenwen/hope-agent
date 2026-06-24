@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Zamanlanmış görevi sil",
+        "body": "Model, zamanlanmış görevlerinizden birini kalıcı olarak silmek üzere. Varsayılan mod her seferinde sorar; akıllı mod karar verebilir ve YOLO atlar. Her zaman izin ver seçeneği kullanılabilir."
+      },
       "agent_custom_list": {
         "body": "Bu araç, ajanın özel onay listesinde yer alıyor (yalnızca Default modu).",
         "title": "Ajan özel onay listesi"

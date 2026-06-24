@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Delete scheduled task",
+        "body": "The model is about to permanently delete one of your scheduled tasks. Default mode asks every time; Smart mode may decide, YOLO skips. AllowAlways is available."
+      },
       "agent_custom_list": {
         "body": "This tool is on the agent's custom-approval list (Default mode only).",
         "title": "Agent custom approval list"

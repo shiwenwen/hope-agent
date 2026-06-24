@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "予約タスクの削除",
+        "body": "モデルが予約タスクを完全に削除しようとしています。デフォルトモードは毎回確認し、スマートモードは自動判断、YOLO はスキップします。「常に許可」も選べます。"
+      },
       "agent_custom_list": {
         "body": "このツールはエージェントのカスタム承認リストに含まれています（Default モードのみ）。",
         "title": "エージェントのカスタム承認リスト"

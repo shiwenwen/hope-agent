@@ -80,6 +80,7 @@ pub enum ApprovalReasonKind {
     MacControlAction,
     MacControlDangerousAction,
     PlanModeAsk,
+    CronDelete,
 }
 
 impl ApprovalReasonKind {
@@ -157,6 +158,10 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
             },
             PlanModeAsk => Self {
                 kind: ApprovalReasonKind::PlanModeAsk,
+                detail: None,
+            },
+            CronDelete => Self {
+                kind: ApprovalReasonKind::CronDelete,
                 detail: None,
             },
         }
@@ -1116,6 +1121,7 @@ mod tests {
                 action: "quit".into(),
             },
             AskReason::PlanModeAsk,
+            AskReason::CronDelete,
         ];
         for reason in &all {
             let kind = ApprovalReasonPayload::from(reason).kind;
