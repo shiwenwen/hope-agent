@@ -679,6 +679,8 @@
     "viewSystemPrompt": "システムプロンプト"
   },
   "cron": {
+    "timezone": "タイムゾーン",
+    "timezoneHint": "スケジュールの時刻はこのタイムゾーンで解釈されます（夏時間に対応）。",
     "active": "実行中",
     "addDeliveryTarget": "配信先を追加",
     "agent": "Agent",

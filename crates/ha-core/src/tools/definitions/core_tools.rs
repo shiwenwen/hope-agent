@@ -516,7 +516,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "timezone": {
                         "type": "string",
-                        "description": "Timezone for cron schedule (default UTC)"
+                        "description": "IANA timezone name for a 'cron' schedule, e.g. 'Asia/Shanghai' / 'America/New_York'. The cron expression's hour/minute fields are interpreted as local wall-clock in this zone (DST-aware). Omit for UTC. Invalid names are rejected. Prefer the user's own timezone unless they ask otherwise."
                     },
                     "prompt": {
                         "type": "string",

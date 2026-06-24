@@ -679,6 +679,8 @@
     "viewSystemPrompt": "系統提示詞"
   },
   "cron": {
+    "timezone": "時區",
+    "timezoneHint": "定時時間按此時區解釋（自動處理夏令時）。",
     "active": "運行中",
     "addDeliveryTarget": "新增目標",
     "agent": "Agent",

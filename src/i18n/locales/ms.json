@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "timezone": "Zon waktu",
+    "timezoneHint": "Masa jadual ditafsirkan mengikut zon waktu ini (mengambil kira waktu siang).",
     "active": "Aktif",
     "addDeliveryTarget": "Tambah sasaran",
     "agent": "Agent",

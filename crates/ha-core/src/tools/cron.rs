@@ -440,10 +440,18 @@ fn parse_schedule(args: &Value) -> Result<CronSchedule> {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'cron_expression' for 'cron' schedule"))?;
             cron::validate_cron_expression(expression)?;
-            let timezone = args
-                .get("timezone")
-                .and_then(|v| v.as_str())
-                .map(String::from);
+            // Trim + validate the timezone against the IANA database up front. An
+            // unknown zone is rejected here rather than silently falling back to
+            // UTC at fire time — that silent fallback is exactly what kept the
+            // dropped-timezone bug invisible.
+            let timezone = match args.get("timezone").and_then(|v| v.as_str()) {
+                Some(raw) if !raw.trim().is_empty() => {
+                    let trimmed = raw.trim();
+                    cron::validate_timezone(trimmed)?;
+                    Some(trimmed.to_string())
+                }
+                _ => None,
+            };
             Ok(CronSchedule::Cron {
                 expression: expression.to_string(),
                 timezone,
@@ -472,7 +480,13 @@ fn schedule_summary(schedule: &CronSchedule) -> String {
                 format!("every {}d", secs / 86400)
             }
         }
-        CronSchedule::Cron { expression, .. } => format!("cron: {}", expression),
+        CronSchedule::Cron {
+            expression,
+            timezone,
+        } => match timezone.as_deref() {
+            Some(tz) => format!("cron: {} ({})", expression, tz),
+            None => format!("cron: {} (UTC)", expression),
+        },
     }
 }
 

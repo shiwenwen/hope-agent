@@ -5,7 +5,9 @@ use rusqlite::{params, Connection};
 use std::str::FromStr;
 use std::sync::Mutex;
 
-use super::schedule::{backoff_delay_ms, compute_next_run, validate_cron_expression};
+use super::schedule::{
+    backoff_delay_ms, compute_next_run, validate_cron_expression, validate_timezone,
+};
 use super::types::*;
 
 // ── CronDB (Persistence Layer) ──────────────────────────────────
@@ -107,6 +109,7 @@ impl CronDB {
         )?;
 
         backfill_every_schedule_start_at(&conn)?;
+        backfill_cron_schedule_timezone(&conn)?;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -117,9 +120,20 @@ impl CronDB {
 
     /// Create a new job from NewCronJob input. Returns the full CronJob.
     pub fn add_job(&self, input: &NewCronJob) -> Result<CronJob> {
-        // Validate cron expression if applicable
-        if let CronSchedule::Cron { ref expression, .. } = input.schedule {
+        // Validate cron expression + timezone if applicable. This is the
+        // persistence chokepoint — enforcing the IANA-timezone red line here
+        // (not only in the agent `manage_cron` tool path) closes the owner-plane
+        // HTTP / Tauri create path, so an invalid zone can never be persisted and
+        // silently fall back to UTC at fire time.
+        if let CronSchedule::Cron {
+            ref expression,
+            ref timezone,
+        } = input.schedule
+        {
             validate_cron_expression(expression)?;
+            if let Some(tz) = timezone {
+                validate_timezone(tz)?;
+            }
         }
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -182,9 +196,17 @@ impl CronDB {
 
     /// Update an existing job.
     pub fn update_job(&self, job: &CronJob) -> Result<()> {
-        // Validate cron expression if applicable
-        if let CronSchedule::Cron { ref expression, .. } = job.schedule {
+        // Validate cron expression + timezone if applicable (persistence
+        // chokepoint — see `add_job`).
+        if let CronSchedule::Cron {
+            ref expression,
+            ref timezone,
+        } = job.schedule
+        {
             validate_cron_expression(expression)?;
+            if let Some(tz) = timezone {
+                validate_timezone(tz)?;
+            }
         }
 
         let now = Utc::now();
@@ -603,21 +625,44 @@ impl CronDB {
                 }
                 results
             }
-            CronSchedule::Cron { expression, .. } => {
+            CronSchedule::Cron {
+                expression,
+                timezone,
+            } => {
                 if let Ok(cron_schedule) = CronExpression::from_str(expression) {
                     let mut results = Vec::new();
                     // Use a time slightly before start to catch events at exactly start
                     let query_start = *start - Duration::seconds(1);
-                    for next in cron_schedule.after(&query_start) {
-                        if next >= *end {
-                            break;
+                    // Window + safety-cap filter on a UTC occurrence. Returns false
+                    // when iteration should stop. Shared by both branches so the
+                    // timezone-aware path and the UTC fallback stay in lock-step
+                    // with `compute_next_cron`'s identical interpretation.
+                    let take = |next_utc: DateTime<Utc>, out: &mut Vec<DateTime<Utc>>| -> bool {
+                        if next_utc >= *end {
+                            return false;
                         }
-                        if next >= *start {
-                            results.push(next);
+                        if next_utc >= *start {
+                            out.push(next_utc);
                         }
-                        // Safety limit
-                        if results.len() >= MAX_CALENDAR_EVENTS_PER_JOB {
-                            break;
+                        out.len() < MAX_CALENDAR_EVENTS_PER_JOB
+                    };
+                    match timezone.as_deref().and_then(super::schedule::parse_timezone) {
+                        // Interpret cron fields as wall-clock in `tz` (DST-aware),
+                        // convert each occurrence back to UTC.
+                        Some(tz) => {
+                            for next in cron_schedule.after(&query_start.with_timezone(&tz)) {
+                                if !take(next.with_timezone(&Utc), &mut results) {
+                                    break;
+                                }
+                            }
+                        }
+                        // No / unknown zone → UTC interpretation (historical).
+                        None => {
+                            for next in cron_schedule.after(&query_start) {
+                                if !take(next, &mut results) {
+                                    break;
+                                }
+                            }
                         }
                     }
                     results
@@ -962,6 +1007,114 @@ fn backfill_every_schedule_start_at(conn: &Connection) -> Result<()> {
             "cron",
             "db",
             "Backfilled every schedule start_at for {} existing job(s)",
+            updates.len()
+        );
+    }
+
+    Ok(())
+}
+
+/// One-time correctness backfill for `Cron` jobs created before the timezone
+/// field was actually honored. The field was persisted but silently dropped at
+/// fire time, so every cron job has been firing in UTC. Populate a missing /
+/// empty timezone with the host's detected IANA zone and recompute `next_run_at`
+/// so the very next fire already lands at the corrected local time (rather than
+/// one stale UTC fire later). Mirrors [`backfill_every_schedule_start_at`].
+///
+/// Idempotent and conservative: rows that already carry a valid zone are
+/// skipped, and the whole pass is a no-op when the host zone can't be detected
+/// or isn't a known IANA name — we leave such rows on the UTC fallback rather
+/// than guess. Runs only at `CronDB::open`, before the scheduler starts, so the
+/// `next_run_at` rewrite races nothing.
+///
+/// The `next_run_at` recompute is gated to clean `status='active' AND
+/// consecutive_failures=0` rows, mirroring the status-gating in `update_job` /
+/// `toggle_job`: a row mid-backoff has `next_run_at = next_slot + backoff`, and a
+/// plain recompute would silently drop the backoff offset. Non-active /
+/// in-backoff rows get the timezone fix only; their `next_run_at` is settled by
+/// the run loop / re-enable path (which recompute with the corrected zone).
+fn backfill_cron_schedule_timezone(conn: &Connection) -> Result<()> {
+    let Some(host_tz) = iana_time_zone::get_timezone()
+        .ok()
+        .filter(|tz| super::schedule::parse_timezone(tz).is_some())
+    else {
+        return Ok(());
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT id, schedule_json, status, consecutive_failures
+         FROM cron_jobs
+         WHERE schedule_json LIKE '%\"type\":\"cron\"%'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+
+    let now = Utc::now();
+    let mut updates: Vec<(String, String, Option<String>)> = Vec::new();
+    for row in rows {
+        let (id, schedule_json, status, consecutive_failures) = row?;
+        let mut schedule: CronSchedule = match serde_json::from_str(&schedule_json) {
+            Ok(schedule) => schedule,
+            Err(e) => {
+                app_warn!(
+                    "cron",
+                    "db",
+                    "Skipping timezone backfill for job {} due to invalid schedule JSON: {}",
+                    id,
+                    e
+                );
+                continue;
+            }
+        };
+
+        if let CronSchedule::Cron { timezone, .. } = &mut schedule {
+            let already_set = timezone
+                .as_deref()
+                .and_then(super::schedule::parse_timezone)
+                .is_some();
+            if already_set {
+                continue;
+            }
+            *timezone = Some(host_tz.clone());
+            // Only rewrite next_run_at for a clean active row — never clobber a
+            // backoff offset or touch a paused/disabled row's stamp.
+            let next_run = if status == "active" && consecutive_failures == 0 {
+                compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
+            } else {
+                None
+            };
+            updates.push((id, serde_json::to_string(&schedule)?, next_run));
+        }
+    }
+    drop(stmt);
+
+    for (id, schedule_json, next_run) in &updates {
+        match next_run {
+            Some(next_run) => conn.execute(
+                "UPDATE cron_jobs SET schedule_json=?1, next_run_at=?2 WHERE id=?3",
+                params![schedule_json, next_run, id],
+            )?,
+            // Invalid expression → couldn't compute a next run; still record the
+            // corrected timezone, leave next_run_at for the run loop to settle.
+            None => conn.execute(
+                "UPDATE cron_jobs SET schedule_json=?1 WHERE id=?2",
+                params![schedule_json, id],
+            )?,
+        };
+    }
+
+    if !updates.is_empty() {
+        app_info!(
+            "cron",
+            "db",
+            "Backfilled timezone ({}) for {} existing cron job(s)",
+            host_tz,
             updates.len()
         );
     }

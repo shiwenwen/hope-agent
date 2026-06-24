@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "timezone": "Zona horaria",
+    "timezoneHint": "La hora de la programación se interpreta en esta zona horaria (considera el horario de verano).",
     "active": "Activa",
     "addDeliveryTarget": "Añadir destino",
     "agent": "Agent",

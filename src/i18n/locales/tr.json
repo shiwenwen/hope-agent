@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "timezone": "Saat dilimi",
+    "timezoneHint": "Zamanlamanın saati bu saat diliminde yorumlanır (yaz saati dahil).",
     "active": "Aktif",
     "addDeliveryTarget": "Hedef ekle",
     "agent": "Agent",

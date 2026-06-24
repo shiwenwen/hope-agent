@@ -679,6 +679,8 @@
     "viewSystemPrompt": "موجه النظام"
   },
   "cron": {
+    "timezone": "المنطقة الزمنية",
+    "timezoneHint": "يُفسَّر وقت الجدولة وفق هذه المنطقة الزمنية (مع مراعاة التوقيت الصيفي).",
     "active": "نشطة",
     "addDeliveryTarget": "إضافة هدف",
     "agent": "Agent",

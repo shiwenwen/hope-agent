@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "timezone": "Timezone",
+    "timezoneHint": "The schedule's time is interpreted in this timezone (DST-aware).",
     "active": "Active",
     "addDeliveryTarget": "Add target",
     "agent": "Agent",

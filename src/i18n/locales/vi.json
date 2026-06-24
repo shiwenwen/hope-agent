@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "timezone": "Múi giờ",
+    "timezoneHint": "Thời gian của lịch được hiểu theo múi giờ này (tự xử lý giờ mùa hè).",
     "active": "Hoạt động",
     "addDeliveryTarget": "Thêm đích",
     "agent": "Agent",

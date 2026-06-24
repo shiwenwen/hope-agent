@@ -116,6 +116,44 @@ export default function CronJobForm({
     [cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr],
   )
 
+  // Timezone for cron schedules: the wall-clock hour/minute fields are
+  // interpreted in this IANA zone (DST-aware). Defaults to the browser's
+  // detected zone for new jobs so "9am" means the user's 9am, not UTC.
+  const [timezone, setTimezone] = useState<string>(() => {
+    if (job?.schedule.type === "cron" && job.schedule.timezone) {
+      return job.schedule.timezone
+    }
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+    } catch {
+      return "UTC"
+    }
+  })
+
+  // Full IANA zone list for the picker, computed once; falls back gracefully on
+  // engines without `Intl.supportedValuesOf`. Always includes UTC.
+  const baseTimezones = useMemo<string[]>(() => {
+    let zones: string[] = []
+    try {
+      const supported = (Intl as { supportedValuesOf?: (key: string) => string[] })
+        .supportedValuesOf
+      if (supported) zones = supported("timeZone")
+    } catch {
+      zones = []
+    }
+    const set = new Set(zones)
+    set.add("UTC")
+    return Array.from(set).sort()
+  }, [])
+
+  // Ensure the current selection renders even when it isn't in the standard list
+  // (e.g. a backfilled host zone the browser doesn't enumerate) — no full re-sort
+  // on every change, just a membership check.
+  const timezoneOptions = useMemo<string[]>(
+    () => (timezone && !baseTimezones.includes(timezone) ? [timezone, ...baseTimezones] : baseTimezones),
+    [baseTimezones, timezone],
+  )
+
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
   const [agentId, setAgentId] = useState(job?.payload.agentId ?? AUTO_AGENT_VALUE)
   const [projectId, setProjectId] = useState(
@@ -324,7 +362,7 @@ export default function CronJobForm({
         }
       }
       case "cron":
-        return { type: "cron", expression: cronExpression, timezone: null }
+        return { type: "cron", expression: cronExpression, timezone: timezone || null }
     }
   }
 
@@ -438,21 +476,43 @@ export default function CronJobForm({
 
           {/* Schedule Config -- Cron (visual builder + raw editor) */}
           {scheduleType === "cron" && (
-            <CronExpressionBuilder
-              cronFreq={cronFreq}
-              setCronFreq={setCronFreq}
-              cronHour={cronHour}
-              setCronHour={setCronHour}
-              cronMinute={cronMinute}
-              setCronMinute={setCronMinute}
-              cronWeekdays={cronWeekdays}
-              toggleWeekday={toggleWeekday}
-              cronMonthDay={cronMonthDay}
-              setCronMonthDay={setCronMonthDay}
-              cronRawExpr={cronRawExpr}
-              setCronRawExpr={setCronRawExpr}
-              cronExpression={cronExpression}
-            />
+            <>
+              <CronExpressionBuilder
+                cronFreq={cronFreq}
+                setCronFreq={setCronFreq}
+                cronHour={cronHour}
+                setCronHour={setCronHour}
+                cronMinute={cronMinute}
+                setCronMinute={setCronMinute}
+                cronWeekdays={cronWeekdays}
+                toggleWeekday={toggleWeekday}
+                cronMonthDay={cronMonthDay}
+                setCronMonthDay={setCronMonthDay}
+                cronRawExpr={cronRawExpr}
+                setCronRawExpr={setCronRawExpr}
+                cronExpression={cronExpression}
+              />
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  {t("cron.timezone")}
+                </label>
+                <Select value={timezone} onValueChange={setTimezone}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {timezoneOptions.map((tz) => (
+                      <SelectItem key={tz} value={tz}>
+                        {tz}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t("cron.timezoneHint")}
+                </p>
+              </div>
+            </>
           )}
 
           {/* Message */}

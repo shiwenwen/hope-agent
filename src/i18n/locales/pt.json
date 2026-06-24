@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "timezone": "Fuso horário",
+    "timezoneHint": "O horário do agendamento é interpretado neste fuso horário (considera o horário de verão).",
     "active": "Ativa",
     "addDeliveryTarget": "Adicionar destino",
     "agent": "Agent",

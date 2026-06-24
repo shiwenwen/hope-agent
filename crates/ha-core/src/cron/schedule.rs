@@ -1,5 +1,6 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc};
+use chrono_tz::Tz;
 use cron::Schedule as CronExpression;
 use std::str::FromStr;
 
@@ -99,14 +100,50 @@ pub fn compute_next_every_run(
 }
 
 /// Parse cron expression and find the next occurrence after `after`.
+///
+/// When `timezone` names a valid IANA zone the cron wall-clock fields are
+/// interpreted in that zone (DST-aware), then converted back to UTC for storage.
+/// An absent / empty / unknown zone falls back to UTC interpretation (the
+/// historical behavior). `parse_schedule` rejects invalid zones up front, so the
+/// `None` fallback here is only hit by zone-less (legacy / explicit-UTC) jobs.
 fn compute_next_cron(
     expression: &str,
-    _timezone: Option<&str>,
+    timezone: Option<&str>,
     after: &DateTime<Utc>,
 ) -> Option<DateTime<Utc>> {
     let schedule = CronExpression::from_str(expression).ok()?;
-    // Find next occurrence after `after`
-    schedule.after(after).next()
+    match timezone.and_then(parse_timezone) {
+        Some(tz) => schedule
+            .after(&after.with_timezone(&tz))
+            .next()
+            .map(|dt| dt.with_timezone(&Utc)),
+        None => schedule.after(after).next(),
+    }
+}
+
+/// Parse an IANA timezone name (e.g. `Asia/Shanghai`, `America/New_York`, `UTC`)
+/// into a [`chrono_tz::Tz`]. Trims surrounding whitespace; returns `None` for an
+/// empty or unknown name. Single source of truth for cron timezone parsing —
+/// shared by schedule computation, calendar expansion, create-time validation,
+/// and the legacy backfill so they never disagree on what a valid zone is.
+pub fn parse_timezone(s: &str) -> Option<Tz> {
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed.parse::<Tz>().ok()
+}
+
+/// Validate an IANA timezone name: `Ok(())` for a known zone, `Err` otherwise.
+pub fn validate_timezone(s: &str) -> Result<()> {
+    if parse_timezone(s).is_some() {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "Invalid timezone '{}': expected an IANA name like 'Asia/Shanghai' or 'UTC'",
+            s.trim()
+        )
+    }
 }
 
 /// Validate a cron expression. Returns Ok if valid, Err with message if not.
@@ -127,7 +164,10 @@ pub fn backoff_delay_ms(consecutive_failures: u32) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_next_every_run, compute_next_run, parse_flexible_timestamp};
+    use super::{
+        compute_next_every_run, compute_next_run, parse_flexible_timestamp, parse_timezone,
+        validate_timezone,
+    };
     use crate::cron::CronSchedule;
     use chrono::Utc;
 
@@ -188,5 +228,86 @@ mod tests {
             parse_flexible_timestamp("2026-04-22T12:25:00Z").unwrap()
         );
         assert!(next > after.with_timezone(&Utc));
+    }
+
+    #[test]
+    fn cron_schedule_respects_timezone() {
+        // 09:00 in Asia/Shanghai (UTC+8, no DST) == 01:00 UTC.
+        let after = parse_flexible_timestamp("2026-06-01T00:00:00Z").unwrap();
+        let next = compute_next_run(
+            &CronSchedule::Cron {
+                expression: "0 0 9 * * * *".into(),
+                timezone: Some("Asia/Shanghai".into()),
+            },
+            &after,
+        )
+        .expect("next");
+        assert_eq!(
+            next,
+            parse_flexible_timestamp("2026-06-01T01:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn cron_schedule_without_timezone_is_utc() {
+        // No zone → cron fields interpreted as UTC wall-clock (historical).
+        let after = parse_flexible_timestamp("2026-06-01T00:00:00Z").unwrap();
+        let next = compute_next_run(
+            &CronSchedule::Cron {
+                expression: "0 0 9 * * * *".into(),
+                timezone: None,
+            },
+            &after,
+        )
+        .expect("next");
+        assert_eq!(
+            next,
+            parse_flexible_timestamp("2026-06-01T09:00:00Z").unwrap()
+        );
+    }
+
+    #[test]
+    fn timezone_parsing_and_validation() {
+        assert!(parse_timezone("Asia/Shanghai").is_some());
+        assert!(parse_timezone("  America/New_York  ").is_some()); // trims
+        assert!(parse_timezone("UTC").is_some());
+        assert!(parse_timezone("").is_none());
+        assert!(parse_timezone("   ").is_none());
+        assert!(parse_timezone("Not/AZone").is_none());
+        assert!(validate_timezone("Europe/London").is_ok());
+        assert!(validate_timezone("Mars/Phobos").is_err());
+    }
+
+    #[test]
+    fn cron_dst_spring_forward_does_not_panic() {
+        // America/New_York springs forward 2026-03-08 02:00 → 03:00, so a daily
+        // 02:30 fire is a nonexistent wall-clock that day. The cron crate must
+        // skip it gracefully (no panic) and still make progress.
+        let after = parse_flexible_timestamp("2026-03-08T06:00:00Z").unwrap(); // 01:00 EST
+        let next = compute_next_run(
+            &CronSchedule::Cron {
+                expression: "0 30 2 * * * *".into(),
+                timezone: Some("America/New_York".into()),
+            },
+            &after,
+        );
+        assert!(next.is_some(), "DST gap must not yield None");
+        assert!(next.unwrap() > after);
+    }
+
+    #[test]
+    fn cron_dst_fall_back_does_not_panic() {
+        // America/New_York falls back 2026-11-01 02:00 → 01:00, so 01:30 occurs
+        // twice. Iteration must not panic and must make progress.
+        let after = parse_flexible_timestamp("2026-11-01T04:00:00Z").unwrap(); // 00:00 EDT
+        let next = compute_next_run(
+            &CronSchedule::Cron {
+                expression: "0 30 1 * * * *".into(),
+                timezone: Some("America/New_York".into()),
+            },
+            &after,
+        );
+        assert!(next.is_some());
+        assert!(next.unwrap() > after);
     }
 }
