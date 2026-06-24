@@ -5,6 +5,12 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **浏览器扩展引导横幅更克制**：聊天页的 Chrome 扩展引导横幅现在出现 / 收起都有平滑动画；启动或浏览器动作触发后的延迟复查从 6 秒延长到 30 秒，减少扩展重连窗口里误弹提示的情况。
+
 ## [0.12.0] - 2026-06-23
 
 ### Added

@@ -5,6 +5,7 @@ import IconChrome from "~icons/logos/chrome"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { cn } from "@/lib/utils"
 import type { SettingsSection } from "@/components/settings/types"
 
 // Persisted "don't show again" flag. UI-only state, so localStorage is the right
@@ -15,7 +16,8 @@ const DISMISS_KEY = "ha:browserExtensionNudgeDismissed"
 // is briefly "not connected" while it reconnects (host respawn + hello). We wait
 // this out and re-check, so a transient reconnect window never flashes a banner —
 // only a genuinely-unavailable extension does.
-const SHOW_GRACE_MS = 6000
+const SHOW_GRACE_MS = 30_000
+const BANNER_ANIMATION_MS = 220
 
 interface BrowserConfigShape {
   backendPreference?: string
@@ -58,9 +60,12 @@ export function BrowserExtensionNudge({
 }) {
   const { t } = useTranslation()
   const [kind, setKind] = useState<string | null>(null)
+  const [bannerVisible, setBannerVisible] = useState(false)
   const dismissedRef = useRef<boolean>(readDismissed())
   const confirmTimerRef = useRef<number | null>(null)
-  // Guards the post-await setKind: the confirm timer fires an async probe, and
+  const enterFrameRef = useRef<number | null>(null)
+  const hideTimerRef = useRef<number | null>(null)
+  // Guards the post-await state updates: the confirm timer fires an async probe, and
   // the component can unmount during that await. Clearing the timer on cleanup
   // doesn't help once the callback has already entered the async body.
   const mountedRef = useRef(true)
@@ -68,7 +73,49 @@ export function BrowserExtensionNudge({
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      if (confirmTimerRef.current != null) {
+        clearTimeout(confirmTimerRef.current)
+        confirmTimerRef.current = null
+      }
+      if (enterFrameRef.current != null) {
+        cancelAnimationFrame(enterFrameRef.current)
+        enterFrameRef.current = null
+      }
+      if (hideTimerRef.current != null) {
+        clearTimeout(hideTimerRef.current)
+        hideTimerRef.current = null
+      }
     }
+  }, [])
+
+  const showBanner = useCallback((nextKind: string) => {
+    if (hideTimerRef.current != null) {
+      clearTimeout(hideTimerRef.current)
+      hideTimerRef.current = null
+    }
+    if (enterFrameRef.current != null) {
+      cancelAnimationFrame(enterFrameRef.current)
+      enterFrameRef.current = null
+    }
+    setKind(nextKind)
+    setBannerVisible(false)
+    enterFrameRef.current = window.requestAnimationFrame(() => {
+      enterFrameRef.current = null
+      if (mountedRef.current) setBannerVisible(true)
+    })
+  }, [])
+
+  const hideBanner = useCallback(() => {
+    if (enterFrameRef.current != null) {
+      cancelAnimationFrame(enterFrameRef.current)
+      enterFrameRef.current = null
+    }
+    setBannerVisible(false)
+    if (hideTimerRef.current != null) clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = window.setTimeout(() => {
+      hideTimerRef.current = null
+      if (mountedRef.current) setKind(null)
+    }, BANNER_ANIMATION_MS)
   }, [])
 
   // Confirm-then-show: never surface immediately. Wait out the post-restart
@@ -89,13 +136,13 @@ export function BrowserExtensionNudge({
         const extensionIsDefault =
           cfg.backendPreference !== "cdp_only" && cfg.extension?.enabled !== false
         if (extensionIsDefault && !status.backendAvailable) {
-          setKind(status.kind)
+          showBanner(status.kind)
         }
       } catch (e) {
         logger.error("chat", "BrowserExtensionNudge", `confirm probe failed: ${e}`)
       }
     }, SHOW_GRACE_MS)
-  }, [])
+  }, [showBanner])
 
   // Proactive (first-run discovery): confirm after the grace delay on mount.
   useEffect(() => {
@@ -147,7 +194,7 @@ export function BrowserExtensionNudge({
           "Install the Hope Agent extension to operate your signed-in Chrome. For now it runs in an isolated browser.",
       })
 
-  const dismissForNow = () => setKind(null)
+  const dismissForNow = () => hideBanner()
   const dismissForever = () => {
     try {
       localStorage.setItem(DISMISS_KEY, "1")
@@ -155,45 +202,56 @@ export function BrowserExtensionNudge({
       /* ignore */
     }
     dismissedRef.current = true
-    setKind(null)
+    hideBanner()
   }
 
   return (
-    <div className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
-      <div className="flex items-start gap-3">
-        {isReload ? (
-          <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-        ) : (
-          <IconChrome className="mt-0.5 h-4 w-4 shrink-0" />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-foreground">{title}</div>
-          <p className="text-xs text-muted-foreground">{body}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7"
-            onClick={() => {
-              onOpenSettings?.("browser")
-              dismissForNow()
-            }}
-          >
-            {t("chat.browserExtensionNudge.openSettings", { defaultValue: "Open settings" })}
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7" onClick={dismissForever}>
-            {t("chat.browserExtensionNudge.dismiss", { defaultValue: "Don’t show again" })}
-          </Button>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            onClick={dismissForNow}
-            aria-label={t("common.close", { defaultValue: "Close" })}
-          >
-            <X className="h-3.5 w-3.5" />
-          </Button>
+    <div
+      className={cn(
+        "grid shrink-0 overflow-hidden transition-[grid-template-rows,opacity,transform] duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none",
+        bannerVisible
+          ? "grid-rows-[1fr] translate-y-0 opacity-100"
+          : "grid-rows-[0fr] -translate-y-1 opacity-0",
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
+          <div className="flex items-start gap-3">
+            {isReload ? (
+              <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+            ) : (
+              <IconChrome className="mt-0.5 h-4 w-4 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-foreground">{title}</div>
+              <p className="text-xs text-muted-foreground">{body}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={() => {
+                  onOpenSettings?.("browser")
+                  dismissForNow()
+                }}
+              >
+                {t("chat.browserExtensionNudge.openSettings", { defaultValue: "Open settings" })}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7" onClick={dismissForever}>
+                {t("chat.browserExtensionNudge.dismiss", { defaultValue: "Don’t show again" })}
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                onClick={dismissForNow}
+                aria-label={t("common.close", { defaultValue: "Close" })}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
