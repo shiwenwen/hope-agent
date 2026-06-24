@@ -646,7 +646,10 @@ impl CronDB {
                         }
                         out.len() < MAX_CALENDAR_EVENTS_PER_JOB
                     };
-                    match timezone.as_deref().and_then(super::schedule::parse_timezone) {
+                    match timezone
+                        .as_deref()
+                        .and_then(super::schedule::parse_timezone)
+                    {
                         // Interpret cron fields as wall-clock in `tz` (DST-aware),
                         // convert each occurrence back to UTC.
                         Some(tz) => {

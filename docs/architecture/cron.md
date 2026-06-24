@@ -253,6 +253,27 @@ flowchart TD
     AA --> AB[emit cron:run_completed<br/>status=error]
 ```
 
+## 运行身份与 KB 访问（`ChatSource::Cron`）
+
+cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 [`ChatSource::Cron`](../../crates/ha-core/src/chat_engine/stream_seq.rs)（早期复用 `Channel` 桶，已废弃）。这个 source 的语义定位是**「后台、非交互，但 owner-internal 的顶层会话」**：
+
+| 维度 | Cron | 理由 |
+|------|------|------|
+| `holds_foreground_idle_guard` | ✅ | 后台 job / subagent 完成注入必须让位于在跑的 cron turn（R2 §5.4），否则注入打在活跃 turn 上 |
+| `fires_user_lifecycle_hooks` | ✅ | cron 是合法顶层会话（无 subagent 级联风险），`SessionStart` 等照常触发 |
+| `tracks_seq` | ✅ | cron 会话真实可持久化、用户可见；注册进 stream_seq 还顺带拿到「同会话第二条流被拒」的并发流守卫 |
+| `broadcasts_to_user_ui` | ❌ | 后台 turn，不上主 `chat:stream_delta` bus；结果走 `delivery_targets` fan-out 到 IM |
+| `active_counts` 桶 | 不计 | cron 不是 desktop/http/channel 交互会话，与 `Subagent` / `ParentInjection` 同属后台、不进状态条计数 |
+| `kb_access_source` | `KbAccessSource::Cron` | **非 IM owner 桶**：见下 |
+
+**KB 访问（D10 + WS8）**：`engine.rs::kb_access_source` 把 `ChatSource::Cron` 映射到 `KbAccessSource::Cron`。该桶 `is_im() == false`，故 `effective_kb_access` 的 `im_lineage_denied` 不触发，cron turn 走 owner 的 `max(session_attach, project_attach)` 路径 —— 与桌面 / HTTP owner turn 同权，`note_*` / `[[note]]` / `knowledge_recall` 在 cron 会话 attach / 所属 project 的 KB 上正常可用。早期 cron 背 `Channel` → `Im` → WS8 无 `channel_kb_context` 一律拒，导致**定时任务静默拿不到任何 KB**，本节即修复该缺陷。
+
+红线：
+
+- **incognito 仍归零** —— `effective_kb_access` 的 incognito 短路在 IM 门之前，cron 不豁免（cron 与 incognito 本就互斥，双保险）。
+- **subagent 血缘不洗权限** —— cron 起的 subagent 继承 `origin_source = Cron`（executor 传 `origin_source: None`，引擎按 `source` 派生），`Cron` 非 IM 故子代理同样走 owner 路径、不被 WS8 拒；反之一个 IM origin 的链条即便中途 source 变也仍按 origin 判定。
+- **owner KB 读 + `delivery_targets` 投递是两道独立门** —— cron 能读 KB（owner）与 cron 能投递到某 IM chat（§1 白名单 `channel_conversations`）各自裁决；「定时任务读 KB 再投递到用户自己配置的 IM 会话」是用户显式意图，投递边界由 §1 白名单守。
+
 ## 调度计算：compute_next_run
 
 三种 `CronSchedule` 类型的下次执行时间计算：

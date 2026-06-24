@@ -117,8 +117,8 @@ pub(crate) async fn execute_claimed_job(
 
     // Persist the cron prompt before execution so `run_chat_engine` can reuse
     // the same DB contract as interactive chat without duplicating user rows.
-    let mut user_msg = crate::session::NewMessage::user(&prompt)
-        .with_source(crate::chat_engine::ChatSource::Channel);
+    let mut user_msg =
+        crate::session::NewMessage::user(&prompt).with_source(crate::chat_engine::ChatSource::Cron);
     user_msg.attachments_meta = Some(
         serde_json::json!({
             "cron_trigger": {
@@ -435,14 +435,13 @@ pub async fn build_and_run_agent_with_context(
         post_turn_effects: true,
         abort_on_cancel: false,
         persist_final_error_event: true,
-        // Cron is a background/non-interactive runner. Reuse the channel bucket
-        // until the status UI grows a dedicated cron source.
-        source: crate::chat_engine::stream_seq::ChatSource::Channel,
+        // Cron is a background/non-interactive runner, but owner-internal: it
+        // holds the foreground idle guard and gets owner-plane KB access (maps to
+        // `KbAccessSource::Cron`, NOT the IM cap). `origin_source: None` lets the
+        // engine derive the origin from `source`, so a subagent spawned by this
+        // cron run inherits the non-IM `Cron` origin and isn't WS8-denied.
+        source: crate::chat_engine::stream_seq::ChatSource::Cron,
         origin_source: None,
-        // Cron reuses the `Channel` source bucket (for activeChatCounts), which
-        // maps to `KbAccessSource::Im`; with no `channel_kb_context` the WS8 gate
-        // denies, so cron turns currently get zero KB access. A dedicated
-        // `ChatSource::Cron` (owner-internal) is the follow-up to grant it.
         channel_kb_context: None,
         event_sink: Arc::new(crate::chat_engine::NoopEventSink),
     };
@@ -483,7 +482,7 @@ fn persist_failure_message_if_missing(
     }
 
     let mut err_msg = crate::session::NewMessage::assistant(err_text)
-        .with_source(crate::chat_engine::ChatSource::Channel);
+        .with_source(crate::chat_engine::ChatSource::Cron);
     err_msg.is_error = Some(true);
     let _ = session_db.append_message(session_id, &err_msg);
 }

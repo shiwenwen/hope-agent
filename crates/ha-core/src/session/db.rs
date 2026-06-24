@@ -58,7 +58,7 @@ const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
 const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
            s.created_at, s.updated_at,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') != 'channel') as unread_count,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') != 'channel') as unread_count,
            EXISTS(
              SELECT 1 FROM messages m
              WHERE m.session_id = s.id
@@ -294,12 +294,14 @@ impl SessionDB {
             )?;
         }
 
-        // Migration: lowercase `ChatSource` of the caller that drove this
-        // turn (`desktop` / `http` / `channel` / `subagent` / `parent_injection`).
-        // Drives the IM-vs-desktop unread-badge split in `unread_count` and
-        // the GUI→IM mirror's user-quote prefix. Legacy rows stay NULL and
+        // Migration: lowercase `ChatSource` of the caller that drove this turn
+        // (`desktop` / `http` / `channel` / `subagent` / `parent_injection` /
+        // `cron`). Drives the IM-vs-desktop unread-badge split in `unread_count`
+        // and the GUI→IM mirror's user-quote prefix. Legacy rows stay NULL and
         // are treated as `desktop` by readers (`COALESCE(source, 'desktop')`),
-        // preserving any existing unread badges.
+        // preserving any existing unread badges. NOTE: cron-session unread is
+        // suppressed by `s.is_cron = 0` in the unread subquery, NOT by the source
+        // string — don't rely on `source != 'channel'` to hide cron rows.
         let has_source = conn.prepare("SELECT source FROM messages LIMIT 1").is_ok();
         if !has_source {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
@@ -3801,6 +3803,57 @@ mod tests {
 
         assert_eq!(session_ids.len(), 1, "got hits from {:?}", session_ids);
         assert!(session_ids.contains(regular.id.as_str()));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn unread_count_excludes_cron_sessions() {
+        // §3 regression: cron runs persist assistant rows with source="cron"
+        // (previously "channel", which silently rode the `!= 'channel'` unread
+        // suppressor). Unread suppression for cron is now keyed on `s.is_cron = 0`
+        // in the SESSION_META_SELECT subquery, independent of the source string —
+        // a cron session must never accrue an unread badge while a regular
+        // session still does.
+        let db_path = temp_db_path("session-unread-excludes-cron");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        // SESSION_META_SELECT LEFT JOINs channel_conversations (owned by ChannelDB);
+        // create it so `get_session` can hydrate the unread subquery.
+        ensure_channel_conversations_table(&db);
+
+        let regular = db.create_session("ha-main").expect("regular session");
+        db.append_message(
+            &regular.id,
+            &NewMessage::assistant("regular reply")
+                .with_source(crate::chat_engine::ChatSource::Desktop),
+        )
+        .expect("append regular assistant");
+
+        let cron = db.create_session("ha-main").expect("cron session");
+        db.mark_session_cron(&cron.id).expect("mark cron");
+        db.append_message(
+            &cron.id,
+            &NewMessage::assistant("cron output").with_source(crate::chat_engine::ChatSource::Cron),
+        )
+        .expect("append cron assistant");
+
+        let regular_meta = db
+            .get_session(&regular.id)
+            .expect("get regular")
+            .expect("regular exists");
+        let cron_meta = db
+            .get_session(&cron.id)
+            .expect("get cron")
+            .expect("cron exists");
+
+        assert_eq!(
+            regular_meta.unread_count, 1,
+            "regular assistant reply should count as unread"
+        );
+        assert_eq!(
+            cron_meta.unread_count, 0,
+            "cron output must never accrue an unread badge"
+        );
 
         let _ = std::fs::remove_file(&db_path);
     }

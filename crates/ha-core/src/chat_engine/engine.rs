@@ -1886,6 +1886,11 @@ fn collect_partial_meta_from_runtime(
 /// Map the chat-engine turn source to a knowledge-base access source (design
 /// D10). IM (`Channel`) turns are denied KB access in Phase 1 even on a
 /// project-attached session; `ParentInjection` is treated conservatively.
+/// `Cron` is owner-internal (user-configured scheduled task): it maps to the
+/// `Cron` bucket, which is NOT IM-capped, so a cron run reaches `note_*` /
+/// `[[note]]` / `knowledge_recall` on its attached/project KBs the same way an
+/// owner turn does — incognito still zeroes it via the `effective_kb_access`
+/// short-circuit.
 fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAccessSource {
     use crate::knowledge::KbAccessSource;
     use stream_seq::ChatSource;
@@ -1895,6 +1900,7 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
         ChatSource::Channel => KbAccessSource::Im,
         ChatSource::Subagent => KbAccessSource::Subagent,
         ChatSource::ParentInjection => KbAccessSource::Other,
+        ChatSource::Cron => KbAccessSource::Cron,
     }
 }
 
@@ -1905,8 +1911,9 @@ fn kb_access_source(source: stream_seq::ChatSource) -> crate::knowledge::KbAcces
 /// down the parent's live browser scope (close agent tabs, drop claim leases)
 /// mid-task while the user may still be working in that session. The parent's
 /// own foreground turns and session teardown handle cleanup, so injection turns
-/// must skip it. Other sources (`Desktop`/`Http`/`Channel`/`Subagent`) finalize
-/// their own session scope, which matches the documented turn-end release.
+/// must skip it. Other sources (`Desktop`/`Http`/`Channel`/`Subagent`/`Cron`)
+/// finalize their own session scope, which matches the documented turn-end
+/// release.
 fn schedule_browser_turn_finalize(source: stream_seq::ChatSource, session_id: &str) {
     if matches!(source, stream_seq::ChatSource::ParentInjection) {
         return;
