@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "jobTimeout": "Had masa (s)",
+    "jobTimeoutHint": "Saat maksimum satu tugas berjadual boleh berjalan sebelum ditinggalkan dan slotnya dibebaskan (30–7200 s).",
     "maxConcurrent": "Maks. serentak",
     "maxConcurrentHint": "Bilangan maksimum tugas berjadual yang berjalan serentak (0 = tanpa had). Tugas tertunggak lebihan menunggu semakan seterusnya.",
     "timezone": "Zon waktu",
@@ -1706,6 +1708,13 @@
     "video": "Video"
   },
   "notification": {
+    "cronDisabled": "Tugas berjadual dilumpuhkan",
+    "cronDisabledBody": "{{name}} — dilumpuhkan selepas {{count}} kegagalan berturut-turut ({{reason}})",
+    "cronReason": {
+      "timeout": "tamat masa",
+      "configuration": "ralat konfigurasi",
+      "transient": "ralat berulang"
+    },
     "agentDesc": "Penggantian pemberitahuan setiap Agent. Apabila ditetapkan kepada Lalai, ia menggunakan tetapan global.",
     "agentSection": "Pemberitahuan Agent",
     "approvalRequired": "Kelulusan alat diperlukan",

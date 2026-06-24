@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "jobTimeout": "Tiempo límite (s)",
+    "jobTimeoutHint": "Segundos máximos que una tarea programada puede ejecutarse antes de abandonarse y liberar su ranura (30–7200 s).",
     "maxConcurrent": "Máx. concurrentes",
     "maxConcurrentHint": "Máximo de tareas programadas ejecutándose a la vez (0 = sin límite). Las tareas vencidas adicionales esperan a la siguiente comprobación.",
     "timezone": "Zona horaria",
@@ -1706,6 +1708,13 @@
     "video": "Vídeo"
   },
   "notification": {
+    "cronDisabled": "Tarea programada deshabilitada",
+    "cronDisabledBody": "{{name}}: deshabilitada tras {{count}} fallos consecutivos ({{reason}})",
+    "cronReason": {
+      "timeout": "tiempo agotado",
+      "configuration": "error de configuración",
+      "transient": "errores repetidos"
+    },
     "agentDesc": "Anulación de notificaciones por Agent. Cuando se establece como Por defecto, usa el ajuste global.",
     "agentSection": "Notificaciones de Agent",
     "approvalRequired": "Se requiere aprobación de herramienta",

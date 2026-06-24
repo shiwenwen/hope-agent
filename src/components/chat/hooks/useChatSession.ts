@@ -501,8 +501,26 @@ export function useChatSession({
         job_name: string
         status: string
         notify: boolean
+        auto_disabled?: boolean
+        consecutive_failures?: number
+        failure_reason?: string
       }
-      if (payload.notify && payload.job_name) {
+      if (!payload.job_name) return
+      if (payload.auto_disabled) {
+        // Auto-disable always notifies (overrides notify_on_complete) — the user
+        // must know a scheduled task stopped running (§5).
+        const reason = payload.failure_reason
+          ? t(`notification.cronReason.${payload.failure_reason}`, payload.failure_reason)
+          : ""
+        notify(
+          t("notification.cronDisabled"),
+          t("notification.cronDisabledBody", {
+            name: payload.job_name,
+            count: payload.consecutive_failures ?? 0,
+            reason,
+          }),
+        )
+      } else if (payload.notify) {
         const title =
           payload.status === "success" ? t("notification.cronSuccess") : t("notification.cronError")
         notify(title, payload.job_name)

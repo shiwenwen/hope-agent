@@ -447,12 +447,22 @@ pub struct CronConfig {
     /// Default: 5. `0` = unlimited.
     #[serde(default = "default_cron_max_concurrent")]
     pub max_concurrent: u32,
+
+    /// Per-run wall-clock timeout in seconds. Each cron run is wrapped in this
+    /// budget; on expiry the run is abandoned (recorded as a `timeout` failure)
+    /// and its concurrency slot is freed. Unlike `max_concurrent`, `0` is NOT
+    /// "unlimited" — a genuinely wedged run (an infinite loop, not a panic) is
+    /// only freed by this timeout, so it is clamped to a safe band at read:
+    /// `[30, 7200]` (30s–2h). Default: 300 (5min).
+    #[serde(default = "default_cron_job_timeout_secs")]
+    pub job_timeout_secs: u64,
 }
 
 impl Default for CronConfig {
     fn default() -> Self {
         Self {
             max_concurrent: default_cron_max_concurrent(),
+            job_timeout_secs: default_cron_job_timeout_secs(),
         }
     }
 }
@@ -465,6 +475,13 @@ impl CronConfig {
             n => Some(n as usize),
         }
     }
+
+    /// Per-run timeout, clamped to the safe band `[30, 7200]` seconds. `0` (or any
+    /// sub-floor value) floors to 30s — never unlimited, so a wedged run can't
+    /// hold its concurrency slot indefinitely.
+    pub fn effective_job_timeout_secs(&self) -> u64 {
+        self.job_timeout_secs.clamp(30, 7200)
+    }
 }
 
 pub use crate::permission::ApprovalTimeoutAction;
@@ -474,6 +491,10 @@ pub use crate::permission::UnattendedApprovalAction;
 
 fn default_cron_max_concurrent() -> u32 {
     5
+}
+
+fn default_cron_job_timeout_secs() -> u64 {
+    300
 }
 
 fn default_skill_env_check() -> bool {
@@ -1325,6 +1346,57 @@ mod async_tools_defaults_tests {
             default_wakeup_max_pending_per_session()
         );
         assert_eq!(default_wakeup_max_pending_per_session(), 5);
+    }
+
+    #[test]
+    fn cron_config_defaults_and_clamps() {
+        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 300s.
+        let d = CronConfig::default();
+        assert_eq!(d.max_concurrent, 5);
+        assert_eq!(d.job_timeout_secs, 300);
+        assert_eq!(d.effective_max_concurrent(), Some(5));
+        assert_eq!(
+            CronConfig {
+                max_concurrent: 0,
+                ..d.clone()
+            }
+            .effective_max_concurrent(),
+            None
+        );
+        // Timeout clamps to [30, 7200] at read — 0 floors to 30 (never unlimited),
+        // huge values cap at 7200, in-band values pass through.
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 0,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            30
+        );
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 5,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            30
+        );
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 600,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            600
+        );
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 999_999,
+                ..d
+            }
+            .effective_job_timeout_secs(),
+            7200
+        );
     }
 
     #[test]

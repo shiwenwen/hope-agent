@@ -174,11 +174,14 @@ pub(crate) async fn execute_claimed_job(
     );
     let _ = session_db.append_message(&session_id, &user_msg);
 
-    // Build agent from app config (with 5-minute timeout to prevent blocking scheduler)
-    const CRON_JOB_TIMEOUT_SECS: u64 = 300;
+    // Per-run timeout (configurable, clamped to [30, 7200]s) to keep a wedged run
+    // from holding its concurrency slot indefinitely (§5).
+    let timeout_secs = crate::config::cached_config()
+        .cron
+        .effective_job_timeout_secs();
     let cancel_flag = super::cancel::register(&job.id);
     let result = match tokio::time::timeout(
-        std::time::Duration::from_secs(CRON_JOB_TIMEOUT_SECS),
+        std::time::Duration::from_secs(timeout_secs),
         build_and_run_agent_with_cancel(
             &agent_id,
             &prompt,
@@ -196,11 +199,11 @@ pub(crate) async fn execute_claimed_job(
                 "executor",
                 "Job '{}' timed out after {}s",
                 job.name,
-                CRON_JOB_TIMEOUT_SECS
+                timeout_secs
             );
             Err(anyhow::anyhow!(
                 "Cron job timed out after {}s",
-                CRON_JOB_TIMEOUT_SECS
+                timeout_secs
             ))
         }
     };
@@ -261,8 +264,16 @@ pub(crate) async fn execute_claimed_job(
             emit_cron_event(&job.id, &job.name, "success", job.notify_on_complete);
         }
         Err(e) => {
-            app_error!("cron", "executor", "Job '{}' failed: {}", job.name, e);
             let err_text = e.to_string();
+            let class = super::failure::CronFailureClass::classify(&err_text);
+            app_error!(
+                "cron",
+                "executor",
+                "Job '{}' failed ({}): {}",
+                job.name,
+                class.key(),
+                e
+            );
             persist_failure_message_if_missing(session_db, &session_id, &err_text);
 
             // Notify IM channel targets of the failure before bookkeeping.
@@ -273,7 +284,7 @@ pub(crate) async fn execute_claimed_job(
                 &job,
                 &started_at,
                 start_time,
-                "error",
+                class.run_log_status(),
                 &err_text,
                 &session_id,
             );
@@ -556,11 +567,30 @@ pub(crate) fn record_failure(
         error: Some(error.to_string()),
     };
     let _ = cron_db.add_run_log(&run_log);
-    let _ = cron_db.update_after_run(&job.id, false, &job.schedule);
+    let auto_disabled = cron_db
+        .update_after_run(&job.id, false, &job.schedule)
+        .unwrap_or(false);
     let _ = cron_db.clear_running(&job.id);
 
-    // Emit Tauri event
-    emit_cron_event(&job.id, &job.name, "error", job.notify_on_complete);
+    if auto_disabled {
+        // The job just crossed its max_failures threshold and was disabled.
+        // Always notify (overriding notify_on_complete) — a silently dead
+        // scheduled task is exactly the failure mode this surfaces (§5).
+        let consecutive = job.consecutive_failures.saturating_add(1);
+        let reason = super::failure::CronFailureClass::classify(error).key();
+        app_warn!(
+            "cron",
+            "executor",
+            "Job '{}' ({}) auto-disabled after {} consecutive failures (last: {})",
+            job.name,
+            job.id,
+            consecutive,
+            reason
+        );
+        emit_cron_disabled_event(&job.id, &job.name, consecutive, reason);
+    } else {
+        emit_cron_event(&job.id, &job.name, "error", job.notify_on_complete);
+    }
 }
 
 fn record_cancelled(
@@ -595,6 +625,31 @@ pub(crate) fn emit_cron_event(job_id: &str, job_name: &str, status: &str, notify
             "job_name": job_name,
             "status": status,
             "notify": notify,
+        });
+        bus.emit("cron:run_completed", payload);
+    }
+}
+
+/// Emit the one-shot "job auto-disabled" signal (§5). Rides the same
+/// `cron:run_completed` channel the frontend already listens on, but forces
+/// `notify=true` and carries `auto_disabled` + the consecutive-failure count +
+/// the failure-reason key so the GUI shows a distinct, always-on notification
+/// regardless of the job's `notify_on_complete` preference.
+pub(crate) fn emit_cron_disabled_event(
+    job_id: &str,
+    job_name: &str,
+    consecutive_failures: u32,
+    reason_key: &str,
+) {
+    if let Some(bus) = crate::get_event_bus() {
+        let payload = serde_json::json!({
+            "job_id": job_id,
+            "job_name": job_name,
+            "status": "error",
+            "notify": true,
+            "auto_disabled": true,
+            "consecutive_failures": consecutive_failures,
+            "failure_reason": reason_key,
         });
         bus.emit("cron:run_completed", payload);
     }

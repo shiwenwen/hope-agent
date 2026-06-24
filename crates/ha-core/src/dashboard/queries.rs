@@ -439,9 +439,12 @@ pub fn query_tasks(
     };
 
     let sql = format!(
+        // `failed_runs` counts every non-success terminal failure — including the
+        // §5 `'timeout'` status, otherwise timeouts would be invisible failures
+        // (counted in total but neither success nor failed).
         "SELECT COUNT(*),
                 COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN status IN ('error', 'timeout') THEN 1 ELSE 0 END), 0),
                 COALESCE(AVG(duration_ms), 0.0)
          FROM cron_run_logs
          {}",

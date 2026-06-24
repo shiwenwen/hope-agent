@@ -679,6 +679,8 @@
     "viewSystemPrompt": "システムプロンプト"
   },
   "cron": {
+    "jobTimeout": "タイムアウト(秒)",
+    "jobTimeoutHint": "1 つのスケジュールタスクが実行できる最大秒数。超過すると中断され、スロットが解放されます（30〜7200 秒）。",
     "maxConcurrent": "最大同時実行",
     "maxConcurrentHint": "同時に実行するスケジュールタスクの上限（0 = 無制限）。超過分は次回チェックまで待機します。",
     "timezone": "タイムゾーン",
@@ -1706,6 +1708,13 @@
     "video": "動画"
   },
   "notification": {
+    "cronDisabled": "スケジュールタスクが無効化されました",
+    "cronDisabledBody": "{{name}} — {{count}} 回連続で失敗したため無効化されました（{{reason}}）",
+    "cronReason": {
+      "timeout": "タイムアウト",
+      "configuration": "設定エラー",
+      "transient": "繰り返しエラー"
+    },
     "agentDesc": "Agent ごとの通知設定の上書き。「デフォルト」に設定するとグローバル設定を使用します。",
     "agentSection": "Agent 通知",
     "approvalRequired": "ツール承認が必要",

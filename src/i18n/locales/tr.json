@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "jobTimeout": "Zaman aşımı (sn)",
+    "jobTimeoutHint": "Tek bir zamanlanmış görevin terk edilip yuvasının boşaltılmasından önce çalışabileceği maksimum saniye (30–7200 sn).",
     "maxConcurrent": "Maks. eşzamanlı",
     "maxConcurrentHint": "Aynı anda çalışan zamanlanmış görev üst sınırı (0 = sınırsız). Fazlalık görevler bir sonraki kontrolü bekler.",
     "timezone": "Saat dilimi",
@@ -1706,6 +1708,13 @@
     "video": "Video"
   },
   "notification": {
+    "cronDisabled": "Zamanlanmış görev devre dışı bırakıldı",
+    "cronDisabledBody": "{{name}} — {{count}} ardışık hatadan sonra devre dışı bırakıldı ({{reason}})",
+    "cronReason": {
+      "timeout": "zaman aşımı",
+      "configuration": "yapılandırma hatası",
+      "transient": "tekrarlanan hatalar"
+    },
     "agentDesc": "Agent başına bildirim geçersiz kılmaları. Varsayılan olarak ayarlandığında genel ayarı kullanır.",
     "agentSection": "Agent bildirimleri",
     "approvalRequired": "Araç onayı gerekiyor",

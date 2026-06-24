@@ -2,6 +2,7 @@ mod cancel;
 mod db;
 pub(crate) mod delivery;
 pub(crate) mod executor;
+pub(crate) mod failure;
 mod schedule;
 mod scheduler;
 mod types;

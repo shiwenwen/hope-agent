@@ -679,6 +679,8 @@
     "viewSystemPrompt": "系統提示詞"
   },
   "cron": {
+    "jobTimeout": "逾時(秒)",
+    "jobTimeoutHint": "單個定時任務的最長執行秒數，逾時即放棄並釋放並行槽（30–7200 秒）。",
     "maxConcurrent": "最大並行",
     "maxConcurrentHint": "同時執行的定時任務上限（0 = 不限）；超出的到期任務等待下次檢查。",
     "timezone": "時區",
@@ -1706,6 +1708,13 @@
     "video": "視頻"
   },
   "notification": {
+    "cronDisabled": "定時任務已停用",
+    "cronDisabledBody": "{{name}} —— 連續失敗 {{count}} 次後已自動停用（{{reason}}）",
+    "cronReason": {
+      "timeout": "逾時",
+      "configuration": "設定錯誤",
+      "transient": "多次出錯"
+    },
     "agentDesc": "每個 Agent 的通知開關覆蓋。設為「默認」時跟隨全局設置。",
     "agentSection": "Agent 通知",
     "approvalRequired": "需要工具審批",

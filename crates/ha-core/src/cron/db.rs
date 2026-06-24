@@ -398,7 +398,17 @@ impl CronDB {
     }
 
     /// Update job state after a run (success or failure).
-    pub fn update_after_run(&self, id: &str, success: bool, schedule: &CronSchedule) -> Result<()> {
+    /// Update job state after a run. Returns `true` iff this failure pushed the
+    /// job to the auto-disable threshold (`consecutive_failures >= max_failures`)
+    /// and the status was flipped to `disabled` — the caller uses this to fire a
+    /// one-shot "job disabled" notification (§5). A success or a non-final
+    /// failure returns `false`.
+    pub fn update_after_run(
+        &self,
+        id: &str,
+        success: bool,
+        schedule: &CronSchedule,
+    ) -> Result<bool> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 
@@ -420,6 +430,7 @@ impl CronDB {
                 "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4",
                 params![next_status, next_run, now_str, id],
             )?;
+            Ok(false)
         } else {
             // Failure: increment failures, apply backoff
             let (failures,): (u32,) = conn.query_row(
@@ -436,11 +447,18 @@ impl CronDB {
             let new_failures = failures + 1;
 
             if new_failures >= max_failures {
-                // Auto-disable
-                conn.execute(
-                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+                // Auto-disable. Gate on `status != 'disabled'` so ONLY the
+                // active→disabled transition returns true (fires the one-shot
+                // notification): the manual run-now path bypasses the status
+                // filter (`claim_immediate_job_for_execution` checks only
+                // `running_at`), so re-running an already-disabled job that fails
+                // again must NOT re-notify or re-bump the count. (A re-run that
+                // *succeeds* still re-activates via the success branch above.)
+                let rows = conn.execute(
+                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3 AND status != 'disabled'",
                     params![new_failures, now_str, id],
                 )?;
+                Ok(rows > 0)
             } else {
                 // Apply backoff to next run
                 let backoff = backoff_delay_ms(new_failures);
@@ -460,9 +478,9 @@ impl CronDB {
                     "UPDATE cron_jobs SET consecutive_failures=?1, next_run_at=?2, last_run_at=?3, updated_at=?3 WHERE id=?4",
                     params![new_failures, next_run_base.to_rfc3339(), now_str, id],
                 )?;
+                Ok(false)
             }
         }
-        Ok(())
     }
 
     // ── Run Logs ────────────────────────────────────────────────
@@ -1209,6 +1227,7 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
 #[cfg(test)]
 mod tests {
     use super::{match_run_logs_to_occurrences, row_to_cron_job, CronDB};
+    use crate::cron::types::CronJobStatus;
     use crate::cron::{CronPayload, CronSchedule, NewCronJob};
     use chrono::{DateTime, Utc};
     use rusqlite::params;
@@ -1751,6 +1770,63 @@ mod tests {
         assert!(!db
             .clear_running_if_owner(&job.id, &claimed.claimed_at)
             .expect("clear again"));
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn update_after_run_reports_auto_disable_at_threshold() {
+        // §5: update_after_run returns true exactly when a failure pushes the job
+        // to max_failures and flips it to `disabled` — the signal the executor
+        // uses to fire the one-shot disable notification.
+        let path = temp_db_path("auto-disable-signal");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "flaky".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(2),
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+
+        // First failure: below threshold → not disabled.
+        assert!(!db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd1"));
+        let after1 = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after1.consecutive_failures, 1);
+        assert_eq!(after1.status, CronJobStatus::Active);
+
+        // Second failure: hits max_failures (2) → auto-disabled, returns true.
+        assert!(db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd2"));
+        let after2 = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after2.consecutive_failures, 2);
+        assert_eq!(after2.status, CronJobStatus::Disabled);
+
+        // Third failure on the ALREADY-disabled job (e.g. a manual run-now that
+        // failed again): must NOT re-notify (returns false) and must NOT re-bump
+        // the count — the disable is one-shot.
+        assert!(!db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd3"));
+        let after3 = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            after3.consecutive_failures, 2,
+            "count must not grow once disabled"
+        );
+        assert_eq!(after3.status, CronJobStatus::Disabled);
 
         cleanup_db_files(&path);
     }

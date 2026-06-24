@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "jobTimeout": "Hết giờ (giây)",
+    "jobTimeoutHint": "Số giây tối đa một tác vụ định kỳ có thể chạy trước khi bị hủy và giải phóng vị trí (30–7200 giây).",
     "maxConcurrent": "Tối đa đồng thời",
     "maxConcurrentHint": "Số tác vụ định kỳ chạy đồng thời tối đa (0 = không giới hạn). Các tác vụ đến hạn dư sẽ chờ lần kiểm tra tiếp theo.",
     "timezone": "Múi giờ",
@@ -1706,6 +1708,13 @@
     "video": "Video"
   },
   "notification": {
+    "cronDisabled": "Tác vụ định kỳ đã bị tắt",
+    "cronDisabledBody": "{{name}} — đã bị tắt sau {{count}} lần thất bại liên tiếp ({{reason}})",
+    "cronReason": {
+      "timeout": "hết giờ",
+      "configuration": "lỗi cấu hình",
+      "transient": "lỗi lặp lại"
+    },
     "agentDesc": "Ghi đè thông báo cho từng Agent. Khi đặt là Mặc định, sẽ dùng cài đặt toàn cục.",
     "agentSection": "Thông báo Agent",
     "approvalRequired": "Cần phê duyệt công cụ",

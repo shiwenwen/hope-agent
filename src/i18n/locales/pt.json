@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "jobTimeout": "Tempo limite (s)",
+    "jobTimeoutHint": "Segundos máximos que uma tarefa agendada pode executar antes de ser abandonada e liberar sua vaga (30–7200 s).",
     "maxConcurrent": "Máx. simultâneas",
     "maxConcurrentHint": "Máximo de tarefas agendadas em execução simultânea (0 = ilimitado). As tarefas vencidas excedentes aguardam a próxima verificação.",
     "timezone": "Fuso horário",
@@ -1706,6 +1708,13 @@
     "video": "Vídeo"
   },
   "notification": {
+    "cronDisabled": "Tarefa agendada desativada",
+    "cronDisabledBody": "{{name}}: desativada após {{count}} falhas consecutivas ({{reason}})",
+    "cronReason": {
+      "timeout": "tempo esgotado",
+      "configuration": "erro de configuração",
+      "transient": "erros repetidos"
+    },
     "agentDesc": "Substituições de notificação por Agent. Quando definido como Padrão, usa a configuração global.",
     "agentSection": "Notificações de Agent",
     "approvalRequired": "Aprovação de ferramenta necessária",

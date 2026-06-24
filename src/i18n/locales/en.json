@@ -679,6 +679,8 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "jobTimeout": "Timeout (s)",
+    "jobTimeoutHint": "Maximum seconds a single scheduled task may run before it is abandoned and its slot freed (30–7200s).",
     "maxConcurrent": "Max concurrent",
     "maxConcurrentHint": "Maximum scheduled tasks that run at once (0 = unlimited). Extra due tasks wait for the next check.",
     "timezone": "Timezone",
@@ -1706,6 +1708,13 @@
     "video": "Video"
   },
   "notification": {
+    "cronDisabled": "Scheduled task disabled",
+    "cronDisabledBody": "{{name}} — disabled after {{count}} consecutive failures ({{reason}})",
+    "cronReason": {
+      "timeout": "timed out",
+      "configuration": "configuration error",
+      "transient": "repeated errors"
+    },
     "agentDesc": "Per-agent notification overrides. When set to Default, uses the global setting.",
     "agentSection": "Agent Notifications",
     "approvalRequired": "Tool approval needed",

@@ -291,6 +291,12 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 - **subagent 血缘不洗权限** —— cron 起的 subagent 继承 `origin_source = Cron`（executor 传 `origin_source: None`，引擎按 `source` 派生），`Cron` 非 IM 故子代理同样走 owner 路径、不被 WS8 拒；反之一个 IM origin 的链条即便中途 source 变也仍按 origin 判定。
 - **owner KB 读 + `delivery_targets` 投递是两道独立门** —— cron 能读 KB（owner）与 cron 能投递到某 IM chat（§1 白名单 `channel_conversations`）各自裁决；「定时任务读 KB 再投递到用户自己配置的 IM 会话」是用户显式意图，投递边界由 §1 白名单守。
 
+### 失败处理：可配 timeout / 分类 / 自动禁用通知（§5）
+
+- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（默认 300，`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里，超时即放弃、记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
+- **失败分类**（`cron::failure::CronFailureClass`，纯函数 `classify(error)`）：`Timeout` / `Configuration`（no model / no agent 等重跑也不会好的配置问题）/ `Transient`（默认——未识别错误绝不误判成配置问题）。**只做诊断**：`run_log_status()` 让 timeout 在运行日志里显示 `timeout`（其余仍 `error`，不动既有过滤），`key()` 作为稳定 wire key 喂日志 + 前端本地化。**刻意不改禁用策略**（仍 `max_failures` 连续失败），避免误分类导致过早禁用。
+- **自动禁用通知（红线）**：`update_after_run` 现返回 `bool`——失败把 `consecutive_failures` 推到 `max_failures` 翻 `disabled` 时返 `true`。`record_failure` 据此发**一次性** `emit_cron_disabled_event`：复用 `cron:run_completed` 通道但**强制 `notify=true`**（无视 job 的 `notify_on_complete`——任务静默死掉正是要暴露的失效）+ 带 `auto_disabled` / `consecutive_failures` / `failure_reason`。前端 `useChatSession` 监听到 `auto_disabled` 弹专属通知「任务 X 连续失败 N 次已禁用（原因）」。普通失败仍走原 `emit_cron_event`（受 `notify_on_complete` 控制）。
+
 ## 调度计算：compute_next_run
 
 三种 `CronSchedule` 类型的下次执行时间计算：

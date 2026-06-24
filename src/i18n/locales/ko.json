@@ -679,6 +679,8 @@
     "viewSystemPrompt": "시스템 프롬프트"
   },
   "cron": {
+    "jobTimeout": "타임아웃(초)",
+    "jobTimeoutHint": "단일 예약 작업이 실행될 수 있는 최대 초. 초과하면 중단되고 슬롯이 해제됩니다(30~7200초).",
     "maxConcurrent": "최대 동시 실행",
     "maxConcurrentHint": "동시에 실행되는 예약 작업 수 상한 (0 = 무제한). 초과된 작업은 다음 확인까지 대기합니다.",
     "timezone": "시간대",
@@ -1706,6 +1708,13 @@
     "video": "비디오"
   },
   "notification": {
+    "cronDisabled": "예약 작업이 비활성화됨",
+    "cronDisabledBody": "{{name}} — {{count}}회 연속 실패하여 비활성화됨({{reason}})",
+    "cronReason": {
+      "timeout": "시간 초과",
+      "configuration": "구성 오류",
+      "transient": "반복 오류"
+    },
     "agentDesc": "Agent 별 알림 재정의. 「기본값」으로 설정하면 글로벌 설정을 따릅니다.",
     "agentSection": "Agent 알림",
     "approvalRequired": "도구 승인이 필요합니다",
