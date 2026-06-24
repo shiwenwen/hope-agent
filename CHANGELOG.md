@@ -5,6 +5,16 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **菜单栏会话列表更接近应用内侧边栏**：系统托盘 / 菜单栏会话区现在用双行摘要展示会话，包含运行中、待响应、未读、失败、置顶等状态，以及 Agent、模型、更新时间和消息数；没有进行中会话时会显示最近 5 个普通会话，方便从菜单栏快速回到最近对话。
+
+### Fixed
+
+- **打开菜单栏会话列表时不再被后台刷新打断**：点开系统托盘 / 菜单栏菜单后，会暂缓替换原生菜单结构，避免会话列表更新导致 macOS 上已打开的菜单自动关闭；点击菜单项后会立即恢复刷新。
+
 ## [0.12.0] - 2026-06-23
 
 ### Added
