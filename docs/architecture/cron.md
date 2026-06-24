@@ -148,7 +148,7 @@ serde tag 区分，目前仅一种类型：
 | `project_id` | `Option<String>` | 可选 Project 关联；API 暴露为 `projectId`，与对应 CronJob 一致 |
 | `scheduled_at` | `String` | 计划执行时间 |
 | `status` | `CronJobStatus` | 任务状态 |
-| `run_log` | `Option<CronRunLog>` | 匹配的执行日志（§10 自适应窗口：`min(±2 分钟, 相邻 occurrence 间隔/2)`，对高频任务收窄避免错配） |
+| `run_log` | `Option<CronRunLog>` | 匹配的执行日志（§10 **前向匹配**：每条 log 归到不晚于其 `started_at` 的最近 occurrence + 60s 反向 skew 容差，每条 log 只归一个 occurrence，密集 / 秒级排程不丢圆点） |
 
 ### `manage_cron` 工具 Project 语义
 
@@ -242,56 +242,81 @@ sequenceDiagram
 - 计数取 tick 起始快照；pass 内每成功 claim 本地 `available -= 1`，期间完成的任务释放的 slot 留到下个 tick 回收（保守、无害）。
 - **泄漏 slot 的 panic 安全兜底（红线）**：因 `count_running` 现在是**全局**配额分母，一个泄漏的 `running_at` marker 会永久占一个 slot——若干次 panic 即可让 `available=0` 永真、整个调度器停摆到重启。故 `execute_claimed_job` 顶部挂一个 RAII `RunningMarkerGuard`：drop 时做 **owner-checked 清除**（`clear_running_if_owner` = `UPDATE … WHERE id=? AND running_at=?` 本次 claimed_at）。正常终态路径已 `clear_running`（running_at=NULL 不匹配 → no-op）；run_chat_engine 任意 await 点 panic 解栈时 guard 释放 slot；被后续 re-claim 的 marker（running_at=新时间戳 ≠ 旧 claimed_at）guard 不动——三种情况都对，happy path 零改动。进程崩溃（非 panic）仍由启动期 `clear_all_running` 兜底。
 
+### 全局 cron 配置（`CronConfig` / 设置三件套）
+
+§4 / §5 / §7 三个旋钮同属一个 `CronConfig` struct（`AppConfig.cron`，[`config/mod.rs`](../../crates/ha-core/src/config/mod.rs)），MEDIUM 风险，配齐设置三件套：
+
+| 字段 | 默认 | 钳值 / `0` 语义 | 作用 |
+|------|------|----------------|------|
+| `max_concurrent` | 5 | `0` = 真不限 | 调度器全局并发上限（§4 slot-before-claim） |
+| `job_timeout_secs` | 300 | 钳 `[30, 7200]`；`0` 钳地板 30s（**非无限**） | per-run wall-clock 预算（§5） |
+| `at_grace_secs` | 300 | 仅上限钳 7 天；`0` = 严格不补跑（**不钳地板**） | At 一次性任务 late-fire 补跑窗口（§7） |
+
+- **三件套入口**：GUI = [`CronCalendarView`](../../src/components/cron/CronCalendarView.tsx) cron 头部三个输入框；技能 = [`tools/settings.rs`](../../crates/ha-core/src/tools/settings.rs) `"cron"` category（[`ha-settings` SKILL.md](../../skills/ha-settings/SKILL.md) 风险表已登记）；命令 = `get_cron_config` / `save_cron_config`（Tauri + HTTP `GET` / `PUT /api/config/cron`）。
+- **gotcha（红线）**：`save_cron_config` **替换整个 `CronConfig`**——每次保存必须同时回传全三字段，只传其一会让其余两字段被 serde 默认重置。GUI 已固定一次性带全三字段。
+
 ## 执行流程
 
 ```mermaid
 flowchart TD
     A[execute_job 开始] --> B[claim_scheduled / claim_immediate<br/>原子 claim: UPDATE running_at<br/>WHERE running_at IS NULL]
     B -->|already running| B1[跳过执行]
-    B -->|claimed| C[提取 prompt + 显式 agent_id<br/>从 CronPayload]
+    B -->|claimed| RG[挂 RunningMarkerGuard<br/>+ cancel::register 取消 token<br/>在任何 await 前完成]
+    RG --> C[提取 prompt + 显式 agent_id<br/>从 CronPayload]
     C --> C1[解析 Project + Agent<br/>显式 Agent > Project 默认 > 全局默认 > ha-main]
     C1 --> C2{Project 是否存在?}
     C2 -->|存在或未绑定| D[create_session_with_project<br/>隔离会话 + mark_session_cron]
     C2 -->|已删除| C3[clear_job_project<br/>降级普通 cron]
     C3 --> D
-    D --> E[tokio::time::timeout<br/>CRON_JOB_TIMEOUT_SECS = 300s]
+    D -->|session 创建失败，turn 未起跑| INF[record_failure count_toward_disable=false<br/>→ reschedule_without_failure<br/>推进 next_run_at、不 bump、不禁用]
+    D -->|ok| DR[add_running_run_log<br/>status=running、finished_at=NULL<br/>崩溃留痕]
+    DR --> E[tokio::time::timeout<br/>effective_job_timeout_secs<br/>默认 300、钳 30-7200]
     E --> F[build_and_run_agent]
 
     F --> G[load_config + resolve_model_chain]
     G --> H{model_chain 为空?}
-    H -->|是| H1[返回错误:<br/>No model configured]
+    H -->|是| H1[返回 Err:<br/>No model configured]
     H -->|否| I[遍历 model_chain]
 
     I --> J[创建 AssistantAgent<br/>注入 cron 执行上下文]
     J --> K[agent.chat<br/>prompt, cancel=AtomicBool]
 
-    K -->|成功| L[返回 response]
+    K -->|成功| L[返回 Ok response]
     K -->|失败| M{classify_error}
-    M -->|Terminal| M1[立即返回错误]
+    M -->|Terminal| M1[立即返回 Err]
     M -->|Retryable & 重试次数 < 2| N[指数退避 1s-10s<br/>retry_count++]
     N --> J
     M -->|Non-retryable 或重试耗尽| O[尝试下一个模型]
     O --> I
 
-    L --> P[保存 user + assistant 消息到会话]
-    P --> Q[add_run_log status=success]
-    Q --> R[update_after_run success=true<br/>reset consecutive_failures=0<br/>计算 next_run_at]
-    R --> S[clear_running]
-    S --> T[emit cron:run_completed<br/>status=success]
+    E -->|超时| TO[置 cancel_flag +<br/>等 CRON_TIMEOUT_CANCEL_GRACE_SECS=5s<br/>协作收尾 → Err timeout]
 
-    E -->|超时| U[错误: timed out after 300s]
-    H1 --> U
-    M1 --> U
+    L --> CT{classify_cron_terminal<br/>result, was_cancelled}
+    H1 --> CT
+    M1 --> CT
+    TO --> CT
 
-    U --> V[保存 prompt + 错误消息到会话]
-    V --> W[record_failure]
-    W --> X[add_run_log status=error]
+    CT -->|非空 Ok / 取消晚到含真实结果| SUC[Success]
+    CT -->|空 Ok 且未取消| EMP[Empty]
+    CT -->|空 Ok 且被取消 / Err+被取消| CAN[Cancelled]
+    CT -->|其它 Err / 超时| FAIL[Failure]
+
+    SUC --> S1[保存消息 + finalize_or_insert_run_log status=success<br/>update_after_run success=true 重置失败计数<br/>deliver_results 投递 IM]
+    S1 --> S2[clear_running + emit status=success]
+
+    EMP --> EM1[finalize status=empty + 跳过投递<br/>不 bump 失败、按非失败推进排程]
+    EM1 --> EM2[clear_running + emit status=empty]
+
+    CAN --> CN1[record_cancelled + finalize status=cancelled<br/>At → terminalize_one_shot_completed<br/>不投空、不推进排程]
+    CN1 --> CN2[clear_running + emit status=cancelled]
+
+    FAIL --> W[record_failure count_toward_disable=true]
+    W --> X[finalize status=error/timeout<br/>按 CronFailureClass 分类]
     X --> Y[update_after_run success=false]
     Y --> Z{consecutive_failures + 1<br/>>= max_failures?}
-    Z -->|是| Z1[status = Disabled<br/>自动禁用]
+    Z -->|是| Z1[status=Disabled<br/>emit_cron_disabled_event 强制 notify]
     Z -->|否| Z2[next_run_at +=<br/>正常调度间隔 + backoff_delay]
-    Z1 & Z2 --> AA[clear_running]
-    AA --> AB[emit cron:run_completed<br/>status=error]
+    Z1 & Z2 --> AA[clear_running + emit status=error<br/>携 failure_reason]
 ```
 
 ## 运行身份与 KB 访问（`ChatSource::Cron`）
@@ -317,7 +342,7 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 
 ### 失败处理：可配 timeout / 分类 / 自动禁用通知（§5）
 
-- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（默认 300，`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里，超时即放弃、记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
+- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（`AppConfig.cron`，与 §4 `max_concurrent` 同属一个 `CronConfig`，默认 300，`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里，超时即放弃、记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
 - **失败分类**（`cron::failure::CronFailureClass`，纯函数 `classify(error)`）：`Timeout` / `Configuration`（no model / no agent 等重跑也不会好的配置问题）/ `Transient`（默认——未识别错误绝不误判成配置问题）。**只做诊断**：`run_log_status()` 让 timeout 在运行日志里显示 `timeout`（其余仍 `error`，不动既有过滤），`key()` 作为稳定 wire key 喂日志 + 前端本地化。**刻意不改禁用策略**（仍 `max_failures` 连续失败），避免误分类导致过早禁用。
 - **自动禁用通知（红线）**：`update_after_run` 现返回 `bool`——失败把 `consecutive_failures` 推到 `max_failures` 翻 `disabled` 时返 `true`。`record_failure` 据此发**一次性** `emit_cron_disabled_event`：复用 `cron:run_completed` 通道但**强制 `notify=true`**（无视 job 的 `notify_on_complete`——任务静默死掉正是要暴露的失效）+ 带 `auto_disabled` / `consecutive_failures` / `failure_reason`。前端 `useChatSession` 监听到 `auto_disabled` 弹专属通知「任务 X 连续失败 N 次已禁用（原因）」。普通失败仍走原 `emit_cron_event`（受 `notify_on_complete` 控制）。
 
@@ -325,7 +350,7 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 
 一次性 `At` 任务此前有两个失效：① 宕机期间错过触发时点的任务在重启时被 `mark_missed_at_jobs` **无条件**标 `missed`（哪怕只晚 1 秒、且在 catch-up 之前跑），从不补跑；② `claim` 时 `At` 的 `next_run_at` 被清成 NULL，若 claim 后崩溃，重启 `clear_all_running` 清掉 `running_at` 后该行成僵尸（`active` + `next_run_at=NULL`，`get_due_jobs` 与旧 `mark_missed`（都要求 `next_run_at IS NOT NULL`）均不选它，永不触发也永不终态）。
 
-- **late-fire grace**：`mark_missed_at_jobs(grace_secs)`（grace = `CronConfig.effective_at_grace_secs()`，默认 300s，由调度器传入）现按 `cutoff = now - grace` 判定：`next_run_at < cutoff`（逾期超过 grace）→ `missed`；`next_run_at ∈ [cutoff, now]`（逾期在 grace 内）→ **保持 active**，紧随其后的 catch-up（`get_due_jobs` 取 `next_run_at <= now`）经 §4 `dispatch_due_jobs` slot-aware 补跑。`grace=0` ⇒ 严格（任何逾期即 missed，pre-§7 行为）。**grace 只在启动期 `mark_missed_at_jobs` 这一刻裁决**「是否 late-fire」——一旦判定 within-grace 保留为 active，后续若因并发上限抢不到 slot，会在之后的 tick 持续重试直到有空位，可能实际触发时已超过 grace（grace 管的是宕机时长、不是 slot 争用延迟；为抢不到 slot 而丢弃一个本应补跑的一次性任务更糟）。
+- **late-fire grace**：`mark_missed_at_jobs(grace_secs)`（grace = `CronConfig.at_grace_secs`，`AppConfig.cron`、与 §4/§5 同一 `CronConfig`，默认 300s，`effective_at_grace_secs()` 仅上限钳 7 天、`0` = 严格不补跑，由调度器传入）现按 `cutoff = now - grace` 判定：`next_run_at < cutoff`（逾期超过 grace）→ `missed`；`next_run_at ∈ [cutoff, now]`（逾期在 grace 内）→ **保持 active**，紧随其后的 catch-up（`get_due_jobs` 取 `next_run_at <= now`）经 §4 `dispatch_due_jobs` slot-aware 补跑。`grace=0` ⇒ 严格（任何逾期即 missed，pre-§7 行为）。**grace 只在启动期 `mark_missed_at_jobs` 这一刻裁决**「是否 late-fire」——一旦判定 within-grace 保留为 active，后续若因并发上限抢不到 slot，会在之后的 tick 持续重试直到有空位，可能实际触发时已超过 grace（grace 管的是宕机时长、不是 slot 争用延迟；为抢不到 slot 而丢弃一个本应补跑的一次性任务更糟）。
 - **僵尸终态**：同一 `mark_missed_at_jobs` 把 `next_run_at IS NULL` 的 active `At` 行一并标 `missed`——覆盖「claim 后崩溃」与「以过去时间戳创建」（`compute_next_run` 返 `None`）两种。**一次性任务可能崩溃前已产生副作用，故标 missed 不重跑**（side-effect 安全；用户决策）。
 - **顺序红线**：调度器启动 `mark_missed_at_jobs` 必须在 catch-up **之前**——先把超 grace / 僵尸剔除，catch-up 才只补跑 grace 内的 `At`。
 
@@ -414,6 +439,7 @@ CREATE TABLE cron_jobs (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     description TEXT,
+    project_id TEXT,                   -- 可选 Project 关联（base CREATE 即有）
     schedule_json TEXT NOT NULL,       -- CronSchedule JSON
     payload_json TEXT NOT NULL,        -- CronPayload JSON
     status TEXT NOT NULL DEFAULT 'active',
@@ -423,6 +449,8 @@ CREATE TABLE cron_jobs (
     consecutive_failures INTEGER NOT NULL DEFAULT 0,
     max_failures INTEGER NOT NULL DEFAULT 5,
     notify_on_complete INTEGER NOT NULL DEFAULT 1,
+    delivery_targets_json TEXT NOT NULL DEFAULT '[]',      -- §8 IM 投递目标
+    prefix_delivery_with_name INTEGER NOT NULL DEFAULT 0,  -- §8 成功投递加 [Cron] 前缀
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -431,25 +459,36 @@ CREATE TABLE cron_jobs (
 CREATE INDEX idx_cron_jobs_status_next
     ON cron_jobs(status, next_run_at);
 
+-- Project 关联索引
+CREATE INDEX idx_cron_jobs_project
+    ON cron_jobs(project_id);
+
 CREATE TABLE cron_run_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     job_id TEXT NOT NULL REFERENCES cron_jobs(id) ON DELETE CASCADE,  -- 级联删除
     session_id TEXT NOT NULL,
-    status TEXT NOT NULL,           -- 'success' / 'error'
+    status TEXT NOT NULL,           -- 'running' / 'success' / 'empty' / 'cancelled' / 'timeout' / 'error'
     started_at TEXT NOT NULL,
-    finished_at TEXT,
+    finished_at TEXT,               -- §9 在途 run_log 为 NULL，终态由 finalize_run_log 写入
     duration_ms INTEGER,
     result_preview TEXT,
     error TEXT,
+    delivery_status TEXT,           -- §8: NULL / 'delivered' / 'partial' / 'failed'
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- 复合索引：按任务查最近执行记录
 CREATE INDEX idx_cron_runs_job
     ON cron_run_logs(job_id, started_at DESC);
+
+-- §9 KV 表：调度器心跳（scheduler_heartbeat）+ 时区一次性回填 sentinel（tz_backfill_done）
+CREATE TABLE cron_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ```
 
-**Schema 迁移**：`CronDB::open` 中检测 `running_at`、`notify_on_complete`、`delivery_targets_json`、`prefix_delivery_with_name`（§8）列与 `cron_run_logs.delivery_status`（§8）列是否存在，不存在则 `ALTER TABLE ADD COLUMN`；并 `CREATE TABLE IF NOT EXISTS cron_meta`（§9 心跳 KV），兼容旧数据库。另有一条 JSON 级兼容迁移：对老版本 `schedule_json = {"type":"every","interval_ms":...}` 的任务，启动时自动写回 `start_at = created_at + interval_ms`。
+**Schema 迁移**：`CronDB::open` 中检测 `project_id`、`running_at`、`notify_on_complete`、`delivery_targets_json`、`prefix_delivery_with_name`（§8）列与 `cron_run_logs.delivery_status`（§8）列是否存在，不存在则 `ALTER TABLE ADD COLUMN`；并 `CREATE TABLE IF NOT EXISTS cron_meta`（§9：调度器心跳 + 时区一次性回填 sentinel 的 KV）+ `idx_cron_jobs_project` 索引，兼容旧数据库。另有两条 JSON 级迁移：① `backfill_every_schedule_start_at` 对老版本 `schedule_json = {"type":"every","interval_ms":...}` 的任务写回 `start_at = created_at + interval_ms`；② `backfill_cron_schedule_timezone`（详见上「时区语义 · 一次性 backfill」）经 `cron_meta` sentinel `tz_backfill_done` 门控**真·一次性**，把 null/空时区的 `Cron` 行回填宿主检测时区（`iana-time-zone`）并重算 `next_run_at`，宿主不可检测则不写 sentinel、下次启动重试。
 
 ## 前端事件
 
@@ -461,8 +500,11 @@ Tauri 全局事件，任务执行完成后（无论成功或失败）发射。
 |------|------|------|
 | `job_id` | `String` | 任务 ID |
 | `job_name` | `String` | 任务名称 |
-| `status` | `String` | `"success"` / `"error"` |
-| `notify` | `bool` | 是否应显示桌面通知（由 `notify_on_complete` 控制） |
+| `status` | `String` | `"success"` / `"error"` / `"empty"`（零输出，前端弹中性 `cronEmpty`）/ `"cancelled"`（取消中断，弹 `cronCancelled`、非错误） |
+| `notify` | `bool` | 是否应显示桌面通知（success / error / empty / cancelled 由 `notify_on_complete` 控制；`auto_disabled` 事件强制 `true`） |
+| `failure_reason` | `String?` | 失败原因分类 key（`timeout` / `configuration` / `transient`），error run 携带；success / empty / cancelled 为 `null` |
+| `auto_disabled` | `bool?` | 仅 `emit_cron_disabled_event` 携带为 `true`：连续失败触顶被自动禁用（强制 `notify=true`，无视 `notify_on_complete`） |
+| `consecutive_failures` | `u32?` | 仅 `auto_disabled` 事件携带，连续失败次数，用于禁用通知文案 |
 
 ## 生命周期操作
 
@@ -492,7 +534,7 @@ stateDiagram-v2
 - **启用**（`enabled=true`）：`status='active'`，`consecutive_failures=0` 重置，`compute_next_run` 重算下次执行时间
 - **禁用**（`enabled=false`）：`status='paused'`，保留当前 `next_run_at` 和 `consecutive_failures`
 
-**日历查询**：`get_calendar_events(start, end)` 展开所有任务在时间范围内的执行时间点。`Every` 任务从自己的 `start_at`（或旧任务回填出的锚点）开始展开，不再从月份查询起点硬铺。为避免高频任务日历错位，执行日志改为按 job 一次性批量读取，并按“离哪个计划时间最近”在**自适应窗口**内唯一匹配（§10：窗口 = `min(±2 分钟, 相邻 occurrence 间隔/2)`，故 <4min 间隔的任务不会因固定 ±2min 窗口跨两个 occurrence 而错配 / 丢日志）；Every/Cron 单任务最多展开 10,000 个事件。
+**日历查询**：`get_calendar_events(start, end)` 展开所有任务在时间范围内的执行时间点。`Every` 任务从自己的 `start_at`（或旧任务回填出的锚点）开始展开，不再从月份查询起点硬铺。为避免高频任务日历错位，执行日志改为按 job 一次性批量读取，并按**前向匹配**唯一归属（§10：每条 log 归到不晚于其 `started_at` 的最近 occurrence，辅以 60s 反向 skew 容差吸收时钟偏移，每条 log 只归一个 occurrence；旧的对称 `min(±2 分钟, 间隔/2)` 窗口对秒级 cron 表达式会压到 15s tick + claim/LLM 延迟以下而丢圆点，故弃用）；Every/Cron 单任务最多展开 10,000 个事件。
 
 ## 关键源文件索引
 
