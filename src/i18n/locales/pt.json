@@ -686,6 +686,8 @@
     "atGraceHint": "Janela de execução tardia: uma tarefa única cuja hora venceu com o app fechado ainda é executada se o atraso não passar destes segundos; além disso é marcada como perdida (0 = estrito, sem execução tardia).",
     "jobTimeout": "Tempo limite (s)",
     "jobTimeoutHint": "Segundos máximos que uma tarefa agendada pode executar antes de ser abandonada e liberar sua vaga (30–7200 s).",
+    "jobTimeoutOverride": "Tempo limite por tarefa (s)",
+    "jobTimeoutOverrideHint": "Substitui o tempo limite global apenas para ESTA tarefa (30–7200 s); deixe em branco para usar o padrão global.",
     "maxConcurrent": "Máx. simultâneas",
     "maxConcurrentHint": "Máximo de tarefas agendadas em execução simultânea (0 = ilimitado). As tarefas vencidas excedentes aguardam a próxima verificação.",
     "timezone": "Fuso horário",

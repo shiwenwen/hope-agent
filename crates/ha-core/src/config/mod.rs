@@ -453,7 +453,9 @@ pub struct CronConfig {
     /// and its concurrency slot is freed. Unlike `max_concurrent`, `0` is NOT
     /// "unlimited" — a genuinely wedged run (an infinite loop, not a panic) is
     /// only freed by this timeout, so it is clamped to a safe band at read:
-    /// `[30, 7200]` (30s–2h). Default: 300 (5min).
+    /// `[30, 7200]` (30s–2h). Default: 600 (10min) so a longer agent turn (tool
+    /// loops / subagents) doesn't false-timeout. A per-job `CronJob.job_timeout_secs`
+    /// override takes precedence when set; this is the global fallback.
     #[serde(default = "default_cron_job_timeout_secs")]
     pub job_timeout_secs: u64,
 
@@ -492,7 +494,7 @@ impl CronConfig {
     /// sub-floor value) floors to 30s — never unlimited, so a wedged run can't
     /// hold its concurrency slot indefinitely.
     pub fn effective_job_timeout_secs(&self) -> u64 {
-        self.job_timeout_secs.clamp(30, 7200)
+        clamp_cron_job_timeout_secs(self.job_timeout_secs)
     }
 
     /// Late-fire grace window in seconds, capped at 7 days. Unlike the timeout,
@@ -501,6 +503,14 @@ impl CronConfig {
     pub fn effective_at_grace_secs(&self) -> u64 {
         self.at_grace_secs.min(604_800)
     }
+}
+
+/// Clamp a per-run cron timeout — the global `CronConfig.job_timeout_secs` or a
+/// per-job `CronJob.job_timeout_secs` override — to the safe band `[30, 7200]`
+/// seconds. `0` (or any sub-floor value) floors to 30s, never unlimited, so a
+/// wedged run can't hold its concurrency slot forever.
+pub fn clamp_cron_job_timeout_secs(secs: u64) -> u64 {
+    secs.clamp(30, 7200)
 }
 
 pub use crate::permission::ApprovalTimeoutAction;
@@ -513,7 +523,7 @@ fn default_cron_max_concurrent() -> u32 {
 }
 
 fn default_cron_job_timeout_secs() -> u64 {
-    300
+    600
 }
 
 fn default_cron_at_grace_secs() -> u64 {
@@ -1373,10 +1383,10 @@ mod async_tools_defaults_tests {
 
     #[test]
     fn cron_config_defaults_and_clamps() {
-        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 300s, grace 300s.
+        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 600s, grace 300s.
         let d = CronConfig::default();
         assert_eq!(d.max_concurrent, 5);
-        assert_eq!(d.job_timeout_secs, 300);
+        assert_eq!(d.job_timeout_secs, 600);
         assert_eq!(d.at_grace_secs, 300);
         assert_eq!(d.effective_max_concurrent(), Some(5));
         assert_eq!(d.effective_at_grace_secs(), 300);

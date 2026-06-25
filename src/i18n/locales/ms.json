@@ -686,6 +686,8 @@
     "atGraceHint": "Tetingkap larian lewat: tugas sekali sahaja yang tiba masanya semasa apl ditutup masih dijalankan jika lewat tidak melebihi saat ini; selepas itu ditanda terlepas (0 = ketat, tiada larian lewat).",
     "jobTimeout": "Had masa (s)",
     "jobTimeoutHint": "Saat maksimum satu tugas berjadual boleh berjalan sebelum ditinggalkan dan slotnya dibebaskan (30–7200 s).",
+    "jobTimeoutOverride": "Had masa tugas (s)",
+    "jobTimeoutOverrideHint": "Ganti had masa global untuk tugas INI sahaja (30–7200s); biarkan kosong untuk guna lalai global.",
     "maxConcurrent": "Maks. serentak",
     "maxConcurrentHint": "Bilangan maksimum tugas berjadual yang berjalan serentak (0 = tanpa had). Tugas tertunggak lebihan menunggu semakan seterusnya.",
     "timezone": "Zon waktu",

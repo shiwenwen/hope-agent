@@ -686,6 +686,8 @@
     "atGraceHint": "補跑視窗：應用程式關閉期間錯過觸發時點的一次性任務，逾期不超過這麼多秒仍會補跑；超過則標記為「錯過」（0 = 嚴格，不補跑）。",
     "jobTimeout": "逾時(秒)",
     "jobTimeoutHint": "單個定時任務的最長執行秒數，逾時即放棄並釋放並行槽（30–7200 秒）。",
+    "jobTimeoutOverride": "本任務逾時（秒）",
+    "jobTimeoutOverrideHint": "僅為這個任務覆蓋全域逾時（30–7200 秒）；留空則用全域預設。",
     "maxConcurrent": "最大並行",
     "maxConcurrentHint": "同時執行的定時任務上限（0 = 不限）；超出的到期任務等待下次檢查。",
     "timezone": "時區",

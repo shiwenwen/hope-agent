@@ -264,9 +264,15 @@ pub(crate) async fn execute_claimed_job(
 
     // Per-run timeout (configurable, clamped to [30, 7200]s) to keep a wedged run
     // from holding its concurrency slot indefinitely (§5).
-    let timeout_secs = crate::config::cached_config()
-        .cron
-        .effective_job_timeout_secs();
+    // C19: a per-job override (clamped to the same safe band) takes precedence
+    // over the global CronConfig default, so a legitimately long task can declare
+    // its own budget without raising the cap for every job.
+    let timeout_secs = match job.job_timeout_secs {
+        Some(secs) => crate::config::clamp_cron_job_timeout_secs(secs),
+        None => crate::config::cached_config()
+            .cron
+            .effective_job_timeout_secs(),
+    };
     let run_fut = build_and_run_agent_with_cancel(
         &agent_id,
         &prompt,
@@ -1131,6 +1137,7 @@ mod tests {
                 notify_on_complete: Some(false),
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         {
@@ -1202,6 +1209,7 @@ mod tests {
                 notify_on_complete: Some(false),
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let claimed = db

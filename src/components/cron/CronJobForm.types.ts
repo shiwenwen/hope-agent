@@ -46,6 +46,8 @@ export interface CronJob {
   deliveryTargets: CronDeliveryTarget[]
   /** §8: prefix successful deliveries with `[Cron] {name}` (opt-in). */
   prefixDeliveryWithName?: boolean
+  /** C19: per-job run timeout override (seconds); null/undefined = global default. */
+  jobTimeoutSecs?: number | null
 }
 
 export interface CronRunLog {

@@ -686,6 +686,8 @@
     "atGraceHint": "Geç çalıştırma penceresi: uygulama kapalıyken zamanı gelen tek seferlik bir görev, gecikme bu saniyeyi aşmadıysa yine de çalışır; aşarsa kaçırıldı olarak işaretlenir (0 = katı, geç çalıştırma yok).",
     "jobTimeout": "Zaman aşımı (sn)",
     "jobTimeoutHint": "Tek bir zamanlanmış görevin terk edilip yuvasının boşaltılmasından önce çalışabileceği maksimum saniye (30–7200 sn).",
+    "jobTimeoutOverride": "Görev zaman aşımı (sn)",
+    "jobTimeoutOverrideHint": "Yalnızca BU görev için global zaman aşımını geçersiz kılar (30–7200 sn); global varsayılan için boş bırakın.",
     "maxConcurrent": "Maks. eşzamanlı",
     "maxConcurrentHint": "Aynı anda çalışan zamanlanmış görev üst sınırı (0 = sınırsız). Fazlalık görevler bir sonraki kontrolü bekler.",
     "timezone": "Saat dilimi",

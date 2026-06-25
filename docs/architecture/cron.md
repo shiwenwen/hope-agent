@@ -249,7 +249,7 @@ sequenceDiagram
 | 字段 | 默认 | 钳值 / `0` 语义 | 作用 |
 |------|------|----------------|------|
 | `max_concurrent` | 5 | `0` = 真不限 | 调度器全局并发上限（§4 slot-before-claim） |
-| `job_timeout_secs` | 300 | 钳 `[30, 7200]`；`0` 钳地板 30s（**非无限**） | per-run wall-clock 预算（§5） |
+| `job_timeout_secs` | 600 | 钳 `[30, 7200]`；`0` 钳地板 30s（**非无限**） | 全局 per-run wall-clock 预算（§5）；可被 per-job `CronJob.job_timeout_secs` 覆盖（C19） |
 | `at_grace_secs` | 300 | 仅上限钳 7 天；`0` = 严格不补跑（**不钳地板**） | At 一次性任务 late-fire 补跑窗口（§7） |
 
 - **三件套入口**：GUI = [`CronCalendarView`](../../src/components/cron/CronCalendarView.tsx) cron 头部三个输入框；技能 = [`tools/settings.rs`](../../crates/ha-core/src/tools/settings.rs) `"cron"` category（[`ha-settings` SKILL.md](../../skills/ha-settings/SKILL.md) 风险表已登记）；命令 = `get_cron_config` / `save_cron_config`（Tauri + HTTP `GET` / `PUT /api/config/cron`）。
@@ -270,7 +270,7 @@ flowchart TD
     C3 --> D
     D -->|session 创建失败，turn 未起跑| INF[record_failure count_toward_disable=false<br/>→ reschedule_without_failure<br/>推进 next_run_at、不 bump、不禁用]
     D -->|ok| DR[add_running_run_log<br/>status=running、finished_at=NULL<br/>崩溃留痕]
-    DR --> E[tokio::time::timeout<br/>effective_job_timeout_secs<br/>默认 300、钳 30-7200]
+    DR --> E[tokio::time::timeout<br/>job.job_timeout_secs 覆盖 else 全局<br/>默认 600、钳 30-7200]
     E --> F[build_and_run_agent]
 
     F --> G[load_config + resolve_model_chain]
@@ -342,7 +342,7 @@ cron 执行通过 `run_chat_engine` 起一轮对话，其 `source` 是专属的 
 
 ### 失败处理：可配 timeout / 分类 / 自动禁用通知（§5）
 
-- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（`AppConfig.cron`，与 §4 `max_concurrent` 同属一个 `CronConfig`，默认 300，`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里：超时先置 `cancel_flag` 给 `CRON_TIMEOUT_CANCEL_GRACE_SECS=5s` 协作收尾，**若引擎在宽限期内跑完并返回非空 Ok 则采纳为 Success**（纯函数 `resolve_after_timeout_grace`，C02——否则踩线完成的真实产出被丢、误投 timeout 失败、连续踩线 `max_failures` 次会静默禁用本能跑完的健康任务），否则记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
+- **可配 per-run timeout**：`CronConfig.job_timeout_secs`（`AppConfig.cron`，与 §4 `max_concurrent` 同属一个 `CronConfig`，默认 **600**（10min，长 turn 不易误超时），`effective_job_timeout_secs()` 钳 `[30, 7200]`）。**per-job 覆盖（C19）**：`CronJob.job_timeout_secs`（`Option<u64>`，job 级字段、不走设置三件套）非空时优先（经同款 `clamp_cron_job_timeout_secs` 钳），让一个 legit 长任务声明自己的预算而不必抬高全局对所有任务的上限；卡死任务仍会超时、仍 N 次后自动禁用（安全网保留）。**`0` 不是无限**——一个真正卡死的运行（死循环、非 panic）只有靠超时才能释放并发槽，故钳到地板 30s。执行包在 `tokio::time::timeout` 里：超时先置 `cancel_flag` 给 `CRON_TIMEOUT_CANCEL_GRACE_SECS=5s` 协作收尾，**若引擎在宽限期内跑完并返回非空 Ok 则采纳为 Success**（纯函数 `resolve_after_timeout_grace`，C02——否则踩线完成的真实产出被丢、误投 timeout 失败、连续踩线 `max_failures` 次会静默禁用本能跑完的健康任务），否则记一条 `timeout` 失败、释放 slot（叠加 §4 panic guard 兜底 panic 路径）。
 - **失败分类**（`cron::failure::CronFailureClass`，纯函数 `classify(error)`）：`Timeout` / `Configuration`（no model / no agent 等重跑也不会好的配置问题）/ `Transient`（默认——未识别错误绝不误判成配置问题）。**只做诊断**：`run_log_status()` 让 timeout 在运行日志里显示 `timeout`（其余仍 `error`，不动既有过滤），`key()` 作为稳定 wire key 喂日志 + 前端本地化。**刻意不改禁用策略**（仍 `max_failures` 连续失败），避免误分类导致过早禁用。
 - **自动禁用通知（红线）**：`update_after_run` 现返回 `bool`——失败把 `consecutive_failures` 推到 `max_failures` 翻 `disabled` 时返 `true`。`record_failure` 据此发**一次性** `emit_cron_disabled_event`：复用 `cron:run_completed` 通道但**强制 `notify=true`**（无视 job 的 `notify_on_complete`——任务静默死掉正是要暴露的失效）+ 带 `auto_disabled` / `consecutive_failures` / `failure_reason`。前端 `useChatSession` 监听到 `auto_disabled` 弹专属通知「任务 X 连续失败 N 次已禁用（原因）」。普通失败仍走原 `emit_cron_event`（受 `notify_on_complete` 控制）。
 

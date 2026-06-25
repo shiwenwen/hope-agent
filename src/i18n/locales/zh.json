@@ -686,6 +686,8 @@
     "atGraceHint": "补跑窗口：应用关闭期间错过触发时点的一次性任务，逾期不超过这么多秒仍会补跑；超过则标记为「错过」（0 = 严格，不补跑）。",
     "jobTimeout": "超时(秒)",
     "jobTimeoutHint": "单个定时任务的最长运行秒数，超时即放弃并释放并发槽（30–7200 秒）。",
+    "jobTimeoutOverride": "本任务超时（秒）",
+    "jobTimeoutOverrideHint": "仅为这个任务覆盖全局超时（30–7200 秒）；留空则用全局默认。",
     "maxConcurrent": "最大并发",
     "maxConcurrentHint": "同时运行的定时任务上限（0 = 不限）；超出的到期任务等待下次检查。",
     "timezone": "时区",

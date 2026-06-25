@@ -102,6 +102,13 @@ pub struct CronJob {
     /// per job; default off keeps the raw agent reply.
     #[serde(default)]
     pub prefix_delivery_with_name: bool,
+    /// C19: optional per-job override of the global `CronConfig.job_timeout_secs`
+    /// per-run wall-clock budget (clamped to `[30, 7200]s` at use). `None` = use
+    /// the global default. Lets a legitimately long-running task declare a higher
+    /// budget without raising the global cap (which would let a wedged job burn a
+    /// bigger budget every run).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_timeout_secs: Option<u64>,
 }
 
 /// A cron job execution lease. Constructed only after the DB atomically marks
@@ -177,6 +184,9 @@ pub struct NewCronJob {
     /// §8: opt-in `[Cron] {name}` prefix on successful deliveries (see `CronJob`).
     #[serde(default)]
     pub prefix_delivery_with_name: Option<bool>,
+    /// C19: optional per-job run timeout override (seconds); `None` = global default.
+    #[serde(default)]
+    pub job_timeout_secs: Option<u64>,
 }
 
 /// §8: a cron job that references a given channel account in its delivery

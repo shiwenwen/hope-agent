@@ -78,8 +78,8 @@ export default function CronCalendarView({
   // sends BOTH fields (a partial body would reset the other to its default).
   const [maxConcurrent, setMaxConcurrent] = useState<number>(5)
   const [mcInput, setMcInput] = useState<string>("5")
-  const [jobTimeout, setJobTimeout] = useState<number>(300)
-  const [jtInput, setJtInput] = useState<string>("300")
+  const [jobTimeout, setJobTimeout] = useState<number>(600)
+  const [jtInput, setJtInput] = useState<string>("600")
   const [atGrace, setAtGrace] = useState<number>(300)
   const [agInput, setAgInput] = useState<string>("300")
   const [savingCron, setSavingCron] = useState(false)

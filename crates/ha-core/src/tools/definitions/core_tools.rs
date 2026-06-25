@@ -532,7 +532,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "max_failures": {
                         "type": "integer",
-                        "description": "Auto-disable the job after this many consecutive failures (default 5)"
+                        "description": "Auto-disable the job after this many consecutive failures (default 5; 0 = never auto-disable)"
+                    },
+                    "job_timeout_secs": {
+                        "type": "integer",
+                        "description": "Per-run wall-clock timeout in seconds for THIS job, overriding the global default (clamped to [30, 7200]). Use for a task that legitimately runs long (deep research / many tool calls) instead of raising the global cap for everything. Omit or pass null to use the global default; on update a number sets it, null clears it back to the default."
                     },
                     "notify_on_complete": {
                         "type": "boolean",

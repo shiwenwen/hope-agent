@@ -75,6 +75,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     prefix_delivery_with_name: args
                         .get("prefix_delivery_with_name")
                         .and_then(|v| v.as_bool()),
+                    job_timeout_secs: args.get("job_timeout_secs").and_then(|v| v.as_u64()),
                 };
 
                 let job = cron_db.add_job(&input)?;
@@ -141,6 +142,11 @@ pub(crate) fn tool_manage_cron<'a>(
                     .and_then(|v| v.as_bool())
                 {
                     job.prefix_delivery_with_name = b;
+                }
+                // C19 per-job timeout: a number sets the override, explicit null
+                // clears it (back to the global default); absent leaves it as-is.
+                if let Some(v) = args.get("job_timeout_secs") {
+                    job.job_timeout_secs = v.as_u64();
                 }
                 if let Some(v) = args.get("project_id") {
                     job.project_id = parse_project_id_value(v)?;

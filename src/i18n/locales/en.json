@@ -686,6 +686,8 @@
     "atGraceHint": "Late-fire window: a one-shot 'at' task that came due while the app was closed still runs if it's no more than this many seconds overdue; beyond that it's marked missed (0 = strict, no late-fire).",
     "jobTimeout": "Timeout (s)",
     "jobTimeoutHint": "Maximum seconds a single scheduled task may run before it is abandoned and its slot freed (30–7200s).",
+    "jobTimeoutOverride": "Per-task timeout (s)",
+    "jobTimeoutOverrideHint": "Override the global timeout for THIS task only (30–7200s); leave blank to use the global default.",
     "maxConcurrent": "Max concurrent",
     "maxConcurrentHint": "Maximum scheduled tasks that run at once (0 = unlimited). Extra due tasks wait for the next check.",
     "timezone": "Timezone",

@@ -164,6 +164,10 @@ export default function CronJobForm({
   const [prefixDeliveryWithName, setPrefixDeliveryWithName] = useState(
     job?.prefixDeliveryWithName ?? false,
   )
+  // C19: per-job timeout override; blank string = use the global default.
+  const [jobTimeoutSecs, setJobTimeoutSecs] = useState(
+    job?.jobTimeoutSecs ? String(job.jobTimeoutSecs) : "",
+  )
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
     () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
   )
@@ -316,6 +320,7 @@ export default function CronJobForm({
           notifyOnComplete,
           deliveryTargets: validTargets,
           prefixDeliveryWithName,
+          jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
         }
         await getTransport().call("cron_update_job", { job: updated })
       } else {
@@ -335,6 +340,7 @@ export default function CronJobForm({
             notifyOnComplete,
             deliveryTargets: validTargets,
             prefixDeliveryWithName,
+            jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
           },
         })
       }
@@ -597,6 +603,24 @@ export default function CronJobForm({
               value={maxFailures}
               onChange={(e) => setMaxFailures(e.target.value)}
             />
+          </div>
+
+          {/* Per-job timeout override (C19): blank = use the global default */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.jobTimeoutOverride")}
+            </label>
+            <Input
+              type="number"
+              min="30"
+              max="7200"
+              placeholder={t("cron.jobTimeoutOverrideHint")}
+              value={jobTimeoutSecs}
+              onChange={(e) => setJobTimeoutSecs(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {t("cron.jobTimeoutOverrideHint")}
+            </p>
           </div>
 
           {/* Delivery targets — fan-out job result to IM channel conversations */}

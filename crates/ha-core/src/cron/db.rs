@@ -44,7 +44,8 @@ impl CronDB {
                 max_failures INTEGER NOT NULL DEFAULT 5,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                project_id TEXT
+                project_id TEXT,
+                job_timeout_secs INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
@@ -111,6 +112,15 @@ impl CronDB {
             conn.execute_batch(
                 "ALTER TABLE cron_jobs ADD COLUMN prefix_delivery_with_name INTEGER NOT NULL DEFAULT 0;",
             )?;
+        }
+
+        // Migration (C19): add the per-job job_timeout_secs override column if
+        // missing. Nullable — NULL means "use the global CronConfig default".
+        let has_job_timeout: bool = conn
+            .prepare("SELECT job_timeout_secs FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_job_timeout {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN job_timeout_secs INTEGER;")?;
         }
 
         // Migration (§8): add delivery_status column to run logs if missing
@@ -185,8 +195,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14)",
             params![
                 id,
                 input.name,
@@ -200,7 +210,8 @@ impl CronDB {
                 delivery_targets_json,
                 now_str,
                 initial_status.as_str(),
-                prefix_delivery_with_name as i32
+                prefix_delivery_with_name as i32,
+                input.job_timeout_secs.map(|v| v as i64)
             ],
         )?;
 
@@ -222,6 +233,7 @@ impl CronDB {
             notify_on_complete: notify,
             delivery_targets,
             prefix_delivery_with_name,
+            job_timeout_secs: input.job_timeout_secs,
         })
     }
 
@@ -261,7 +273,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, updated_at=?11
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, updated_at=?11
              WHERE id=?12",
             params![
                 job.name,
@@ -276,7 +288,8 @@ impl CronDB {
                 delivery_targets_json,
                 now_str,
                 job.id,
-                job.prefix_delivery_with_name as i32
+                job.prefix_delivery_with_name as i32,
+                job.job_timeout_secs.map(|v| v as i64)
             ],
         )?;
         Ok(())
@@ -431,7 +444,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -479,7 +492,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -510,7 +523,7 @@ impl CronDB {
             // — without it SQLite returns rows in arbitrary rowid order and, under
             // sustained cap pressure, the most-overdue job could be skipped every
             // tick (starvation). Most-overdue-first makes the cap fair.
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
              ORDER BY next_run_at ASC"
         )?;
@@ -1651,6 +1664,13 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         // Index 16, appended after project_id (15). `.ok()` keeps narrower
         // test SELECTs that stop before this column defaulting to false.
         prefix_delivery_with_name: row.get::<_, i32>(16).ok().map(|v| v != 0).unwrap_or(false),
+        // Index 17 (C19), appended after prefix (16). `.ok().flatten()` keeps
+        // narrower test SELECTs that stop before this column defaulting to None.
+        job_timeout_secs: row
+            .get::<_, Option<i64>>(17)
+            .ok()
+            .flatten()
+            .map(|v| v as u64),
     })
 }
 
@@ -1702,6 +1722,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -1762,7 +1783,47 @@ mod tests {
             notify_on_complete: None,
             delivery_targets: Some(targets),
             prefix_delivery_with_name: prefix,
+            job_timeout_secs: None,
         }
+    }
+
+    #[test]
+    fn job_timeout_secs_override_persists_and_clears() {
+        // C19: the per-job timeout override round-trips through add_job / get_job /
+        // update_job; `None` falls back to the global CronConfig default.
+        let path = temp_db_path("job-timeout-override");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "long".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: Some(1800),
+            })
+            .expect("add job");
+        assert_eq!(job.job_timeout_secs, Some(1800));
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(stored.job_timeout_secs, Some(1800), "override persists");
+
+        // Clear it back to the global default.
+        let mut cleared = stored.clone();
+        cleared.job_timeout_secs = None;
+        db.update_job(&cleared).expect("update");
+        let after = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after.job_timeout_secs, None, "override cleared on update");
+        cleanup_db_files(&path);
     }
 
     #[test]
@@ -2042,6 +2103,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -2087,6 +2149,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -2304,6 +2367,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
@@ -2357,6 +2421,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -2388,6 +2453,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let original_next_run = job.next_run_at.clone();
@@ -2435,6 +2501,7 @@ mod tests {
             notify_on_complete: None,
             delivery_targets: None,
             prefix_delivery_with_name: None,
+            job_timeout_secs: None,
         };
         let a = db.add_job(&mk("a")).expect("add a");
         let b = db.add_job(&mk("b")).expect("add b");
@@ -2476,6 +2543,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let claimed = db
@@ -2529,6 +2597,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -2588,6 +2657,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -2634,6 +2704,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         {
@@ -2678,6 +2749,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         // Rewrite to a PAST timestamp + paused, simulating a one-shot that elapsed
@@ -2728,6 +2800,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         for _ in 0..10 {
@@ -2767,6 +2840,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let claimed = db
@@ -2806,6 +2880,7 @@ mod tests {
                 notify_on_complete: None,
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add")
         };
@@ -2867,6 +2942,7 @@ mod tests {
             notify_on_complete: None,
             delivery_targets: None,
             prefix_delivery_with_name: None,
+            job_timeout_secs: None,
         };
 
         let past = db
