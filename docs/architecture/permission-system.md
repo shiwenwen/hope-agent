@@ -174,10 +174,11 @@ pub enum AskReason {
     MacControlAction { action: String },
     MacControlDangerousAction { action: String },
     PlanModeAsk,
+    CronDelete,                                    // manage_cron action=delete：非 strict，但 gate 强制 AllowAlways 置灰（见下「Cron delete 审批」）
 }
 
 impl AskReason {
-    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制 / Plan-ask），AllowAlways 按钮置灰；
+    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制 / raw CDP / Plan-ask），AllowAlways 按钮置灰；
     /// 这也是无人值守 fail-closed 的真相源——strict 原因即便配 Proceed 也强制 deny
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
@@ -185,9 +186,13 @@ impl AskReason {
             ProtectedPath { .. }
                 | DangerousCommand { .. }
                 | MacControlDangerousAction { .. }
+                | BrowserRawCdp { .. }
                 | PlanModeAsk
         )
     }
+    // 注意：`CronDelete` 刻意 **NOT** 在 forbids_allow_always 里——它是非 strict（超时可按配置 proceed、
+    // Smart 可降级 judge），但仍由 `gate_cron_delete` 单独强制 `allow_always_forbidden=true` 抑制 AllowAlways
+    // （详见下「Cron delete 审批」）。这是「非 strict 但 bars AllowAlways」的唯一案例。
 }
 
 // permission/mode.rs
@@ -431,12 +436,21 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 | 记忆 | `save_memory` `recall_memory` `memory_get` `update_memory` `delete_memory` `update_core_memory` |
 | 文档/通知 | `canvas` `send_notification` |
 | 多模态输入 | `pdf` `image`(视觉输入) `get_weather` |
-| Cron 管理 | `manage_cron` |
+| Cron 管理 | `manage_cron`（**仅非 `delete` action 免审**——`action=delete` 单独重入引擎走审批，见下「Cron delete 审批」） |
 | Subagent / Team | `subagent` `team` |
 | Meta | `tool_search` `skill` `job_status` `runtime_cancel` `mcp_resource` `mcp_prompt` |
 | 用户交互 | `ask_user_question` |
 
 合计 **31 个**。
+
+### Cron delete 审批（CronDelete，非 strict 但抑制 AllowAlways）
+
+`manage_cron` 整体标 `internal=true`，但 **`action=delete` 是唯一重入权限引擎的 action**（其余 action 维持 internal 免审）。delete 分支以 `is_internal=false` 调 [`resolve_tool_permission`](../../crates/ha-core/src/tools/execution.rs)，引擎 [`check_cron_delete`](../../crates/ha-core/src/permission/engine.rs)（落在 `resolve_soft_approval_layer`、YOLO 短路与 AllowAlways 累加器**之后**，作其首个检查）发**非 strict** `AskReason::CronDelete`：
+
+- **Default** 弹标准审批；**Smart** 交 judge 模型自决；**YOLO / global-yolo** 免审；**无人值守**（cron 自身 turn 内调用、无 surface）按 `unattended_approval_action` **fail-closed**（默认 deny）。
+- **非 strict**（刻意 NOT in `forbids_allow_always`）：只约束 timeout / unattended 轴——超时不强制 deny、可按配置 proceed，Smart 可降级 judge。这与 ProtectedPath / DangerousCommand / BrowserRawCdp 等 strict 原因不同。
+- **但仍抑制 AllowAlways（红线）**：[`gate_cron_delete`](../../crates/ha-core/src/tools/cron.rs) 对该审批单独强制 `allow_always_forbidden=true`，前端 `barsAllowAlways`（[`ApprovalDialog.tsx`](../../src/components/chat/ApprovalDialog.tsx)）同步禁用按钮。原因：`manage_cron` 的 allowlist matcher 只按 `action` 匹配、**不含 job `id`**，一旦 AllowAlways 持久化便是「静默删除任意定时任务」的 id 无关常驻授权，且 `allows_tool_call` 会先于 `check_cron_delete` 命中而绕过本门。故每次 delete 都逐次确认、永不留常驻 grant——这是「非 strict 但 bars AllowAlways」的唯一案例。
+- `ApprovalReasonKind::CronDelete` + `ApprovalDialog.tsx` union + 12 语言 `approval.reasons.cron_delete` 三处同步（一致性单测锁后端两者）。完整 cron 侧逻辑（先取消在途 run 再删等）见 [`cron.md`](cron.md)「delete 审批」。
 
 ### 可审批（出现在 Agent「自定义工具审批」勾选清单）
 
@@ -533,7 +547,7 @@ useEffect(() => {
 
 ```json
 {
-  "kind": "protected_path" | "edit_tool" | "edit_command" | "dangerous_command" | "agent_custom_list" | "smart_judge" | "mac_control_action" | "mac_control_dangerous_action" | "plan_mode_ask",
+  "kind": "protected_path" | "edit_tool" | "edit_command" | "dangerous_command" | "agent_custom_list" | "smart_judge" | "mac_control_action" | "mac_control_dangerous_action" | "plan_mode_ask" | "cron_delete",
   "detail": "可选明文"
 }
 ```
