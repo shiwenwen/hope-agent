@@ -25,6 +25,10 @@ use crate::AppContext;
 pub struct ListProjectsQuery {
     #[serde(default)]
     pub include_archived: Option<bool>,
+    /// Currently-open session id; excluded from each project's unread rollup
+    /// so the badge matches the per-session "active reads as 0" rule.
+    #[serde(default)]
+    pub active_session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -83,7 +87,10 @@ pub async fn list_projects(
     State(ctx): State<Arc<AppContext>>,
     Query(q): Query<ListProjectsQuery>,
 ) -> Result<Json<Vec<ProjectMeta>>, AppError> {
-    let mut projects = ctx.project_db.list(q.include_archived.unwrap_or(false))?;
+    let mut projects = ctx.project_db.list(
+        q.include_archived.unwrap_or(false),
+        q.active_session_id.as_deref(),
+    )?;
 
     // Enrich with cross-DB memory counts (memory.db is separate).
     if let Some(backend) = ha_core::get_memory_backend() {

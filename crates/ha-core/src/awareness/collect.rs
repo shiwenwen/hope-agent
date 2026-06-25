@@ -239,6 +239,7 @@ mod tests {
             pinned_at: None,
             message_count: 0,
             unread_count: 0,
+            channel_unread_count: 0,
             has_error: false,
             pending_interaction_count: 0,
             is_cron: false,

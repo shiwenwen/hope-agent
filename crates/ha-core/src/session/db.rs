@@ -55,10 +55,18 @@ const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
 /// Shared SELECT for every query that hydrates a full `SessionMeta`. Column
 /// positions are locked to the parser in `SessionDB::row_to_session_meta`;
 /// when adding a column, append it and update both the mapper and tests.
+///
+/// The `unread_count` / `channel_unread_count` predicate stacks below are
+/// mirrored by the project-level rollup in `project::db::ProjectDB::list`
+/// (cron / subagent / source exclusions). Keep the two in sync — a divergence
+/// silently desyncs the per-session badge from the project badge. The
+/// `parent_session_id IS NULL` clause in the channel subquery is defensive
+/// (a sub-agent session never carries `source='channel'` rows, but it must
+/// never surface either count — asserted by the db tests).
 const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
            s.created_at, s.updated_at,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') != 'channel') as unread_count,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') != 'channel') as unread_count,
            EXISTS(
              SELECT 1 FROM messages m
              WHERE m.session_id = s.id
@@ -67,7 +75,8 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind
+           s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -1061,6 +1070,7 @@ impl SessionDB {
             pinned_at: None,
             message_count: 0,
             unread_count: 0,
+            channel_unread_count: 0,
             has_error: false,
             pending_interaction_count: 0,
             is_cron: false,
@@ -1700,6 +1710,9 @@ impl SessionDB {
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
             unread_count: row.get(9)?,
+            // Appended as the last SELECT column (index 27) to keep the locked
+            // 0..26 positions above stable.
+            channel_unread_count: row.get(27)?,
             pending_interaction_count: 0,
             has_error: row.get::<_, i64>(10).unwrap_or(0) != 0,
             is_cron: row.get::<_, i64>(11).unwrap_or(0) != 0,
@@ -3853,6 +3866,84 @@ mod tests {
         assert_eq!(
             cron_meta.unread_count, 0,
             "cron output must never accrue an unread badge"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    /// §3 regression: the per-session `unread_count` subquery excludes sub-agent
+    /// child sessions (`parent_session_id IS NULL`) so a backend consumer that
+    /// reads the field directly can't leak sub-agent internals as user unread.
+    /// The IM split is carried by the separate `channel_unread_count` column:
+    /// a `source = 'channel'` assistant reply lands there, never in the regular
+    /// desktop `unread_count`.
+    #[test]
+    fn unread_count_excludes_subagent_and_splits_channel() {
+        use crate::chat_engine::ChatSource;
+
+        let db_path = temp_db_path("session-unread-subagent-channel");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        // Regular desktop reply → desktop unread, no IM unread.
+        let regular = db.create_session("ha-main").expect("regular session");
+        db.append_message(
+            &regular.id,
+            &NewMessage::assistant("desktop reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append regular");
+
+        // Channel-source reply → IM unread only.
+        let channel = db.create_session("ha-main").expect("channel session");
+        db.append_message(
+            &channel.id,
+            &NewMessage::assistant("im reply").with_source(ChatSource::Channel),
+        )
+        .expect("append channel");
+
+        // Sub-agent child session (desktop source) → excluded from BOTH counts.
+        let sub = db
+            .create_session_with_parent("ha-main", Some(&regular.id))
+            .expect("subagent session");
+        db.append_message(
+            &sub.id,
+            &NewMessage::assistant("subagent reply").with_source(ChatSource::Desktop),
+        )
+        .expect("append subagent");
+
+        let regular_meta = db
+            .get_session(&regular.id)
+            .unwrap()
+            .expect("regular exists");
+        let channel_meta = db
+            .get_session(&channel.id)
+            .unwrap()
+            .expect("channel exists");
+        let sub_meta = db.get_session(&sub.id).unwrap().expect("subagent exists");
+
+        assert_eq!(
+            regular_meta.unread_count, 1,
+            "desktop reply → desktop unread"
+        );
+        assert_eq!(
+            regular_meta.channel_unread_count, 0,
+            "desktop reply is not IM unread"
+        );
+        assert_eq!(
+            channel_meta.unread_count, 0,
+            "channel-source reply must not count as desktop unread"
+        );
+        assert_eq!(
+            channel_meta.channel_unread_count, 1,
+            "channel-source reply counts as IM unread"
+        );
+        assert_eq!(
+            sub_meta.unread_count, 0,
+            "sub-agent session is excluded from desktop unread"
+        );
+        assert_eq!(
+            sub_meta.channel_unread_count, 0,
+            "sub-agent session is excluded from IM unread too"
         );
 
         let _ = std::fs::remove_file(&db_path);

@@ -248,6 +248,7 @@ pub fn run() {
             commands::misc::reveal_in_folder,
             commands::misc::open_url,
             commands::misc::write_export_file,
+            commands::misc::set_dock_badge_cmd,
             // Filesystem listing & search (chat-input @ mention popper, working-dir picker)
             commands::filesystem::fs_list_dir,
             commands::filesystem::fs_search_files,

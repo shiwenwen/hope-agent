@@ -30,7 +30,7 @@ pub fn handle_project(
         .unwrap_or(false);
 
     let project_db = crate::require_project_db().map_err(|e| e.to_string())?;
-    let projects: Vec<ProjectMeta> = project_db.list(false).map_err(|e| e.to_string())?;
+    let projects: Vec<ProjectMeta> = project_db.list(false, None).map_err(|e| e.to_string())?;
 
     if args.trim().is_empty() {
         if projects.is_empty() {
@@ -88,7 +88,7 @@ pub fn handle_project(
 /// /projects — list projects as a picker (no fuzzy-match input).
 pub fn handle_projects() -> Result<CommandResult, String> {
     let project_db = crate::require_project_db().map_err(|e| e.to_string())?;
-    let projects: Vec<ProjectMeta> = project_db.list(false).map_err(|e| e.to_string())?;
+    let projects: Vec<ProjectMeta> = project_db.list(false, None).map_err(|e| e.to_string())?;
 
     if projects.is_empty() {
         return Ok(CommandResult {

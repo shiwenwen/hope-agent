@@ -96,7 +96,16 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_at: Option<String>,
     pub message_count: i64,
+    /// Unread desktop assistant messages (cron / subagent / IM-source rows
+    /// excluded). Drives the regular sidebar / project / tray / global badges.
     pub unread_count: i64,
+    /// Unread IM (`source = 'channel'`) assistant messages for a
+    /// channel-attached session. Kept separate from `unread_count` so IM
+    /// conversations surface an *independent* desktop indicator without
+    /// inflating the regular desktop unread total. Always `0` for non-channel
+    /// sessions.
+    #[serde(default)]
+    pub channel_unread_count: i64,
     /// Whether the latest persisted message is marked as an error.
     /// Used by the sidebar to render a red exclamation indicator.
     #[serde(default)]
@@ -544,6 +553,7 @@ mod tests {
             pinned_at: None,
             message_count: 0,
             unread_count: 0,
+            channel_unread_count: 0,
             has_error: false,
             pending_interaction_count: 0,
             is_cron: false,

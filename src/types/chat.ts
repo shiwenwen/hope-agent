@@ -344,7 +344,15 @@ export interface SessionMeta {
   updatedAt: string
   pinnedAt?: string | null
   messageCount: number
+  /** Unread desktop assistant messages (IM / sub-agent / cron excluded). */
   unreadCount: number
+  /**
+   * Unread IM (`source = 'channel'`) assistant messages for a channel-attached
+   * session. Surfaced as an independent indicator on the session row; always 0
+   * for non-channel sessions. Kept separate from `unreadCount` so IM activity
+   * never inflates the regular desktop unread total.
+   */
+  channelUnreadCount: number
   hasError: boolean
   /**
    * Number of pending interactions awaiting the user (sum of pending tool
