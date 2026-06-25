@@ -993,6 +993,13 @@ mod tests {
             .expect("title");
         db.update_session_reasoning_effort(&sid, Some("high"))
             .expect("effort");
+        // Pin the permission mode explicitly: `create_session` inherits the
+        // ha-main agent's configured `default_session_permission_mode` from the
+        // real `~/.hope-agent` config, so without this the assertion below
+        // depends on the developer's local setting (e.g. `yolo`) and fails off
+        // a clean default. Set a known mode so the test is hermetic.
+        db.update_session_permission_mode(&sid, crate::permission::SessionMode::Default)
+            .expect("permission mode");
 
         let now = chrono::Utc::now().to_rfc3339();
         let assistant = crate::session::NewMessage {
