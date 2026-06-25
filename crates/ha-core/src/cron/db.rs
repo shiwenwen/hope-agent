@@ -640,8 +640,17 @@ impl CronDB {
                     ("active".to_string(), next)
                 }
             };
+            // Guard on `status='active'`: a scheduled run is only ever claimed
+            // while active, but the user can pause (or delete) the job mid-run
+            // (toggle_job doesn't cancel the in-flight run). When that run then
+            // completes successfully, advancing it back to `active` with a fresh
+            // next_run_at would silently undo the explicit pause. The guard makes
+            // the success update a no-op for a job no longer active, preserving the
+            // user's pause. (Mirrors the failure/auto-disable branch's
+            // `status != 'disabled'` guard below; run-now skips this path entirely
+            // via `immediate`.)
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4",
+                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4 AND status='active'",
                 params![next_status, next_run, now_str, id],
             )?;
             Ok(false)
@@ -2728,6 +2737,58 @@ mod tests {
             "count must not grow once disabled"
         );
         assert_eq!(after3.status, CronJobStatus::Disabled);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn update_after_run_success_does_not_revive_paused_job() {
+        // Review fix: a recurring job the user pauses mid-run must NOT be revived to
+        // `active` when its in-flight run completes successfully. The success branch
+        // is guarded on `status='active'`, so a paused job stays paused (and keeps
+        // its next_run_at), preserving the explicit pause instead of silently
+        // re-arming the schedule.
+        let path = temp_db_path("success-no-revive-paused");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "recurring".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+
+        // User pauses the job (e.g. while its claimed run is still executing).
+        db.toggle_job(&job.id, false).expect("pause");
+        assert_eq!(
+            db.get_job(&job.id).expect("get").expect("exists").status,
+            CronJobStatus::Paused
+        );
+
+        // The in-flight run completes successfully → update_after_run(success).
+        assert!(!db
+            .update_after_run(&job.id, true, &job.schedule)
+            .expect("upd"));
+
+        // The job must still be Paused — NOT silently revived to Active.
+        assert_eq!(
+            db.get_job(&job.id).expect("get").expect("exists").status,
+            CronJobStatus::Paused,
+            "a successful in-flight run must not revive a job the user paused"
+        );
 
         cleanup_db_files(&path);
     }

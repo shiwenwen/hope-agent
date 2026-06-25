@@ -717,6 +717,7 @@
     "editExpression": "Edit expression",
     "editJob": "Edit Task",
     "errorMessageRequired": "Agent message is required",
+    "errorDateRequired": "Scheduled time is required",
     "errorNameRequired": "Task name is required",
     "everyDayAt": "Every day at",
     "everyMonthOn": "Every month on the",

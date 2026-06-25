@@ -717,6 +717,7 @@
     "editExpression": "İfadeyi düzenle",
     "editJob": "Görevi düzenle",
     "errorMessageRequired": "Agent mesajı gerekli",
+    "errorDateRequired": "Zamanlama tarihi gerekli",
     "errorNameRequired": "Görev adı gerekli",
     "everyDayAt": "Her gün",
     "everyMonthOn": "Her ay",

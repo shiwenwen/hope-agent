@@ -49,10 +49,14 @@ impl CronFailureClass {
 
     /// The `cron_run_logs.status` value for this class. Only [`Timeout`](Self::Timeout)
     /// gets a distinct `timeout` status; the others keep the historical `error`.
-    /// **Readers that bucket failures must treat `timeout` as a failure too** —
-    /// the dashboard `failed_runs` aggregation (`dashboard/queries.rs`) counts
-    /// `status IN ('error','timeout')`, and the calendar dot colors any
-    /// non-`success` run-log status as an error.
+    /// **Readers that bucket failures must treat `timeout` as a failure too** — the
+    /// dashboard `failed_runs` aggregation (`dashboard/queries.rs`) counts failures
+    /// as a denylist (`status NOT IN ('success','running','empty','cancelled')`, so
+    /// `error`/`timeout`/`no_session` all count) rather than an allowlist; the
+    /// calendar dot colors any genuinely-failed run-log status as an error. A new
+    /// failure status tag is therefore auto-counted — do NOT "restore" an
+    /// `IN ('error','timeout')` allowlist, which silently drops `no_session` and
+    /// inflates the success rate (the bug that denylist replaced).
     pub fn run_log_status(&self) -> &'static str {
         match self {
             Self::Timeout => "timeout",

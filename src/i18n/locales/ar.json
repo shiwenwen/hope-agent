@@ -717,6 +717,7 @@
     "editExpression": "تعديل التعبير",
     "editJob": "تعديل المهمة",
     "errorMessageRequired": "رسالة Agent مطلوبة",
+    "errorDateRequired": "وقت الجدولة مطلوب",
     "errorNameRequired": "اسم المهمة مطلوب",
     "everyDayAt": "كل يوم في",
     "everyMonthOn": "كل شهر في",

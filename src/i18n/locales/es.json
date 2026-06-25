@@ -717,6 +717,7 @@
     "editExpression": "Editar expresión",
     "editJob": "Editar tarea",
     "errorMessageRequired": "El mensaje del Agent es obligatorio",
+    "errorDateRequired": "La fecha y hora son obligatorias",
     "errorNameRequired": "El nombre de la tarea es obligatorio",
     "everyDayAt": "Todos los días a las",
     "everyMonthOn": "Cada mes el día",

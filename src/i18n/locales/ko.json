@@ -717,6 +717,7 @@
     "editExpression": "표현식 편집",
     "editJob": "작업 편집",
     "errorMessageRequired": "Agent 메시지가 필요합니다",
+    "errorDateRequired": "실행 시간을 입력해야 합니다",
     "errorNameRequired": "작업 이름이 필요합니다",
     "everyDayAt": "매일",
     "everyMonthOn": "매월",

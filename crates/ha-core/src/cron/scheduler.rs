@@ -223,6 +223,22 @@ pub fn start_scheduler(
                     }
 
                     let now = Utc::now();
+
+                    // §7 (review fix): reap un-fireable `At` jobs every tick, not
+                    // only at startup. An `At` left within the late-fire grace
+                    // window at startup but never claimed (e.g. sustained
+                    // concurrency-cap pressure) ages past grace while the loop runs;
+                    // without a per-tick reap it stays `active` and is re-evaluated
+                    // forever instead of terminalizing to `missed`. Cheap UPDATE;
+                    // the cutoff is recomputed from `now` each call, and it must run
+                    // before dispatch so an aged-out `At` isn't picked as due.
+                    let at_grace_secs = crate::config::cached_config()
+                        .cron
+                        .effective_at_grace_secs();
+                    if let Err(e) = cron_db.mark_missed_at_jobs(at_grace_secs) {
+                        app_error!("cron", "scheduler", "Failed to mark missed at jobs: {}", e);
+                    }
+
                     match cron_db.get_due_jobs(&now) {
                         // Slot-before-claim: dispatch only up to the configured
                         // concurrency cap; remaining due jobs stay due and are

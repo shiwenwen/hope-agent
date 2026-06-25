@@ -717,6 +717,7 @@
     "editExpression": "式を編集",
     "editJob": "タスクを編集",
     "errorMessageRequired": "Agent へのメッセージを入力してください",
+    "errorDateRequired": "実行日時を入力してください",
     "errorNameRequired": "タスク名を入力してください",
     "everyDayAt": "毎日",
     "everyMonthOn": "毎月",

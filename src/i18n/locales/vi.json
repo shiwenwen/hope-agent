@@ -717,6 +717,7 @@
     "editExpression": "Sửa biểu thức",
     "editJob": "Sửa tác vụ",
     "errorMessageRequired": "Tin nhắn Agent là bắt buộc",
+    "errorDateRequired": "Thời gian thực thi là bắt buộc",
     "errorNameRequired": "Tên tác vụ là bắt buộc",
     "everyDayAt": "Mỗi ngày lúc",
     "everyMonthOn": "Mỗi tháng vào ngày",

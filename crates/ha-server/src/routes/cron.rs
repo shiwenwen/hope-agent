@@ -68,6 +68,17 @@ pub async fn toggle_job(
 
 /// `POST /api/cron/jobs/{id}/run`
 pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    // Cron only runs on the Primary instance — `execute_job_public` no-ops on a
+    // Secondary (C10). If this HTTP server is Secondary (e.g. it shares a data dir
+    // with a desktop that holds the runtime lock), returning `{"scheduled": true}`
+    // would be a silent lie: the run would never execute, log, or deliver. Reject
+    // it so the caller knows to target the primary instance instead.
+    if !ha_core::runtime_lock::is_primary() {
+        return Err(AppError::conflict_with_code(
+            "not_primary",
+            "run-now is unavailable on this instance: scheduled jobs only run on the primary",
+        ));
+    }
     let job = db()?
         .get_job(&id)?
         .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;

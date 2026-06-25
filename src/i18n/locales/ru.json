@@ -717,6 +717,7 @@
     "editExpression": "Редактировать выражение",
     "editJob": "Редактировать задачу",
     "errorMessageRequired": "Требуется сообщение для Agent",
+    "errorDateRequired": "Требуется дата и время выполнения",
     "errorNameRequired": "Требуется название задачи",
     "everyDayAt": "Каждый день в",
     "everyMonthOn": "Каждый месяц",

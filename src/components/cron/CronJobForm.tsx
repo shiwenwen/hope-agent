@@ -120,9 +120,17 @@ export default function CronJobForm({
   // interpreted in this IANA zone (DST-aware). Defaults to the browser's
   // detected zone for new jobs so "9am" means the user's 9am, not UTC.
   const [timezone, setTimezone] = useState<string>(() => {
-    if (job?.schedule.type === "cron" && job.schedule.timezone) {
-      return job.schedule.timezone
+    // Editing an existing cron job: preserve its stored zone EXACTLY. A null/empty
+    // stored zone is a deliberate UTC job (the "Omit for UTC" contract) and must
+    // NOT fall through to the browser zone — otherwise an unrelated edit (rename,
+    // delivery target) would rewrite the zone to the browser's on save and shift
+    // every fire's wall-clock by the local UTC offset. null normalizes to "UTC"
+    // (semantically identical for the backend; just an explicit, visible value).
+    if (job?.schedule.type === "cron") {
+      return job.schedule.timezone || "UTC"
     }
+    // New job (or converting a non-cron schedule): default to the browser's zone
+    // so "9am" means the user's 9am, not UTC.
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
     } catch {
@@ -293,6 +301,12 @@ export default function CronJobForm({
       setError(t("cron.errorMessageRequired"))
       return
     }
+    if (scheduleType === "at" && !timestamp.trim()) {
+      // Guard before buildSchedule(): `new Date("").toISOString()` throws a
+      // RangeError that would otherwise surface as a raw, unlocalized string.
+      setError(t("cron.errorDateRequired"))
+      return
+    }
 
     setSaving(true)
     setError("")
@@ -360,7 +374,10 @@ export default function CronJobForm({
         const num = parseFloat(intervalValue) || 60
         const multiplier =
           intervalUnit === "day" ? 86400000 : intervalUnit === "hour" ? 3600000 : 60000
-        const intervalMs = Math.max(60000, num * multiplier)
+        // Math.round: a fractional value (e.g. 1.1 hours) yields a float-precision
+        // artifact (1.1 * 3600000 = 3960000.0000000005) that the backend's u64
+        // `interval_ms` rejects at deserialization, failing the whole create/update.
+        const intervalMs = Math.max(60000, Math.round(num * multiplier))
         const preserveStartAt =
           job?.schedule.type === "every" &&
           (job.schedule.intervalMs ?? job.schedule.interval_ms) === intervalMs

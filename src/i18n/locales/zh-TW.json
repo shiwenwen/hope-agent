@@ -717,6 +717,7 @@
     "editExpression": "編輯表達式",
     "editJob": "編輯任務",
     "errorMessageRequired": "請輸入 Agent 消息",
+    "errorDateRequired": "請選擇執行時間",
     "errorNameRequired": "請輸入任務名稱",
     "everyDayAt": "每天",
     "everyMonthOn": "每月",

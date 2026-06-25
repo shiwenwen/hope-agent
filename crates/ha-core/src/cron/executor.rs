@@ -342,8 +342,13 @@ pub(crate) async fn execute_claimed_job(
             )
             .await
             .ok();
-            let honored = matches!(&grace_completed, Some(Ok(r)) if !r.trim().is_empty());
-            if !honored {
+            // C08 > C02: a genuine timeout (log as such) is one where the user did
+            // NOT cancel first AND the engine produced no real output in the grace.
+            // A pre-timeout user cancel is not a timeout failure — its grace output
+            // is discarded in resolve_after_timeout_grace and it classifies Cancelled.
+            let genuine_timeout = !user_cancelled_pre_timeout
+                && !matches!(&grace_completed, Some(Ok(r)) if !r.trim().is_empty());
+            if genuine_timeout {
                 app_error!(
                     "cron",
                     "executor",
@@ -352,7 +357,7 @@ pub(crate) async fn execute_claimed_job(
                     timeout_secs
                 );
             }
-            resolve_after_timeout_grace(grace_completed, timeout_secs)
+            resolve_after_timeout_grace(grace_completed, timeout_secs, user_cancelled_pre_timeout)
         }
     };
 
@@ -414,6 +419,15 @@ pub(crate) async fn execute_claimed_job(
             // count; a run-now (immediate) must not touch either.
             if !immediate {
                 let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+                // §8: the schedule is now advanced (next_run_at is in the future /
+                // NULL), so release the concurrency slot BEFORE the fire-and-forget
+                // IM delivery below — a hung or rate-limited target must not pin a
+                // cap slot and throttle other due jobs (delivery.rs invariant). A
+                // run-now (immediate) keeps its slot through delivery: it left
+                // next_run_at intact, so clearing early could let the scheduler
+                // re-claim a still-due job mid-delivery. The trailing clear_running
+                // stays (idempotent here; the real clear for the immediate path).
+                let _ = cron_db.clear_running(&job.id);
             }
 
             // Deliver first so the run log records the delivery outcome (§8) in
@@ -553,23 +567,31 @@ pub(crate) fn classify_cron_terminal(result: &Result<String>, was_cancelled: boo
     }
 }
 
-/// C02: decide a run's result after a per-run timeout's cooperative grace window.
-/// If the engine finished within the grace with real (non-empty) output, honor
-/// that completed work (so it classifies as Success, is delivered, and does NOT
-/// count toward auto-disable); an empty / `Err` completion (the cancel cut it
-/// short) or no completion at all (`None` = grace elapsed) is a timeout failure.
-/// Pure so the "honor a late completion" rule is unit-testable without a runtime.
+/// C02/C08: decide a run's result after a per-run timeout's cooperative grace
+/// window. If the engine finished within the grace with real (non-empty) output,
+/// honor that completed work (so it classifies as Success, is delivered, and does
+/// NOT count toward auto-disable) — UNLESS the user had explicitly cancelled
+/// before the timeout fired (`user_cancelled_pre_timeout`): output produced after
+/// the user asked to stop is unwanted, so it is discarded and the run becomes a
+/// timeout `Err` that classifies as Cancelled (C08 wins over C02). An empty /
+/// `Err` completion or no completion at all (`None` = grace elapsed) is likewise a
+/// failure. Pure so the rule is unit-testable without a runtime.
 fn resolve_after_timeout_grace(
     grace_completed: Option<Result<String>>,
     timeout_secs: u64,
+    user_cancelled_pre_timeout: bool,
 ) -> Result<String> {
-    match grace_completed {
-        Some(Ok(r)) if !r.trim().is_empty() => Ok(r),
-        _ => Err(anyhow::anyhow!(
-            "Cron job timed out after {}s",
-            timeout_secs
-        )),
+    if !user_cancelled_pre_timeout {
+        if let Some(Ok(r)) = grace_completed {
+            if !r.trim().is_empty() {
+                return Ok(r);
+            }
+        }
     }
+    Err(anyhow::anyhow!(
+        "Cron job timed out after {}s",
+        timeout_secs
+    ))
 }
 
 /// C08: decide whether a finished cron run was *user-cancelled* (→ Cancelled) vs
@@ -1105,14 +1127,35 @@ mod tests {
 
     #[test]
     fn timeout_grace_honors_late_nonempty_completion() {
-        // C02: engine finished within the grace with real output → honor it (Ok),
-        // so it classifies as Success rather than a discarded timeout failure.
-        assert!(resolve_after_timeout_grace(Some(Ok("done".into())), 300).is_ok());
+        // C02: engine finished within the grace with real output AND the user did
+        // not cancel → honor it (Ok), so it classifies as Success rather than a
+        // discarded timeout failure.
+        assert!(resolve_after_timeout_grace(Some(Ok("done".into())), 300, false).is_ok());
         // Empty completion (cancel cut it short), Err completion, or grace elapsed
         // (None) → still a timeout failure.
-        assert!(resolve_after_timeout_grace(Some(Ok("  \n ".into())), 300).is_err());
-        assert!(resolve_after_timeout_grace(Some(Err(anyhow::anyhow!("x"))), 300).is_err());
-        assert!(resolve_after_timeout_grace(None, 300).is_err());
+        assert!(resolve_after_timeout_grace(Some(Ok("  \n ".into())), 300, false).is_err());
+        assert!(resolve_after_timeout_grace(Some(Err(anyhow::anyhow!("x"))), 300, false).is_err());
+        assert!(resolve_after_timeout_grace(None, 300, false).is_err());
+    }
+
+    #[test]
+    fn timeout_grace_discards_output_when_user_cancelled_pre_timeout() {
+        // C08 > C02 (review fix): if the user cancelled BEFORE the timeout fired,
+        // any output the engine produced during the wind-down grace is unwanted —
+        // it must be discarded so the run becomes an `Err` that (with
+        // was_cancelled=true) classifies as Cancelled, NOT delivered as Success.
+        // Without this, C02's "honor late completion" silently overrode the user's
+        // explicit pre-timeout cancel (delivered the output + advanced the schedule).
+        assert!(resolve_after_timeout_grace(Some(Ok("done".into())), 300, true).is_err());
+        // And the discarded Err, classified with the recorded cancel intent, is
+        // Cancelled — the terminal the user expects.
+        assert_eq!(
+            classify_cron_terminal(
+                &resolve_after_timeout_grace(Some(Ok("done".into())), 300, true),
+                true
+            ),
+            CronTerminal::Cancelled
+        );
     }
 
     fn temp_db_path(label: &str) -> PathBuf {

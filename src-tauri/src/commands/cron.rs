@@ -49,6 +49,14 @@ pub async fn cron_toggle_job(
 
 #[tauri::command]
 pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
+    // Cron only runs on the Primary instance — `execute_job_public` no-ops on a
+    // Secondary (C10). The desktop is normally Primary, but guard anyway so a
+    // Secondary desktop reports the failure instead of silently swallowing the run.
+    if !ha_core::runtime_lock::is_primary() {
+        return Err(CmdError::msg(
+            "run-now is unavailable on this instance: scheduled jobs only run on the primary",
+        ));
+    }
     let job = state
         .cron_db
         .get_job(&id)?
