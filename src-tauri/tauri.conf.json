@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "pnpm dev:browser-host && pnpm dev",
+    "beforeDevCommand": "pnpm dev:browser-host && pnpm prepare:chrome-extension && pnpm dev",
     "beforeBuildCommand": "pnpm prepare:browser-host && pnpm prepare:chrome-extension && pnpm build"
   },
   "app": {
