@@ -904,12 +904,6 @@ export function useChatStream({
     let targetSessionId = currentSessionId
     let chatResolved = false
     let keepExistingStreamLoading = false
-    // True once this turn lazily materialized its session (draft → real id).
-    // The user is necessarily viewing that new session, but `currentSessionIdRef`
-    // only catches up after React commits the `setCurrentSessionId` below — so a
-    // very fast turn could complete before the ref updates. Track it locally so
-    // the mark-as-read guard treats the just-created session as the active one.
-    let sessionCreatedThisTurn = false
 
     try {
       const targetSid = () => targetSessionId || "__pending__"
@@ -924,7 +918,13 @@ export function useChatStream({
         }
 
         targetSessionId = event.session_id
-        sessionCreatedThisTurn = true
+        // Bridge the ref lag: `setCurrentSessionId` below only updates
+        // `currentSessionIdRef` after React commits, but the user is already on
+        // this freshly-materialized session. Set it eagerly so the mark-as-read
+        // guard at turn end compares against the right session even on a very
+        // fast first turn — and still flips away correctly if the user navigates
+        // elsewhere (handleSwitchSession / the sync effect update the ref then).
+        currentSessionIdRef.current = event.session_id
         const current = sessionCacheRef.current.get("__pending__")
         if (current) {
           sessionCacheRef.current.delete("__pending__")
@@ -1250,15 +1250,12 @@ export function useChatStream({
       }
       // Mark as read ONLY when the completed turn belongs to the session the
       // user is actually viewing. A backgrounded turn — the user navigated away
-      // before it finished, or it was a background / injected turn — must keep
-      // its new assistant reply unread so the sidebar surfaces it; otherwise the
-      // completion is silently swallowed and the badge never appears.
-      // `sessionCreatedThisTurn` covers the lazy-create case where the ref may
-      // not have caught up to the new id yet (the user is on the new session).
-      if (
-        targetSessionId &&
-        (sessionCreatedThisTurn || targetSessionId === currentSessionIdRef.current)
-      ) {
+      // before it finished (including a just-created session they then left), or
+      // it was a background / injected turn — must keep its new assistant reply
+      // unread so the sidebar surfaces it; otherwise the completion is silently
+      // swallowed and the badge never appears. The lazy-create ref lag is
+      // bridged eagerly in handleSessionCreated, so this comparison is accurate.
+      if (targetSessionId && targetSessionId === currentSessionIdRef.current) {
         await getTransport()
           .call("mark_session_read_cmd", { sessionId: targetSessionId })
           .catch(() => {})
