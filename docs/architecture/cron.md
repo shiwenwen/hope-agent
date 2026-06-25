@@ -408,6 +408,7 @@ low 债集中清理：
 - **`max_failures=0` 首次失败即禁用（C26）**：`update_after_run` 自动禁用判定加 `max_failures > 0` 守卫——`0` = 不限 / 永不自动禁用（对齐 `max_concurrent` 的 `0`=不限）。修前 `new_failures >= 0` 恒真，模型工具 / HTTP 传 `maxFailures=0`（GUI `||5` 掩盖此路径）会在**首次失败**即禁用。
 - **删运行中任务不止跑（C15）**：`delete_job` 删前先 `super::cancel::cancel`（**run-key 安全**：按 `running_at` 比对，不误伤循环任务的后续 run）请求在途 run 取消，使其尽快 `Ok("")`→Cancelled 收尾、**不再白跑完 + 投递到已删任务**；在途 run_log 随 `ON DELETE CASCADE` 一并删（用户主动删，审计行丢失可接受），其终态写 no-op 命中已删行。三条 delete 入口（tool / Tauri / HTTP）经此单点 chokepoint 统一覆盖。
 - **日历/侧边栏把 empty/cancelled/running 误渲染成「失败」（C21，前端）**：`CronCalendarView` 圆点与当日侧边栏原先只判 `success`→绿、`error/timeout`→红，其余（含 empty/cancelled/running）回退 job 状态色或一律红 ✕「失败」，与 §10 引入这些独立状态「不掩盖、不误判」初衷矛盾。提取 `cronHelpers` 纯函数 `runLogDotColor` / `runStatusDisplay` 与 `CronJobDetail` 的 per-status 分支对齐：empty/cancelled→中性 muted、running→蓝、仅 error/timeout 红、success 绿（cancelled 复用 `common.cancel`，i18n key 全复用现成、无新增）。
+- **`update_job` 用 client 快照覆盖系统字段（C04，既存）**：`update_job` 改为把 `status` / `next_run_at` / `consecutive_failures` 当**系统管理字段**、从 live 行读取而非取 caller 快照——① 编辑一个字段（改名 / prompt / 投递目标）不再按 `now` 重算 `next_run_at`、不再丢在途退避偏移（快照的 next_run 是旧的）：仅当**排程真的变了**且 Active 才重算；② 不再把系统在快照之后改的状态（如表单打开期间任务被自动禁用）**复活回 active**——`status` 取 live 值，只保留「Active 编成过去 `At` → `missed`」这一编辑驱动的合法转换，终态 / 暂停状态绝不复活。代价是 `update_job` 锁内多读一次当前行。
 
 ## 调度计算：compute_next_run
 

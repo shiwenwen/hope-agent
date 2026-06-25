@@ -237,7 +237,15 @@ impl CronDB {
         })
     }
 
-    /// Update an existing job.
+    /// Update an existing job. `status`, `next_run_at`, and `consecutive_failures`
+    /// are **system-managed** (toggle / auto-disable / claim / backoff) and read
+    /// from the LIVE row rather than taken from the caller's `CronJob` snapshot
+    /// (C04): editing a field must not clobber an in-flight backoff offset (the
+    /// snapshot's `next_run_at` is stale) nor revive a status the system changed
+    /// after the snapshot was taken (e.g. a job auto-disabled while the edit form
+    /// was open). Only an edit that actually changes the schedule recomputes
+    /// `next_run_at`, and only an *Active* job edited to a past `At` terminalizes
+    /// (→ `missed`); a terminal/paused status is never resurrected to active.
     pub fn update_job(&self, job: &CronJob) -> Result<()> {
         // Persistence chokepoint — validate the whole schedule (see `add_job`).
         validate_schedule(&job.schedule)?;
@@ -250,28 +258,51 @@ impl CronDB {
         let payload_json = serde_json::to_string(&job.payload)?;
         let delivery_targets_json = serde_json::to_string(&job.delivery_targets)?;
 
-        // Recompute next_run_at if schedule changed
-        let next_run = if job.status == CronJobStatus::Active {
-            compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
-        } else {
-            job.next_run_at.clone()
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+
+        // C04: read the live system-managed fields — never trust the caller's
+        // snapshot of status / next_run_at (it may be stale). Missing row = the job
+        // was deleted; preserve the previous silent no-op.
+        let (current_status, current_next_run, current_schedule_json): (
+            String,
+            Option<String>,
+            String,
+        ) = match conn.query_row(
+            "SELECT status, next_run_at, schedule_json FROM cron_jobs WHERE id=?1",
+            params![job.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ) {
+            Ok(row) => row,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+            Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
         };
+        let db_status = CronJobStatus::from_str(&current_status);
+
+        // Preserve the current next_run_at unless the schedule actually changed —
+        // a non-schedule edit (rename / prompt / targets) keeps its mid-cycle
+        // position and any in-flight backoff offset. A schedule change recomputes
+        // only for an Active job.
+        let next_run =
+            if schedule_json != current_schedule_json && db_status == CronJobStatus::Active {
+                compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
+            } else {
+                current_next_run
+            };
         // Editing an Active `At` to a past time leaves no next run — terminalize as
-        // `missed` rather than persisting an active/never-fires zombie (§7, mirrors
-        // add_job). Non-active statuses (paused/disabled/…) are preserved as-is.
-        let status = if job.status == CronJobStatus::Active
+        // `missed` (§7, mirrors add_job). Otherwise the LIVE status is preserved, so
+        // a disabled / missed / completed / paused job is never resurrected.
+        let status = if db_status == CronJobStatus::Active
             && matches!(schedule, CronSchedule::At { .. })
             && next_run.is_none()
         {
             CronJobStatus::Missed
         } else {
-            job.status.clone()
+            db_status
         };
 
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, updated_at=?11
              WHERE id=?12",
@@ -1823,6 +1854,72 @@ mod tests {
         db.update_job(&cleared).expect("update");
         let after = db.get_job(&job.id).expect("get").expect("exists");
         assert_eq!(after.job_timeout_secs, None, "override cleared on update");
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn update_job_preserves_backoff_and_does_not_revive_disabled() {
+        // C04: update_job treats status / next_run_at / consecutive_failures as
+        // system-managed (read from the live row), so editing a field neither
+        // clobbers an in-flight backoff offset nor revives a status the system
+        // changed after the caller took its (now stale) snapshot.
+        let path = temp_db_path("update-job-c04");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "j".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+
+        // The system backed the job off AND disabled it AFTER a client loaded its
+        // (now stale: active + original next_run_at) snapshot.
+        let backoff_next = "2099-01-01T00:00:00+00:00".to_string();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET status='disabled', consecutive_failures=4, next_run_at=?1 WHERE id=?2",
+                params![backoff_next, job.id],
+            )
+            .expect("seed disabled+backoff");
+        }
+
+        // The caller edits only the name; its snapshot still says active with the
+        // original next_run_at.
+        let mut edit = job.clone();
+        edit.name = "renamed".into();
+        db.update_job(&edit).expect("update");
+
+        let after = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after.name, "renamed", "the edited field is applied");
+        assert_eq!(
+            after.status,
+            CronJobStatus::Disabled,
+            "must NOT revive the disabled status from the stale snapshot"
+        );
+        assert_eq!(
+            after.next_run_at.as_deref(),
+            Some(backoff_next.as_str()),
+            "in-flight backoff next_run_at preserved (schedule unchanged)"
+        );
+        assert_eq!(
+            after.consecutive_failures, 4,
+            "failure count preserved (system-managed)"
+        );
         cleanup_db_files(&path);
     }
 
