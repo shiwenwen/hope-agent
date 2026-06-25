@@ -1208,6 +1208,7 @@ impl CronDB {
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
             claimed_at: now_str,
+            immediate: false,
         }))
     }
 
@@ -1229,6 +1230,7 @@ impl CronDB {
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
             claimed_at: now,
+            immediate: true,
         }))
     }
 

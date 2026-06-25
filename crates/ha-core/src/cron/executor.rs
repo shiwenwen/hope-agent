@@ -19,6 +19,23 @@ pub async fn execute_job_public(
     session_db: &Arc<crate::session::SessionDB>,
     job: &CronJob,
 ) {
+    // C10: cron executes only on the Primary instance (like the scheduler). A
+    // Secondary process running a job would set `running_at` in the shared DB,
+    // which the Primary's startup `recover_orphaned_runs` / `clear_all_running`
+    // would then clobber (mismarking the run-log `error`, undercounting the
+    // concurrency cap, and letting a recurring job be double-claimed). Refuse a
+    // run-now off-Primary — the single chokepoint for all three run-now entries
+    // (Tauri command / HTTP route / `manage_cron` tool).
+    if !crate::runtime_lock::is_primary() {
+        app_warn!(
+            "cron",
+            "executor",
+            "Ignoring run-now for job '{}' ({}) on a non-primary instance — cron runs on the primary only",
+            job.name,
+            job.id
+        );
+        return;
+    }
     match cron_db.claim_immediate_job_for_execution(job) {
         Ok(Some(claimed)) => execute_claimed_job(cron_db, session_db, claimed).await,
         Ok(None) => {
@@ -128,6 +145,10 @@ pub(crate) async fn execute_claimed_job(
     let start_time = std::time::Instant::now();
     let started_at = claimed.claimed_at.clone();
     let job = claimed.job;
+    // C12a: a manual run-now is a one-off test — record the run + deliver but do
+    // NOT mutate the job's status / schedule / failure count (no reviving a
+    // disabled job on success, no auto-disable on a test failure).
+    let immediate = claimed.immediate;
 
     // Panic-safe slot release: held for the whole run, fires only if an abnormal
     // unwind skips the explicit `clear_running` on the terminal paths below.
@@ -216,6 +237,7 @@ pub(crate) async fn execute_claimed_job(
                     None,
                     None,
                     false, // infra failure — the turn never ran; don't auto-disable
+                    immediate,
                 );
                 return;
             }
@@ -369,6 +391,7 @@ pub(crate) async fn execute_claimed_job(
                 &finished_at,
                 duration_ms,
                 run_log_id,
+                immediate,
             );
         }
         CronTerminal::Success => {
@@ -387,7 +410,11 @@ pub(crate) async fn execute_claimed_job(
             } else {
                 Some(response.clone())
             };
-            let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+            // C12a: a scheduled run advances the schedule + resets the failure
+            // count; a run-now (immediate) must not touch either.
+            if !immediate {
+                let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+            }
 
             // Deliver first so the run log records the delivery outcome (§8) in
             // the same terminal finalize (§9 D2 — the row was opened at start).
@@ -428,10 +455,14 @@ pub(crate) async fn execute_claimed_job(
             // that ran empty terminalizes (it ran, no output → Completed); a
             // recurring job advances its schedule but keeps its failure counter
             // untouched (same as an infra reschedule).
-            if matches!(job.schedule, CronSchedule::At { .. }) {
-                let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
-            } else {
-                let _ = cron_db.reschedule_without_failure(&job.id, &job.schedule);
+            // C12a: a run-now records the empty run but doesn't advance the
+            // schedule or terminalize a one-shot.
+            if !immediate {
+                if matches!(job.schedule, CronSchedule::At { .. }) {
+                    let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
+                } else {
+                    let _ = cron_db.reschedule_without_failure(&job.id, &job.schedule);
+                }
             }
             let _ = cron_db.finalize_or_insert_run_log(
                 run_log_id,
@@ -482,6 +513,7 @@ pub(crate) async fn execute_claimed_job(
                 report.run_log_status(),
                 run_log_id,
                 true, // genuine run failure — counts toward auto-disable
+                immediate,
             );
         }
     }
@@ -826,6 +858,7 @@ pub(crate) fn record_failure(
     delivery_status: Option<&str>,
     run_log_id: Option<i64>,
     count_toward_disable: bool,
+    immediate: bool,
 ) {
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
@@ -842,6 +875,21 @@ pub(crate) fn record_failure(
         Some(error),
         delivery_status,
     );
+
+    if immediate {
+        // C12a: run-now is a one-off test — record the failure run log but do NOT
+        // bump the failure count, auto-disable, or reschedule the job.
+        let _ = cron_db.clear_running(&job.id);
+        let reason = super::failure::CronFailureClass::classify(error).key();
+        emit_cron_event(
+            &job.id,
+            &job.name,
+            "error",
+            job.notify_on_complete,
+            Some(reason),
+        );
+        return;
+    }
 
     if !count_toward_disable {
         // Infra failure: the agent turn never ran. Reschedule (so the job retries
@@ -905,6 +953,7 @@ fn record_cancelled(
     finished_at: &str,
     duration_ms: u64,
     run_log_id: Option<i64>,
+    immediate: bool,
 ) {
     let _ = cron_db.finalize_or_insert_run_log(
         run_log_id,
@@ -924,7 +973,9 @@ fn record_cancelled(
     // the next restart's `mark_missed_at_jobs`. Terminalize it now — it ran and
     // won't fire again. Recurring jobs keep their schedule (their `next_run_at`
     // already points at the next occurrence), so this is At-only.
-    if matches!(job.schedule, CronSchedule::At { .. }) {
+    // C12a: a run-now cancel must NOT terminalize the real schedule
+    // (claim_immediate leaves next_run_at intact); only a scheduled At does.
+    if !immediate && matches!(job.schedule, CronSchedule::At { .. }) {
         let _ = cron_db.terminalize_one_shot_completed(&job.id);
     }
     emit_cron_event(
@@ -1165,6 +1216,7 @@ mod tests {
             "2026-01-01T00:00:42Z",
             42,
             Some(run_log_id),
+            false,
         );
 
         let stored = db.get_job(&job.id).expect("load").expect("job exists");
@@ -1228,6 +1280,7 @@ mod tests {
             "2999-01-01T00:00:42Z",
             42,
             Some(run_log_id),
+            false,
         );
 
         let stored = db.get_job(&job.id).expect("load").expect("job exists");
@@ -1239,6 +1292,134 @@ mod tests {
         assert!(stored.next_run_at.is_none());
         assert!(stored.running_at.is_none());
 
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn run_now_failure_does_not_bump_or_disable() {
+        // C12a: a run-now (immediate) failure records the run log but must NOT bump
+        // consecutive_failures, auto-disable, or reschedule — a manual test failing
+        // can't disable your scheduled job (max_failures=1 would disable a
+        // *scheduled* failure).
+        let path = temp_db_path("run-now-failure");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "j".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(1),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        let next_before = job.next_run_at.clone();
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        assert!(claimed.immediate, "run-now claim is immediate");
+        let run_log_id = db
+            .add_running_run_log(&job.id, "sid", &claimed.claimed_at)
+            .expect("open log");
+        record_failure(
+            &db,
+            &claimed.job,
+            &claimed.claimed_at,
+            std::time::Instant::now(),
+            "error",
+            "boom",
+            "sid",
+            None,
+            Some(run_log_id),
+            true, // would auto-disable a scheduled run (max_failures=1)…
+            true, // …but immediate (run-now) overrides that
+        );
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.status,
+            CronJobStatus::Active,
+            "run-now failure must NOT auto-disable"
+        );
+        assert_eq!(
+            stored.consecutive_failures, 0,
+            "run-now failure must NOT bump the counter"
+        );
+        assert_eq!(
+            stored.next_run_at, next_before,
+            "run-now must NOT reschedule"
+        );
+        assert!(stored.running_at.is_none(), "running marker cleared");
+        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        assert_eq!(
+            logs[0].status, "error",
+            "the failure IS recorded in the run log"
+        );
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn run_now_cancel_does_not_terminalize_one_shot_at() {
+        // C12a: a run-now cancel of an `At` job records the run but does NOT
+        // terminalize its real schedule (the At can still fire as scheduled).
+        let path = temp_db_path("run-now-cancel-at");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "one-shot".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: "2999-01-01T00:00:00Z".into(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        let run_log_id = db
+            .add_running_run_log(&job.id, "sid", &claimed.claimed_at)
+            .expect("open log");
+        record_cancelled(
+            &db,
+            &claimed.job,
+            "sid",
+            &claimed.claimed_at,
+            "2999-01-01T00:00:42Z",
+            42,
+            Some(run_log_id),
+            true, // immediate run-now
+        );
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.status,
+            CronJobStatus::Active,
+            "run-now cancel must NOT terminalize the At schedule"
+        );
+        assert!(
+            stored.next_run_at.is_some(),
+            "the real At schedule is preserved"
+        );
         cleanup_db_files(&path);
     }
 }

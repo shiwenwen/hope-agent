@@ -50,6 +50,19 @@ pub(crate) fn register(job_id: &str, claimed_at: &str) -> Arc<AtomicBool> {
 /// claim→register window) by leaving a run-keyed pending placeholder that
 /// [`register`] will pick up only for the matching run.
 pub(crate) fn cancel(job_id: &str, claimed_at: &str) -> bool {
+    // C09: only the Primary process claims+registers cron runs, so only there is a
+    // claim→register window where a pending placeholder is legitimate. A
+    // non-Primary cancel can't reach the run's live flag (it lives in the Primary's
+    // memory) — gate the placeholder branch on `is_primary` so a cross-process
+    // cancel reports not-cancelled (and leaves no never-drained placeholder)
+    // instead of lying `true`; it then falls back to the job timeout (C5).
+    cancel_with_pending(job_id, claimed_at, crate::runtime_lock::is_primary())
+}
+
+/// Inner cancel with the placeholder branch gated by `allow_pending` (= the caller
+/// is the Primary that registers runs). Split out so the run-keyed live-flag logic
+/// stays unit-testable with `allow_pending = true` (simulating the Primary).
+fn cancel_with_pending(job_id: &str, claimed_at: &str, allow_pending: bool) -> bool {
     {
         let map = CANCELS.lock().unwrap_or_else(|p| p.into_inner());
         if let Some((live_claimed_at, flag)) = map.get(job_id) {
@@ -65,8 +78,14 @@ pub(crate) fn cancel(job_id: &str, claimed_at: &str) -> bool {
             return false;
         }
     }
-    // No live flag yet: the targeted run is claimed but hasn't registered. Record
-    // a run-keyed pending cancel for `register` to drain (honored only on an
+    // No live flag yet. A pending placeholder is only legitimate in the Primary's
+    // claim→register window; a non-Primary process (where the run isn't and never
+    // will be) must not leave one (it would never be drained) and must report
+    // not-cancelled (C09).
+    if !allow_pending {
+        return false;
+    }
+    // Record a run-keyed pending cancel for `register` to drain (honored only on an
     // exact `claimed_at` match, so it can't leak onto a different run either).
     let mut pending = PENDING_CANCELS.lock().unwrap_or_else(|p| p.into_inner());
     pending.insert(job_id.to_string(), claimed_at.to_string());
@@ -99,8 +118,11 @@ mod tests {
     #[test]
     fn pending_cancel_before_register_starts_run_cancelled() {
         let job = "job-pending";
-        // Cancel arrives in the claim→register window for run "ts-1".
-        assert!(cancel(job, "ts-1"), "cancel records a pending placeholder");
+        // Cancel arrives in the claim→register window for run "ts-1" (Primary).
+        assert!(
+            cancel_with_pending(job, "ts-1", true),
+            "cancel records a pending placeholder"
+        );
         // The same run then registers and must observe the cancel immediately.
         let flag = register(job, "ts-1");
         assert!(
@@ -150,7 +172,7 @@ mod tests {
         let job = "job-recurring";
         remove(job, "ts-1"); // run ts-1 finished, cleared its state
         assert!(
-            cancel(job, "ts-1"),
+            cancel_with_pending(job, "ts-1", true),
             "delayed cancel records ts-1 placeholder"
         );
         let flag = register(job, "ts-2"); // a different, later run starts
@@ -164,12 +186,31 @@ mod tests {
     #[test]
     fn remove_clears_unconsumed_pending() {
         let job = "job-leak";
-        assert!(cancel(job, "ts-1"));
+        assert!(cancel_with_pending(job, "ts-1", true));
         remove(job, "ts-1");
         let flag = register(job, "ts-1");
         assert!(
             !flag.load(Ordering::SeqCst),
             "remove cleared the placeholder before register could drain it"
+        );
+        remove(job, "ts-1");
+    }
+
+    #[test]
+    fn cross_process_cancel_without_live_flag_reports_not_cancelled() {
+        // C09: a non-Primary cancel (allow_pending=false) for a run with no local
+        // live flag must return false (not-cancelled) and leave NO placeholder —
+        // the run is in another process; this falls back to the job timeout (C5).
+        let job = "job-cross-process";
+        assert!(
+            !cancel_with_pending(job, "ts-1", false),
+            "cross-process cancel reports not-cancelled"
+        );
+        // No placeholder was left: a later register here does NOT start cancelled.
+        let flag = register(job, "ts-1");
+        assert!(
+            !flag.load(Ordering::SeqCst),
+            "no leaked placeholder from the cross-process cancel"
         );
         remove(job, "ts-1");
     }

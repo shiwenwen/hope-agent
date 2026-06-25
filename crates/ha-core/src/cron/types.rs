@@ -117,6 +117,12 @@ pub struct CronJob {
 pub struct ClaimedCronJob {
     pub job: CronJob,
     pub claimed_at: String,
+    /// C12a: true for a manual `run now` (claim_immediate). A run-now is a one-off
+    /// test orthogonal to the schedule — its terminal handling records the run +
+    /// delivers but must NOT mutate the job's status / schedule / failure count
+    /// (no reviving a disabled job on success, no auto-disable on a test failure,
+    /// no rescheduling the next occurrence).
+    pub immediate: bool,
 }
 
 /// A single IM channel conversation target for cron result delivery.
