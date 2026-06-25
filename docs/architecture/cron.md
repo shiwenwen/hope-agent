@@ -400,13 +400,14 @@ low 债集中清理：
 - **Every interval 溢出僵尸（C13）**：`validate_schedule` 的 Every 分支加 `i64::MAX` ms 上限（详见上「排程校验 §6 规则」）。修前 `interval_ms > i64::MAX`（如 `u64::MAX`）通过校验却落成 `active` + `next_run_at=NULL` 的永不触发、永不回收僵尸。
 - **一次性 At 失败/超时重复副作用（Sweep#1）**：`update_after_run` 失败分支对 `At` 终态化 `missed`、不退避重试（详见上「指数退避公式」），与 §7 一次性副作用安全一致。修前失败/超时的 At 按退避重投，最多重复其副作用 `1+max_failures`（默认 6）次。
 
-同批清掉 5 个 med：
+同批清掉 6 个 med（5 后端 + 1 前端）：
 
 - **dashboard 失败口径漏 `no_session`（C05）**：成功率 / 失败聚合（`dashboard/{insights,queries}.rs`）由 `status IN ('error','timeout')` 改为 `status NOT IN ('success','running','empty','cancelled')`——infra 失败 `no_session`（`record_failure` 写的字面量）此前既不进失败分母又虚高成功率，现作为「非成功终态的补集」一并计失败。
 - **Empty 误清失败计数（C07）**：Empty 终态对 **recurring** 改走 `reschedule_without_failure`（推进排程但**不重置** `consecutive_failures`），仅 **At-Empty** 仍 `update_after_run(true)` 终态化 `Completed`。修前一律 `update_after_run(true)` 把失败计数清零，偶发空输出（模型只调工具没说话 / final text 被压缩吃掉）会掩盖持续失败、让病态任务永不自动禁用。
 - **`toggle_job` resume 过去 At 僵尸（C24）**：resume 一个时间已过的一次性 `At` 时终态化 `missed`，镜像 add_job / update_job 的 §7（`toggle_job` 是唯一漏对称处理的 resume 路径，旧版会写成 `active`+`next_run=NULL` 僵尸）。
 - **`max_failures=0` 首次失败即禁用（C26）**：`update_after_run` 自动禁用判定加 `max_failures > 0` 守卫——`0` = 不限 / 永不自动禁用（对齐 `max_concurrent` 的 `0`=不限）。修前 `new_failures >= 0` 恒真，模型工具 / HTTP 传 `maxFailures=0`（GUI `||5` 掩盖此路径）会在**首次失败**即禁用。
 - **删运行中任务不止跑（C15）**：`delete_job` 删前先 `super::cancel::cancel`（**run-key 安全**：按 `running_at` 比对，不误伤循环任务的后续 run）请求在途 run 取消，使其尽快 `Ok("")`→Cancelled 收尾、**不再白跑完 + 投递到已删任务**；在途 run_log 随 `ON DELETE CASCADE` 一并删（用户主动删，审计行丢失可接受），其终态写 no-op 命中已删行。三条 delete 入口（tool / Tauri / HTTP）经此单点 chokepoint 统一覆盖。
+- **日历/侧边栏把 empty/cancelled/running 误渲染成「失败」（C21，前端）**：`CronCalendarView` 圆点与当日侧边栏原先只判 `success`→绿、`error/timeout`→红，其余（含 empty/cancelled/running）回退 job 状态色或一律红 ✕「失败」，与 §10 引入这些独立状态「不掩盖、不误判」初衷矛盾。提取 `cronHelpers` 纯函数 `runLogDotColor` / `runStatusDisplay` 与 `CronJobDetail` 的 per-status 分支对齐：empty/cancelled→中性 muted、running→蓝、仅 error/timeout 红、success 绿（cancelled 复用 `common.cancel`，i18n key 全复用现成、无新增）。
 
 ## 调度计算：compute_next_run
 

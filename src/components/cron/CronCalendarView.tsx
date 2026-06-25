@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
 import type { CronJob, CalendarEvent } from "./CronJobForm.types"
-import { statusColor, formatSchedule } from "./cronHelpers"
+import { statusColor, runLogDotColor, runStatusDisplay, formatSchedule } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
 
 type ViewMode = "calendar" | "list"
@@ -619,13 +619,7 @@ export default function CronCalendarView({
                             .get(day)!
                             .slice(0, 4)
                             .map((evt, j) => {
-                              const dotColor =
-                                evt.runLog?.status === "success"
-                                  ? "bg-emerald-500"
-                                  : evt.runLog?.status === "error" ||
-                                      evt.runLog?.status === "timeout"
-                                    ? "bg-red-500"
-                                    : statusColor(evt.status)
+                              const dotColor = runLogDotColor(evt.runLog?.status, evt.status)
                               return (
                                 <IconTip key={j} label={evt.jobName}>
                                   <span
@@ -676,6 +670,7 @@ export default function CronCalendarView({
                         minute: "2-digit",
                       })
                       const runStatus = evt.runLog?.status
+                      const runDisp = runStatus ? runStatusDisplay(runStatus) : null
                       return (
                         <button
                           key={`${evt.jobId}-${i}`}
@@ -684,28 +679,20 @@ export default function CronCalendarView({
                         >
                           <div className="flex items-center gap-2">
                             <span
-                              className={`inline-block w-2 h-2 rounded-full shrink-0 ${
-                                evt.runLog?.status === "success"
-                                  ? "bg-emerald-500"
-                                  : evt.runLog?.status === "error" ||
-                                      evt.runLog?.status === "timeout"
-                                    ? "bg-red-500"
-                                    : statusColor(evt.status)
-                              }`}
+                              className={`inline-block w-2 h-2 rounded-full shrink-0 ${runLogDotColor(
+                                evt.runLog?.status,
+                                evt.status,
+                              )}`}
                             />
                             <span className="text-xs font-medium truncate">{evt.jobName}</span>
                             <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                               {time}
                             </span>
                           </div>
-                          {runStatus && (
-                            <div
-                              className={`text-[10px] mt-1 ${runStatus === "success" ? "text-emerald-500" : "text-red-500"}`}
-                            >
-                              {runStatus === "success" ? "✓ " : "✕ "}
-                              {runStatus === "success"
-                                ? t("cron.runStatusSuccess")
-                                : t("cron.runStatusError")}
+                          {runDisp && (
+                            <div className={`text-[10px] mt-1 ${runDisp.className}`}>
+                              {runDisp.symbol}
+                              {t(runDisp.labelKey)}
                               {evt.runLog?.durationMs
                                 ? ` (${(evt.runLog.durationMs / 1000).toFixed(1)}s)`
                                 : ""}
