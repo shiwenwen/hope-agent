@@ -383,7 +383,7 @@ low 债集中清理：
 
 §1–§10 合入前一轮 xhigh recall 审查捞出的真 bug，已随本支修复（除上文已就地标注的 #1 cancel run-key / #5 empty 通知 / #7 日历前向 / #8 backfill sentinel / #9 run-log 兜底）：
 
-- **超时协作取消（#2）**：per-run 超时不再硬 drop 在飞 turn——先置 `cancel_flag` 再给 `CRON_TIMEOUT_CANCEL_GRACE_SECS`（5s，有界）让引擎协作收尾（flush session 行、停止 spawn），而非任意 await 点被腰斩。超时**仍归类 Failure(timeout)**：`was_cancelled = !timed_out && flag`——本函数自设的 flag 不算用户取消（否则超时会误判为 Cancelled）。脱钩的子代理 / async job 各有自己的预算与取消路径，本期不强行透传。
+- **超时协作取消（#2）**：per-run 超时不再硬 drop 在飞 turn——先置 `cancel_flag` 再给 `CRON_TIMEOUT_CANCEL_GRACE_SECS`（5s，有界）让引擎协作收尾（flush session 行、停止 spawn），而非任意 await 点被腰斩。超时**默认归类 Failure(timeout)**：终态判定走纯函数 `compute_was_cancelled(timed_out, user_cancelled_pre_timeout, flag)`——超时路径忽略我们为 grace 自设的 flag，**但若用户在超时触发前就已取消（`user_cancelled_pre_timeout`，C08）则归 Cancelled**（引擎被用户卡住没到 checkpoint、外层 timeout 兜底 kill，仍尊重取消意图：不计禁用、弹 cronCancelled）；非超时路径任何 flag 都是用户取消。脱钩的子代理 / async job 各有自己的预算与取消路径，本期不强行透传。
 - **infra 失败不计入禁用（#4）**：`record_failure` 增 `count_toward_disable`——session 创建失败这类 **agent turn 从未起跑**的基础设施错误走 `reschedule_without_failure`（推进 `next_run_at`、不 bump `consecutive_failures`、不自动禁用），仅真正的 run 失败计入 `max_failures`。否则连续几次瞬时 DB 抖动就把健康任务禁用。
 - **取消通知不误报错误（#6）**：`record_cancelled` emit `status="cancelled"`，前端 `useChatSession` 新增 `cancelled` 分支弹中性 `notification.cronCancelled`，不再落进 `cronError` 分支（用户主动 / 跨端取消不是失败）。
 - **取消一次性 `At` 标终态（#11）**：`record_cancelled` 对 `At` schedule 调 `terminalize_one_shot_completed`（`status='completed'` + `next_run_at=NULL`）——其 `next_run_at` 已在 claim 时清空，不终态会留个 `active` 僵尸到下次重启才被 `mark_missed_at_jobs` 收。循环任务保持 active（仍按排程触发）。

@@ -276,6 +276,11 @@ pub(crate) async fn execute_claimed_job(
     );
     tokio::pin!(run_fut);
     let mut timed_out = false;
+    // C08: whether the user had already cancelled BEFORE the outer timeout fired
+    // (the engine was stuck and never reached a checkpoint). Only a pre-timeout
+    // user cancel makes a timed-out run count as Cancelled rather than
+    // Failure(timeout); our own grace-cancel below must not.
+    let mut user_cancelled_pre_timeout = false;
     let result = match tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
         &mut run_fut,
@@ -285,14 +290,18 @@ pub(crate) async fn execute_claimed_job(
         Ok(r) => r,
         Err(_) => {
             timed_out = true;
+            // A cancel flag already set when the outer timeout fired means the USER
+            // cancelled first (we self-set it only just below) — capture that so the
+            // run classifies as Cancelled, not a timeout failure (C08).
+            user_cancelled_pre_timeout = cancel_flag.load(Ordering::SeqCst);
             // Review fix: don't hard-drop the in-flight turn. Set the cooperative
             // cancel flag and give the engine a *bounded* grace to wind down
             // cleanly (flush its session rows, stop spawning more work) instead of
             // being torn down mid-write at an arbitrary await point. Detached
             // subagents / async jobs carry their own budgets + cancel paths; this
             // at least stops the engine turn gracefully. The flag set here is NOT
-            // counted as a user cancel (see `was_cancelled`) — a timed-out run is
-            // still a Failure(timeout), never Cancelled.
+            // counted as a user cancel (see `was_cancelled`) — a timed-out run is a
+            // Failure(timeout) unless the user had already cancelled (captured above).
             cancel_flag.store(true, Ordering::SeqCst);
             // C02 review fix: if the engine actually FINISHES within the grace with
             // real output, honor that completed work instead of discarding it and
@@ -321,11 +330,14 @@ pub(crate) async fn execute_claimed_job(
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
-    // Only a *user / external* cancel counts as cancellation. On a timeout we set
-    // the flag ourselves (above) to wind the engine down, so exclude that case —
-    // otherwise a timed-out run would misclassify as Cancelled instead of a
-    // Failure(timeout).
-    let was_cancelled = !timed_out && cancel_flag.load(Ordering::SeqCst);
+    // C08: user cancel vs timeout. On the normal path any set flag is the user's;
+    // on the timeout path our own grace-cancel must NOT count — only a cancel the
+    // user set before the timeout fired (captured above) does.
+    let was_cancelled = compute_was_cancelled(
+        timed_out,
+        user_cancelled_pre_timeout,
+        cancel_flag.load(Ordering::SeqCst),
+    );
 
     // §9 (C4): classify the terminal outcome (pure, unit-tested — see
     // `classify_cron_terminal`). The subtlety: cron runs with
@@ -519,6 +531,20 @@ fn resolve_after_timeout_grace(
             "Cron job timed out after {}s",
             timeout_secs
         )),
+    }
+}
+
+/// C08: decide whether a finished cron run was *user-cancelled* (→ Cancelled) vs
+/// merely timed out (→ Failure(timeout)). The executor self-sets the cancel flag
+/// on a timeout to wind the engine down, so on the timeout path the flag's final
+/// value is our own and must be ignored — only a cancel the user set BEFORE the
+/// timeout fired (`user_cancelled_pre_timeout`) counts. On the normal path any set
+/// flag is the user's. Pure so the decision table is unit-testable.
+fn compute_was_cancelled(timed_out: bool, user_cancelled_pre_timeout: bool, flag: bool) -> bool {
+    if timed_out {
+        user_cancelled_pre_timeout
+    } else {
+        flag
     }
 }
 
@@ -1003,6 +1029,21 @@ mod tests {
             classify_cron_terminal(&Err(anyhow::anyhow!("interrupted")), true),
             CronTerminal::Cancelled
         );
+    }
+
+    #[test]
+    fn compute_was_cancelled_decision_table() {
+        // Normal path (no timeout): the flag IS the user's cancel.
+        assert!(!compute_was_cancelled(false, false, false));
+        assert!(compute_was_cancelled(false, false, true)); // user cancelled, engine honored
+                                                            // Timeout path: our self-set grace flag (final `flag=true`) must NOT count…
+        assert!(!compute_was_cancelled(true, false, true));
+        // …but a cancel the user set BEFORE the timeout fired does (C08 core) —
+        // even though the run ultimately timed out with the flag set.
+        assert!(compute_was_cancelled(true, true, true));
+        // Defensive: pre-timeout cancel recorded but flag somehow cleared → still
+        // honor the user's intent on the timeout path.
+        assert!(compute_was_cancelled(true, true, false));
     }
 
     #[test]
