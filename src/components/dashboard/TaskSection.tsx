@@ -91,17 +91,23 @@ const TaskSection = React.memo(function TaskSection({
   if (!data) return null
 
   const cronPieData = (() => {
-    const { successRuns, failedRuns, totalRuns } = data.cron
-    if (totalRuns === 0) return [{ name: t("dashboard.task.noRuns"), value: 1, color: DONUT_EMPTY }]
+    const { successRuns, failedRuns } = data.cron
+    // Review fix #3: base the donut + success rate on *decided* outcomes only
+    // (success vs failed). 'empty'/'cancelled'/'running' runs are neither, so
+    // they must not sit in the denominator or the wedges (they'd dilute the rate
+    // and leave the donut not summing to the ring).
+    if (successRuns + failedRuns === 0)
+      return [{ name: t("dashboard.task.noRuns"), value: 1, color: DONUT_EMPTY }]
     return [
       { name: t("dashboard.task.success"), value: successRuns, color: DONUT_SUCCESS },
       { name: t("dashboard.task.failed"), value: failedRuns, color: DONUT_FAIL },
     ].filter((d) => d.value > 0)
   })()
 
+  const cronDecidedRuns = data.cron.successRuns + data.cron.failedRuns
   const cronSuccessRate =
-    data.cron.totalRuns > 0
-      ? ((data.cron.successRuns / data.cron.totalRuns) * 100).toFixed(1)
+    cronDecidedRuns > 0
+      ? ((data.cron.successRuns / cronDecidedRuns) * 100).toFixed(1)
       : "0.0"
 
   const subagentPieData = (() => {

@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Delete scheduled task",
+        "body": "The model is about to permanently delete one of your scheduled tasks. Default mode asks every time; Smart mode may decide, YOLO skips. AllowAlways is available."
+      },
       "agent_custom_list": {
         "body": "This tool is on the agent's custom-approval list (Default mode only).",
         "title": "Agent custom approval list"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "Auto-transcribe voice messages",
     "autoTranscribeVoiceHint": "Transcribes inbound voice / audio via the configured Speech-to-Text model. Each message consumes STT API quota.",
     "kbAccessOptIn": "Knowledge-base access",
-    "kbAccessOptInHint": "Allow this channel to read and write attached knowledge spaces. Off by default. In group chats, also run /kb on in the chat to confirm it."
+    "kbAccessOptInHint": "Allow this channel to read and write attached knowledge spaces. Off by default. In group chats, also run /kb on in the chat to confirm it.",
+    "removeWithCronTitle": "Remove account?",
+    "removeWithCronDesc": "“{{account}}” is a delivery target for {{count}} scheduled task(s). Removing it will mark those targets as stale.",
+    "removeWithCronTargets": "{{count}} target(s)"
   },
   "chat": {
     "addWorkingDirectory": "Add working directory",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Grace (s)",
+    "atGraceHint": "Late-fire window: a one-shot 'at' task that came due while the app was closed still runs if it's no more than this many seconds overdue; beyond that it's marked missed (0 = strict, no late-fire).",
+    "jobTimeout": "Timeout (s)",
+    "jobTimeoutHint": "Maximum seconds a single scheduled task may run before it is abandoned and its slot freed (30–7200s).",
+    "jobTimeoutOverride": "Per-task timeout (s)",
+    "jobTimeoutOverrideHint": "Override the global timeout for THIS task only (30–7200s); leave blank to use the global default.",
+    "maxConcurrent": "Max concurrent",
+    "maxConcurrentHint": "Maximum scheduled tasks that run at once (0 = unlimited). Extra due tasks wait for the next check.",
+    "timezone": "Timezone",
+    "timezoneHint": "The schedule's time is interpreted in this timezone (DST-aware).",
     "active": "Active",
     "addDeliveryTarget": "Add target",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "Edit expression",
     "editJob": "Edit Task",
     "errorMessageRequired": "Agent message is required",
+    "errorDateRequired": "Scheduled time is required",
     "errorNameRequired": "Task name is required",
     "everyDayAt": "Every day at",
     "everyMonthOn": "Every month on the",
@@ -765,7 +783,18 @@
     "weekSun": "Sun",
     "weekThu": "Thu",
     "weekTue": "Tue",
-    "weekWed": "Wed"
+    "weekWed": "Wed",
+    "deliveryTargetStale": "Account deleted — won't deliver",
+    "prefixDeliveryWithName": "Prefix with task name",
+    "prefixDeliveryWithNameDesc": "Prefix successful deliveries with [Cron] {name} so multiple tasks delivering to the same chat stay distinguishable",
+    "deliveryStatus": {
+      "delivered": "Delivered",
+      "partial": "Partially delivered",
+      "failed": "Delivery failed"
+    },
+    "runStatusRunning": "Running",
+    "runStatusEmpty": "No output",
+    "unitSeconds": "seconds"
   },
   "dangerousMode": {
     "bannerBoth": "Dangerous Mode active (CLI + config) — all tool approvals bypassed",
@@ -1698,6 +1727,14 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Scheduled task cancelled",
+    "cronDisabled": "Scheduled task disabled",
+    "cronDisabledBody": "{{name}} — disabled after {{count}} consecutive failures ({{reason}})",
+    "cronReason": {
+      "timeout": "timed out",
+      "configuration": "configuration error",
+      "transient": "repeated errors"
+    },
     "agentDesc": "Per-agent notification overrides. When set to Default, uses the global setting.",
     "agentSection": "Agent Notifications",
     "approvalRequired": "Tool approval needed",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "An IM channel account's credentials were rejected — please re-authenticate",
     "chatCompleted": "Chat completed",
     "chatError": "Chat error",
+    "cronEmpty": "Scheduled task completed (no output)",
     "cronError": "Scheduled task failed",
     "cronNote": "Cron task notifications can be configured per-job in the Scheduled Tasks settings panel.",
     "cronNotify": "Notify on complete",

@@ -368,6 +368,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cron_toggle_job:                 { method: "POST",   path: "/api/cron/jobs/{id}/toggle" },
   cron_delete_job:                 { method: "DELETE", path: "/api/cron/jobs/{id}" },
   cron_run_now:                    { method: "POST",   path: "/api/cron/jobs/{id}/run" },
+  cron_jobs_referencing_account:   { method: "GET",    path: "/api/cron/jobs-referencing-account/{accountId}" },
   cron_get_run_logs:               { method: "GET",    path: "/api/cron/jobs/{jobId}/logs" },
   cron_get_calendar_events:        { method: "GET",    path: "/api/cron/calendar" },
 
@@ -390,6 +391,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Async / Deferred tools + Memory selection --
   get_async_tools_config:          { method: "GET",    path: "/api/config/async-tools" },
   save_async_tools_config:         { method: "PUT",    path: "/api/config/async-tools" },
+  get_cron_config:                 { method: "GET",    path: "/api/config/cron" },
+  save_cron_config:                { method: "PUT",    path: "/api/config/cron" },
   get_deferred_tools_config:       { method: "GET",    path: "/api/config/deferred-tools" },
   save_deferred_tools_config:      { method: "PUT",    path: "/api/config/deferred-tools" },
   get_memory_selection_config:     { method: "GET",    path: "/api/config/memory-selection" },

@@ -2,21 +2,22 @@ mod cancel;
 mod db;
 pub(crate) mod delivery;
 pub(crate) mod executor;
+pub(crate) mod failure;
 mod schedule;
 mod scheduler;
 mod types;
 
 // Re-export all public types
 pub use types::{
-    CalendarEvent, ClaimedCronJob, CronDeliveryTarget, CronJob, CronPayload, CronRunLog,
-    CronSchedule, NewCronJob,
+    CalendarEvent, ClaimedCronJob, CronAccountRef, CronDeliveryTarget, CronJob, CronPayload,
+    CronRunLog, CronSchedule, NewCronJob,
 };
 
 // Re-export DB layer
 pub use db::CronDB;
 
 // Re-export schedule functions
-pub use schedule::validate_cron_expression;
+pub use schedule::{validate_cron_expression, validate_schedule, validate_timezone};
 
 // Re-export scheduler
 pub use scheduler::start_scheduler;

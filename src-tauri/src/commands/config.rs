@@ -953,6 +953,23 @@ pub async fn save_async_tools_config(
     .map_err(Into::into)
 }
 
+// ── Cron (scheduled tasks) ────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_cron_config() -> Result<ha_core::config::CronConfig, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.cron)
+}
+
+#[tauri::command]
+pub async fn save_cron_config(config: ha_core::config::CronConfig) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("cron", "settings-ui"), |store| {
+        store.cron = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
 // ── Deferred Tool Loading ─────────────────────────────────────────
 
 #[tauri::command]

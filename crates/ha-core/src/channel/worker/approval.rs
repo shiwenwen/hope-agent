@@ -190,6 +190,7 @@ fn reason_line(reason: Option<&ApprovalReasonPayload>) -> String {
         ApprovalReasonKind::MacControlAction => "🖥 Mac Control",
         ApprovalReasonKind::MacControlDangerousAction => "⚠ Mac Control",
         ApprovalReasonKind::PlanModeAsk => "🧭 Plan Mode",
+        ApprovalReasonKind::CronDelete => "🗑 Cron Delete",
     };
     let detail = match r.kind {
         ApprovalReasonKind::EditTool => Some("tool can modify files".to_string()),
@@ -217,6 +218,7 @@ fn reason_line(reason: Option<&ApprovalReasonPayload>) -> String {
         ApprovalReasonKind::PlanModeAsk => {
             Some("plan mode requires asking before this tool".to_string())
         }
+        ApprovalReasonKind::CronDelete => Some("permanently delete a scheduled task".to_string()),
     };
 
     match detail {

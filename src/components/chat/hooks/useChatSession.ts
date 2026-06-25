@@ -501,11 +501,44 @@ export function useChatSession({
         job_name: string
         status: string
         notify: boolean
+        auto_disabled?: boolean
+        consecutive_failures?: number
+        failure_reason?: string
       }
-      if (payload.notify && payload.job_name) {
-        const title =
-          payload.status === "success" ? t("notification.cronSuccess") : t("notification.cronError")
-        notify(title, payload.job_name)
+      if (!payload.job_name) return
+      if (payload.auto_disabled) {
+        // Auto-disable always notifies (overrides notify_on_complete) — the user
+        // must know a scheduled task stopped running (§5).
+        const reason = payload.failure_reason
+          ? t(`notification.cronReason.${payload.failure_reason}`, payload.failure_reason)
+          : ""
+        notify(
+          t("notification.cronDisabled"),
+          t("notification.cronDisabledBody", {
+            name: payload.job_name,
+            count: payload.consecutive_failures ?? 0,
+            reason,
+          }),
+        )
+      } else if (payload.notify) {
+        if (payload.status === "success") {
+          notify(t("notification.cronSuccess"), payload.job_name)
+        } else if (payload.status === "empty") {
+          // Review fix #5: a zero-output run is neither success nor error —
+          // surface a neutral "completed, no output" notice, not a success toast.
+          notify(t("notification.cronEmpty"), payload.job_name)
+        } else if (payload.status === "cancelled") {
+          // Review fix #6: a cancelled run isn't a failure — don't show the error
+          // toast (the user, or another endpoint, cancelled it deliberately).
+          notify(t("notification.cronCancelled"), payload.job_name)
+        } else {
+          // §10 (D4): surface *why* it failed (timeout / config / transient), not
+          // just the job name, when the backend classified a reason.
+          const body = payload.failure_reason
+            ? `${payload.job_name} — ${t(`notification.cronReason.${payload.failure_reason}`, payload.failure_reason)}`
+            : payload.job_name
+          notify(t("notification.cronError"), body)
+        }
       }
     })
   }, [reloadSessions, t])

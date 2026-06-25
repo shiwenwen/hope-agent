@@ -223,6 +223,25 @@ pub async fn save_async_tools_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Cron Config ─────────────────────────────────────────────────
+
+/// `GET /api/config/cron` -- get cron (scheduled task) config.
+pub async fn get_cron_config() -> Result<Json<ha_core::config::CronConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.cron))
+}
+
+/// `PUT /api/config/cron` -- save cron (scheduled task) config.
+pub async fn save_cron_config(
+    Json(body): Json<ConfigBody<ha_core::config::CronConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("cron", "http"), |store| {
+        store.cron = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Deferred Tools Config ───────────────────────────────────────
 
 /// `GET /api/config/deferred-tools` -- get deferred tool loading config.

@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Excluir tarefa agendada",
+        "body": "O modelo vai excluir permanentemente uma das suas tarefas agendadas. O modo padrão pergunta sempre; o modo inteligente pode decidir e o YOLO ignora. Permitir sempre está disponível."
+      },
       "agent_custom_list": {
         "body": "Esta ferramenta está na lista de aprovação personalizada do agente (somente modo Default).",
         "title": "Lista de aprovação personalizada do agente"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "Transcrever mensagens de voz automaticamente",
     "autoTranscribeVoiceHint": "Transcreve voz / áudio recebidos pelo subsistema STT configurado. Cada mensagem consome cota da API STT.",
     "kbAccessOptIn": "Acesso à base de conhecimento",
-    "kbAccessOptInHint": "Permite que este canal leia e grave nos espaços de conhecimento anexados. Desativado por padrão. Em grupos, execute também /kb on no chat para confirmar."
+    "kbAccessOptInHint": "Permite que este canal leia e grave nos espaços de conhecimento anexados. Desativado por padrão. Em grupos, execute também /kb on no chat para confirmar.",
+    "removeWithCronTitle": "Remover conta?",
+    "removeWithCronDesc": "“{{account}}” é destino de entrega de {{count}} tarefa(s) agendada(s). Removê-la marcará esses destinos como obsoletos.",
+    "removeWithCronTargets": "{{count}} destino(s)"
   },
   "chat": {
     "addWorkingDirectory": "Adicionar diretório de trabalho",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Margem (s)",
+    "atGraceHint": "Janela de execução tardia: uma tarefa única cuja hora venceu com o app fechado ainda é executada se o atraso não passar destes segundos; além disso é marcada como perdida (0 = estrito, sem execução tardia).",
+    "jobTimeout": "Tempo limite (s)",
+    "jobTimeoutHint": "Segundos máximos que uma tarefa agendada pode executar antes de ser abandonada e liberar sua vaga (30–7200 s).",
+    "jobTimeoutOverride": "Tempo limite por tarefa (s)",
+    "jobTimeoutOverrideHint": "Substitui o tempo limite global apenas para ESTA tarefa (30–7200 s); deixe em branco para usar o padrão global.",
+    "maxConcurrent": "Máx. simultâneas",
+    "maxConcurrentHint": "Máximo de tarefas agendadas em execução simultânea (0 = ilimitado). As tarefas vencidas excedentes aguardam a próxima verificação.",
+    "timezone": "Fuso horário",
+    "timezoneHint": "O horário do agendamento é interpretado neste fuso horário (considera o horário de verão).",
     "active": "Ativa",
     "addDeliveryTarget": "Adicionar destino",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "Editar expressão",
     "editJob": "Editar tarefa",
     "errorMessageRequired": "Mensagem para o Agent é obrigatória",
+    "errorDateRequired": "A data e hora são obrigatórias",
     "errorNameRequired": "Nome da tarefa é obrigatório",
     "everyDayAt": "Todos os dias às",
     "everyMonthOn": "Todo mês no dia",
@@ -765,7 +783,18 @@
     "weekSun": "Dom",
     "weekThu": "Qui",
     "weekTue": "Ter",
-    "weekWed": "Qua"
+    "weekWed": "Qua",
+    "deliveryTargetStale": "Conta excluída — não será entregue",
+    "prefixDeliveryWithName": "Prefixar com o nome da tarefa",
+    "prefixDeliveryWithNameDesc": "Prefixa entregas bem-sucedidas com [Cron] {nome} para distinguir várias tarefas entregues no mesmo chat",
+    "deliveryStatus": {
+      "delivered": "Entregue",
+      "partial": "Entrega parcial",
+      "failed": "Falha na entrega"
+    },
+    "runStatusRunning": "Em execução",
+    "runStatusEmpty": "Sem saída",
+    "unitSeconds": "segundos"
   },
   "dangerousMode": {
     "bannerBoth": "Modo Perigoso ativo (CLI + config) — todas as aprovações de ferramentas são ignoradas",
@@ -1698,6 +1727,14 @@
     "video": "Vídeo"
   },
   "notification": {
+    "cronCancelled": "Tarefa agendada cancelada",
+    "cronDisabled": "Tarefa agendada desativada",
+    "cronDisabledBody": "{{name}}: desativada após {{count}} falhas consecutivas ({{reason}})",
+    "cronReason": {
+      "timeout": "tempo esgotado",
+      "configuration": "erro de configuração",
+      "transient": "erros repetidos"
+    },
     "agentDesc": "Substituições de notificação por Agent. Quando definido como Padrão, usa a configuração global.",
     "agentSection": "Notificações de Agent",
     "approvalRequired": "Aprovação de ferramenta necessária",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "Credenciais de uma conta de canal IM foram rejeitadas — autentique-se novamente",
     "chatCompleted": "Conversa concluída",
     "chatError": "Erro na conversa",
+    "cronEmpty": "Tarefa agendada concluída (sem saída)",
     "cronError": "Tarefa agendada falhou",
     "cronNote": "As notificações de tarefas Cron podem ser configuradas por tarefa no painel de Tarefas Agendadas.",
     "cronNotify": "Notificar ao concluir",

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -27,12 +27,16 @@ import {
   Trash2,
   Zap,
   Pencil,
+  Check,
+  Layers,
+  Clock,
+  Hourglass,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CronJobForm from "./CronJobForm"
 import CronJobDetail from "./CronJobDetail"
 import type { CronJob, CalendarEvent } from "./CronJobForm.types"
-import { statusColor, formatSchedule } from "./cronHelpers"
+import { statusColor, runLogDotColor, runStatusDisplay, formatSchedule } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
 
 type ViewMode = "calendar" | "list"
@@ -65,6 +69,27 @@ export default function CronCalendarView({
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [pendingDeleteJob, setPendingDeleteJob] = useState<CronJob | null>(null)
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
+
+  // Global cron settings (§4 concurrency cap + §5 per-run timeout). Loaded once;
+  // persisted on blur with the standard three-state feedback. The committed
+  // numbers (maxConcurrent / jobTimeout) are the dirty-check baseline; the
+  // *Input strings are the raw field text so clearing/retyping doesn't snap to a
+  // value mid-edit. save_cron_config replaces the whole CronConfig, so every save
+  // sends BOTH fields (a partial body would reset the other to its default).
+  const [maxConcurrent, setMaxConcurrent] = useState<number>(5)
+  const [mcInput, setMcInput] = useState<string>("5")
+  const [jobTimeout, setJobTimeout] = useState<number>(600)
+  const [jtInput, setJtInput] = useState<string>("600")
+  const [atGrace, setAtGrace] = useState<number>(300)
+  const [agInput, setAgInput] = useState<string>("300")
+  const [savingCron, setSavingCron] = useState(false)
+  const [cronSaveStatus, setCronSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  // Only true after get_cron_config succeeds. The inputs hold hard-coded defaults
+  // (5/600/300) until then; persisting from those would clobber the actually-stored
+  // config (each commit writes all three fields). So the inputs stay disabled until
+  // a real load — a mount-time fetch failure keeps them disabled rather than
+  // letting a later edit silently overwrite the stored values.
+  const [cronLoaded, setCronLoaded] = useState(false)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -105,9 +130,104 @@ export default function CronCalendarView({
     if (jobsLoaded) fetchJobs()
   }, [fetchEvents, fetchJobs, jobsLoaded])
 
+  // Single idle-reset timer shared by all cron-setting inputs, so two saves in
+  // quick succession don't have an earlier timer blank a later save's status.
+  const cronStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistCron = useCallback(
+    async (cfg: { maxConcurrent: number; jobTimeoutSecs: number; atGraceSecs: number }) => {
+      setSavingCron(true)
+      setCronSaveStatus("idle")
+      try {
+        await getTransport().call("save_cron_config", { config: cfg })
+        setCronSaveStatus("saved")
+      } catch {
+        setCronSaveStatus("failed")
+      } finally {
+        setSavingCron(false)
+        if (cronStatusTimer.current) clearTimeout(cronStatusTimer.current)
+        cronStatusTimer.current = setTimeout(() => setCronSaveStatus("idle"), 2000)
+      }
+    },
+    [],
+  )
+
+  const commitMaxConcurrent = useCallback(async () => {
+    const raw = mcInput.trim()
+    // Empty / invalid field on blur → keep the previous value (don't coerce the
+    // "cleared field" gesture into 0 = unlimited).
+    if (raw === "" || Number.isNaN(Number(raw))) {
+      setMcInput(String(maxConcurrent))
+      return
+    }
+    const n = Math.max(0, Math.min(1000, Math.floor(Number(raw))))
+    setMcInput(String(n))
+    if (n === maxConcurrent) return // dirty check: skip a no-op write
+    setMaxConcurrent(n)
+    await persistCron({ maxConcurrent: n, jobTimeoutSecs: jobTimeout, atGraceSecs: atGrace })
+  }, [mcInput, maxConcurrent, jobTimeout, atGrace, persistCron])
+
+  const commitJobTimeout = useCallback(async () => {
+    const raw = jtInput.trim()
+    if (raw === "" || Number.isNaN(Number(raw))) {
+      setJtInput(String(jobTimeout))
+      return
+    }
+    // Clamp to the backend's [30, 7200]s band so the field reflects what actually
+    // gets stored (the backend also clamps at read).
+    const n = Math.max(30, Math.min(7200, Math.floor(Number(raw))))
+    setJtInput(String(n))
+    if (n === jobTimeout) return
+    setJobTimeout(n)
+    await persistCron({ maxConcurrent, jobTimeoutSecs: n, atGraceSecs: atGrace })
+  }, [jtInput, jobTimeout, maxConcurrent, atGrace, persistCron])
+
+  const commitAtGrace = useCallback(async () => {
+    const raw = agInput.trim()
+    if (raw === "" || Number.isNaN(Number(raw))) {
+      setAgInput(String(atGrace))
+      return
+    }
+    // Clamp to [0, 604800] (0 = strict, no late-fire; 7-day cap) to mirror the
+    // backend's read-time clamp.
+    const n = Math.max(0, Math.min(604800, Math.floor(Number(raw))))
+    setAgInput(String(n))
+    if (n === atGrace) return
+    setAtGrace(n)
+    await persistCron({ maxConcurrent, jobTimeoutSecs: jobTimeout, atGraceSecs: n })
+  }, [agInput, atGrace, maxConcurrent, jobTimeout, persistCron])
+
   useEffect(() => {
     fetchEvents()
   }, [fetchEvents])
+
+  // Load the global cron settings once on mount.
+  useEffect(() => {
+    getTransport()
+      .call<{ maxConcurrent?: number; jobTimeoutSecs?: number; atGraceSecs?: number }>(
+        "get_cron_config",
+      )
+      .then((c) => {
+        if (c && typeof c.maxConcurrent === "number") {
+          setMaxConcurrent(c.maxConcurrent)
+          setMcInput(String(c.maxConcurrent))
+        }
+        if (c && typeof c.jobTimeoutSecs === "number") {
+          setJobTimeout(c.jobTimeoutSecs)
+          setJtInput(String(c.jobTimeoutSecs))
+        }
+        if (c && typeof c.atGraceSecs === "number") {
+          setAtGrace(c.atGraceSecs)
+          setAgInput(String(c.atGraceSecs))
+        }
+        // Mark loaded only after a successful fetch — enables the inputs and
+        // unblocks commits now that the baseline reflects the stored config.
+        setCronLoaded(true)
+      })
+      .catch(() => {
+        // Keep cronLoaded=false so the inputs stay disabled: never persist the
+        // hard-coded defaults over the stored config on a transient load failure.
+      })
+  }, [])
 
   // Lazily load jobs on first switch to list mode
   useEffect(() => {
@@ -393,6 +513,75 @@ export default function CronCalendarView({
           </>
         )}
 
+        {/* Global cron settings: §4 concurrency cap (0 = unlimited) + §5 per-run
+            timeout. Both save through one CronConfig write with a shared status. */}
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <IconTip label={t("cron.maxConcurrentHint")}>
+            <div className="flex items-center gap-1.5">
+              <Layers className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">{t("cron.maxConcurrent")}</span>
+              <Input
+                type="number"
+                min={0}
+                max={1000}
+                disabled={!cronLoaded}
+                className="h-7 w-14 text-xs"
+                value={mcInput}
+                onChange={(e) => setMcInput(e.target.value)}
+                onBlur={commitMaxConcurrent}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                }}
+              />
+            </div>
+          </IconTip>
+          <IconTip label={t("cron.jobTimeoutHint")}>
+            <div className="flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">{t("cron.jobTimeout")}</span>
+              <Input
+                type="number"
+                min={30}
+                max={7200}
+                disabled={!cronLoaded}
+                className="h-7 w-16 text-xs"
+                value={jtInput}
+                onChange={(e) => setJtInput(e.target.value)}
+                onBlur={commitJobTimeout}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                }}
+              />
+            </div>
+          </IconTip>
+          <IconTip label={t("cron.atGraceHint")}>
+            <div className="flex items-center gap-1.5">
+              <Hourglass className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">{t("cron.atGrace")}</span>
+              <Input
+                type="number"
+                min={0}
+                max={604800}
+                disabled={!cronLoaded}
+                className="h-7 w-16 text-xs"
+                value={agInput}
+                onChange={(e) => setAgInput(e.target.value)}
+                onBlur={commitAtGrace}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+                }}
+              />
+            </div>
+          </IconTip>
+          {savingCron ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : cronSaveStatus === "saved" ? (
+            <Check className="h-3 w-3 text-green-500" />
+          ) : cronSaveStatus === "failed" ? (
+            <span className="text-red-500 font-semibold">!</span>
+          ) : null}
+        </div>
+
         <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={handleNewJob}>
           <Plus className="h-3.5 w-3.5" />
           {t("cron.newJob")}
@@ -443,12 +632,7 @@ export default function CronCalendarView({
                             .get(day)!
                             .slice(0, 4)
                             .map((evt, j) => {
-                              const dotColor =
-                                evt.runLog?.status === "success"
-                                  ? "bg-emerald-500"
-                                  : evt.runLog?.status === "error"
-                                    ? "bg-red-500"
-                                    : statusColor(evt.status)
+                              const dotColor = runLogDotColor(evt.runLog?.status, evt.status)
                               return (
                                 <IconTip key={j} label={evt.jobName}>
                                   <span
@@ -499,6 +683,7 @@ export default function CronCalendarView({
                         minute: "2-digit",
                       })
                       const runStatus = evt.runLog?.status
+                      const runDisp = runStatus ? runStatusDisplay(runStatus) : null
                       return (
                         <button
                           key={`${evt.jobId}-${i}`}
@@ -507,27 +692,20 @@ export default function CronCalendarView({
                         >
                           <div className="flex items-center gap-2">
                             <span
-                              className={`inline-block w-2 h-2 rounded-full shrink-0 ${
-                                evt.runLog?.status === "success"
-                                  ? "bg-emerald-500"
-                                  : evt.runLog?.status === "error"
-                                    ? "bg-red-500"
-                                    : statusColor(evt.status)
-                              }`}
+                              className={`inline-block w-2 h-2 rounded-full shrink-0 ${runLogDotColor(
+                                evt.runLog?.status,
+                                evt.status,
+                              )}`}
                             />
                             <span className="text-xs font-medium truncate">{evt.jobName}</span>
                             <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                               {time}
                             </span>
                           </div>
-                          {runStatus && (
-                            <div
-                              className={`text-[10px] mt-1 ${runStatus === "success" ? "text-emerald-500" : "text-red-500"}`}
-                            >
-                              {runStatus === "success" ? "✓ " : "✕ "}
-                              {runStatus === "success"
-                                ? t("cron.runStatusSuccess")
-                                : t("cron.runStatusError")}
+                          {runDisp && (
+                            <div className={`text-[10px] mt-1 ${runDisp.className}`}>
+                              {runDisp.symbol}
+                              {t(runDisp.labelKey)}
                               {evt.runLog?.durationMs
                                 ? ` (${(evt.runLog.durationMs / 1000).toFixed(1)}s)`
                                 : ""}

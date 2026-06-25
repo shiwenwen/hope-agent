@@ -395,6 +395,24 @@ impl ChannelDB {
         }
     }
 
+    /// Whitelist check: is `(channel, account, chat, thread)` a conversation this
+    /// system has actually recorded (an inbound message or an explicit attach
+    /// created the row)? Cron delivery uses this to refuse fan-out to chat ids a
+    /// (possibly prompt-injected) model invented — only conversations surfaced by
+    /// `list_channel_targets`, which reads the same `channel_conversations` table,
+    /// are valid delivery destinations.
+    pub fn conversation_exists(
+        &self,
+        channel_id: &str,
+        account_id: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<bool> {
+        Ok(self
+            .get_session(channel_id, account_id, chat_id, thread_id)?
+            .is_some())
+    }
+
     /// Look up the persisted `chat_type` for a (channel, account, chat, thread)
     /// quadruple. Used by callback re-injection paths (e.g. Feishu's
     /// `card.action.trigger` → synthetic inbound) that don't carry chat_type

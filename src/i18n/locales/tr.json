@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Zamanlanmış görevi sil",
+        "body": "Model, zamanlanmış görevlerinizden birini kalıcı olarak silmek üzere. Varsayılan mod her seferinde sorar; akıllı mod karar verebilir ve YOLO atlar. Her zaman izin ver seçeneği kullanılabilir."
+      },
       "agent_custom_list": {
         "body": "Bu araç, ajanın özel onay listesinde yer alıyor (yalnızca Default modu).",
         "title": "Ajan özel onay listesi"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "Sesli mesajları otomatik yazıya dök",
     "autoTranscribeVoiceHint": "Gelen ses / sesli mesajları yapılandırılmış STT alt sistemiyle yazıya döker. Her mesaj STT API kotanızdan tüketir.",
     "kbAccessOptIn": "Bilgi tabanı erişimi",
-    "kbAccessOptInHint": "Bu kanalın bağlı bilgi alanlarını okumasına ve yazmasına izin verir. Varsayılan olarak kapalıdır. Grup sohbetlerinde ayrıca sohbette /kb on komutunu çalıştırarak onaylayın."
+    "kbAccessOptInHint": "Bu kanalın bağlı bilgi alanlarını okumasına ve yazmasına izin verir. Varsayılan olarak kapalıdır. Grup sohbetlerinde ayrıca sohbette /kb on komutunu çalıştırarak onaylayın.",
+    "removeWithCronTitle": "Hesap silinsin mi?",
+    "removeWithCronDesc": "“{{account}}”, {{count}} zamanlanmış görevin teslimat hedefidir. Kaldırıldığında bu hedefler geçersiz olarak işaretlenir.",
+    "removeWithCronTargets": "{{count}} hedef"
   },
   "chat": {
     "addWorkingDirectory": "Çalışma dizini ekle",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Tolerans (sn)",
+    "atGraceHint": "Geç çalıştırma penceresi: uygulama kapalıyken zamanı gelen tek seferlik bir görev, gecikme bu saniyeyi aşmadıysa yine de çalışır; aşarsa kaçırıldı olarak işaretlenir (0 = katı, geç çalıştırma yok).",
+    "jobTimeout": "Zaman aşımı (sn)",
+    "jobTimeoutHint": "Tek bir zamanlanmış görevin terk edilip yuvasının boşaltılmasından önce çalışabileceği maksimum saniye (30–7200 sn).",
+    "jobTimeoutOverride": "Görev zaman aşımı (sn)",
+    "jobTimeoutOverrideHint": "Yalnızca BU görev için global zaman aşımını geçersiz kılar (30–7200 sn); global varsayılan için boş bırakın.",
+    "maxConcurrent": "Maks. eşzamanlı",
+    "maxConcurrentHint": "Aynı anda çalışan zamanlanmış görev üst sınırı (0 = sınırsız). Fazlalık görevler bir sonraki kontrolü bekler.",
+    "timezone": "Saat dilimi",
+    "timezoneHint": "Zamanlamanın saati bu saat diliminde yorumlanır (yaz saati dahil).",
     "active": "Aktif",
     "addDeliveryTarget": "Hedef ekle",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "İfadeyi düzenle",
     "editJob": "Görevi düzenle",
     "errorMessageRequired": "Agent mesajı gerekli",
+    "errorDateRequired": "Zamanlama tarihi gerekli",
     "errorNameRequired": "Görev adı gerekli",
     "everyDayAt": "Her gün",
     "everyMonthOn": "Her ay",
@@ -765,7 +783,18 @@
     "weekSun": "Paz",
     "weekThu": "Per",
     "weekTue": "Sal",
-    "weekWed": "Çar"
+    "weekWed": "Çar",
+    "deliveryTargetStale": "Hesap silindi — teslim edilmeyecek",
+    "prefixDeliveryWithName": "Görev adını başa ekle",
+    "prefixDeliveryWithNameDesc": "Başarılı teslimatların başına [Cron] {ad} ekler; aynı sohbete teslim edilen birden fazla görevi ayırt etmenizi sağlar",
+    "deliveryStatus": {
+      "delivered": "Teslim edildi",
+      "partial": "Kısmen teslim edildi",
+      "failed": "Teslim başarısız"
+    },
+    "runStatusRunning": "Çalışıyor",
+    "runStatusEmpty": "Çıktı yok",
+    "unitSeconds": "saniye"
   },
   "dangerousMode": {
     "bannerBoth": "Tehlikeli Mod aktif (CLI + yapılandırma) — tüm araç onayları atlanıyor",
@@ -1698,6 +1727,14 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Zamanlanmış görev iptal edildi",
+    "cronDisabled": "Zamanlanmış görev devre dışı bırakıldı",
+    "cronDisabledBody": "{{name}} — {{count}} ardışık hatadan sonra devre dışı bırakıldı ({{reason}})",
+    "cronReason": {
+      "timeout": "zaman aşımı",
+      "configuration": "yapılandırma hatası",
+      "transient": "tekrarlanan hatalar"
+    },
     "agentDesc": "Agent başına bildirim geçersiz kılmaları. Varsayılan olarak ayarlandığında genel ayarı kullanır.",
     "agentSection": "Agent bildirimleri",
     "approvalRequired": "Araç onayı gerekiyor",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "Bir IM kanalı hesabının kimlik bilgileri reddedildi — yeniden kimlik doğrulayın",
     "chatCompleted": "Sohbet tamamlandı",
     "chatError": "Sohbet hatası",
+    "cronEmpty": "Zamanlanmış görev tamamlandı (çıktı yok)",
     "cronError": "Zamanlanmış görev başarısız",
     "cronNote": "Cron görev bildirimleri Zamanlanmış Görevler ayar panelinde her görev için yapılandırılabilir.",
     "cronNotify": "Tamamlanınca bildir",

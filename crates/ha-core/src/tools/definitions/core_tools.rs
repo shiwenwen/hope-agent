@@ -496,7 +496,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "schedule_type": {
                         "type": "string",
                         "enum": ["at", "every", "cron"],
-                        "description": "Schedule type (required on create; passing any schedule field on update replaces the schedule)"
+                        "description": "Schedule type. Required on create. On update: omit to keep the existing schedule unchanged; pass it to REPLACE the schedule — you must then also supply all of that type's required fields (at→timestamp, every→interval_ms, cron→cron_expression), or the update is rejected. Other schedule fields passed WITHOUT schedule_type are ignored (the schedule stays as-is)."
                     },
                     "timestamp": {
                         "type": "string",
@@ -516,7 +516,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "timezone": {
                         "type": "string",
-                        "description": "Timezone for cron schedule (default UTC)"
+                        "description": "IANA timezone name for a 'cron' schedule, e.g. 'Asia/Shanghai' / 'America/New_York'. The cron expression's hour/minute fields are interpreted as local wall-clock in this zone (DST-aware). Omit for UTC. Invalid names are rejected. Prefer the user's own timezone unless they ask otherwise."
                     },
                     "prompt": {
                         "type": "string",
@@ -532,11 +532,19 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "max_failures": {
                         "type": "integer",
-                        "description": "Auto-disable the job after this many consecutive failures (default 5)"
+                        "description": "Auto-disable the job after this many consecutive failures (default 5; 0 = never auto-disable)"
+                    },
+                    "job_timeout_secs": {
+                        "type": "integer",
+                        "description": "Per-run wall-clock timeout in seconds for THIS job, overriding the global default (clamped to [30, 7200]). Use for a task that legitimately runs long (deep research / many tool calls) instead of raising the global cap for everything. Omit or pass null to use the global default; on update a number sets it, null clears it back to the default."
                     },
                     "notify_on_complete": {
                         "type": "boolean",
                         "description": "Show a desktop notification when this job completes (default true)"
+                    },
+                    "prefix_delivery_with_name": {
+                        "type": "boolean",
+                        "description": "Prefix successful IM deliveries with `[Cron] {name}` so multiple jobs fanning out to the same chat are distinguishable (default false; failure deliveries always carry the name)."
                     },
                     "delivery_targets": {
                         "type": "array",
@@ -1570,7 +1578,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
                             "temperature", "tool_timeout", "approval", "unattended_approval",
                             "image_generate", "canvas", "image", "pdf",
-                            "async_tools", "deferred_tools",
+                            "async_tools", "cron", "deferred_tools",
                             "memory_extract", "memory_selection", "memory_budget", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr", "multimodal", "dreaming", "knowledge_maintenance",
@@ -1614,7 +1622,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
                             "temperature", "tool_timeout", "approval", "unattended_approval",
                             "image_generate", "canvas", "image", "pdf",
-                            "async_tools", "deferred_tools",
+                            "async_tools", "cron", "deferred_tools",
                             "memory_extract", "memory_selection", "memory_budget", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
                             "temporal_decay", "mmr", "multimodal", "dreaming", "knowledge_maintenance",

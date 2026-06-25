@@ -15,10 +15,11 @@ use crate::cron::{self, CronDeliveryTarget, CronPayload, CronSchedule, NewCronJo
 /// cannot compute the infinite recursive future type to verify `Send`.
 pub(crate) fn tool_manage_cron<'a>(
     args: &'a Value,
-    session_id: Option<&'a str>,
+    ctx: &'a super::ToolExecContext,
 ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
-    // Own the session_id so the returned future doesn't borrow from the caller.
-    let session_id = session_id.map(String::from);
+    // Own the session_id so the returned future doesn't borrow from the caller;
+    // `ctx` itself is only needed by the `delete` approval gate below.
+    let session_id = ctx.session_id.clone();
     Box::pin(async move {
         let cron_db =
             crate::get_cron_db().ok_or_else(|| anyhow::anyhow!("Cron service not initialized"))?;
@@ -71,6 +72,10 @@ pub(crate) fn tool_manage_cron<'a>(
                         .map(|v| v as u32),
                     notify_on_complete: args.get("notify_on_complete").and_then(|v| v.as_bool()),
                     delivery_targets: Some(delivery_targets),
+                    prefix_delivery_with_name: args
+                        .get("prefix_delivery_with_name")
+                        .and_then(|v| v.as_bool()),
+                    job_timeout_secs: args.get("job_timeout_secs").and_then(|v| v.as_u64()),
                 };
 
                 let job = cron_db.add_job(&input)?;
@@ -132,6 +137,17 @@ pub(crate) fn tool_manage_cron<'a>(
                 if let Some(b) = args.get("notify_on_complete").and_then(|v| v.as_bool()) {
                     job.notify_on_complete = b;
                 }
+                if let Some(b) = args
+                    .get("prefix_delivery_with_name")
+                    .and_then(|v| v.as_bool())
+                {
+                    job.prefix_delivery_with_name = b;
+                }
+                // C19 per-job timeout: a number sets the override, explicit null
+                // clears it (back to the global default); absent leaves it as-is.
+                if let Some(v) = args.get("job_timeout_secs") {
+                    job.job_timeout_secs = v.as_u64();
+                }
                 if let Some(v) = args.get("project_id") {
                     job.project_id = parse_project_id_value(v)?;
                     validate_project_id(job.project_id.as_deref())?;
@@ -142,6 +158,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     if !v.is_null() {
                         let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
                             .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
+                        validate_delivery_targets(&parsed)?;
                         job.delivery_targets = parsed;
                     }
                 }
@@ -216,7 +233,24 @@ pub(crate) fn tool_manage_cron<'a>(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                // Best-effort human-readable name for the approval dialog before
+                // we touch anything.
+                let desc = match cron_db.get_job(id) {
+                    Ok(Some(job)) => format!("Delete scheduled task '{}' (id={})", job.name, id),
+                    _ => format!("Delete scheduled task (id={})", id),
+                };
+                // OQ6: delete is the one consequential `manage_cron` action, so it
+                // takes an explicit trip through the unified permission engine
+                // (every other action stays internal-exempt). `?` aborts with an
+                // already-rendered rejection on deny / unattended / timeout.
+                gate_cron_delete(args, ctx, desc).await?;
                 cron_db.delete_job(id)?;
+                app_info!(
+                    "cron",
+                    "manage",
+                    "manage_cron deleted scheduled task '{}' (approved)",
+                    id
+                );
                 Ok(format!("Deleted scheduled task '{}'.", id))
             }
 
@@ -243,6 +277,17 @@ pub(crate) fn tool_manage_cron<'a>(
                     .get("id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing 'id' parameter"))?;
+                // Cron only runs on the Primary instance — `execute_job_public`
+                // no-ops on a Secondary (C10). This is the third run-now entry
+                // point (alongside the Tauri command + HTTP route); without this
+                // preflight, spawning on a Secondary would return "Triggered
+                // immediate execution" to the model while nothing claims, runs,
+                // logs, or delivers. Fail loudly instead of reporting a fake success.
+                if !crate::runtime_lock::is_primary() {
+                    anyhow::bail!(
+                        "run_now is unavailable on this instance: scheduled jobs only run on the primary"
+                    );
+                }
                 let job = cron_db
                     .get_job(id)?
                     .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
@@ -283,6 +328,48 @@ pub(crate) fn tool_manage_cron<'a>(
             )),
         }
     })
+}
+
+/// Gate a `manage_cron action=delete` through the unified permission engine
+/// (OQ6). `manage_cron` stays `internal:true`, so every other action runs
+/// approval-free; delete alone re-enters the engine with `is_internal=false`,
+/// where the engine's `check_cron_delete` rule emits the non-strict
+/// `AskReason::CronDelete`. That makes the outcome session-mode-aware for free:
+/// Default prompts, Smart lets the judge model decide, YOLO / global-YOLO /
+/// AllowAlways bypass, and an unattended surface (a cron run with no human to
+/// answer) fail-closes per `unattended_approval_action`. The shared
+/// `run_tool_approval` keeps the strict-timeout / unattended / AllowAlways
+/// handling in one place. Returns `Ok(())` to proceed or an already-rendered
+/// `ToolRejection` to abort the delete.
+async fn gate_cron_delete(args: &Value, ctx: &super::ToolExecContext, desc: String) -> Result<()> {
+    let decision =
+        super::execution::resolve_tool_permission(super::TOOL_MANAGE_CRON, args, ctx, false).await;
+    match decision {
+        crate::permission::Decision::Allow => Ok(()),
+        crate::permission::Decision::Deny { reason } => Err(
+            super::rejection::ToolRejection::denied_by_policy(super::TOOL_MANAGE_CRON, reason),
+        ),
+        crate::permission::Decision::Ask { reason } => {
+            // Force `allow_always_forbidden=true`: a one-off "Allow Always" on a
+            // cron delete must NOT persist a standing grant. The allowlist matcher
+            // for `manage_cron` keys on `action` only (not the job `id`), so a
+            // persisted rule would silently authorize deleting *any* scheduled task
+            // forever — and `allows_tool_call` is consulted before this gate, so it
+            // would bypass the prompt on every future delete. CronDelete stays
+            // non-strict for the timeout / unattended axis (this flag only governs
+            // AllowAlways persistence); the frontend likewise disables the button.
+            super::execution::run_tool_approval(
+                super::TOOL_MANAGE_CRON,
+                args,
+                ctx,
+                Some(super::approval::ApprovalReasonPayload::from(&reason)),
+                true,
+                Some(desc),
+            )
+            .await
+            .map(|_origin| ())
+        }
+    }
 }
 
 fn resolve_project_id_for_create(args: &Value, session_id: Option<&str>) -> Result<Option<String>> {
@@ -341,58 +428,60 @@ fn parse_schedule(args: &Value) -> Result<CronSchedule> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing 'schedule_type' parameter (at, every, or cron)"))?;
 
-    match schedule_type {
+    // Each arm extracts + normalizes the JSON fields (presence errors are
+    // field-specific here), then delegates *value* validation to the single
+    // source of truth `cron::validate_schedule` — the same check the persistence
+    // chokepoint (`add_job`/`update_job`) and the owner-plane paths run, so the
+    // three entry points can never diverge on what a legal schedule is.
+    let schedule = match schedule_type {
         "at" => {
             let timestamp = args
                 .get("timestamp")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'timestamp' for 'at' schedule"))?;
-            // Validate ISO8601
-            chrono::DateTime::parse_from_rfc3339(timestamp)
-                .map_err(|e| anyhow::anyhow!("Invalid timestamp: {}", e))?;
-            Ok(CronSchedule::At {
+            CronSchedule::At {
                 timestamp: timestamp.to_string(),
-            })
+            }
         }
         "every" => {
             let interval_ms = args
                 .get("interval_ms")
                 .and_then(|v| v.as_u64())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'interval_ms' for 'every' schedule"))?;
-            if interval_ms < 60_000 {
-                return Err(anyhow::anyhow!(
-                    "Interval must be at least 60000ms (1 minute)"
-                ));
-            }
             let start_at = args
                 .get("start_at")
                 .and_then(|v| v.as_str())
                 .map(String::from);
-            Ok(CronSchedule::Every {
+            CronSchedule::Every {
                 interval_ms,
                 start_at,
-            })
+            }
         }
         "cron" => {
             let expression = args
                 .get("cron_expression")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow::anyhow!("Missing 'cron_expression' for 'cron' schedule"))?;
-            cron::validate_cron_expression(expression)?;
-            let timezone = args
-                .get("timezone")
-                .and_then(|v| v.as_str())
-                .map(String::from);
-            Ok(CronSchedule::Cron {
+            // Trim the timezone here (normalization); validity is checked by
+            // validate_schedule below. An empty value normalizes to `None` (UTC).
+            let timezone = match args.get("timezone").and_then(|v| v.as_str()) {
+                Some(raw) if !raw.trim().is_empty() => Some(raw.trim().to_string()),
+                _ => None,
+            };
+            CronSchedule::Cron {
                 expression: expression.to_string(),
                 timezone,
-            })
+            }
         }
-        _ => Err(anyhow::anyhow!(
-            "Invalid schedule_type: '{}'. Use 'at', 'every', or 'cron'",
-            schedule_type
-        )),
-    }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Invalid schedule_type: '{}'. Use 'at', 'every', or 'cron'",
+                schedule_type
+            ))
+        }
+    };
+    cron::validate_schedule(&schedule)?;
+    Ok(schedule)
 }
 
 /// Human-readable schedule summary.
@@ -411,7 +500,13 @@ fn schedule_summary(schedule: &CronSchedule) -> String {
                 format!("every {}d", secs / 86400)
             }
         }
-        CronSchedule::Cron { expression, .. } => format!("cron: {}", expression),
+        CronSchedule::Cron {
+            expression,
+            timezone,
+        } => match timezone.as_deref() {
+            Some(tz) => format!("cron: {} ({})", expression, tz),
+            None => format!("cron: {} (UTC)", expression),
+        },
     }
 }
 
@@ -443,6 +538,7 @@ fn resolve_delivery_targets_for_create(
                         chat_id: conv.chat_id,
                         thread_id: conv.thread_id,
                         label,
+                        stale: false,
                     };
                     return Ok((vec![target], true));
                 }
@@ -452,9 +548,52 @@ fn resolve_delivery_targets_for_create(
         Some(v) => {
             let parsed: Vec<CronDeliveryTarget> = serde_json::from_value(v.clone())
                 .map_err(|e| anyhow::anyhow!("Invalid 'delivery_targets': {}", e))?;
+            validate_delivery_targets(&parsed)?;
             Ok((parsed, false))
         }
     }
+}
+
+/// Create/update half of the delivery whitelist (OQ5). Every target the model
+/// supplies explicitly must point at a conversation already recorded in
+/// `channel_conversations` — the same set `action='list_channel_targets'`
+/// surfaces. Rejecting unknown targets at create/update time stops a
+/// prompt-injected model from *persisting* a cron job that fans output out to an
+/// attacker-controlled chat (a periodic, account-authenticated exfil channel),
+/// and is the create-time complement to the runtime skip-and-warn guard in
+/// `cron::delivery`. Inferred targets (derived from the caller's own IM
+/// conversation row) skip this — they are recorded by construction.
+fn validate_delivery_targets(targets: &[CronDeliveryTarget]) -> Result<()> {
+    if targets.is_empty() {
+        return Ok(());
+    }
+    let Some(db) = crate::get_channel_db() else {
+        anyhow::bail!(
+            "Cannot validate delivery_targets: the IM channel subsystem is not available. \
+             Configure an IM channel account first."
+        );
+    };
+    for t in targets {
+        let known = db
+            .conversation_exists(
+                &t.channel_id,
+                &t.account_id,
+                &t.chat_id,
+                t.thread_id.as_deref(),
+            )
+            .unwrap_or(false);
+        if !known {
+            anyhow::bail!(
+                "delivery_target {}:{} (account '{}') is not a recorded conversation. \
+                 Call action='list_channel_targets' to discover valid \
+                 channel_id/account_id/chat_id triples before setting delivery_targets.",
+                t.channel_id,
+                t.chat_id,
+                t.account_id
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Compact single-line summary of delivery targets for status messages.

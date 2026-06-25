@@ -133,6 +133,57 @@ export function statusColor(status: string): string {
   }
 }
 
+/**
+ * Dot color for a calendar occurrence given its matched run-log status (if any)
+ * and the owning job's status. C21: `empty` / `cancelled` / `running` runs get
+ * neutral / in-progress colors instead of falling through to the job's status
+ * color (which made an already-run occurrence indistinguishable from an un-run
+ * future one) or being lumped in as red "failure". Aligns with CronJobDetail.
+ */
+export function runLogDotColor(runStatus: string | undefined, jobStatus: string): string {
+  switch (runStatus) {
+    case "success":
+      return "bg-emerald-500"
+    case "error":
+    case "timeout":
+      return "bg-red-500"
+    case "running":
+      return "bg-blue-500"
+    case "empty":
+    case "cancelled":
+      return "bg-muted-foreground"
+    default:
+      // No run log for this occurrence (future / not yet run) — color by job status.
+      return statusColor(jobStatus)
+  }
+}
+
+/**
+ * Text color + symbol + i18n label key for a run-log status in the calendar
+ * day-detail sidebar. C21: aligns with CronJobDetail's per-status branches so
+ * `empty` / `cancelled` / `running` are no longer all mislabeled as a red
+ * "Error" (`cancelled` reuses `common.cancel`, matching CronJobDetail).
+ */
+export function runStatusDisplay(runStatus: string): {
+  className: string
+  symbol: string
+  labelKey: string
+} {
+  switch (runStatus) {
+    case "success":
+      return { className: "text-emerald-500", symbol: "✓ ", labelKey: "cron.runStatusSuccess" }
+    case "running":
+      return { className: "text-blue-500", symbol: "", labelKey: "cron.runStatusRunning" }
+    case "empty":
+      return { className: "text-muted-foreground", symbol: "○ ", labelKey: "cron.runStatusEmpty" }
+    case "cancelled":
+      return { className: "text-muted-foreground", symbol: "○ ", labelKey: "common.cancel" }
+    default:
+      // error / timeout / anything else → failure.
+      return { className: "text-red-500", symbol: "✕ ", labelKey: "cron.runStatusError" }
+  }
+}
+
 export function formatSchedule(schedule: CronSchedule, t: (key: string) => string): string {
   switch (schedule.type) {
     case "at":
@@ -140,6 +191,10 @@ export function formatSchedule(schedule: CronSchedule, t: (key: string) => strin
     case "every": {
       const ms = schedule.intervalMs ?? schedule.interval_ms ?? 0
       const secs = ms / 1000
+      // §10: sub-minute intervals (legacy rows from before the 1-min floor) show
+      // real seconds instead of rounding to "0 minutes".
+      if (secs < 60)
+        return `${t("cron.scheduleEvery")} ${Math.round(secs)} ${t("cron.unitSeconds")}`
       if (secs < 3600)
         return `${t("cron.scheduleEvery")} ${Math.round(secs / 60)} ${t("cron.unitMinutes")}`
       if (secs < 86400)

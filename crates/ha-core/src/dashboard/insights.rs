@@ -436,18 +436,27 @@ pub fn query_health_score(
         format!("WHERE {}", clauses.join(" AND "))
     };
     let sql = format!(
-        "SELECT COUNT(*),
-                COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0)
+        // Success rate is over *decided* terminal outcomes only — success vs
+        // failure. Failure is the complement of the known non-failure terminals
+        // (C05): error/timeout AND the infra 'no_session' literal (and any future
+        // failure tag) all count, instead of an IN ('error','timeout') allowlist
+        // that dropped 'no_session' and inflated the rate. In-progress 'running',
+        // zero-output 'empty', and 'cancelled' are neither success nor failure, so
+        // excluding them from the denominator keeps a healthy job's rate from being
+        // diluted (review fix #3 — COUNT(*) used to absorb all of them).
+        "SELECT COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN status NOT IN ('success', 'running', 'empty', 'cancelled') THEN 1 ELSE 0 END), 0)
          FROM cron_run_logs {}",
         where_sql
     );
-    let (cron_total, cron_success): (u64, u64) =
+    let (cron_success, cron_failed): (u64, u64) =
         cron_conn.query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
             Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
         })?;
     drop(cron_conn);
-    let cron_success_rate_percent = if cron_total > 0 {
-        (cron_success as f64 / cron_total as f64) * 100.0
+    let cron_decided = cron_success + cron_failed;
+    let cron_success_rate_percent = if cron_decided > 0 {
+        (cron_success as f64 / cron_decided as f64) * 100.0
     } else {
         100.0
     };

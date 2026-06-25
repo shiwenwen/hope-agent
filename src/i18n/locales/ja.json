@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "予約タスクの削除",
+        "body": "モデルが予約タスクを完全に削除しようとしています。デフォルトモードは毎回確認し、スマートモードは自動判断、YOLO はスキップします。「常に許可」も選べます。"
+      },
       "agent_custom_list": {
         "body": "このツールはエージェントのカスタム承認リストに含まれています（Default モードのみ）。",
         "title": "エージェントのカスタム承認リスト"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "音声メッセージを自動文字起こし",
     "autoTranscribeVoiceHint": "受信した音声 / オーディオを STT サブシステムで文字起こし。1 件ごとに STT API クォータを消費します。",
     "kbAccessOptIn": "ナレッジベースへのアクセス",
-    "kbAccessOptInHint": "このチャネルから、紐付けたナレッジスペースの読み書きを許可します。既定はオフです。グループチャットでは、チャット内で /kb on を実行して個別に確認してください。"
+    "kbAccessOptInHint": "このチャネルから、紐付けたナレッジスペースの読み書きを許可します。既定はオフです。グループチャットでは、チャット内で /kb on を実行して個別に確認してください。",
+    "removeWithCronTitle": "アカウントを削除しますか？",
+    "removeWithCronDesc": "「{{account}}」は {{count}} 件のスケジュールタスクの配信先です。削除するとこれらの配信先は無効としてマークされます。",
+    "removeWithCronTargets": "{{count}} 件"
   },
   "chat": {
     "addWorkingDirectory": "作業ディレクトリを追加",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "システムプロンプト"
   },
   "cron": {
+    "atGrace": "猶予(秒)",
+    "atGraceHint": "遅延実行の猶予：アプリ停止中に実行時刻を過ぎた単発タスクは、超過がこの秒数以内なら実行されます。超えると「未実行」になります（0 = 厳格、遅延実行なし）。",
+    "jobTimeout": "タイムアウト(秒)",
+    "jobTimeoutHint": "1 つのスケジュールタスクが実行できる最大秒数。超過すると中断され、スロットが解放されます（30〜7200 秒）。",
+    "jobTimeoutOverride": "タスク別タイムアウト（秒）",
+    "jobTimeoutOverrideHint": "このタスクのみグローバルのタイムアウトを上書きします（30〜7200秒）。空欄の場合はグローバル既定値を使用。",
+    "maxConcurrent": "最大同時実行",
+    "maxConcurrentHint": "同時に実行するスケジュールタスクの上限（0 = 無制限）。超過分は次回チェックまで待機します。",
+    "timezone": "タイムゾーン",
+    "timezoneHint": "スケジュールの時刻はこのタイムゾーンで解釈されます（夏時間に対応）。",
     "active": "実行中",
     "addDeliveryTarget": "配信先を追加",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "式を編集",
     "editJob": "タスクを編集",
     "errorMessageRequired": "Agent へのメッセージを入力してください",
+    "errorDateRequired": "実行日時を入力してください",
     "errorNameRequired": "タスク名を入力してください",
     "everyDayAt": "毎日",
     "everyMonthOn": "毎月",
@@ -765,7 +783,18 @@
     "weekSun": "日",
     "weekThu": "木",
     "weekTue": "火",
-    "weekWed": "水"
+    "weekWed": "水",
+    "deliveryTargetStale": "アカウントが削除されました — 配信できません",
+    "prefixDeliveryWithName": "タスク名を先頭に付ける",
+    "prefixDeliveryWithNameDesc": "成功した配信に [Cron] {名前} を付け、同じチャットへ配信する複数タスクを区別しやすくします",
+    "deliveryStatus": {
+      "delivered": "配信済み",
+      "partial": "一部配信",
+      "failed": "配信失敗"
+    },
+    "runStatusRunning": "実行中",
+    "runStatusEmpty": "出力なし",
+    "unitSeconds": "秒"
   },
   "dangerousMode": {
     "bannerBoth": "危険モード有効（CLI + 設定）— すべてのツール承認をバイパス中",
@@ -1698,6 +1727,14 @@
     "video": "動画"
   },
   "notification": {
+    "cronCancelled": "スケジュールタスクをキャンセルしました",
+    "cronDisabled": "スケジュールタスクが無効化されました",
+    "cronDisabledBody": "{{name}} — {{count}} 回連続で失敗したため無効化されました（{{reason}}）",
+    "cronReason": {
+      "timeout": "タイムアウト",
+      "configuration": "設定エラー",
+      "transient": "繰り返しエラー"
+    },
     "agentDesc": "Agent ごとの通知設定の上書き。「デフォルト」に設定するとグローバル設定を使用します。",
     "agentSection": "Agent 通知",
     "approvalRequired": "ツール承認が必要",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "IM チャネルの認証情報が拒否されました — 再認証してください",
     "chatCompleted": "会話が完了しました",
     "chatError": "会話でエラーが発生しました",
+    "cronEmpty": "スケジュールタスク完了（出力なし）",
     "cronError": "定期タスクが失敗しました",
     "cronNote": "定期タスクの通知は、定期タスク設定パネルでタスクごとに設定できます。",
     "cronNotify": "完了時に通知",

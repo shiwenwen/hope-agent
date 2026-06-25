@@ -301,4 +301,26 @@ mod tests {
         let c = ctx_im(KbAccessSource::Im, KbAccessSource::Im, true, true);
         assert!(effective_kb_access(&c).is_empty());
     }
+
+    // ── Cron lineage (§3) ────────────────────────────────────────────
+
+    #[test]
+    fn cron_lineage_is_owner_not_im_capped() {
+        // §3: cron runs map to `KbAccessSource::Cron`, which must NOT be IM-capped
+        // — otherwise the WS8 gate would deny KB access exactly as it did when cron
+        // borrowed the `Channel`/`Im` bucket. `im_lineage_denied` is the gate under
+        // test; a pure-cron lineage passes it and reaches the owner
+        // `max(session, project)` path.
+        assert!(!KbAccessSource::Cron.is_im());
+        let c = ctx(KbAccessSource::Cron, KbAccessSource::Cron, false);
+        assert!(!im_lineage_denied(&c));
+        // A subagent spawned by a cron run carries origin=Cron (non-IM): neither
+        // IM-denied nor launderable into denial (mirror of the IM-origin case).
+        let sub = ctx(KbAccessSource::Subagent, KbAccessSource::Cron, false);
+        assert!(!im_lineage_denied(&sub));
+        // Incognito still beats everything: a cron turn in an incognito session is
+        // zeroed before the owner path ("close = burn").
+        let incog = ctx(KbAccessSource::Cron, KbAccessSource::Cron, true);
+        assert!(effective_kb_access(&incog).is_empty());
+    }
 }

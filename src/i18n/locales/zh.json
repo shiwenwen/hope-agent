@@ -61,6 +61,10 @@
     "deny": "拒绝",
     "queueIndicator": "第 {{current}} 个，共 {{total}} 个",
     "reasons": {
+      "cron_delete": {
+        "title": "删除定时任务",
+        "body": "模型即将永久删除你的一个定时任务。默认模式每次询问；智能模式可自行判断，YOLO 跳过。可选「始终允许」。"
+      },
       "agent_custom_list": {
         "body": "Agent 配置里勾选了该工具进入「自定义工具审批」清单，仅 Default 模式下生效。",
         "title": "Agent 自定义审批清单"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "自动转录语音消息",
     "autoTranscribeVoiceHint": "通过 STT 子系统转录入站语音/音频消息；每条消耗 STT API 配额。",
     "kbAccessOptIn": "知识空间访问",
-    "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。"
+    "kbAccessOptInHint": "允许该渠道读写已挂载的知识空间。默认关闭。群聊还需在聊天中执行 /kb on 单独确认。",
+    "removeWithCronTitle": "删除账号？",
+    "removeWithCronDesc": "「{{account}}」是 {{count}} 个定时任务的投递目标。删除后这些目标将被标记为失效。",
+    "removeWithCronTargets": "{{count}} 个目标"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目录",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "系统提示词"
   },
   "cron": {
+    "atGrace": "补跑窗口(秒)",
+    "atGraceHint": "补跑窗口：应用关闭期间错过触发时点的一次性任务，逾期不超过这么多秒仍会补跑；超过则标记为「错过」（0 = 严格，不补跑）。",
+    "jobTimeout": "超时(秒)",
+    "jobTimeoutHint": "单个定时任务的最长运行秒数，超时即放弃并释放并发槽（30–7200 秒）。",
+    "jobTimeoutOverride": "本任务超时（秒）",
+    "jobTimeoutOverrideHint": "仅为这个任务覆盖全局超时（30–7200 秒）；留空则用全局默认。",
+    "maxConcurrent": "最大并发",
+    "maxConcurrentHint": "同时运行的定时任务上限（0 = 不限）；超出的到期任务等待下次检查。",
+    "timezone": "时区",
+    "timezoneHint": "定时时间按此时区解释（自动处理夏令时）。",
     "active": "运行中",
     "addDeliveryTarget": "添加目标",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "编辑表达式",
     "editJob": "编辑任务",
     "errorMessageRequired": "请输入 Agent 消息",
+    "errorDateRequired": "请选择执行时间",
     "errorNameRequired": "请输入任务名称",
     "everyDayAt": "每天",
     "everyMonthOn": "每月",
@@ -765,7 +783,18 @@
     "weekSun": "日",
     "weekThu": "四",
     "weekTue": "二",
-    "weekWed": "三"
+    "weekWed": "三",
+    "deliveryTargetStale": "账号已删除 — 无法投递",
+    "prefixDeliveryWithName": "投递时加任务名前缀",
+    "prefixDeliveryWithNameDesc": "成功投递时加上 [Cron] {名称} 前缀，便于区分投递到同一会话的多个任务",
+    "deliveryStatus": {
+      "delivered": "已投递",
+      "partial": "部分投递",
+      "failed": "投递失败"
+    },
+    "runStatusRunning": "运行中",
+    "runStatusEmpty": "无输出",
+    "unitSeconds": "秒"
   },
   "dangerousMode": {
     "bannerBoth": "危险模式已启用（CLI + 配置）—— 所有工具调用跳过审批",
@@ -1698,6 +1727,14 @@
     "video": "视频"
   },
   "notification": {
+    "cronCancelled": "定时任务已取消",
+    "cronDisabled": "定时任务已禁用",
+    "cronDisabledBody": "{{name}} —— 连续失败 {{count}} 次后已自动禁用（{{reason}}）",
+    "cronReason": {
+      "timeout": "超时",
+      "configuration": "配置错误",
+      "transient": "多次出错"
+    },
     "agentDesc": "每个 Agent 的通知开关覆盖。设为「默认」时跟随全局设置。",
     "agentSection": "Agent 通知",
     "approvalRequired": "需要工具审批",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "有 IM 渠道账号凭据被拒绝，需要重新登录",
     "chatCompleted": "对话已完成",
     "chatError": "对话出错",
+    "cronEmpty": "定时任务已完成（无输出）",
     "cronError": "定时任务失败",
     "cronNote": "定时任务通知可在定时任务设置面板中按任务单独配置。",
     "cronNotify": "完成时通知",

@@ -96,6 +96,19 @@ pub struct CronJob {
     /// Empty = no delivery (job result only lands in the isolated session).
     #[serde(default)]
     pub delivery_targets: Vec<CronDeliveryTarget>,
+    /// §8: when true, a *successful* delivery is prefixed with `[Cron] {name}`
+    /// so multiple jobs fanning out to the same chat are distinguishable
+    /// (failure deliveries already carry `⚠️ [Cron] {name} failed:`). Opt-in
+    /// per job; default off keeps the raw agent reply.
+    #[serde(default)]
+    pub prefix_delivery_with_name: bool,
+    /// C19: optional per-job override of the global `CronConfig.job_timeout_secs`
+    /// per-run wall-clock budget (clamped to `[30, 7200]s` at use). `None` = use
+    /// the global default. Lets a legitimately long-running task declare a higher
+    /// budget without raising the global cap (which would let a wedged job burn a
+    /// bigger budget every run).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_timeout_secs: Option<u64>,
 }
 
 /// A cron job execution lease. Constructed only after the DB atomically marks
@@ -104,6 +117,12 @@ pub struct CronJob {
 pub struct ClaimedCronJob {
     pub job: CronJob,
     pub claimed_at: String,
+    /// C12a: true for a manual `run now` (claim_immediate). A run-now is a one-off
+    /// test orthogonal to the schedule — its terminal handling records the run +
+    /// delivers but must NOT mutate the job's status / schedule / failure count
+    /// (no reviving a disabled job on success, no auto-disable on a test failure,
+    /// no rescheduling the next occurrence).
+    pub immediate: bool,
 }
 
 /// A single IM channel conversation target for cron result delivery.
@@ -122,6 +141,12 @@ pub struct CronDeliveryTarget {
     /// Cached human-readable label for UI display (not used at send time).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// §8: set when this target's sending account has been deleted (detected at
+    /// delivery time or eagerly when the account is removed). A stale target is
+    /// surfaced in the GUI (marked red) and skipped at send time. Cleared again
+    /// if the account ever resolves on a later run.
+    #[serde(default)]
+    pub stale: bool,
 }
 
 /// A single run log entry.
@@ -137,6 +162,12 @@ pub struct CronRunLog {
     pub duration_ms: Option<u64>,
     pub result_preview: Option<String>,
     pub error: Option<String>,
+    /// §8: outcome of fanning this run's result to the job's `delivery_targets`.
+    /// `None` = the job has no delivery targets (nothing to fan out). Otherwise
+    /// one of `"delivered"` (all targets ok), `"partial"` (some failed/skipped),
+    /// `"failed"` (no target received it). Surfaced in the GUI run-log list.
+    #[serde(default)]
+    pub delivery_status: Option<String>,
 }
 
 /// Input for creating a new job.
@@ -156,6 +187,24 @@ pub struct NewCronJob {
     /// `Some([...])` = fan-out to the listed channel conversations.
     #[serde(default)]
     pub delivery_targets: Option<Vec<CronDeliveryTarget>>,
+    /// §8: opt-in `[Cron] {name}` prefix on successful deliveries (see `CronJob`).
+    #[serde(default)]
+    pub prefix_delivery_with_name: Option<bool>,
+    /// C19: optional per-job run timeout override (seconds); `None` = global default.
+    #[serde(default)]
+    pub job_timeout_secs: Option<u64>,
+}
+
+/// §8: a cron job that references a given channel account in its delivery
+/// targets. Returned to the channel-account delete confirmation so the user
+/// sees which scheduled tasks fan out to the account they're about to remove.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronAccountRef {
+    pub job_id: String,
+    pub job_name: String,
+    /// Number of delivery targets in this job pointing at the account.
+    pub target_count: usize,
 }
 
 /// Calendar event for the calendar view.

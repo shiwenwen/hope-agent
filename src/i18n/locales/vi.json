@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Xóa tác vụ định kỳ",
+        "body": "Mô hình sắp xóa vĩnh viễn một trong các tác vụ định kỳ của bạn. Chế độ mặc định hỏi mỗi lần; chế độ thông minh có thể tự quyết định và YOLO bỏ qua. Có thể chọn Luôn cho phép."
+      },
       "agent_custom_list": {
         "body": "Công cụ này nằm trong danh sách phê duyệt tùy chỉnh của agent (chỉ chế độ Default).",
         "title": "Danh sách phê duyệt tùy chỉnh của agent"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "Tự động phiên âm tin nhắn thoại",
     "autoTranscribeVoiceHint": "Phiên âm giọng nói / âm thanh đến qua hệ thống STT đã cấu hình. Mỗi tin nhắn tiêu thụ hạn ngạch API STT.",
     "kbAccessOptIn": "Truy cập kho tri thức",
-    "kbAccessOptInHint": "Cho phép kênh này đọc và ghi các không gian tri thức đã đính kèm. Mặc định tắt. Trong nhóm chat, hãy chạy /kb on trong cuộc trò chuyện để xác nhận riêng."
+    "kbAccessOptInHint": "Cho phép kênh này đọc và ghi các không gian tri thức đã đính kèm. Mặc định tắt. Trong nhóm chat, hãy chạy /kb on trong cuộc trò chuyện để xác nhận riêng.",
+    "removeWithCronTitle": "Xóa tài khoản?",
+    "removeWithCronDesc": "“{{account}}” là đích gửi của {{count}} tác vụ định kỳ. Xóa nó sẽ đánh dấu các đích đó là không còn hiệu lực.",
+    "removeWithCronTargets": "{{count}} đích"
   },
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Bù trễ (giây)",
+    "atGraceHint": "Cửa sổ chạy bù: một tác vụ một lần đến hạn khi ứng dụng đang đóng vẫn chạy nếu trễ không quá số giây này; quá thì bị đánh dấu là bỏ lỡ (0 = nghiêm ngặt, không chạy bù).",
+    "jobTimeout": "Hết giờ (giây)",
+    "jobTimeoutHint": "Số giây tối đa một tác vụ định kỳ có thể chạy trước khi bị hủy và giải phóng vị trí (30–7200 giây).",
+    "jobTimeoutOverride": "Thời gian chờ mỗi tác vụ (giây)",
+    "jobTimeoutOverrideHint": "Ghi đè thời gian chờ toàn cục chỉ cho tác vụ NÀY (30–7200 giây); để trống để dùng mặc định toàn cục.",
+    "maxConcurrent": "Tối đa đồng thời",
+    "maxConcurrentHint": "Số tác vụ định kỳ chạy đồng thời tối đa (0 = không giới hạn). Các tác vụ đến hạn dư sẽ chờ lần kiểm tra tiếp theo.",
+    "timezone": "Múi giờ",
+    "timezoneHint": "Thời gian của lịch được hiểu theo múi giờ này (tự xử lý giờ mùa hè).",
     "active": "Hoạt động",
     "addDeliveryTarget": "Thêm đích",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "Sửa biểu thức",
     "editJob": "Sửa tác vụ",
     "errorMessageRequired": "Tin nhắn Agent là bắt buộc",
+    "errorDateRequired": "Thời gian thực thi là bắt buộc",
     "errorNameRequired": "Tên tác vụ là bắt buộc",
     "everyDayAt": "Mỗi ngày lúc",
     "everyMonthOn": "Mỗi tháng vào ngày",
@@ -765,7 +783,18 @@
     "weekSun": "CN",
     "weekThu": "T5",
     "weekTue": "T3",
-    "weekWed": "T4"
+    "weekWed": "T4",
+    "deliveryTargetStale": "Tài khoản đã xóa — không thể gửi",
+    "prefixDeliveryWithName": "Thêm tên tác vụ vào đầu",
+    "prefixDeliveryWithNameDesc": "Thêm [Cron] {tên} vào các lần gửi thành công để phân biệt nhiều tác vụ gửi đến cùng một cuộc trò chuyện",
+    "deliveryStatus": {
+      "delivered": "Đã gửi",
+      "partial": "Gửi một phần",
+      "failed": "Gửi thất bại"
+    },
+    "runStatusRunning": "Đang chạy",
+    "runStatusEmpty": "Không có đầu ra",
+    "unitSeconds": "giây"
   },
   "dangerousMode": {
     "bannerBoth": "Chế độ Nguy hiểm đang bật (CLI + config) — mọi phê duyệt công cụ bị bỏ qua",
@@ -1698,6 +1727,14 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Đã hủy tác vụ theo lịch",
+    "cronDisabled": "Tác vụ định kỳ đã bị tắt",
+    "cronDisabledBody": "{{name}} — đã bị tắt sau {{count}} lần thất bại liên tiếp ({{reason}})",
+    "cronReason": {
+      "timeout": "hết giờ",
+      "configuration": "lỗi cấu hình",
+      "transient": "lỗi lặp lại"
+    },
     "agentDesc": "Ghi đè thông báo cho từng Agent. Khi đặt là Mặc định, sẽ dùng cài đặt toàn cục.",
     "agentSection": "Thông báo Agent",
     "approvalRequired": "Cần phê duyệt công cụ",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "Thông tin xác thực một tài khoản kênh IM bị từ chối — vui lòng xác thực lại",
     "chatCompleted": "Cuộc trò chuyện đã hoàn thành",
     "chatError": "Lỗi cuộc trò chuyện",
+    "cronEmpty": "Tác vụ theo lịch đã hoàn tất (không có kết quả)",
     "cronError": "Tác vụ định kỳ thất bại",
     "cronNote": "Thông báo tác vụ Cron có thể được cấu hình cho từng tác vụ trong bảng cài đặt Tác vụ định kỳ.",
     "cronNotify": "Thông báo khi hoàn thành",

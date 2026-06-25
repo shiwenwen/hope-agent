@@ -15,6 +15,9 @@ import {
   Clock,
   ExternalLink,
   FolderOpen,
+  Send,
+  Loader2,
+  CircleSlash,
 } from "lucide-react"
 import type { CronJob, CronRunLog } from "./CronJobForm.types"
 import { statusColor, formatSchedule } from "./cronHelpers"
@@ -238,6 +241,10 @@ export default function CronJobDetail({
                   <div className="flex items-center gap-1.5">
                     {log.status === "success" ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : log.status === "running" ? (
+                      <Loader2 className="h-3.5 w-3.5 text-blue-500 animate-spin" />
+                    ) : log.status === "empty" ? (
+                      <CircleSlash className="h-3.5 w-3.5 text-muted-foreground" />
                     ) : log.status === "cancelled" ? (
                       <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
                     ) : (
@@ -246,9 +253,13 @@ export default function CronJobDetail({
                     <span className="font-medium">
                       {log.status === "success"
                         ? t("cron.runStatusSuccess")
-                        : log.status === "cancelled"
-                          ? t("common.cancel")
-                        : t("cron.runStatusError")}
+                        : log.status === "running"
+                          ? t("cron.runStatusRunning")
+                          : log.status === "empty"
+                            ? t("cron.runStatusEmpty")
+                            : log.status === "cancelled"
+                              ? t("common.cancel")
+                              : t("cron.runStatusError")}
                     </span>
                   </div>
                   <div className="flex items-center gap-3">
@@ -264,6 +275,30 @@ export default function CronJobDetail({
                 <div className="text-muted-foreground mt-1">
                   {new Date(log.startedAt).toLocaleString()}
                 </div>
+                {log.deliveryStatus && (
+                  <div className="mt-1 flex items-center gap-1">
+                    <Send
+                      className={`h-3 w-3 ${
+                        log.deliveryStatus === "delivered"
+                          ? "text-emerald-500"
+                          : log.deliveryStatus === "partial"
+                            ? "text-amber-500"
+                            : "text-red-500"
+                      }`}
+                    />
+                    <span
+                      className={
+                        log.deliveryStatus === "delivered"
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : log.deliveryStatus === "partial"
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-red-500"
+                      }
+                    >
+                      {t(`cron.deliveryStatus.${log.deliveryStatus}`)}
+                    </span>
+                  </div>
+                )}
                 {log.error && (
                   <div className="mt-1.5 text-red-500 bg-red-500/5 rounded px-2 py-1 break-words">
                     {log.error}

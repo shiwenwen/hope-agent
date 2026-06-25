@@ -377,6 +377,7 @@ impl ProjectDB {
                        LEFT JOIN channel_conversations cc ON cc.session_id = s.id
                       WHERE s.project_id = p.id
                         AND s.parent_session_id IS NULL
+                        AND s.is_cron = 0
                         AND cc.session_id IS NULL
                         AND m.id > COALESCE(s.last_read_message_id, 0)
                         AND m.role = 'assistant'
@@ -545,5 +546,86 @@ mod tests {
         let project_db = ProjectDB::new(session_db);
         project_db.migrate().expect("first migrate");
         project_db.migrate().expect("second migrate (idempotent)");
+    }
+
+    /// §3 regression: a project-bound cron run persists assistant rows with
+    /// source="cron" (was "channel"), so the `!= 'channel'` proxy no longer hides
+    /// them from the project unread rollup. The fix excludes cron sessions via
+    /// `s.is_cron = 0`; otherwise every scheduled run silently bumps the project's
+    /// unread badge. Mirrors `session::db`'s per-session regression test.
+    #[test]
+    fn list_unread_count_excludes_project_cron_sessions() {
+        use crate::chat_engine::ChatSource;
+        use crate::session::NewMessage;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+        // The project unread rollup LEFT JOINs channel_conversations; create the
+        // (otherwise ChannelDB-owned) table so the query can run.
+        {
+            let conn = session_db.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL, account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL, thread_id TEXT,
+                    session_id TEXT NOT NULL, chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+                );",
+            )
+            .unwrap();
+        }
+        let project_db = ProjectDB::new(session_db.clone());
+        project_db.migrate().expect("migrate");
+
+        let project = project_db
+            .create(CreateProjectInput {
+                name: "Proj".into(),
+                description: None,
+                instructions: None,
+                emoji: None,
+                logo: None,
+                color: None,
+                default_agent_id: None,
+                default_model_id: None,
+                working_dir: None,
+            })
+            .expect("create project");
+
+        // Regular project session with an assistant reply → counts as unread.
+        let regular = session_db
+            .create_session_with_project("ha-main", Some(&project.id), None)
+            .expect("regular session");
+        session_db
+            .append_message(
+                &regular.id,
+                &NewMessage::assistant("regular reply").with_source(ChatSource::Desktop),
+            )
+            .expect("append regular");
+
+        // Project-bound cron session output → must NOT count toward unread.
+        let cron = session_db
+            .create_session_with_project("ha-main", Some(&project.id), None)
+            .expect("cron session");
+        session_db.mark_session_cron(&cron.id).expect("mark cron");
+        session_db
+            .append_message(
+                &cron.id,
+                &NewMessage::assistant("cron output").with_source(ChatSource::Cron),
+            )
+            .expect("append cron");
+
+        let meta = project_db
+            .list(false)
+            .expect("list projects")
+            .into_iter()
+            .find(|p| p.project.id == project.id)
+            .expect("project present");
+        assert_eq!(
+            meta.unread_count, 1,
+            "project unread counts the regular reply but must exclude cron output"
+        );
     }
 }

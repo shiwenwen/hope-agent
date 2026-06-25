@@ -2,10 +2,11 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use cron::Schedule as CronExpression;
 use rusqlite::{params, Connection};
+use std::collections::HashSet;
 use std::str::FromStr;
 use std::sync::Mutex;
 
-use super::schedule::{backoff_delay_ms, compute_next_run, validate_cron_expression};
+use super::schedule::{backoff_delay_ms, compute_next_run, validate_schedule};
 use super::types::*;
 
 // ── CronDB (Persistence Layer) ──────────────────────────────────
@@ -43,7 +44,8 @@ impl CronDB {
                 max_failures INTEGER NOT NULL DEFAULT 5,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                project_id TEXT
+                project_id TEXT,
+                job_timeout_secs INTEGER
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
@@ -101,12 +103,49 @@ impl CronDB {
         if !has_project_id {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN project_id TEXT;")?;
         }
+
+        // Migration (§8): add prefix_delivery_with_name column if missing
+        let has_prefix: bool = conn
+            .prepare("SELECT prefix_delivery_with_name FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_prefix {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN prefix_delivery_with_name INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
+        // Migration (C19): add the per-job job_timeout_secs override column if
+        // missing. Nullable — NULL means "use the global CronConfig default".
+        let has_job_timeout: bool = conn
+            .prepare("SELECT job_timeout_secs FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_job_timeout {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN job_timeout_secs INTEGER;")?;
+        }
+
+        // Migration (§8): add delivery_status column to run logs if missing
+        let has_delivery_status: bool = conn
+            .prepare("SELECT delivery_status FROM cron_run_logs LIMIT 0")
+            .is_ok();
+        if !has_delivery_status {
+            conn.execute_batch("ALTER TABLE cron_run_logs ADD COLUMN delivery_status TEXT;")?;
+        }
+
+        // §9 (C6): tiny key/value table for the scheduler liveness heartbeat, so
+        // a startup can tell how long the (Primary-only) scheduler was offline.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS cron_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )?;
         conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_cron_jobs_project
                 ON cron_jobs(project_id);",
         )?;
 
         backfill_every_schedule_start_at(&conn)?;
+        backfill_cron_schedule_timezone(&conn)?;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -117,10 +156,13 @@ impl CronDB {
 
     /// Create a new job from NewCronJob input. Returns the full CronJob.
     pub fn add_job(&self, input: &NewCronJob) -> Result<CronJob> {
-        // Validate cron expression if applicable
-        if let CronSchedule::Cron { ref expression, .. } = input.schedule {
-            validate_cron_expression(expression)?;
-        }
+        // Persistence chokepoint: validate the whole schedule via the single
+        // source of truth (`schedule::validate_schedule`) so the owner-plane
+        // HTTP / Tauri create path enforces the SAME rules as the agent
+        // `manage_cron` tool path — no `At` with a bad timestamp, no `Every` that
+        // never fires, no unknown cron expression / timezone (which would silently
+        // fall back to UTC at fire time).
+        validate_schedule(&input.schedule)?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
@@ -133,8 +175,18 @@ impl CronDB {
 
         // Compute initial next_run_at
         let next_run = compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339());
+        // A one-shot `At` whose time is already past has no next run — terminalize
+        // it as `missed` at create time instead of persisting a perpetual
+        // active/never-fires zombie that only mark_missed_at_jobs would reap on the
+        // next restart (§7). Recurring schedules always produce a future next_run.
+        let initial_status = if matches!(schedule, CronSchedule::At { .. }) && next_run.is_none() {
+            CronJobStatus::Missed
+        } else {
+            CronJobStatus::Active
+        };
 
         let notify = input.notify_on_complete.unwrap_or(true);
+        let prefix_delivery_with_name = input.prefix_delivery_with_name.unwrap_or(false);
         let delivery_targets = input.delivery_targets.clone().unwrap_or_default();
         let delivery_targets_json = serde_json::to_string(&delivery_targets)?;
 
@@ -143,8 +195,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9, ?10, ?11, ?11)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14)",
             params![
                 id,
                 input.name,
@@ -156,7 +208,10 @@ impl CronDB {
                 max_failures,
                 notify as i32,
                 delivery_targets_json,
-                now_str
+                now_str,
+                initial_status.as_str(),
+                prefix_delivery_with_name as i32,
+                input.job_timeout_secs.map(|v| v as i64)
             ],
         )?;
 
@@ -167,7 +222,7 @@ impl CronDB {
             project_id: normalize_optional_string(input.project_id.as_deref()),
             schedule,
             payload: input.payload.clone(),
-            status: CronJobStatus::Active,
+            status: initial_status,
             next_run_at: next_run,
             last_run_at: None,
             running_at: None,
@@ -177,15 +232,23 @@ impl CronDB {
             updated_at: now_str,
             notify_on_complete: notify,
             delivery_targets,
+            prefix_delivery_with_name,
+            job_timeout_secs: input.job_timeout_secs,
         })
     }
 
-    /// Update an existing job.
+    /// Update an existing job. `status`, `next_run_at`, and `consecutive_failures`
+    /// are **system-managed** (toggle / auto-disable / claim / backoff) and read
+    /// from the LIVE row rather than taken from the caller's `CronJob` snapshot
+    /// (C04): editing a field must not clobber an in-flight backoff offset (the
+    /// snapshot's `next_run_at` is stale) nor revive a status the system changed
+    /// after the snapshot was taken (e.g. a job auto-disabled while the edit form
+    /// was open). Only an edit that actually changes the schedule recomputes
+    /// `next_run_at`, and only an *Active* job edited to a past `At` terminalizes
+    /// (→ `missed`); a terminal/paused status is never resurrected to active.
     pub fn update_job(&self, job: &CronJob) -> Result<()> {
-        // Validate cron expression if applicable
-        if let CronSchedule::Cron { ref expression, .. } = job.schedule {
-            validate_cron_expression(expression)?;
-        }
+        // Persistence chokepoint — validate the whole schedule (see `add_job`).
+        validate_schedule(&job.schedule)?;
 
         let now = Utc::now();
         let now_str = now.to_rfc3339();
@@ -195,19 +258,53 @@ impl CronDB {
         let payload_json = serde_json::to_string(&job.payload)?;
         let delivery_targets_json = serde_json::to_string(&job.delivery_targets)?;
 
-        // Recompute next_run_at if schedule changed
-        let next_run = if job.status == CronJobStatus::Active {
-            compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
-        } else {
-            job.next_run_at.clone()
-        };
-
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+
+        // C04: read the live system-managed fields — never trust the caller's
+        // snapshot of status / next_run_at (it may be stale). Missing row = the job
+        // was deleted; preserve the previous silent no-op.
+        let (current_status, current_next_run, current_schedule_json): (
+            String,
+            Option<String>,
+            String,
+        ) = match conn.query_row(
+            "SELECT status, next_run_at, schedule_json FROM cron_jobs WHERE id=?1",
+            params![job.id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ) {
+            Ok(row) => row,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(()),
+            Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
+        };
+        let db_status = CronJobStatus::from_str(&current_status);
+
+        // Preserve the current next_run_at unless the schedule actually changed —
+        // a non-schedule edit (rename / prompt / targets) keeps its mid-cycle
+        // position and any in-flight backoff offset. A schedule change recomputes
+        // only for an Active job.
+        let next_run =
+            if schedule_json != current_schedule_json && db_status == CronJobStatus::Active {
+                compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
+            } else {
+                current_next_run
+            };
+        // Editing an Active `At` to a past time leaves no next run — terminalize as
+        // `missed` (§7, mirrors add_job). Otherwise the LIVE status is preserved, so
+        // a disabled / missed / completed / paused job is never resurrected.
+        let status = if db_status == CronJobStatus::Active
+            && matches!(schedule, CronSchedule::At { .. })
+            && next_run.is_none()
+        {
+            CronJobStatus::Missed
+        } else {
+            db_status
+        };
+
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, updated_at=?11
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, updated_at=?11
              WHERE id=?12",
             params![
                 job.name,
@@ -215,16 +312,122 @@ impl CronDB {
                 normalize_optional_string(job.project_id.as_deref()),
                 schedule_json,
                 payload_json,
-                job.status.as_str(),
+                status.as_str(),
                 next_run,
                 job.max_failures,
                 job.notify_on_complete as i32,
                 delivery_targets_json,
                 now_str,
-                job.id
+                job.id,
+                job.prefix_delivery_with_name as i32,
+                job.job_timeout_secs.map(|v| v as i64)
             ],
         )?;
         Ok(())
+    }
+
+    /// §8: atomically flip `stale` flags on a job's **current** delivery targets,
+    /// keyed by `account_id`, under a single lock (read-modify-write). Targets
+    /// whose account is in `mark_stale` become stale; those in `clear_stale` are
+    /// un-staled. Returns whether anything changed.
+    ///
+    /// Re-reading the live row (rather than overwriting from a caller-held
+    /// snapshot) is the whole point: a cron run can last up to 2h, and the
+    /// delivery-time writeback must not clobber a `delivery_targets` edit the
+    /// user made via `update_job` mid-run. Only the `stale` field of
+    /// account-matched targets is touched; the schedule is never re-validated
+    /// (so a since-§6-rejected schedule can't block the flag), and the rest of
+    /// the live target list (additions / removals) is preserved verbatim.
+    pub fn apply_delivery_target_stale_flags(
+        &self,
+        job_id: &str,
+        mark_stale: &HashSet<String>,
+        clear_stale: &HashSet<String>,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let json: String = match conn.query_row(
+            "SELECT delivery_targets_json FROM cron_jobs WHERE id=?1",
+            params![job_id],
+            |r| r.get::<_, String>(0),
+        ) {
+            Ok(j) => j,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
+            Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
+        };
+        let mut targets: Vec<CronDeliveryTarget> = serde_json::from_str(&json).unwrap_or_default();
+        let mut changed = false;
+        for target in &mut targets {
+            if mark_stale.contains(&target.account_id) && !target.stale {
+                target.stale = true;
+                changed = true;
+            } else if clear_stale.contains(&target.account_id) && target.stale {
+                target.stale = false;
+                changed = true;
+            }
+        }
+        if changed {
+            let targets_json = serde_json::to_string(&targets)?;
+            let now = Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE cron_jobs SET delivery_targets_json=?1, updated_at=?2 WHERE id=?3",
+                params![targets_json, now, job_id],
+            )?;
+        }
+        Ok(changed)
+    }
+
+    /// §8: jobs whose `delivery_targets` reference `account_id`, with the count
+    /// of matching targets. Feeds the channel-account delete confirmation
+    /// ("N cron jobs reference this account").
+    pub fn jobs_referencing_account(&self, account_id: &str) -> Result<Vec<CronAccountRef>> {
+        let jobs = self.list_jobs()?;
+        let mut refs = Vec::new();
+        for job in jobs {
+            let count = job
+                .delivery_targets
+                .iter()
+                .filter(|t| t.account_id == account_id)
+                .count();
+            if count > 0 {
+                refs.push(CronAccountRef {
+                    job_id: job.id,
+                    job_name: job.name,
+                    target_count: count,
+                });
+            }
+        }
+        Ok(refs)
+    }
+
+    /// §8: eagerly flag every delivery target pointing at `account_id` as stale
+    /// (the account was just removed). Returns the number of jobs touched.
+    /// Idempotent — already-stale targets are not rewritten. The per-job write
+    /// goes through the atomic [`Self::apply_delivery_target_stale_flags`] so a
+    /// concurrent edit is not clobbered (the candidate scan is only used to find
+    /// which jobs to flip).
+    pub fn mark_account_delivery_targets_stale(&self, account_id: &str) -> Result<usize> {
+        let candidate_ids: Vec<String> = self
+            .list_jobs()?
+            .into_iter()
+            .filter(|job| {
+                job.delivery_targets
+                    .iter()
+                    .any(|t| t.account_id == account_id)
+            })
+            .map(|job| job.id)
+            .collect();
+        let mark: HashSet<String> = std::iter::once(account_id.to_string()).collect();
+        let empty: HashSet<String> = HashSet::new();
+        let mut touched = 0usize;
+        for job_id in candidate_ids {
+            if self.apply_delivery_target_stale_flags(&job_id, &mark, &empty)? {
+                touched += 1;
+            }
+        }
+        Ok(touched)
     }
 
     /// Clear a job's Project association without changing its schedule.
@@ -243,6 +446,20 @@ impl CronDB {
 
     /// Delete a job by ID.
     pub fn delete_job(&self, id: &str) -> Result<()> {
+        // C15: if the job is mid-run, request cancellation first so the in-flight
+        // turn stops promptly (cron's `abort_on_cancel=false` → it returns `Ok("")`
+        // → classified Cancelled → no wasted completion, no IM delivery to a
+        // now-deleted job) instead of running to the end against a row that's about
+        // to vanish. Read-then-cancel is run-keyed by `running_at` (the run's
+        // claimed_at), so a stale read can't cancel a later run of a recurring job.
+        // The cancelled run's own terminal writes then no-op against the deleted row
+        // (its in-progress run_log is CASCADE-removed — an accepted loss for a
+        // user-initiated delete). Done before taking the lock since `get_job` locks.
+        if let Ok(Some(job)) = self.get_job(id) {
+            if let Some(running_at) = job.running_at.as_deref() {
+                super::cancel::cancel(id, running_at);
+            }
+        }
         let conn = self
             .conn
             .lock()
@@ -258,7 +475,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -281,7 +498,10 @@ impl CronDB {
                 .lock()
                 .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
             match conn.query_row(
-                "SELECT job_id FROM cron_run_logs WHERE session_id = ?1 ORDER BY started_at DESC LIMIT 1",
+                // §10: order by the autoincrement id (not started_at) so the
+                // "most recent run log" is deterministic even when two logs share
+                // the same started_at second — avoids G2 misrouting the injection.
+                "SELECT job_id FROM cron_run_logs WHERE session_id = ?1 ORDER BY id DESC LIMIT 1",
                 params![session_id],
                 |row| row.get::<_, String>(0),
             ) {
@@ -303,7 +523,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -329,8 +549,14 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id
-             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
+            // ORDER BY next_run_at ASC: §4 claims at most `available_slots` due
+            // jobs per pass and defers the rest, so dispatch order is load-bearing
+            // — without it SQLite returns rows in arbitrary rowid order and, under
+            // sustained cap pressure, the most-overdue job could be skipped every
+            // tick (starvation). Most-overdue-first makes the cap fair.
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
+             FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
+             ORDER BY next_run_at ASC"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
             row_to_cron_job(row).map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
@@ -362,9 +588,19 @@ impl CronDB {
             )?;
             let schedule: CronSchedule = serde_json::from_str(&schedule_json)?;
             let next_run = compute_next_run(&schedule, &Utc::now()).map(|dt| dt.to_rfc3339());
+            // C24: re-enabling a one-shot `At` whose time is already past yields no
+            // next run — terminalize it as `missed` rather than persisting an
+            // active/never-fires zombie (mirrors the §7 handling in add_job /
+            // update_job; toggle_job was the one resume path missing it).
+            let resumed_status =
+                if matches!(schedule, CronSchedule::At { .. }) && next_run.is_none() {
+                    "missed"
+                } else {
+                    new_status
+                };
             conn.execute(
                 "UPDATE cron_jobs SET status=?1, next_run_at=?2, consecutive_failures=0, updated_at=?3 WHERE id=?4",
-                params![new_status, next_run, now, id],
+                params![resumed_status, next_run, now, id],
             )?;
         } else {
             conn.execute(
@@ -376,7 +612,17 @@ impl CronDB {
     }
 
     /// Update job state after a run (success or failure).
-    pub fn update_after_run(&self, id: &str, success: bool, schedule: &CronSchedule) -> Result<()> {
+    /// Update job state after a run. Returns `true` iff this failure pushed the
+    /// job to the auto-disable threshold (`consecutive_failures >= max_failures`)
+    /// and the status was flipped to `disabled` — the caller uses this to fire a
+    /// one-shot "job disabled" notification (§5). A success or a non-final
+    /// failure returns `false`.
+    pub fn update_after_run(
+        &self,
+        id: &str,
+        success: bool,
+        schedule: &CronSchedule,
+    ) -> Result<bool> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
 
@@ -394,10 +640,20 @@ impl CronDB {
                     ("active".to_string(), next)
                 }
             };
+            // Guard on `status='active'`: a scheduled run is only ever claimed
+            // while active, but the user can pause (or delete) the job mid-run
+            // (toggle_job doesn't cancel the in-flight run). When that run then
+            // completes successfully, advancing it back to `active` with a fresh
+            // next_run_at would silently undo the explicit pause. The guard makes
+            // the success update a no-op for a job no longer active, preserving the
+            // user's pause. (Mirrors the failure/auto-disable branch's
+            // `status != 'disabled'` guard below; run-now skips this path entirely
+            // via `immediate`.)
             conn.execute(
-                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4",
+                "UPDATE cron_jobs SET status=?1, next_run_at=?2, last_run_at=?3, consecutive_failures=0, updated_at=?3 WHERE id=?4 AND status='active'",
                 params![next_status, next_run, now_str, id],
             )?;
+            Ok(false)
         } else {
             // Failure: increment failures, apply backoff
             let (failures,): (u32,) = conn.query_row(
@@ -413,12 +669,40 @@ impl CronDB {
 
             let new_failures = failures + 1;
 
-            if new_failures >= max_failures {
-                // Auto-disable
+            // §7 / Sweep#1: a one-shot `At` that fails or times out must NOT be
+            // retried — its agent turn may have already produced side effects (sent
+            // an email, placed an order). Terminalize it as `missed` (the same
+            // side-effect-safe terminal a claimed-then-crashed At gets), recording
+            // the failure count but never re-firing. Without this, a failed/timed-out
+            // At backoff-retries and repeats its side effect up to 1+max_failures
+            // times — directly contradicting §7's one-shot side-effect safety.
+            // Recurring jobs fall through to the backoff / auto-disable logic below.
+            if matches!(schedule, CronSchedule::At { .. }) {
                 conn.execute(
-                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+                    "UPDATE cron_jobs SET status='missed', next_run_at=NULL, consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
                     params![new_failures, now_str, id],
                 )?;
+                return Ok(false);
+            }
+
+            // C26: `max_failures == 0` means "never auto-disable" (unlimited
+            // failures), aligning with the `0 = unlimited` convention `max_concurrent`
+            // uses. Without this guard `new_failures >= 0` is always true, so a job
+            // created via the model tool / HTTP with maxFailures=0 (the GUI's `|| 5`
+            // hides this path) would auto-disable on its very first failure.
+            if max_failures > 0 && new_failures >= max_failures {
+                // Auto-disable. Gate on `status != 'disabled'` so ONLY the
+                // active→disabled transition returns true (fires the one-shot
+                // notification): the manual run-now path bypasses the status
+                // filter (`claim_immediate_job_for_execution` checks only
+                // `running_at`), so re-running an already-disabled job that fails
+                // again must NOT re-notify or re-bump the count. (A re-run that
+                // *succeeds* still re-activates via the success branch above.)
+                let rows = conn.execute(
+                    "UPDATE cron_jobs SET status='disabled', consecutive_failures=?1, last_run_at=?2, updated_at=?2 WHERE id=?3 AND status != 'disabled'",
+                    params![new_failures, now_str, id],
+                )?;
+                Ok(rows > 0)
             } else {
                 // Apply backoff to next run
                 let backoff = backoff_delay_ms(new_failures);
@@ -438,8 +722,53 @@ impl CronDB {
                     "UPDATE cron_jobs SET consecutive_failures=?1, next_run_at=?2, last_run_at=?3, updated_at=?3 WHERE id=?4",
                     params![new_failures, next_run_base.to_rfc3339(), now_str, id],
                 )?;
+                Ok(false)
             }
         }
+    }
+
+    /// Review fix (#4): reschedule after an *infrastructure* failure (e.g. the
+    /// run's session couldn't be created) WITHOUT bumping `consecutive_failures`.
+    /// The agent turn never ran, so a transient infra hiccup must not push a
+    /// healthy job toward auto-disable. Recurring jobs advance to their next
+    /// occurrence; a one-shot `At` retries shortly (its slot was already cleared
+    /// to NULL at claim). Status stays `active`; the failure counter is untouched.
+    pub fn reschedule_without_failure(&self, id: &str, schedule: &CronSchedule) -> Result<()> {
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let next_run = match schedule {
+            // One-shot: retry shortly rather than terminalize (the infra failure
+            // is likely transient). Bounded by the fact that a permanently-broken
+            // session DB is a whole-app outage, not a per-job problem.
+            CronSchedule::At { .. } => Some((now + Duration::seconds(60)).to_rfc3339()),
+            _ => compute_next_run(schedule, &now).map(|dt| dt.to_rfc3339()),
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET next_run_at=?1, last_run_at=?2, updated_at=?2 WHERE id=?3",
+            params![next_run, now_str, id],
+        )?;
+        Ok(())
+    }
+
+    /// §11 review fix: terminalize a cancelled one-shot `At` job as `completed`.
+    /// Its `next_run_at` was advanced to NULL at claim, so leaving it `active`
+    /// strands an un-fireable zombie until the next restart's `mark_missed_at_jobs`.
+    /// It ran (then was cancelled) and won't fire again, so `completed` is the
+    /// right terminal. Recurring jobs are never passed here (they keep firing).
+    pub fn terminalize_one_shot_completed(&self, id: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_jobs SET status='completed', next_run_at=NULL, updated_at=?1 WHERE id=?2",
+            params![now, id],
+        )?;
         Ok(())
     }
 
@@ -452,14 +781,121 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 log.job_id, log.session_id, log.status, log.started_at,
-                log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error
+                log.finished_at, log.duration_ms.map(|v| v as i64), log.result_preview, log.error,
+                log.delivery_status
             ],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    /// §9 (D2): insert an **in-progress** run log at run start — status
+    /// `"running"`, `finished_at` NULL. This gives a crashed mid-run a durable
+    /// trace: [`recover_orphaned_runs`](Self::recover_orphaned_runs) marks any
+    /// such row `error` on the next startup, and the live row drives a real-time
+    /// "running" indicator in the UI. Returns the row id to [`finalize_run_log`].
+    pub fn add_running_run_log(
+        &self,
+        job_id: &str,
+        session_id: &str,
+        started_at: &str,
+    ) -> Result<i64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "INSERT INTO cron_run_logs (job_id, session_id, status, started_at, finished_at)
+             VALUES (?1, ?2, 'running', ?3, NULL)",
+            params![job_id, session_id, started_at],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// §9 (D2): finalize an in-progress run log to its terminal state (status +
+    /// timing + result/error + delivery outcome) in one UPDATE. No-op-safe — a
+    /// missing / already-finalized id simply matches no rows.
+    #[allow(clippy::too_many_arguments)]
+    pub fn finalize_run_log(
+        &self,
+        run_log_id: i64,
+        status: &str,
+        finished_at: &str,
+        duration_ms: Option<u64>,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+        delivery_status: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "UPDATE cron_run_logs
+             SET status=?1, finished_at=?2, duration_ms=?3, result_preview=?4, error=?5, delivery_status=?6
+             WHERE id=?7",
+            params![
+                status,
+                finished_at,
+                duration_ms.map(|v| v as i64),
+                result_preview,
+                error,
+                delivery_status,
+                run_log_id
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Review fix: finalize the in-progress run log if it was opened
+    /// (`Some(id)`), otherwise INSERT a complete terminal row. `add_running_run_log`
+    /// can fail on a transient DB error; without this fallback every terminal path
+    /// would UPDATE a non-existent `id=0` and the whole run would leave no run-log
+    /// at all. One lock acquisition either way (delegates to `finalize_run_log` /
+    /// `add_run_log`, each of which locks internally).
+    #[allow(clippy::too_many_arguments)]
+    pub fn finalize_or_insert_run_log(
+        &self,
+        run_log_id: Option<i64>,
+        job_id: &str,
+        session_id: &str,
+        started_at: &str,
+        status: &str,
+        finished_at: &str,
+        duration_ms: Option<u64>,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+        delivery_status: Option<&str>,
+    ) -> Result<()> {
+        match run_log_id {
+            Some(id) => self.finalize_run_log(
+                id,
+                status,
+                finished_at,
+                duration_ms,
+                result_preview,
+                error,
+                delivery_status,
+            ),
+            None => {
+                let log = CronRunLog {
+                    id: 0,
+                    job_id: job_id.to_string(),
+                    session_id: session_id.to_string(),
+                    status: status.to_string(),
+                    started_at: started_at.to_string(),
+                    finished_at: Some(finished_at.to_string()),
+                    duration_ms,
+                    result_preview: result_preview.map(|s| s.to_string()),
+                    error: error.map(|s| s.to_string()),
+                    delivery_status: delivery_status.map(|s| s.to_string()),
+                };
+                self.add_run_log(&log).map(|_| ())
+            }
+        }
     }
 
     /// Get run logs for a job, ordered by most recent first.
@@ -469,7 +905,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
              FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2"
         )?;
         let rows = stmt.query_map(params![job_id, limit as i64], |row| {
@@ -483,6 +919,7 @@ impl CronDB {
                 duration_ms: crate::sql_opt_u64(row, 6)?,
                 result_preview: row.get(7)?,
                 error: row.get(8)?,
+                delivery_status: row.get(9)?,
             })
         })?;
         let mut logs = Vec::new();
@@ -603,21 +1040,47 @@ impl CronDB {
                 }
                 results
             }
-            CronSchedule::Cron { expression, .. } => {
+            CronSchedule::Cron {
+                expression,
+                timezone,
+            } => {
                 if let Ok(cron_schedule) = CronExpression::from_str(expression) {
                     let mut results = Vec::new();
                     // Use a time slightly before start to catch events at exactly start
                     let query_start = *start - Duration::seconds(1);
-                    for next in cron_schedule.after(&query_start) {
-                        if next >= *end {
-                            break;
+                    // Window + safety-cap filter on a UTC occurrence. Returns false
+                    // when iteration should stop. Shared by both branches so the
+                    // timezone-aware path and the UTC fallback stay in lock-step
+                    // with `compute_next_cron`'s identical interpretation.
+                    let take = |next_utc: DateTime<Utc>, out: &mut Vec<DateTime<Utc>>| -> bool {
+                        if next_utc >= *end {
+                            return false;
                         }
-                        if next >= *start {
-                            results.push(next);
+                        if next_utc >= *start {
+                            out.push(next_utc);
                         }
-                        // Safety limit
-                        if results.len() >= MAX_CALENDAR_EVENTS_PER_JOB {
-                            break;
+                        out.len() < MAX_CALENDAR_EVENTS_PER_JOB
+                    };
+                    match timezone
+                        .as_deref()
+                        .and_then(super::schedule::parse_timezone)
+                    {
+                        // Interpret cron fields as wall-clock in `tz` (DST-aware),
+                        // convert each occurrence back to UTC.
+                        Some(tz) => {
+                            for next in cron_schedule.after(&query_start.with_timezone(&tz)) {
+                                if !take(next.with_timezone(&Utc), &mut results) {
+                                    break;
+                                }
+                            }
+                        }
+                        // No / unknown zone → UTC interpretation (historical).
+                        None => {
+                            for next in cron_schedule.after(&query_start) {
+                                if !take(next, &mut results) {
+                                    break;
+                                }
+                            }
                         }
                     }
                     results
@@ -642,7 +1105,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error
+            "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
              FROM cron_run_logs WHERE job_id=?1 AND started_at >= ?2 AND started_at <= ?3
              ORDER BY started_at ASC"
         )?;
@@ -657,6 +1120,7 @@ impl CronDB {
                 duration_ms: crate::sql_opt_u64(row, 6)?,
                 result_preview: row.get(7)?,
                 error: row.get(8)?,
+                delivery_status: row.get(9)?,
             })
         })?;
         let mut logs = Vec::new();
@@ -668,7 +1132,11 @@ impl CronDB {
 
     // ── Startup Recovery ────────────────────────────────────────
 
-    /// Mark orphaned runs (started but never finished) as error.
+    /// Mark orphaned runs (started but never finished) as error. §9 (D2): now
+    /// load-bearing — `add_running_run_log` leaves a `finished_at IS NULL` row
+    /// for the duration of every run, so a process that died mid-run is detected
+    /// and its run log closed out as `error` on the next startup (runs only at
+    /// startup, when nothing is legitimately in flight).
     pub fn recover_orphaned_runs(&self) -> Result<usize> {
         let conn = self
             .conn
@@ -680,6 +1148,44 @@ impl CronDB {
             [],
         )?;
         Ok(count)
+    }
+
+    /// §9 (C6): record the (Primary-only) scheduler's liveness heartbeat. Called
+    /// each scheduler tick; persisted so a later startup can tell how long the
+    /// scheduler was offline (see [`last_scheduler_heartbeat`](Self::last_scheduler_heartbeat)).
+    pub fn record_scheduler_heartbeat(&self) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        conn.execute(
+            "INSERT INTO cron_meta (key, value) VALUES ('scheduler_heartbeat', ?1)
+             ON CONFLICT(key) DO UPDATE SET value=?1",
+            params![now],
+        )?;
+        Ok(())
+    }
+
+    /// §9 (C6): the last recorded scheduler heartbeat, or `None` if never set
+    /// (fresh DB / first run).
+    pub fn last_scheduler_heartbeat(&self) -> Result<Option<DateTime<Utc>>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let raw: Option<String> = match conn.query_row(
+            "SELECT value FROM cron_meta WHERE key='scheduler_heartbeat'",
+            [],
+            |r| r.get::<_, String>(0),
+        ) {
+            Ok(v) => Some(v),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(anyhow::anyhow!("CronDB query error: {e}")),
+        };
+        Ok(raw
+            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+            .map(|dt| dt.with_timezone(&Utc)))
     }
 
     /// Atomically claim a scheduled due job: set running_at and advance next_run_at.
@@ -711,6 +1217,7 @@ impl CronDB {
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
             claimed_at: now_str,
+            immediate: false,
         }))
     }
 
@@ -732,6 +1239,7 @@ impl CronDB {
         Ok((rows > 0).then(|| ClaimedCronJob {
             job: job.clone(),
             claimed_at: now,
+            immediate: true,
         }))
     }
 
@@ -748,6 +1256,42 @@ impl CronDB {
         Ok(())
     }
 
+    /// Count jobs currently executing (running marker set). The single source of
+    /// truth for cron concurrency accounting — covers scheduled, catch-up, and
+    /// manual `run now` paths, since all three set `running_at`. Used by the
+    /// scheduler's slot-before-claim gate (§4).
+    pub fn count_running(&self) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM cron_jobs WHERE running_at IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// Clear the running marker **only if it still belongs to this run**
+    /// (`running_at` equals the value stamped when the job was claimed). Used by
+    /// the panic-safe RAII backstop in `execute_claimed_job` so a cron run that
+    /// unwinds (rather than reaching one of its normal terminal paths) still
+    /// releases its concurrency slot — without disturbing a marker that a *later*
+    /// re-claim has since replaced (the timestamp won't match, so it no-ops).
+    /// Returns whether a row was actually cleared.
+    pub fn clear_running_if_owner(&self, id: &str, expected_running_at: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let rows = conn.execute(
+            "UPDATE cron_jobs SET running_at=NULL WHERE id=?1 AND running_at=?2",
+            params![id, expected_running_at],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Clear all stale running_at markers (for startup recovery after crash).
     pub fn clear_all_running(&self) -> Result<usize> {
         let conn = self
@@ -761,19 +1305,32 @@ impl CronDB {
         Ok(count)
     }
 
-    /// Mark missed one-shot At jobs as 'missed'.
-    pub fn mark_missed_at_jobs(&self) -> Result<usize> {
-        let now = Utc::now().to_rfc3339();
+    /// Drive un-fireable one-shot `At` jobs to the `missed` terminal state at
+    /// startup (§7). Marks an active `At` job `missed` when EITHER:
+    /// - it is past its scheduled time by **more than** `grace_secs` (too late to
+    ///   late-fire); or
+    /// - its `next_run_at IS NULL` — created with a past timestamp
+    ///   (`compute_next_run` returned `None`) or **claimed-then-crashed** (the run
+    ///   may have partially executed, so it is missed, never re-fired — the
+    ///   one-shot side-effect-safety choice).
+    ///
+    /// `At` jobs past-due by no more than `grace_secs` are LEFT active so the
+    /// startup catch-up can late-fire them (slot-aware via §4's `dispatch_due_jobs`).
+    /// `grace_secs = 0` ⇒ strict: any past-due `At` is missed (pre-§7 behavior).
+    /// Returns the number of rows marked.
+    pub fn mark_missed_at_jobs(&self, grace_secs: u64) -> Result<usize> {
+        let now = Utc::now();
+        let now_str = now.to_rfc3339();
+        let cutoff = (now - Duration::seconds(grace_secs as i64)).to_rfc3339();
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
-        // Find active At jobs whose next_run_at is in the past
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1
-             WHERE status='active' AND next_run_at IS NOT NULL AND next_run_at < ?1
-             AND schedule_json LIKE '%\"type\":\"at\"%'",
-            params![now],
+             WHERE status='active' AND schedule_json LIKE '%\"type\":\"at\"%'
+               AND (next_run_at IS NULL OR next_run_at < ?2)",
+            params![now_str, cutoff],
         )?;
         Ok(count)
     }
@@ -827,11 +1384,21 @@ fn match_run_logs_to_occurrences(
     occurrences: &[DateTime<Utc>],
     run_logs: &[CronRunLog],
 ) -> Result<Vec<Option<CronRunLog>>> {
-    let window_ms = Duration::minutes(CALENDAR_EVENT_WINDOW_MINUTES).num_milliseconds();
     let occurrence_ms: Vec<i64> = occurrences
         .iter()
         .map(|occ| occ.timestamp_millis())
         .collect();
+    // §10 / review fix: a cron run starts at or AFTER its scheduled occurrence
+    // (claim + execution latency, plus the 15s scheduler tick), so match each run
+    // log FORWARD to the most recent occurrence at or before it — the slot it
+    // fired for. This is correct for any latency up to the next occurrence,
+    // unlike the old symmetric ±window which dropped (or mis-assigned) runs that
+    // started more than half a gap late — a real problem for dense schedules
+    // (second-/sub-minute cron expressions, where half the gap is below the tick
+    // latency). A small backward tolerance absorbs clock skew when a log is
+    // stamped just before its occurrence. Each log maps to exactly one occurrence,
+    // so a log still can't double-count. (occurrences are ascending.)
+    const BACKWARD_SKEW_MS: i64 = 60_000;
     let mut assignments: Vec<Option<(CronRunLog, i64)>> = vec![None; occurrences.len()];
 
     for log in run_logs {
@@ -847,29 +1414,20 @@ fn match_run_logs_to_occurrences(
         };
 
         let log_ms = log_time.timestamp_millis();
-        let insertion = match occurrence_ms.binary_search(&log_ms) {
-            Ok(idx) => idx,
-            Err(idx) => idx,
+
+        // Floor occurrence (greatest <= log time). `diff` is the forward latency
+        // (>= 0), used only to keep the closest log when several map to one slot.
+        let candidate = match occurrence_ms.binary_search(&log_ms) {
+            Ok(idx) => Some((idx, 0)),
+            // Before the first occurrence: accept only within skew tolerance.
+            Err(0) => occurrence_ms
+                .first()
+                .filter(|first| **first - log_ms <= BACKWARD_SKEW_MS)
+                .map(|first| (0usize, (*first - log_ms).abs())),
+            Err(idx) => Some((idx - 1, log_ms - occurrence_ms[idx - 1])),
         };
 
-        let candidate_indices = [
-            insertion.checked_sub(1),
-            (insertion < occurrence_ms.len()).then_some(insertion),
-        ];
-
-        let mut best: Option<(usize, i64)> = None;
-        for candidate in candidate_indices.into_iter().flatten() {
-            let diff = (occurrence_ms[candidate] - log_ms).abs();
-            if diff > window_ms {
-                continue;
-            }
-            match best {
-                Some((_, best_diff)) if diff >= best_diff => {}
-                _ => best = Some((candidate, diff)),
-            }
-        }
-
-        if let Some((best_idx, diff)) = best {
+        if let Some((best_idx, diff)) = candidate {
             let replace = match &assignments[best_idx] {
                 Some((_, existing_diff)) => diff < *existing_diff,
                 None => true,
@@ -969,6 +1527,152 @@ fn backfill_every_schedule_start_at(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// One-time correctness backfill for `Cron` jobs created before the timezone
+/// field was actually honored. The field was persisted but silently dropped at
+/// fire time, so every cron job has been firing in UTC. Populate a missing /
+/// empty timezone with the host's detected IANA zone and recompute `next_run_at`
+/// so the very next fire already lands at the corrected local time (rather than
+/// one stale UTC fire later). Mirrors [`backfill_every_schedule_start_at`].
+///
+/// Idempotent and conservative: rows that already carry a valid zone are
+/// skipped, and the whole pass is a no-op when the host zone can't be detected
+/// or isn't a known IANA name — we leave such rows on the UTC fallback rather
+/// than guess. Runs only at `CronDB::open`, before the scheduler starts, so the
+/// `next_run_at` rewrite races nothing.
+///
+/// The `next_run_at` recompute is gated to clean `status='active' AND
+/// consecutive_failures=0` rows, mirroring the status-gating in `update_job` /
+/// `toggle_job`: a row mid-backoff has `next_run_at = next_slot + backoff`, and a
+/// plain recompute would silently drop the backoff offset. Non-active /
+/// in-backoff rows get the timezone fix only; their `next_run_at` is settled by
+/// the run loop / re-enable path (which recompute with the corrected zone).
+fn backfill_cron_schedule_timezone(conn: &Connection) -> Result<()> {
+    // Review fix #8: run ONCE. Only rows present at the upgrade boundary are
+    // "legacy" zone-less jobs to migrate. A deliberately zone-less (explicit-UTC)
+    // cron job created later — the agent tool documents "Omit for UTC" — must NOT
+    // be rewritten to the host zone on a subsequent boot. A sentinel makes this a
+    // true one-time migration (and skips the per-boot full-table scan).
+    const SENTINEL: &str = "tz_backfill_done";
+    let already_done: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM cron_meta WHERE key=?1",
+        params![SENTINEL],
+        |row| row.get(0),
+    )?;
+    if already_done > 0 {
+        return Ok(());
+    }
+
+    let Some(host_tz) = iana_time_zone::get_timezone()
+        .ok()
+        .filter(|tz| super::schedule::parse_timezone(tz).is_some())
+    else {
+        // Host zone undetectable right now — there's nothing meaningful to
+        // migrate, so DON'T set the sentinel: retry on a later boot when the zone
+        // may be detectable (the narrow window before that is the only time a
+        // legacy row stays UTC-interpreted, matching the pre-fix behavior).
+        return Ok(());
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT id, schedule_json, status, consecutive_failures
+         FROM cron_jobs
+         WHERE schedule_json LIKE '%\"type\":\"cron\"%'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+
+    let now = Utc::now();
+    let mut updates: Vec<(String, String, Option<String>)> = Vec::new();
+    for row in rows {
+        let (id, schedule_json, status, consecutive_failures) = row?;
+        let mut schedule: CronSchedule = match serde_json::from_str(&schedule_json) {
+            Ok(schedule) => schedule,
+            Err(e) => {
+                app_warn!(
+                    "cron",
+                    "db",
+                    "Skipping timezone backfill for job {} due to invalid schedule JSON: {}",
+                    id,
+                    e
+                );
+                continue;
+            }
+        };
+
+        if let CronSchedule::Cron { timezone, .. } = &mut schedule {
+            let already_set = timezone
+                .as_deref()
+                .and_then(super::schedule::parse_timezone)
+                .is_some();
+            // Only assign the host zone to rows that lack a valid one. A row that
+            // already carries a valid zone keeps it.
+            if !already_set {
+                *timezone = Some(host_tz.clone());
+            }
+            // Recompute next_run_at for a clean active row REGARDLESS of whether
+            // the timezone was just assigned or already valid (Codex review P1):
+            // pre-fix, the scheduler computed next_run_at in UTC even when a valid
+            // zone was stored (the field was silently dropped at fire time), so an
+            // already-zoned job's next_run_at is just as stale as a zone-less one.
+            // Skipping it would leave one wrong-time fire before the run loop
+            // self-corrects. Only the timezone ASSIGNMENT is gated on !already_set;
+            // the recompute is not. Never clobber a backoff offset or touch a
+            // paused/disabled row's stamp.
+            let next_run = if status == "active" && consecutive_failures == 0 {
+                compute_next_run(&schedule, &now).map(|dt| dt.to_rfc3339())
+            } else {
+                None
+            };
+            // For an already-zoned row that isn't clean-active there's nothing to
+            // write (zone unchanged + next_run None) — skip the no-op UPDATE.
+            if !already_set || next_run.is_some() {
+                updates.push((id, serde_json::to_string(&schedule)?, next_run));
+            }
+        }
+    }
+    drop(stmt);
+
+    for (id, schedule_json, next_run) in &updates {
+        match next_run {
+            Some(next_run) => conn.execute(
+                "UPDATE cron_jobs SET schedule_json=?1, next_run_at=?2 WHERE id=?3",
+                params![schedule_json, next_run, id],
+            )?,
+            // Invalid expression → couldn't compute a next run; still record the
+            // corrected timezone, leave next_run_at for the run loop to settle.
+            None => conn.execute(
+                "UPDATE cron_jobs SET schedule_json=?1 WHERE id=?2",
+                params![schedule_json, id],
+            )?,
+        };
+    }
+
+    if !updates.is_empty() {
+        app_info!(
+            "cron",
+            "db",
+            "Backfilled timezone ({}) / recomputed next_run_at for {} existing cron job(s)",
+            host_tz,
+            updates.len()
+        );
+    }
+
+    // Mark the one-time migration done (host zone was detectable, so all current
+    // legacy rows have now been scanned). Later zone-less jobs are deliberate.
+    conn.execute(
+        "INSERT OR REPLACE INTO cron_meta (key, value) VALUES (?1, ?2)",
+        params![SENTINEL, Utc::now().to_rfc3339()],
+    )?;
+
+    Ok(())
+}
+
 // ── Helper: Row -> CronJob ───────────────────────────────────────
 
 pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
@@ -1011,13 +1715,24 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         updated_at: row.get(12)?,
         notify_on_complete: row.get::<_, i32>(13).unwrap_or(1) != 0,
         delivery_targets,
+        // Index 16, appended after project_id (15). `.ok()` keeps narrower
+        // test SELECTs that stop before this column defaulting to false.
+        prefix_delivery_with_name: row.get::<_, i32>(16).ok().map(|v| v != 0).unwrap_or(false),
+        // Index 17 (C19), appended after prefix (16). `.ok().flatten()` keeps
+        // narrower test SELECTs that stop before this column defaulting to None.
+        job_timeout_secs: row
+            .get::<_, Option<i64>>(17)
+            .ok()
+            .flatten()
+            .map(|v| v as u64),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{match_run_logs_to_occurrences, row_to_cron_job, CronDB};
-    use crate::cron::{CronPayload, CronSchedule, NewCronJob};
+    use crate::cron::types::CronJobStatus;
+    use crate::cron::{CronDeliveryTarget, CronPayload, CronSchedule, NewCronJob};
     use chrono::{DateTime, Utc};
     use rusqlite::params;
     use std::path::{Path, PathBuf};
@@ -1060,6 +1775,8 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -1073,6 +1790,7 @@ mod tests {
             duration_ms: None,
             result_preview: None,
             error: None,
+            delivery_status: None,
         })
         .expect("add run log");
 
@@ -1085,6 +1803,400 @@ mod tests {
             .find_job_by_session("no-such-session")
             .expect("query ok")
             .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    // §8 helpers ───────────────────────────────────────────────────
+
+    fn target(account_id: &str) -> CronDeliveryTarget {
+        CronDeliveryTarget {
+            channel_id: "telegram".into(),
+            account_id: account_id.into(),
+            chat_id: "c1".into(),
+            thread_id: None,
+            label: None,
+            stale: false,
+        }
+    }
+
+    fn every_job(name: &str, targets: Vec<CronDeliveryTarget>, prefix: Option<bool>) -> NewCronJob {
+        NewCronJob {
+            name: name.into(),
+            description: None,
+            project_id: None,
+            schedule: CronSchedule::Every {
+                interval_ms: 300_000,
+                start_at: None,
+            },
+            payload: CronPayload::AgentTurn {
+                prompt: "x".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: Some(targets),
+            prefix_delivery_with_name: prefix,
+            job_timeout_secs: None,
+        }
+    }
+
+    #[test]
+    fn job_timeout_secs_override_persists_and_clears() {
+        // C19: the per-job timeout override round-trips through add_job / get_job /
+        // update_job; `None` falls back to the global CronConfig default.
+        let path = temp_db_path("job-timeout-override");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "long".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: Some(1800),
+            })
+            .expect("add job");
+        assert_eq!(job.job_timeout_secs, Some(1800));
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(stored.job_timeout_secs, Some(1800), "override persists");
+
+        // Clear it back to the global default.
+        let mut cleared = stored.clone();
+        cleared.job_timeout_secs = None;
+        db.update_job(&cleared).expect("update");
+        let after = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after.job_timeout_secs, None, "override cleared on update");
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn update_job_preserves_backoff_and_does_not_revive_disabled() {
+        // C04: update_job treats status / next_run_at / consecutive_failures as
+        // system-managed (read from the live row), so editing a field neither
+        // clobbers an in-flight backoff offset nor revives a status the system
+        // changed after the caller took its (now stale) snapshot.
+        let path = temp_db_path("update-job-c04");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "j".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+
+        // The system backed the job off AND disabled it AFTER a client loaded its
+        // (now stale: active + original next_run_at) snapshot.
+        let backoff_next = "2099-01-01T00:00:00+00:00".to_string();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET status='disabled', consecutive_failures=4, next_run_at=?1 WHERE id=?2",
+                params![backoff_next, job.id],
+            )
+            .expect("seed disabled+backoff");
+        }
+
+        // The caller edits only the name; its snapshot still says active with the
+        // original next_run_at.
+        let mut edit = job.clone();
+        edit.name = "renamed".into();
+        db.update_job(&edit).expect("update");
+
+        let after = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after.name, "renamed", "the edited field is applied");
+        assert_eq!(
+            after.status,
+            CronJobStatus::Disabled,
+            "must NOT revive the disabled status from the stale snapshot"
+        );
+        assert_eq!(
+            after.next_run_at.as_deref(),
+            Some(backoff_next.as_str()),
+            "in-flight backoff next_run_at preserved (schedule unchanged)"
+        );
+        assert_eq!(
+            after.consecutive_failures, 4,
+            "failure count preserved (system-managed)"
+        );
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn prefix_delivery_with_name_round_trips() {
+        let path = temp_db_path("prefix-roundtrip");
+        let db = CronDB::open(&path).expect("open db");
+
+        // Default (None) persists as false.
+        let def = db
+            .add_job(&every_job("default", vec![], None))
+            .expect("add");
+        assert!(!def.prefix_delivery_with_name);
+        assert!(
+            !db.get_job(&def.id)
+                .expect("get")
+                .expect("exists")
+                .prefix_delivery_with_name
+        );
+
+        // Opt-in persists and survives update.
+        let on = db
+            .add_job(&every_job("on", vec![], Some(true)))
+            .expect("add");
+        assert!(on.prefix_delivery_with_name);
+        let mut reloaded = db.get_job(&on.id).expect("get").expect("exists");
+        assert!(reloaded.prefix_delivery_with_name);
+        reloaded.prefix_delivery_with_name = false;
+        db.update_job(&reloaded).expect("update");
+        assert!(
+            !db.get_job(&on.id)
+                .expect("get")
+                .expect("exists")
+                .prefix_delivery_with_name
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn in_progress_run_log_finalizes_with_delivery_status() {
+        // §9 (D2) lifecycle: open an in-progress row at run start, finalize it on
+        // terminal carrying status + timing + delivery outcome (§8) in one update.
+        let path = temp_db_path("delivery-status");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db.add_job(&every_job("job", vec![], None)).expect("add");
+
+        let id = db
+            .add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
+            .expect("open in-progress run log");
+        // Mid-run the row reads as "running" with no finish.
+        let running = db.get_run_logs(&job.id, 10).expect("logs");
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].status, "running");
+        assert!(running[0].finished_at.is_none());
+
+        db.finalize_run_log(
+            id,
+            "success",
+            "2026-01-01T00:00:01Z",
+            Some(1000),
+            Some("ok"),
+            None,
+            Some("partial"),
+        )
+        .expect("finalize");
+
+        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        assert_eq!(logs.len(), 1, "finalize updates the same row, no duplicate");
+        assert_eq!(logs[0].status, "success");
+        assert_eq!(logs[0].delivery_status.as_deref(), Some("partial"));
+        assert_eq!(logs[0].result_preview.as_deref(), Some("ok"));
+        assert!(logs[0].finished_at.is_some());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn recover_orphaned_closes_in_progress_run_log_as_error() {
+        // §9 (D2): a run that crashed mid-flight leaves a finished_at-NULL row;
+        // the next startup's recover_orphaned_runs closes it out as error.
+        let path = temp_db_path("recover-orphaned");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db.add_job(&every_job("job", vec![], None)).expect("add");
+        db.add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
+            .expect("open in-progress");
+
+        let recovered = db.recover_orphaned_runs().expect("recover");
+        assert_eq!(recovered, 1);
+        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        assert_eq!(logs[0].status, "error");
+        assert!(logs[0].finished_at.is_some());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn scheduler_heartbeat_round_trips() {
+        // §9 (C6): heartbeat starts unset, then records + reads back.
+        let path = temp_db_path("heartbeat");
+        let db = CronDB::open(&path).expect("open db");
+        assert!(db.last_scheduler_heartbeat().expect("read").is_none());
+        db.record_scheduler_heartbeat().expect("record");
+        assert!(
+            db.last_scheduler_heartbeat().expect("read").is_some(),
+            "heartbeat persists and parses back"
+        );
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn at_schedule_serializes_with_type_at_tag() {
+        // §10: mark_missed_at_jobs filters with `schedule_json LIKE '%"type":"at"%'`.
+        // Lock the serde tag so a future rename can't silently break that query
+        // (un-missing every overdue one-shot At job).
+        let json = serde_json::to_string(&CronSchedule::At {
+            timestamp: "2026-01-01T00:00:00Z".into(),
+        })
+        .expect("serialize");
+        assert!(
+            json.contains(r#""type":"at""#),
+            "At must serialize with the `type:at` tag mark_missed_at_jobs greps for — got {json}"
+        );
+    }
+
+    #[test]
+    fn jobs_referencing_account_and_mark_stale() {
+        let path = temp_db_path("account-refs");
+        let db = CronDB::open(&path).expect("open db");
+
+        // Job A: two targets on acc-1 + one on acc-2. Job B: one on acc-2 only.
+        let a = db
+            .add_job(&every_job(
+                "A",
+                vec![target("acc-1"), target("acc-1"), target("acc-2")],
+                None,
+            ))
+            .expect("add A");
+        let _b = db
+            .add_job(&every_job("B", vec![target("acc-2")], None))
+            .expect("add B");
+
+        // Reverse scan: acc-1 referenced only by A (2 targets); acc-2 by both.
+        let refs1 = db.jobs_referencing_account("acc-1").expect("scan acc-1");
+        assert_eq!(refs1.len(), 1);
+        assert_eq!(refs1[0].job_id, a.id);
+        assert_eq!(refs1[0].target_count, 2);
+        assert_eq!(db.jobs_referencing_account("acc-2").expect("scan").len(), 2);
+        assert!(db
+            .jobs_referencing_account("ghost")
+            .expect("scan")
+            .is_empty());
+
+        // Mark acc-1 stale: only job A touched; acc-2 targets untouched.
+        assert_eq!(
+            db.mark_account_delivery_targets_stale("acc-1")
+                .expect("mark"),
+            1
+        );
+        let a_reloaded = db.get_job(&a.id).expect("get").expect("exists");
+        let acc1_stale = a_reloaded
+            .delivery_targets
+            .iter()
+            .filter(|t| t.account_id == "acc-1")
+            .all(|t| t.stale);
+        let acc2_fresh = a_reloaded
+            .delivery_targets
+            .iter()
+            .filter(|t| t.account_id == "acc-2")
+            .all(|t| !t.stale);
+        assert!(acc1_stale, "acc-1 targets should be stale");
+        assert!(acc2_fresh, "acc-2 target should stay fresh");
+
+        // Idempotent: a second mark touches nothing.
+        assert_eq!(
+            db.mark_account_delivery_targets_stale("acc-1")
+                .expect("mark"),
+            0
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn apply_stale_flags_reads_live_targets_not_caller_snapshot() {
+        // Regression guard for the §8 review finding: the post-run stale
+        // writeback must re-read the live target list, not overwrite from a
+        // claim-time snapshot — otherwise a delivery-target edit the user made
+        // mid-run is silently reverted.
+        let path = temp_db_path("apply-stale-live");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&every_job(
+                "J",
+                vec![target("acc-1"), target("acc-2")],
+                None,
+            ))
+            .expect("add");
+
+        // Simulate a concurrent edit DURING a long run: drop acc-2, add acc-3,
+        // change acc-1's chat. A claim-time snapshot still says [acc-1, acc-2].
+        let mut edited = db.get_job(&job.id).expect("get").expect("exists");
+        edited.delivery_targets = vec![
+            CronDeliveryTarget {
+                chat_id: "c-new".into(),
+                ..target("acc-1")
+            },
+            target("acc-3"),
+        ];
+        db.update_job(&edited).expect("concurrent edit");
+
+        // Post-run delivery flips stale on acc-1 (missing account).
+        let acc1: std::collections::HashSet<String> =
+            std::iter::once("acc-1".to_string()).collect();
+        let empty = std::collections::HashSet::new();
+        assert!(db
+            .apply_delivery_target_stale_flags(&job.id, &acc1, &empty)
+            .expect("apply"));
+
+        let reloaded = db.get_job(&job.id).expect("get").expect("exists");
+        // The user's edit survived: acc-3 kept, acc-2 NOT resurrected, acc-1 chat preserved.
+        let accounts: Vec<&str> = reloaded
+            .delivery_targets
+            .iter()
+            .map(|t| t.account_id.as_str())
+            .collect();
+        assert_eq!(accounts, vec!["acc-1", "acc-3"]);
+        let t1 = reloaded
+            .delivery_targets
+            .iter()
+            .find(|t| t.account_id == "acc-1")
+            .expect("acc-1 present");
+        assert_eq!(t1.chat_id, "c-new", "user's chat edit preserved");
+        assert!(t1.stale, "acc-1 marked stale");
+        assert!(
+            !reloaded
+                .delivery_targets
+                .iter()
+                .find(|t| t.account_id == "acc-3")
+                .expect("acc-3 present")
+                .stale,
+            "unrelated target untouched"
+        );
+
+        // Clear path + idempotency + missing-row safety.
+        assert!(db
+            .apply_delivery_target_stale_flags(&job.id, &empty, &acc1)
+            .expect("clear"));
+        assert!(!db
+            .apply_delivery_target_stale_flags(&job.id, &empty, &acc1)
+            .expect("clear no-op"));
+        assert!(!db
+            .apply_delivery_target_stale_flags("ghost", &acc1, &empty)
+            .expect("missing row → false"));
 
         cleanup_db_files(&path);
     }
@@ -1110,6 +2222,8 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -1154,6 +2268,8 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -1272,6 +2388,86 @@ mod tests {
     }
 
     #[test]
+    fn tz_backfill_recomputes_next_run_for_already_zoned_clean_active_rows() {
+        // Codex review P1: a cron job that already stored a valid (non-UTC) zone
+        // BEFORE the timezone was honored still had its next_run_at computed in
+        // UTC. The backfill must recompute next_run_at for such clean-active rows
+        // (only the timezone ASSIGNMENT is skipped when a valid zone is present),
+        // and must NOT touch an in-backoff / paused row's stamp.
+        let path = temp_db_path("tz-backfill-recompute");
+        let db = CronDB::open(&path).expect("open db");
+        {
+            let conn = db.conn.lock().expect("lock");
+            // First open set the one-time sentinel; clear it so the backfill re-runs.
+            conn.execute("DELETE FROM cron_meta WHERE key='tz_backfill_done'", [])
+                .expect("clear sentinel");
+            let insert = |id: &str, status: &str, failures: i64| {
+                conn.execute(
+                    "INSERT INTO cron_jobs (
+                        id, name, description, schedule_json, payload_json, status,
+                        next_run_at, last_run_at, running_at, consecutive_failures, max_failures,
+                        notify_on_complete, delivery_targets_json, created_at, updated_at
+                    ) VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, NULL, NULL, ?7, 5, 1, '[]', ?8, ?8)",
+                    params![
+                        id,
+                        id,
+                        r#"{"type":"cron","expression":"0 0 9 * * *","timezone":"Asia/Shanghai"}"#,
+                        r#"{"type":"agentTurn","prompt":"p","agentId":null}"#,
+                        status,
+                        "2020-01-01T00:00:00Z", // deliberately stale UTC-era next_run_at
+                        failures,
+                        "2026-01-01T00:00:00Z",
+                    ],
+                )
+                .expect("insert");
+            };
+            insert("zoned-clean", "active", 0); // clean active → must recompute
+            insert("zoned-backoff", "active", 2); // mid-backoff → must NOT touch
+            insert("zoned-paused", "paused", 0); // paused → must NOT touch
+
+            super::backfill_cron_schedule_timezone(&conn).expect("backfill");
+
+            // Only assert when the pass actually ran (host zone detectable → sentinel
+            // re-written). On a host whose zone can't be detected the pass is a no-op
+            // by design; don't false-fail there.
+            let ran: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM cron_meta WHERE key='tz_backfill_done'",
+                    [],
+                    |r| r.get(0),
+                )
+                .expect("sentinel count");
+            if ran > 0 {
+                let next_of = |id: &str| -> Option<String> {
+                    conn.query_row(
+                        "SELECT next_run_at FROM cron_jobs WHERE id=?1",
+                        params![id],
+                        |r| r.get(0),
+                    )
+                    .expect("read next_run_at")
+                };
+                assert_ne!(
+                    next_of("zoned-clean").as_deref(),
+                    Some("2020-01-01T00:00:00Z"),
+                    "clean active already-zoned row must have next_run_at recomputed (P1)"
+                );
+                assert_eq!(
+                    next_of("zoned-backoff").as_deref(),
+                    Some("2020-01-01T00:00:00Z"),
+                    "in-backoff row's next_run_at must be preserved"
+                );
+                assert_eq!(
+                    next_of("zoned-paused").as_deref(),
+                    Some("2020-01-01T00:00:00Z"),
+                    "paused row's next_run_at must be preserved"
+                );
+            }
+        }
+        drop(db);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
     fn run_logs_match_nearest_occurrence_once() {
         let matches = match_run_logs_to_occurrences(
             &[
@@ -1289,6 +2485,7 @@ mod tests {
                 duration_ms: None,
                 result_preview: None,
                 error: None,
+                delivery_status: None,
             }],
         )
         .expect("matches");
@@ -1369,6 +2566,8 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
@@ -1421,6 +2620,8 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
 
@@ -1451,6 +2652,8 @@ mod tests {
                 max_failures: None,
                 notify_on_complete: None,
                 delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
             })
             .expect("add job");
         let original_next_run = job.next_run_at.clone();
@@ -1471,6 +2674,552 @@ mod tests {
             .claim_immediate_job_for_execution(&job)
             .expect("second claim")
             .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn count_running_tracks_running_markers() {
+        // §4: count_running is the concurrency-accounting source of truth for the
+        // scheduler's slot-before-claim gate. It must count every job whose
+        // running marker is set (claimed, regardless of path) and drop back as
+        // they clear.
+        let path = temp_db_path("count-running");
+        let db = CronDB::open(&path).expect("open db");
+        let mk = |name: &str| NewCronJob {
+            name: name.into(),
+            description: None,
+            project_id: None,
+            schedule: CronSchedule::At {
+                timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+            },
+            payload: CronPayload::AgentTurn {
+                prompt: "p".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: None,
+            prefix_delivery_with_name: None,
+            job_timeout_secs: None,
+        };
+        let a = db.add_job(&mk("a")).expect("add a");
+        let b = db.add_job(&mk("b")).expect("add b");
+
+        assert_eq!(db.count_running().expect("count"), 0);
+        db.claim_immediate_job_for_execution(&a)
+            .expect("claim a")
+            .expect("leased a");
+        assert_eq!(db.count_running().expect("count"), 1);
+        db.claim_immediate_job_for_execution(&b)
+            .expect("claim b")
+            .expect("leased b");
+        assert_eq!(db.count_running().expect("count"), 2);
+        db.clear_running(&a.id).expect("clear a");
+        assert_eq!(db.count_running().expect("count"), 1);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn clear_running_if_owner_only_clears_matching_marker() {
+        // §4 panic-safe backstop: the owner-checked clear must release THIS run's
+        // marker but never disturb a marker a later re-claim has replaced.
+        let path = temp_db_path("clear-if-owner");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "j".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("leased");
+
+        // Wrong timestamp (e.g. a stale guard after a re-claim) → no-op.
+        assert!(!db
+            .clear_running_if_owner(&job.id, "1999-01-01T00:00:00+00:00")
+            .expect("clear mismatch"));
+        assert_eq!(db.count_running().expect("count"), 1);
+
+        // Matching timestamp → releases the slot.
+        assert!(db
+            .clear_running_if_owner(&job.id, &claimed.claimed_at)
+            .expect("clear match"));
+        assert_eq!(db.count_running().expect("count"), 0);
+        // Second call is now a no-op (already cleared).
+        assert!(!db
+            .clear_running_if_owner(&job.id, &claimed.claimed_at)
+            .expect("clear again"));
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn update_after_run_reports_auto_disable_at_threshold() {
+        // §5: update_after_run returns true exactly when a failure pushes the job
+        // to max_failures and flips it to `disabled` — the signal the executor
+        // uses to fire the one-shot disable notification. Uses a RECURRING (Every)
+        // schedule: per §7 / Sweep#1 a one-shot `At` now terminalizes (missed) on
+        // its first failure rather than accumulating toward auto-disable, so the
+        // threshold behavior only applies to recurring jobs.
+        let path = temp_db_path("auto-disable-signal");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "flaky".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(2),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+
+        // First failure: below threshold → not disabled.
+        assert!(!db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd1"));
+        let after1 = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after1.consecutive_failures, 1);
+        assert_eq!(after1.status, CronJobStatus::Active);
+
+        // Second failure: hits max_failures (2) → auto-disabled, returns true.
+        assert!(db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd2"));
+        let after2 = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after2.consecutive_failures, 2);
+        assert_eq!(after2.status, CronJobStatus::Disabled);
+
+        // Third failure on the ALREADY-disabled job (e.g. a manual run-now that
+        // failed again): must NOT re-notify (returns false) and must NOT re-bump
+        // the count — the disable is one-shot.
+        assert!(!db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd3"));
+        let after3 = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            after3.consecutive_failures, 2,
+            "count must not grow once disabled"
+        );
+        assert_eq!(after3.status, CronJobStatus::Disabled);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn update_after_run_success_does_not_revive_paused_job() {
+        // Review fix: a recurring job the user pauses mid-run must NOT be revived to
+        // `active` when its in-flight run completes successfully. The success branch
+        // is guarded on `status='active'`, so a paused job stays paused (and keeps
+        // its next_run_at), preserving the explicit pause instead of silently
+        // re-arming the schedule.
+        let path = temp_db_path("success-no-revive-paused");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "recurring".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+
+        // User pauses the job (e.g. while its claimed run is still executing).
+        db.toggle_job(&job.id, false).expect("pause");
+        assert_eq!(
+            db.get_job(&job.id).expect("get").expect("exists").status,
+            CronJobStatus::Paused
+        );
+
+        // The in-flight run completes successfully → update_after_run(success).
+        assert!(!db
+            .update_after_run(&job.id, true, &job.schedule)
+            .expect("upd"));
+
+        // The job must still be Paused — NOT silently revived to Active.
+        assert_eq!(
+            db.get_job(&job.id).expect("get").expect("exists").status,
+            CronJobStatus::Paused,
+            "a successful in-flight run must not revive a job the user paused"
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn one_shot_at_failure_terminalizes_missed_not_retries() {
+        // §7 / Sweep#1: a one-shot `At` that fails (or times out) must NOT be
+        // rescheduled with backoff — its agent turn may already have produced side
+        // effects, so re-running it would repeat them. It terminalizes as `missed`
+        // on the first failure (next_run_at cleared), never re-firing.
+        let path = temp_db_path("at-fail-terminal");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "one-shot".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: "2999-01-01T00:00:00Z".into(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+
+        // First failure → terminalize (not auto-disable, not retry).
+        assert!(!db
+            .update_after_run(&job.id, false, &job.schedule)
+            .expect("upd"));
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.status,
+            CronJobStatus::Missed,
+            "failed one-shot At terminalizes as missed, not retried"
+        );
+        assert!(
+            stored.next_run_at.is_none(),
+            "no future retry scheduled for a failed one-shot At"
+        );
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn reschedule_without_failure_preserves_failure_count() {
+        // C07 building block: a recurring Empty run advances its schedule via
+        // reschedule_without_failure, which must NOT touch consecutive_failures — so
+        // an intermittent empty output can't reset a failing job's counter and dodge
+        // auto-disable.
+        let path = temp_db_path("reschedule-keeps-failures");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "j".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET consecutive_failures=3 WHERE id=?1",
+                params![job.id],
+            )
+            .expect("seed failures");
+        }
+        db.reschedule_without_failure(&job.id, &job.schedule)
+            .expect("reschedule");
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.consecutive_failures, 3,
+            "empty/infra reschedule must not reset the failure counter"
+        );
+        assert_eq!(stored.status, CronJobStatus::Active);
+        assert!(stored.next_run_at.is_some(), "schedule advanced");
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn toggle_resume_past_at_terminalizes_missed() {
+        // C24: re-enabling a one-shot `At` whose time is now past must terminalize
+        // as `missed`, not resurrect as active+next_run=NULL (an un-fireable zombie).
+        let path = temp_db_path("toggle-past-at");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "elapsed".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: "2999-01-01T00:00:00Z".into(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        // Rewrite to a PAST timestamp + paused, simulating a one-shot that elapsed
+        // while paused, then re-enable it.
+        {
+            let conn = db.conn.lock().expect("lock");
+            let past = serde_json::to_string(&CronSchedule::At {
+                timestamp: "2000-01-01T00:00:00Z".into(),
+            })
+            .unwrap();
+            conn.execute(
+                "UPDATE cron_jobs SET schedule_json=?1, status='paused', next_run_at=NULL WHERE id=?2",
+                params![past, job.id],
+            )
+            .expect("rewrite to past");
+        }
+        db.toggle_job(&job.id, true).expect("enable");
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.status,
+            CronJobStatus::Missed,
+            "resuming a past one-shot At terminalizes missed, not active zombie"
+        );
+        assert!(stored.next_run_at.is_none());
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn max_failures_zero_never_auto_disables() {
+        // C26: max_failures=0 = unlimited (never auto-disable). A recurring job that
+        // keeps failing stays active with a growing failure count.
+        let path = temp_db_path("max-failures-zero");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "unlimited".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(0),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        for _ in 0..10 {
+            assert!(
+                !db.update_after_run(&job.id, false, &job.schedule)
+                    .expect("upd"),
+                "max_failures=0 never reports auto-disable"
+            );
+        }
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(stored.status, CronJobStatus::Active);
+        assert_eq!(stored.consecutive_failures, 10);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn delete_running_job_requests_cancel() {
+        // C15: deleting a mid-run job requests cancellation (run-keyed) so the
+        // in-flight turn stops instead of running to completion + delivering against
+        // a row that's about to be deleted.
+        let path = temp_db_path("delete-cancel");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "running".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add job");
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed");
+        // Register the run's cancel flag exactly as execute_claimed_job would.
+        let flag = super::super::cancel::register(&job.id, &claimed.claimed_at);
+        assert!(!flag.load(std::sync::atomic::Ordering::SeqCst));
+        db.delete_job(&job.id).expect("delete");
+        assert!(
+            flag.load(std::sync::atomic::Ordering::SeqCst),
+            "delete requested cancellation of the in-flight run"
+        );
+        super::super::cancel::remove(&job.id, &claimed.claimed_at);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn mark_missed_respects_grace_and_recovers_zombies() {
+        // §7: late-fire grace + terminal-state recovery for one-shot At jobs.
+        let path = temp_db_path("at-grace");
+        let db = CronDB::open(&path).expect("open db");
+        let mk_at = |name: &str| {
+            db.add_job(&NewCronJob {
+                name: name.into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "p".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+            })
+            .expect("add")
+        };
+        let within = mk_at("within"); // past-due within grace → stays active (late-fires)
+        let beyond = mk_at("beyond"); // past-due beyond grace → missed
+        let zombie = mk_at("zombie"); // next_run_at NULL (claimed-then-crashed) → missed
+        let future = mk_at("future"); // not yet due → stays active
+
+        {
+            let conn = db.conn.lock().unwrap();
+            let now = Utc::now();
+            let set = |id: &str, val: Option<String>| {
+                conn.execute(
+                    "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                    params![val, id],
+                )
+                .unwrap();
+            };
+            set(
+                &within.id,
+                Some((now - chrono::Duration::seconds(100)).to_rfc3339()),
+            );
+            set(
+                &beyond.id,
+                Some((now - chrono::Duration::seconds(1000)).to_rfc3339()),
+            );
+            set(&zombie.id, None);
+            // `future` keeps its ~1h-ahead next_run_at from add_job.
+        }
+
+        let marked = db.mark_missed_at_jobs(300).expect("mark");
+        assert_eq!(marked, 2, "only beyond-grace + zombie are missed");
+        let status = |id: &str| db.get_job(id).unwrap().unwrap().status;
+        assert_eq!(status(&within.id), CronJobStatus::Active);
+        assert_eq!(status(&beyond.id), CronJobStatus::Missed);
+        assert_eq!(status(&zombie.id), CronJobStatus::Missed);
+        assert_eq!(status(&future.id), CronJobStatus::Active);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn add_job_terminalizes_past_at_as_missed() {
+        // §7: a one-shot At created with an already-past timestamp has no next run,
+        // so it's persisted as `missed` immediately instead of an active zombie
+        // that only the next restart's mark_missed would reap.
+        let path = temp_db_path("past-at-missed");
+        let db = CronDB::open(&path).expect("open db");
+        let mk = |name: &str, ts: String| NewCronJob {
+            name: name.into(),
+            description: None,
+            project_id: None,
+            schedule: CronSchedule::At { timestamp: ts },
+            payload: CronPayload::AgentTurn {
+                prompt: "p".into(),
+                agent_id: None,
+            },
+            max_failures: None,
+            notify_on_complete: None,
+            delivery_targets: None,
+            prefix_delivery_with_name: None,
+            job_timeout_secs: None,
+        };
+
+        let past = db
+            .add_job(&mk(
+                "past",
+                (Utc::now() - chrono::Duration::hours(1)).to_rfc3339(),
+            ))
+            .expect("add past");
+        assert_eq!(past.status, CronJobStatus::Missed);
+        assert!(past.next_run_at.is_none());
+        // Confirm persisted, not just the returned struct.
+        assert_eq!(
+            db.get_job(&past.id).unwrap().unwrap().status,
+            CronJobStatus::Missed
+        );
+
+        // A future At stays active with a next_run.
+        let future = db
+            .add_job(&mk(
+                "future",
+                (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+            ))
+            .expect("add future");
+        assert_eq!(future.status, CronJobStatus::Active);
+        assert!(future.next_run_at.is_some());
 
         cleanup_db_files(&path);
     }

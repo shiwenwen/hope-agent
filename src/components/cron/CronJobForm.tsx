@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Plus, Send, FolderOpen } from "lucide-react"
+import { X, Plus, Send, FolderOpen, AlertTriangle } from "lucide-react"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
 
@@ -81,15 +81,21 @@ export default function CronJobForm({
     }
     return ""
   })
-  const [intervalValue, setIntervalValue] = useState(() => {
-    const intervalMs =
+  // Derive the displayed value + unit from a stored "every" interval, preferring
+  // the largest whole unit (so "every 2 hours" loads as 2 + "hour", not 120 +
+  // "min"). Without this the unit always reset to "min": a user changing only the
+  // unit dropdown on edit would then silently multiply the interval 60× (120 "min"
+  // shown → switched to "hour" → 120 hours).
+  const initialEvery = (() => {
+    const ms =
       job?.schedule.type === "every" ? (job.schedule.intervalMs ?? job.schedule.interval_ms) : null
-    if (intervalMs) {
-      return String(intervalMs / 60000)
-    }
-    return "60"
-  })
-  const [intervalUnit, setIntervalUnit] = useState<"min" | "hour" | "day">("min")
+    if (!ms) return { value: "60", unit: "min" as const }
+    if (ms % 86_400_000 === 0) return { value: String(ms / 86_400_000), unit: "day" as const }
+    if (ms % 3_600_000 === 0) return { value: String(ms / 3_600_000), unit: "hour" as const }
+    return { value: String(ms / 60_000), unit: "min" as const }
+  })()
+  const [intervalValue, setIntervalValue] = useState(initialEvery.value)
+  const [intervalUnit, setIntervalUnit] = useState<"min" | "hour" | "day">(initialEvery.unit)
 
   // Visual cron builder state
   const initVisual = useMemo(
@@ -116,6 +122,52 @@ export default function CronJobForm({
     [cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr],
   )
 
+  // Timezone for cron schedules: the wall-clock hour/minute fields are
+  // interpreted in this IANA zone (DST-aware). Defaults to the browser's
+  // detected zone for new jobs so "9am" means the user's 9am, not UTC.
+  const [timezone, setTimezone] = useState<string>(() => {
+    // Editing an existing cron job: preserve its stored zone EXACTLY. A null/empty
+    // stored zone is a deliberate UTC job (the "Omit for UTC" contract) and must
+    // NOT fall through to the browser zone — otherwise an unrelated edit (rename,
+    // delivery target) would rewrite the zone to the browser's on save and shift
+    // every fire's wall-clock by the local UTC offset. null normalizes to "UTC"
+    // (semantically identical for the backend; just an explicit, visible value).
+    if (job?.schedule.type === "cron") {
+      return job.schedule.timezone || "UTC"
+    }
+    // New job (or converting a non-cron schedule): default to the browser's zone
+    // so "9am" means the user's 9am, not UTC.
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+    } catch {
+      return "UTC"
+    }
+  })
+
+  // Full IANA zone list for the picker, computed once; falls back gracefully on
+  // engines without `Intl.supportedValuesOf`. Always includes UTC.
+  const baseTimezones = useMemo<string[]>(() => {
+    let zones: string[] = []
+    try {
+      const supported = (Intl as { supportedValuesOf?: (key: string) => string[] })
+        .supportedValuesOf
+      if (supported) zones = supported("timeZone")
+    } catch {
+      zones = []
+    }
+    const set = new Set(zones)
+    set.add("UTC")
+    return Array.from(set).sort()
+  }, [])
+
+  // Ensure the current selection renders even when it isn't in the standard list
+  // (e.g. a backfilled host zone the browser doesn't enumerate) — no full re-sort
+  // on every change, just a membership check.
+  const timezoneOptions = useMemo<string[]>(
+    () => (timezone && !baseTimezones.includes(timezone) ? [timezone, ...baseTimezones] : baseTimezones),
+    [baseTimezones, timezone],
+  )
+
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
   const [agentId, setAgentId] = useState(job?.payload.agentId ?? AUTO_AGENT_VALUE)
   const [projectId, setProjectId] = useState(
@@ -123,6 +175,13 @@ export default function CronJobForm({
   )
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
+  const [prefixDeliveryWithName, setPrefixDeliveryWithName] = useState(
+    job?.prefixDeliveryWithName ?? false,
+  )
+  // C19: per-job timeout override; blank string = use the global default.
+  const [jobTimeoutSecs, setJobTimeoutSecs] = useState(
+    job?.jobTimeoutSecs ? String(job.jobTimeoutSecs) : "",
+  )
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
     () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
   )
@@ -248,6 +307,12 @@ export default function CronJobForm({
       setError(t("cron.errorMessageRequired"))
       return
     }
+    if (scheduleType === "at" && !timestamp.trim()) {
+      // Guard before buildSchedule(): `new Date("").toISOString()` throws a
+      // RangeError that would otherwise surface as a raw, unlocalized string.
+      setError(t("cron.errorDateRequired"))
+      return
+    }
 
     setSaving(true)
     setError("")
@@ -274,6 +339,8 @@ export default function CronJobForm({
           maxFailures: parseInt(maxFailures) || 5,
           notifyOnComplete,
           deliveryTargets: validTargets,
+          prefixDeliveryWithName,
+          jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
         }
         await getTransport().call("cron_update_job", { job: updated })
       } else {
@@ -292,6 +359,8 @@ export default function CronJobForm({
             maxFailures: parseInt(maxFailures) || 5,
             notifyOnComplete,
             deliveryTargets: validTargets,
+            prefixDeliveryWithName,
+            jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
           },
         })
       }
@@ -311,7 +380,10 @@ export default function CronJobForm({
         const num = parseFloat(intervalValue) || 60
         const multiplier =
           intervalUnit === "day" ? 86400000 : intervalUnit === "hour" ? 3600000 : 60000
-        const intervalMs = Math.max(60000, num * multiplier)
+        // Math.round: a fractional value (e.g. 1.1 hours) yields a float-precision
+        // artifact (1.1 * 3600000 = 3960000.0000000005) that the backend's u64
+        // `interval_ms` rejects at deserialization, failing the whole create/update.
+        const intervalMs = Math.max(60000, Math.round(num * multiplier))
         const preserveStartAt =
           job?.schedule.type === "every" &&
           (job.schedule.intervalMs ?? job.schedule.interval_ms) === intervalMs
@@ -324,7 +396,7 @@ export default function CronJobForm({
         }
       }
       case "cron":
-        return { type: "cron", expression: cronExpression, timezone: null }
+        return { type: "cron", expression: cronExpression, timezone: timezone || null }
     }
   }
 
@@ -438,21 +510,43 @@ export default function CronJobForm({
 
           {/* Schedule Config -- Cron (visual builder + raw editor) */}
           {scheduleType === "cron" && (
-            <CronExpressionBuilder
-              cronFreq={cronFreq}
-              setCronFreq={setCronFreq}
-              cronHour={cronHour}
-              setCronHour={setCronHour}
-              cronMinute={cronMinute}
-              setCronMinute={setCronMinute}
-              cronWeekdays={cronWeekdays}
-              toggleWeekday={toggleWeekday}
-              cronMonthDay={cronMonthDay}
-              setCronMonthDay={setCronMonthDay}
-              cronRawExpr={cronRawExpr}
-              setCronRawExpr={setCronRawExpr}
-              cronExpression={cronExpression}
-            />
+            <>
+              <CronExpressionBuilder
+                cronFreq={cronFreq}
+                setCronFreq={setCronFreq}
+                cronHour={cronHour}
+                setCronHour={setCronHour}
+                cronMinute={cronMinute}
+                setCronMinute={setCronMinute}
+                cronWeekdays={cronWeekdays}
+                toggleWeekday={toggleWeekday}
+                cronMonthDay={cronMonthDay}
+                setCronMonthDay={setCronMonthDay}
+                cronRawExpr={cronRawExpr}
+                setCronRawExpr={setCronRawExpr}
+                cronExpression={cronExpression}
+              />
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                  {t("cron.timezone")}
+                </label>
+                <Select value={timezone} onValueChange={setTimezone}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {timezoneOptions.map((tz) => (
+                      <SelectItem key={tz} value={tz}>
+                        {tz}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {t("cron.timezoneHint")}
+                </p>
+              </div>
+            </>
           )}
 
           {/* Message */}
@@ -534,6 +628,24 @@ export default function CronJobForm({
             />
           </div>
 
+          {/* Per-job timeout override (C19): blank = use the global default */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("cron.jobTimeoutOverride")}
+            </label>
+            <Input
+              type="number"
+              min="30"
+              max="7200"
+              placeholder={t("cron.jobTimeoutOverrideHint")}
+              value={jobTimeoutSecs}
+              onChange={(e) => setJobTimeoutSecs(e.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {t("cron.jobTimeoutOverrideHint")}
+            </p>
+          </div>
+
           {/* Delivery targets — fan-out job result to IM channel conversations */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -575,9 +687,19 @@ export default function CronJobForm({
                   return (
                     <div
                       key={idx}
-                      className="flex items-start gap-2 p-2 border border-border rounded-md bg-muted/20"
+                      className={`flex items-start gap-2 p-2 border rounded-md ${
+                        target.stale
+                          ? "border-destructive/60 bg-destructive/5"
+                          : "border-border bg-muted/20"
+                      }`}
                     >
                       <div className="flex-1 space-y-1.5">
+                        {target.stale && (
+                          <p className="text-[11px] text-destructive flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            {t("cron.deliveryTargetStale")}
+                          </p>
+                        )}
                         <Select
                           value={target.accountId || undefined}
                           onValueChange={(v) => handlePickAccount(idx, v)}
@@ -653,6 +775,25 @@ export default function CronJobForm({
               </div>
             )}
           </div>
+
+          {/* §8: prefix successful deliveries with the task name (opt-in,
+              only meaningful when there are delivery targets) */}
+          {deliveryTargets.length > 0 && (
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block">
+                  {t("cron.prefixDeliveryWithName")}
+                </label>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">
+                  {t("cron.prefixDeliveryWithNameDesc")}
+                </p>
+              </div>
+              <Switch
+                checked={prefixDeliveryWithName}
+                onCheckedChange={setPrefixDeliveryWithName}
+              />
+            </div>
+          )}
 
           {/* Notify on complete */}
           <div className="flex items-center justify-between">

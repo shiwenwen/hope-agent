@@ -89,6 +89,7 @@ fn risk_level(category: &str) -> &'static str {
         | "im_auto_transcribe"
         | "knowledge_passive_recall"
         | "knowledge_search"
+        | "cron"
         | "sprite" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
@@ -480,6 +481,7 @@ fn read_category(category: &str) -> Result<Value> {
         "image" => Ok(serde_json::to_value(&cfg.image)?),
         "pdf" => Ok(serde_json::to_value(&cfg.pdf)?),
         "async_tools" => Ok(serde_json::to_value(&cfg.async_tools)?),
+        "cron" => Ok(serde_json::to_value(&cfg.cron)?),
         "deferred_tools" => Ok(serde_json::to_value(&cfg.deferred_tools)?),
         "memory_extract" => Ok(serde_json::to_value(&cfg.memory_extract)?),
         "memory_selection" => Ok(serde_json::to_value(&cfg.memory_selection)?),
@@ -621,6 +623,11 @@ fn get_all_overview() -> Result<String> {
         },
         "sessionTitle": cfg.session_title,
         "asyncTools": { "enabled": cfg.async_tools.enabled },
+        "cron": {
+            "maxConcurrent": cfg.cron.max_concurrent,
+            "jobTimeoutSecs": cfg.cron.job_timeout_secs,
+            "atGraceSecs": cfg.cron.at_grace_secs,
+        },
         "issueReporting": {
             "enabled": cfg.issue_reporting.enabled,
             "owner": cfg.issue_reporting.owner,
@@ -686,7 +693,7 @@ fn get_all_overview() -> Result<String> {
             "compact", "session_title", "memory_extract", "memory_selection", "memory_budget",
             "embedding_cache", "dedup", "hybrid_search", "temporal_decay",
             "mmr", "multimodal", "dreaming", "recap", "awareness", "web_fetch", "web_search",
-            "deferred_tools", "async_tools", "approval",
+            "deferred_tools", "async_tools", "cron", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
             "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite"
@@ -937,6 +944,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "image" => merge_field(&mut store.image, values)?,
         "pdf" => merge_field(&mut store.pdf, values)?,
         "async_tools" => merge_field(&mut store.async_tools, values)?,
+        "cron" => merge_field(&mut store.cron, values)?,
         "deferred_tools" => merge_field(&mut store.deferred_tools, values)?,
         "memory_extract" => merge_field(&mut store.memory_extract, values)?,
         "memory_selection" => merge_field(&mut store.memory_selection, values)?,

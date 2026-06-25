@@ -993,20 +993,23 @@ mod pre_tool_gate_tests {
 /// the call. `reason_payload` drives the dialog's reason banner (`None` =
 /// no banner, used for a hook-forced prompt); `allow_always_forbidden` reflects
 /// whether the reason bars an "Allow Always".
-async fn run_tool_approval(
+pub(super) async fn run_tool_approval(
     name: &str,
     args: &Value,
     ctx: &ToolExecContext,
     reason_payload: Option<approval::ApprovalReasonPayload>,
     allow_always_forbidden: bool,
+    desc_override: Option<String>,
 ) -> anyhow::Result<approval::ApprovalOrigin> {
-    let desc = format!("tool: {} {}", name, {
-        let s = args.to_string();
-        if s.len() > 200 {
-            format!("{}...", crate::truncate_utf8(&s, 200))
-        } else {
-            s
-        }
+    let desc = desc_override.unwrap_or_else(|| {
+        format!("tool: {} {}", name, {
+            let s = args.to_string();
+            if s.len() > 200 {
+                format!("{}...", crate::truncate_utf8(&s, 200))
+            } else {
+                s
+            }
+        })
     });
     let cwd = ctx.default_path();
     match approval::check_and_request_approval(
@@ -1299,7 +1302,7 @@ pub async fn execute_tool_with_context(
                 // the prompt (no reason banner) so its request can't fail open.
                 if pre_force_prompt {
                     tool_approval_origin =
-                        Some(run_tool_approval(name, args, ctx, None, false).await?);
+                        Some(run_tool_approval(name, args, ctx, None, false, None).await?);
                 }
             }
             crate::permission::Decision::Deny { reason } => {
@@ -1350,6 +1353,7 @@ pub async fn execute_tool_with_context(
                             ctx,
                             Some(approval::ApprovalReasonPayload::from(&reason)),
                             forbidden,
+                            None,
                         )
                         .await?,
                     );
@@ -1379,7 +1383,7 @@ pub async fn execute_tool_with_context(
         // PreToolUse hook explicitly asked for confirmation — honor it rather
         // than letting the request through silently. SKILL.md reads are exempt
         // so skill bootstrap never blocks on a prompt.
-        tool_approval_origin = Some(run_tool_approval(name, args, ctx, None, false).await?);
+        tool_approval_origin = Some(run_tool_approval(name, args, ctx, None, false, None).await?);
     }
 
     // ── exec async approval reorder (B5 / B6) ─────────────────────
@@ -1574,9 +1578,7 @@ pub async fn execute_tool_with_context(
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
             TOOL_UPDATE_CORE_MEMORY => memory::tool_update_core_memory(args, dispatch_ctx).await,
-            TOOL_MANAGE_CRON => {
-                cron::tool_manage_cron(args, dispatch_ctx.session_id.as_deref()).await
-            }
+            TOOL_MANAGE_CRON => cron::tool_manage_cron(args, dispatch_ctx).await,
             TOOL_BROWSER => browser::tool_browser(args, dispatch_ctx).await,
             TOOL_MAC_CONTROL => mac_control::tool_mac_control(args).await,
             TOOL_SEND_NOTIFICATION => {

@@ -84,6 +84,13 @@ pub enum AskReason {
     /// agent uses this for `exec` so a planning subagent can't quietly run
     /// commands while the plan is still being drafted.
     PlanModeAsk,
+    /// `manage_cron action=delete` — the model is about to permanently remove a
+    /// user's scheduled task. Deliberately **non-strict** (not in
+    /// `forbids_allow_always`): unlike the exfil-class strict reasons, deleting a
+    /// cron job is a controlled, owner-scoped integrity action, so AllowAlways /
+    /// YOLO may bypass it and Smart mode may self-decide. Default mode still
+    /// prompts; an unattended surface fail-closes per `unattended_approval_action`.
+    CronDelete,
 }
 
 impl AskReason {

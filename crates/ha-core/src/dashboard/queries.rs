@@ -439,9 +439,19 @@ pub fn query_tasks(
     };
 
     let sql = format!(
-        "SELECT COUNT(*),
+        // `total_runs` counts terminal runs only — the transient in-progress
+        // 'running' row is excluded (review fix #3) so a live run doesn't inflate
+        // the total; 'empty'/'cancelled' are terminal and still counted.
+        // `failed_runs` counts every non-success terminal failure as the
+        // complement of the known non-failure terminals (C05) — so `'timeout'`
+        // (§5) AND the infra `'no_session'` literal (and any future failure tag)
+        // all count, instead of an `IN ('error','timeout')` allowlist that
+        // silently dropped 'no_session' from the failure denominator and inflated
+        // the success rate. 'empty'/'cancelled' are non-failure terminals;
+        // 'running' is in-progress (also excluded from total).
+        "SELECT COALESCE(SUM(CASE WHEN status != 'running' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN status NOT IN ('success', 'running', 'empty', 'cancelled') THEN 1 ELSE 0 END), 0),
                 COALESCE(AVG(duration_ms), 0.0)
          FROM cron_run_logs
          {}",

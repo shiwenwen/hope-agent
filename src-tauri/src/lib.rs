@@ -512,6 +512,8 @@ pub fn run() {
             // Async tool execution
             commands::config::get_async_tools_config,
             commands::config::save_async_tools_config,
+            commands::config::get_cron_config,
+            commands::config::save_cron_config,
             // Deferred tool loading
             commands::config::get_deferred_tools_config,
             commands::config::save_deferred_tools_config,
@@ -678,6 +680,7 @@ pub fn run() {
             commands::cron::cron_delete_job,
             commands::cron::cron_toggle_job,
             commands::cron::cron_run_now,
+            commands::cron::cron_jobs_referencing_account,
             commands::cron::cron_get_run_logs,
             commands::cron::cron_get_calendar_events,
             // Sub-agent management

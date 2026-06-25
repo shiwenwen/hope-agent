@@ -271,6 +271,9 @@ fn resolve_browser_control_approval_layer(ctx: &ResolveContext<'_>) -> Decision 
 }
 
 fn resolve_soft_approval_layer(ctx: &ResolveContext<'_>) -> Decision {
+    if let Some(reason) = check_cron_delete(ctx) {
+        return Decision::Ask { reason };
+    }
     if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
         return Decision::Ask { reason };
     }
@@ -278,6 +281,29 @@ fn resolve_soft_approval_layer(ctx: &ResolveContext<'_>) -> Decision {
         return Decision::Ask { reason };
     }
     Decision::Allow
+}
+
+/// `manage_cron action=delete` gate (non-strict). `manage_cron` is an internal
+/// tool and therefore approval-exempt at the outer dispatch gate, but deleting a
+/// user's scheduled task is a consequential, irreversible mutation — so the
+/// delete branch alone takes one explicit trip through the engine (the caller
+/// passes `is_internal=false` for it). Living in the soft-approval layer (shared
+/// by Default / Smart / Plan, reached only after the YOLO short-circuit and the
+/// AllowAlways accumulator) gives the OQ6 semantics for free: Default prompts,
+/// Smart defers to the judge model, YOLO / global-YOLO / AllowAlways bypass, and
+/// an unattended surface fail-closes downstream. Every other `manage_cron`
+/// action keeps the internal-tool exemption and never reaches here.
+fn check_cron_delete(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    if ctx.tool_name != crate::tools::TOOL_MANAGE_CRON {
+        return None;
+    }
+    let is_delete = ctx
+        .args
+        .get("action")
+        .and_then(|v| v.as_str())
+        .map(|a| a == "delete")
+        .unwrap_or(false);
+    is_delete.then_some(AskReason::CronDelete)
 }
 
 /// Sync Smart-mode resolver. Performs the cheap (no-LLM) checks:
@@ -829,6 +855,7 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
             format!("dangerous macOS control action '{action}'")
         }
         PlanModeAsk => "plan-mode ask_tools".to_string(),
+        CronDelete => "cron delete".to_string(),
     };
     app_warn!(
         "permission",
@@ -901,6 +928,81 @@ mod tests {
         let custom: Vec<String> = vec![];
         let mut c = ctx("write", &args, SessionMode::Yolo, &plan, &custom);
         c.global_yolo = false;
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn cron_delete_default_asks() {
+        // OQ6: `manage_cron action=delete` re-enters the engine with
+        // is_internal=false and must prompt in Default mode via the non-strict
+        // CronDelete reason.
+        let args = json!({"action": "delete", "id": "job-1"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx(
+            crate::tools::TOOL_MANAGE_CRON,
+            &args,
+            SessionMode::Default,
+            &plan,
+            &custom,
+        );
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::CronDelete
+            }
+        ));
+    }
+
+    #[test]
+    fn cron_non_delete_action_allows() {
+        // Only `action=delete` gates; every other manage_cron action keeps the
+        // internal-tool exemption and runs approval-free.
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        for action in ["create", "update", "list", "pause", "resume", "run_now"] {
+            let args = json!({ "action": action, "id": "job-1" });
+            let c = ctx(
+                crate::tools::TOOL_MANAGE_CRON,
+                &args,
+                SessionMode::Default,
+                &plan,
+                &custom,
+            );
+            assert_eq!(resolve(&c), Decision::Allow, "action {action} should allow");
+        }
+    }
+
+    #[test]
+    fn cron_delete_yolo_allows() {
+        // YOLO bypasses the (non-strict) CronDelete prompt.
+        let args = json!({"action": "delete", "id": "job-1"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx(
+            crate::tools::TOOL_MANAGE_CRON,
+            &args,
+            SessionMode::Yolo,
+            &plan,
+            &custom,
+        );
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn cron_delete_is_not_strict() {
+        // Non-strict by design: AllowAlways / YOLO may bypass and Smart may
+        // self-decide — the opposite of the exfil-class strict reasons.
+        assert!(!AskReason::CronDelete.forbids_allow_always());
+    }
+
+    #[test]
+    fn delete_action_on_other_tool_unaffected() {
+        // The gate keys on tool name, not a generic `action=delete` arg.
+        let args = json!({"action": "delete", "path": "/tmp/foo"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("read", &args, SessionMode::Default, &plan, &custom);
         assert_eq!(resolve(&c), Decision::Allow);
     }
 

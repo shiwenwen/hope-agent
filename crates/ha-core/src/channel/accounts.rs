@@ -295,6 +295,29 @@ pub async fn remove_account(account_id: &str) -> Result<()> {
         super::wechat::clear_persisted_account_state(account_id).map_err(|e| anyhow!("{}", e))?;
     }
 
+    // §8: flag any cron delivery targets pointing at the now-removed account as
+    // stale so the GUI marks them (the next run would otherwise just skip + warn,
+    // leaving the UI showing a target that can never deliver). Best-effort.
+    if let Some(cron_db) = crate::globals::get_cron_db() {
+        match cron_db.mark_account_delivery_targets_stale(account_id) {
+            Ok(touched) if touched > 0 => app_info!(
+                "cron",
+                "delivery",
+                "marked delivery targets stale in {} cron job(s) after removing account '{}'",
+                touched,
+                account_id
+            ),
+            Ok(_) => {}
+            Err(e) => app_warn!(
+                "channel",
+                "accounts",
+                "failed to mark cron delivery targets stale for removed account '{}': {}",
+                account_id,
+                e
+            ),
+        }
+    }
+
     Ok(())
 }
 

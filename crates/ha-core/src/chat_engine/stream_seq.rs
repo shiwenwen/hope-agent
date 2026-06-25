@@ -35,6 +35,13 @@ pub enum ChatSource {
     Subagent,
     /// Background parent response to an auto-delivered sub-agent result.
     ParentInjection,
+    /// Scheduled task (cron job) run in its own isolated session. Owner-internal
+    /// and non-interactive: no live user is waiting, but it is a legitimate
+    /// top-level session (unlike `Subagent`) — so it holds the foreground idle
+    /// guard, fires lifecycle hooks, and gets owner-plane KB access (not the IM
+    /// cap). Distinct from `Channel` so KB access is granted via the owner bucket
+    /// rather than being denied by the WS8 IM gate.
+    Cron,
 }
 
 impl ChatSource {
@@ -58,9 +65,16 @@ impl ChatSource {
 
     /// Sources tracked by the stream_seq registry (so reload-recovery can
     /// dedupe deltas via session_id+seq). Background sub-agent runs don't
-    /// need this — they have no UI counterpart waiting to reattach.
+    /// need this — they have no UI counterpart waiting to reattach. `Cron` is
+    /// included: its run is a real, persisted, user-viewable session, and
+    /// registering it also takes the active-stream concurrency guard (a second
+    /// concurrent stream on the same session is rejected, not silently
+    /// overwritten).
     pub fn tracks_seq(&self) -> bool {
-        matches!(self, Self::Desktop | Self::Http | Self::Channel)
+        matches!(
+            self,
+            Self::Desktop | Self::Http | Self::Channel | Self::Cron
+        )
     }
 
     /// Whether the chat engine should fire user-facing lifecycle hooks (`SessionStart`
@@ -73,7 +87,10 @@ impl ChatSource {
     /// instead, fired by `subagent::spawn` (also gated against hook-spawned
     /// children — see `crates/ha-core/src/subagent/spawn.rs`).
     pub fn fires_user_lifecycle_hooks(&self) -> bool {
-        matches!(self, Self::Desktop | Self::Http | Self::Channel)
+        matches!(
+            self,
+            Self::Desktop | Self::Http | Self::Channel | Self::Cron
+        )
     }
 
     /// Whether a turn from this source is a **foreground turn that background-job
@@ -82,8 +99,8 @@ impl ChatSource {
     /// `run_chat_engine` creates a [`crate::subagent::ChatSessionGuard`] for
     /// these sources at its shared entry, so the busy/idle bookkeeping
     /// (`ACTIVE_CHAT_SESSIONS` / `SESSION_IDLE_NOTIFY`) holds across **all four
-    /// entry points** — desktop, HTTP, IM channel, cron (cron turns carry
-    /// `Channel`). Before R2 the guard was created only in the Tauri shell, so
+    /// entry points** — desktop, HTTP, IM channel, and cron (`ChatSource::Cron`).
+    /// Before R2 the guard was created only in the Tauri shell, so
     /// server / IM injection fired against a live turn instead of waiting
     /// (§5.4). ACP runs `AssistantAgent::chat` directly (not this engine) and
     /// creates the guard itself at its turn boundary.
@@ -93,7 +110,10 @@ impl ChatSource {
     /// the latter runs a distinct child session whose injection concerns are
     /// independent of the parent's idle state.
     pub fn holds_foreground_idle_guard(&self) -> bool {
-        matches!(self, Self::Desktop | Self::Http | Self::Channel)
+        matches!(
+            self,
+            Self::Desktop | Self::Http | Self::Channel | Self::Cron
+        )
     }
 
     /// Lowercase wire string used as the `messages.source` column value and
@@ -108,6 +128,7 @@ impl ChatSource {
             Self::Channel => "channel",
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
+            Self::Cron => "cron",
         }
     }
 
@@ -122,6 +143,7 @@ impl ChatSource {
             "channel" => Self::Channel,
             "subagent" => Self::Subagent,
             "parent_injection" => Self::ParentInjection,
+            "cron" => Self::Cron,
             _ => Self::Desktop,
         }
     }
@@ -135,6 +157,7 @@ impl fmt::Display for ChatSource {
             Self::Channel => "channel",
             Self::Subagent => "subagent",
             Self::ParentInjection => "parent_injection",
+            Self::Cron => "cron",
         })
     }
 }
@@ -288,7 +311,12 @@ pub fn active_counts() -> ActiveChatCounts {
             ChatSource::Desktop => out.desktop += 1,
             ChatSource::Http => out.http += 1,
             ChatSource::Channel => out.channel += 1,
-            ChatSource::Subagent | ChatSource::ParentInjection => {}
+            // Background runs are not user-facing interactive/IM sessions, so
+            // they stay out of the desktop/http/channel split. Cron joins them:
+            // a scheduled run is not an IM channel turn (this struct has no cron
+            // bucket yet — add one here + in `ActiveChatCounts` if the status UI
+            // grows a dedicated cron source).
+            ChatSource::Subagent | ChatSource::ParentInjection | ChatSource::Cron => {}
         }
     }
     out.total = out.desktop + out.http + out.channel;
@@ -323,23 +351,41 @@ mod tests {
         assert!(ChatSource::Desktop.fires_user_lifecycle_hooks());
         assert!(ChatSource::Http.fires_user_lifecycle_hooks());
         assert!(ChatSource::Channel.fires_user_lifecycle_hooks());
+        // Cron is a top-level scheduled session (no subagent cascade) — it fires.
+        assert!(ChatSource::Cron.fires_user_lifecycle_hooks());
         assert!(!ChatSource::Subagent.fires_user_lifecycle_hooks());
         assert!(!ChatSource::ParentInjection.fires_user_lifecycle_hooks());
     }
 
     #[test]
     fn foreground_idle_guard_gated_by_source() {
-        // R2: every foreground entry point (desktop / HTTP / IM channel / cron
-        // — cron carries Channel) holds the idle guard so completion injection
-        // yields to a live turn. ParentInjection MUST NOT (it is the injection
-        // itself — guarding would self-cancel); Subagent MUST NOT (distinct
-        // child session). This is the contract that fixed §5.4 (non-desktop
-        // injection racing live turns).
+        // R2: every foreground entry point (desktop / HTTP / IM channel / cron)
+        // holds the idle guard so completion injection yields to a live turn.
+        // ParentInjection MUST NOT (it is the injection itself — guarding would
+        // self-cancel); Subagent MUST NOT (distinct child session). This is the
+        // contract that fixed §5.4 (non-desktop injection racing live turns).
         assert!(ChatSource::Desktop.holds_foreground_idle_guard());
         assert!(ChatSource::Http.holds_foreground_idle_guard());
         assert!(ChatSource::Channel.holds_foreground_idle_guard());
+        assert!(ChatSource::Cron.holds_foreground_idle_guard());
         assert!(!ChatSource::Subagent.holds_foreground_idle_guard());
         assert!(!ChatSource::ParentInjection.holds_foreground_idle_guard());
+    }
+
+    #[test]
+    fn cron_source_wire_roundtrip_and_buckets() {
+        // Cron is owner-internal: it tracks seq (real session + concurrency
+        // guard) but does NOT broadcast to the user UI (background run), and its
+        // wire string round-trips so persisted `messages.source` rows reload as
+        // Cron rather than collapsing to Desktop.
+        assert!(ChatSource::Cron.tracks_seq());
+        assert!(!ChatSource::Cron.broadcasts_to_user_ui());
+        assert_eq!(ChatSource::Cron.as_str(), "cron");
+        assert_eq!(ChatSource::from_db_string("cron"), ChatSource::Cron);
+        assert_eq!(
+            ChatSource::from_db_string(&ChatSource::Cron.to_string()),
+            ChatSource::Cron
+        );
     }
 
     #[test]

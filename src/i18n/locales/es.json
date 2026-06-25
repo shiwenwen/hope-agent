@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Eliminar tarea programada",
+        "body": "El modelo va a eliminar permanentemente una de tus tareas programadas. El modo predeterminado pregunta cada vez; el modo inteligente puede decidir y YOLO lo omite. Permitir siempre está disponible."
+      },
       "agent_custom_list": {
         "body": "Esta herramienta está en la lista de aprobaciones personalizadas del agente (solo modo Default).",
         "title": "Lista de aprobación personalizada del agente"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "Transcribir mensajes de voz automáticamente",
     "autoTranscribeVoiceHint": "Transcribe el audio / voz entrante mediante el subsistema STT configurado. Cada mensaje consume cuota de la API STT.",
     "kbAccessOptIn": "Acceso a la base de conocimiento",
-    "kbAccessOptInHint": "Permite que este canal lea y escriba en los espacios de conocimiento adjuntos. Desactivado de forma predeterminada. En los chats de grupo, ejecuta además /kb on en el chat para confirmarlo."
+    "kbAccessOptInHint": "Permite que este canal lea y escriba en los espacios de conocimiento adjuntos. Desactivado de forma predeterminada. En los chats de grupo, ejecuta además /kb on en el chat para confirmarlo.",
+    "removeWithCronTitle": "¿Eliminar cuenta?",
+    "removeWithCronDesc": "«{{account}}» es destino de entrega de {{count}} tarea(s) programada(s). Al eliminarla, esos destinos quedarán marcados como obsoletos.",
+    "removeWithCronTargets": "{{count}} destino(s)"
   },
   "chat": {
     "addWorkingDirectory": "Agregar directorio de trabajo",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Margen (s)",
+    "atGraceHint": "Ventana de ejecución tardía: una tarea única cuya hora venció con la app cerrada aún se ejecuta si el retraso no supera estos segundos; más allá se marca como perdida (0 = estricto, sin ejecución tardía).",
+    "jobTimeout": "Tiempo límite (s)",
+    "jobTimeoutHint": "Segundos máximos que una tarea programada puede ejecutarse antes de abandonarse y liberar su ranura (30–7200 s).",
+    "jobTimeoutOverride": "Tiempo de espera por tarea (s)",
+    "jobTimeoutOverrideHint": "Anula el tiempo de espera global solo para ESTA tarea (30–7200 s); déjalo en blanco para usar el valor global.",
+    "maxConcurrent": "Máx. concurrentes",
+    "maxConcurrentHint": "Máximo de tareas programadas ejecutándose a la vez (0 = sin límite). Las tareas vencidas adicionales esperan a la siguiente comprobación.",
+    "timezone": "Zona horaria",
+    "timezoneHint": "La hora de la programación se interpreta en esta zona horaria (considera el horario de verano).",
     "active": "Activa",
     "addDeliveryTarget": "Añadir destino",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "Editar expresión",
     "editJob": "Editar tarea",
     "errorMessageRequired": "El mensaje del Agent es obligatorio",
+    "errorDateRequired": "La fecha y hora son obligatorias",
     "errorNameRequired": "El nombre de la tarea es obligatorio",
     "everyDayAt": "Todos los días a las",
     "everyMonthOn": "Cada mes el día",
@@ -765,7 +783,18 @@
     "weekSun": "Dom",
     "weekThu": "Jue",
     "weekTue": "Mar",
-    "weekWed": "Mié"
+    "weekWed": "Mié",
+    "deliveryTargetStale": "Cuenta eliminada: no se entregará",
+    "prefixDeliveryWithName": "Anteponer el nombre de la tarea",
+    "prefixDeliveryWithNameDesc": "Antepone [Cron] {nombre} a las entregas exitosas para distinguir varias tareas que llegan al mismo chat",
+    "deliveryStatus": {
+      "delivered": "Entregado",
+      "partial": "Entrega parcial",
+      "failed": "Entrega fallida"
+    },
+    "runStatusRunning": "En ejecución",
+    "runStatusEmpty": "Sin salida",
+    "unitSeconds": "segundos"
   },
   "dangerousMode": {
     "bannerBoth": "Modo Peligroso activo (CLI + config) — todas las aprobaciones de herramientas se omiten",
@@ -1698,6 +1727,14 @@
     "video": "Vídeo"
   },
   "notification": {
+    "cronCancelled": "Tarea programada cancelada",
+    "cronDisabled": "Tarea programada deshabilitada",
+    "cronDisabledBody": "{{name}}: deshabilitada tras {{count}} fallos consecutivos ({{reason}})",
+    "cronReason": {
+      "timeout": "tiempo agotado",
+      "configuration": "error de configuración",
+      "transient": "errores repetidos"
+    },
     "agentDesc": "Anulación de notificaciones por Agent. Cuando se establece como Por defecto, usa el ajuste global.",
     "agentSection": "Notificaciones de Agent",
     "approvalRequired": "Se requiere aprobación de herramienta",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "Las credenciales de una cuenta de canal IM fueron rechazadas — vuelve a autenticarte",
     "chatCompleted": "Conversación completada",
     "chatError": "Error en la conversación",
+    "cronEmpty": "Tarea programada completada (sin resultado)",
     "cronError": "Tarea programada fallida",
     "cronNote": "Las notificaciones de tareas Cron pueden configurarse por trabajo en el panel de Tareas programadas.",
     "cronNotify": "Notificar al completar",

@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "예약 작업 삭제",
+        "body": "모델이 예약 작업 중 하나를 영구적으로 삭제하려고 합니다. 기본 모드는 매번 확인하고, 스마트 모드는 자동 판단하며, YOLO는 건너뜁니다. '항상 허용'도 사용할 수 있습니다."
+      },
       "agent_custom_list": {
         "body": "이 도구는 에이전트의 사용자 지정 승인 목록에 있습니다(Default 모드에서만 적용).",
         "title": "에이전트 사용자 지정 승인 목록"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "음성 메시지 자동 전사",
     "autoTranscribeVoiceHint": "수신 음성/오디오를 STT 서브시스템으로 전사합니다. 메시지당 STT API 할당량을 사용합니다.",
     "kbAccessOptIn": "지식 베이스 접근",
-    "kbAccessOptInHint": "이 채널이 연결된 지식 공간을 읽고 쓰도록 허용합니다. 기본값은 꺼짐입니다. 그룹 채팅에서는 채팅에서 /kb on 을 실행해 별도로 확인하세요."
+    "kbAccessOptInHint": "이 채널이 연결된 지식 공간을 읽고 쓰도록 허용합니다. 기본값은 꺼짐입니다. 그룹 채팅에서는 채팅에서 /kb on 을 실행해 별도로 확인하세요.",
+    "removeWithCronTitle": "계정을 삭제하시겠습니까?",
+    "removeWithCronDesc": "“{{account}}”은(는) {{count}}개 예약 작업의 전달 대상입니다. 삭제하면 해당 대상이 만료로 표시됩니다.",
+    "removeWithCronTargets": "대상 {{count}}개"
   },
   "chat": {
     "addWorkingDirectory": "작업 디렉터리 추가",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "시스템 프롬프트"
   },
   "cron": {
+    "atGrace": "유예(초)",
+    "atGraceHint": "지연 실행 유예: 앱이 닫힌 동안 실행 시각을 지난 일회성 작업은 초과가 이 초 이내면 실행됩니다. 초과하면 '놓침'으로 표시됩니다(0 = 엄격, 지연 실행 없음).",
+    "jobTimeout": "타임아웃(초)",
+    "jobTimeoutHint": "단일 예약 작업이 실행될 수 있는 최대 초. 초과하면 중단되고 슬롯이 해제됩니다(30~7200초).",
+    "jobTimeoutOverride": "작업별 시간 제한(초)",
+    "jobTimeoutOverrideHint": "이 작업에만 전역 시간 제한을 재정의합니다(30–7200초). 비워 두면 전역 기본값을 사용합니다.",
+    "maxConcurrent": "최대 동시 실행",
+    "maxConcurrentHint": "동시에 실행되는 예약 작업 수 상한 (0 = 무제한). 초과된 작업은 다음 확인까지 대기합니다.",
+    "timezone": "시간대",
+    "timezoneHint": "예약 시각은 이 시간대 기준으로 해석됩니다(서머타임 자동 처리).",
     "active": "활성",
     "addDeliveryTarget": "대상 추가",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "표현식 편집",
     "editJob": "작업 편집",
     "errorMessageRequired": "Agent 메시지가 필요합니다",
+    "errorDateRequired": "실행 시간을 입력해야 합니다",
     "errorNameRequired": "작업 이름이 필요합니다",
     "everyDayAt": "매일",
     "everyMonthOn": "매월",
@@ -765,7 +783,18 @@
     "weekSun": "일",
     "weekThu": "목",
     "weekTue": "화",
-    "weekWed": "수"
+    "weekWed": "수",
+    "deliveryTargetStale": "계정이 삭제됨 — 전달 불가",
+    "prefixDeliveryWithName": "작업 이름 접두사 추가",
+    "prefixDeliveryWithNameDesc": "성공한 전달에 [Cron] {이름} 접두사를 붙여 같은 대화로 전달되는 여러 작업을 구분합니다",
+    "deliveryStatus": {
+      "delivered": "전달됨",
+      "partial": "일부 전달",
+      "failed": "전달 실패"
+    },
+    "runStatusRunning": "실행 중",
+    "runStatusEmpty": "출력 없음",
+    "unitSeconds": "초"
   },
   "dangerousMode": {
     "bannerBoth": "위험 모드 활성 (CLI + 설정) — 모든 도구 승인을 건너뜀",
@@ -1698,6 +1727,14 @@
     "video": "비디오"
   },
   "notification": {
+    "cronCancelled": "예약 작업이 취소되었습니다",
+    "cronDisabled": "예약 작업이 비활성화됨",
+    "cronDisabledBody": "{{name}} — {{count}}회 연속 실패하여 비활성화됨({{reason}})",
+    "cronReason": {
+      "timeout": "시간 초과",
+      "configuration": "구성 오류",
+      "transient": "반복 오류"
+    },
     "agentDesc": "Agent 별 알림 재정의. 「기본값」으로 설정하면 글로벌 설정을 따릅니다.",
     "agentSection": "Agent 알림",
     "approvalRequired": "도구 승인이 필요합니다",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "IM 채널 자격 증명이 거부되었습니다 — 재인증해주세요",
     "chatCompleted": "대화 완료",
     "chatError": "대화 오류",
+    "cronEmpty": "예약 작업 완료(출력 없음)",
     "cronError": "예약 작업 실패",
     "cronNote": "예약 작업 알림은 예약 작업 설정 패널에서 작업별로 구성할 수 있습니다.",
     "cronNotify": "완료 시 알림",

@@ -4,8 +4,19 @@ import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
-import { Plus, Play, Square, Trash2, Loader2, Pencil } from "lucide-react"
+import { Plus, Play, Square, Trash2, Loader2, Pencil, AlertTriangle } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { logger } from "@/lib/logger"
+import type { CronAccountRef } from "@/components/cron/CronJobForm.types"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import AgentAvatar from "./AgentAvatar"
 import AddAccountDialog from "./AddAccountDialog"
@@ -39,6 +50,13 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
   const [editingAccount, setEditingAccount] = useState<ChannelAccountConfig | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)
+  // §8: when removing an account referenced by cron delivery targets, confirm
+  // first so the user knows which scheduled tasks fan out to it.
+  const [pendingDelete, setPendingDelete] = useState<{
+    accountId: string
+    label: string
+    refs: CronAccountRef[]
+  } | null>(null)
 
   const loadData = useCallback(async () => {
     try {
@@ -111,6 +129,26 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
     }
   }
 
+  // §8: before removing, scan cron jobs that fan out to this account. If any
+  // reference it, confirm; otherwise delete immediately (prior behavior).
+  const requestRemove = async (account: ChannelAccountConfig) => {
+    let refs: CronAccountRef[] = []
+    try {
+      refs = await getTransport().call<CronAccountRef[]>(
+        "cron_jobs_referencing_account",
+        { accountId: account.id },
+      )
+    } catch (e) {
+      // Cron lookup is best-effort — never block account removal on it.
+      logger.error("channel", "ChannelPanel", "Failed to scan cron references", e)
+    }
+    if (refs.length > 0) {
+      setPendingDelete({ accountId: account.id, label: account.label, refs })
+    } else {
+      await handleRemove(account.id)
+    }
+  }
+
   const handleRemove = async (accountId: string) => {
     try {
       await getTransport().call("channel_remove_account", { accountId })
@@ -118,6 +156,13 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to remove channel account", e)
     }
+  }
+
+  const confirmRemove = async () => {
+    if (!pendingDelete) return
+    const accountId = pendingDelete.accountId
+    setPendingDelete(null)
+    await handleRemove(accountId)
   }
 
   const handleToggleEnabled = async (account: ChannelAccountConfig) => {
@@ -258,7 +303,7 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleRemove(account.id)}
+                      onClick={() => requestRemove(account)}
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
@@ -299,6 +344,48 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
           loadData()
         }}
       />
+
+      {/* §8: cron-reference warning before removing an account */}
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null) }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              {t("channels.removeWithCronTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("channels.removeWithCronDesc", {
+                account: pendingDelete?.label ?? "",
+                count: pendingDelete?.refs.length ?? 0,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingDelete && pendingDelete.refs.length > 0 && (
+            <ul className="max-h-40 overflow-y-auto text-sm space-y-1 rounded-md bg-muted/40 px-3 py-2">
+              {pendingDelete.refs.map((r) => (
+                <li key={r.jobId} className="flex items-center justify-between gap-2">
+                  <span className="truncate">{r.jobName}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {t("channels.removeWithCronTargets", { count: r.targetCount })}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmRemove}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("channels.remove")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

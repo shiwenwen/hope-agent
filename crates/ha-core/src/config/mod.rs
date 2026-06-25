@@ -431,10 +431,104 @@ impl Default for AsyncToolsConfig {
     }
 }
 
+/// Cron (scheduled task) subsystem configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CronConfig {
+    /// Maximum number of cron jobs that may execute concurrently. Each cron run
+    /// is a full agent turn (it can spawn sub-agents / tools), so a herd of jobs
+    /// all due at the same instant could otherwise spawn dozens of simultaneous
+    /// LLM turns and exhaust the machine / trip provider rate limits. The
+    /// scheduler acquires a slot **before** claiming a due job, so a job it
+    /// can't run yet keeps its `next_run_at` and is retried next tick instead of
+    /// silently skipping the occurrence (slot-before-claim). Manual `run now`
+    /// bypasses the cap but its running marker still counts toward occupancy, so
+    /// the scheduler won't over-spawn while a manual run is in flight.
+    /// Default: 5. `0` = unlimited.
+    #[serde(default = "default_cron_max_concurrent")]
+    pub max_concurrent: u32,
+
+    /// Per-run wall-clock timeout in seconds. Each cron run is wrapped in this
+    /// budget; on expiry the run is abandoned (recorded as a `timeout` failure)
+    /// and its concurrency slot is freed. Unlike `max_concurrent`, `0` is NOT
+    /// "unlimited" — a genuinely wedged run (an infinite loop, not a panic) is
+    /// only freed by this timeout, so it is clamped to a safe band at read:
+    /// `[30, 7200]` (30s–2h). Default: 600 (10min) so a longer agent turn (tool
+    /// loops / subagents) doesn't false-timeout. A per-job `CronJob.job_timeout_secs`
+    /// override takes precedence when set; this is the global fallback.
+    #[serde(default = "default_cron_job_timeout_secs")]
+    pub job_timeout_secs: u64,
+
+    /// Grace window (seconds) for late-firing a one-shot `At` job that came due
+    /// while the app was down. On startup an `At` job past its scheduled time by
+    /// **no more than** this window still fires (catch-up); one past it by more is
+    /// marked `missed`. `0` = strict (any past-due `At` is missed — the pre-§7
+    /// behavior); capped at read to 7 days. Default: 300 (5min) so a brief restart
+    /// doesn't silently drop a scheduled one-shot. (A claimed-then-crashed `At` —
+    /// `next_run_at` already cleared — is always marked `missed`, never re-fired,
+    /// regardless of this window, since it may have partially executed.)
+    #[serde(default = "default_cron_at_grace_secs")]
+    pub at_grace_secs: u64,
+}
+
+impl Default for CronConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: default_cron_max_concurrent(),
+            job_timeout_secs: default_cron_job_timeout_secs(),
+            at_grace_secs: default_cron_at_grace_secs(),
+        }
+    }
+}
+
+impl CronConfig {
+    /// Effective concurrency limit. `None` means unlimited (`max_concurrent == 0`).
+    pub fn effective_max_concurrent(&self) -> Option<usize> {
+        match self.max_concurrent {
+            0 => None,
+            n => Some(n as usize),
+        }
+    }
+
+    /// Per-run timeout, clamped to the safe band `[30, 7200]` seconds. `0` (or any
+    /// sub-floor value) floors to 30s — never unlimited, so a wedged run can't
+    /// hold its concurrency slot indefinitely.
+    pub fn effective_job_timeout_secs(&self) -> u64 {
+        clamp_cron_job_timeout_secs(self.job_timeout_secs)
+    }
+
+    /// Late-fire grace window in seconds, capped at 7 days. Unlike the timeout,
+    /// `0` is preserved (it means "strict — no late-fire"), so only the upper
+    /// bound is clamped.
+    pub fn effective_at_grace_secs(&self) -> u64 {
+        self.at_grace_secs.min(604_800)
+    }
+}
+
+/// Clamp a per-run cron timeout — the global `CronConfig.job_timeout_secs` or a
+/// per-job `CronJob.job_timeout_secs` override — to the safe band `[30, 7200]`
+/// seconds. `0` (or any sub-floor value) floors to 30s, never unlimited, so a
+/// wedged run can't hold its concurrency slot forever.
+pub fn clamp_cron_job_timeout_secs(secs: u64) -> u64 {
+    secs.clamp(30, 7200)
+}
+
 pub use crate::permission::ApprovalTimeoutAction;
 pub use crate::permission::UnattendedApprovalAction;
 
 // ── Default helpers ─────────────────────────────────────────────
+
+fn default_cron_max_concurrent() -> u32 {
+    5
+}
+
+fn default_cron_job_timeout_secs() -> u64 {
+    600
+}
+
+fn default_cron_at_grace_secs() -> u64 {
+    300
+}
 
 fn default_skill_env_check() -> bool {
     true
@@ -880,6 +974,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub async_tools: AsyncToolsConfig,
 
+    /// Cron (scheduled task) subsystem configuration (concurrency cap, etc.)
+    #[serde(default)]
+    pub cron: CronConfig,
+
     /// Behavior awareness configuration. Provides each chat with a
     /// dynamically-refreshed view of what the user is doing in other
     /// parallel sessions.
@@ -1071,6 +1169,7 @@ impl Default for AppConfig {
             server: EmbeddedServerConfig::default(),
             recap: RecapConfig::default(),
             async_tools: AsyncToolsConfig::default(),
+            cron: CronConfig::default(),
             awareness: crate::awareness::AwarenessConfig::default(),
             sprite: crate::sprite::SpriteConfig::default(),
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
@@ -1280,6 +1379,77 @@ mod async_tools_defaults_tests {
             default_wakeup_max_pending_per_session()
         );
         assert_eq!(default_wakeup_max_pending_per_session(), 5);
+    }
+
+    #[test]
+    fn cron_config_defaults_and_clamps() {
+        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 600s, grace 300s.
+        let d = CronConfig::default();
+        assert_eq!(d.max_concurrent, 5);
+        assert_eq!(d.job_timeout_secs, 600);
+        assert_eq!(d.at_grace_secs, 300);
+        assert_eq!(d.effective_max_concurrent(), Some(5));
+        assert_eq!(d.effective_at_grace_secs(), 300);
+        assert_eq!(
+            CronConfig {
+                max_concurrent: 0,
+                ..d.clone()
+            }
+            .effective_max_concurrent(),
+            None
+        );
+        // Timeout clamps to [30, 7200] at read — 0 floors to 30 (never unlimited),
+        // huge values cap at 7200, in-band values pass through.
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 0,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            30
+        );
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 5,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            30
+        );
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 600,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            600
+        );
+        assert_eq!(
+            CronConfig {
+                job_timeout_secs: 999_999,
+                ..d.clone()
+            }
+            .effective_job_timeout_secs(),
+            7200
+        );
+        // Grace caps at 7 days but, unlike timeout, preserves 0 (= strict, no
+        // late-fire) rather than flooring it.
+        assert_eq!(
+            CronConfig {
+                at_grace_secs: 0,
+                ..d.clone()
+            }
+            .effective_at_grace_secs(),
+            0
+        );
+        assert_eq!(
+            CronConfig {
+                at_grace_secs: 999_999_999,
+                ..d
+            }
+            .effective_at_grace_secs(),
+            604_800
+        );
     }
 
     #[test]

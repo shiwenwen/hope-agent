@@ -781,6 +781,8 @@ fn build_router_with_cors(
             "/config/async-tools",
             put(routes::config::save_async_tools_config),
         )
+        .route("/config/cron", get(routes::config::get_cron_config))
+        .route("/config/cron", put(routes::config::save_cron_config))
         .route(
             "/config/deferred-tools",
             get(routes::config::get_deferred_tools_config),
@@ -1127,6 +1129,10 @@ fn build_router_with_cors(
         .route("/cron/jobs/{id}/toggle", post(routes::cron::toggle_job))
         .route("/cron/jobs/{id}/run", post(routes::cron::run_now))
         .route("/cron/jobs/{id}/logs", get(routes::cron::get_run_logs))
+        .route(
+            "/cron/jobs-referencing-account/{account_id}",
+            get(routes::cron::jobs_referencing_account),
+        )
         .route("/cron/calendar", get(routes::cron::get_calendar_events))
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))

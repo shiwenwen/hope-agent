@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "Padam tugas berjadual",
+        "body": "Model akan memadamkan salah satu tugas berjadual anda secara kekal. Mod lalai bertanya setiap kali; mod pintar boleh membuat keputusan dan YOLO melangkaunya. Benarkan sentiasa tersedia."
+      },
       "agent_custom_list": {
         "body": "Alat ini berada dalam senarai kelulusan tersuai ejen (mod Default sahaja).",
         "title": "Senarai kelulusan tersuai ejen"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "Transkripsi mesej suara secara automatik",
     "autoTranscribeVoiceHint": "Mentranskripsi suara / audio masuk melalui subsistem STT yang dikonfigurasi. Setiap mesej menggunakan kuota API STT.",
     "kbAccessOptIn": "Akses pangkalan pengetahuan",
-    "kbAccessOptInHint": "Benarkan saluran ini membaca dan menulis ruang pengetahuan yang dilampirkan. Dimatikan secara lalai. Dalam sembang kumpulan, jalankan juga /kb on dalam sembang untuk mengesahkannya."
+    "kbAccessOptInHint": "Benarkan saluran ini membaca dan menulis ruang pengetahuan yang dilampirkan. Dimatikan secara lalai. Dalam sembang kumpulan, jalankan juga /kb on dalam sembang untuk mengesahkannya.",
+    "removeWithCronTitle": "Padam akaun?",
+    "removeWithCronDesc": "“{{account}}” ialah sasaran penghantaran bagi {{count}} tugas berjadual. Memadamkannya akan menanda sasaran tersebut sebagai usang.",
+    "removeWithCronTargets": "{{count}} sasaran"
   },
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "System prompt"
   },
   "cron": {
+    "atGrace": "Tempoh (s)",
+    "atGraceHint": "Tetingkap larian lewat: tugas sekali sahaja yang tiba masanya semasa apl ditutup masih dijalankan jika lewat tidak melebihi saat ini; selepas itu ditanda terlepas (0 = ketat, tiada larian lewat).",
+    "jobTimeout": "Had masa (s)",
+    "jobTimeoutHint": "Saat maksimum satu tugas berjadual boleh berjalan sebelum ditinggalkan dan slotnya dibebaskan (30–7200 s).",
+    "jobTimeoutOverride": "Had masa tugas (s)",
+    "jobTimeoutOverrideHint": "Ganti had masa global untuk tugas INI sahaja (30–7200s); biarkan kosong untuk guna lalai global.",
+    "maxConcurrent": "Maks. serentak",
+    "maxConcurrentHint": "Bilangan maksimum tugas berjadual yang berjalan serentak (0 = tanpa had). Tugas tertunggak lebihan menunggu semakan seterusnya.",
+    "timezone": "Zon waktu",
+    "timezoneHint": "Masa jadual ditafsirkan mengikut zon waktu ini (mengambil kira waktu siang).",
     "active": "Aktif",
     "addDeliveryTarget": "Tambah sasaran",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "Edit ungkapan",
     "editJob": "Edit tugasan",
     "errorMessageRequired": "Mesej Agent diperlukan",
+    "errorDateRequired": "Masa jadual diperlukan",
     "errorNameRequired": "Nama tugasan diperlukan",
     "everyDayAt": "Setiap hari pada",
     "everyMonthOn": "Setiap bulan pada hari",
@@ -765,7 +783,18 @@
     "weekSun": "Aha",
     "weekThu": "Kha",
     "weekTue": "Sel",
-    "weekWed": "Rab"
+    "weekWed": "Rab",
+    "deliveryTargetStale": "Akaun dipadam — tidak akan dihantar",
+    "prefixDeliveryWithName": "Tambah nama tugas di hadapan",
+    "prefixDeliveryWithNameDesc": "Tambah awalan [Cron] {nama} pada penghantaran berjaya supaya berbilang tugas ke sembang yang sama dapat dibezakan",
+    "deliveryStatus": {
+      "delivered": "Dihantar",
+      "partial": "Sebahagian dihantar",
+      "failed": "Penghantaran gagal"
+    },
+    "runStatusRunning": "Sedang berjalan",
+    "runStatusEmpty": "Tiada output",
+    "unitSeconds": "saat"
   },
   "dangerousMode": {
     "bannerBoth": "Mod Berbahaya aktif (CLI + konfig) — semua kelulusan alat dipintas",
@@ -1698,6 +1727,14 @@
     "video": "Video"
   },
   "notification": {
+    "cronCancelled": "Tugas berjadual dibatalkan",
+    "cronDisabled": "Tugas berjadual dilumpuhkan",
+    "cronDisabledBody": "{{name}} — dilumpuhkan selepas {{count}} kegagalan berturut-turut ({{reason}})",
+    "cronReason": {
+      "timeout": "tamat masa",
+      "configuration": "ralat konfigurasi",
+      "transient": "ralat berulang"
+    },
     "agentDesc": "Penggantian pemberitahuan setiap Agent. Apabila ditetapkan kepada Lalai, ia menggunakan tetapan global.",
     "agentSection": "Pemberitahuan Agent",
     "approvalRequired": "Kelulusan alat diperlukan",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "Kelayakan akaun saluran IM ditolak — sila sahkan semula",
     "chatCompleted": "Sembang selesai",
     "chatError": "Ralat sembang",
+    "cronEmpty": "Tugas berjadual selesai (tiada output)",
     "cronError": "Tugasan berjadual gagal",
     "cronNote": "Pemberitahuan tugasan Cron boleh dikonfigurasi setiap tugasan dalam panel tetapan Tugasan Berjadual.",
     "cronNotify": "Beritahu apabila selesai",

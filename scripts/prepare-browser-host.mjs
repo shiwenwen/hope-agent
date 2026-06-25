@@ -58,19 +58,23 @@ if (!existsSync(source) || !statSync(source).isFile()) {
 }
 
 // Dev: copy next to the dev binary where the running app's current_exe-relative
-// host lookup finds it (`<target>/debug/browser-host/`); cargo's direct
-// `<target>/debug/<host>` is already fresh too. Release: bundle into Tauri
-// resources for packaging.
-const outDir = DEV
-  ? join(targetDir, "browser-host")
-  : join(repoRoot, "src-tauri", "resources", "browser-host")
-mkdirSync(outDir, { recursive: true })
-const dest = join(outDir, basename(hostName))
-copyFileSync(source, dest)
-if (process.platform !== "win32") {
-  chmodSync(dest, 0o755)
+// host lookup finds it (`<target>/debug/browser-host/`; cargo's direct
+// `<target>/debug/<host>` is already fresh too) AND into the Tauri resources
+// tree — `pnpm tauri dev` does not bundle resources, but tauri-build still
+// validates every declared resource path exists at compile time, so a fresh
+// checkout (resources/ is gitignored) would otherwise fail the build script.
+// Release: bundle into Tauri resources for packaging.
+const resourcesDir = join(repoRoot, "src-tauri", "resources", "browser-host")
+const outDirs = DEV ? [join(targetDir, "browser-host"), resourcesDir] : [resourcesDir]
+for (const outDir of outDirs) {
+  mkdirSync(outDir, { recursive: true })
+  const dest = join(outDir, basename(hostName))
+  copyFileSync(source, dest)
+  if (process.platform !== "win32") {
+    chmodSync(dest, 0o755)
+  }
+  console.log(`[prepare-browser-host] copied ${source} -> ${dest}`)
 }
-console.log(`[prepare-browser-host] copied ${source} -> ${dest}`)
 
 function inferTargetTriple(platform, arch) {
   if (!platform || !arch) return ""

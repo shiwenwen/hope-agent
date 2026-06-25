@@ -61,6 +61,10 @@
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
     "reasons": {
+      "cron_delete": {
+        "title": "刪除定時任務",
+        "body": "模型即將永久刪除你的一個定時任務。預設模式每次詢問；智慧模式可自行判斷，YOLO 略過。可選「永遠允許」。"
+      },
       "agent_custom_list": {
         "body": "Agent 設定中勾選了此工具進入「自訂工具審批」清單，僅 Default 模式下生效。",
         "title": "Agent 自訂審批清單"
@@ -281,7 +285,10 @@
     "autoTranscribeVoice": "自動轉錄語音訊息",
     "autoTranscribeVoiceHint": "透過 STT 子系統轉錄收到的語音 / 音訊；每則訊息會消耗 STT API 額度。",
     "kbAccessOptIn": "知識空間存取",
-    "kbAccessOptInHint": "允許此頻道讀寫已掛載的知識空間。預設關閉。群組聊天還需在聊天中執行 /kb on 單獨確認。"
+    "kbAccessOptInHint": "允許此頻道讀寫已掛載的知識空間。預設關閉。群組聊天還需在聊天中執行 /kb on 單獨確認。",
+    "removeWithCronTitle": "刪除帳號？",
+    "removeWithCronDesc": "「{{account}}」是 {{count}} 個定時任務的投遞目標。刪除後這些目標將被標記為失效。",
+    "removeWithCronTargets": "{{count}} 個目標"
   },
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
@@ -675,6 +682,16 @@
     "viewSystemPrompt": "系統提示詞"
   },
   "cron": {
+    "atGrace": "補跑視窗(秒)",
+    "atGraceHint": "補跑視窗：應用程式關閉期間錯過觸發時點的一次性任務，逾期不超過這麼多秒仍會補跑；超過則標記為「錯過」（0 = 嚴格，不補跑）。",
+    "jobTimeout": "逾時(秒)",
+    "jobTimeoutHint": "單個定時任務的最長執行秒數，逾時即放棄並釋放並行槽（30–7200 秒）。",
+    "jobTimeoutOverride": "本任務逾時（秒）",
+    "jobTimeoutOverrideHint": "僅為這個任務覆蓋全域逾時（30–7200 秒）；留空則用全域預設。",
+    "maxConcurrent": "最大並行",
+    "maxConcurrentHint": "同時執行的定時任務上限（0 = 不限）；超出的到期任務等待下次檢查。",
+    "timezone": "時區",
+    "timezoneHint": "定時時間按此時區解釋（自動處理夏令時）。",
     "active": "運行中",
     "addDeliveryTarget": "新增目標",
     "agent": "Agent",
@@ -700,6 +717,7 @@
     "editExpression": "編輯表達式",
     "editJob": "編輯任務",
     "errorMessageRequired": "請輸入 Agent 消息",
+    "errorDateRequired": "請選擇執行時間",
     "errorNameRequired": "請輸入任務名稱",
     "everyDayAt": "每天",
     "everyMonthOn": "每月",
@@ -765,7 +783,18 @@
     "weekSun": "日",
     "weekThu": "四",
     "weekTue": "二",
-    "weekWed": "三"
+    "weekWed": "三",
+    "deliveryTargetStale": "帳號已刪除 — 無法投遞",
+    "prefixDeliveryWithName": "投遞時加任務名前綴",
+    "prefixDeliveryWithNameDesc": "成功投遞時加上 [Cron] {名稱} 前綴，便於區分投遞到同一會話的多個任務",
+    "deliveryStatus": {
+      "delivered": "已投遞",
+      "partial": "部分投遞",
+      "failed": "投遞失敗"
+    },
+    "runStatusRunning": "執行中",
+    "runStatusEmpty": "無輸出",
+    "unitSeconds": "秒"
   },
   "dangerousMode": {
     "bannerBoth": "危險模式已啟用（CLI + 設定）—— 所有工具呼叫跳過審批",
@@ -1698,6 +1727,14 @@
     "video": "視頻"
   },
   "notification": {
+    "cronCancelled": "定時任務已取消",
+    "cronDisabled": "定時任務已停用",
+    "cronDisabledBody": "{{name}} —— 連續失敗 {{count}} 次後已自動停用（{{reason}}）",
+    "cronReason": {
+      "timeout": "逾時",
+      "configuration": "設定錯誤",
+      "transient": "多次出錯"
+    },
     "agentDesc": "每個 Agent 的通知開關覆蓋。設為「默認」時跟隨全局設置。",
     "agentSection": "Agent 通知",
     "approvalRequired": "需要工具審批",
@@ -1715,6 +1752,7 @@
     "channelAuthFailedFallback": "有 IM 頻道帳號憑證被拒絕,需要重新登入",
     "chatCompleted": "對話已完成",
     "chatError": "對話出錯",
+    "cronEmpty": "定時任務已完成（無輸出）",
     "cronError": "定時任務失敗",
     "cronNote": "定時任務通知可在定時任務設置面板中按任務單獨配置。",
     "cronNotify": "完成時通知",
