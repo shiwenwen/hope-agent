@@ -494,7 +494,16 @@ pub(crate) async fn execute_claimed_job(
             // Review fix: surface a neutral "empty" status, NOT "success" — a
             // zero-output run shouldn't pop a success notification (§10 "don't
             // mask zero output"). The frontend renders a distinct empty notice.
-            emit_cron_event(&job.id, &job.name, "empty", job.notify_on_complete, None);
+            //
+            // …but only TOAST it for a one-shot `At` (the user is waiting for that
+            // single result). A recurring job producing empty output this cycle is
+            // "nothing to report" — still emitted (so the run-log list / calendar
+            // dot refresh) but with notify=false so no per-cycle toast fires;
+            // otherwise a silent-when-healthy monitor (e.g. "alert only if disk >
+            // 90%") would pop an "empty" toast every single cycle.
+            let notify_empty =
+                job.notify_on_complete && matches!(job.schedule, CronSchedule::At { .. });
+            emit_cron_event(&job.id, &job.name, "empty", notify_empty, None);
         }
         CronTerminal::Failure => {
             // Classifier returns Failure only for `Err`.

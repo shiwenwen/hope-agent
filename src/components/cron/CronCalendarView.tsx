@@ -84,6 +84,12 @@ export default function CronCalendarView({
   const [agInput, setAgInput] = useState<string>("300")
   const [savingCron, setSavingCron] = useState(false)
   const [cronSaveStatus, setCronSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  // Only true after get_cron_config succeeds. The inputs hold hard-coded defaults
+  // (5/600/300) until then; persisting from those would clobber the actually-stored
+  // config (each commit writes all three fields). So the inputs stay disabled until
+  // a real load — a mount-time fetch failure keeps them disabled rather than
+  // letting a later edit silently overwrite the stored values.
+  const [cronLoaded, setCronLoaded] = useState(false)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -213,9 +219,13 @@ export default function CronCalendarView({
           setAtGrace(c.atGraceSecs)
           setAgInput(String(c.atGraceSecs))
         }
+        // Mark loaded only after a successful fetch — enables the inputs and
+        // unblocks commits now that the baseline reflects the stored config.
+        setCronLoaded(true)
       })
       .catch(() => {
-        // ignore — keep the defaults
+        // Keep cronLoaded=false so the inputs stay disabled: never persist the
+        // hard-coded defaults over the stored config on a transient load failure.
       })
   }, [])
 
@@ -514,6 +524,7 @@ export default function CronCalendarView({
                 type="number"
                 min={0}
                 max={1000}
+                disabled={!cronLoaded}
                 className="h-7 w-14 text-xs"
                 value={mcInput}
                 onChange={(e) => setMcInput(e.target.value)}
@@ -532,6 +543,7 @@ export default function CronCalendarView({
                 type="number"
                 min={30}
                 max={7200}
+                disabled={!cronLoaded}
                 className="h-7 w-16 text-xs"
                 value={jtInput}
                 onChange={(e) => setJtInput(e.target.value)}
@@ -550,6 +562,7 @@ export default function CronCalendarView({
                 type="number"
                 min={0}
                 max={604800}
+                disabled={!cronLoaded}
                 className="h-7 w-16 text-xs"
                 value={agInput}
                 onChange={(e) => setAgInput(e.target.value)}

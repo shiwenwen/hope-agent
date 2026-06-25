@@ -81,15 +81,21 @@ export default function CronJobForm({
     }
     return ""
   })
-  const [intervalValue, setIntervalValue] = useState(() => {
-    const intervalMs =
+  // Derive the displayed value + unit from a stored "every" interval, preferring
+  // the largest whole unit (so "every 2 hours" loads as 2 + "hour", not 120 +
+  // "min"). Without this the unit always reset to "min": a user changing only the
+  // unit dropdown on edit would then silently multiply the interval 60× (120 "min"
+  // shown → switched to "hour" → 120 hours).
+  const initialEvery = (() => {
+    const ms =
       job?.schedule.type === "every" ? (job.schedule.intervalMs ?? job.schedule.interval_ms) : null
-    if (intervalMs) {
-      return String(intervalMs / 60000)
-    }
-    return "60"
-  })
-  const [intervalUnit, setIntervalUnit] = useState<"min" | "hour" | "day">("min")
+    if (!ms) return { value: "60", unit: "min" as const }
+    if (ms % 86_400_000 === 0) return { value: String(ms / 86_400_000), unit: "day" as const }
+    if (ms % 3_600_000 === 0) return { value: String(ms / 3_600_000), unit: "hour" as const }
+    return { value: String(ms / 60_000), unit: "min" as const }
+  })()
+  const [intervalValue, setIntervalValue] = useState(initialEvery.value)
+  const [intervalUnit, setIntervalUnit] = useState<"min" | "hour" | "day">(initialEvery.unit)
 
   // Visual cron builder state
   const initVisual = useMemo(
