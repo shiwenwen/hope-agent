@@ -121,6 +121,18 @@ pub fn evaluate_approval_surface(session_id: Option<&str>) -> ApprovalSurface {
         .and_then(|m| m.parent_session_id.as_deref())
         .is_some()
     {
+        // C03: a subagent spawned inside a cron run inherits cron's
+        // non-interactivity, so it must be classified BEFORE the desktop
+        // short-circuit below. A cron turn has no human at the keyboard even when
+        // a desktop window is open, and the cron + subagent sessions are hidden
+        // from the sidebar (and useApprovals filters by current session), so the
+        // approval dialog would never render — Attended here means a silent hang
+        // until the approval timeout. Treating it as Unattended(Cron) applies the
+        // fail-closed unattended policy (deny by default) immediately. (The cron
+        // root's chain is never IM-attached, so this can't mask a real surface.)
+        if subagent_chain_roots_at_cron(meta.as_ref()) {
+            return Unattended(UnattendedReason::Cron);
+        }
         // A desktop window / connected web client surfaces child approvals via
         // OS notification + the child-session badge (and D6 parent bubbling), so
         // the user can still reach them — only a fully headless parent leaves it
@@ -204,6 +216,47 @@ fn subagent_chain_has_im_surface(child: Option<&crate::session::SessionMeta>) ->
     false
 }
 
+/// C03: does this subagent's parent chain reach a cron session? A subagent
+/// spawned inside a cron run is just as non-interactive as the cron session
+/// itself. Live wrapper over the global session DB; the walk logic lives in the
+/// pure [`chain_roots_at_cron_with`] so it stays unit-testable without the global.
+fn subagent_chain_roots_at_cron(child: Option<&crate::session::SessionMeta>) -> bool {
+    let Some(db) = crate::get_session_db() else {
+        return false;
+    };
+    chain_roots_at_cron_with(child.and_then(|m| m.parent_session_id.clone()), |id| {
+        db.get_session(id)
+            .ok()
+            .flatten()
+            .map(|p| (p.is_cron, p.parent_session_id))
+    })
+}
+
+/// Pure core of the cron-root walk: starting from `start_parent`, follow the
+/// chain via `lookup` (returning `(is_cron, next_parent_id)` for a session id, or
+/// `None` if it's gone) and report whether any ancestor is a cron session.
+/// Bounded against a corrupt parent cycle, mirroring `subagent_chain_has_im_surface`.
+fn chain_roots_at_cron_with<F>(start_parent: Option<String>, mut lookup: F) -> bool
+where
+    F: FnMut(&str) -> Option<(bool, Option<String>)>,
+{
+    const MAX_DEPTH: usize = 8;
+    let mut next_parent = start_parent;
+    for _ in 0..MAX_DEPTH {
+        let Some(parent_id) = next_parent.take() else {
+            return false;
+        };
+        let Some((is_cron, grandparent)) = lookup(&parent_id) else {
+            return false;
+        };
+        if is_cron {
+            return true;
+        }
+        next_parent = grandparent;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +292,43 @@ mod tests {
             evaluate_approval_surface(None),
             ApprovalSurface::Unattended(UnattendedReason::HeadlessNoClient)
         );
+    }
+
+    #[test]
+    fn chain_roots_at_cron_detects_cron_ancestor() {
+        // C03: a subagent whose parent chain reaches a cron session is cron-rooted
+        // (→ Unattended(Cron), classified before the desktop short-circuit).
+        // child -> mid (not cron) -> cron-root.
+        let with_cron = |id: &str| -> Option<(bool, Option<String>)> {
+            match id {
+                "mid" => Some((false, Some("cron-root".into()))),
+                "cron-root" => Some((true, None)),
+                _ => None,
+            }
+        };
+        assert!(chain_roots_at_cron_with(Some("mid".into()), with_cron));
+
+        // A chain with no cron ancestor is not cron-rooted.
+        let no_cron = |id: &str| -> Option<(bool, Option<String>)> {
+            match id {
+                "mid" => Some((false, Some("top".into()))),
+                "top" => Some((false, None)),
+                _ => None,
+            }
+        };
+        assert!(!chain_roots_at_cron_with(Some("mid".into()), no_cron));
+
+        // Broken chain (missing parent) → not cron-rooted, no panic.
+        assert!(!chain_roots_at_cron_with(Some("ghost".into()), |_| None));
+
+        // A corrupt self-referential cycle terminates at the depth bound.
+        assert!(!chain_roots_at_cron_with(Some("a".into()), |_| Some((
+            false,
+            Some("a".into())
+        ))));
+
+        // No parent at all (not a subagent) → not cron-rooted.
+        assert!(!chain_roots_at_cron_with(None, |_| Some((true, None))));
     }
 
     #[test]
