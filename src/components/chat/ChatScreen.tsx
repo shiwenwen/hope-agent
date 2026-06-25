@@ -586,6 +586,10 @@ export default function ChatScreen({
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
   // ── Projects ────────────────────────────────────────────────
+  // Holds the currently-open session id for the project-unread rollup. Lives
+  // above the session hook (which feeds this hook's reload callback), so the
+  // value is delivered by ref and refreshed via the effect below on switch.
+  const activeSessionIdForProjectsRef = useRef<string | null>(initialSessionId ?? null)
   const {
     projects,
     createProject,
@@ -594,7 +598,10 @@ export default function ChatScreen({
     archiveProject,
     moveSessionToProject,
     reloadProjects,
-  } = useProjects({ includeArchived: true })
+  } = useProjects({
+    includeArchived: true,
+    activeSessionIdRef: activeSessionIdForProjectsRef,
+  })
 
   const refreshProjectAggregates = useCallback(() => {
     void reloadProjects()
@@ -661,6 +668,14 @@ export default function ChatScreen({
   useEffect(() => {
     latestMessagesRef.current = session.messages
   }, [session.messages])
+
+  // Keep the project-unread rollup's active-session exclusion in sync: when the
+  // user switches sessions, refresh projects so the newly-active session drops
+  // out of its project's badge (and the previously-active one reappears).
+  useEffect(() => {
+    activeSessionIdForProjectsRef.current = currentSessionId ?? null
+    void reloadProjects()
+  }, [currentSessionId, reloadProjects])
 
   useEffect(() => {
     const handleManualCompactUsage = (event: Event) => {

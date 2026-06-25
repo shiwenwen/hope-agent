@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
-import { parsePayload } from "@/lib/transport"
+import { parsePayload, isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
 import { initThemeFromConfig, listenThemeConfigChange } from "@/hooks/useTheme"
@@ -110,6 +110,18 @@ export default function App() {
       if (globalPendingUpdate?.version) setDismissedVersion(globalPendingUpdate.version)
     },
   })
+
+  // Mirror the global desktop unread total onto the app icon / Dock badge so
+  // it's visible even when the window is minimized / backgrounded. Desktop-only
+  // (no-op on HTTP/web). Mirrors `totalUnreadCount`, which already excludes the
+  // active session, IM, and sub-agents — so the badge matches the in-app
+  // global indicator.
+  useEffect(() => {
+    if (!isTauriMode()) return
+    void getTransport()
+      .call("set_dock_badge_cmd", { count: totalUnreadCount })
+      .catch(() => {})
+  }, [totalUnreadCount])
 
   // Load user avatar
   const fetchUserAvatar = useCallback(async () => {

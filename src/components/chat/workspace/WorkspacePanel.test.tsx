@@ -79,6 +79,7 @@ function renderPanel(snapshot: WorkspaceEnvironmentSnapshot | null) {
           updatedAt: "2026-01-01T00:00:00Z",
           messageCount: 0,
           unreadCount: 0,
+          channelUnreadCount: 0,
           hasError: false,
           pendingInteractionCount: 0,
           isCron: false,

@@ -28,6 +28,22 @@ pub async fn open_directory(path: String) -> Result<(), CmdError> {
     Ok(())
 }
 
+/// Reflect the global desktop unread total on the app icon / Dock badge. `0`
+/// clears it. macOS renders a red Dock badge; other platforms are best-effort
+/// (no-op where unsupported). Desktop-only — the frontend gates on
+/// `isTauriMode()`, so HTTP/web never reaches this.
+#[tauri::command]
+pub fn set_dock_badge_cmd(count: i64, app: tauri::AppHandle) -> Result<(), CmdError> {
+    use tauri::Manager;
+    if let Some(window) = app.get_webview_window("main") {
+        let badge = if count > 0 { Some(count) } else { None };
+        window
+            .set_badge_count(badge)
+            .map_err(|e| anyhow!("Failed to set Dock badge count: {e}"))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn reveal_in_folder(path: String) -> Result<(), CmdError> {
     let resolved = resolve_user_path(path);

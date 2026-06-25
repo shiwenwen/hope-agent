@@ -18,10 +18,13 @@ use crate::AppState;
 #[tauri::command]
 pub async fn list_projects_cmd(
     include_archived: Option<bool>,
+    active_session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<ProjectMeta>, CmdError> {
     let include_archived = include_archived.unwrap_or(false);
-    let mut projects = state.project_db.list(include_archived)?;
+    let mut projects = state
+        .project_db
+        .list(include_archived, active_session_id.as_deref())?;
 
     // Cross-DB enrichment: fetch project-scoped memory counts.
     if let Some(backend) = ha_core::get_memory_backend() {

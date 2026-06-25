@@ -3,6 +3,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
+import { desktopUnreadCount } from "@/lib/unread"
 import { notify } from "@/lib/notifications"
 import {
   capMessagesAndSyncCursors,
@@ -587,14 +588,18 @@ export function useChatSession({
     })
   }, [reloadSessions])
 
+  // Note: background completions injected into a session (tool job / sub-agent
+  // / group result → `<task-notification>`) already refresh the sidebar via the
+  // `parent_agent_stream` `done`/`error` listener in `useNotificationListeners`
+  // (which calls `reloadSessions` unconditionally, post-persist). No extra
+  // listener is needed here — the new unread surfaces once that fires.
+
   // Compute total unread count — channel and sub-agent sessions don't surface
-  // global unread indicators in the primary chat entry.
+  // global unread indicators in the primary chat entry, and the active session
+  // reads as 0. Shares the rule with the sidebar / tab / project badges via
+  // `desktopUnreadCount` so the surfaces can't drift.
   const totalUnreadCount = useMemo(
-    () =>
-      sessions.reduce((sum, s) => {
-        if (s.channelInfo || s.parentSessionId || s.id === currentSessionId) return sum
-        return sum + s.unreadCount
-      }, 0),
+    () => sessions.reduce((sum, s) => sum + desktopUnreadCount(s, currentSessionId), 0),
     [sessions, currentSessionId],
   )
 
@@ -752,14 +757,19 @@ export function useChatSession({
               )
               if (modelExists) {
                 applyModelForDisplay(agentConfig.model.primary)
-                // Mark session as read and refresh
-                getTransport()
-                  .call("mark_session_read_cmd", { sessionId })
-                  .catch(() => {})
-                  .finally(() => {
-                    reloadSessions()
-                    onSidebarAggregatesChanged?.()
-                  })
+                // Mark session as read and refresh (await + log; see #6 below).
+                try {
+                  await getTransport().call("mark_session_read_cmd", { sessionId })
+                } catch (e) {
+                  logger.warn(
+                    "session",
+                    "ChatScreen::switchSession",
+                    "Failed to mark session as read",
+                    e,
+                  )
+                }
+                reloadSessions()
+                onSidebarAggregatesChanged?.()
                 return
               }
             }
@@ -773,14 +783,21 @@ export function useChatSession({
         }
       }
 
-      // Mark session as read and refresh unread counts
-      getTransport()
-        .call("mark_session_read_cmd", { sessionId })
-        .catch(() => {})
-        .finally(() => {
-          reloadSessions()
-          onSidebarAggregatesChanged?.()
-        })
+      // Mark session as read and refresh unread counts. Await so a failed write
+      // can't leave the session reading as unread after reload, and surface the
+      // error instead of swallowing it (#6 — was fire-and-forget + silent).
+      try {
+        await getTransport().call("mark_session_read_cmd", { sessionId })
+      } catch (e) {
+        logger.warn(
+          "session",
+          "ChatScreen::switchSession",
+          "Failed to mark session as read",
+          e,
+        )
+      }
+      reloadSessions()
+      onSidebarAggregatesChanged?.()
     },
     [
       availableModels,

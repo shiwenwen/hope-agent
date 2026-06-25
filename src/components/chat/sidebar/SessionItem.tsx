@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { desktopUnreadCount, channelUnreadCount } from "@/lib/unread"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   ContextMenu,
@@ -99,14 +100,20 @@ export default function SessionItem({
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
   const hasPending =
     !isActive && !session.channelInfo && pendingInteractionCount > 0
-  const showUnread = !session.channelInfo && !session.parentSessionId
-  const displayUnreadCount = showUnread ? session.unreadCount : 0
+  // Both counts share the single-source rules in `@/lib/unread`. Passing the
+  // session's own id as the active id when `isActive` makes them read as 0 for
+  // the open session (so the badges and the "mark as read" menu agree without a
+  // separate `!isActive` gate). They're mutually exclusive — a session is
+  // either channel-attached (sky IM badge) or not (red desktop badge).
+  const activeId = isActive ? session.id : null
+  const displayUnreadCount = desktopUnreadCount(session, activeId)
+  const displayChannelUnreadCount = channelUnreadCount(session, activeId)
   const channelLabel = session.channelInfo
     ? `${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`
     : null
 
   const handleMarkAsRead = useCallback(async () => {
-    if (displayUnreadCount === 0) return
+    if (displayUnreadCount === 0 && displayChannelUnreadCount === 0) return
     try {
       await getTransport().call("mark_session_read_cmd", {
         sessionId: session.id,
@@ -115,7 +122,7 @@ export default function SessionItem({
     } catch (err) {
       logger.error("chat", "ChatSidebar::markSessionRead", "Failed to mark session as read", err)
     }
-  }, [session.id, displayUnreadCount, onMarkAllRead])
+  }, [session.id, displayUnreadCount, displayChannelUnreadCount, onMarkAllRead])
 
   return (
     <ContextMenu>
@@ -158,11 +165,18 @@ export default function SessionItem({
                   <Bot className="h-3.5 w-3.5" />
                 )}
               </div>
-              {!isActive && displayUnreadCount > 0 && (
+              {displayUnreadCount > 0 && (
                 <span
                   className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
                 >
                   {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
+                </span>
+              )}
+              {displayChannelUnreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-sky-500 px-0.5 text-[9px] font-semibold leading-none text-white tabular-nums pointer-events-none"
+                >
+                  {displayChannelUnreadCount > 99 ? "99+" : displayChannelUnreadCount}
                 </span>
               )}
               {hasPending && (
@@ -273,9 +287,14 @@ export default function SessionItem({
               )}
               {isCompact && renamingSessionId !== session.id && (
                 <span className="ml-auto flex shrink-0 items-center justify-end gap-1 pl-2 group-hover:pr-5">
-                  {!isActive && displayUnreadCount > 0 && (
+                  {displayUnreadCount > 0 && (
                     <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums">
                       {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
+                    </span>
+                  )}
+                  {displayChannelUnreadCount > 0 && (
+                    <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-sky-500 px-1 text-[9px] font-semibold leading-none text-white tabular-nums">
+                      {displayChannelUnreadCount > 99 ? "99+" : displayChannelUnreadCount}
                     </span>
                   )}
                   {hasPending && (
@@ -409,7 +428,7 @@ export default function SessionItem({
         </ContextMenuItem>
         <ContextMenuItem
           onClick={handleMarkAsRead}
-          disabled={displayUnreadCount === 0}
+          disabled={displayUnreadCount === 0 && displayChannelUnreadCount === 0}
         >
           <CheckCheck className="h-4 w-4 mr-2" />
           {t("chat.markAsRead")}

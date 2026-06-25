@@ -114,10 +114,6 @@ function writeStoredBoolean(key: string, value: boolean) {
   }
 }
 
-function isUnreadChatSession(session: SessionMeta): boolean {
-  return !session.channelInfo && !session.parentSessionId && session.unreadCount > 0
-}
-
 export default function ProjectSection(props: ProjectSectionProps) {
   const { t } = useTranslation()
   const {
@@ -298,14 +294,11 @@ function ProjectGroup({
   displayMode,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
-  const currentSessionUnreadCount = useMemo(
-    () =>
-      projectSessions.find(
-        (session) => session.id === currentSessionId && isUnreadChatSession(session),
-      )?.unreadCount ?? 0,
-    [projectSessions, currentSessionId],
-  )
-  const projectUnreadCount = Math.max(0, project.unreadCount - currentSessionUnreadCount)
+  // The active session is already excluded from `project.unreadCount` by the
+  // backend rollup (it reads as 0 while open), so the badge uses the value
+  // directly — no cross-source subtraction that could transiently go negative
+  // / flicker as the two fetches settle.
+  const projectUnreadCount = project.unreadCount
 
   // Fingerprint of the project's slice of the live global session array. Any
   // visible change (create / delete / rename / reorder / read / pin) flips it

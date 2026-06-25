@@ -350,7 +350,17 @@ impl ProjectDB {
 
     /// List all projects with aggregated counts.
     /// `include_archived = false` hides archived projects.
-    pub fn list(&self, include_archived: bool) -> Result<Vec<ProjectMeta>> {
+    ///
+    /// `active_session_id` is the session the user is currently viewing (if
+    /// any). It is excluded from the unread rollup in SQL so the project badge
+    /// matches the per-session "active session reads as 0" rule without the
+    /// frontend having to subtract it from a separately-fetched count (which
+    /// could transiently disagree and flicker).
+    pub fn list(
+        &self,
+        include_archived: bool,
+        active_session_id: Option<&str>,
+    ) -> Result<Vec<ProjectMeta>> {
         let conn = self
             .session_db
             .conn
@@ -362,6 +372,10 @@ impl ProjectDB {
         } else {
             "WHERE p.archived = 0"
         };
+
+        // Empty string when no active session: no real session id is empty, so
+        // `s.id != ''` excludes nothing — keeps a single bound-param code path.
+        let active = active_session_id.unwrap_or("");
 
         // Memory count is cross-database and handled separately (filled in
         // later by the caller that has the MemoryBackend in hand). Here we
@@ -379,6 +393,7 @@ impl ProjectDB {
                         AND s.parent_session_id IS NULL
                         AND s.is_cron = 0
                         AND cc.session_id IS NULL
+                        AND s.id != ?1
                         AND m.id > COALESCE(s.last_read_message_id, 0)
                         AND m.role = 'assistant'
                         AND COALESCE(m.source, 'desktop') != 'channel') AS unread_count
@@ -389,7 +404,7 @@ impl ProjectDB {
         );
 
         let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt.query_map([], |row| {
+        let rows = stmt.query_map(rusqlite::params![active], |row| {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
@@ -618,7 +633,7 @@ mod tests {
             .expect("append cron");
 
         let meta = project_db
-            .list(false)
+            .list(false, None)
             .expect("list projects")
             .into_iter()
             .find(|p| p.project.id == project.id)
@@ -626,6 +641,118 @@ mod tests {
         assert_eq!(
             meta.unread_count, 1,
             "project unread counts the regular reply but must exclude cron output"
+        );
+    }
+
+    /// §3/§4 regression: the project unread rollup must exclude sub-agent child
+    /// sessions (`parent_session_id IS NULL`), channel-attached sessions
+    /// (`cc.session_id IS NULL`), and the currently-active session
+    /// (`s.id != ?active`). The sub-agent and channel sessions use a *desktop*
+    /// source so the only thing keeping them out is their dedicated WHERE clause
+    /// — not the `!= 'channel'` proxy — pinning down those exact branches, which
+    /// previously had no coverage.
+    #[test]
+    fn list_unread_count_excludes_subagent_channel_and_active() {
+        use crate::chat_engine::ChatSource;
+        use crate::session::NewMessage;
+
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+        {
+            let conn = session_db.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL, account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL, thread_id TEXT,
+                    session_id TEXT NOT NULL, chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+                );",
+            )
+            .unwrap();
+        }
+        let project_db = ProjectDB::new(session_db.clone());
+        project_db.migrate().expect("migrate");
+
+        let project = project_db
+            .create(CreateProjectInput {
+                name: "Proj".into(),
+                description: None,
+                instructions: None,
+                emoji: None,
+                logo: None,
+                color: None,
+                default_agent_id: None,
+                default_model_id: None,
+                working_dir: None,
+            })
+            .expect("create project");
+
+        // Regular project session with a desktop assistant reply → counts.
+        let regular = session_db
+            .create_session_with_project("ha-main", Some(&project.id), None)
+            .expect("regular session");
+        session_db
+            .append_message(
+                &regular.id,
+                &NewMessage::assistant("regular reply").with_source(ChatSource::Desktop),
+            )
+            .expect("append regular");
+
+        // Sub-agent child session in the project (desktop source) → excluded ONLY
+        // by `parent_session_id IS NULL`.
+        let sub = session_db
+            .create_session_full("ha-main", Some(&regular.id), Some(&project.id), false)
+            .expect("subagent session");
+        session_db
+            .append_message(
+                &sub.id,
+                &NewMessage::assistant("subagent reply").with_source(ChatSource::Desktop),
+            )
+            .expect("append subagent");
+
+        // Channel-attached project session (desktop source) → excluded ONLY by
+        // `cc.session_id IS NULL`.
+        let channel = session_db
+            .create_session_with_project("ha-main", Some(&project.id), None)
+            .expect("channel session");
+        session_db
+            .append_message(
+                &channel.id,
+                &NewMessage::assistant("im reply").with_source(ChatSource::Desktop),
+            )
+            .expect("append channel");
+        {
+            let conn = session_db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO channel_conversations (channel_id, account_id, chat_id, session_id)
+                 VALUES ('tg', 'acc', 'chat', ?1)",
+                rusqlite::params![channel.id],
+            )
+            .unwrap();
+        }
+
+        let rollup = |active: Option<&str>| {
+            project_db
+                .list(false, active)
+                .expect("list projects")
+                .into_iter()
+                .find(|p| p.project.id == project.id)
+                .expect("project present")
+                .unread_count
+        };
+
+        assert_eq!(
+            rollup(None),
+            1,
+            "only the regular reply counts; sub-agent + channel sessions excluded"
+        );
+        assert_eq!(
+            rollup(Some(&regular.id)),
+            0,
+            "viewing the regular session excludes it from the project rollup"
         );
     }
 }

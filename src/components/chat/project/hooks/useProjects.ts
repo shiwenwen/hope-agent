@@ -8,6 +8,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { MutableRefObject } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -31,9 +32,16 @@ export interface UseProjectsReturn {
 }
 
 export function useProjects(
-  options: { includeArchived?: boolean } = {},
+  options: {
+    includeArchived?: boolean
+    /** Currently-open session id, read at fetch time and forwarded to the
+     *  backend so its unread is excluded from the owning project's badge. The
+     *  caller is responsible for calling `reloadProjects` when it changes (the
+     *  ref avoids re-creating the hook's callbacks on every session switch). */
+    activeSessionIdRef?: MutableRefObject<string | null>
+  } = {},
 ): UseProjectsReturn {
-  const { includeArchived = false } = options
+  const { includeArchived = false, activeSessionIdRef } = options
 
   const [projects, setProjects] = useState<ProjectMeta[]>([])
   const [loading, setLoading] = useState(false)
@@ -44,22 +52,33 @@ export function useProjects(
   const includeArchivedRef = useRef(includeArchived)
   includeArchivedRef.current = includeArchived
 
+  // Monotonic request token: rapid reloads (e.g. a session switch fires one
+  // reload from `handleSwitchSession` and another from the active-session
+  // effect) can resolve out of order. Only the latest request commits, so a
+  // slow earlier response can't overwrite the badge with a stale active-session
+  // exclusion.
+  const reloadSeqRef = useRef(0)
+
   const reloadProjects = useCallback(async () => {
+    const seq = ++reloadSeqRef.current
     setLoading(true)
     setError(null)
     try {
       const data = await getTransport().call<ProjectMeta[]>("list_projects_cmd", {
         includeArchived: includeArchivedRef.current,
+        activeSessionId: activeSessionIdRef?.current ?? undefined,
       })
+      if (seq !== reloadSeqRef.current) return
       setProjects(Array.isArray(data) ? data : [])
     } catch (e) {
+      if (seq !== reloadSeqRef.current) return
       const msg = e instanceof Error ? e.message : String(e)
       logger.warn("chat", "useProjects", "reloadProjects failed", msg)
       setError(msg)
     } finally {
-      setLoading(false)
+      if (seq === reloadSeqRef.current) setLoading(false)
     }
-  }, [])
+  }, [activeSessionIdRef])
 
   // Initial load.
   useEffect(() => {

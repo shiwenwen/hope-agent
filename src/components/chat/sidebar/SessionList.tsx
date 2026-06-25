@@ -4,6 +4,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { desktopUnreadCount } from "@/lib/unread"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -32,11 +33,6 @@ function classifyResult(r: SessionSearchResult): SessionFilterType {
   if (r.isCron) return "cron"
   if (r.parentSessionId) return "subagent"
   return "session"
-}
-
-function unreadCountForDisplay(session: SessionMeta): number {
-  if (session.channelInfo || session.parentSessionId) return 0
-  return session.unreadCount
 }
 
 interface SessionListProps {
@@ -164,7 +160,10 @@ export default function SessionList({
               cron: sessions.filter((s) => s.isCron),
               subagent: sessions.filter((s) => !!s.parentSessionId),
             }[filter]
-            count = filterSessions.reduce((sum, s) => sum + unreadCountForDisplay(s), 0)
+            count = filterSessions.reduce(
+              (sum, s) => sum + desktopUnreadCount(s, currentSessionId),
+              0,
+            )
           }
 
           const isActive = sessionFilter === filter
@@ -176,7 +175,9 @@ export default function SessionList({
               cron: sessions.filter((s) => s.isCron),
               subagent: sessions.filter((s) => !!s.parentSessionId),
             }[filter]
-            const unreadSessions = filterSessions.filter((s) => unreadCountForDisplay(s) > 0)
+            const unreadSessions = filterSessions.filter(
+              (s) => desktopUnreadCount(s, currentSessionId) > 0,
+            )
             if (unreadSessions.length === 0) return
             try {
               await getTransport().call("mark_session_read_batch_cmd", {

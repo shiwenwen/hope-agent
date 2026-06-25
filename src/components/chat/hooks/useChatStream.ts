@@ -918,6 +918,13 @@ export function useChatStream({
         }
 
         targetSessionId = event.session_id
+        // Bridge the ref lag: `setCurrentSessionId` below only updates
+        // `currentSessionIdRef` after React commits, but the user is already on
+        // this freshly-materialized session. Set it eagerly so the mark-as-read
+        // guard at turn end compares against the right session even on a very
+        // fast first turn — and still flips away correctly if the user navigates
+        // elsewhere (handleSwitchSession / the sync effect update the ref then).
+        currentSessionIdRef.current = event.session_id
         const current = sessionCacheRef.current.get("__pending__")
         if (current) {
           sessionCacheRef.current.delete("__pending__")
@@ -1241,8 +1248,14 @@ export function useChatStream({
           }
         }
       }
-      // Mark current session as read so unread count stays 0 for active session
-      if (targetSessionId) {
+      // Mark as read ONLY when the completed turn belongs to the session the
+      // user is actually viewing. A backgrounded turn — the user navigated away
+      // before it finished (including a just-created session they then left), or
+      // it was a background / injected turn — must keep its new assistant reply
+      // unread so the sidebar surfaces it; otherwise the completion is silently
+      // swallowed and the badge never appears. The lazy-create ref lag is
+      // bridged eagerly in handleSessionCreated, so this comparison is accurate.
+      if (targetSessionId && targetSessionId === currentSessionIdRef.current) {
         await getTransport()
           .call("mark_session_read_cmd", { sessionId: targetSessionId })
           .catch(() => {})

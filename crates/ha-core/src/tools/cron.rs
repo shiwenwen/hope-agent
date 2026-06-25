@@ -694,7 +694,7 @@ fn list_projects_text(include_archived: bool) -> String {
         Err(e) => return format!("Project service not initialized: {}", e),
     };
 
-    let projects = match project_db.list(include_archived) {
+    let projects = match project_db.list(include_archived, None) {
         Ok(projects) => projects,
         Err(e) => return format!("Failed to list projects: {}", e),
     };
