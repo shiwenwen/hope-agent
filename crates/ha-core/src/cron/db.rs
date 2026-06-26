@@ -902,7 +902,12 @@ impl CronDB {
     }
 
     /// Get run logs for a job, ordered by most recent first.
-    pub fn get_run_logs(&self, job_id: &str, limit: usize, offset: usize) -> Result<Vec<CronRunLog>> {
+    pub fn get_run_logs(
+        &self,
+        job_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<CronRunLog>> {
         let conn = self
             .conn
             .lock()

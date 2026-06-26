@@ -129,7 +129,12 @@ pub async fn run_timeline(
 ) -> Result<Json<Vec<cron::CronTimelineRow>>, AppError> {
     let limit = q.limit.unwrap_or(50).min(200);
     let offset = q.offset.unwrap_or(0);
-    Ok(Json(cron::cron_run_timeline(db()?, session_db()?, limit, offset)?))
+    Ok(Json(cron::cron_run_timeline(
+        db()?,
+        session_db()?,
+        limit,
+        offset,
+    )?))
 }
 
 /// `GET /api/cron/unread` — total unread across all cron sessions (badge).
