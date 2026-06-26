@@ -1402,6 +1402,11 @@ impl CronDB {
     ///   may have partially executed, so it is missed, never re-fired — the
     ///   one-shot side-effect-safety choice).
     ///
+    /// Only `running_at IS NULL` jobs are eligible: an `At` job mid-execution also
+    /// has `next_run_at IS NULL` (cleared at claim) but is running, not a zombie,
+    /// and must not be reaped. Claimed-then-crashed jobs become eligible after
+    /// startup's `clear_all_running` resets their stale `running_at`.
+    ///
     /// `At` jobs past-due by no more than `grace_secs` are LEFT active so the
     /// startup catch-up can late-fire them (slot-aware via §4's `dispatch_due_jobs`).
     /// `grace_secs = 0` ⇒ strict: any past-due `At` is missed (pre-§7 behavior).
@@ -1414,9 +1419,21 @@ impl CronDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        // `running_at IS NULL` guard (red line): a one-shot `At` that is CURRENTLY
+        // EXECUTING has its `next_run_at` cleared to NULL at claim (see
+        // `claim_scheduled_job_for_execution`) while `status` stays `active`.
+        // Without this guard, the per-tick reap fires while the run is in flight
+        // (tick interval 15s, so any run ≳15s spans a tick) and the running job —
+        // `status='active'` + `next_run_at IS NULL` — matches the NULL branch and
+        // is wrongly marked `missed`; the subsequent successful `update_after_run`
+        // is then a no-op (its `status='active'` guard fails) and the job is stuck
+        // `missed` despite a `success` run log. Claimed-then-crashed zombies are
+        // NOT lost: startup recovery runs `clear_all_running` (resetting their
+        // `running_at` to NULL) BEFORE `mark_missed_at_jobs`, so they still match.
         let count = conn.execute(
             "UPDATE cron_jobs SET status='missed', updated_at=?1
-             WHERE status='active' AND schedule_json LIKE '%\"type\":\"at\"%'
+             WHERE status='active' AND running_at IS NULL
+               AND schedule_json LIKE '%\"type\":\"at\"%'
                AND (next_run_at IS NULL OR next_run_at < ?2)",
             params![now_str, cutoff],
         )?;
@@ -3335,6 +3352,7 @@ mod tests {
         let beyond = mk_at("beyond"); // past-due beyond grace → missed
         let zombie = mk_at("zombie"); // next_run_at NULL (claimed-then-crashed) → missed
         let future = mk_at("future"); // not yet due → stays active
+        let running = mk_at("running"); // in-flight (running_at set, next_run_at NULL) → stays active
 
         {
             let conn = db.conn.lock().unwrap();
@@ -3355,6 +3373,14 @@ mod tests {
                 Some((now - chrono::Duration::seconds(1000)).to_rfc3339()),
             );
             set(&zombie.id, None);
+            // In-flight one-shot: next_run_at cleared at claim, but running_at set.
+            // Matches the NULL branch yet must NOT be reaped (it's running).
+            conn.execute(
+                "UPDATE cron_jobs SET running_at=?1 WHERE id=?2",
+                params![now.to_rfc3339(), running.id],
+            )
+            .unwrap();
+            set(&running.id, None);
             // `future` keeps its ~1h-ahead next_run_at from add_job.
         }
 
@@ -3365,6 +3391,80 @@ mod tests {
         assert_eq!(status(&beyond.id), CronJobStatus::Missed);
         assert_eq!(status(&zombie.id), CronJobStatus::Missed);
         assert_eq!(status(&future.id), CronJobStatus::Active);
+        // Regression: an in-flight one-shot (running_at set) is never reaped even
+        // though its next_run_at is NULL — otherwise a run ≳15s gets marked
+        // `missed` mid-execution and the later success can't recover it.
+        assert_eq!(status(&running.id), CronJobStatus::Active);
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn inflight_at_survives_reap_then_success_completes() {
+        // End-to-end pin for the "success run-log yet job stuck `missed`" race
+        // across mark_missed_at_jobs (reap) and update_after_run (terminalize):
+        // an in-flight one-shot must survive a mid-run reap tick AND then be
+        // terminalized `completed` by its successful run. Both guards are
+        // load-bearing — the reap's `running_at IS NULL` keeps the status
+        // `active` so update_after_run's `status='active'` success branch can
+        // fire. If either regresses, this test catches the stuck-`missed` bug.
+        let path = temp_db_path("inflight-reap-success");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "one-shot".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "do once".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
+            })
+            .expect("add job");
+
+        // Simulate claim_scheduled_job_for_execution: running_at set, next_run_at
+        // cleared to NULL (the one-shot in-flight shape), status still active.
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE cron_jobs SET running_at=?1, next_run_at=NULL WHERE id=?2",
+                params![Utc::now().to_rfc3339(), job.id],
+            )
+            .unwrap();
+        }
+
+        // A reap tick fires mid-execution — must NOT touch the running job.
+        let marked = db.mark_missed_at_jobs(300).expect("mark");
+        assert_eq!(marked, 0, "in-flight one-shot must not be reaped");
+        assert_eq!(
+            db.get_job(&job.id).unwrap().unwrap().status,
+            CronJobStatus::Active
+        );
+
+        // Run finishes successfully → update_after_run terminalizes it.
+        assert!(!db
+            .update_after_run(&job.id, true, &job.schedule)
+            .expect("upd"));
+        let final_job = db.get_job(&job.id).unwrap().unwrap();
+        assert_eq!(
+            final_job.status,
+            CronJobStatus::Completed,
+            "a successful in-flight one-shot must end `completed`, not `missed`"
+        );
+        assert!(
+            final_job.next_run_at.is_none(),
+            "completed one-shot has no next run"
+        );
 
         cleanup_db_files(&path);
     }
