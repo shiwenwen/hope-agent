@@ -3769,6 +3769,7 @@ mod tests {
     fn session_sandbox_mode_round_trips() {
         let db_path = temp_db_path("session-sandbox-mode");
         let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
         let session = db
             .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
             .expect("create session");
