@@ -685,6 +685,9 @@ pub fn run() {
             commands::cron::cron_jobs_referencing_account,
             commands::cron::cron_get_run_logs,
             commands::cron::cron_get_calendar_events,
+            commands::cron::cron_run_timeline,
+            commands::cron::cron_unread_total,
+            commands::cron::cron_mark_all_read,
             // Sub-agent management
             commands::subagent::list_subagent_runs,
             commands::subagent::get_subagent_run,

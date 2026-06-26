@@ -372,6 +372,9 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cron_jobs_referencing_account:   { method: "GET",    path: "/api/cron/jobs-referencing-account/{accountId}" },
   cron_get_run_logs:               { method: "GET",    path: "/api/cron/jobs/{jobId}/logs" },
   cron_get_calendar_events:        { method: "GET",    path: "/api/cron/calendar" },
+  cron_run_timeline:               { method: "GET",    path: "/api/cron/timeline" },
+  cron_unread_total:               { method: "GET",    path: "/api/cron/unread" },
+  cron_mark_all_read:              { method: "POST",   path: "/api/cron/read-all" },
 
   // -- Dashboard --
   dashboard_overview:              { method: "POST",   path: "/api/dashboard/overview" },

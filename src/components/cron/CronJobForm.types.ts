@@ -68,6 +68,21 @@ export interface CronRunLog {
   deliveryStatus?: string | null
 }
 
+/** One row of the cross-job cron run timeline (cron panel "conversations" view). */
+export interface CronTimelineRow {
+  sessionId: string
+  jobId: string
+  jobName: string
+  status: string
+  startedAt: string
+  finishedAt?: string | null
+  resultPreview?: string | null
+  /** Session title (defaults to jobName when the session row is gone). */
+  title?: string | null
+  /** Unread assistant-message count for this run's session. */
+  unreadCount: number
+}
+
 /** §8: a cron job referencing a channel account in its delivery targets. */
 export interface CronAccountRef {
   jobId: string

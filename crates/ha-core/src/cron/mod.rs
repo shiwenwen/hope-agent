@@ -5,13 +5,17 @@ pub(crate) mod executor;
 pub(crate) mod failure;
 mod schedule;
 mod scheduler;
+mod timeline;
 mod types;
 
 // Re-export all public types
 pub use types::{
     CalendarEvent, ClaimedCronJob, CronAccountRef, CronDeliveryTarget, CronJob, CronPayload,
-    CronRunLog, CronSchedule, NewCronJob,
+    CronRunLog, CronSchedule, CronTimelineRow, NewCronJob,
 };
+
+// Re-export timeline assembly + cross-DB job deletion
+pub use timeline::{cron_run_timeline, delete_job_and_sessions};
 
 // Re-export DB layer
 pub use db::CronDB;

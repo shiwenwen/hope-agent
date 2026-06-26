@@ -1139,6 +1139,9 @@ fn build_router_with_cors(
             get(routes::cron::jobs_referencing_account),
         )
         .route("/cron/calendar", get(routes::cron::get_calendar_events))
+        .route("/cron/timeline", get(routes::cron::run_timeline))
+        .route("/cron/unread", get(routes::cron::unread_total))
+        .route("/cron/read-all", post(routes::cron::mark_all_read))
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))

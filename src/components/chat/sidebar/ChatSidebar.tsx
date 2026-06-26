@@ -197,6 +197,11 @@ export default function ChatSidebar({
         const results = await getTransport().call<SessionSearchResult[]>("search_sessions_cmd", {
           query: q,
           limit: SEARCH_LIMIT,
+          // Exclude cron at the backend so the fixed SEARCH_LIMIT isn't consumed
+          // by hidden cron hits (they live in the cron panel's history view, not
+          // the sidebar) — otherwise a regular match ranked just below a burst of
+          // cron matches could fall outside the limit and never render.
+          types: ["regular", "subagent", "channel"],
         })
         setSearchResults(sortSessionSearchResults(results ?? []))
       } catch (err) {
@@ -219,8 +224,6 @@ export default function ChatSidebar({
         // are surfaced inline (the row already shows a channel icon)
         // since the dedicated "channel" tab was retired in Phase B3.
         return list.filter((s) => !s.isCron && !s.parentSessionId && !s.projectId)
-      case "cron":
-        return list.filter((s) => s.isCron)
       case "subagent":
         return list.filter((s) => !!s.parentSessionId)
       default:

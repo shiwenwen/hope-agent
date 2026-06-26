@@ -9,6 +9,7 @@ import BrowserStatusIndicator from "@/components/common/BrowserStatusIndicator"
 import type { SettingsSection } from "@/components/settings/types"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { useDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
+import { useCronUnreadStore, markAllCronRead } from "@/hooks/useCronUnreadStore"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -95,6 +96,8 @@ export default function IconSidebar({
   const { pendingUpdate } = useDesktopUpdateStore()
   const { draftCount: skillDraftCount } = useDraftSkillsStore()
   const skillDraftBadgeLabel = skillDraftCount > 99 ? "99+" : String(skillDraftCount)
+  const { cronUnreadCount } = useCronUnreadStore()
+  const cronUnreadBadgeLabel = cronUnreadCount > 99 ? "99+" : String(cronUnreadCount)
 
   return (
     <div className="w-[76px] shrink-0 border-r border-border-soft bg-surface-sidebar flex flex-col items-center">
@@ -172,6 +175,44 @@ export default function IconSidebar({
                 <Library className="h-4 w-4" />
               </Button>
             </IconTip>
+          </div>
+          {/* Scheduled Tasks entry — grouped directly under Knowledge Space */}
+          <div className="w-full flex justify-center">
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div className="relative">
+                  <IconTip label={t("cron.title")} side="right">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "rounded-xl h-8 w-8",
+                        view === "calendar"
+                          ? "bg-primary/10 text-primary hover:bg-primary/20"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                      onClick={onOpenCalendar}
+                    >
+                      <CalendarDays className="h-4 w-4" />
+                    </Button>
+                  </IconTip>
+                  {cronUnreadCount > 0 && (
+                    <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-destructive px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
+                      {cronUnreadBadgeLabel}
+                    </span>
+                  )}
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem
+                  disabled={cronUnreadCount === 0}
+                  onSelect={() => void markAllCronRead()}
+                >
+                  <CheckCheck className="mr-2 h-4 w-4" />
+                  {t("cron.markAllRead")}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </div>
         </div>
 
@@ -275,25 +316,6 @@ export default function IconSidebar({
               onClick={onOpenMemory}
             >
               <Brain className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        </div>
-
-        {/* Calendar / Scheduled Tasks entry */}
-        <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("cron.title")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "calendar"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenCalendar}
-            >
-              <CalendarDays className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>

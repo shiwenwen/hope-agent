@@ -1394,7 +1394,7 @@ mod tests {
         assert_eq!(stored.consecutive_failures, 2);
         // Recurring job stays active after a cancel (it keeps firing).
         assert_eq!(stored.status, CronJobStatus::Active);
-        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        let logs = db.get_run_logs(&job.id, 10, 0).expect("logs");
         assert_eq!(
             logs.len(),
             1,
@@ -1534,7 +1534,7 @@ mod tests {
             "run-now must NOT reschedule"
         );
         assert!(stored.running_at.is_none(), "running marker cleared");
-        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        let logs = db.get_run_logs(&job.id, 10, 0).expect("logs");
         assert_eq!(
             logs[0].status, "error",
             "the failure IS recorded in the run log"

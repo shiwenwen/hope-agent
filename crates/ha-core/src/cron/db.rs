@@ -67,7 +67,10 @@ impl CronDB {
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_runs_job
-                ON cron_run_logs(job_id, started_at DESC);",
+                ON cron_run_logs(job_id, started_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_cron_runs_started
+                ON cron_run_logs(started_at DESC);",
         )?;
 
         // Migration: add running_at column if missing (for existing DBs)
@@ -489,6 +492,24 @@ impl CronDB {
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute("DELETE FROM cron_jobs WHERE id=?1", params![id])?;
         Ok(())
+    }
+
+    /// Distinct run-session ids produced by a job. Must be read BEFORE
+    /// `delete_job` (which CASCADE-removes `cron_run_logs`), so the caller can
+    /// clean up the now-orphaned cron sessions in `sessions.db`.
+    pub fn session_ids_for_job(&self, job_id: &str) -> Result<Vec<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt =
+            conn.prepare("SELECT DISTINCT session_id FROM cron_run_logs WHERE job_id=?1")?;
+        let rows = stmt.query_map(params![job_id], |row| row.get::<_, String>(0))?;
+        let mut ids = Vec::new();
+        for r in rows {
+            ids.push(r?);
+        }
+        Ok(ids)
     }
 
     /// Get a single job by ID.
@@ -922,16 +943,21 @@ impl CronDB {
     }
 
     /// Get run logs for a job, ordered by most recent first.
-    pub fn get_run_logs(&self, job_id: &str, limit: usize) -> Result<Vec<CronRunLog>> {
+    pub fn get_run_logs(
+        &self,
+        job_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<CronRunLog>> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, job_id, session_id, status, started_at, finished_at, duration_ms, result_preview, error, delivery_status
-             FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2"
+             FROM cron_run_logs WHERE job_id=?1 ORDER BY started_at DESC LIMIT ?2 OFFSET ?3"
         )?;
-        let rows = stmt.query_map(params![job_id, limit as i64], |row| {
+        let rows = stmt.query_map(params![job_id, limit as i64, offset as i64], |row| {
             Ok(CronRunLog {
                 id: row.get(0)?,
                 job_id: row.get(1)?,
@@ -950,6 +976,45 @@ impl CronDB {
             logs.push(row?);
         }
         Ok(logs)
+    }
+
+    /// Cross-job timeline: every cron run across all jobs, newest-first,
+    /// paginated. `title` / `unread_count` are left at their defaults here — the
+    /// caller (`cron_run_timeline`) hydrates them from `SessionDB`, a separate
+    /// database. LEFT JOIN so a run whose job row was deleted still surfaces,
+    /// with `job_name` falling back to `(deleted job)`.
+    pub fn list_run_timeline(&self, limit: usize, offset: usize) -> Result<Vec<CronTimelineRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT l.session_id, l.job_id,
+                    COALESCE(j.name, '(deleted job)') AS job_name,
+                    l.status, l.started_at, l.finished_at, l.result_preview
+             FROM cron_run_logs l
+             LEFT JOIN cron_jobs j ON j.id = l.job_id
+             ORDER BY l.started_at DESC, l.id DESC
+             LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], |row| {
+            Ok(CronTimelineRow {
+                session_id: row.get(0)?,
+                job_id: row.get(1)?,
+                job_name: row.get(2)?,
+                status: row.get(3)?,
+                started_at: row.get(4)?,
+                finished_at: row.get(5)?,
+                result_preview: row.get(6)?,
+                title: None,
+                unread_count: 0,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     // ── Calendar Range Query ────────────────────────────────────
@@ -2094,7 +2159,7 @@ mod tests {
             .add_running_run_log(&job.id, "s1", "2026-01-01T00:00:00Z")
             .expect("open in-progress run log");
         // Mid-run the row reads as "running" with no finish.
-        let running = db.get_run_logs(&job.id, 10).expect("logs");
+        let running = db.get_run_logs(&job.id, 10, 0).expect("logs");
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].status, "running");
         assert!(running[0].finished_at.is_none());
@@ -2110,7 +2175,7 @@ mod tests {
         )
         .expect("finalize");
 
-        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        let logs = db.get_run_logs(&job.id, 10, 0).expect("logs");
         assert_eq!(logs.len(), 1, "finalize updates the same row, no duplicate");
         assert_eq!(logs[0].status, "success");
         assert_eq!(logs[0].delivery_status.as_deref(), Some("partial"));
@@ -2132,7 +2197,7 @@ mod tests {
 
         let recovered = db.recover_orphaned_runs().expect("recover");
         assert_eq!(recovered, 1);
-        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        let logs = db.get_run_logs(&job.id, 10, 0).expect("logs");
         assert_eq!(logs[0].status, "error");
         assert!(logs[0].finished_at.is_some());
 

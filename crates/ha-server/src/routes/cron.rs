@@ -48,7 +48,7 @@ pub async fn update_job(
 
 /// `DELETE /api/cron/jobs/{id}`
 pub async fn delete_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    db()?.delete_job(&id)?;
+    cron::delete_job_and_sessions(db()?, session_db()?, &id)?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -101,6 +101,7 @@ pub async fn jobs_referencing_account(
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
     pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }
 
 /// `GET /api/cron/jobs/{id}/logs`
@@ -108,7 +109,48 @@ pub async fn get_run_logs(
     Path(id): Path<String>,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<Vec<cron::CronRunLog>>, AppError> {
-    Ok(Json(db()?.get_run_logs(&id, q.limit.unwrap_or(50))?))
+    Ok(Json(db()?.get_run_logs(
+        &id,
+        q.limit.unwrap_or(50).min(200),
+        q.offset.unwrap_or(0),
+    )?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TimelineQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
+
+/// `GET /api/cron/timeline?limit=&offset=` — cross-job run timeline for the cron
+/// panel's "conversations" view.
+pub async fn run_timeline(
+    Query(q): Query<TimelineQuery>,
+) -> Result<Json<Vec<cron::CronTimelineRow>>, AppError> {
+    let limit = q.limit.unwrap_or(50).min(200);
+    let offset = q.offset.unwrap_or(0);
+    Ok(Json(cron::cron_run_timeline(
+        db()?,
+        session_db()?,
+        limit,
+        offset,
+    )?))
+}
+
+/// `GET /api/cron/unread` — total unread across all cron sessions (badge).
+/// Returns a bare number to mirror the Tauri `cron_unread_total` command shape.
+pub async fn unread_total() -> Result<Json<i64>, AppError> {
+    Ok(Json(session_db()?.cron_unread_total()?))
+}
+
+/// `POST /api/cron/read-all` — mark every cron session read (badge → 0).
+/// Returns the count of updated sessions (mirrors the Tauri command shape).
+pub async fn mark_all_read() -> Result<Json<usize>, AppError> {
+    let n = session_db()?.mark_all_cron_sessions_read()?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("cron:unread_changed", json!({ "total": 0 }));
+    }
+    Ok(Json(n))
 }
 
 #[derive(Debug, Deserialize)]

@@ -935,12 +935,33 @@ export default function ChatScreen({
   useEffect(() => {
     onCurrentProjectChange?.(effectiveProjectId)
   }, [effectiveProjectId, onCurrentProjectChange])
-  // Hygiene: once the materialized session's meta is available the row is the
-  // source of truth, so drop the now-redundant draft binding. effectiveProjectId
-  // already prefers the meta the instant it loads, so this never causes a flicker.
+  const previousSessionIdForProjectDraftRef = useRef<string | null>(session.currentSessionId)
+  const materializedProjectDraftSessionIdRef = useRef<string | null>(null)
+  // Hygiene: once a project draft (currentSessionId=null) materializes into a real
+  // session and that new session's meta is available, the row is the source of
+  // truth, so drop the now-redundant draft binding. Do not clear merely because an
+  // old session is still mounted while "new chat in project" is resolving.
   useEffect(() => {
-    if (session.currentSessionId && currentSessionMeta && draftProjectId !== null) {
+    const previousSessionId = previousSessionIdForProjectDraftRef.current
+    const nextSessionId = session.currentSessionId
+    previousSessionIdForProjectDraftRef.current = nextSessionId
+
+    if (!draftProjectId) {
+      materializedProjectDraftSessionIdRef.current = null
+      return
+    }
+
+    if (previousSessionId === null && nextSessionId) {
+      materializedProjectDraftSessionIdRef.current = nextSessionId
+    }
+
+    if (
+      nextSessionId &&
+      currentSessionMeta?.id === nextSessionId &&
+      materializedProjectDraftSessionIdRef.current === nextSessionId
+    ) {
       setDraftProjectId(null)
+      materializedProjectDraftSessionIdRef.current = null
     }
   }, [session.currentSessionId, currentSessionMeta, draftProjectId])
   const projectWorkingDir = useMemo(

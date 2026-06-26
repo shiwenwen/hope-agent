@@ -30,7 +30,8 @@ import SearchResultItem from "./SearchResultItem"
 // results fold into `session` — IM-driven conversations are still user
 // conversations, just sourced from a different surface.
 function classifyResult(r: SessionSearchResult): SessionFilterType {
-  if (r.isCron) return "cron"
+  // Cron results are filtered out before this runs (see nonCronResults); they
+  // live in the cron panel's history view, not the sidebar.
   if (r.parentSessionId) return "subagent"
   return "session"
 }
@@ -111,12 +112,19 @@ export default function SessionList({
 
   const isSearching = searchQuery.trim().length > 0
 
-  // Client-side second-level filter by session type for search results.
+  // Cron sessions live in the cron panel's "conversations" timeline now, never
+  // the main sidebar — drop them from search results entirely. This is the base
+  // set for per-tab counts (independent of the active filter).
+  const nonCronResults = useMemo(
+    () => (searchResults ? searchResults.filter((r) => !r.isCron) : []),
+    [searchResults],
+  )
+
+  // Client-side second-level filter by session type for the rendered list.
   const visibleResults = useMemo(() => {
-    if (!searchResults) return []
-    if (sessionFilter === "all") return searchResults
-    return searchResults.filter((r) => classifyResult(r) === sessionFilter)
-  }, [searchResults, sessionFilter])
+    if (sessionFilter === "all") return nonCronResults
+    return nonCronResults.filter((r) => classifyResult(r) === sessionFilter)
+  }, [nonCronResults, sessionFilter])
 
   const highlightTerms = useMemo(
     () => parseHighlightTerms(searchQuery),
@@ -135,11 +143,10 @@ export default function SessionList({
           isSearching ? "top-0" : "top-16",
         )}
       >
-        {(["all", "session", "cron", "subagent"] as const).map((filter) => {
+        {(["all", "session", "subagent"] as const).map((filter) => {
           const label = {
             all: t("chat.filterAll"),
             session: t("chat.filterSessions"),
-            cron: t("chat.filterCron"),
             subagent: t("chat.filterSubagent"),
           }[filter]
 
@@ -147,9 +154,9 @@ export default function SessionList({
           let count: number
           if (isSearching && searchResults) {
             if (filter === "all") {
-              count = searchResults.length
+              count = nonCronResults.length
             } else {
-              count = searchResults.filter((r) => classifyResult(r) === filter).length
+              count = nonCronResults.filter((r) => classifyResult(r) === filter).length
             }
           } else {
             const filterSessions = {
@@ -157,7 +164,6 @@ export default function SessionList({
               // Channel-bound conversations land under the unified "session"
               // tab — they're still user chats, just surfaced from IM.
               session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
-              cron: sessions.filter((s) => s.isCron),
               subagent: sessions.filter((s) => !!s.parentSessionId),
             }[filter]
             count = filterSessions.reduce(
@@ -172,7 +178,6 @@ export default function SessionList({
             const filterSessions = {
               all: sessions,
               session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
-              cron: sessions.filter((s) => s.isCron),
               subagent: sessions.filter((s) => !!s.parentSessionId),
             }[filter]
             const unreadSessions = filterSessions.filter(

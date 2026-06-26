@@ -267,7 +267,14 @@ pub(crate) fn tool_manage_cron<'a>(
                 // (every other action stays internal-exempt). `?` aborts with an
                 // already-rendered rejection on deny / unattended / timeout.
                 gate_cron_delete(args, ctx, desc).await?;
-                cron_db.delete_job(id)?;
+                match crate::get_session_db() {
+                    Some(session_db) => {
+                        crate::cron::delete_job_and_sessions(cron_db, session_db, id)?
+                    }
+                    // SessionDB should always be initialized when tools run; fall
+                    // back to a job-only delete so the user's delete still lands.
+                    None => cron_db.delete_job(id)?,
+                }
                 app_info!(
                     "cron",
                     "manage",

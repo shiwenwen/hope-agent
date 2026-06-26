@@ -62,4 +62,4 @@ export interface ChatSidebarProps {
   searchFocusSignal?: number
 }
 
-export type SessionFilterType = "all" | "session" | "cron" | "subagent" | "channel"
+export type SessionFilterType = "all" | "session" | "subagent" | "channel"

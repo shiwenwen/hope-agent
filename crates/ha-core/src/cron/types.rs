@@ -183,6 +183,30 @@ pub struct CronRunLog {
     pub delivery_status: Option<String>,
 }
 
+/// One row of the global cron-run timeline (a single run of any job), surfaced
+/// in the cron panel's "conversations" view. The run rows come from `CronDB`
+/// (`cron_run_logs` + `cron_jobs`); `title` / `unread_count` are hydrated by the
+/// assembling layer from `SessionDB` (a separate database — cannot be SQL-joined).
+/// `title` falls back to `job_name` and `unread_count` to `0` when the run's
+/// session row is missing (e.g. purged).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CronTimelineRow {
+    pub session_id: String,
+    pub job_id: String,
+    pub job_name: String,
+    pub status: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub result_preview: Option<String>,
+    /// Session title from `SessionDB`; defaults to `job_name` when absent.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Unread assistant-message count for this run's session (from `SessionDB`).
+    #[serde(default)]
+    pub unread_count: i64,
+}
+
 /// Input for creating a new job.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
