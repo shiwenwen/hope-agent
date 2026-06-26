@@ -297,31 +297,36 @@ pub(crate) async fn execute_claimed_job(
     // Apply per-job permission / sandbox overrides (owner-set; `None` = follow the
     // agent default already seeded at session creation). The session row is the
     // SSOT the permission engine + exec read, so these writes must land before the
-    // agent runs.
-    // - A failed *permission* write leaves the agent default, which is never looser
-    //   in an unsafe direction (default/smart are stricter than yolo) — warn + go.
-    // - A failed *sandbox* write may leave the run UNCONFINED (requested Isolated,
-    //   row stays Off) and exec reads the same row — so fail-closed, never host.
-    if let Some(mode) = job.permission_mode_override {
-        if let Err(e) = session_db.update_session_permission_mode(&session_id, mode) {
-            app_warn!(
-                "cron",
-                "executor",
-                "Job '{}' ({}): failed to apply permission override '{}' (running at agent default): {}",
-                job.name,
-                job.id,
-                mode.as_str(),
-                e
-            );
-        }
-    }
-    if let Some(mode) = job.sandbox_mode_override {
-        if let Err(e) = session_db.update_session_sandbox_mode(&session_id, mode) {
-            let err_text = format!("failed to apply sandbox override '{}': {e}", mode.as_str());
+    // agent runs — and BOTH fail-closed: if an owner override can't be persisted we
+    // must NOT silently run at the agent default, which is unsafe in either
+    // direction. A tightening permission override (agent default `yolo` → smart/
+    // default) left unwritten would run YOLO unattended; a sandbox override left
+    // unwritten would run unconfined on the host (exec reads the same row). A write
+    // failure is a transient infra error (turn never ran, no side effects), so it
+    // does not count toward auto-disable — same as `no_session`.
+    let override_writes = [
+        job.permission_mode_override.map(|m| {
+            (
+                "permission",
+                m.as_str(),
+                session_db.update_session_permission_mode(&session_id, m),
+            )
+        }),
+        job.sandbox_mode_override.map(|m| {
+            (
+                "sandbox",
+                m.as_str(),
+                session_db.update_session_sandbox_mode(&session_id, m),
+            )
+        }),
+    ];
+    for (kind, mode_str, result) in override_writes.into_iter().flatten() {
+        if let Err(e) = result {
+            let err_text = format!("failed to apply {kind} override '{mode_str}': {e}");
             app_error!(
                 "cron",
                 "executor",
-                "Job '{}' ({}) {} — failing run (not running unconfined on host)",
+                "Job '{}' ({}) {} — failing run (won't run at the agent default, which could be looser)",
                 job.name,
                 job.id,
                 err_text
