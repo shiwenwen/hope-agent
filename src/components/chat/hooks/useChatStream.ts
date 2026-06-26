@@ -1326,9 +1326,15 @@ export function useChatStream({
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title
-          const userPreview = latestUserNotificationPreview(
-            sessionCacheRef.current.get(targetSessionId) ?? [],
-          )
+          // Only fall back to the latest user message when reply previews are
+          // enabled; otherwise honor the privacy setting and never leak
+          // conversation content into the system notification center.
+          const userPreview =
+            getCachedConfig()?.showChatContent !== false
+              ? latestUserNotificationPreview(
+                  sessionCacheRef.current.get(targetSessionId) ?? [],
+                )
+              : null
           const title = t("notification.chatError")
           notify(title, sessionTitle || userPreview || title)
         }
