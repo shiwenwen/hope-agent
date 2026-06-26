@@ -750,7 +750,7 @@ fn copy_dir_gitignore_aware_bounded(
             if let Some(parent) = dst_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::copy(&src_path, &dst_path)?;
+            std::fs::copy(src_path, dst_path)?;
         } else {
             app_debug!(
                 "sandbox",
