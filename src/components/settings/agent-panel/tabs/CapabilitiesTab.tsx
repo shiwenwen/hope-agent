@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -21,7 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { OpenClawHintBanner } from "./CustomTab"
+import { DockerSetupHint } from "../../DockerSetupHint"
+import type { DockerStatus } from "../../dockerSetup"
 import type { AgentConfig, AsyncToolPolicy, SkillSummary } from "../types"
+import type { SandboxMode } from "@/types/chat"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 
 /** Ordered policy options. First entry is the implicit default. The
  * `i18nKey` segment plugs into `settings.agentAsyncToolPolicy.<key>` —
@@ -36,6 +41,29 @@ const ASYNC_TOOL_POLICY_DEFAULT = ASYNC_TOOL_POLICIES[0].value
 const asyncToolPolicyI18nKey = (value: AsyncToolPolicy) =>
   ASYNC_TOOL_POLICIES.find((policy) => policy.value === value)?.i18nKey ??
   ASYNC_TOOL_POLICIES[0].i18nKey
+
+const SANDBOX_MODES: ReadonlyArray<SandboxMode> = [
+  "off",
+  "standard",
+  "isolated",
+  "workspace",
+  "trusted",
+]
+
+function sandboxModeDescription(mode: SandboxMode): string {
+  switch (mode) {
+    case "off":
+      return "在宿主机执行，审批逻辑不变"
+    case "standard":
+      return "在 Docker 沙箱执行，审批不放松"
+    case "isolated":
+      return "隔离副本试跑，编辑审批不放松"
+    case "workspace":
+      return "挂载当前工作区，减少编辑命令审批"
+    case "trusted":
+      return "沙箱内 exec 最大自治，严格风险仍审批"
+  }
+}
 
 /** Collapsible section wrapper used by every tier block in this tab. */
 function CollapsibleSection({
@@ -137,8 +165,30 @@ export default function CapabilitiesTab({
   const [standardOpen, setStandardOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
+  const [dockerStatus, setDockerStatus] = useState<DockerStatus | null>(null)
+  const [dockerChecking, setDockerChecking] = useState(false)
   const asyncToolPolicyValue =
     config.capabilities.asyncToolPolicy ?? ASYNC_TOOL_POLICY_DEFAULT
+  const sandboxMode: SandboxMode =
+    config.capabilities.defaultSandboxMode ??
+    (config.capabilities.sandbox ? "standard" : "off")
+
+  const refreshDockerStatus = useCallback(async () => {
+    setDockerChecking(true)
+    try {
+      const status = await getTransport().call<DockerStatus>("check_sandbox_available")
+      setDockerStatus(status)
+    } catch (e) {
+      logger.error("settings", "CapabilitiesTab", "Failed to check Docker status", e)
+    } finally {
+      setDockerChecking(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (sandboxMode === "off") return
+    void refreshDockerStatus()
+  }, [refreshDockerStatus, sandboxMode])
 
   const toolDisplayName = (tool: BuiltinTool) => {
     const name = tool.name
@@ -155,6 +205,12 @@ export default function CapabilitiesTab({
 
   const updateCapabilities = (patch: Partial<AgentConfig["capabilities"]>) =>
     updateConfig({ capabilities: { ...config.capabilities, ...patch } })
+
+  const updateSandboxMode = (mode: SandboxMode) =>
+    updateCapabilities({
+      defaultSandboxMode: mode,
+      sandbox: mode !== "off",
+    })
 
   // ── Tier grouping ───────────────────────────────────────────────
   // Buckets each tool into its tier section. Core::PlanMode / Core::Meta
@@ -385,17 +441,48 @@ export default function CapabilitiesTab({
         </CollapsibleSection>
 
         {/* Sandbox */}
-        <div className="flex items-center justify-between px-1">
+        <div className="space-y-2 px-1">
           <div>
             <div className="text-sm text-foreground">{t("settings.agentSandbox")}</div>
             <div className="text-xs text-muted-foreground">
               {t("settings.agentSandboxDesc")}
             </div>
           </div>
-          <Switch
-            checked={config.capabilities.sandbox}
-            onCheckedChange={(v) => updateCapabilities({ sandbox: v })}
-          />
+          <Select value={sandboxMode} onValueChange={(v) => updateSandboxMode(v as SandboxMode)}>
+            <SelectTrigger className="h-8 w-full text-sm">
+              <SelectValue>
+                {t(`chat.sandboxMode.${sandboxMode}.label`, {
+                  defaultValue: sandboxMode,
+                })}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {SANDBOX_MODES.map((mode) => (
+                <SelectItem key={mode} value={mode}>
+                  <div className="flex flex-col py-1">
+                    <span>
+                      {t(`chat.sandboxMode.${mode}.label`, { defaultValue: mode })}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {t(`chat.sandboxMode.${mode}.desc`, {
+                        defaultValue: sandboxModeDescription(mode),
+                      })}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {sandboxMode !== "off" && (
+            <DockerSetupHint
+              status={dockerStatus}
+              checking={dockerChecking}
+              onRefresh={refreshDockerStatus}
+              title={t("chat.sandboxMode.setupTitle", {
+                defaultValue: "配置 Docker 后启用沙箱",
+              })}
+            />
+          )}
         </div>
 
         <div className="border-t border-border/50" />

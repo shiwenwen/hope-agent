@@ -10,15 +10,14 @@ import { Switch } from "@/components/ui/switch"
 import {
   Circle,
   Download,
-  ExternalLink,
   Loader2,
   Play,
-  RefreshCw,
   RotateCw,
   Square,
   Trash2,
 } from "lucide-react"
 import type { SearxngDockerStatus } from "./types"
+import { DockerSetupHint } from "../DockerSetupHint"
 
 export function SearxngDockerSection({
   onUrlSet,
@@ -232,57 +231,23 @@ export function SearxngDockerSection({
   if (!status) return null
 
   if (!status.dockerInstalled) {
-    const openExt = (url: string) => getTransport().call("open_url", { url })
-    const alternatives: Array<{ label: string; url: string }> = [
-      { label: "colima", url: "https://github.com/abiosoft/colima" },
-      { label: "OrbStack", url: "https://orbstack.dev" },
-      { label: "Rancher Desktop", url: "https://rancherdesktop.io" },
-      { label: "Linux dockerd", url: "https://docs.docker.com/engine/install/" },
-    ]
     return (
-      <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
-        <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
-        <p className="text-xs text-muted-foreground">{t("settings.webSearchDockerNotInstalled")}</p>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 text-xs"
-          onClick={() => openExt("https://www.docker.com/products/docker-desktop/")}
-        >
-          <ExternalLink className="h-3 w-3 mr-1" />
-          {t("settings.webSearchDockerInstall")}
-        </Button>
-        <div className="text-[11px] text-muted-foreground leading-relaxed pt-0.5">
-          {t("settings.webSearchDockerAlternatives")}{" "}
-          {alternatives.map((item, idx) => (
-            <span key={item.label}>
-              {idx > 0 && <span className="mx-1 opacity-60">·</span>}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="inline h-auto rounded-none px-0 py-0 text-[11px] font-normal align-baseline underline decoration-dotted underline-offset-2 hover:bg-transparent hover:text-primary"
-                onClick={() => openExt(item.url)}
-              >
-                {item.label}
-              </Button>
-            </span>
-          ))}
-        </div>
-      </div>
+      <DockerSetupHint
+        status={{ installed: false, running: false, hostOs: status.hostOs }}
+        title={t("settings.webSearchDockerTitle")}
+        className="mt-1"
+      />
     )
   }
 
   if (status.dockerNotRunning) {
     return (
-      <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
-        <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
-        <p className="text-xs text-muted-foreground">{t("settings.webSearchDockerNotRunning")}</p>
-        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={refreshStatus}>
-          <RefreshCw className="h-3 w-3 mr-1" />
-          {t("settings.webSearchDockerRefresh")}
-        </Button>
-      </div>
+      <DockerSetupHint
+        status={{ installed: true, running: false, hostOs: status.hostOs }}
+        onRefresh={refreshStatus}
+        title={t("settings.webSearchDockerTitle")}
+        className="mt-1"
+      />
     )
   }
 

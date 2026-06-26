@@ -788,6 +788,7 @@ mod tests {
             parent_session_id: None,
             plan_mode: Default::default(),
             permission_mode: Default::default(),
+            sandbox_mode: Default::default(),
             project_id: None,
             channel_info: None,
             incognito: false,

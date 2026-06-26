@@ -1158,6 +1158,12 @@ pub async fn set_sandbox_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/sandbox/status` -- check Docker availability on the host
+/// where the backend is running.
+pub async fn get_sandbox_status() -> Result<Json<ha_core::sandbox::DockerStatus>, AppError> {
+    Ok(Json(ha_core::sandbox::check_sandbox_available().await))
+}
+
 // ── Behavior Awareness ──────────────────────────────────────────
 
 /// `GET /api/config/awareness` -- global behavior awareness config.

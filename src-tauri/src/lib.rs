@@ -203,6 +203,7 @@ pub fn run() {
             commands::tasks::update_task_status,
             commands::tasks::delete_task,
             commands::chat::set_permission_mode,
+            commands::chat::set_sandbox_mode,
             // Command approval
             commands::chat::respond_to_approval,
             // System prompt

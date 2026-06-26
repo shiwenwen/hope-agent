@@ -515,15 +515,18 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 
 ### Sandbox Mode
 
-**触发条件**：`config.behavior.sandbox == true`
+**触发条件**：当前 `sessions.sandbox_mode != off`；没有 `session_id` 的构建路径才回落到 `AgentConfig.capabilities.effective_default_sandbox_mode()`。
 
 **注入内容**：
 
-- 所有 exec 自动在 Docker 容器内执行
-- 只读根文件系统（/workspace, /tmp, /var/tmp, /run 可写）
-- 无网络访问
-- 所有 Linux capabilities 已 drop
-- 进程数限制
+- 当前会话沙箱模式和当前模式的一句话行为
+- `exec` 按 session policy 自动在 Docker 容器内执行，无需额外传 `sandbox=true`
+- 当前 `SandboxConfig` 快照：镜像、Docker network mode、rootfs 读写状态、capability policy、no-new-privileges、PID limit、tmpfs mount
+- 当前工作目录在容器内挂载为 `/workspace`，持久化语义由 `standard` / `isolated` / `workspace` / `trusted` 决定
+- 四种非 `off` 模式的差异：`standard` 不放松审批、`isolated` 临时副本不持久化、`workspace` 真实工作区挂载并放松部分软审批、`trusted` 沙箱内最大自治但 strict 仍审批
+- 安全/持久化边界：sandbox 不是权限绕过；`write` / `edit` / `apply_patch` 仍是 host-side durable file tools；需要网络或宿主权限时按当前 `SandboxConfig` 和 strict 规则解释限制
+
+**边界**：该段是模型行为提示，不是安全边界。实际执行位置以当前 `SessionMeta.sandbox_mode` 经 `ToolExecContext.sandbox_mode` 传入工具执行层为准；会话可在创建后切换 sandbox mode。
 
 ### ACP External Agents
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use ha_core::agent::Attachment;
 use ha_core::chat_engine::{ChatEngineParams, EventSink, NoopEventSink};
-use ha_core::permission::SessionMode;
+use ha_core::permission::{SandboxMode, SessionMode};
 use ha_core::provider::{self, ActiveModel};
 use ha_core::session;
 use ha_core::tools;
@@ -44,6 +44,10 @@ pub struct ChatRequest {
     /// `permission_mode` column is updated before chat starts.
     #[serde(default)]
     pub permission_mode: Option<SessionMode>,
+    /// Per-session sandbox mode. When provided, the session's
+    /// `sandbox_mode` column is updated before chat starts.
+    #[serde(default)]
+    pub sandbox_mode: Option<SandboxMode>,
     #[serde(default)]
     pub temperature_override: Option<f64>,
     #[serde(default)]
@@ -229,9 +233,10 @@ pub async fn chat(
 ) -> Result<Json<ChatResponse>, AppError> {
     let db = ctx.session_db.clone();
 
-    // `permission_mode` body field is consumed below after we resolve the
+    // Per-session mode fields are consumed below after we resolve the
     // session id (we need a session_id to persist).
     let permission_mode_pending = body.permission_mode;
+    let sandbox_mode_pending = body.sandbox_mode;
 
     // Resolve agent ID. Explicit caller wins; otherwise existing sessions use
     // their stored agent, while new sessions inherit the app-wide default.
@@ -303,6 +308,10 @@ pub async fn chat(
     // Persist per-session permission mode if the body included one.
     if let Some(mode) = permission_mode_pending {
         db.update_session_permission_mode(&sid, mode)
+            .map_err(|e| AppError::bad_request(e.to_string()))?;
+    }
+    if let Some(mode) = sandbox_mode_pending {
+        db.update_session_sandbox_mode(&sid, mode)
             .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
 
@@ -768,6 +777,13 @@ pub struct PermissionModeBody {
     pub session_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxModeBody {
+    pub mode: SandboxMode,
+    pub session_id: String,
+}
+
 /// `POST /api/chat/permission-mode` — set the per-session permission mode.
 /// Persisted to the `sessions.permission_mode` column.
 pub async fn set_permission_mode(
@@ -779,6 +795,27 @@ pub async fn set_permission_mode(
     }
     ctx.session_db
         .update_session_permission_mode(&body.session_id, body.mode)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /api/chat/sandbox-mode` — set the per-session sandbox mode.
+/// Persisted to the `sessions.sandbox_mode` column.
+pub async fn set_sandbox_mode(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<SandboxModeBody>,
+) -> Result<Json<Value>, AppError> {
+    if body.session_id.is_empty() {
+        return Err(AppError::bad_request("sessionId required"));
+    }
+    ctx.session_db
+        .update_session_sandbox_mode(&body.session_id, body.mode)?;
+    ctx.event_bus.emit(
+        "sandbox:mode_changed",
+        json!({
+            "sessionId": body.session_id,
+            "mode": body.mode.as_str(),
+        }),
+    );
     Ok(Json(json!({ "ok": true })))
 }
 

@@ -228,6 +228,8 @@ export default function QuickChatWindow() {
             onCommandAction={handleCommandAction}
             permissionMode={stream.permissionMode}
             onPermissionModeChange={stream.setPermissionModeByUser}
+            sandboxMode={stream.sandboxMode}
+            onSandboxModeChange={stream.setSandboxModeByUser}
           />
         </div>
       </div>

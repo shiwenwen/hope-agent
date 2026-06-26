@@ -496,7 +496,7 @@ impl AssistantAgent {
         let caps = crate::agent_loader::load_agent(&self.agent_id)
             .map(|def| types::AgentCapsCache {
                 agent_tool_filter: def.config.capabilities.tools.clone(),
-                sandbox: def.config.capabilities.sandbox,
+                sandbox_mode: def.config.capabilities.effective_default_sandbox_mode(),
                 async_tool_policy: def.config.capabilities.async_tool_policy,
                 mcp_enabled: def.config.capabilities.mcp_enabled,
                 memory_enabled: def.config.memory.enabled,
@@ -1696,7 +1696,6 @@ impl AssistantAgent {
     ) -> tools::ToolExecContext {
         let caps = self.agent_caps();
         let agent_tool_filter = caps.agent_tool_filter.clone();
-        let force_sandbox = caps.sandbox;
         // Pull working_dir / permission_mode / project_id from a single
         // SessionMeta lookup — avoids 3 separate SQLite roundtrips per
         // tool round.
@@ -1707,6 +1706,10 @@ impl AssistantAgent {
             .as_ref()
             .and_then(crate::session::effective_working_dir_for_meta);
         let session_mode = meta.as_ref().map(|m| m.permission_mode).unwrap_or_default();
+        let sandbox_mode = meta
+            .as_ref()
+            .map(|m| m.sandbox_mode)
+            .unwrap_or(caps.sandbox_mode);
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
@@ -1723,7 +1726,8 @@ impl AssistantAgent {
             agent_tool_filter,
             denied_tools: self.denied_tools.clone(),
             skill_allowed_tools: self.skill_allowed_tools.clone(),
-            force_sandbox,
+            force_sandbox: sandbox_mode.enabled(),
+            sandbox_mode,
             // Load both ArcSwaps once per ctx build so the snapshot is
             // internally consistent with the schema build that just preceded
             // this dispatch (both go through `self.plan_agent_mode` /

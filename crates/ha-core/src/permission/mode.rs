@@ -42,6 +42,65 @@ impl SessionMode {
     }
 }
 
+/// Per-session sandbox posture. Stored in `sessions.sandbox_mode` and carried
+/// into the permission engine as a policy input; it never overrides Plan Mode,
+/// YOLO, protected paths, dangerous commands, or other strict gates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SandboxMode {
+    /// Execute tools on the host as before.
+    #[default]
+    Off,
+    /// Run exec commands in the configured Docker sandbox, without approval
+    /// relaxation. This preserves the legacy `capabilities.sandbox = true`
+    /// behavior.
+    Standard,
+    /// Run exec commands against an isolated temporary workspace copy.
+    Isolated,
+    /// Run exec commands in Docker with the current workspace mounted.
+    Workspace,
+    /// Maximize sandbox-side autonomy while strict host/secret/browser gates
+    /// still require approval.
+    Trusted,
+}
+
+impl SandboxMode {
+    /// `&str` matching the `#[serde(rename_all = "snake_case")]` encoding.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Standard => "standard",
+            Self::Isolated => "isolated",
+            Self::Workspace => "workspace",
+            Self::Trusted => "trusted",
+        }
+    }
+
+    /// Parse from DB / JSON string. Unknown values fall back to `Off`.
+    pub fn parse_or_default(s: &str) -> Self {
+        match s {
+            "standard" => Self::Standard,
+            "isolated" => Self::Isolated,
+            "workspace" => Self::Workspace,
+            "trusted" => Self::Trusted,
+            _ => Self::Off,
+        }
+    }
+
+    pub fn enabled(self) -> bool {
+        self != Self::Off
+    }
+
+    /// Whether this mode may reduce soft approval prompts after strict gates.
+    ///
+    /// `Isolated` intentionally does not relax approvals in v1: exec runs in a
+    /// temporary copy that is deleted after execution, so edit-command writes
+    /// would otherwise appear successful while silently discarding changes.
+    pub fn relaxes_soft_approvals(self) -> bool {
+        matches!(self, Self::Workspace | Self::Trusted)
+    }
+}
+
 /// How Smart mode reaches its decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -119,6 +178,44 @@ mod tests {
     #[test]
     fn session_mode_serde_matches_as_str() {
         for mode in [SessionMode::Default, SessionMode::Smart, SessionMode::Yolo] {
+            let via_serde = serde_json::to_value(mode)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(mode.as_str(), via_serde);
+        }
+    }
+
+    #[test]
+    fn sandbox_mode_as_str_round_trip() {
+        for mode in [
+            SandboxMode::Off,
+            SandboxMode::Standard,
+            SandboxMode::Isolated,
+            SandboxMode::Workspace,
+            SandboxMode::Trusted,
+        ] {
+            let s = mode.as_str();
+            assert_eq!(SandboxMode::parse_or_default(s), mode);
+        }
+    }
+
+    #[test]
+    fn sandbox_mode_parse_unknown() {
+        assert_eq!(SandboxMode::parse_or_default("nonsense"), SandboxMode::Off);
+        assert_eq!(SandboxMode::parse_or_default(""), SandboxMode::Off);
+    }
+
+    #[test]
+    fn sandbox_mode_serde_matches_as_str() {
+        for mode in [
+            SandboxMode::Off,
+            SandboxMode::Standard,
+            SandboxMode::Isolated,
+            SandboxMode::Workspace,
+            SandboxMode::Trusted,
+        ] {
             let via_serde = serde_json::to_value(mode)
                 .unwrap()
                 .as_str()

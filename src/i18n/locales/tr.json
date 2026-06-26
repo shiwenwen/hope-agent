@@ -623,6 +623,29 @@
       "reloadBody": "Yüklü uzantı ana bilgisayarla eşleşmiyor. Gerçek Chrome'unuzun denetimini geri kazanmak için yeniden yükleyin.",
       "openSettings": "Ayarları aç",
       "dismiss": "Tekrar gösterme"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     }
   },
   "codexAuth": {
@@ -4846,7 +4869,9 @@
     "toolKnowledgeRecallName": "Bilgi Çağırma",
     "toolKnowledgeRecallDesc": "Belleği ve notları birlikte arar (iki sıralı bölüm).",
     "asyncToolsMergeWindow": "Tamamlanma birleştirme penceresi",
-    "asyncToolsMergeWindowDesc": "Aynı oturumdaki birden fazla arka plan görevi bu pencere içinde tamamlandığında, bunları tek bir enjeksiyon turunda birleştirir (ücretlendirilen turlardan tasarruf sağlar); devre dışı bırakmak için 0."
+    "asyncToolsMergeWindowDesc": "Aynı oturumdaki birden fazla arka plan görevi bu pencere içinde tamamlandığında, bunları tek bir enjeksiyon turunda birleştirir (ücretlendirilen turlardan tasarruf sağlar); devre dışı bırakmak için 0.",
+    "dockerSetupNotInstalled": "Docker was not detected. Choose a Docker option for this platform.",
+    "dockerSetupNotRunning": "Docker is installed but the daemon is not running. Start Docker and try again."
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",

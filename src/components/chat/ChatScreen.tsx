@@ -28,6 +28,7 @@ import type {
   AvailableModel,
   Message,
   SessionMode,
+  SandboxMode,
 } from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
@@ -244,6 +245,16 @@ function clampResponsiveRightPanelWidth(width: number): number {
 
 function isSessionMode(value: unknown): value is SessionMode {
   return value === "default" || value === "smart" || value === "yolo"
+}
+
+function isSandboxMode(value: unknown): value is SandboxMode {
+  return (
+    value === "off" ||
+    value === "standard" ||
+    value === "isolated" ||
+    value === "workspace" ||
+    value === "trusted"
+  )
 }
 
 function readActionString(action: object, camelKey: string, snakeKey: string): string | null {
@@ -1289,6 +1300,15 @@ export default function ChatScreen({
     }
   }, [refreshRuntimeModelState])
 
+  const handleSandboxModeSynced = useCallback(
+    (sessionId: string, mode: SandboxMode) => {
+      updateSessionMeta(sessionId, (prev) =>
+        prev.sandboxMode === mode ? prev : { ...prev, sandboxMode: mode },
+      )
+    },
+    [updateSessionMeta],
+  )
+
   // ── Stream Hook ─────────────────────────────────────────────
   const stream = useChatStream({
     messages: session.messages,
@@ -1319,6 +1339,7 @@ export default function ChatScreen({
     draftWorkingDir,
     draftProjectId,
     draftKbAttachments,
+    onSandboxModeSynced: handleSandboxModeSynced,
   })
 
   useEffect(() => {
@@ -1331,36 +1352,23 @@ export default function ChatScreen({
       updateSessionMeta(sessionId, (prev) =>
         prev.permissionMode === mode ? prev : { ...prev, permissionMode: mode },
       )
-      if (sessionId === currentSessionId) {
-        stream.setPermissionMode(mode)
-      }
       void reloadSessions()
     })
-  }, [currentSessionId, reloadSessions, stream.setPermissionMode, updateSessionMeta])
+  }, [reloadSessions, updateSessionMeta])
 
-  // Restore the per-session permission mode on session switch. The ref
-  // guards against re-applying when `sessions` later reloads with the same
-  // sid — that would clobber the user's in-session edits. When `sid` becomes
-  // null (new-chat transition), reset to "default" so the previous session's
-  // `yolo` / `smart` doesn't bleed into a fresh chat.
-  const restoredModeForSidRef = useRef<string | null>(null)
   useEffect(() => {
-    const sid = session.currentSessionId
-    if (!sid) {
-      if (restoredModeForSidRef.current !== null) {
-        stream.setPermissionMode("default")
-      }
-      restoredModeForSidRef.current = null
-      return
-    }
-    if (restoredModeForSidRef.current === sid) return
-    const meta = session.sessions.find((s) => s.id === sid)
-    if (!meta) return // wait until the sessions list has the meta
-    const mode: SessionMode = meta.permissionMode ?? "default"
-    restoredModeForSidRef.current = sid
-    stream.setPermissionMode(mode)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.currentSessionId, session.sessions, stream.setPermissionMode])
+    return getTransport().listen("sandbox:mode_changed", (payload) => {
+      const data = payload as { sessionId?: unknown; mode?: unknown }
+      if (typeof data.sessionId !== "string" || !isSandboxMode(data.mode)) return
+      const sessionId = data.sessionId
+      const mode = data.mode
+
+      updateSessionMeta(sessionId, (prev) =>
+        prev.sandboxMode === mode ? prev : { ...prev, sandboxMode: mode },
+      )
+      void reloadSessions()
+    })
+  }, [reloadSessions, updateSessionMeta])
 
   // Consume a token injection from a global view: `@plan:xxx` from Plans, or a
   // `[[note]]` ref from Knowledge. Append once with a leading space, then notify
@@ -2642,6 +2650,8 @@ export default function ChatScreen({
                       onCommandAction={handleCommandAction}
                       permissionMode={stream.permissionMode}
                       onPermissionModeChange={stream.setPermissionModeByUser}
+                      sandboxMode={stream.sandboxMode}
+                      onSandboxModeChange={stream.setSandboxModeByUser}
                       sessionTemperature={sessionTemperature}
                       onSessionTemperatureChange={setSessionTemperature}
                       incognitoEnabled={incognitoEnabled}

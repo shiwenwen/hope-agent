@@ -185,9 +185,9 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 ### 工具 & 审批
 
-详见 [`permission-system.md`](docs/architecture/permission-system.md) / [`tool-system.md`](docs/architecture/tool-system.md) / [`browser.md`](docs/architecture/browser.md)（浏览器 8-action 表面 + 双 backend）。
+详见 [`permission-system.md`](docs/architecture/permission-system.md) / [`tool-system.md`](docs/architecture/tool-system.md) / [`sandbox.md`](docs/architecture/sandbox.md) / [`browser.md`](docs/architecture/browser.md)（浏览器 8-action 表面 + 双 backend）。
 
-- **统一权限引擎 v2**：所有调用走 `permission::engine::resolve_async()`，优先级 **Plan > Internal > YOLO > Protected/Dangerous > AllowAlways > Session 模式 preset > 兜底 Allow**
+- **统一权限引擎 v2**：所有调用走 `permission::engine::resolve_async()`，优先级 **Plan > Internal > YOLO > Protected/Dangerous > AllowAlways > Sandbox soft allow > Session 模式 preset > 兜底 Allow**
 - **Session 模式三选一**：`default | smart | yolo`，`PermissionModeSwitcher` / `/permission` 切换；`AgentConfig.capabilities.default_session_permission_mode` 决定新会话初始 mode
 - **Smart 模式忽略 `custom_approval_tools`**——UI 必须显式提示
 - **保护路径 / 危险命令 / 编辑命令**：三独立列表，存 `~/.hope-agent/permission/*.json`；非 YOLO 模式强制弹窗（AllowAlways 按钮置灰），YOLO 只 `app_warn!` 不弹

@@ -640,11 +640,18 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let use_pty = args.get("pty").and_then(|v| v.as_bool()).unwrap_or(false);
-    let sandbox = ctx.force_sandbox
-        || args
-            .get("sandbox")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+    let requested_sandbox = args
+        .get("sandbox")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let sandbox_mode = if ctx.sandbox_mode.enabled() {
+        ctx.sandbox_mode
+    } else if ctx.force_sandbox || requested_sandbox {
+        crate::permission::SandboxMode::Standard
+    } else {
+        crate::permission::SandboxMode::Off
+    };
+    let sandbox = sandbox_mode.enabled();
 
     let yield_ms = args
         .get("yield_ms")
@@ -654,6 +661,10 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     let max_output = compute_max_output_chars(ctx.context_window_tokens);
     let session_cwd = cwd.clone().unwrap_or_else(|| ctx.default_cwd());
+
+    if sandbox {
+        crate::sandbox::ensure_sandbox_available().await?;
+    }
 
     app_info!(
         "tool",
@@ -682,7 +693,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             Some(
                 serde_json::json!({
                     "cwd": &session_cwd, "explicitCwd": &cwd, "timeout": timeout_secs,
-                    "background": background, "pty": use_pty, "sandbox": sandbox,
+                    "background": background, "pty": use_pty, "sandbox": sandbox, "sandboxMode": sandbox_mode.as_str(),
                 })
                 .to_string(),
             ),
@@ -798,13 +809,14 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             }
 
             tokio::spawn(async move {
-                let result = crate::sandbox::exec_in_sandbox(
+                let result = crate::sandbox::exec_in_sandbox_mode(
                     &cmd_owned,
                     &cwd_owned,
                     env_owned.as_ref(),
                     &config_owned,
                     timeout_secs,
                     cancellation_token,
+                    sandbox_mode,
                 )
                 .await;
 
@@ -838,13 +850,14 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         }
 
         // Synchronous sandbox execution
-        match crate::sandbox::exec_in_sandbox(
+        match crate::sandbox::exec_in_sandbox_mode(
             command,
             &session_cwd,
             env_map,
             &sandbox_config,
             timeout_secs,
             ctx.cancellation_token.clone(),
+            sandbox_mode,
         )
         .await
         {

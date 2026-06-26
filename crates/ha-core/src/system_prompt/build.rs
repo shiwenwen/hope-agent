@@ -298,21 +298,17 @@ pub fn build(
     }
 
     // ⑪ Sandbox mode (conditionally injected)
-    if definition.config.capabilities.sandbox {
-        sections.push(
-            "# Sandbox Mode\n\n\
-             All commands you execute via the `exec` tool will automatically run inside a Docker sandbox container.\n\
-             You do NOT need to pass `sandbox=true` — it is enforced by your agent configuration.\n\n\
-             Sandbox properties:\n\
-             - Read-only root filesystem (only /workspace, /tmp, /var/tmp, /run are writable)\n\
-             - No network access (network mode: none)\n\
-             - All Linux capabilities dropped\n\
-             - Process count limited\n\
-             - Your working directory is mounted at /workspace inside the container\n\n\
-             If a command needs to write temporary files, use /tmp. \
-             If a command requires network access or special privileges, inform the user that it cannot run in sandbox mode."
-                .to_string(),
-        );
+    let sandbox_mode = session_id
+        .and_then(|sid| crate::session::lookup_session_meta(Some(sid)).map(|m| m.sandbox_mode))
+        .unwrap_or_else(|| {
+            definition
+                .config
+                .capabilities
+                .effective_default_sandbox_mode()
+        });
+    if sandbox_mode.enabled() {
+        let sandbox_config = crate::sandbox::load_sandbox_config().unwrap_or_default();
+        sections.push(build_sandbox_mode_section(sandbox_mode, &sandbox_config));
     }
 
     // ⑬ ACP external agent delegation (conditionally injected)
@@ -745,6 +741,70 @@ mod memory_section_tests {
         assert!(
             out.contains("## Memory Guidelines"),
             "Guidelines must survive under budget pressure"
+        );
+    }
+
+    #[test]
+    fn sandbox_prompt_explains_isolated_persistence_boundary() {
+        let config = crate::sandbox::SandboxConfig::default();
+        let out = build_sandbox_mode_section(crate::permission::SandboxMode::Isolated, &config);
+        assert!(
+            out.contains("Current session sandbox mode: `isolated`"),
+            "current mode should be explicit: {out}"
+        );
+        assert!(
+            out.contains("temporary workspace copy"),
+            "isolated mode must explain the temp workspace: {out}"
+        );
+        assert!(
+            out.contains("command-created file changes are not durable"),
+            "isolated mode must warn about discarded command-created files: {out}"
+        );
+    }
+
+    #[test]
+    fn sandbox_prompt_explains_file_tools_are_host_side() {
+        let config = crate::sandbox::SandboxConfig::default();
+        let out = build_sandbox_mode_section(crate::permission::SandboxMode::Workspace, &config);
+        assert!(
+            out.contains("Current session sandbox mode: `workspace`"),
+            "current mode should be explicit: {out}"
+        );
+        assert!(
+            out.contains("Direct file tools such as `write`, `edit`, and `apply_patch`"),
+            "prompt must name durable host-side file tools: {out}"
+        );
+        assert!(
+            out.contains("not automatically sandboxed by the mode"),
+            "prompt must prevent over-generalizing sandbox mode to file tools: {out}"
+        );
+    }
+
+    #[test]
+    fn sandbox_prompt_reflects_current_docker_config() {
+        let config = crate::sandbox::SandboxConfig {
+            image: "custom:latest".to_string(),
+            read_only: false,
+            network_mode: "bridge".to_string(),
+            cap_drop_all: false,
+            no_new_privileges: false,
+            pids_limit: None,
+            tmpfs: Vec::new(),
+            ..crate::sandbox::SandboxConfig::default()
+        };
+        let out = build_sandbox_mode_section(crate::permission::SandboxMode::Trusted, &config);
+        assert!(out.contains("Container image: `custom:latest`"), "{out}");
+        assert!(out.contains("Docker network mode: `bridge`"), "{out}");
+        assert!(out.contains("Container root filesystem: writable"), "{out}");
+        assert!(
+            out.contains("Linux capabilities are not globally dropped"),
+            "{out}"
+        );
+        assert!(out.contains("no-new-privileges is disabled"), "{out}");
+        assert!(out.contains("PID limit: unlimited"), "{out}");
+        assert!(
+            !out.contains("no network, a read-only root filesystem"),
+            "prompt must not hard-code the default sandbox constraints: {out}"
         );
     }
 

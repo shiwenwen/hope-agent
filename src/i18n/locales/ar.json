@@ -623,6 +623,29 @@
       "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
       "openSettings": "فتح الإعدادات",
       "dismiss": "عدم الإظهار مرة أخرى"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     }
   },
   "codexAuth": {
@@ -4846,7 +4869,9 @@
     "toolKnowledgeRecallName": "استرجاع المعرفة",
     "toolKnowledgeRecallDesc": "بحث في الذاكرة والملاحظات معًا (قسمان مرتّبان).",
     "asyncToolsMergeWindow": "نافذة دمج الإكمال",
-    "asyncToolsMergeWindowDesc": "عند انتهاء عدة مهام خلفية في الجلسة نفسها خلال هذه النافذة، يتم دمجها في جولة حقن واحدة (لتوفير الجولات المحاسَبة)؛ اضبط على 0 للتعطيل."
+    "asyncToolsMergeWindowDesc": "عند انتهاء عدة مهام خلفية في الجلسة نفسها خلال هذه النافذة، يتم دمجها في جولة حقن واحدة (لتوفير الجولات المحاسَبة)؛ اضبط على 0 للتعطيل.",
+    "dockerSetupNotInstalled": "Docker was not detected. Choose a Docker option for this platform.",
+    "dockerSetupNotRunning": "Docker is installed but the daemon is not running. Start Docker and try again."
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",

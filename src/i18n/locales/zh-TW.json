@@ -623,6 +623,29 @@
       "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
       "openSettings": "前往設定",
       "dismiss": "不再顯示"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔離副本試跑，編輯審批不放鬆",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "掛載目前工作區，減少編輯命令審批",
+        "label": "Workspace Sandbox"
+      }
     }
   },
   "codexAuth": {
@@ -4846,7 +4869,9 @@
     "toolKnowledgeRecallName": "知識召回",
     "toolKnowledgeRecallDesc": "同時檢索記憶與筆記兩個庫（分兩段回傳）。",
     "asyncToolsMergeWindow": "完成合併視窗",
-    "asyncToolsMergeWindowDesc": "當同一工作階段中的多項背景任務在此視窗內完成時，將其合併為一次注入回合（節省計費回合）；設為 0 可停用。"
+    "asyncToolsMergeWindowDesc": "當同一工作階段中的多項背景任務在此視窗內完成時，將其合併為一次注入回合（節省計費回合）；設為 0 可停用。",
+    "dockerSetupNotInstalled": "Docker was not detected. Choose a Docker option for this platform.",
+    "dockerSetupNotRunning": "Docker is installed but the daemon is not running. Start Docker and try again."
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",

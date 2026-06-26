@@ -14,14 +14,11 @@ import {
   SelectItem,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { Check, Loader2, CircleCheck, CircleX, ExternalLink, RefreshCw } from "lucide-react"
+import { Check, Loader2, CircleCheck, CircleX } from "lucide-react"
+import { DockerSetupHint } from "./DockerSetupHint"
+import type { DockerStatus } from "./dockerSetup"
 
 // ── Types ────────────────────────────────────────────────────────
-
-interface DockerStatus {
-  installed: boolean
-  running: boolean
-}
 
 interface SandboxConfig {
   image: string
@@ -137,43 +134,11 @@ export default function SandboxPanel() {
 
         {/* Docker not available hint */}
         {dockerStatus && !dockerAvailable && (
-          <div className="rounded-md border border-border/50 p-3 space-y-2">
-            {!dockerStatus.installed ? (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.sandboxDockerNotInstalled")}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={() =>
-                    getTransport().call("open_url", {
-                      url: "https://www.docker.com/products/docker-desktop/",
-                    })
-                  }
-                >
-                  <ExternalLink className="h-3 w-3 mr-1" />
-                  {t("settings.sandboxDockerInstall")}
-                </Button>
-              </>
-            ) : (
-              <>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.sandboxDockerNotRunning")}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 text-xs"
-                  onClick={refreshDockerStatus}
-                >
-                  <RefreshCw className="h-3 w-3 mr-1" />
-                  {t("settings.sandboxDockerRefresh")}
-                </Button>
-              </>
-            )}
-          </div>
+          <DockerSetupHint
+            status={dockerStatus}
+            onRefresh={refreshDockerStatus}
+            title={t("settings.sandboxDockerUnavailable")}
+          />
         )}
 
         {/* Container Image */}

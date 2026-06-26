@@ -10,6 +10,8 @@ pub struct SearxngDockerStatus {
     pub docker_installed: bool,
     /// Docker CLI exists but daemon is not running
     pub docker_not_running: bool,
+    /// Host OS where the backend checks Docker.
+    pub host_os: String,
     pub container_exists: bool,
     pub container_running: bool,
     pub port: Option<u16>,
@@ -61,6 +63,7 @@ async fn status_inner() -> SearxngDockerStatus {
     let empty_status = SearxngDockerStatus {
         docker_installed: false,
         docker_not_running: false,
+        host_os: crate::sandbox::host_os().to_string(),
         container_exists: false,
         container_running: false,
         port: None,
@@ -113,6 +116,7 @@ async fn status_inner() -> SearxngDockerStatus {
 
     SearxngDockerStatus {
         docker_installed: true,
+        host_os: crate::sandbox::host_os().to_string(),
         docker_not_running: false,
         container_exists,
         container_running,

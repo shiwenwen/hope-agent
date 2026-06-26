@@ -623,6 +623,29 @@
       "reloadBody": "A extensão instalada não corresponde ao host. Recarregue-a para restaurar o controle do seu Chrome real.",
       "openSettings": "Abrir configurações",
       "dismiss": "Não mostrar novamente"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     }
   },
   "codexAuth": {
@@ -4846,7 +4869,9 @@
     "toolKnowledgeRecallName": "Recuperar Conhecimento",
     "toolKnowledgeRecallDesc": "Busca memória e notas em conjunto (duas seções classificadas).",
     "asyncToolsMergeWindow": "Janela de mesclagem ao concluir",
-    "asyncToolsMergeWindowDesc": "Quando várias tarefas em segundo plano da mesma sessão forem concluídas dentro desta janela, mescle-as em um único turno de injeção (economiza turnos cobrados); 0 para desativar."
+    "asyncToolsMergeWindowDesc": "Quando várias tarefas em segundo plano da mesma sessão forem concluídas dentro desta janela, mescle-as em um único turno de injeção (economiza turnos cobrados); 0 para desativar.",
+    "dockerSetupNotInstalled": "Docker was not detected. Choose a Docker option for this platform.",
+    "dockerSetupNotRunning": "Docker is installed but the daemon is not running. Start Docker and try again."
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",

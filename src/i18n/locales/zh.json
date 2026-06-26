@@ -484,6 +484,29 @@
         "label": "完全放行"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔离副本试跑，编辑审批不放松",
+        "label": "隔离沙箱"
+      },
+      "off": {
+        "desc": "在宿主机执行，审批逻辑不变",
+        "label": "关闭沙箱"
+      },
+      "setupTitle": "配置 Docker 后启用沙箱",
+      "standard": {
+        "desc": "在 Docker 沙箱执行，审批不放松",
+        "label": "标准沙箱"
+      },
+      "trusted": {
+        "desc": "沙箱内 exec 最大自治，严格风险仍审批",
+        "label": "信任沙箱"
+      },
+      "workspace": {
+        "desc": "挂载当前工作区，减少编辑命令审批",
+        "label": "工作区沙箱"
+      }
+    },
     "pickSession": "选择会话",
     "profileRotationTitle": "配置切换",
     "queueMessage": "排队发送",
@@ -4001,6 +4024,8 @@
     "sandboxDockerNotRunning": "Docker 已安装但未启动，请先启动 Docker Desktop",
     "sandboxDockerRefresh": "重新检测",
     "sandboxDockerUnavailable": "Docker 不可用",
+    "dockerSetupNotInstalled": "未检测到 Docker。请选择适合当前平台的 Docker 方案。",
+    "dockerSetupNotRunning": "Docker 已安装但守护进程未运行。请先启动 Docker 后重试。",
     "sandboxImage": "镜像",
     "sandboxImageDesc": "沙箱容器使用的 Docker 镜像",
     "sandboxMemoryLimit": "内存限制",

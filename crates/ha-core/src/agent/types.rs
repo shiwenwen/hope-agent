@@ -4,6 +4,7 @@ use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
 use crate::agent_config::{AsyncToolPolicy, FilterConfig};
+use crate::permission::SandboxMode;
 use crate::provider::ThinkingStyle;
 
 /// Snapshot of the fields read from `agent.json` on every chat / tool-loop
@@ -13,7 +14,7 @@ use crate::provider::ThinkingStyle;
 pub(super) struct AgentCapsCache {
     /// Per-agent non-Core tool switch overrides.
     pub agent_tool_filter: FilterConfig,
-    pub sandbox: bool,
+    pub sandbox_mode: SandboxMode,
     pub async_tool_policy: AsyncToolPolicy,
     /// Per-agent MCP master switch (mirrors `agent.json` `capabilities.mcpEnabled`).
     /// When false, all MCP tools are excluded from schema + system prompt.
@@ -32,7 +33,7 @@ pub(super) struct AgentCapsCache {
 impl Default for AgentCapsCache {
     fn default() -> Self {
         Self {
-            sandbox: false,
+            sandbox_mode: SandboxMode::Off,
             async_tool_policy: AsyncToolPolicy::default(),
             mcp_enabled: true,
             agent_tool_filter: FilterConfig::default(),

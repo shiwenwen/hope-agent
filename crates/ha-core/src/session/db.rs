@@ -76,7 +76,8 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
-           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count,
+           s.sandbox_mode
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -471,6 +472,38 @@ impl SessionDB {
             conn.execute_batch(
                 "ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';",
             )?;
+        }
+
+        // Migration: per-session sandbox mode
+        // (off | standard | isolated | workspace | trusted). Existing rows
+        // default to `off`, then legacy agents whose default sandbox setting is
+        // enabled are backfilled to that effective default so upgrades preserve
+        // the old `capabilities.sandbox=true` behavior.
+        let has_sandbox_mode = conn
+            .prepare("SELECT sandbox_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_sandbox_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN sandbox_mode TEXT NOT NULL DEFAULT 'off';",
+            )?;
+            let mut stmt = conn.prepare("SELECT DISTINCT agent_id FROM sessions")?;
+            let agent_ids = stmt
+                .query_map([], |row| row.get::<_, String>(0))?
+                .filter_map(std::result::Result::ok)
+                .collect::<Vec<_>>();
+            drop(stmt);
+            for agent_id in agent_ids {
+                let mode = crate::agent_loader::load_agent(&agent_id)
+                    .ok()
+                    .map(|def| def.config.capabilities.effective_default_sandbox_mode())
+                    .unwrap_or_default();
+                if mode.enabled() {
+                    conn.execute(
+                        "UPDATE sessions SET sandbox_mode = ?1 WHERE agent_id = ?2",
+                        params![mode.as_str(), agent_id],
+                    )?;
+                }
+            }
         }
 
         // Migration: optional sidebar pin timestamp. NULL means unpinned;
@@ -1041,9 +1074,16 @@ impl SessionDB {
         // pre-INSERT UI, but that path is skipped once a session row exists, so
         // pre-materialized sessions relied entirely on this.) Falls back to
         // `Default` when the agent config is missing or the field is unset.
-        let initial_permission_mode = crate::agent_loader::load_agent(agent_id)
-            .ok()
+        // Sandbox mode follows the same create-time inheritance model, with the
+        // legacy `capabilities.sandbox=true` mapping to `standard`.
+        let agent_definition = crate::agent_loader::load_agent(agent_id).ok();
+        let initial_permission_mode = agent_definition
+            .as_ref()
             .and_then(|def| def.config.capabilities.default_session_permission_mode)
+            .unwrap_or_default();
+        let initial_sandbox_mode = agent_definition
+            .as_ref()
+            .map(|def| def.config.capabilities.effective_default_sandbox_mode())
             .unwrap_or_default();
 
         let conn = self
@@ -1051,9 +1091,9 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, permission_mode, incognito)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, agent_id, now, now, parent_session_id, project_id, initial_permission_mode.as_str(), incognito],
+            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, permission_mode, sandbox_mode, incognito)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, agent_id, now, now, parent_session_id, project_id, initial_permission_mode.as_str(), initial_sandbox_mode.as_str(), incognito],
         )?;
 
         Ok(SessionMeta {
@@ -1077,6 +1117,7 @@ impl SessionDB {
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: crate::plan::PlanModeState::Off,
             permission_mode: initial_permission_mode,
+            sandbox_mode: initial_sandbox_mode,
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
             incognito,
@@ -1710,7 +1751,7 @@ impl SessionDB {
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
             unread_count: row.get(9)?,
-            // Appended as the last SELECT column (index 27) to keep the locked
+            // Appended near the end of SELECT (index 27) to keep the locked
             // 0..26 positions above stable.
             channel_unread_count: row.get(27)?,
             pending_interaction_count: 0,
@@ -1725,6 +1766,10 @@ impl SessionDB {
             permission_mode: row
                 .get::<_, String>(15)
                 .map(|s| crate::permission::SessionMode::parse_or_default(&s))
+                .unwrap_or_default(),
+            sandbox_mode: row
+                .get::<_, String>(28)
+                .map(|s| crate::permission::SandboxMode::parse_or_default(&s))
                 .unwrap_or_default(),
             incognito: row.get::<_, i64>(16).unwrap_or(0) != 0,
             channel_info,
@@ -2510,6 +2555,43 @@ impl SessionDB {
             Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
         };
         Ok(row.map(|s| crate::permission::SessionMode::parse_or_default(&s)))
+    }
+
+    /// Persist the session sandbox mode (`off` / `standard` / `isolated` /
+    /// `workspace` / `trusted`) so future tool calls use the selected execution
+    /// posture.
+    pub fn update_session_sandbox_mode(
+        &self,
+        session_id: &str,
+        mode: crate::permission::SandboxMode,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET sandbox_mode = ?1 WHERE id = ?2",
+            params![mode.as_str(), session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Narrow read of just `sessions.sandbox_mode`.
+    pub fn get_session_sandbox_mode(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::permission::SandboxMode>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT sandbox_mode FROM sessions WHERE id = ?1")?;
+        let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
+            Ok(s) => Some(s),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
+        };
+        Ok(row.map(|s| crate::permission::SandboxMode::parse_or_default(&s)))
     }
 
     /// Persist the session-scoped incognito mode flag.
@@ -3684,6 +3766,40 @@ mod tests {
     }
 
     #[test]
+    fn session_sandbox_mode_round_trips() {
+        let db_path = temp_db_path("session-sandbox-mode");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        assert_eq!(
+            db.get_session_sandbox_mode(&session.id)
+                .expect("read default sandbox mode"),
+            Some(crate::permission::SandboxMode::Off)
+        );
+
+        db.update_session_sandbox_mode(&session.id, crate::permission::SandboxMode::Workspace)
+            .expect("update sandbox mode");
+
+        assert_eq!(
+            db.get_session_sandbox_mode(&session.id)
+                .expect("read updated sandbox mode"),
+            Some(crate::permission::SandboxMode::Workspace)
+        );
+        assert_eq!(
+            db.get_session(&session.id)
+                .expect("get session")
+                .expect("session exists")
+                .sandbox_mode,
+            crate::permission::SandboxMode::Workspace
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
     fn sessions_table_includes_incognito_column() {
         let db_path = temp_db_path("session-incognito-schema");
         let db = SessionDB::open(&db_path).expect("open session db");
@@ -3982,6 +4098,11 @@ mod tests {
             conn.prepare("SELECT pinned_at FROM sessions LIMIT 1")
                 .is_ok(),
             "expected pinned_at column to be added before pinned index creation"
+        );
+        assert!(
+            conn.prepare("SELECT sandbox_mode FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected sandbox_mode column to be added during migration"
         );
 
         let mut stmt = conn

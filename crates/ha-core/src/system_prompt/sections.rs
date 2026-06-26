@@ -166,6 +166,99 @@ pub(super) fn build_async_tools_section() -> Option<String> {
     ))
 }
 
+/// Build the sandbox guidance section. This is behavioral guidance only; the
+/// actual execution location and approvals are enforced by the tool layer.
+pub(super) fn build_sandbox_mode_section(
+    mode: crate::permission::SandboxMode,
+    config: &crate::sandbox::SandboxConfig,
+) -> String {
+    let current_behavior = match mode {
+        crate::permission::SandboxMode::Off => {
+            "sandbox mode is off; tools run on the host and approval behavior is unchanged."
+        }
+        crate::permission::SandboxMode::Standard => {
+            "`exec` runs in Docker with the workspace mounted; approval behavior is unchanged."
+        }
+        crate::permission::SandboxMode::Isolated => {
+            "`exec` runs in Docker against a temporary workspace copy; command-created file changes are discarded after the command finishes."
+        }
+        crate::permission::SandboxMode::Workspace => {
+            "`exec` runs in Docker with the real workspace mounted; routine edit commands inside the workspace may need fewer approvals."
+        }
+        crate::permission::SandboxMode::Trusted => {
+            "`exec` runs in Docker with the real workspace mounted and maximum sandbox-side autonomy; strict risks still require approval."
+        }
+    };
+    let rootfs = if config.read_only {
+        "read-only"
+    } else {
+        "writable"
+    };
+    let capabilities = if config.cap_drop_all {
+        "all Linux capabilities are dropped"
+    } else {
+        "Linux capabilities are not globally dropped"
+    };
+    let privilege = if config.no_new_privileges {
+        "no-new-privileges is enabled"
+    } else {
+        "no-new-privileges is disabled"
+    };
+    let pids = config
+        .pids_limit
+        .map(|limit| limit.to_string())
+        .unwrap_or_else(|| "unlimited".to_string());
+    let tmpfs = if config.read_only && !config.tmpfs.is_empty() {
+        format!("Writable tmpfs mounts: `{}`.", config.tmpfs.join("`, `"))
+    } else {
+        "Writable tmpfs mounts are not configured by the sandbox rootfs setting.".to_string()
+    };
+    let network_guidance = if config.network_mode == "none" {
+        "- This sandbox is configured without network access. If a task needs network access, explain the limitation instead of trying to work around it."
+    } else {
+        "- Network availability follows the configured Docker network mode. Do not assume host credentials, host secrets, or privileged host access are available."
+    };
+
+    format!(
+        "# Sandbox Mode\n\n\
+         Current session sandbox mode: `{}`.\n\
+         Current mode behavior: {}\n\n\
+         `exec` routing:\n\
+         - You do not need to pass `sandbox=true`; the session policy routes `exec` automatically when sandbox mode is enabled.\n\
+         - Sandboxed `exec` runs in Docker with the current sandbox configuration snapshot below.\n\n\
+         Current Docker sandbox configuration:\n\
+         - Container image: `{}`.\n\
+         - Docker network mode: `{}`.\n\
+         - Container root filesystem: {}.\n\
+         - Capability policy: {}.\n\
+         - Privilege escalation policy: {}.\n\
+         - PID limit: {}.\n\
+         - `/workspace` is the mounted working directory; durability depends on the selected sandbox mode.\n\
+         - {}\n\n\
+         Mode meanings:\n\
+         - `standard`: `exec` runs in Docker; approval behavior is unchanged.\n\
+         - `isolated`: `exec` runs in a temporary workspace copy; command-created file changes are not durable unless the app explicitly applies them back.\n\
+         - `workspace`: `exec` runs in Docker with the real workspace mounted; normal workspace edit commands may need fewer approvals.\n\
+         - `trusted`: like `workspace`, with maximum sandbox-side autonomy; strict risks still always require approval.\n\n\
+         Safety and persistence rules:\n\
+         - Sandbox mode is not a permission bypass. Protected paths, dangerous commands, secrets, Docker socket access, host escape attempts, raw browser/CDP access, privileged execution, and high-risk OS control can still require approval or be denied.\n\
+         - Direct file tools such as `write`, `edit`, and `apply_patch` are host-side durable operations; they are not automatically sandboxed by the mode. Use them only when the user wants real workspace changes, and expect normal approval behavior.\n\
+         - In `isolated`, do not rely on command-created files being preserved. Use isolated mode for inspection, experiments, and tests; for durable edits, explain that changes must be applied through the normal file-edit path.\n\
+         - If a task needs special host privileges, explain the limitation instead of trying to work around the sandbox.\n\
+         {}",
+        mode.as_str(),
+        current_behavior,
+        config.image,
+        config.network_mode,
+        rootfs,
+        capabilities,
+        privilege,
+        pids,
+        tmpfs,
+        network_guidance
+    )
+}
+
 /// Build skills section, filtered by agent config.
 ///
 /// When `session_id` is provided, `paths:` skills activated for that session

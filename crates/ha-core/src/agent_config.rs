@@ -236,6 +236,12 @@ pub struct CapabilitiesConfig {
     #[serde(default)]
     pub sandbox: bool,
 
+    /// Default sandbox mode for new sessions opened under this agent.
+    /// `None` preserves legacy behavior: `sandbox=true` maps to `standard`,
+    /// otherwise `off`.
+    #[serde(default)]
+    pub default_sandbox_mode: Option<crate::permission::SandboxMode>,
+
     /// Whether to check skill runtime requirements before injecting into the
     /// system prompt. When true (default), hard blockers such as unsupported OS
     /// are excluded; recoverable missing dependencies remain visible and are
@@ -291,6 +297,18 @@ pub struct CapabilitiesConfig {
     pub default_session_permission_mode: Option<crate::permission::SessionMode>,
 }
 
+impl CapabilitiesConfig {
+    pub fn effective_default_sandbox_mode(&self) -> crate::permission::SandboxMode {
+        self.default_sandbox_mode.unwrap_or_else(|| {
+            if self.sandbox {
+                crate::permission::SandboxMode::Standard
+            } else {
+                crate::permission::SandboxMode::Off
+            }
+        })
+    }
+}
+
 fn default_max_rounds() -> u32 {
     0
 }
@@ -304,6 +322,7 @@ impl Default for CapabilitiesConfig {
         Self {
             max_tool_rounds: default_max_rounds(),
             sandbox: false,
+            default_sandbox_mode: None,
             skill_env_check: default_skill_env_check(),
             tools: FilterConfig::default(),
             skills: FilterConfig::default(),

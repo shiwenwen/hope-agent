@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::permission::SessionMode;
+use crate::permission::{SandboxMode, SessionMode};
 use crate::plan::PlanModeState;
 
 // Well-known keys for the `messages.attachments_meta` JSON column. Single
@@ -129,6 +129,11 @@ pub struct SessionMeta {
     /// string, matching the frontend `SessionMode` union.
     #[serde(default)]
     pub permission_mode: SessionMode,
+    /// Per-session sandbox mode (`off` / `standard` / `isolated` /
+    /// `workspace` / `trusted`). This affects where tools execute and may
+    /// reduce soft approval prompts without changing YOLO / Smart mode.
+    #[serde(default)]
+    pub sandbox_mode: SandboxMode,
     /// If this session belongs to a project, stores the project ID.
     /// Project-scoped memories and files are shared across all sessions in the project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -560,6 +565,7 @@ mod tests {
             parent_session_id: None,
             plan_mode: Default::default(),
             permission_mode: Default::default(),
+            sandbox_mode: Default::default(),
             project_id: None,
             channel_info: None,
             incognito: false,

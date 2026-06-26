@@ -18,6 +18,8 @@ import type {
   PendingSendPreview,
   ActiveModel,
   AgentSummaryForSidebar,
+  SandboxMode,
+  SessionMeta,
   SessionMode,
   ChatTurnStatus,
   ChatTurnInterruptReason,
@@ -167,7 +169,10 @@ export interface UseChatStreamOptions {
    *  don't otherwise route through `handleSwitchSession` (new-session
    *  rename in particular). */
   touchSessionCacheLru?: (sessionId: string) => void
-  sessions: { id: string; title?: string | null; workingDir?: string | null }[]
+  sessions: Pick<
+    SessionMeta,
+    "id" | "title" | "workingDir" | "permissionMode" | "sandboxMode"
+  >[]
   agents: AgentSummaryForSidebar[]
   activeModel: ActiveModel | null
   reloadSessions: () => Promise<void>
@@ -229,6 +234,8 @@ export interface UseChatStreamOptions {
    * that don't need it.
    */
   getExtraAttachments?: () => ChatAttachment[]
+  /** Called after a persisted session sandbox-mode update succeeds. */
+  onSandboxModeSynced?: (sessionId: string, mode: SandboxMode) => void
 }
 
 export interface UseChatStreamReturn {
@@ -253,6 +260,10 @@ export interface UseChatStreamReturn {
   /** User-initiated permission-mode change (switcher / `/permission`). Marks the
    *  draft dirty so a new session's first send carries the chosen mode. */
   setPermissionModeByUser: React.Dispatch<React.SetStateAction<SessionMode>>
+  sandboxMode: SandboxMode
+  setSandboxMode: React.Dispatch<React.SetStateAction<SandboxMode>>
+  /** User-initiated sandbox-mode change. Mirrors permission mode draft behavior. */
+  setSandboxModeByUser: React.Dispatch<React.SetStateAction<SandboxMode>>
   handleSend: (directText?: string, options?: SendOptions) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
@@ -300,6 +311,7 @@ export function useChatStream({
   draftKbAnchorNote = null,
   toolScope,
   getExtraAttachments,
+  onSandboxModeSynced,
 }: UseChatStreamOptions): UseChatStreamReturn {
   // Latest draft attaches, snapshotted into the startChat payload at send time
   // (mirrors how draftWorkingDir is baked into the create call) so a later
@@ -457,6 +469,8 @@ export function useChatStream({
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
   const permissionModeRef = useRef<SessionMode>("default")
+  const [sandboxMode, setSandboxModeState] = useState<SandboxMode>("off")
+  const sandboxModeRef = useRef<SandboxMode>("off")
   // Whether the user explicitly changed the permission mode in the current draft
   // (via the switcher / `/permission`), vs. it being seeded from the agent
   // default or set programmatically (restore / events). For a NEW session we send
@@ -466,6 +480,13 @@ export function useChatStream({
   // seeding timing, so a user override made (or a config fetch that fails) before
   // seeding settles is still honored.
   const permissionModeDirtyRef = useRef(false)
+  const sandboxModeDirtyRef = useRef(false)
+  const restoredModesRef = useRef<{
+    sessionId: string
+    permissionMode: SessionMode
+    sandboxMode: SandboxMode
+  } | null>(null)
+  const lastModeSessionIdRef = useRef<string | null | undefined>(undefined)
   const [executionStateBySession, setExecutionStateBySession] = useState<
     Map<string, ChatTurnStatus>
   >(() => new Map())
@@ -517,6 +538,42 @@ export function useChatStream({
       setPermissionMode(value)
     },
     [setPermissionMode],
+  )
+
+  const setSandboxMode = useCallback<React.Dispatch<React.SetStateAction<SandboxMode>>>((value) => {
+    setSandboxModeState((prev) => {
+      const next =
+        typeof value === "function"
+          ? (value as (p: SandboxMode) => SandboxMode)(prev)
+          : value
+      if (next !== prev) {
+        const sid = currentSessionIdRef.current
+        if (sid) {
+          getTransport()
+            .call("set_sandbox_mode", { sessionId: sid, mode: next })
+            .then(() => onSandboxModeSynced?.(sid, next))
+            .catch((e) => {
+              logger.error(
+                "chat",
+                "setSandboxMode",
+                "Failed to sync session sandbox mode",
+                e,
+              )
+            })
+        }
+      }
+      return next
+    })
+  }, [currentSessionIdRef, onSandboxModeSynced])
+
+  const setSandboxModeByUser = useCallback<
+    React.Dispatch<React.SetStateAction<SandboxMode>>
+  >(
+    (value) => {
+      sandboxModeDirtyRef.current = true
+      setSandboxMode(value)
+    },
+    [setSandboxMode],
   )
 
   // Auto-send pending messages setting
@@ -599,8 +656,54 @@ export function useChatStream({
   useEffect(() => {
     permissionModeRef.current = permissionMode
   }, [permissionMode])
+  useEffect(() => {
+    sandboxModeRef.current = sandboxMode
+  }, [sandboxMode])
 
-  // Seed `permissionMode` from the agent's `capabilities.defaultSessionPermissionMode`
+  // Restore per-session modes from SessionMeta for every surface that uses
+  // this hook (main chat, quick chat, knowledge chat). Programmatic restore is
+  // local-only: persisting happens only from the explicit user setters.
+  useEffect(() => {
+    const sid = currentSessionId
+    if (!sid) {
+      restoredModesRef.current = null
+      if (messages.length === 0 && lastModeSessionIdRef.current !== null) {
+        setPermissionModeState("default")
+        permissionModeRef.current = "default"
+        setSandboxModeState("off")
+        sandboxModeRef.current = "off"
+      }
+      lastModeSessionIdRef.current = null
+      return
+    }
+
+    const meta = sessions.find((session) => session.id === sid)
+    if (!meta) return
+
+    const nextPermissionMode: SessionMode = meta.permissionMode ?? "default"
+    const nextSandboxMode: SandboxMode = meta.sandboxMode ?? "off"
+    const restored = restoredModesRef.current
+    if (
+      restored?.sessionId === sid &&
+      restored.permissionMode === nextPermissionMode &&
+      restored.sandboxMode === nextSandboxMode
+    ) {
+      return
+    }
+
+    restoredModesRef.current = {
+      sessionId: sid,
+      permissionMode: nextPermissionMode,
+      sandboxMode: nextSandboxMode,
+    }
+    lastModeSessionIdRef.current = sid
+    setPermissionModeState(nextPermissionMode)
+    permissionModeRef.current = nextPermissionMode
+    setSandboxModeState(nextSandboxMode)
+    sandboxModeRef.current = nextSandboxMode
+  }, [currentSessionId, messages.length, sessions])
+
+  // Seed `permissionMode` / `sandboxMode` from the agent defaults
   // whenever the user is sitting on a fresh chat (no session row yet, no
   // messages). Once the first message lands the session row owns the mode
   // and the title-bar switcher updates the row directly.
@@ -609,25 +712,37 @@ export function useChatStream({
   // choice intact across navigation — only "new chat" or agent swap re-seeds.
   useEffect(() => {
     if (currentSessionId || messages.length > 0 || !currentAgentId) return
-    // Fresh draft (or agent swap): the user hasn't chosen a mode yet.
+    // Fresh draft (or agent swap): the user hasn't chosen modes yet.
     permissionModeDirtyRef.current = false
+    sandboxModeDirtyRef.current = false
     let cancelled = false
     void (async () => {
       try {
         const config = await getTransport().call<{
-          capabilities?: { defaultSessionPermissionMode?: SessionMode | null }
+          capabilities?: {
+            sandbox?: boolean
+            defaultSessionPermissionMode?: SessionMode | null
+            defaultSandboxMode?: SandboxMode | null
+          }
         }>("get_agent_config", { id: currentAgentId })
         // Don't clobber a mode the user changed while the fetch was in flight.
-        if (cancelled || permissionModeDirtyRef.current) return
-        const fallback =
-          (config?.capabilities?.defaultSessionPermissionMode as SessionMode | undefined) ??
-          "default"
-        setPermissionModeState(fallback)
+        if (!cancelled && !permissionModeDirtyRef.current) {
+          const fallback =
+            (config?.capabilities?.defaultSessionPermissionMode as SessionMode | undefined) ??
+            "default"
+          setPermissionModeState(fallback)
+        }
+        if (!cancelled && !sandboxModeDirtyRef.current) {
+          const fallback =
+            (config?.capabilities?.defaultSandboxMode as SandboxMode | undefined) ??
+            (config?.capabilities?.sandbox ? "standard" : "off")
+          setSandboxModeState(fallback)
+        }
       } catch (e) {
         logger.error(
           "chat",
           "useChatStream",
-          "Failed to seed permission mode from agent capabilities",
+          "Failed to seed session modes from agent capabilities",
           e,
         )
       }
@@ -1076,6 +1191,8 @@ export function useChatStream({
             currentSessionId || permissionModeDirtyRef.current
               ? permissionModeRef.current
               : undefined,
+          sandboxMode:
+            currentSessionId || sandboxModeDirtyRef.current ? sandboxModeRef.current : undefined,
           planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           reasoningEffort: reasoningEffort ?? undefined,
@@ -1483,6 +1600,9 @@ export function useChatStream({
     permissionMode,
     setPermissionMode,
     setPermissionModeByUser,
+    sandboxMode,
+    setSandboxMode,
+    setSandboxModeByUser,
     handleSend,
     handleStop,
     handleApprovalResponse,

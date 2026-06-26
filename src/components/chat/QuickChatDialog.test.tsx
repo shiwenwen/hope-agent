@@ -79,6 +79,10 @@ vi.mock("./useChatStream", () => ({
     handleApprovalResponse: vi.fn(),
     permissionMode: "default",
     setPermissionMode: vi.fn(),
+    setPermissionModeByUser: vi.fn(),
+    sandboxMode: "off",
+    setSandboxMode: vi.fn(),
+    setSandboxModeByUser: vi.fn(),
   }),
 }))
 

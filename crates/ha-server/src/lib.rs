@@ -466,6 +466,7 @@ fn build_router_with_cors(
             "/chat/permission-mode",
             post(routes::chat::set_permission_mode),
         )
+        .route("/chat/sandbox-mode", post(routes::chat::set_sandbox_mode))
         .route(
             "/chat/approval/{request_id}",
             post(routes::chat::respond_to_approval),
@@ -1014,6 +1015,10 @@ fn build_router_with_cors(
         .route("/config/canvas", put(routes::config::save_canvas_config))
         .route("/config/sandbox", get(routes::config::get_sandbox_config))
         .route("/config/sandbox", put(routes::config::set_sandbox_config))
+        .route(
+            "/config/sandbox/status",
+            get(routes::config::get_sandbox_status),
+        )
         // Config — shortcuts
         .route(
             "/config/shortcuts",

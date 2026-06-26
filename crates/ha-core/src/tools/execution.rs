@@ -92,6 +92,7 @@ pub(super) async fn resolve_tool_permission(
         tool_name,
         args,
         session_mode: ctx.session_mode,
+        sandbox_mode: ctx.sandbox_mode,
         global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
         plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
         plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
@@ -194,6 +195,10 @@ pub struct ToolExecContext {
     pub skill_allowed_tools: Vec<String>,
     /// Whether the agent forces Docker sandbox mode for all exec commands.
     pub force_sandbox: bool,
+    /// Per-session sandbox mode. `force_sandbox` is retained as a compatibility
+    /// bit for legacy contexts; when it is true and this field is `Off`, callers
+    /// should treat it as `Standard`.
+    pub sandbox_mode: crate::permission::SandboxMode,
     /// Plan mode file-pattern allow rules: when set, write/edit tools targeting these
     /// glob patterns are allowed even if the tool is in the denied list.
     /// Format: list of glob patterns (e.g. ["~/.hope-agent/plans/*.md"])

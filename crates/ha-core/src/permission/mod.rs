@@ -30,7 +30,7 @@ pub mod session_edits;
 
 pub use approval_surface::{evaluate_approval_surface, ApprovalSurface, UnattendedReason};
 pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig, UnattendedApprovalAction};
-pub use mode::{JudgeModelConfig, SessionMode, SmartModeConfig, SmartStrategy};
+pub use mode::{JudgeModelConfig, SandboxMode, SessionMode, SmartModeConfig, SmartStrategy};
 
 /// Final disposition of a tool call after the engine consumes all rule layers.
 #[derive(Debug, Clone, PartialEq, Eq)]

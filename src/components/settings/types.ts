@@ -1,3 +1,5 @@
+import type { SandboxMode } from "@/types/chat"
+
 export const SETTINGS_SECTION_IDS = [
   "general",
   "modelConfig",
@@ -265,6 +267,11 @@ export interface AgentConfig {
   capabilities: {
     maxToolRounds: number
     sandbox: boolean
+    /**
+     * Per-agent default sandbox mode for newly opened sessions.
+     * `null/undefined` preserves legacy `sandbox` boolean semantics.
+     */
+    defaultSandboxMode?: SandboxMode | null
     skillEnvCheck: boolean
     tools: { allow: string[]; deny: string[] }
     skills: { allow: string[]; deny: string[] }

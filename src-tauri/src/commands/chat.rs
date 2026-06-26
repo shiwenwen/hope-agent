@@ -173,6 +173,7 @@ pub async fn chat(
     model_override: Option<String>,
     agent_id: Option<String>,
     permission_mode: Option<ha_core::permission::SessionMode>,
+    sandbox_mode: Option<ha_core::permission::SandboxMode>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
     reasoning_effort: Option<String>,
@@ -214,8 +215,9 @@ pub async fn chat(
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
-    // Capture optional permission mode — applied below once we have a session id.
+    // Capture optional per-session modes — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
+    let sandbox_mode_pending = sandbox_mode;
 
     let db = state.session_db.clone();
     let cancel = Arc::new(AtomicBool::new(false));
@@ -301,6 +303,9 @@ pub async fn chat(
     // Persist per-session permission mode if the caller supplied one.
     if let Some(mode) = permission_mode_pending {
         db.update_session_permission_mode(&sid, mode)?;
+    }
+    if let Some(mode) = sandbox_mode_pending {
+        db.update_session_sandbox_mode(&sid, mode)?;
     }
 
     if new_session_created.is_some() {
@@ -1064,6 +1069,32 @@ pub async fn set_permission_mode(
     state
         .session_db
         .update_session_permission_mode(&session_id, mode)?;
+    Ok(())
+}
+
+/// Persist the per-session sandbox mode (`off` / `standard` / `isolated` /
+/// `workspace` / `trusted`) to the session row.
+#[tauri::command]
+pub async fn set_sandbox_mode(
+    session_id: String,
+    mode: ha_core::permission::SandboxMode,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    if session_id.is_empty() {
+        return Err(CmdError::from(anyhow::anyhow!("session_id required")));
+    }
+    state
+        .session_db
+        .update_session_sandbox_mode(&session_id, mode)?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit(
+            "sandbox:mode_changed",
+            serde_json::json!({
+                "sessionId": session_id,
+                "mode": mode.as_str(),
+            }),
+        );
+    }
     Ok(())
 }
 

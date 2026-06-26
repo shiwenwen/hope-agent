@@ -23,6 +23,7 @@ export interface WebSearchConfig {
 export interface SearxngDockerStatus {
   dockerInstalled: boolean
   dockerNotRunning: boolean
+  hostOs?: string
   containerExists: boolean
   containerRunning: boolean
   port: number | null

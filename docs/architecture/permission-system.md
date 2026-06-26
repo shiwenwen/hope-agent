@@ -78,6 +78,20 @@ graph TD
 
 切换入口：聊天标题栏的 `PermissionModeSwitcher` dropdown。会话首次创建时按 `AgentConfig.capabilities.default_session_permission_mode → AppConfig 默认 → "default"` 解析初始值。
 
+## Session Sandbox Mode
+
+每个会话独立携带一个 `sandbox_mode`，存于 `sessions.sandbox_mode` 列。沙箱模式只决定执行位置和软审批放松，不改变权限引擎优先级：`Plan > Internal > YOLO > Protected/Dangerous/Strict > AllowAlways > Sandbox soft allow > Session preset > fallback`。
+
+| 模式 | 行为 | 审批语义 |
+|------|------|----------|
+| `off` | 宿主机执行 | 审批逻辑不变 |
+| `standard` | Docker 沙箱执行 | 审批不放松，兼容旧 `capabilities.sandbox=true` |
+| `isolated` | Docker 内执行，工作区先复制到临时隔离副本 | v1 不放松审批；隔离 diff 写回落地后再开放 |
+| `workspace` | Docker 直接挂载当前工作区 | workspace 内 `exec` 编辑命令可放松；直接文件工具仍审批 |
+| `trusted` | 沙箱内 exec 最大自治 | 同 `workspace`，strict 项仍每次审批：保护路径、危险命令、raw CDP、macOS 高危控制等 |
+
+切换入口：聊天输入区的 `SandboxModeSwitcher`。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
+
 ### Global YOLO（进程级）
 
 `AppConfig.permission.global_yolo: bool` + CLI flag `--dangerously-skip-all-approvals`（OR 关系）。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍可拦截。命中保护路径 / 危险命令 / macOS 控制动作时落 `app_warn!` 审计日志、不弹窗（语义：用户既然开了全局 YOLO 就是接受全部风险）。
@@ -260,6 +274,10 @@ pub struct CapabilitiesConfig {
     pub custom_approval_tools: Vec<String>,
     /// Agent 新建会话时的默认权限模式。`None` = 跟随全局
     pub default_session_permission_mode: Option<SessionMode>,
+    /// Agent 新建会话时的默认沙箱模式。`None` = 兼容旧 sandbox bool
+    pub default_sandbox_mode: Option<SandboxMode>,
+    /// 旧 Docker 沙箱开关。仅在 default_sandbox_mode 为 None 时参与兼容映射。
+    pub sandbox: bool,
 }
 ```
 
@@ -644,12 +662,15 @@ useEffect(() => {
 | `enable_custom_tool_approval` | `bool` | `false` | 关闭时 `custom_approval_tools` 列表全忽略 |
 | `custom_approval_tools` | `Vec<String>` | `[]` | 仅 Default 模式生效 |
 | `default_session_permission_mode` | `Option<SessionMode>` | `None` | 该 agent 新建会话的默认 mode |
+| `default_sandbox_mode` | `Option<SandboxMode>` | `None` | 该 agent 新建会话的默认 sandbox mode；`None` 兼容旧 `sandbox` 布尔 |
+| `sandbox` | `bool` | `false` | 旧 Docker 沙箱开关；仅在 `default_sandbox_mode=None` 时 `true → standard` |
 
 ### `Session`
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
 | `permission_mode` | `String` | `"default"` | 当前会话权限模式（`default` / `smart` / `yolo`） |
+| `sandbox_mode` | `String` | `"off"` | 当前会话沙箱模式（`off` / `standard` / `isolated` / `workspace` / `trusted`） |
 
 ---
 

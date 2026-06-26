@@ -330,6 +330,17 @@ export interface ActiveModel {
  */
 export type SessionMode = "default" | "smart" | "yolo"
 
+/**
+ * Per-session sandbox mode.
+ *
+ * - `off` — host execution.
+ * - `standard` — Docker sandbox, approval posture unchanged.
+ * - `isolated` — Docker sandbox against a temporary workspace copy.
+ * - `workspace` — Docker sandbox with the current workspace mounted.
+ * - `trusted` — sandbox-side autonomy; strict host/secret/browser gates remain.
+ */
+export type SandboxMode = "off" | "standard" | "isolated" | "workspace" | "trusted"
+
 export interface SessionMeta {
   id: string
   title?: string | null
@@ -367,6 +378,8 @@ export interface SessionMeta {
    * switcher is restored when switching back to a historical session.
    */
   permissionMode?: SessionMode
+  /** Per-session sandbox execution posture. */
+  sandboxMode?: SandboxMode
   /**
    * When set, this session belongs to a Project — project-scoped memories
    * and shared files are automatically injected into its system prompt.

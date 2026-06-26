@@ -6,7 +6,7 @@
  * standalone web app (HTTP / WebSocket).
  */
 
-import type { MediaItem, SessionMode } from "@/types/chat";
+import type { MediaItem, SandboxMode, SessionMode } from "@/types/chat";
 
 /**
  * One entry in `ChatStartArgs.attachments`. Snake-case fields are the
@@ -37,6 +37,7 @@ export interface ChatStartArgs {
   modelOverride?: string;
   agentId?: string;
   permissionMode?: SessionMode;
+  sandboxMode?: SandboxMode;
   planMode?: string;
   temperatureOverride?: number;
   reasoningEffort?: string;

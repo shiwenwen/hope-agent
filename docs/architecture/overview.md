@@ -268,7 +268,7 @@ graph LR
 |------|------|
 | 图像生成 | [图像生成](image-generation.md) |
 | 定时任务 | [Cron 调度](cron.md) |
-| Docker 沙箱 | [Docker Sandbox](sandbox.md) |
+| Sandbox 架构 | [Sandbox](sandbox.md) |
 | 数据大盘 | [Dashboard](dashboard.md) |
 | Recap 深度复盘 | [Recap](recap.md) |
 | 日志系统 | [Logging](logging.md) |

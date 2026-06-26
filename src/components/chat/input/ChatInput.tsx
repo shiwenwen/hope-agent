@@ -28,6 +28,7 @@ import type {
   AvailableModel,
   ActiveModel,
   ChatTurnStatus,
+  SandboxMode,
   SessionMode,
   PendingFileQuote,
   PendingSendPreview,
@@ -46,6 +47,7 @@ import type { CommandResult } from "../slash-commands/types"
 import { AttachFilesButton, AttachFilesMenuItem, AttachmentPreview } from "./AttachmentBar"
 import ModelPicker from "./ModelPicker"
 import PermissionModeSwitcher, { type PermissionModeChangeOptions } from "./PermissionModeSwitcher"
+import SandboxModeSwitcher from "./SandboxModeSwitcher"
 import AwarenessToggle from "./AwarenessToggle"
 import KnowledgePicker from "./KnowledgePicker"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
@@ -107,6 +109,9 @@ interface ChatInputProps {
   // Tool permission mode
   permissionMode: SessionMode
   onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
+  // Sandbox execution mode
+  sandboxMode: SandboxMode
+  onSandboxModeChange: (mode: SandboxMode) => void
   // Temperature
   sessionTemperature?: number | null
   onSessionTemperatureChange?: (temp: number | null) => void
@@ -213,6 +218,8 @@ export default function ChatInput({
   onCommandAction,
   permissionMode,
   onPermissionModeChange,
+  sandboxMode,
+  onSandboxModeChange,
   sessionTemperature,
   onSessionTemperatureChange,
   incognitoEnabled = false,
@@ -1212,6 +1219,10 @@ export default function ChatInput({
                 <PermissionModeSwitcher
                   permissionMode={permissionMode}
                   onPermissionModeChange={handlePermissionModeChange}
+                />
+                <SandboxModeSwitcher
+                  sandboxMode={sandboxMode}
+                  onSandboxModeChange={onSandboxModeChange}
                 />
               </div>
 
