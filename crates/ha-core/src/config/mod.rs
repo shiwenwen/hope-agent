@@ -84,7 +84,7 @@ pub struct NotificationConfig {
     #[serde(default = "crate::default_true")]
     pub enabled: bool,
     /// Include assistant reply previews in chat-completion notifications.
-    #[serde(default)]
+    #[serde(default = "crate::default_true")]
     pub show_chat_content: bool,
     /// Fire a desktop notification when a background job (R4: tool / group)
     /// finishes — gated by [`enabled`](Self::enabled) and only when the window
@@ -98,7 +98,7 @@ impl Default for NotificationConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            show_chat_content: false,
+            show_chat_content: true,
             notify_on_background_job_complete: true,
         }
     }

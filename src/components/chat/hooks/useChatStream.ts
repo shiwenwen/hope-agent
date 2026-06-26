@@ -75,6 +75,14 @@ function assistantNotificationText(message: Message): string {
   return truncateNotificationText(normalizeNotificationText(blockText || message.content || ""))
 }
 
+function userNotificationText(message: Message): string {
+  const blockText = message.contentBlocks
+    ?.filter((block) => block.type === "text")
+    .map((block) => block.content)
+    .join("\n\n")
+  return truncateNotificationText(normalizeNotificationText(blockText || message.content || ""))
+}
+
 function latestAssistantNotificationPreview(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i]
@@ -85,14 +93,26 @@ function latestAssistantNotificationPreview(messages: Message[]): string | null 
   return null
 }
 
-function chatCompletionNotificationBody(
+function latestUserNotificationPreview(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message.role !== "user") continue
+    const text = userNotificationText(message)
+    if (text) return text
+  }
+  return null
+}
+
+function chatCompletionNotificationPayload(
   sessionTitle: string,
   messages: Message[],
   showChatContent: boolean,
-): string {
-  if (!showChatContent) return sessionTitle
+  genericTitle: string,
+  genericBody: string,
+): { title: string; body: string } {
+  if (!showChatContent) return { title: genericTitle, body: genericBody }
   const preview = latestAssistantNotificationPreview(messages)
-  return preview ? `${sessionTitle}\n${preview}` : sessionTitle
+  return { title: sessionTitle, body: preview || genericBody }
 }
 
 function optimisticAttachmentForFile(file: File): MessageAttachment {
@@ -1305,9 +1325,18 @@ export function useChatStream({
       ) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
-          const sessionTitle =
-            sessions.find((s) => s.id === targetSessionId)?.title || t("notification.chatError")
-          notify(t("notification.chatError"), sessionTitle)
+          const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title
+          // Only fall back to the latest user message when reply previews are
+          // enabled; otherwise honor the privacy setting and never leak
+          // conversation content into the system notification center.
+          const userPreview =
+            getCachedConfig()?.showChatContent !== false
+              ? latestUserNotificationPreview(
+                  sessionCacheRef.current.get(targetSessionId) ?? [],
+                )
+              : null
+          const title = t("notification.chatError")
+          notify(title, sessionTitle || userPreview || title)
         }
       }
     } finally {
@@ -1352,16 +1381,18 @@ export function useChatStream({
             status !== "interrupted" &&
             status !== "cancelling"
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
-          const notificationBody = chatCompletionNotificationBody(
+          const notification = chatCompletionNotificationPayload(
             sessionTitle,
             sessionCacheRef.current.get(targetSessionId) ??
               (currentSessionIdRef.current === targetSessionId ? messages : []),
-            getCachedConfig()?.showChatContent === true,
+            getCachedConfig()?.showChatContent !== false,
+            t("notification.chatCompletedGenericTitle"),
+            t("notification.chatCompletedGenericBody"),
           )
           if (completed && currentSessionIdRef.current !== targetSessionId) {
-            void notify(t("notification.chatCompleted"), notificationBody)
+            void notify(notification.title, notification.body)
           } else if (completed) {
-            void notifyIfBackground(t("notification.chatCompleted"), notificationBody)
+            void notifyIfBackground(notification.title, notification.body)
           }
         }
       }

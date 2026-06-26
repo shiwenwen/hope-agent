@@ -167,7 +167,7 @@ export default function NotificationPanel() {
             </p>
           </div>
           <Switch
-            checked={config.showChatContent === true}
+            checked={config.showChatContent !== false}
             onCheckedChange={handleShowChatContentToggle}
             disabled={saving}
           />

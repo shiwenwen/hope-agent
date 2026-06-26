@@ -326,16 +326,6 @@ pub fn init_runtime(role: &'static str) {
         crate::runtime_lock::current_holder()
     );
 
-    // Send welcome notification on startup via EventBus
-    if let Some(bus) = EVENT_BUS.get() {
-        let payload = serde_json::json!({
-            "type": "agent_notification",
-            "title": "欢迎使用 Hope Agent",
-            "body": "文文，准备好开始今天的工作了吗？",
-        });
-        let _ = bus.emit("agent:send_notification", payload);
-    }
-
     // Sub-agent cancel registry + idle-extract handle map
     let _ = SUBAGENT_CANCELS.set(Arc::new(subagent::SubagentCancelRegistry::new()));
     let _ = IDLE_EXTRACT_HANDLES.set(std::sync::Mutex::new(std::collections::HashMap::new()));
