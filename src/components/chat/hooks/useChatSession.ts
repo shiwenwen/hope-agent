@@ -455,7 +455,7 @@ export function useChatSession({
         await reloadSessions()
       } catch (e) {
         logger.error("ui", "ChatScreen::pinSession", "Failed to update session pin", e)
-        notify(t("common.saveFailed"), String(e))
+        toast.error(t("common.saveFailed"), { description: String(e) })
         await reloadSessions()
       }
     },
@@ -475,7 +475,7 @@ export function useChatSession({
         await getTransport().call("reorder_agents", { agentIds: next.map((agent) => agent.id) })
       } catch (e) {
         logger.error("ui", "ChatScreen::reorderAgents", "Failed to reorder agents", e)
-        notify(t("common.saveFailed"), String(e))
+        toast.error(t("common.saveFailed"), { description: String(e) })
         setAgents(current)
       }
     },
