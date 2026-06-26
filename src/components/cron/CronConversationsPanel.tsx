@@ -155,8 +155,8 @@ export default function CronConversationsPanel() {
   return (
     <div className="flex flex-1 min-h-0">
       {/* Left — timeline list */}
-      <div className="flex w-80 shrink-0 flex-col border-r border-border">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
+      <div className="flex w-80 shrink-0 flex-col border-r border-border/60 bg-muted/20">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/60 shrink-0">
           <span className="text-sm font-medium">{t("cron.conversationsTitle")}</span>
           <Button
             variant="ghost"

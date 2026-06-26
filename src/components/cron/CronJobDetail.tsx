@@ -24,7 +24,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { CronJob, CronRunLog } from "./CronJobForm.types"
-import { statusColor, formatSchedule, deliveryTargetLabel } from "./cronHelpers"
+import { statusColor, statusLabel, formatSchedule, deliveryTargetLabel } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 import CronSessionViewer from "./CronSessionViewer"
@@ -33,18 +33,26 @@ const LOG_PAGE = 50
 
 interface CronJobDetailProps {
   jobId: string
+  /** Agent roster for message-bubble identities, fetched once by the parent
+   *  (job-independent) so row-switch remounts don't refetch it. */
+  agents: AgentSummaryForSidebar[]
   onBack: () => void
   onEdit: (job: CronJob) => void
   onDelete: (job: CronJob) => void
   onRefresh: () => void
+  /** Embedded in a master-detail pane (list view) — hides the back arrow since
+   *  the job list stays visible alongside and selection switches in place. */
+  embedded?: boolean
 }
 
 export default function CronJobDetail({
   jobId,
+  agents,
   onBack,
   onEdit,
   onDelete,
   onRefresh,
+  embedded = false,
 }: CronJobDetailProps) {
   const { t } = useTranslation()
   const [job, setJob] = useState<CronJob | null>(null)
@@ -54,7 +62,6 @@ export default function CronJobDetail({
   const [cancelling, setCancelling] = useState(false)
   // Run conversation shown read-only on the right (no jump to the main chat).
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [logsOffset, setLogsOffset] = useState(0)
   const [logsHasMore, setLogsHasMore] = useState(false)
   const [loadingMoreLogs, setLoadingMoreLogs] = useState(false)
@@ -89,14 +96,6 @@ export default function CronJobDetail({
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId])
-
-  // Agents power the message-bubble identities in the read-only viewer.
-  useEffect(() => {
-    getTransport()
-      .call<AgentSummaryForSidebar[]>("list_agents")
-      .then((list) => setAgents(Array.isArray(list) ? list : []))
-      .catch(() => {})
-  }, [])
 
   // Default to the most recent run that has a session, so opening the detail
   // immediately shows its conversation; never overrides an explicit selection.
@@ -172,13 +171,17 @@ export default function CronJobDetail({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
-        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-border/60">
+        {!embedded && (
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`inline-block w-2 h-2 rounded-full ${statusColor(job.status)}`} />
+            <IconTip label={statusLabel(job.status, t)}>
+              <span className={`inline-block w-2 h-2 rounded-full ${statusColor(job.status)}`} />
+            </IconTip>
             <h3 className="text-sm font-medium truncate">{job.name}</h3>
           </div>
           {job.description && (
@@ -233,9 +236,9 @@ export default function CronJobDetail({
 
       {/* Body: left column (info + run history) · right read-only conversation */}
       <div className="flex flex-1 min-h-0">
-        <div className="flex w-96 shrink-0 flex-col overflow-y-auto border-r border-border">
+        <div className="flex w-96 shrink-0 flex-col overflow-y-auto border-r border-border/60 bg-muted/20">
           {/* Info */}
-          <div className="px-5 py-3 border-b border-border text-xs space-y-1.5">
+          <div className="px-5 py-4 text-xs space-y-1.5">
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t("cron.schedule")}</span>
               <span>{formatSchedule(job.schedule, t)}</span>
@@ -351,11 +354,11 @@ export default function CronJobDetail({
                   <div
                     key={log.id}
                     className={cn(
-                      "rounded-lg border p-3 text-xs transition-colors",
+                      "rounded-lg border border-transparent p-3 text-xs transition-colors",
                       log.sessionId && "cursor-pointer",
                       log.sessionId && selectedSessionId === log.sessionId
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-secondary/50",
+                        ? "bg-primary/5 ring-1 ring-inset ring-primary/40"
+                        : "bg-card hover:bg-secondary/60",
                     )}
                     onClick={() => log.sessionId && setSelectedSessionId(log.sessionId)}
                   >

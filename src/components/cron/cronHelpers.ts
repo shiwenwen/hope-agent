@@ -137,21 +137,26 @@ export function toLocalDatetimeString(isoString: string): string {
   }
 }
 
+// Single source of truth for job-status presentation. `statusColor` and
+// `statusLabel` both read this map so a new status can't get a dot color but a
+// missing tooltip (or vice versa). Unknown statuses fall back to gray / raw value.
+const STATUS_META: Record<string, { color: string; labelKey: string }> = {
+  active: { color: "bg-blue-500", labelKey: "cron.active" },
+  paused: { color: "bg-amber-500", labelKey: "cron.paused" },
+  disabled: { color: "bg-red-500", labelKey: "cron.disabled" },
+  completed: { color: "bg-emerald-500", labelKey: "cron.completed" },
+  missed: { color: "bg-orange-500", labelKey: "cron.missed" },
+}
+
+/** Localized label for a job status, paired with `statusColor` for the status
+ *  dot tooltip. Unknown statuses (gray dot) fall back to the raw value. */
+export function statusLabel(status: string, t: (key: string) => string): string {
+  const meta = STATUS_META[status]
+  return meta ? t(meta.labelKey) : status
+}
+
 export function statusColor(status: string): string {
-  switch (status) {
-    case "active":
-      return "bg-blue-500"
-    case "paused":
-      return "bg-amber-500"
-    case "disabled":
-      return "bg-red-500"
-    case "completed":
-      return "bg-emerald-500"
-    case "missed":
-      return "bg-orange-500"
-    default:
-      return "bg-gray-400"
-  }
+  return STATUS_META[status]?.color ?? "bg-gray-400"
 }
 
 /**

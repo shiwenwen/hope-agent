@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -23,11 +23,6 @@ import {
   MessagesSquare,
   Loader2,
   Search,
-  Play,
-  Pause,
-  Trash2,
-  Zap,
-  Pencil,
   Send,
   AlertTriangle,
   Settings,
@@ -39,13 +34,14 @@ import CronConversationsPanel from "./CronConversationsPanel"
 import type { CronJob, CalendarEvent } from "./CronJobForm.types"
 import {
   statusColor,
+  statusLabel,
   runLogDotColor,
   runStatusDisplay,
   formatSchedule,
-  deliveryTargetLabel,
   deliveryStatusColor,
 } from "./cronHelpers"
 import type { ProjectMeta } from "@/types/project"
+import type { AgentSummaryForSidebar } from "@/types/chat"
 import type { SettingsSection } from "@/components/settings/types"
 
 type ViewMode = "calendar" | "list" | "conversations"
@@ -97,6 +93,14 @@ export default function CronCalendarView({
   const [visibleJobsCount, setVisibleJobsCount] = useState(JOBS_PAGE)
   const [pendingDeleteJob, setPendingDeleteJob] = useState<CronJob | null>(null)
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
+  // List view is a master-detail: this is the job selected in the left column,
+  // rendered as an embedded CronJobDetail on the right (separate from the
+  // calendar's full-screen detailJobId).
+  const [selectedListJobId, setSelectedListJobId] = useState<string | null>(null)
+  // Agents power message-bubble identities inside CronJobDetail. Fetched once
+  // here (job-independent) and passed down, so re-selecting list rows — which
+  // remounts CronJobDetail via key — doesn't refetch the roster on every click.
+  const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -170,6 +174,15 @@ export default function CronCalendarView({
     })
   }, [fetchEvents, fetchJobs, jobsLoaded])
 
+  // Load the agent roster once (job-independent); shared by both the embedded
+  // and full-screen CronJobDetail so row switches don't refetch it.
+  useEffect(() => {
+    getTransport()
+      .call<AgentSummaryForSidebar[]>("list_agents")
+      .then((list) => setAgents(Array.isArray(list) ? list : []))
+      .catch(() => {})
+  }, [])
+
   function goToday() {
     setCurrentDate(new Date())
     setSelectedDate(null)
@@ -226,13 +239,33 @@ export default function CronCalendarView({
   ]
 
   // Filtered jobs for list view
-  const filteredJobs = jobs.filter((job) => {
-    if (search && !job.name.toLowerCase().includes(search.toLowerCase())) return false
-    if (statusFilter !== "all" && job.status !== statusFilter) return false
-    return true
-  })
+  const filteredJobs = useMemo(
+    () =>
+      jobs.filter((job) => {
+        if (search && !job.name.toLowerCase().includes(search.toLowerCase())) return false
+        if (statusFilter !== "all" && job.status !== statusFilter) return false
+        return true
+      }),
+    [jobs, search, statusFilter],
+  )
   const visibleJobs = filteredJobs.slice(0, visibleJobsCount)
-  const projectMap = new Map(projects.map((p) => [p.id, p]))
+
+  // Master-detail selection. Default to the first job when nothing is selected
+  // (fills the right pane), but drop the selection ONLY when the selected job is
+  // gone from the full `jobs` set (deleted) — never merely because search/filter
+  // hid it. Otherwise typing in the search box would yank the user away from the
+  // job whose run history they're reading.
+  useEffect(() => {
+    if (mode !== "list") return
+    if (selectedListJobId && !jobs.some((j) => j.id === selectedListJobId)) {
+      setSelectedListJobId(null)
+      return
+    }
+    if (!selectedListJobId && filteredJobs.length > 0) {
+      setSelectedListJobId(filteredJobs[0].id)
+    }
+  }, [mode, jobs, filteredJobs, selectedListJobId])
+  const projectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
   const projectLabel = (projectId?: string | null) => {
     if (!projectId) return t("cron.noProject")
     const project = projectMap.get(projectId)
@@ -262,12 +295,6 @@ export default function CronCalendarView({
     refreshAll()
   }
 
-  async function handleToggle(job: CronJob) {
-    const enabled = job.status !== "active"
-    await getTransport().call("cron_toggle_job", { id: job.id, enabled })
-    refreshAll()
-  }
-
   function handleDelete(job: CronJob) {
     setPendingDeleteJob(job)
   }
@@ -284,6 +311,12 @@ export default function CronCalendarView({
       if (detailJobId === job.id) {
         setDetailJobId(null)
       }
+      // Clear the list master-detail selection synchronously too, so the right
+      // pane doesn't keep rendering CronJobDetail for the just-deleted job (and
+      // flash its "job not found" state) until refreshAll's round-trip lands.
+      if (selectedListJobId === job.id) {
+        setSelectedListJobId(null)
+      }
       refreshAll()
       toast.success(t("cron.deleteSuccess", { name: job.name }))
     } catch {
@@ -291,11 +324,6 @@ export default function CronCalendarView({
     } finally {
       setDeletingJobId(null)
     }
-  }
-
-  async function handleRunNow(job: CronJob) {
-    await getTransport().call("cron_run_now", { id: job.id })
-    setTimeout(refreshAll, 2000)
   }
 
   const deleteUi = (
@@ -334,6 +362,7 @@ export default function CronCalendarView({
         <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
           <CronJobDetail
             jobId={detailJobId}
+            agents={agents}
             onBack={() => setDetailJobId(null)}
             onEdit={handleEditJob}
             onDelete={handleDelete}
@@ -361,14 +390,14 @@ export default function CronCalendarView({
     <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
       {/* Top Bar */}
       <div
-        className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0"
+        className="flex items-center gap-3 px-5 py-3 border-b border-border/60 shrink-0"
         data-tauri-drag-region
       >
         <CalendarDays className="h-5 w-5 text-primary" />
         <h2 className="text-sm font-semibold">{t("cron.title")}</h2>
 
         {/* View mode switcher */}
-        <div className="flex items-center rounded-md border border-border p-0.5 bg-secondary/30">
+        <div className="flex items-center rounded-md border border-border/60 p-0.5 bg-secondary/30">
           <Button
             variant="ghost"
             size="sm"
@@ -438,7 +467,7 @@ export default function CronCalendarView({
               />
             </div>
             <select
-              className="h-7 text-xs rounded-md border border-border bg-background px-2"
+              className="h-7 text-xs rounded-md border border-border/60 bg-background px-2"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -541,8 +570,8 @@ export default function CronCalendarView({
 
           {/* Day Detail Sidebar */}
           {selectedDate && (
-            <div className="w-72 border-l border-border flex flex-col bg-card shrink-0">
-              <div className="px-4 py-3 border-b border-border shrink-0">
+            <div className="w-72 border-l border-border/60 flex flex-col bg-muted/20 shrink-0">
+              <div className="px-4 py-3 border-b border-border/60 shrink-0">
                 <h3 className="text-sm font-medium">
                   {selectedDate.toLocaleDateString(undefined, {
                     weekday: "long",
@@ -571,7 +600,7 @@ export default function CronCalendarView({
                       return (
                         <button
                           key={`${evt.jobId}-${i}`}
-                          className="w-full text-left rounded-lg border border-border p-2.5 hover:bg-secondary/50 transition-colors"
+                          className="w-full text-left rounded-lg bg-card p-2.5 hover:bg-secondary/60 transition-colors"
                           onClick={() => setDetailJobId(evt.jobId)}
                         >
                           <div className="flex items-center gap-2">
@@ -627,122 +656,119 @@ export default function CronCalendarView({
           )}
         </div>
       ) : (
-        /* List View */
-        <div className="flex-1 overflow-y-auto">
-          {listLoading && !jobsLoaded ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin h-5 w-5 border-2 border-foreground border-t-transparent rounded-full" />
-            </div>
-          ) : filteredJobs.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground text-sm">
-              {jobs.length === 0 ? t("cron.noJobs") : t("cron.noResults")}
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {visibleJobs.map((job) => (
-                <div
-                  key={job.id}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors cursor-pointer"
-                  onClick={() => setDetailJobId(job.id)}
-                >
-                  <span
-                    className={`inline-block w-2 h-2 rounded-full shrink-0 ${statusColor(job.status)}`}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{job.name}</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {formatSchedule(job.schedule, t)}
-                      {` · ${projectLabel(job.projectId)}`}
-                      {job.nextRunAt &&
-                        ` · ${t("cron.nextRun")}: ${new Date(job.nextRunAt).toLocaleString()}`}
-                    </div>
-                    {(job.deliveryTargets.length > 0 || job.consecutiveFailures > 0) && (
-                      <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-                        {job.deliveryTargets.length > 0 && (
-                          <IconTip label={job.deliveryTargets.map(deliveryTargetLabel).join(", ")}>
+        /* List View — master-detail: left job list · right embedded detail */
+        <div className="flex flex-1 min-h-0">
+          {/* Left — job list */}
+          <div className="flex w-80 shrink-0 flex-col border-r border-border/60 bg-muted/20">
+            <div className="flex-1 overflow-y-auto">
+              {listLoading && !jobsLoaded ? (
+                <div className="flex items-center justify-center py-10 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : filteredJobs.length === 0 ? (
+                <div className="px-4 py-10 text-center text-xs text-muted-foreground">
+                  {jobs.length === 0 ? t("cron.noJobs") : t("cron.noResults")}
+                </div>
+              ) : (
+                <div className="py-1">
+                  {visibleJobs.map((job) => {
+                    const isActive = job.id === selectedListJobId
+                    return (
+                      <button
+                        key={job.id}
+                        onClick={() => setSelectedListJobId(job.id)}
+                        className={cn(
+                          "w-full px-3 py-2.5 text-left transition-colors border-l-2",
+                          isActive
+                            ? "bg-primary/10 border-l-primary"
+                            : "border-l-transparent hover:bg-secondary/50",
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <IconTip label={statusLabel(job.status, t)}>
                             <span
                               className={cn(
-                                "inline-flex items-center gap-1",
-                                job.deliveryTargets.some((tg) => tg.stale) && "text-red-500",
+                                "inline-block h-2 w-2 shrink-0 rounded-full",
+                                statusColor(job.status),
                               )}
-                            >
-                              <Send className="h-3 w-3" />
-                              {job.deliveryTargets.length}
-                            </span>
+                            />
                           </IconTip>
+                          <span className="flex-1 truncate text-xs font-medium">{job.name}</span>
+                        </div>
+                        <div className="mt-1 truncate pl-4 text-[10px] text-muted-foreground">
+                          {formatSchedule(job.schedule, t)}
+                          {` · ${projectLabel(job.projectId)}`}
+                        </div>
+                        {job.nextRunAt && (
+                          <div className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground">
+                            {t("cron.nextRun")}: {new Date(job.nextRunAt).toLocaleString()}
+                          </div>
                         )}
-                        {job.consecutiveFailures > 0 && (
-                          <span className="inline-flex items-center gap-1 text-amber-500">
-                            <AlertTriangle className="h-3 w-3" />
-                            {job.consecutiveFailures}/{job.maxFailures}
-                          </span>
+                        {(job.deliveryTargets.length > 0 || job.consecutiveFailures > 0) && (
+                          <div className="mt-1 flex items-center gap-2 pl-4 text-[10px] text-muted-foreground">
+                            {job.deliveryTargets.length > 0 && (
+                              <span
+                                className={cn(
+                                  "inline-flex items-center gap-1",
+                                  job.deliveryTargets.some((tg) => tg.stale) && "text-red-500",
+                                )}
+                              >
+                                <Send className="h-3 w-3" />
+                                {job.deliveryTargets.length}
+                              </span>
+                            )}
+                            {job.consecutiveFailures > 0 && (
+                              <span className="inline-flex items-center gap-1 text-amber-500">
+                                <AlertTriangle className="h-3 w-3" />
+                                {job.consecutiveFailures}/{job.maxFailures}
+                              </span>
+                            )}
+                          </div>
                         )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <IconTip label={t("cron.runNow")}>
+                      </button>
+                    )
+                  })}
+                  {filteredJobs.length > visibleJobs.length && (
+                    <div className="px-3 py-2">
                       <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleRunNow(job)}
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-full text-xs"
+                        onClick={() => setVisibleJobsCount((n) => n + JOBS_PAGE)}
                       >
-                        <Zap className="h-3.5 w-3.5" />
+                        {t("cron.loadMore")}
                       </Button>
-                    </IconTip>
-                    <IconTip label={t("common.edit")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleEditJob(job)}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                    </IconTip>
-                    <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={() => handleToggle(job)}
-                      >
-                        {job.status === "active" ? (
-                          <Pause className="h-3.5 w-3.5" />
-                        ) : (
-                          <Play className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </IconTip>
-                    <IconTip label={t("common.delete")}>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-red-500 hover:text-red-600"
-                        onClick={() => handleDelete(job)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </IconTip>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </div>
-              ))}
-              {filteredJobs.length > visibleJobs.length && (
-                <div className="px-5 py-3">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 w-full text-xs"
-                    onClick={() => setVisibleJobsCount((n) => n + JOBS_PAGE)}
-                  >
-                    {t("cron.loadMore")}
-                  </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          )}
+          </div>
+
+          {/* Right — embedded detail of the selected job */}
+          <div className="flex flex-1 min-w-0 flex-col">
+            {selectedListJobId ? (
+              <CronJobDetail
+                key={selectedListJobId}
+                jobId={selectedListJobId}
+                agents={agents}
+                embedded
+                onBack={() => setSelectedListJobId(null)}
+                onEdit={handleEditJob}
+                onDelete={handleDelete}
+                onRefresh={refreshAll}
+              />
+            ) : listLoading && !jobsLoaded ? (
+              <div className="flex flex-1 items-center justify-center text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
+                <ListIcon className="h-10 w-10 opacity-40" />
+                <p className="text-sm">{jobs.length === 0 ? t("cron.noJobs") : t("cron.noResults")}</p>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
