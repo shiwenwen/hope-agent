@@ -1,6 +1,6 @@
 [package]
 name = "ha-server"
-version = "0.12.0"
+version = "0.13.0"
 description = "Hope Agent HTTP/WebSocket server"
 license.workspace = true
 authors.workspace = true

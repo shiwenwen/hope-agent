@@ -3038,7 +3038,7 @@ dependencies = [
 
 [[package]]
 name = "ha-core"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -3126,7 +3126,7 @@ dependencies = [
 
 [[package]]
 name = "ha-server"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -3262,7 +3262,7 @@ checksum = "ec9d92d097f4749b64e8cc33d924d9f40a2d4eb91402b458014b781f5733d60f"
 
 [[package]]
 name = "hope-agent"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "arboard",
