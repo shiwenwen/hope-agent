@@ -63,6 +63,14 @@ pub struct ResolveContext<'a> {
     /// Smart-mode configuration snapshot. Only consumed when
     /// `session_mode == Smart`. `None` = treat Smart like Default.
     pub smart_config: Option<&'a SmartModeConfig>,
+    /// `true` when no human can approve this call (a scheduled/cron run). Only
+    /// consumed by the Smart judge to calibrate for an unattended, pre-authorized
+    /// task; it never relaxes strict gates or the fail-closed surface.
+    pub unattended: bool,
+    /// The user's pre-authorized task intent (the cron prompt), if any. Passed
+    /// to the Smart judge so it can allow in-scope actions and deny out-of-scope
+    /// / injected ones. `None` for interactive sessions (judge unchanged).
+    pub task_intent: Option<&'a str>,
 }
 
 impl<'a> ResolveContext<'a> {
@@ -678,7 +686,11 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
         return sync_decision;
     };
 
-    match judge::judge(judge_cfg, ctx.tool_name, ctx.args).await {
+    let judge_ctx = judge::JudgeContext {
+        unattended: ctx.unattended,
+        task_intent: ctx.task_intent,
+    };
+    match judge::judge(judge_cfg, ctx.tool_name, ctx.args, judge_ctx).await {
         Some(verdict) => match verdict.decision {
             JudgeVerdict::Allow => Decision::Allow,
             JudgeVerdict::Deny => Decision::Deny {
@@ -1170,6 +1182,8 @@ mod tests {
             default_path: Some("/tmp/project"),
             is_internal_tool: false,
             smart_config: None,
+            unattended: false,
+            task_intent: None,
         }
     }
 

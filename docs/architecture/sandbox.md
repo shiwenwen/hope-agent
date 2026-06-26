@@ -129,6 +129,8 @@ Session 读写 API：
 | `SessionDB::create_session_full(...)` | 新会话按 Agent effective default 初始化 `sandbox_mode` |
 | `SESSION_META_SELECT` | 返回 `SessionMeta.sandbox_mode` 给前端 |
 
+> **定时任务 per-job 沙箱覆盖**：`CronJob.sandbox_mode_override`（owner 平面专属，详见 [cron.md](cron.md)）非空时，cron executor 经 `update_session_sandbox_mode` 写入该 cron 隔离会话（写入失败 → fail-closed 终止本次运行，绝不裸跑），有效模式从会话行读取（读错回退到 per-job override / Agent 默认而非 `Off`）。**Docker 缺失 fail-closed**：有效模式 `enabled()` 但 `ensure_sandbox_available()` 失败时 cron 运行**失败并记录原因、绝不回落宿主机**（与交互会话同口径）；但**不计入 `max_failures` 自动禁用**（turn 未跑、无副作用，等同 infra 失败，避免瞬时 Docker 抖动或不调 exec 的任务被误禁用）。
+
 ### Docker 执行配置
 
 `SandboxConfig` 持久化在 `~/.hope-agent/sandbox.json`：

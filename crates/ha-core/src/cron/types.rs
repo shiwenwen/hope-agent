@@ -109,6 +109,19 @@ pub struct CronJob {
     /// bigger budget every run).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_timeout_secs: Option<u64>,
+    /// Per-job override of the cron run session's permission mode. `None` =
+    /// inherit the agent's `default_session_permission_mode` (current behavior).
+    /// Only changes whether approval-needing tools auto-deny (default/smart) or
+    /// bypass (yolo) under the unattended cron surface — the fail-closed surface
+    /// logic and strict gates are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode_override: Option<crate::permission::SessionMode>,
+    /// Per-job override of the cron run session's sandbox mode. `None` = inherit
+    /// the agent's `effective_default_sandbox_mode()`. Confines the run's blast
+    /// radius (off/standard/isolated/workspace/trusted) so an unattended task can
+    /// act autonomously without putting the host at risk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
 }
 
 /// A cron job execution lease. Constructed only after the DB atomically marks
@@ -217,6 +230,12 @@ pub struct NewCronJob {
     /// C19: optional per-job run timeout override (seconds); `None` = global default.
     #[serde(default)]
     pub job_timeout_secs: Option<u64>,
+    /// Per-job permission-mode override; `None` = follow the agent default.
+    #[serde(default)]
+    pub permission_mode_override: Option<crate::permission::SessionMode>,
+    /// Per-job sandbox-mode override; `None` = follow the agent default.
+    #[serde(default)]
+    pub sandbox_mode_override: Option<crate::permission::SandboxMode>,
 }
 
 /// §8: a cron job that references a given channel account in its delivery

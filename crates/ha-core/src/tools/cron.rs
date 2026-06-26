@@ -76,6 +76,13 @@ pub(crate) fn tool_manage_cron<'a>(
                         .get("prefix_delivery_with_name")
                         .and_then(|v| v.as_bool()),
                     job_timeout_secs: args.get("job_timeout_secs").and_then(|v| v.as_u64()),
+                    // Permission / sandbox overrides are owner-plane only (set via
+                    // the GUI cron form / Tauri / HTTP). The model-facing tool must
+                    // NOT set them — otherwise it could schedule a `yolo` task to
+                    // self-escalate unattended, or lower its own sandbox. Always
+                    // None here = follow the agent default.
+                    permission_mode_override: None,
+                    sandbox_mode_override: None,
                 };
 
                 let job = cron_db.add_job(&input)?;
@@ -111,6 +118,22 @@ pub(crate) fn tool_manage_cron<'a>(
                 let mut job = cron_db
                     .get_job(id)?
                     .ok_or_else(|| anyhow::anyhow!("Job '{}' not found", id))?;
+
+                // A job carrying owner-set permission/sandbox overrides is
+                // read-only to the model. These overrides can only be set on the
+                // owner plane (GUI / Tauri / HTTP); letting the model edit such a
+                // job (e.g. rewrite its prompt) would let an injected model
+                // *repurpose* an owner-authorized yolo / unconfined task to run
+                // arbitrary instructions unattended with that standing privilege.
+                // The model never has a legitimate reason to edit an owner-
+                // configured privileged task — direct it back to the user.
+                if job.permission_mode_override.is_some() || job.sandbox_mode_override.is_some() {
+                    anyhow::bail!(
+                        "Scheduled task '{}' has owner-configured permission/sandbox settings and \
+                         can only be edited by the user in the app — the assistant cannot modify it.",
+                        id
+                    );
+                }
 
                 if let Some(name) = args.get("name").and_then(|v| v.as_str()) {
                     job.name = name.to_string();

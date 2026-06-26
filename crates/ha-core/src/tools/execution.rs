@@ -88,6 +88,27 @@ pub(super) async fn resolve_tool_permission(
 
     let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
         .then(crate::config::cached_config);
+    // Smart-judge calibration for unattended runs: when no human can approve, the
+    // judge is told so (and given the pre-authorized task intent, for cron) so it
+    // allows in-scope actions and denies out-of-scope / injected ones. Reuse the
+    // canonical `evaluate_approval_surface` — the single source of truth for "no
+    // one can approve" (cron, cron-lineage subagents via C03, headless-no-client,
+    // ACP-no-capability) — instead of re-deriving from chat_source (which would
+    // miss cron-spawned subagents). Gated to Smart sessions because only the judge
+    // consumes it, keeping the surface lookup off the hot path for default/yolo.
+    // The intent String must outlive the borrow in `resolve_ctx` → local binding.
+    let unattended = ctx.session_mode == crate::permission::SessionMode::Smart
+        && matches!(
+            crate::permission::evaluate_approval_surface(ctx.session_id.as_deref()),
+            crate::permission::ApprovalSurface::Unattended(_)
+        );
+    let cron_intent: Option<String> = if unattended {
+        ctx.session_id
+            .as_deref()
+            .and_then(crate::permission::task_intent::get)
+    } else {
+        None
+    };
     let resolve_ctx = crate::permission::engine::ResolveContext {
         tool_name,
         args,
@@ -105,6 +126,8 @@ pub(super) async fn resolve_tool_permission(
         default_path: Some(ctx.default_path()),
         is_internal_tool,
         smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
+        unattended,
+        task_intent: cron_intent.as_deref(),
     };
     crate::permission::engine::resolve_async(&resolve_ctx).await
 }

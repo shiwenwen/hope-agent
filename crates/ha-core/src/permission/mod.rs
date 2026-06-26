@@ -27,6 +27,7 @@ pub(crate) mod pattern_match;
 pub mod protected_paths;
 pub mod rules;
 pub mod session_edits;
+pub mod task_intent;
 
 pub use approval_surface::{evaluate_approval_surface, ApprovalSurface, UnattendedReason};
 pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig, UnattendedApprovalAction};

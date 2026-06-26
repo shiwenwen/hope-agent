@@ -45,7 +45,9 @@ impl CronDB {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 project_id TEXT,
-                job_timeout_secs INTEGER
+                job_timeout_secs INTEGER,
+                permission_mode_override TEXT,
+                sandbox_mode_override TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_cron_jobs_status_next
@@ -126,6 +128,21 @@ impl CronDB {
             conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN job_timeout_secs INTEGER;")?;
         }
 
+        // Migration: add the per-job permission/sandbox override columns if
+        // missing. Both nullable — NULL means "follow the agent default".
+        let has_permission_override: bool = conn
+            .prepare("SELECT permission_mode_override FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_permission_override {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN permission_mode_override TEXT;")?;
+        }
+        let has_sandbox_override: bool = conn
+            .prepare("SELECT sandbox_mode_override FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_sandbox_override {
+            conn.execute_batch("ALTER TABLE cron_jobs ADD COLUMN sandbox_mode_override TEXT;")?;
+        }
+
         // Migration (§8): add delivery_status column to run logs if missing
         let has_delivery_status: bool = conn
             .prepare("SELECT delivery_status FROM cron_run_logs LIMIT 0")
@@ -198,8 +215,8 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14)",
+            "INSERT INTO cron_jobs (id, name, description, project_id, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, prefix_delivery_with_name, created_at, updated_at, job_timeout_secs, permission_mode_override, sandbox_mode_override)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?12, ?7, ?8, ?9, ?10, ?13, ?11, ?11, ?14, ?15, ?16)",
             params![
                 id,
                 input.name,
@@ -214,7 +231,9 @@ impl CronDB {
                 now_str,
                 initial_status.as_str(),
                 prefix_delivery_with_name as i32,
-                input.job_timeout_secs.map(|v| v as i64)
+                input.job_timeout_secs.map(|v| v as i64),
+                input.permission_mode_override.map(|m| m.as_str()),
+                input.sandbox_mode_override.map(|m| m.as_str())
             ],
         )?;
 
@@ -237,6 +256,8 @@ impl CronDB {
             delivery_targets,
             prefix_delivery_with_name,
             job_timeout_secs: input.job_timeout_secs,
+            permission_mode_override: input.permission_mode_override,
+            sandbox_mode_override: input.sandbox_mode_override,
         })
     }
 
@@ -307,7 +328,7 @@ impl CronDB {
         };
 
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, updated_at=?11
+            "UPDATE cron_jobs SET name=?1, description=?2, project_id=?3, schedule_json=?4, payload_json=?5, status=?6, next_run_at=?7, max_failures=?8, notify_on_complete=?9, delivery_targets_json=?10, prefix_delivery_with_name=?13, job_timeout_secs=?14, permission_mode_override=?15, sandbox_mode_override=?16, updated_at=?11
              WHERE id=?12",
             params![
                 job.name,
@@ -323,7 +344,9 @@ impl CronDB {
                 now_str,
                 job.id,
                 job.prefix_delivery_with_name as i32,
-                job.job_timeout_secs.map(|v| v as i64)
+                job.job_timeout_secs.map(|v| v as i64),
+                job.permission_mode_override.map(|m| m.as_str()),
+                job.sandbox_mode_override.map(|m| m.as_str())
             ],
         )?;
         Ok(())
@@ -496,7 +519,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -544,7 +567,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -575,7 +598,7 @@ impl CronDB {
             // — without it SQLite returns rows in arbitrary rowid order and, under
             // sustained cap pressure, the most-overdue job could be skipped every
             // tick (starvation). Most-overdue-first makes the cap fair.
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json, project_id, prefix_delivery_with_name, job_timeout_secs, permission_mode_override, sandbox_mode_override
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1
              ORDER BY next_run_at ASC"
         )?;
@@ -1790,6 +1813,20 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
             .ok()
             .flatten()
             .map(|v| v as u64),
+        // Index 18 / 19, appended after job_timeout_secs (17). `.ok().flatten()`
+        // keeps narrower test SELECTs defaulting to None; unknown strings fall
+        // back to the enum default inside `parse_or_default` (None stays None =
+        // follow the agent default).
+        permission_mode_override: row
+            .get::<_, Option<String>>(18)
+            .ok()
+            .flatten()
+            .map(|s| crate::permission::SessionMode::parse_or_default(&s)),
+        sandbox_mode_override: row
+            .get::<_, Option<String>>(19)
+            .ok()
+            .flatten()
+            .map(|s| crate::permission::SandboxMode::parse_or_default(&s)),
     })
 }
 
@@ -1842,6 +1879,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -1903,6 +1942,8 @@ mod tests {
             delivery_targets: Some(targets),
             prefix_delivery_with_name: prefix,
             job_timeout_secs: None,
+            permission_mode_override: None,
+            sandbox_mode_override: None,
         }
     }
 
@@ -1930,6 +1971,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: Some(1800),
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         assert_eq!(job.job_timeout_secs, Some(1800));
@@ -1942,6 +1985,61 @@ mod tests {
         db.update_job(&cleared).expect("update");
         let after = db.get_job(&job.id).expect("get").expect("exists");
         assert_eq!(after.job_timeout_secs, None, "override cleared on update");
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn permission_and_sandbox_overrides_persist_and_clear() {
+        // The per-job permission/sandbox overrides round-trip through add_job /
+        // get_job / update_job; `None` = follow the agent default.
+        use crate::permission::{SandboxMode, SessionMode};
+        let path = temp_db_path("perm-sandbox-override");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "guarded".into(),
+                description: None,
+                project_id: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "clean temp".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: None,
+                delivery_targets: None,
+                prefix_delivery_with_name: None,
+                job_timeout_secs: None,
+                permission_mode_override: Some(SessionMode::Smart),
+                sandbox_mode_override: Some(SandboxMode::Isolated),
+            })
+            .expect("add job");
+        assert_eq!(job.permission_mode_override, Some(SessionMode::Smart));
+        assert_eq!(job.sandbox_mode_override, Some(SandboxMode::Isolated));
+
+        let stored = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(
+            stored.permission_mode_override,
+            Some(SessionMode::Smart),
+            "permission override persists"
+        );
+        assert_eq!(
+            stored.sandbox_mode_override,
+            Some(SandboxMode::Isolated),
+            "sandbox override persists"
+        );
+
+        // Clear both back to "follow agent default".
+        let mut cleared = stored.clone();
+        cleared.permission_mode_override = None;
+        cleared.sandbox_mode_override = None;
+        db.update_job(&cleared).expect("update");
+        let after = db.get_job(&job.id).expect("get").expect("exists");
+        assert_eq!(after.permission_mode_override, None, "permission cleared");
+        assert_eq!(after.sandbox_mode_override, None, "sandbox cleared");
         cleanup_db_files(&path);
     }
 
@@ -1971,6 +2069,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -2289,6 +2389,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -2335,6 +2437,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -2633,6 +2737,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
@@ -2687,6 +2793,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -2719,6 +2827,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         let original_next_run = job.next_run_at.clone();
@@ -2767,6 +2877,8 @@ mod tests {
             delivery_targets: None,
             prefix_delivery_with_name: None,
             job_timeout_secs: None,
+            permission_mode_override: None,
+            sandbox_mode_override: None,
         };
         let a = db.add_job(&mk("a")).expect("add a");
         let b = db.add_job(&mk("b")).expect("add b");
@@ -2809,6 +2921,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         let claimed = db
@@ -2863,6 +2977,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -2925,6 +3041,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -2975,6 +3093,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
 
@@ -3022,6 +3142,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         {
@@ -3067,6 +3189,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         // Rewrite to a PAST timestamp + paused, simulating a one-shot that elapsed
@@ -3118,6 +3242,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         for _ in 0..10 {
@@ -3158,6 +3284,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add job");
         let claimed = db
@@ -3198,6 +3326,8 @@ mod tests {
                 delivery_targets: None,
                 prefix_delivery_with_name: None,
                 job_timeout_secs: None,
+                permission_mode_override: None,
+                sandbox_mode_override: None,
             })
             .expect("add")
         };
@@ -3260,6 +3390,8 @@ mod tests {
             delivery_targets: None,
             prefix_delivery_with_name: None,
             job_timeout_secs: None,
+            permission_mode_override: None,
+            sandbox_mode_override: None,
         };
 
         let past = db
