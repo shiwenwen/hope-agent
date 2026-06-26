@@ -250,7 +250,7 @@ flowchart TD
     D -->|不可用| E["返回 SandboxUnavailable<br/>不回落宿主机"]
     D -->|可用| F["exec 命令级审批 gate"]
     F --> G{"mode == isolated?"}
-    G -->|是| I["bounded copy cwd 到 tempfile<br/>跳过 symlink / 常见生成目录"]
+    G -->|是| I["gitignore-aware bounded copy 到 tempfile<br/>跳过 symlink / 常见生成目录"]
     I --> J["Docker 挂载临时副本到 /workspace"]
     G -->|否| K["Docker 挂载 session cwd 到 /workspace"]
     J --> L["创建容器 -> start -> wait/cancel/timeout -> logs -> remove"]
@@ -271,6 +271,8 @@ Docker 容器属性：
 `isolated` 副本准备：
 
 - 复制工作区发生在 `spawn_blocking` 中，避免同步 `std::fs` 递归阻塞 tokio runtime。
+- 遍历使用 `ignore::WalkBuilder`；`hidden(false)`，所以 dotfile 不会仅因隐藏而被跳过，是否复制由 ignore 规则和硬编码兜底决定。
+- 如果 cwd 位于 Git repo 内，按 Git repo 边界读取父级 `.gitignore`，并尊重 `.ignore`、`.git/info/exclude` 和 git global ignore；如果 cwd 不在 Git repo 内，则只读取 cwd 树内的 `.gitignore` / `.ignore`，避免父目录或全局规则意外影响隔离副本。
 - 复制过程检查取消 token 和本次 exec timeout；取消 / 超时会在准备阶段 fail-fast。
 - 默认最多复制 512MiB / 50,000 个文件或目录，超过后返回明确错误并建议改用 `workspace` mode 或收窄 cwd。
 - 跳过 symlink、特殊文件，以及常见 VCS / 依赖 / 构建缓存目录：`.git`、`.hg`、`.svn`、`node_modules`、`target`、`dist`、`build`、`.next`、`.turbo`、`.cache`、`coverage`、`.pytest_cache`、`__pycache__`。

@@ -6,6 +6,7 @@ use bollard::query_parameters::{
 };
 use bollard::Docker;
 use futures_util::StreamExt;
+use ignore::WalkBuilder;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -590,12 +591,22 @@ async fn prepare_isolated_workspace(
         cancellation_token,
     };
 
-    tokio::task::spawn_blocking(move || {
+    let stats = tokio::task::spawn_blocking(move || {
         let mut stats = IsolatedCopyStats::default();
-        copy_dir_recursive_bounded(&source, &destination, &limits, &mut stats)
+        copy_dir_gitignore_aware_bounded(&source, &destination, &limits, &mut stats)?;
+        Ok::<_, anyhow::Error>(stats)
     })
     .await
-    .map_err(|e| anyhow::anyhow!("Isolated sandbox workspace preparation panicked: {}", e))?
+    .map_err(|e| anyhow::anyhow!("Isolated sandbox workspace preparation panicked: {}", e))??;
+    app_info!(
+        "sandbox",
+        "isolated",
+        "Prepared isolated sandbox workspace: files={}, dirs={}, bytes={}",
+        stats.files,
+        stats.dirs,
+        stats.bytes
+    );
+    Ok(())
 }
 
 struct IsolatedCopyLimits {
@@ -609,6 +620,8 @@ struct IsolatedCopyLimits {
 struct IsolatedCopyStats {
     bytes: u64,
     entries: u64,
+    files: u64,
+    dirs: u64,
 }
 
 impl IsolatedCopyLimits {
@@ -647,7 +660,18 @@ fn should_skip_isolated_copy_dir(name: &std::ffi::OsStr) -> bool {
         .unwrap_or(false)
 }
 
-fn copy_dir_recursive_bounded(
+fn find_git_root_for_ignore(path: &Path) -> Option<PathBuf> {
+    let mut current = Some(path);
+    while let Some(dir) = current {
+        if dir.join(".git").exists() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    None
+}
+
+fn copy_dir_gitignore_aware_bounded(
     src: &Path,
     dst: &Path,
     limits: &IsolatedCopyLimits,
@@ -655,13 +679,54 @@ fn copy_dir_recursive_bounded(
 ) -> Result<()> {
     limits.check(stats)?;
     std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
+    let source_root = src.to_path_buf();
+    let filter_root = source_root.clone();
+    let inside_git_repo = find_git_root_for_ignore(src).is_some();
+    let walker = WalkBuilder::new(src)
+        .hidden(false)
+        .ignore(true)
+        .git_ignore(true)
+        .git_global(inside_git_repo)
+        .git_exclude(inside_git_repo)
+        .parents(inside_git_repo)
+        .require_git(inside_git_repo)
+        .follow_links(false)
+        .filter_entry(move |entry| {
+            if entry.path() == filter_root {
+                return true;
+            }
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir && should_skip_isolated_copy_dir(entry.file_name()) {
+                app_debug!(
+                    "sandbox",
+                    "isolated",
+                    "Skipping generated/cache directory while preparing isolated sandbox: {}",
+                    entry.path().display()
+                );
+                return false;
+            }
+            true
+        })
+        .build();
+
+    for entry in walker {
         limits.check(stats)?;
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let file_name = entry.file_name();
+        let entry = entry.map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to walk isolated sandbox source '{}': {}",
+                src.display(),
+                e
+            )
+        })?;
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
         let src_path = entry.path();
-        let dst_path = dst.join(&file_name);
+        let rel_path = match src_path.strip_prefix(&source_root) {
+            Ok(rel) if !rel.as_os_str().is_empty() => rel,
+            _ => continue,
+        };
+        let dst_path = dst.join(rel_path);
         if file_type.is_symlink() {
             app_warn!(
                 "sandbox",
@@ -672,21 +737,14 @@ fn copy_dir_recursive_bounded(
             continue;
         }
         if file_type.is_dir() {
-            if should_skip_isolated_copy_dir(&file_name) {
-                app_debug!(
-                    "sandbox",
-                    "isolated",
-                    "Skipping generated/cache directory while preparing isolated sandbox: {}",
-                    src_path.display()
-                );
-                continue;
-            }
             stats.entries = stats.entries.saturating_add(1);
+            stats.dirs = stats.dirs.saturating_add(1);
             limits.check(stats)?;
-            copy_dir_recursive_bounded(&src_path, &dst_path, limits, stats)?;
+            std::fs::create_dir_all(&dst_path)?;
         } else if file_type.is_file() {
             stats.entries = stats.entries.saturating_add(1);
-            let file_size = entry.metadata()?.len();
+            stats.files = stats.files.saturating_add(1);
+            let file_size = std::fs::metadata(src_path)?.len();
             stats.bytes = stats.bytes.saturating_add(file_size);
             limits.check(stats)?;
             if let Some(parent) = dst_path.parent() {
@@ -714,6 +772,8 @@ mod tests {
         let source = tempfile::tempdir().expect("source tempdir");
         let destination = tempfile::tempdir().expect("destination tempdir");
         std::fs::write(source.path().join("keep.txt"), "keep").expect("write keep");
+        std::fs::write(source.path().join(".env.example"), "documented=true")
+            .expect("write hidden example");
         std::fs::create_dir_all(source.path().join("src")).expect("mkdir src");
         std::fs::write(source.path().join("src/lib.rs"), "fn main() {}").expect("write src");
         std::fs::create_dir_all(source.path().join("node_modules/pkg"))
@@ -728,12 +788,95 @@ mod tests {
             cancellation_token: None,
         };
         let mut stats = IsolatedCopyStats::default();
-        copy_dir_recursive_bounded(source.path(), destination.path(), &limits, &mut stats)
+        copy_dir_gitignore_aware_bounded(source.path(), destination.path(), &limits, &mut stats)
             .expect("copy should succeed");
 
         assert!(destination.path().join("keep.txt").exists());
+        assert!(destination.path().join(".env.example").exists());
         assert!(destination.path().join("src/lib.rs").exists());
         assert!(!destination.path().join("node_modules").exists());
+    }
+
+    #[test]
+    fn isolated_copy_respects_gitignore_rules() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        let destination = tempfile::tempdir().expect("destination tempdir");
+        std::fs::write(
+            source.path().join(".gitignore"),
+            "ignored.txt\nignored_dir/\n.env\n",
+        )
+        .expect("write gitignore");
+        std::fs::write(source.path().join("keep.txt"), "keep").expect("write keep");
+        std::fs::write(source.path().join("ignored.txt"), "ignore").expect("write ignored");
+        std::fs::write(source.path().join(".env"), "SECRET=value").expect("write env");
+        std::fs::create_dir_all(source.path().join("ignored_dir")).expect("mkdir ignored dir");
+        std::fs::write(source.path().join("ignored_dir/file.txt"), "ignore")
+            .expect("write ignored dir file");
+
+        let limits = IsolatedCopyLimits {
+            max_bytes: 1024,
+            max_entries: 10,
+            deadline: None,
+            cancellation_token: None,
+        };
+        let mut stats = IsolatedCopyStats::default();
+        copy_dir_gitignore_aware_bounded(source.path(), destination.path(), &limits, &mut stats)
+            .expect("copy should succeed");
+
+        assert!(destination.path().join(".gitignore").exists());
+        assert!(destination.path().join("keep.txt").exists());
+        assert!(!destination.path().join("ignored.txt").exists());
+        assert!(!destination.path().join(".env").exists());
+        assert!(!destination.path().join("ignored_dir").exists());
+    }
+
+    #[test]
+    fn isolated_copy_uses_parent_gitignore_inside_git_repo() {
+        let repo = tempfile::tempdir().expect("repo tempdir");
+        std::fs::create_dir(repo.path().join(".git")).expect("git marker");
+        std::fs::write(repo.path().join(".gitignore"), "root_ignored.txt\n")
+            .expect("write root gitignore");
+        let source = repo.path().join("subdir");
+        std::fs::create_dir(&source).expect("mkdir source");
+        std::fs::write(source.join("root_ignored.txt"), "ignore").expect("write ignored");
+        std::fs::write(source.join("keep.txt"), "keep").expect("write keep");
+        let destination = tempfile::tempdir().expect("destination tempdir");
+
+        let limits = IsolatedCopyLimits {
+            max_bytes: 1024,
+            max_entries: 10,
+            deadline: None,
+            cancellation_token: None,
+        };
+        let mut stats = IsolatedCopyStats::default();
+        copy_dir_gitignore_aware_bounded(&source, destination.path(), &limits, &mut stats)
+            .expect("copy should succeed");
+
+        assert!(destination.path().join("keep.txt").exists());
+        assert!(!destination.path().join("root_ignored.txt").exists());
+    }
+
+    #[test]
+    fn isolated_copy_does_not_apply_parent_gitignore_outside_git_repo() {
+        let parent = tempfile::tempdir().expect("parent tempdir");
+        std::fs::write(parent.path().join(".gitignore"), "parent_ignored.txt\n")
+            .expect("write parent gitignore");
+        let source = parent.path().join("child");
+        std::fs::create_dir(&source).expect("mkdir source");
+        std::fs::write(source.join("parent_ignored.txt"), "keep").expect("write file");
+        let destination = tempfile::tempdir().expect("destination tempdir");
+
+        let limits = IsolatedCopyLimits {
+            max_bytes: 1024,
+            max_entries: 10,
+            deadline: None,
+            cancellation_token: None,
+        };
+        let mut stats = IsolatedCopyStats::default();
+        copy_dir_gitignore_aware_bounded(&source, destination.path(), &limits, &mut stats)
+            .expect("copy should succeed");
+
+        assert!(destination.path().join("parent_ignored.txt").exists());
     }
 
     #[test]
@@ -749,9 +892,13 @@ mod tests {
             cancellation_token: None,
         };
         let mut stats = IsolatedCopyStats::default();
-        let err =
-            copy_dir_recursive_bounded(source.path(), destination.path(), &limits, &mut stats)
-                .expect_err("copy should fail on size limit");
+        let err = copy_dir_gitignore_aware_bounded(
+            source.path(),
+            destination.path(),
+            &limits,
+            &mut stats,
+        )
+        .expect_err("copy should fail on size limit");
 
         assert!(err.to_string().contains("too large to copy safely"));
     }
@@ -771,9 +918,13 @@ mod tests {
             cancellation_token: Some(cancellation_token),
         };
         let mut stats = IsolatedCopyStats::default();
-        let err =
-            copy_dir_recursive_bounded(source.path(), destination.path(), &limits, &mut stats)
-                .expect_err("copy should fail when cancelled");
+        let err = copy_dir_gitignore_aware_bounded(
+            source.path(),
+            destination.path(),
+            &limits,
+            &mut stats,
+        )
+        .expect_err("copy should fail when cancelled");
 
         assert!(err.to_string().contains("preparation cancelled"));
     }
