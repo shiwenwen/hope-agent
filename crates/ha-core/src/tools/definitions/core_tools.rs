@@ -2262,6 +2262,34 @@ mod tests {
     use super::get_available_tools;
 
     #[test]
+    fn manage_cron_schema_never_exposes_permission_or_sandbox_overrides() {
+        // Regression guard (owner-plane-only red line): the per-job
+        // permission_mode_override / sandbox_mode_override fields must NEVER be
+        // settable by the model. They live only on the owner plane (GUI / Tauri /
+        // HTTP). If a future change adds them to the manage_cron schema, an injected
+        // model could schedule a `yolo` task to self-escalate unattended, or lower
+        // its own sandbox. The tool-layer `NewCronJob` construction hardcodes `None`
+        // and the `update` action refuses override-bearing jobs; this test pins the
+        // schema so the lock can't silently regress.
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_MANAGE_CRON)
+            .expect("manage_cron schema");
+        let schema = tool.parameters.to_string();
+        for forbidden in [
+            "permission_mode_override",
+            "sandbox_mode_override",
+            "permissionModeOverride",
+            "sandboxModeOverride",
+        ] {
+            assert!(
+                !schema.contains(forbidden),
+                "manage_cron schema must not expose '{forbidden}' — these overrides are owner-plane only"
+            );
+        }
+    }
+
+    #[test]
     fn mac_control_schema_includes_visual_ops() {
         let tool = get_available_tools()
             .into_iter()

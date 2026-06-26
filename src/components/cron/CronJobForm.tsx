@@ -23,7 +23,9 @@ import {
   toLocalDatetimeString,
 } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
-import type { AgentInfo } from "@/types/chat"
+import { DockerSetupHint } from "@/components/settings/DockerSetupHint"
+import { useDockerStatus } from "@/hooks/useDockerStatus"
+import type { AgentInfo, SandboxMode, SessionMode } from "@/types/chat"
 import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
 import type { ProjectMeta } from "@/types/project"
 
@@ -55,6 +57,16 @@ interface CronJobFormProps {
 
 const AUTO_AGENT_VALUE = "__auto__"
 const NO_PROJECT_VALUE = "__none__"
+/** Sentinel for the permission / sandbox selectors meaning "follow agent default". */
+const FOLLOW_MODE_VALUE = "__follow__"
+const PERMISSION_MODE_OPTIONS: SessionMode[] = ["default", "smart", "yolo"]
+const SANDBOX_MODE_OPTIONS: SandboxMode[] = [
+  "off",
+  "standard",
+  "isolated",
+  "workspace",
+  "trusted",
+]
 
 export default function CronJobForm({
   job,
@@ -182,6 +194,28 @@ export default function CronJobForm({
   const [jobTimeoutSecs, setJobTimeoutSecs] = useState(
     job?.jobTimeoutSecs ? String(job.jobTimeoutSecs) : "",
   )
+  // Per-job permission / sandbox overrides; FOLLOW sentinel = follow agent default.
+  const [permissionModeOverride, setPermissionModeOverride] = useState<string>(
+    job?.permissionModeOverride ?? FOLLOW_MODE_VALUE,
+  )
+  const [sandboxModeOverride, setSandboxModeOverride] = useState<string>(
+    job?.sandboxModeOverride ?? FOLLOW_MODE_VALUE,
+  )
+  const {
+    status: dockerStatus,
+    checking: dockerChecking,
+    ready: dockerReady,
+    refresh: checkDocker,
+  } = useDockerStatus()
+  // The selected sandbox needs Docker iff an explicit non-off mode is chosen.
+  // "Follow agent" can't be resolved here without the agent's effective default,
+  // so the hint only shows for an explicit non-off pick (conservative — runtime
+  // still fail-closes if Docker is down at fire time).
+  const sandboxNeedsDocker =
+    sandboxModeOverride !== FOLLOW_MODE_VALUE && sandboxModeOverride !== "off"
+  useEffect(() => {
+    if (sandboxNeedsDocker) void checkDocker()
+  }, [sandboxNeedsDocker, checkDocker])
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
     () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
   )
@@ -321,6 +355,13 @@ export default function CronJobForm({
     const validTargets = deliveryTargets.filter(
       (t) => t.channelId && t.accountId && t.chatId,
     )
+    // FOLLOW sentinel → null (follow agent default); else the explicit mode.
+    const resolvedPermissionMode: SessionMode | null =
+      permissionModeOverride === FOLLOW_MODE_VALUE
+        ? null
+        : (permissionModeOverride as SessionMode)
+    const resolvedSandboxMode: SandboxMode | null =
+      sandboxModeOverride === FOLLOW_MODE_VALUE ? null : (sandboxModeOverride as SandboxMode)
 
     try {
       if (isEditing && job) {
@@ -341,6 +382,8 @@ export default function CronJobForm({
           deliveryTargets: validTargets,
           prefixDeliveryWithName,
           jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
+          permissionModeOverride: resolvedPermissionMode,
+          sandboxModeOverride: resolvedSandboxMode,
         }
         await getTransport().call("cron_update_job", { job: updated })
       } else {
@@ -361,6 +404,8 @@ export default function CronJobForm({
             deliveryTargets: validTargets,
             prefixDeliveryWithName,
             jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
+            permissionModeOverride: resolvedPermissionMode,
+            sandboxModeOverride: resolvedSandboxMode,
           },
         })
       }
@@ -612,6 +657,72 @@ export default function CronJobForm({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Permission + sandbox overrides (per-job; default = follow agent) */}
+          <div className="space-y-2 rounded-md border border-border/50 p-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                {t("cron.permissionMode")}
+              </label>
+              <Select
+                value={permissionModeOverride}
+                onValueChange={setPermissionModeOverride}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FOLLOW_MODE_VALUE}>
+                    {t("cron.followAgentMode")}
+                  </SelectItem>
+                  {PERMISSION_MODE_OPTIONS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {t(`cron.permissionMode_${m}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                {t("cron.sandboxMode")}
+              </label>
+              <Select value={sandboxModeOverride} onValueChange={setSandboxModeOverride}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={FOLLOW_MODE_VALUE}>
+                    {t("cron.followAgentMode")}
+                  </SelectItem>
+                  {SANDBOX_MODE_OPTIONS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {t(`chat.sandboxMode.${m}.label`, { defaultValue: m })}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {t("cron.permissionSandboxHint")}
+            </p>
+            {sandboxNeedsDocker && !dockerReady && (
+              <DockerSetupHint
+                status={dockerStatus}
+                checking={dockerChecking}
+                onRefresh={checkDocker}
+                title={t("chat.sandboxMode.setupTitle", {
+                  defaultValue: "配置 Docker 后启用沙箱",
+                })}
+              />
+            )}
+            {permissionModeOverride === "yolo" && sandboxModeOverride === "off" && (
+              <div className="flex items-start gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-[11px] text-destructive">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{t("cron.unsandboxedYoloWarning")}</span>
+              </div>
+            )}
           </div>
 
           {/* Max Failures */}

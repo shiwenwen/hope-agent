@@ -48,6 +48,10 @@ export interface CronJob {
   prefixDeliveryWithName?: boolean
   /** C19: per-job run timeout override (seconds); null/undefined = global default. */
   jobTimeoutSecs?: number | null
+  /** Per-job permission-mode override; null/undefined = follow the agent default. */
+  permissionModeOverride?: "default" | "smart" | "yolo" | null
+  /** Per-job sandbox-mode override; null/undefined = follow the agent default. */
+  sandboxModeOverride?: "off" | "standard" | "isolated" | "workspace" | "trusted" | null
 }
 
 export interface CronRunLog {
