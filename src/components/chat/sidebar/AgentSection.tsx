@@ -39,8 +39,10 @@ interface AgentSectionProps {
 }
 
 const AGENT_CARD_MIN_WIDTH_PX = 156
+const AGENT_COMPACT_CARD_MIN_WIDTH_PX = 104
 const AGENT_GRID_GAP_PX = 4
 const AGENT_SECTION_HORIZONTAL_PADDING_PX = 24
+const AGENT_COMPACT_SECTION_HORIZONTAL_PADDING_PX = 16
 
 interface SortableAgentCardProps {
   agent: AgentSummaryForSidebar
@@ -64,6 +66,7 @@ function SortableAgentCard({
   displayMode,
 }: SortableAgentCardProps) {
   const { t } = useTranslation()
+  const isCompact = displayMode === "compact"
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: agent.id,
     disabled: !canReorder,
@@ -84,7 +87,10 @@ function SortableAgentCard({
             <TooltipTrigger asChild>
               <div
                 className={cn(
-                  "group/agent relative flex min-w-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors",
+                  "group/agent relative flex min-w-0 items-center text-xs transition-colors",
+                  isCompact
+                    ? "gap-1 rounded-md px-1.5 py-0.5"
+                    : "gap-1.5 rounded-lg px-2 py-1.5",
                   isSelected ? "bg-primary/10" : "hover:bg-secondary/60",
                 )}
               >
@@ -100,7 +106,12 @@ function SortableAgentCard({
                 )}
                 {/* Clickable area: single click = toggle filter, double click = new chat */}
                 <button
-                  className="flex min-w-0 flex-1 items-center gap-2 text-left transition-[padding] group-hover/agent:pr-9"
+                  className={cn(
+                    "flex min-w-0 flex-1 items-center text-left transition-[padding]",
+                    isCompact
+                      ? "gap-1.5 group-hover/agent:pr-7"
+                      : "gap-2 group-hover/agent:pr-9",
+                  )}
                   onClick={() => {
                     if (clickTimerRef.current) {
                       clearTimeout(clickTimerRef.current)
@@ -142,13 +153,19 @@ function SortableAgentCard({
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate",
+                      isCompact && "text-[12px] leading-5",
                       isSelected ? "text-primary font-medium" : "text-foreground/80",
                     )}
                   >
                     {agent.name}
                   </span>
                 </button>
-                <div className="pointer-events-none absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/agent:pointer-events-auto group-hover/agent:opacity-100">
+                <div
+                  className={cn(
+                    "pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-0.5 opacity-0 transition-opacity group-hover/agent:pointer-events-auto group-hover/agent:opacity-100",
+                    isCompact ? "right-1" : "right-1.5",
+                  )}
+                >
                   {onEditAgent && (
                     <IconTip label={t("common.settings")}>
                       <button
@@ -211,8 +228,15 @@ export default function AgentSection({
   const { t } = useTranslation()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  const agentGridWidth = Math.max(panelWidth - AGENT_SECTION_HORIZONTAL_PADDING_PX, 0)
-  const agentCardMinWidth = displayMode === "compact" ? 118 : AGENT_CARD_MIN_WIDTH_PX
+  const agentGridWidth = Math.max(
+    panelWidth -
+      (displayMode === "compact"
+        ? AGENT_COMPACT_SECTION_HORIZONTAL_PADDING_PX
+        : AGENT_SECTION_HORIZONTAL_PADDING_PX),
+    0,
+  )
+  const agentCardMinWidth =
+    displayMode === "compact" ? AGENT_COMPACT_CARD_MIN_WIDTH_PX : AGENT_CARD_MIN_WIDTH_PX
   const agentColumnCount = Math.max(
     1,
     Math.min(
@@ -244,7 +268,12 @@ export default function AgentSection({
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={agents.map((agent) => agent.id)} strategy={rectSortingStrategy}>
             <div
-              className="grid gap-1 px-3 pb-2 pt-1"
+              className={cn(
+                "grid",
+                displayMode === "compact"
+                  ? "gap-0.5 px-2 pb-1.5 pt-0.5"
+                  : "gap-1 px-3 pb-2 pt-1",
+              )}
               style={{
                 gridTemplateColumns: `repeat(${agentColumnCount}, minmax(0, 1fr))`,
               }}
