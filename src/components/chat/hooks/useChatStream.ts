@@ -75,11 +75,29 @@ function assistantNotificationText(message: Message): string {
   return truncateNotificationText(normalizeNotificationText(blockText || message.content || ""))
 }
 
+function userNotificationText(message: Message): string {
+  const blockText = message.contentBlocks
+    ?.filter((block) => block.type === "text")
+    .map((block) => block.content)
+    .join("\n\n")
+  return truncateNotificationText(normalizeNotificationText(blockText || message.content || ""))
+}
+
 function latestAssistantNotificationPreview(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const message = messages[i]
     if (message.role !== "assistant") continue
     const text = assistantNotificationText(message)
+    if (text) return text
+  }
+  return null
+}
+
+function latestUserNotificationPreview(messages: Message[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message.role !== "user") continue
+    const text = userNotificationText(message)
     if (text) return text
   }
   return null
@@ -1307,9 +1325,12 @@ export function useChatStream({
       ) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
-          const sessionTitle =
-            sessions.find((s) => s.id === targetSessionId)?.title || t("notification.chatError")
-          notify(t("notification.chatError"), sessionTitle)
+          const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title
+          const userPreview = latestUserNotificationPreview(
+            sessionCacheRef.current.get(targetSessionId) ?? [],
+          )
+          const title = t("notification.chatError")
+          notify(title, sessionTitle || userPreview || title)
         }
       }
     } finally {
