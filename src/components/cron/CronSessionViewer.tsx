@@ -100,7 +100,7 @@ export default function CronSessionViewer({ sessionId, agents }: CronSessionView
   }
 
   return (
-    <div className="flex flex-1 min-h-0 flex-col">
+    <div className="flex flex-1 min-h-0 flex-col pt-3">
       <MessageList
         messages={messages}
         loading={false}
