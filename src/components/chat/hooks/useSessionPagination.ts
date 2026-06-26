@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { materializeMessages } from "../chatUtils"
@@ -21,7 +21,6 @@ interface UseSessionPaginationParams {
   sessionsRef: React.MutableRefObject<SessionMeta[]>
   setSessions: React.Dispatch<React.SetStateAction<SessionMeta[]>>
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>
-  sessionsLength: number
 }
 
 export interface UseSessionPaginationReturn {
@@ -58,7 +57,6 @@ export function useSessionPagination({
   sessionsRef,
   setSessions,
   setMessages,
-  sessionsLength,
 }: UseSessionPaginationParams): UseSessionPaginationReturn {
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -66,6 +64,7 @@ export function useSessionPagination({
   const [loadingMoreAfter, setLoadingMoreAfter] = useState(false)
   const [hasMoreSessions, setHasMoreSessions] = useState(false)
   const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
+  const loadedSessionRowsRef = useRef(0)
 
   const reloadSessions = useCallback(async () => {
     try {
@@ -74,22 +73,35 @@ export function useSessionPagination({
         offset: 0,
         activeSessionId: currentSessionIdRef.current ?? undefined,
       })
-      setSessions(list)
-      setHasMoreSessions(list.length < total)
+      loadedSessionRowsRef.current = list.length
+      const activeSessionId = currentSessionIdRef.current
+      const hasActiveExtra =
+        !!activeSessionId &&
+        !list.some((session) => session.id === activeSessionId) &&
+        sessionsRef.current.some((session) => session.id === activeSessionId)
+      setSessions((prev) => {
+        if (!activeSessionId || list.some((session) => session.id === activeSessionId)) return list
+        // A deep project-row switch can land on a session outside the first global page.
+        const activeSession = prev.find((session) => session.id === activeSessionId)
+        return activeSession ? [activeSession, ...list] : list
+      })
+      setHasMoreSessions(list.length + (hasActiveExtra ? 1 : 0) < total)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     }
-  }, [setSessions, currentSessionIdRef])
+  }, [setSessions, currentSessionIdRef, sessionsRef])
 
   const handleLoadMoreSessions = useCallback(async () => {
     if (loadingMoreSessions || !hasMoreSessions) return
     setLoadingMoreSessions(true)
     try {
+      const offset = loadedSessionRowsRef.current
       const [more, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
-        offset: sessionsLength,
+        offset,
         activeSessionId: currentSessionIdRef.current ?? undefined,
       })
+      loadedSessionRowsRef.current = offset + more.length
       if (more.length === 0) {
         setHasMoreSessions(false)
         return
@@ -106,7 +118,7 @@ export function useSessionPagination({
     } finally {
       setLoadingMoreSessions(false)
     }
-  }, [loadingMoreSessions, hasMoreSessions, sessionsLength, setSessions, currentSessionIdRef])
+  }, [loadingMoreSessions, hasMoreSessions, setSessions, currentSessionIdRef])
 
   const handleLoadMore = useCallback(async () => {
     const curSid = currentSessionIdRef.current

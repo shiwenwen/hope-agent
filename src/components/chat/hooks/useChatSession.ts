@@ -209,7 +209,6 @@ export function useChatSession({
     sessionsRef,
     setSessions,
     setMessages,
-    sessionsLength: sessions.length,
   })
 
   // --- Channel streaming sub-hook ---
@@ -255,6 +254,17 @@ export function useChatSession({
     },
     [],
   )
+
+  const upsertSessionMeta = useCallback((meta: SessionMeta) => {
+    setSessions((prev) => {
+      const idx = prev.findIndex((session) => session.id === meta.id)
+      if (idx === -1) return sortSessionsForSidebar([meta, ...prev])
+      if (prev[idx] === meta) return prev
+      const next = [...prev]
+      next[idx] = meta
+      return sortSessionsForSidebar(next)
+    })
+  }, [])
 
   const updateSessionMeta = useCallback(
     (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => {
@@ -731,8 +741,15 @@ export function useChatSession({
       const currentAgents = await getTransport()
         .call<AgentSummaryForSidebar[]>("list_agents")
         .catch(() => [] as AgentSummaryForSidebar[])
-      const session = currentSessions.find((s) => s.id === sessionId)
+      let session = currentSessions.find((s) => s.id === sessionId)
+      if (!session) {
+        const fetchedSession = await getTransport()
+          .call<SessionMeta | null>("get_session_cmd", { sessionId })
+          .catch(() => null)
+        session = fetchedSession ?? undefined
+      }
       if (session) {
+        upsertSessionMeta(session)
         setCurrentAgentId(session.agentId)
         const agent = currentAgents.find((a) => a.id === session.agentId)
         if (agent) setAgentName(agent.name)
@@ -810,6 +827,7 @@ export function useChatSession({
       setHasMore,
       setHasMoreAfter,
       touchSessionCacheLru,
+      upsertSessionMeta,
     ],
   )
 
@@ -847,17 +865,19 @@ export function useChatSession({
     async (agentId: string) => {
       // Save current session to cache
       // (cache is already maintained by updateSessionMessages)
-
-      const currentAgents = await getTransport()
-        .call<AgentSummaryForSidebar[]>("list_agents")
-        .catch(() => [] as AgentSummaryForSidebar[])
-      const agent = currentAgents.find((a) => a.id === agentId)
+      const cachedAgent = agents.find((a) => a.id === agentId)
       setMessages([])
       setCurrentSessionId(null)
       setLoading(false)
       setHasMore(false)
       setHasMoreAfter(false)
       setCurrentAgentId(agentId)
+      setAgentName(cachedAgent?.name ?? "")
+
+      const currentAgents = await getTransport()
+        .call<AgentSummaryForSidebar[]>("list_agents")
+        .catch(() => [] as AgentSummaryForSidebar[])
+      const agent = currentAgents.find((a) => a.id === agentId)
       if (agent) {
         setAgentName(agent.name)
       }
@@ -891,6 +911,7 @@ export function useChatSession({
       setActiveModel,
       setHasMore,
       setHasMoreAfter,
+      agents,
     ],
   )
 
