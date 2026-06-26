@@ -58,6 +58,7 @@ import SidebarSectionHeader from "../sidebar/SidebarSectionHeader"
 import ProjectIcon from "./ProjectIcon"
 import { PROJECT_SESSION_PAGE_SIZE } from "../hooks/constants"
 import { useProjectSessions } from "./hooks/useProjectSessions"
+import { PROJECT_TEXT_COLOR_MAP } from "./colors"
 
 interface ProjectSectionProps {
   projects: ProjectMeta[]
@@ -331,6 +332,8 @@ function ProjectGroup({
   })
   const showPaginationFooter = childTotal > PROJECT_SESSION_PAGE_SIZE
   const ProjectToggleIcon = groupExpanded ? FolderOpen : Folder
+  const projectFolderColorClass =
+    (project.color && PROJECT_TEXT_COLOR_MAP[project.color]) || "text-muted-foreground/70"
 
   const handleMarkProjectRead = useCallback(async () => {
     if (project.unreadCount === 0) return
@@ -369,7 +372,12 @@ function ProjectGroup({
               }
             }}
           >
-            <ProjectToggleIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-colors duration-150" />
+            <ProjectToggleIcon
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 transition-colors duration-150",
+                projectFolderColorClass,
+              )}
+            />
             {displayMode === "detailed" && (
               <div className="relative shrink-0">
                 <ProjectIcon project={project} size="sm" withColorChip />
@@ -396,7 +404,7 @@ function ProjectGroup({
             </div>
             {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
                 the two sections feel consistent. */}
-            <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
+            <div className="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
               {!archivedView && (
                 <IconTip label={t("project.newChatInProject")}>
                   <button
@@ -436,14 +444,14 @@ function ProjectGroup({
               )}
             </div>
             {displayMode === "compact" && projectUnreadCount > 0 && (
-              <span className="absolute right-3 top-1/2 inline-flex h-[15px] min-w-[15px] -translate-y-1/2 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0">
+              <span className="pointer-events-none absolute right-3 top-1/2 inline-flex h-[15px] min-w-[15px] -translate-y-1/2 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0">
                 {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
               </span>
             )}
             {project.sessionCount > 0 && !(displayMode === "compact" && projectUnreadCount > 0) && (
               <span
                 className={cn(
-                  "absolute right-3 top-1/2 -translate-y-1/2 text-[10px] tabular-nums transition-opacity",
+                  "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] tabular-nums transition-opacity",
                   "text-muted-foreground/70 group-hover/project:opacity-0 group-focus-within/project:opacity-0",
                 )}
               >
