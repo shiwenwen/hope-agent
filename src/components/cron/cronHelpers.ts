@@ -1,4 +1,25 @@
-import type { CronSchedule, CronFrequency } from "./CronJobForm.types"
+import type { CronSchedule, CronFrequency, CronDeliveryTarget } from "./CronJobForm.types"
+
+/**
+ * Human-readable label for a delivery target. Uses the cached `label` computed
+ * when the target was picked (e.g. `telegram / 张三`); falls back to the raw
+ * `channelId / chatId` for targets created without a label (e.g. via the model
+ * tool). No extra data fetch needed.
+ */
+export function deliveryTargetLabel(target: CronDeliveryTarget): string {
+  const cached = target.label?.trim()
+  if (cached) return cached
+  return `${target.channelId} / ${target.chatId}`
+}
+
+/** Tailwind text color for a run's delivery status (delivered/partial/failed). */
+export function deliveryStatusColor(status: string): string {
+  return status === "delivered"
+    ? "text-emerald-500"
+    : status === "partial"
+      ? "text-amber-500"
+      : "text-red-500"
+}
 
 export const WEEKDAY_KEYS = [
   "weekMon",

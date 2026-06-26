@@ -547,6 +547,27 @@ Tauri 全局事件，任务执行完成后（无论成功或失败）发射。
 | `auto_disabled` | `bool?` | 仅 `emit_cron_disabled_event` 携带为 `true`：连续失败触顶被自动禁用（强制 `notify=true`，无视 `notify_on_complete`） |
 | `consecutive_failures` | `u32?` | 仅 `auto_disabled` 事件携带，连续失败次数，用于禁用通知文案 |
 
+### cron:unread_changed
+
+Tauri 全局事件，cron 未读聚合数发生变化时发射。当前在 `cron_mark_all_read`（一键清除）后发 `{ total: 0 }`。前端 `useCronUnreadStore` 收到后调 `cron_unread_total` 刷新侧边栏 cron icon 角标；`cron:run_completed` 同样触发刷新（让新结果实时增长角标）。
+
+## 运行历史时间线与未读聚合（cron 面板「历史」视图）
+
+cron 每次运行新建一个独立会话（`is_cron=1`，标题=job 名），过去散落在主侧边栏的「定时」Tab 里、与用户对话混排。现在 cron 会话**不再进主会话列表 / 全局搜索**，集中收进 cron 面板。
+
+**摘除**：`SessionDB::list_sessions_paged_for_sidebar` 传 `exclude_cron=true`（共享的 `list_sessions_paged_inner` 加 `s.is_cron=0` 谓词；通用 `list_sessions_paged` 仍传 `false`，awareness / tray 等内部读取不受影响）。前端 `SessionList` 去掉 cron Tab，并在搜索结果里滤掉 `isCron`。
+
+**时间线（跨库装配）**：`cron.db`（run logs + jobs）与 `sessions.db`（title + unread）是两个独立 SQLite，无法单条 SQL JOIN，故在 ha-core 的 `cron::timeline::cron_run_timeline` 里 Rust 层拼装：
+
+1. `CronDB::list_run_timeline(limit, offset)`——`cron_run_logs LEFT JOIN cron_jobs`，按 `started_at DESC, id DESC` 倒序分页，job 被删时 `job_name` 回退 `(deleted job)`；
+2. `SessionDB::cron_session_read_state(session_ids)`——按当前页 session id 批量取 `(title, 未读 assistant 数)`，session 被 purge 的 id 缺席，由装配层回退 `title=job_name`、`unread_count=0`。
+
+返回 `CronTimelineRow { sessionId, jobId, jobName, status, startedAt, finishedAt, resultPreview, title, unreadCount }`。前端 `CronConversationsPanel`（`CronCalendarView` 第三模式「历史」）做 master-detail：左栏时间线列表（状态点 / 相对时间 / 未读角标 / 翻页），右栏 `CronSessionViewer` 复用主聊天 `MessageList` + `parseSessionMessages` 只读渲染（无 ChatInput，对齐 ChatScreen 的 `isCronSession` 只读分支）。视图模式经 `localStorage`（`cron_view_mode`）持久化。
+
+**未读聚合 + 一键清除**：`SessionDB::cron_unread_total()` 聚合所有 `is_cron=1` 会话的未读 assistant 消息数（侧边栏 cron icon 角标，红色 `bg-destructive`）；`mark_all_cron_sessions_read()` 复用 `mark_session_read` 的 `last_read_message_id=MAX(id)` 逻辑、scope `is_cron=1`。前端 `useCronUnreadStore`（仿 `useDraftSkillsStore`）监听 `cron:run_completed` / `cron:unread_changed` 刷新；一键清除有两个入口——cron 面板「对话」视图头部「全部已读」按钮 + 侧边栏 cron icon 右键菜单，均调 `cron_mark_all_read`。**点开单条对话不自动标已读**（已读仅靠显式「全部已读」），Dock 角标不计入 cron 未读。
+
+命令 / 路由（Tauri ↔ HTTP）：`cron_run_timeline` ↔ `GET /api/cron/timeline`、`cron_unread_total` ↔ `GET /api/cron/unread`、`cron_mark_all_read` ↔ `POST /api/cron/read-all`。
+
 ## 生命周期操作
 
 ```mermaid

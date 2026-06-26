@@ -15,6 +15,7 @@ import {
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { useDesktopUpdateInstall } from "@/hooks/useDesktopUpdateInstall"
 import { initDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
+import { initCronUnreadStore } from "@/hooks/useCronUnreadStore"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { SKILLS_EVENTS } from "@/types/skills"
 import { Toaster } from "@/components/ui/sonner"
@@ -261,6 +262,7 @@ export default function App() {
 
   useEffect(() => {
     initDraftSkillsStore()
+    initCronUnreadStore()
   }, [])
 
   useEffect(() => {
@@ -592,10 +594,7 @@ export default function App() {
                   <CronCalendarView
                     defaultProjectId={currentChatProjectId}
                     onBack={() => setView("chat")}
-                    onNavigateToSession={(sessionId) => {
-                      setPendingSessionId(sessionId)
-                      setView("chat")
-                    }}
+                    onOpenSettings={handleOpenSettings}
                   />
                 </Suspense>
               )}

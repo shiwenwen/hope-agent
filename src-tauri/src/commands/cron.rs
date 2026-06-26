@@ -85,13 +85,45 @@ pub async fn cron_jobs_referencing_account(
 pub async fn cron_get_run_logs(
     job_id: String,
     limit: Option<usize>,
+    offset: Option<usize>,
     state: State<'_, AppState>,
 ) -> Result<Vec<cron::CronRunLog>, CmdError> {
     let limit = limit.unwrap_or(50);
+    let offset = offset.unwrap_or(0);
     state
         .cron_db
-        .get_run_logs(&job_id, limit)
+        .get_run_logs(&job_id, limit, offset)
         .map_err(Into::into)
+}
+
+/// Cross-job run timeline for the cron panel's "conversations" view: every cron
+/// run across all jobs, newest-first, paginated; each row carries the run's
+/// session id + title + unread count for the read-only conversation viewer.
+#[tauri::command]
+pub async fn cron_run_timeline(
+    limit: Option<usize>,
+    offset: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<cron::CronTimelineRow>, CmdError> {
+    let limit = limit.unwrap_or(50).min(200);
+    let offset = offset.unwrap_or(0);
+    cron::cron_run_timeline(&state.cron_db, &state.session_db, limit, offset).map_err(Into::into)
+}
+
+/// Total unread assistant messages across all cron sessions (sidebar badge).
+#[tauri::command]
+pub async fn cron_unread_total(state: State<'_, AppState>) -> Result<i64, CmdError> {
+    state.session_db.cron_unread_total().map_err(Into::into)
+}
+
+/// One-click clear: mark every cron session read (badge → 0) and notify the UI.
+#[tauri::command]
+pub async fn cron_mark_all_read(state: State<'_, AppState>) -> Result<usize, CmdError> {
+    let n = state.session_db.mark_all_cron_sessions_read()?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("cron:unread_changed", serde_json::json!({ "total": 0 }));
+    }
+    Ok(n)
 }
 
 #[tauri::command]

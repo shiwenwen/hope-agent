@@ -15,6 +15,7 @@ export const SETTINGS_SECTION_IDS = [
   "permissions",
   "profile",
   "chat",
+  "cron",
   "plan",
   "recap",
   "logs",

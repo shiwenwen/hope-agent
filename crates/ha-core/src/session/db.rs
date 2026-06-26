@@ -1179,6 +1179,7 @@ impl SessionDB {
             offset,
             active_session_id,
             "s.updated_at DESC",
+            false,
         )
     }
 
@@ -1201,6 +1202,9 @@ impl SessionDB {
             offset,
             active_session_id,
             "s.pinned_at IS NULL ASC, s.pinned_at DESC, s.updated_at DESC",
+            // Cron run sessions are surfaced in the cron panel's "conversations"
+            // timeline, never the main sidebar list.
+            true,
         )
     }
 
@@ -1241,6 +1245,7 @@ impl SessionDB {
         offset: Option<u32>,
         active_session_id: Option<&str>,
         order_by: &str,
+        exclude_cron: bool,
     ) -> Result<(Vec<SessionMeta>, u32)> {
         // Sidebar list is a hot read during streaming — use the read pool so a
         // concurrent message-append write doesn't block it.
@@ -1279,6 +1284,12 @@ impl SessionDB {
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
         where_clauses.push("s.kind != 'knowledge'".to_string());
+
+        // Cron run sessions live in the cron panel's "conversations" timeline,
+        // never the main sidebar list — hide them when the sidebar asks.
+        if exclude_cron {
+            where_clauses.push("s.is_cron = 0".to_string());
+        }
 
         // Hide incognito sessions from listings (the whole point of "no
         // trace"); the currently-open session is the lone exception so the
@@ -3163,6 +3174,98 @@ impl SessionDB {
             "UPDATE sessions SET last_read_message_id = (SELECT COALESCE(MAX(id), 0) FROM messages WHERE messages.session_id = sessions.id)"
         )?;
         Ok(())
+    }
+
+    // ── Cron timeline / unread (cron panel "conversations" view) ─────────────
+
+    /// Batch-fetch `(title, unread_assistant_count)` for the given cron session
+    /// ids — used to hydrate the cross-job run timeline (`cron_run_timeline`).
+    /// Returns a map `session_id -> (title, unread)`; ids whose session row is
+    /// missing (purged) are simply absent, and the caller falls back to the job
+    /// name / 0. The unread predicate mirrors `SESSION_META_SELECT` *minus* the
+    /// `is_cron = 0` clause (cron sessions are never sub-sessions and their
+    /// `source` is always desktop, so those predicates are unnecessary here).
+    pub fn cron_session_read_state(
+        &self,
+        session_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, (Option<String>, i64)>> {
+        use std::collections::HashMap;
+        if session_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // ids come from our own run-log page, bounded by the page limit, so the
+        // IN-list stays small.
+        let placeholders: Vec<String> = (1..=session_ids.len()).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "SELECT s.id, s.title,
+                    (SELECT COUNT(*) FROM messages m
+                      WHERE m.session_id = s.id
+                        AND m.id > COALESCE(s.last_read_message_id, 0)
+                        AND m.role = 'assistant') AS unread
+             FROM sessions s
+             WHERE s.is_cron = 1 AND s.id IN ({})",
+            placeholders.join(",")
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = session_ids
+            .iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
+        let mut map = HashMap::new();
+        let mut rows = stmt.query(params.as_slice())?;
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let title: Option<String> = row.get(1)?;
+            let unread: i64 = row.get(2)?;
+            map.insert(id, (title, unread));
+        }
+        Ok(map)
+    }
+
+    /// Total unread assistant messages across ALL cron sessions (the cron
+    /// sidebar badge count). The backend does NOT exclude the currently-open
+    /// cron session — that's a pure aggregate; the frontend handles any
+    /// "currently viewing" subtraction.
+    pub fn cron_unread_total(&self) -> Result<i64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*)
+               FROM messages m
+               JOIN sessions s ON s.id = m.session_id
+              WHERE s.is_cron = 1
+                AND m.role = 'assistant'
+                AND m.id > COALESCE(s.last_read_message_id, 0)",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(total)
+    }
+
+    /// Mark every cron session as read (badge → 0). Mirrors `mark_session_read`'s
+    /// `last_read_message_id = MAX(message id)` logic, scoped to `is_cron = 1`.
+    /// Returns the number of sessions updated.
+    pub fn mark_all_cron_sessions_read(&self) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "UPDATE sessions
+                SET last_read_message_id = (
+                    SELECT COALESCE(MAX(id), 0) FROM messages
+                     WHERE messages.session_id = sessions.id
+                )
+              WHERE is_cron = 1",
+            [],
+        )?;
+        Ok(n)
     }
 
     // ── History Search ──────────────────────────────────────────

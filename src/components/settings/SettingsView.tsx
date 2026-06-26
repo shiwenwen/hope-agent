@@ -34,6 +34,7 @@ import {
   Plug,
   Users2,
   Webhook,
+  CalendarClock,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
 import ProviderSetup from "@/components/settings/ProviderSetup"
@@ -42,6 +43,7 @@ import GeneralPanel from "@/components/settings/general-panel"
 import ModelConfigPanel from "@/components/settings/ModelConfigPanel"
 import ToolSettingsPanel from "@/components/settings/ToolSettingsPanel"
 import ChatSettingsPanel from "@/components/settings/ChatSettingsPanel"
+import CronSettingsPanel from "@/components/settings/CronSettingsPanel"
 import PlanSettingsPanel from "@/components/settings/PlanSettingsPanel"
 import RecapSettingsPanel from "@/components/settings/RecapSettingsPanel"
 import SkillsPanel from "@/components/settings/skills-panel"
@@ -135,6 +137,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "chat",
     icon: <MessageSquare className="h-4 w-4" />,
     labelKey: "settings.chat",
+  },
+  {
+    id: "cron",
+    icon: <CalendarClock className="h-4 w-4" />,
+    labelKey: "settings.cron",
   },
   {
     id: "voice",
@@ -398,6 +405,7 @@ export default function SettingsView({
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}
+            {activeSection === "cron" && <CronSettingsPanel />}
             {activeSection === "voice" && <VoicePanel />}
             {activeSection === "plan" && <PlanSettingsPanel />}
             {activeSection === "recap" && <RecapSettingsPanel />}
