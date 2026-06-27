@@ -111,6 +111,7 @@ import {
 } from "./chatDisplayModePreference"
 import {
   CHAT_SIDEBAR_DEFAULT_WIDTH,
+  CHAT_SIDEBAR_LEGACY_DEFAULT_WIDTH,
   CHAT_SIDEBAR_MAX_WIDTH,
   CHAT_SIDEBAR_MIN_WIDTH,
   CHAT_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -428,6 +429,8 @@ export default function ChatScreen({
     if (!stored) return CHAT_SIDEBAR_DEFAULT_WIDTH
 
     const storedWidth = Number(stored)
+    if (storedWidth === CHAT_SIDEBAR_LEGACY_DEFAULT_WIDTH) return CHAT_SIDEBAR_DEFAULT_WIDTH
+
     return Number.isFinite(storedWidth)
       ? clampChatSidebarWidth(storedWidth)
       : CHAT_SIDEBAR_DEFAULT_WIDTH
