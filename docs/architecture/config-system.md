@@ -79,7 +79,7 @@ flowchart LR
 
 ## 事件通知
 
-`save_config`（无论是直接调还是通过 `mutate_config`）会在磁盘写入 + ArcSwap 更新完成后，通过 EventBus emit `config:changed` 事件，payload 含 category。前端现有订阅点：
+`save_config`（无论是直接调还是通过 `mutate_config`）会在磁盘写入 + ArcSwap 更新完成后，通过 EventBus emit `config:changed` 事件；`mutate_config` 路径的 payload 含真实 `category` + `source`，直接 `save_config` 路径回退为 `{ category: "app" }`。前端现有订阅点：
 
 | Hook | 作用 |
 |---|---|
@@ -89,6 +89,28 @@ flowchart LR
 | [`src/lib/notifications.ts`](../../src/lib/notifications.ts) | Notification 设置刷新 |
 
 这些订阅之前就存在，但因为 save 命令从没发出过 `config:changed`（只有 backup restore / settings skill 会发），实际上是死代码。改造后"UI 保存 → 所有订阅者收到通知 → 面板热更新"的链路才真正闭合。
+
+## 语言偏好与后端 i18n
+
+`AppConfig.language` 是产品界面语言偏好，`"auto"` 表示跟随系统 / 客户端；`UserConfig.language` 只用于告诉模型用户偏好的回复语言，不能拿来渲染系统通知。
+
+后端统一通过 [`ha_core::i18n`](../../crates/ha-core/src/i18n.rs) 解析语言：
+
+- `effective_ui_locale(&AppConfig)`：后端可见的 UI locale，优先 `AppConfig.language`，`auto` 回落宿主系统 locale，未知语言落英文
+- `effective_locale(subsystem_language, app_language)`：子系统可选覆盖（例如 recap）→ UI 语言 → 系统 locale
+- `localized_backend_message(...)`：后端直接发到外部通道的少量系统文案，例如 IM "back online" 提示
+
+推送边界：
+
+- 发给前端 UI / 桌面通知的事件，优先推稳定 `messageKey` + `messageArgs` + `fallback`，由前端 i18next 按当前客户端语言渲染
+- 后端绕过前端、直接发到 IM / webhook / 外部通道的文本，必须在 Rust 侧通过 `ha_core::i18n` 渲染；当前没有 per-recipient locale 时使用全局 `AppConfig.language`
+
+迁移边界：
+
+- 已在 Rust 侧渲染：IM 启动恢复提示、IM 会话被其它入口接管提示、IM 工具审批提示（按钮 / 文本 fallback / 超时 / 错配提示）、IM `ask_user` 提示外壳（按钮 / 文本 fallback / 超时）、cron delivery 失败外发包装
+- 不在 Rust 侧渲染：模型输出、用户输入、工具/Provider 原始错误详情、日志、工具 schema / system prompt、LLM 结果正文
+- 待迁移：channel slash worker 自己拼出来的产品回复（如模型 / 会话选择、usage 帮助等）仍属于后端直发文本，应分批收敛到 Rust i18n 表
+- 应保持前端 key 渲染：桌面 toast、更新提示、本地模型缺失提示、background job / cron UI 通知、`browser:extension_required` 这类只进入前端的事件。后端应发送 code / key / args + fallback，避免把英文 reason 作为 UI 正文直接展示
 
 ## 与备份 / 回滚联动
 

@@ -24,9 +24,9 @@
 //! (default `true`); global kill switch via
 //! `AppConfig.startup_notification.enabled`.
 //!
-//! Notice text is hard-coded English-with-emoji, matching the policy
-//! of `eviction_watcher`: IM servers do not carry per-recipient locale
-//! and forcing every account to declare one would balloon scope.
+//! Notice text follows `AppConfig.language` through `ha_core::i18n`.
+//! IM servers do not carry per-recipient locale today, so this is a global
+//! process preference rather than per-chat language negotiation.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -39,9 +39,6 @@ use crate::channel::config::ChannelStoreConfig;
 use crate::channel::db::ChannelConversation;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{ChannelId, ParseMode, ReplyPayload};
-
-const STARTUP_TEXT: &str = "📡 Hope Agent is back online. \
-If you were waiting on a reply, send your last message again.";
 
 /// How long to wait after the channel registry is up before fanning out.
 /// Lets `start_watchdog::spawn_loop` enter its first start_account pass.
@@ -205,6 +202,10 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
         // Snapshot the config once — `cached_config()` is a lock-free
         // ArcSwap load, but hoisting it makes the loop intent obvious.
         let store = crate::config::cached_config();
+        let startup_text = crate::i18n::localized_backend_message(
+            crate::i18n::BackendMessage::StartupBackOnline,
+            crate::i18n::effective_ui_locale(&store),
+        );
         let PickOutcome {
             targets,
             skipped_cooldown,
@@ -250,7 +251,7 @@ pub fn spawn_startup_notifier(registry: Arc<ChannelRegistry>) {
                 conv.thread_id.as_deref(),
             );
             let reply = ReplyPayload {
-                text: Some(plugin.markdown_to_native(STARTUP_TEXT)),
+                text: Some(plugin.markdown_to_native(startup_text)),
                 thread_id: conv.thread_id.clone(),
                 parse_mode: Some(ParseMode::Html),
                 ..ReplyPayload::text("")

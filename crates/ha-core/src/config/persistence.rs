@@ -340,6 +340,14 @@ pub fn load_config() -> Result<AppConfig> {
 /// Callers must pass the full, mutated config — this function does not merge
 /// with the existing on-disk content.
 pub fn save_config(config: &AppConfig) -> Result<()> {
+    save_config_with_change(config, "app", None)
+}
+
+fn save_config_with_change(
+    config: &AppConfig,
+    change_category: &str,
+    change_source: Option<&str>,
+) -> Result<()> {
     let path = config_path()?;
     ensure_no_initial_load_failure_for_write()?;
     if path.exists() {
@@ -389,7 +397,11 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
     // Notify subscribers (frontend hot-reload hooks, in-process listeners).
     // Best-effort: the bus may not be initialized in tests or CLI-only modes.
     if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit("config:changed", serde_json::json!({ "category": "app" }));
+        let mut payload = serde_json::json!({ "category": change_category });
+        if let Some(source) = change_source {
+            payload["source"] = serde_json::json!(source);
+        }
+        bus.emit("config:changed", payload);
     }
     Ok(())
 }
@@ -430,9 +442,8 @@ where
     let _reason_guard = crate::backup::scope_save_reason(reason.0, reason.1);
     let mut snapshot = load_config()?;
     let result = f(&mut snapshot)?;
-    save_config(&snapshot)?;
-    // ConfigChange hook (observation): fire with the real category + source
-    // (`save_config`'s EventBus emit only carries the generic `app` category).
+    save_config_with_change(&snapshot, reason.0, Some(reason.1))?;
+    // ConfigChange hook (observation): fire with the real category + source.
     crate::hooks::fire_config_change(reason.0, reason.1);
     Ok(result)
 }

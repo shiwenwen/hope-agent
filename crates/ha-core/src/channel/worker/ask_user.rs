@@ -226,14 +226,33 @@ pub async fn drop_pending_by_request_id(request_id: &str) {
 
 // ── Button / prompt rendering ─────────────────────────────────────
 
+fn tr(locale: &str, row: [&'static str; 12]) -> &'static str {
+    crate::i18n::pick_locale(locale, row)
+}
+
+#[cfg(not(test))]
+fn current_locale() -> &'static str {
+    crate::i18n::current_ui_locale()
+}
+
+#[cfg(test)]
+fn current_locale() -> &'static str {
+    crate::i18n::DEFAULT_LOCALE
+}
+
 /// Render the prompt text for a group. Includes context and all questions with
 /// their options numbered so the user can reference them either via button or
 /// text reply. Each field is individually truncated, and the full prompt is
 /// clamped to ~3500 bytes so it fits inside the strictest IM payload limit
 /// (Discord 2000 / Telegram 4096 / Slack 3000 / LINE 5000).
 fn format_prompt(group: &AskUserQuestionGroup) -> String {
+    format_prompt_for_locale(group, current_locale())
+}
+
+fn format_prompt_for_locale(group: &AskUserQuestionGroup, locale: &str) -> String {
     let mut out = String::new();
-    out.push_str("❓ Question from AI\n");
+    out.push_str(question_from_ai_title(locale));
+    out.push('\n');
     if let Some(ctx) = &group.context {
         out.push('\n');
         out.push_str(crate::truncate_utf8(ctx.fallback_text(), 500));
@@ -243,7 +262,7 @@ fn format_prompt(group: &AskUserQuestionGroup) -> String {
         let qtext = crate::truncate_utf8(q.text.fallback_text(), 500);
         out.push_str(&format!("\n{}. {}", qi + 1, qtext));
         if q.multi_select {
-            out.push_str("  (multi-select)");
+            out.push_str(multi_select_suffix(locale));
         }
         out.push('\n');
         for (oi, opt) in q.options.iter().enumerate() {
@@ -268,12 +287,49 @@ fn option_marker(qi: usize, oi: usize) -> String {
 
 /// Extra hint text sent to channels without button support.
 fn text_reply_hint(group: &AskUserQuestionGroup) -> String {
+    text_reply_hint_for_locale(group, current_locale())
+}
+
+fn text_reply_hint_for_locale(group: &AskUserQuestionGroup, locale: &str) -> String {
     let has_multi = group.questions.iter().any(|q| q.multi_select);
     if has_multi {
-        "\nReply with option markers like `1a` (single-select) or `1a,1c` (multi-select). Type `done` when finished."
-            .to_string()
+        tr(
+            locale,
+            [
+                "\n请用 `1a`（单选）或 `1a,1c`（多选）这样的选项标记回复。完成后输入 `done`。",
+                "\n請用 `1a`（單選）或 `1a,1c`（多選）這樣的選項標記回覆。完成後輸入 `done`。",
+                "\nReply with option markers like `1a` (single-select) or `1a,1c` (multi-select). Type `done` when finished.",
+                "\n`1a`（単一選択）や `1a,1c`（複数選択）のような選択肢マーカーで返信してください。完了したら `done` と入力してください。",
+                "\n`1a`(단일 선택) 또는 `1a,1c`(다중 선택) 같은 옵션 표시로 답장하세요. 완료되면 `done`을 입력하세요.",
+                "\nResponde con marcadores de opción como `1a` (selección única) o `1a,1c` (selección múltiple). Escribe `done` al terminar.",
+                "\nResponda com marcadores de opção como `1a` (seleção única) ou `1a,1c` (seleção múltipla). Digite `done` ao terminar.",
+                "\nОтветьте маркерами вариантов вроде `1a` (один выбор) или `1a,1c` (несколько вариантов). Введите `done`, когда закончите.",
+                "\nرد بعلامات الخيارات مثل `1a` (اختيار واحد) أو `1a,1c` (اختيارات متعددة). اكتب `done` عند الانتهاء.",
+                "\n`1a` (tek seçim) veya `1a,1c` (çoklu seçim) gibi seçenek işaretleriyle yanıtlayın. Bitirince `done` yazın.",
+                "\nTrả lời bằng ký hiệu lựa chọn như `1a` (chọn một) hoặc `1a,1c` (chọn nhiều). Nhập `done` khi hoàn tất.",
+                "\nBalas dengan penanda pilihan seperti `1a` (pilihan tunggal) atau `1a,1c` (berbilang pilihan). Taip `done` apabila selesai.",
+            ],
+        )
+        .to_string()
     } else {
-        "\nReply with an option marker like `1a`, `2b`, or type free text to provide a custom answer.".to_string()
+        tr(
+            locale,
+            [
+                "\n请用 `1a`、`2b` 这样的选项标记回复，或直接输入自由文本作为自定义回答。",
+                "\n請用 `1a`、`2b` 這樣的選項標記回覆，或直接輸入自由文字作為自訂回答。",
+                "\nReply with an option marker like `1a`, `2b`, or type free text to provide a custom answer.",
+                "\n`1a`、`2b` のような選択肢マーカーで返信するか、自由入力でカスタム回答を送ってください。",
+                "\n`1a`, `2b` 같은 옵션 표시로 답장하거나 자유 텍스트로 사용자 지정 답변을 입력하세요.",
+                "\nResponde con un marcador de opción como `1a`, `2b`, o escribe texto libre para dar una respuesta personalizada.",
+                "\nResponda com um marcador de opção como `1a`, `2b`, ou digite texto livre para fornecer uma resposta personalizada.",
+                "\nОтветьте маркером варианта вроде `1a`, `2b`, или введите свободный текст для собственного ответа.",
+                "\nرد بعلامة خيار مثل `1a` أو `2b`، أو اكتب نصا حرا لتقديم إجابة مخصصة.",
+                "\n`1a`, `2b` gibi bir seçenek işaretiyle yanıtlayın veya özel yanıt için serbest metin yazın.",
+                "\nTrả lời bằng ký hiệu lựa chọn như `1a`, `2b`, hoặc nhập văn bản tự do để đưa câu trả lời tùy chỉnh.",
+                "\nBalas dengan penanda pilihan seperti `1a`, `2b`, atau taip teks bebas untuk memberikan jawapan tersuai.",
+            ],
+        )
+        .to_string()
     }
 }
 
@@ -281,6 +337,10 @@ fn text_reply_hint(group: &AskUserQuestionGroup) -> String {
 /// Each question's options form one row; multi-select questions get a
 /// trailing "Done" button row.
 fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
+    build_buttons_for_locale(group, current_locale())
+}
+
+fn build_buttons_for_locale(group: &AskUserQuestionGroup, locale: &str) -> Vec<Vec<InlineButton>> {
     let mut rows: Vec<Vec<InlineButton>> = Vec::new();
     for (qi, q) in group.questions.iter().enumerate() {
         let mut row = Vec::new();
@@ -309,7 +369,7 @@ fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
         }
         if q.multi_select {
             rows.push(vec![InlineButton {
-                text: format!("✅ Done with Q{}", qi + 1),
+                text: done_button_text(locale, qi + 1),
                 callback_data: Some(format!(
                     "{}{}:done:{}",
                     ASK_USER_PREFIX, group.request_id, q.question_id
@@ -320,11 +380,92 @@ fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
     }
     // Top-level cancel
     rows.push(vec![InlineButton {
-        text: "❌ Cancel".to_string(),
+        text: cancel_button_text(locale).to_string(),
         callback_data: Some(format!("{}{}:cancel", ASK_USER_PREFIX, group.request_id)),
         url: None,
     }]);
     rows
+}
+
+fn question_from_ai_title(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "❓ AI 的问题",
+            "❓ AI 的問題",
+            "❓ Question from AI",
+            "❓ AI からの質問",
+            "❓ AI의 질문",
+            "❓ Pregunta de la IA",
+            "❓ Pergunta da IA",
+            "❓ Вопрос от ИИ",
+            "❓ سؤال من الذكاء الاصطناعي",
+            "❓ AI'dan soru",
+            "❓ Câu hỏi từ AI",
+            "❓ Soalan daripada AI",
+        ],
+    )
+}
+
+fn multi_select_suffix(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "  （可多选）",
+            "  （可複選）",
+            "  (multi-select)",
+            "  （複数選択）",
+            "  (다중 선택)",
+            "  (selección múltiple)",
+            "  (seleção múltipla)",
+            "  (множественный выбор)",
+            "  (اختيارات متعددة)",
+            "  (çoklu seçim)",
+            "  (chọn nhiều)",
+            "  (berbilang pilihan)",
+        ],
+    )
+}
+
+fn done_button_text(locale: &str, question_number: usize) -> String {
+    let template = tr(
+        locale,
+        [
+            "✅ 完成问题 {n}",
+            "✅ 完成問題 {n}",
+            "✅ Done with Q{n}",
+            "✅ 質問 {n} を完了",
+            "✅ 질문 {n} 완료",
+            "✅ Terminar P{n}",
+            "✅ Concluir P{n}",
+            "✅ Готово с вопросом {n}",
+            "✅ انتهى السؤال {n}",
+            "✅ Soru {n} tamam",
+            "✅ Xong câu {n}",
+            "✅ Selesai S{n}",
+        ],
+    );
+    template.replace("{n}", &question_number.to_string())
+}
+
+fn cancel_button_text(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "❌ 取消",
+            "❌ 取消",
+            "❌ Cancel",
+            "❌ キャンセル",
+            "❌ 취소",
+            "❌ Cancelar",
+            "❌ Cancelar",
+            "❌ Отмена",
+            "❌ إلغاء",
+            "❌ İptal",
+            "❌ Hủy",
+            "❌ Batal",
+        ],
+    )
 }
 
 // ── EventBus listener ─────────────────────────────────────────────
@@ -494,6 +635,7 @@ async fn handle_timeout_event(
     };
 
     let store = crate::config::cached_config();
+    let locale = crate::i18n::effective_ui_locale(&store);
     let account_config = match store.channels.find_account(&conversation.account_id) {
         Some(c) => c.clone(),
         None => return,
@@ -505,19 +647,13 @@ async fn handle_timeout_event(
         .as_deref()
         .filter(|s| !s.trim().is_empty())
         .map(|s| format!("\n\n{}", crate::truncate_utf8(s.trim(), 500)));
-    let body = if event.used_default_values {
-        format!(
-            "⏱ Question #{tag} timed out after {}s. I continued with the configured default answer(s).{}",
-            event.timeout_secs,
-            question.unwrap_or_default()
-        )
-    } else {
-        format!(
-            "⏱ Question #{tag} timed out after {}s without an answer. Ask me again if you still want to respond.{}",
-            event.timeout_secs,
-            question.unwrap_or_default()
-        )
-    };
+    let body = ask_user_timeout_notice(
+        locale,
+        &tag,
+        event.timeout_secs,
+        event.used_default_values,
+        question.as_deref().unwrap_or_default(),
+    );
     let payload = ReplyPayload {
         text: Some(body),
         thread_id: conversation.thread_id.clone(),
@@ -536,8 +672,118 @@ async fn handle_timeout_event(
     }
 }
 
+fn ask_user_timeout_notice(
+    locale: &str,
+    tag: &str,
+    timeout_secs: u64,
+    used_default_values: bool,
+    question_preview: &str,
+) -> String {
+    let template = if used_default_values {
+        tr(
+            locale,
+            [
+                "⏱ 问题 `#{tag}` 已在 {secs} 秒后超时。我已使用配置的默认答案继续。{question}",
+                "⏱ 問題 `#{tag}` 已在 {secs} 秒後逾時。我已使用設定的預設答案繼續。{question}",
+                "⏱ Question #{tag} timed out after {secs}s. I continued with the configured default answer(s).{question}",
+                "⏱ 質問 `#{tag}` は {secs} 秒後にタイムアウトしました。設定済みのデフォルト回答で続行しました。{question}",
+                "⏱ 질문 `#{tag}`가 {secs}초 후 시간 초과되었습니다. 구성된 기본 답변으로 계속했습니다.{question}",
+                "⏱ La pregunta `#{tag}` agotó el tiempo tras {secs}s. Continué con las respuestas predeterminadas configuradas.{question}",
+                "⏱ A pergunta `#{tag}` expirou após {secs}s. Continuei com as respostas padrão configuradas.{question}",
+                "⏱ Вопрос `#{tag}` истек через {secs} с. Я продолжил с настроенными ответами по умолчанию.{question}",
+                "⏱ انتهت مهلة السؤال `#{tag}` بعد {secs} ثانية. تابعت بالإجابات الافتراضية المكونة.{question}",
+                "⏱ `#{tag}` sorusu {secs} sn sonra zaman aşımına uğradı. Yapılandırılmış varsayılan yanıtlarla devam ettim.{question}",
+                "⏱ Câu hỏi `#{tag}` đã hết hạn sau {secs} giây. Tôi đã tiếp tục với câu trả lời mặc định đã cấu hình.{question}",
+                "⏱ Soalan `#{tag}` tamat masa selepas {secs}s. Saya meneruskan dengan jawapan lalai yang dikonfigurasi.{question}",
+            ],
+        )
+    } else {
+        tr(
+            locale,
+            [
+                "⏱ 问题 `#{tag}` 已在 {secs} 秒后超时，且没有收到回答。如果你仍想回复，请再问我一次。{question}",
+                "⏱ 問題 `#{tag}` 已在 {secs} 秒後逾時，且沒有收到回答。如果你仍想回覆，請再問我一次。{question}",
+                "⏱ Question #{tag} timed out after {secs}s without an answer. Ask me again if you still want to respond.{question}",
+                "⏱ 質問 `#{tag}` は回答なしで {secs} 秒後にタイムアウトしました。まだ回答したい場合はもう一度依頼してください。{question}",
+                "⏱ 질문 `#{tag}`가 답변 없이 {secs}초 후 시간 초과되었습니다. 여전히 답하고 싶다면 다시 요청해 주세요.{question}",
+                "⏱ La pregunta `#{tag}` agotó el tiempo tras {secs}s sin respuesta. Vuelve a pedírmelo si aún quieres responder.{question}",
+                "⏱ A pergunta `#{tag}` expirou após {secs}s sem resposta. Peça novamente se ainda quiser responder.{question}",
+                "⏱ Вопрос `#{tag}` истек через {secs} с без ответа. Попросите снова, если все еще хотите ответить.{question}",
+                "⏱ انتهت مهلة السؤال `#{tag}` بعد {secs} ثانية بلا إجابة. اسألني مرة أخرى إذا كنت لا تزال تريد الرد.{question}",
+                "⏱ `#{tag}` sorusu yanıtsız olarak {secs} sn sonra zaman aşımına uğradı. Hâlâ yanıtlamak istiyorsanız tekrar isteyin.{question}",
+                "⏱ Câu hỏi `#{tag}` đã hết hạn sau {secs} giây mà không có câu trả lời. Hãy hỏi lại nếu bạn vẫn muốn phản hồi.{question}",
+                "⏱ Soalan `#{tag}` tamat masa selepas {secs}s tanpa jawapan. Minta saya lagi jika masih mahu membalas.{question}",
+            ],
+        )
+    };
+    template
+        .replace("{tag}", tag)
+        .replace("{secs}", &timeout_secs.to_string())
+        .replace("{question}", question_preview)
+}
+
 fn id_tag(request_id: &str) -> String {
     request_id.chars().take(8).collect()
+}
+
+fn ask_user_callback_cancelled(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "❌ 已取消",
+            "❌ 已取消",
+            "❌ Cancelled",
+            "❌ キャンセルしました",
+            "❌ 취소됨",
+            "❌ Cancelado",
+            "❌ Cancelado",
+            "❌ Отменено",
+            "❌ تم الإلغاء",
+            "❌ İptal edildi",
+            "❌ Đã hủy",
+            "❌ Dibatalkan",
+        ],
+    )
+}
+
+fn ask_user_callback_selected(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "✓ 已选择",
+            "✓ 已選擇",
+            "✓ Selected",
+            "✓ 選択しました",
+            "✓ 선택됨",
+            "✓ Seleccionado",
+            "✓ Selecionado",
+            "✓ Выбрано",
+            "✓ تم الاختيار",
+            "✓ Seçildi",
+            "✓ Đã chọn",
+            "✓ Dipilih",
+        ],
+    )
+}
+
+fn ask_user_callback_answered(locale: &str) -> &'static str {
+    tr(
+        locale,
+        [
+            "✅ 已回答",
+            "✅ 已回答",
+            "✅ Answered",
+            "✅ 回答しました",
+            "✅ 답변됨",
+            "✅ Respondido",
+            "✅ Respondido",
+            "✅ Отвечено",
+            "✅ تمت الإجابة",
+            "✅ Yanıtlandı",
+            "✅ Đã trả lời",
+            "✅ Dijawab",
+        ],
+    )
 }
 
 // ── Text-reply handler (channels without buttons) ─────────────────
@@ -702,7 +948,7 @@ pub async fn handle_ask_user_callback_with_source(
     callback_data: &str,
     callback_source: Option<InteractiveCallbackSource>,
     source: &'static str,
-) -> anyhow::Result<&'static str> {
+) -> anyhow::Result<String> {
     let rest = callback_data
         .strip_prefix(ASK_USER_PREFIX)
         .ok_or_else(|| anyhow::anyhow!("Not an ask_user callback"))?;
@@ -736,11 +982,12 @@ pub async fn handle_ask_user_callback_with_source(
         ));
     }
 
+    let locale = current_locale();
     match action {
         "cancel" => {
             get_button_pending().lock().await.remove(&request_id);
             ask_user_mod::cancel_pending_ask_user_question(&request_id).await;
-            Ok("❌ Cancelled")
+            Ok(ask_user_callback_cancelled(locale).to_string())
         }
         "select" => {
             let question_id = parts
@@ -792,10 +1039,10 @@ pub async fn handle_ask_user_callback_with_source(
                 if let Some(pending) = pending_for_submit {
                     let answers = pending.into_answers();
                     ask_user_mod::submit_ask_user_question_response(&request_id, answers).await?;
-                    return Ok("✅ Answered");
+                    return Ok(ask_user_callback_answered(locale).to_string());
                 }
             }
-            Ok("✓ Selected")
+            Ok(ask_user_callback_selected(locale).to_string())
         }
         "done" => {
             let mut map = get_button_pending().lock().await;
@@ -808,7 +1055,7 @@ pub async fn handle_ask_user_callback_with_source(
             drop(map);
             let answers = pending.into_answers();
             ask_user_mod::submit_ask_user_question_response(&request_id, answers).await?;
-            Ok("✅ Answered")
+            Ok(ask_user_callback_answered(locale).to_string())
         }
         _ => Err(anyhow::anyhow!("Unknown ask_user action: {}", action)),
     }
