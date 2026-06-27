@@ -27,11 +27,10 @@
 
 ---
 
-**Hope Agent** is an AI assistant built to stay simple, stable, and low-maintenance. The same conversation hands off seamlessly between your devices and chat apps, and gets better the more you use it — cross-session memory accumulates, idle time gets spent organizing what mattered, and the things you've done crystallize into reusable skills. One native installer, GUI templates for the major model providers baked in, paste an API key and you're chatting; on desktop it can also observe and control your computer after you grant permission (currently macOS only); it also runs as a background service on a NAS, home server, or cloud VM, staying reachable through your IM apps wherever it lives.
+**Hope Agent** is an AI assistant designed to just work the moment you open it, and to stay dependable over the long run. A native installer ships with provider templates for major model services: install it, paste an API key, and start chatting without setting up runtimes, learning a CLI, or wrestling with config. The desktop app is the most natural entry point, so it gets the most polish: native GUI, performance, interaction details, deep OS integration, and, with your permission, the ability to observe and control your local computer (macOS for now). Hope Agent can also run as an HTTP/WS service on a NAS, home server, or cloud VM, connect to IM channels, and speak ACP to IDEs, so the same conversation can move between desktop, browser, and chat without losing context. Over days of use, it accumulates cross-session memory, organizes what mattered while idle, and turns repeated work into reusable skills. The goal is simple: make everyday tasks effortless, lower maintenance cost, and keep long-running setups reliable.
 
 ## Contents
 
-- [Why Hope Agent](#why-hope-agent)
 - [Highlights](#highlights)
 - [Quick Start](#quick-start)
   - [Install Locally](#install-locally)
@@ -46,12 +45,6 @@
 - [Acknowledgements](#acknowledgements)
 - [Star History](#star-history)
 - [License](#license)
-
-## Why Hope Agent
-
-We want an AI assistant that just **opens and works**: download an installer, install it, no runtimes or CLI to learn, no cryptic config to decipher, no service quietly crashing at 3am with no one to fix it, **and picks up wherever you go**. Hope Agent isn't only a desktop app — it also runs as an HTTP/WS service you can park on a NAS, home server, or cloud VM and leave running 24/7, while it hooks into IM channels and talks to IDEs over ACP — but we believe the easiest entry point is still the desktop, so that's where we put the most effort: **a first-class desktop GUI deeply integrated with the OS**, polished together with performance, stability, and the small interaction details. The goal is plain: reduce the cost of using and maintaining an AI assistant, make simple workflows feel effortless, and keep long-running setups dependable. And we want it to grow with you over the long run — one conversation that follows you across devices, chats, and platforms, with memory and skills quietly accruing along the way.
-
-> Hope Agent was influenced in its early days by [openclaw](https://github.com/openclaw/openclaw) — credit to them for their pioneering work on local AI assistants. We took a different implementation path.
 
 ## Highlights
 
