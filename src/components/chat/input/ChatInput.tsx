@@ -42,6 +42,8 @@ import { useFileMention } from "../file-mention/useFileMention"
 import FileMentionMenu from "../file-mention/FileMentionMenu"
 import { useNoteMention } from "../note-mention/useNoteMention"
 import NoteMentionMenu from "../note-mention/NoteMentionMenu"
+import QuickPromptMenu from "../quick-prompts/QuickPromptMenu"
+import { useQuickPrompts } from "../quick-prompts/useQuickPrompts"
 import UrlPreviewCard from "../UrlPreviewCard"
 import type { CommandResult } from "../slash-commands/types"
 import { AttachFilesButton, AttachFilesMenuItem, AttachmentPreview } from "./AttachmentBar"
@@ -75,10 +77,13 @@ import type { ComposerInputHandle } from "./composerInputHandle"
 import type { ContextUsageInfo } from "../chatUtils"
 import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
+import type { QuickPromptItem } from "@/types/quickPrompts"
 
 interface ChatInputProps {
   input: string
   onInputChange: (value: string) => void
+  inputHistory?: string[]
+  quickPrompts?: QuickPromptItem[]
   onSend: () => void
   loading: boolean
   availableModels: AvailableModel[]
@@ -191,6 +196,8 @@ function ContextUsageBottomBar({ usage }: { usage: ContextUsageInfo }) {
 export default function ChatInput({
   input,
   onInputChange,
+  inputHistory = [],
+  quickPrompts = [],
   onSend,
   loading,
   availableModels,
@@ -291,13 +298,33 @@ export default function ChatInput({
     [currentAgentId, onPermissionModeChange, t],
   )
 
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null)
+  const historyDraftRef = useRef("")
+
+  const resetHistoryBrowsing = useCallback(() => {
+    setHistoryIndex(null)
+    historyDraftRef.current = ""
+  }, [])
+
+  const setComposerInput = useCallback(
+    (value: string) => {
+      resetHistoryBrowsing()
+      onInputChange(value)
+    },
+    [onInputChange, resetHistoryBrowsing],
+  )
+
+  useEffect(() => {
+    resetHistoryBrowsing()
+  }, [currentSessionId, resetHistoryBrowsing])
+
   // Slash commands
   const slashActions: SlashCommandActions = {
     onCommandAction: onCommandAction ?? (() => {}),
     sessionId: currentSessionId ?? null,
     agentId: currentAgentId,
   }
-  const slash = useSlashCommands(input, onInputChange, slashActions, inputHandleRef)
+  const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
   const voice = useVoiceInput()
   const normalToolbarOpen = voice.state !== "recording" && voice.state !== "transcribing"
   // Read the latest `input` when transcription resolves — the user can keep
@@ -459,7 +486,7 @@ export default function ChatInput({
   // File mention `@` popper — files (working dir) + knowledge notes when enabled.
   const mention = useFileMention(
     input,
-    onInputChange,
+    setComposerInput,
     inputHandleRef,
     workingDir ?? null,
     enableNoteMention
@@ -474,13 +501,15 @@ export default function ChatInput({
   // `[[note]]` picker — knowledge-space notes reachable from this chat.
   const noteMention = useNoteMention(
     input,
-    onInputChange,
+    setComposerInput,
     inputHandleRef,
     currentSessionId ?? null,
     projectId ?? null,
     draftKbAttachments ?? [],
     enableNoteMention,
   )
+  // User-global quick prompts (`#` popper).
+  const quickPrompt = useQuickPrompts(input, setComposerInput, inputHandleRef, quickPrompts)
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
   const hasSendableContent =
@@ -582,14 +611,86 @@ export default function ChatInput({
     [onAttachFiles],
   )
 
+  const handleHistoryKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLElement>) => {
+      if (
+        (e.key !== "ArrowUp" && e.key !== "ArrowDown") ||
+        e.shiftKey ||
+        e.ctrlKey ||
+        e.altKey ||
+        e.metaKey ||
+        inputHistory.length === 0
+      ) {
+        return false
+      }
+
+      const browsing = historyIndex !== null
+      if (!browsing && input.length > 0) return false
+
+      if (e.key === "ArrowDown" && !browsing) return false
+
+      e.preventDefault()
+      if (e.key === "ArrowUp") {
+        const nextIndex =
+          historyIndex == null ? 0 : Math.min(historyIndex + 1, inputHistory.length - 1)
+        if (!browsing) historyDraftRef.current = input
+        setHistoryIndex(nextIndex)
+        onInputChange(inputHistory[nextIndex] ?? "")
+        requestAnimationFrame(() => {
+          const inputHandle = inputHandleRef.current
+          const next = inputHistory[nextIndex] ?? ""
+          if (!inputHandle) return
+          inputHandle.focus()
+          inputHandle.setSelectionRange(next.length, next.length)
+        })
+        return true
+      }
+
+      if (historyIndex == null) return false
+      const nextIndex = historyIndex - 1
+      if (nextIndex < 0) {
+        const draft = historyDraftRef.current
+        setHistoryIndex(null)
+        historyDraftRef.current = ""
+        onInputChange(draft)
+        requestAnimationFrame(() => {
+          const inputHandle = inputHandleRef.current
+          if (!inputHandle) return
+          inputHandle.focus()
+          inputHandle.setSelectionRange(draft.length, draft.length)
+        })
+        return true
+      }
+
+      setHistoryIndex(nextIndex)
+      onInputChange(inputHistory[nextIndex] ?? "")
+      requestAnimationFrame(() => {
+        const inputHandle = inputHandleRef.current
+        const next = inputHistory[nextIndex] ?? ""
+        if (!inputHandle) return
+        inputHandle.focus()
+        inputHandle.setSelectionRange(next.length, next.length)
+      })
+      return true
+    },
+    [historyIndex, input, inputHandleRef, inputHistory, onInputChange],
+  )
+
+  const handleSend = useCallback(() => {
+    resetHistoryBrowsing()
+    onSend()
+  }, [onSend, resetHistoryBrowsing])
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
     // Slash menu first (owns header `/...` slot), then `[[note]]` picker, then
-    // `@` file mention, then send. Each handler self-guards on its own open
+    // `@` file mention, then `#` quick prompts, then history/send. Each handler self-guards on its own open
     // state, so only the active popper consumes the key.
     if (slash.handleKeyDown(e)) return
     if (noteMention.handleKeyDown(e)) return
     if (mention.handleKeyDown(e)) return
+    if (quickPrompt.handleKeyDown(e)) return
+    if (handleHistoryKeyDown(e)) return
     if (e.key === "Tab" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault()
       onPermissionModeChange(getNextPermissionMode(permissionMode))
@@ -597,7 +698,7 @@ export default function ChatInput({
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      onSend()
+      handleSend()
     }
   }
 
@@ -853,6 +954,18 @@ export default function ChatInput({
           onHover={mention.setSelectedIndex}
         />
 
+        {/* Quick Prompt Menu (`#` popper) */}
+        <QuickPromptMenu
+          isOpen={
+            quickPrompt.isOpen && !slash.isOpen && !noteMention.isOpen && !mention.isOpen
+          }
+          entries={quickPrompt.entries}
+          selectedIndex={quickPrompt.selectedIndex}
+          query={quickPrompt.query}
+          onSelect={quickPrompt.applyEntry}
+          onHover={quickPrompt.setSelectedIndex}
+        />
+
         {visibleTaskProgressSnapshot && (
           <TaskProgressPanel
             snapshot={visibleTaskProgressSnapshot}
@@ -1063,12 +1176,13 @@ export default function ChatInput({
                   : t("chat.askAnything")
             }
             value={input}
-            onChange={onInputChange}
+            onChange={setComposerInput}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             onSelectionChange={() => {
               mention.recheckTrigger()
               noteMention.recheckTrigger()
+              quickPrompt.recheckTrigger()
             }}
             workingDir={workingDir ?? null}
             fileEnabled={!!workingDir}
@@ -1275,7 +1389,7 @@ export default function ChatInput({
                   <Button
                     size="icon"
                     className="h-8 w-8 rounded-full shrink-0"
-                    onClick={onSend}
+                    onClick={handleSend}
                     disabled={!hasSendableContent}
                     aria-label={
                       loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")

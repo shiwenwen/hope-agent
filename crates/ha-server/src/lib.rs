@@ -1032,6 +1032,11 @@ fn build_router_with_cors(
             "/config/shortcuts/pause",
             post(routes::config::set_shortcuts_paused),
         )
+        // Config — quick prompts
+        .route(
+            "/config/quick-prompts",
+            get(routes::config::get_quick_prompt_config).post(routes::config::add_quick_prompt),
+        )
         // Config — theme / language / UI
         .route("/config/theme", get(routes::config::get_theme))
         .route("/config/theme", post(routes::config::set_theme))

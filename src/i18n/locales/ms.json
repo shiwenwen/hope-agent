@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
-    "askAnything": "Beritahu idea anda, saya uruskan yang lain...",
+    "askAnything": "Beritahu idea anda, @ cari fail/nota/kemahiran, # panggil arahan pantas...",
     "browserPanel": {
       "backendBadgeTooltip": "Backend pelayar: {{backend}}",
       "captureFailed": "Gagal menangkap bingkai, menunggu yang seterusnya",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "Tukar ke mod terperinci",
     "copied": "Disalin",
     "copy": "Salin",
+    "quickPrompts": {
+      "addAction": "Tambah ke arahan pantas",
+      "addFailed": "Gagal menambah arahan pantas",
+      "added": "Ditambah ke arahan pantas",
+      "duplicate": "Arahan pantas ini sudah disimpan",
+      "empty": "Belum ada arahan pantas. Tambah satu dari bahagian bawah mesej pengguna.",
+      "heading": "Arahan pantas",
+      "noMatches": "Tiada arahan pantas yang sepadan"
+    },
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
     "cronTrigger": "Tugasan berjadual",
     "wakeupResumed": "Disambung untuk teruskan",

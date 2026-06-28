@@ -426,6 +426,27 @@ pub async fn save_shortcut_config(
     Ok(())
 }
 
+// ── Quick Prompts ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_quick_prompt_config() -> Result<ha_core::config::QuickPromptConfig, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.quick_prompts)
+}
+
+#[tauri::command]
+pub async fn add_quick_prompt(
+    content: String,
+) -> Result<ha_core::config::QuickPromptAddResult, CmdError> {
+    let mut result: Option<ha_core::config::QuickPromptAddResult> = None;
+    ha_core::config::mutate_config(("quick_prompts", "settings-ui"), |store| {
+        let added = store.quick_prompts.add_prompt(&content)?;
+        result = Some(added);
+        Ok(())
+    })?;
+    result.ok_or_else(|| CmdError::msg("failed to add quick prompt"))
+}
+
 // ── Server Config ───────────────────────────────────────────────
 
 #[tauri::command]

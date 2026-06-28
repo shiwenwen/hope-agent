@@ -74,6 +74,121 @@ impl Default for ShortcutConfig {
     }
 }
 
+// ── Quick Prompt Config ──────────────────────────────────────────
+
+pub const MAX_QUICK_PROMPT_CONTENT_CHARS: usize = 20_000;
+const MAX_QUICK_PROMPT_TITLE_CHARS: usize = 80;
+const MAX_QUICK_PROMPT_ITEMS: usize = 200;
+
+/// One reusable user prompt inserted from the chat composer `#` picker.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickPromptItem {
+    pub id: String,
+    pub title: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+/// User-global quick prompts. Distinct from [`ShortcutConfig`], which controls
+/// OS-level keyboard shortcuts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickPromptConfig {
+    #[serde(default)]
+    pub items: Vec<QuickPromptItem>,
+}
+
+/// Result returned by owner-plane "add quick prompt" calls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickPromptAddResult {
+    pub item: QuickPromptItem,
+    pub duplicate: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QuickPromptError {
+    Empty,
+    TooLong { max_chars: usize },
+}
+
+impl std::fmt::Display for QuickPromptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            QuickPromptError::Empty => write!(f, "quick prompt content is empty"),
+            QuickPromptError::TooLong { max_chars } => {
+                write!(f, "quick prompt content exceeds {} characters", max_chars)
+            }
+        }
+    }
+}
+
+impl std::error::Error for QuickPromptError {}
+
+impl QuickPromptConfig {
+    pub fn add_prompt(&mut self, content: &str) -> Result<QuickPromptAddResult, QuickPromptError> {
+        let created_at = chrono::Utc::now().to_rfc3339();
+        self.add_prompt_with_created_at(content, created_at)
+    }
+
+    fn add_prompt_with_created_at(
+        &mut self,
+        content: &str,
+        created_at: String,
+    ) -> Result<QuickPromptAddResult, QuickPromptError> {
+        let normalized = normalize_quick_prompt_content(content)?;
+        if let Some(existing) = self.items.iter().find(|item| item.content == normalized) {
+            return Ok(QuickPromptAddResult {
+                item: existing.clone(),
+                duplicate: true,
+            });
+        }
+
+        let item = QuickPromptItem {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: quick_prompt_title(&normalized),
+            content: normalized,
+            created_at,
+        };
+        self.items.insert(0, item.clone());
+        self.items.truncate(MAX_QUICK_PROMPT_ITEMS);
+        Ok(QuickPromptAddResult {
+            item,
+            duplicate: false,
+        })
+    }
+}
+
+fn normalize_quick_prompt_content(content: &str) -> Result<String, QuickPromptError> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Err(QuickPromptError::Empty);
+    }
+    if trimmed.chars().count() > MAX_QUICK_PROMPT_CONTENT_CHARS {
+        return Err(QuickPromptError::TooLong {
+            max_chars: MAX_QUICK_PROMPT_CONTENT_CHARS,
+        });
+    }
+    Ok(trimmed.to_string())
+}
+
+fn quick_prompt_title(content: &str) -> String {
+    let first_line = content
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or(content);
+    let mut title: String = first_line
+        .trim()
+        .chars()
+        .take(MAX_QUICK_PROMPT_TITLE_CHARS)
+        .collect();
+    if title.is_empty() {
+        title = "Quick prompt".to_string();
+    }
+    title
+}
+
 // ── Notification Config ─────────────────────────────────────────
 
 /// Global notification configuration
@@ -928,6 +1043,10 @@ pub struct AppConfig {
     #[serde(default)]
     pub shortcuts: ShortcutConfig,
 
+    /// User-global reusable chat prompts inserted from the composer `#` picker.
+    #[serde(default)]
+    pub quick_prompts: QuickPromptConfig,
+
     /// Custom plans directory override. When set, plans are stored here instead of
     /// the default `~/.hope-agent/plans/`.
     #[serde(default)]
@@ -1159,6 +1278,7 @@ impl Default for AppConfig {
             skill_allow_bundled: Vec::new(),
             acp_control: crate::acp_control::AcpControlConfig::default(),
             shortcuts: ShortcutConfig::default(),
+            quick_prompts: QuickPromptConfig::default(),
             plans_directory: None,
             temperature: None,
             plan_subagent: false,
@@ -1284,6 +1404,60 @@ mod mcp_compat_tests {
         assert_eq!(cfg.mcp_global.max_concurrent_calls, 0);
         // Other defaults remain intact:
         assert_eq!(cfg.mcp_global.backoff_max_secs, 300);
+    }
+}
+
+#[cfg(test)]
+mod quick_prompt_config_tests {
+    use super::*;
+
+    #[test]
+    fn missing_quick_prompts_deserializes_to_empty_config() {
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#).unwrap();
+        assert!(cfg.quick_prompts.items.is_empty());
+    }
+
+    #[test]
+    fn add_prompt_trims_titles_and_deduplicates_content() {
+        let mut cfg = QuickPromptConfig::default();
+        let first = cfg
+            .add_prompt_with_created_at(
+                "  First line\nSecond line  ",
+                "2026-06-28T00:00:00Z".to_string(),
+            )
+            .unwrap();
+        assert!(!first.duplicate);
+        assert_eq!(first.item.title, "First line");
+        assert_eq!(first.item.content, "First line\nSecond line");
+
+        let duplicate = cfg
+            .add_prompt_with_created_at(
+                "First line\nSecond line",
+                "2026-06-28T00:00:01Z".to_string(),
+            )
+            .unwrap();
+        assert!(duplicate.duplicate);
+        assert_eq!(cfg.items.len(), 1);
+        assert_eq!(duplicate.item.id, first.item.id);
+    }
+
+    #[test]
+    fn add_prompt_rejects_empty_or_too_long_content() {
+        let mut cfg = QuickPromptConfig::default();
+        assert_eq!(
+            cfg.add_prompt_with_created_at("   ", "2026-06-28T00:00:00Z".to_string())
+                .unwrap_err(),
+            QuickPromptError::Empty
+        );
+
+        let too_long = "x".repeat(MAX_QUICK_PROMPT_CONTENT_CHARS + 1);
+        assert_eq!(
+            cfg.add_prompt_with_created_at(&too_long, "2026-06-28T00:00:00Z".to_string())
+                .unwrap_err(),
+            QuickPromptError::TooLong {
+                max_chars: MAX_QUICK_PROMPT_CONTENT_CHARS
+            }
+        );
     }
 }
 
