@@ -126,6 +126,20 @@ pub async fn load_session_environment_cmd(
         .map_err(Into::into)
 }
 
+/// Read the current Git working-tree diff for the session workspace. Desktop is
+/// trusted; HTTP routes enforce the same session scope before reaching core.
+#[tauri::command]
+pub async fn load_session_git_diff_cmd(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<session::WorkspaceGitDiff, CmdError> {
+    let db = state.session_db.clone();
+    tokio::task::spawn_blocking(move || session::load_session_git_diff(&db, &session_id))
+        .await
+        .map_err(|e| CmdError::msg(format!("git diff task join error: {e}")))?
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn get_session_cmd(
     session_id: String,
