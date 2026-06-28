@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   AlertDialog,
   AlertDialogCancel,
   AlertDialogContent,
@@ -466,17 +473,28 @@ export default function CronCalendarView({
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
-            <select
-              className="h-7 text-xs rounded-md border border-border/60 bg-background px-2"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="all">{t("cron.filterAll")}</option>
-              <option value="active">{t("cron.active")}</option>
-              <option value="paused">{t("cron.paused")}</option>
-              <option value="disabled">{t("cron.disabled")}</option>
-              <option value="completed">{t("cron.completed")}</option>
-            </select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-7 w-auto gap-1 border-border/60 bg-background px-2 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">
+                  {t("cron.filterAll")}
+                </SelectItem>
+                <SelectItem value="active" className="text-xs">
+                  {t("cron.active")}
+                </SelectItem>
+                <SelectItem value="paused" className="text-xs">
+                  {t("cron.paused")}
+                </SelectItem>
+                <SelectItem value="disabled" className="text-xs">
+                  {t("cron.disabled")}
+                </SelectItem>
+                <SelectItem value="completed" className="text-xs">
+                  {t("cron.completed")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </>
         )}
 
