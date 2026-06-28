@@ -1,16 +1,63 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { GitCompare, X, Columns2, Rows3 } from "lucide-react"
+import {
+  ChevronDown,
+  ChevronUp,
+  Columns2,
+  Copy,
+  ExternalLink,
+  FoldVertical,
+  GitCompare,
+  Pilcrow,
+  Rows3,
+  Search,
+  X,
+} from "lucide-react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { basename } from "@/lib/path"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import type { FileChangeMetadata } from "@/types/chat"
+import type { PreviewTarget } from "../files/useFilePreview"
 import { UnifiedDiffView } from "./UnifiedDiffView"
 import { SplitDiffView } from "./SplitDiffView"
+import {
+  buildSplitRows,
+  buildUnifiedRows,
+  buildVisibleRowItems,
+  hunkCountForRows,
+  isSplitRowChanged,
+  isUnifiedRowChanged,
+  type DiffViewItem,
+  type SplitRow,
+  type UnifiedRow,
+} from "./diffLayout"
 
 const LAYOUT_STORAGE_KEY = "ha:diff-panel:layout"
+const FIRST_DIFF_SCROLL_PADDING_PX = 8
+const CONTEXT_LINES = 4
+const MAX_RENDERED_DIFF_ITEMS = 1800
+const EMPTY_FOLD_IDS = new Set<string>()
 type DiffLayout = "unified" | "split"
+type DiffLineSide = "old" | "new"
+interface DiffLocation {
+  line: number
+  side: DiffLineSide
+}
+interface KeyedFoldState {
+  key: string
+  ids: Set<string>
+}
+interface KeyedBooleanState {
+  key: string
+  value: boolean
+}
+interface KeyedNumberState {
+  key: string
+  value: number
+}
 
 function readStoredLayout(): DiffLayout {
   if (typeof window === "undefined") return "unified"
@@ -29,8 +76,10 @@ function persistLayout(value: DiffLayout) {
 interface DiffPanelProps {
   changes: FileChangeMetadata[]
   activeIndex: number
+  openNonce: number
   onActiveIndexChange: (index: number) => void
   onClose: () => void
+  onPreviewFile?: (target: PreviewTarget) => void
   embedded?: boolean
 }
 
@@ -43,12 +92,32 @@ interface DiffPanelProps {
 export function DiffPanel({
   changes,
   activeIndex,
+  openNonce,
   onActiveIndexChange,
   onClose,
+  onPreviewFile,
   embedded = false,
 }: DiffPanelProps) {
   const { t } = useTranslation()
   const [layout, setLayout] = useState<DiffLayout>(() => readStoredLayout())
+  const [collapseContext, setCollapseContext] = useState(true)
+  const [ignoreWhitespace, setIgnoreWhitespace] = useState(false)
+  const [fileQuery, setFileQuery] = useState("")
+  const [expandedFoldState, setExpandedFoldState] = useState<KeyedFoldState>(() => ({
+    key: "",
+    ids: new Set(),
+  }))
+  const [renderAllRowsState, setRenderAllRowsState] = useState<KeyedBooleanState>(() => ({
+    key: "",
+    value: false,
+  }))
+  const [activeHunkState, setActiveHunkState] = useState<KeyedNumberState>(() => ({
+    key: "",
+    value: 0,
+  }))
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const scrollPositionsRef = useRef<Map<string, number>>(new Map())
+  const previousOpenNonceRef = useRef(openNonce)
 
   useEffect(() => {
     persistLayout(layout)
@@ -56,6 +125,249 @@ export function DiffPanel({
 
   const safeIndex = Math.min(Math.max(0, activeIndex), Math.max(0, changes.length - 1))
   const change = changes[safeIndex]
+  const changeKey = change
+    ? `${safeIndex}:${change.path}:${change.action}:${change.before?.length ?? -1}:${change.after?.length ?? -1}`
+    : "none"
+  const scrollKey = `${changeKey}:${layout}:${ignoreWhitespace}:${collapseContext}`
+  const resetKey = `${openNonce}:${scrollKey}`
+  const expandedFoldIds =
+    expandedFoldState.key === resetKey ? expandedFoldState.ids : EMPTY_FOLD_IDS
+  const renderAllRows =
+    renderAllRowsState.key === resetKey ? renderAllRowsState.value : false
+  const activeHunkIndex = activeHunkState.key === resetKey ? activeHunkState.value : 0
+  const setRenderAllRows = useCallback(
+    (value: boolean) => setRenderAllRowsState({ key: resetKey, value }),
+    [resetKey],
+  )
+  const setActiveHunkIndex = useCallback(
+    (value: number) => setActiveHunkState({ key: resetKey, value }),
+    [resetKey],
+  )
+
+  const saveScrollPosition = useCallback(() => {
+    const container = scrollRef.current
+    if (!container || !change) return
+    scrollPositionsRef.current.set(scrollKey, container.scrollTop)
+  }, [change, scrollKey])
+
+  const handleActiveIndexChange = useCallback(
+    (index: number) => {
+      saveScrollPosition()
+      onActiveIndexChange(index)
+    },
+    [onActiveIndexChange, saveScrollPosition],
+  )
+
+  const filteredChangeIndexes = useMemo(() => {
+    const query = fileQuery.trim().toLowerCase()
+    if (!query) return changes.map((_, idx) => idx)
+    return changes.flatMap((c, idx) => (c.path.toLowerCase().includes(query) ? [idx] : []))
+  }, [changes, fileQuery])
+
+  useEffect(() => {
+    if (changes.length <= 1 || filteredChangeIndexes.length === 0) return
+    if (!filteredChangeIndexes.includes(safeIndex)) {
+      handleActiveIndexChange(filteredChangeIndexes[0])
+    }
+  }, [changes.length, filteredChangeIndexes, handleActiveIndexChange, safeIndex])
+
+  const activeRows = useMemo(
+    () =>
+      !change
+        ? []
+        : layout === "unified"
+          ? buildUnifiedRows(change.before ?? "", change.after ?? "", { ignoreWhitespace })
+          : buildSplitRows(change.before ?? "", change.after ?? "", { ignoreWhitespace }),
+    [change, ignoreWhitespace, layout],
+  )
+  const activeItems = useMemo(
+    () =>
+      layout === "unified"
+        ? buildVisibleRowItems(activeRows as UnifiedRow[], {
+            collapseContext,
+            expandedFoldIds,
+            isChanged: isUnifiedRowChanged,
+            contextLines: CONTEXT_LINES,
+          })
+        : buildVisibleRowItems(activeRows as SplitRow[], {
+            collapseContext,
+            expandedFoldIds,
+            isChanged: isSplitRowChanged,
+            contextLines: CONTEXT_LINES,
+          }),
+    [activeRows, collapseContext, expandedFoldIds, layout],
+  )
+  const hunkCount = hunkCountForRows(activeRows)
+  const clampedActiveHunkIndex = hunkCount > 0 ? Math.min(activeHunkIndex, hunkCount - 1) : 0
+  const displayedItems = renderAllRows ? activeItems : activeItems.slice(0, MAX_RENDERED_DIFF_ITEMS)
+  const omittedItemCount = Math.max(0, activeItems.length - displayedItems.length)
+  const activeHunkLocation = useMemo<DiffLocation | null>(() => {
+    const row = activeRows.find((r) => r.hunkIndex === clampedActiveHunkIndex && r.isHunkStart)
+    if (!row) return null
+    if (layout === "unified") {
+      const unifiedRow = row as UnifiedRow
+      if (unifiedRow.newLineNumber) return { line: unifiedRow.newLineNumber, side: "new" }
+      if (unifiedRow.oldLineNumber) return { line: unifiedRow.oldLineNumber, side: "old" }
+      return null
+    }
+    const splitRow = row as SplitRow
+    if (splitRow.right?.lineNumber) return { line: splitRow.right.lineNumber, side: "new" }
+    if (splitRow.left?.lineNumber) return { line: splitRow.left.lineNumber, side: "old" }
+    return null
+  }, [activeRows, clampedActiveHunkIndex, layout])
+
+  useEffect(() => {
+    if (previousOpenNonceRef.current !== openNonce) {
+      previousOpenNonceRef.current = openNonce
+      scrollPositionsRef.current.clear()
+    }
+  }, [openNonce])
+
+  const scrollElementIntoDiffView = useCallback((element: HTMLElement) => {
+    const container = scrollRef.current
+    if (!container) return
+    const containerRect = container.getBoundingClientRect()
+    const rowRect = element.getBoundingClientRect()
+    const targetTop =
+      container.scrollTop +
+      rowRect.top -
+      containerRect.top -
+      FIRST_DIFF_SCROLL_PADDING_PX
+    container.scrollTo({ top: Math.max(0, targetTop) })
+  }, [])
+
+  const scrollToHunk = useCallback(
+    (targetIndex: number, options: { expandRenderLimit?: boolean } = {}) => {
+      const container = scrollRef.current
+      if (!container || hunkCount <= 0) return
+      const normalized = ((targetIndex % hunkCount) + hunkCount) % hunkCount
+      const selector = `[data-diff-hunk-start='true'][data-diff-hunk-index='${normalized}']`
+      const row = container.querySelector<HTMLElement>(selector)
+      if (!row && options.expandRenderLimit !== false && omittedItemCount > 0) {
+        setRenderAllRows(true)
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            const nextRow = scrollRef.current?.querySelector<HTMLElement>(selector)
+            if (!nextRow) return
+            scrollElementIntoDiffView(nextRow)
+            setActiveHunkIndex(normalized)
+          })
+        })
+        return
+      }
+      if (!row) return
+      scrollElementIntoDiffView(row)
+      setActiveHunkIndex(normalized)
+    },
+    [hunkCount, omittedItemCount, scrollElementIntoDiffView, setActiveHunkIndex, setRenderAllRows],
+  )
+
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container || !change) return
+    const saved = scrollPositionsRef.current.get(scrollKey)
+    let cancelled = false
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled) return
+      if (typeof saved === "number") {
+        container.scrollTop = saved
+        updateActiveHunkFromScroll(container, setActiveHunkIndex)
+      } else {
+        scrollToHunk(0, { expandRenderLimit: false })
+      }
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(frame)
+    }
+  }, [change, scrollKey, scrollToHunk, setActiveHunkIndex])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) return
+      if (e.key === "Escape") {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      if (e.key === "n" || e.key === "j") {
+        e.preventDefault()
+        scrollToHunk(clampedActiveHunkIndex + 1)
+        return
+      }
+      if (e.key === "p" || e.key === "k") {
+        e.preventDefault()
+        scrollToHunk(clampedActiveHunkIndex - 1)
+        return
+      }
+      if (e.key === "u") {
+        e.preventDefault()
+        setLayout("unified")
+        return
+      }
+      if (e.key === "s") {
+        e.preventDefault()
+        setLayout("split")
+        return
+      }
+      if (e.key === "c") {
+        e.preventDefault()
+        setCollapseContext((v) => !v)
+        return
+      }
+      if (e.key === "w") {
+        e.preventDefault()
+        setIgnoreWhitespace((v) => !v)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [clampedActiveHunkIndex, onClose, scrollToHunk])
+
+  const handleScroll = useCallback(() => {
+    const container = scrollRef.current
+    if (!container || !change) return
+    scrollPositionsRef.current.set(scrollKey, container.scrollTop)
+    updateActiveHunkFromScroll(container, setActiveHunkIndex)
+  }, [change, scrollKey, setActiveHunkIndex])
+
+  const toggleFold = useCallback((id: string) => {
+    setExpandedFoldState((prev) => {
+      const next = new Set(prev.key === resetKey ? prev.ids : EMPTY_FOLD_IDS)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { key: resetKey, ids: next }
+    })
+  }, [resetKey])
+
+  const copyLocation = useCallback(
+    (line: number) => {
+      if (!change) return
+      const location = `${change.path}:${line}`
+      navigator.clipboard.writeText(location).then(
+        () => toast.success(t("diffPanel.locationCopied", "已复制定位")),
+        () => toast.error(t("diffPanel.locationCopyFailed", "复制定位失败")),
+      )
+    },
+    [change, t],
+  )
+
+  const openLocation = useCallback(
+    (line: number, side: DiffLineSide = "new") => {
+      if (!change) return
+      if (side !== "new" || change.action === "delete" || !onPreviewFile) {
+        copyLocation(line)
+        return
+      }
+      onPreviewFile({
+        kind: "path",
+        path: change.path,
+        name: basename(change.path),
+        revealLines: { start: line, end: line, nonce: Date.now() },
+      })
+    },
+    [change, copyLocation, onPreviewFile],
+  )
 
   const wrapperClasses = cn(
     "flex h-full min-h-0 w-full flex-col overflow-hidden",
@@ -66,40 +378,75 @@ export function DiffPanel({
 
   return (
     <div className={wrapperClasses}>
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div className="flex items-center gap-1.5 px-3 py-2">
         <GitCompare className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="text-sm font-medium truncate">
+        <span className="min-w-0 truncate text-sm font-medium">
           {t("diffPanel.title", "文件改动")}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1 rounded-md border border-border/60 p-0.5">
-          <IconTip label={t("diffPanel.layoutUnified", "Unified")}>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <IconTip label={t("diffPanel.prevHunk", "上一处变更")}>
             <button
               type="button"
-              className={cn(
-                "flex h-6 w-7 items-center justify-center rounded text-muted-foreground transition-colors",
-                layout === "unified"
-                  ? "bg-secondary text-foreground"
-                  : "hover:bg-secondary/60",
-              )}
-              onClick={() => setLayout("unified")}
-              aria-pressed={layout === "unified"}
+              className={iconButtonClass}
+              onClick={() => scrollToHunk(clampedActiveHunkIndex - 1)}
+              disabled={hunkCount === 0}
             >
-              <Rows3 className="h-3.5 w-3.5" />
+              <ChevronUp className="h-3.5 w-3.5" />
             </button>
           </IconTip>
-          <IconTip label={t("diffPanel.layoutSplit", "Split")}>
+          <IconTip label={t("diffPanel.nextHunk", "下一处变更")}>
             <button
               type="button"
-              className={cn(
-                "flex h-6 w-7 items-center justify-center rounded text-muted-foreground transition-colors",
-                layout === "split"
-                  ? "bg-secondary text-foreground"
-                  : "hover:bg-secondary/60",
-              )}
-              onClick={() => setLayout("split")}
-              aria-pressed={layout === "split"}
+              className={iconButtonClass}
+              onClick={() => scrollToHunk(clampedActiveHunkIndex + 1)}
+              disabled={hunkCount === 0}
             >
-              <Columns2 className="h-3.5 w-3.5" />
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+          <span className="hidden min-w-10 text-center text-[11px] tabular-nums text-muted-foreground sm:inline">
+            {hunkCount > 0 ? `${clampedActiveHunkIndex + 1}/${hunkCount}` : "0/0"}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md border border-border/60 p-0.5">
+            <IconTip label={t("diffPanel.layoutUnified", "Unified")}>
+              <button
+                type="button"
+                className={cn(iconButtonClass, layout === "unified" && activeIconButtonClass)}
+                onClick={() => setLayout("unified")}
+                aria-pressed={layout === "unified"}
+              >
+                <Rows3 className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+            <IconTip label={t("diffPanel.layoutSplit", "Split")}>
+              <button
+                type="button"
+                className={cn(iconButtonClass, layout === "split" && activeIconButtonClass)}
+                onClick={() => setLayout("split")}
+                aria-pressed={layout === "split"}
+              >
+                <Columns2 className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          </span>
+          <IconTip label={t("diffPanel.toggleContext", "折叠未变更上下文")}>
+            <button
+              type="button"
+              className={cn(iconButtonClass, collapseContext && activeIconButtonClass)}
+              onClick={() => setCollapseContext((v) => !v)}
+              aria-pressed={collapseContext}
+            >
+              <FoldVertical className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+          <IconTip label={t("diffPanel.ignoreWhitespace", "忽略空白变更")}>
+            <button
+              type="button"
+              className={cn(iconButtonClass, ignoreWhitespace && activeIconButtonClass)}
+              onClick={() => setIgnoreWhitespace((v) => !v)}
+              aria-pressed={ignoreWhitespace}
+            >
+              <Pilcrow className="h-3.5 w-3.5" />
             </button>
           </IconTip>
         </span>
@@ -116,29 +463,47 @@ export function DiffPanel({
       </div>
 
       {changes.length > 1 && (
-        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 py-1.5">
-          {changes.map((c, idx) => (
-            <button
-              key={`${c.path}-${idx}`}
-              type="button"
-              className={cn(
-                "shrink-0 max-w-[260px] truncate rounded-md px-2 py-1 text-xs transition-colors",
-                idx === safeIndex
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:bg-secondary/60",
-              )}
-              onClick={() => onActiveIndexChange(idx)}
-              title={c.path}
-            >
-              <span className="font-mono">{shortenPath(c.path)}</span>
-              <span className="ml-2 tabular-nums text-emerald-600">
-                +{c.linesAdded}
-              </span>
-              <span className="ml-1 tabular-nums text-rose-600">
-                -{c.linesRemoved}
-              </span>
-            </button>
-          ))}
+        <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 px-2 py-1.5">
+          <div className="relative w-40 shrink-0">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+            <input
+              value={fileQuery}
+              onChange={(e) => setFileQuery(e.target.value)}
+              placeholder={t("diffPanel.searchFiles", "搜索文件")}
+              className="h-7 w-full rounded-md border border-border/70 bg-background/60 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring"
+            />
+          </div>
+          {filteredChangeIndexes.length > 0 ? (
+            filteredChangeIndexes.map((idx) => {
+              const c = changes[idx]
+              return (
+                <button
+                  key={`${c.path}-${idx}`}
+                  type="button"
+                  className={cn(
+                    "shrink-0 max-w-[260px] truncate rounded-md px-2 py-1 text-xs transition-colors",
+                    idx === safeIndex
+                      ? "bg-secondary text-foreground"
+                      : "text-muted-foreground hover:bg-secondary/60",
+                  )}
+                  onClick={() => handleActiveIndexChange(idx)}
+                  title={c.path}
+                >
+                  <span className="font-mono">{shortenPath(c.path)}</span>
+                  <span className="ml-2 tabular-nums text-emerald-600">
+                    +{c.linesAdded}
+                  </span>
+                  <span className="ml-1 tabular-nums text-rose-600">
+                    -{c.linesRemoved}
+                  </span>
+                </button>
+              )
+            })
+          ) : (
+            <span className="px-2 text-xs text-muted-foreground">
+              {t("diffPanel.noMatchingFiles", "没有匹配文件")}
+            </span>
+          )}
         </div>
       )}
 
@@ -146,13 +511,34 @@ export function DiffPanel({
         <>
           <div className="shrink-0 border-b border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-2 truncate">
-              <span className="font-mono truncate">{change.path}</span>
-              <span className="ml-auto tabular-nums text-emerald-600">
-                +{change.linesAdded}
-              </span>
-              <span className="tabular-nums text-rose-600">
-                -{change.linesRemoved}
-              </span>
+              <ActionBadge action={change.action} />
+              <span className="min-w-0 flex-1 truncate font-mono">{change.path}</span>
+              {activeHunkLocation ? (
+                <>
+                  <IconTip label={t("diffPanel.copyLocation", "复制当前定位")}>
+                    <button
+                      type="button"
+                      className={iconButtonClass}
+                      onClick={() => copyLocation(activeHunkLocation.line)}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </IconTip>
+                  {activeHunkLocation.side === "new" && change.action !== "delete" && onPreviewFile ? (
+                    <IconTip label={t("diffPanel.openLocation", "预览到当前行")}>
+                      <button
+                        type="button"
+                        className={iconButtonClass}
+                        onClick={() => openLocation(activeHunkLocation.line, activeHunkLocation.side)}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                  ) : null}
+                </>
+              ) : null}
+              <span className="tabular-nums text-emerald-600">+{change.linesAdded}</span>
+              <span className="tabular-nums text-rose-600">-{change.linesRemoved}</span>
             </div>
             {change.truncated && (
               <div className="mt-0.5 text-amber-600">
@@ -160,11 +546,29 @@ export function DiffPanel({
               </div>
             )}
           </div>
-          <div className={cn("flex-1 overflow-auto", PANEL_SCROLL_FADE)}>
+          <div
+            ref={scrollRef}
+            className={cn("flex-1 overflow-auto", PANEL_SCROLL_FADE)}
+            onScroll={handleScroll}
+          >
             {layout === "unified" ? (
-              <UnifiedDiffView change={change} />
+              <UnifiedDiffView
+                items={displayedItems as DiffViewItem<UnifiedRow>[]}
+                omittedItemCount={omittedItemCount}
+                onToggleFold={toggleFold}
+                onRenderAll={() => setRenderAllRows(true)}
+                onCopyLocation={copyLocation}
+                onOpenLocation={openLocation}
+              />
             ) : (
-              <SplitDiffView change={change} />
+              <SplitDiffView
+                items={displayedItems as DiffViewItem<SplitRow>[]}
+                omittedItemCount={omittedItemCount}
+                onToggleFold={toggleFold}
+                onRenderAll={() => setRenderAllRows(true)}
+                onCopyLocation={copyLocation}
+                onOpenLocation={openLocation}
+              />
             )}
           </div>
         </>
@@ -174,6 +578,63 @@ export function DiffPanel({
         </div>
       )}
     </div>
+  )
+}
+
+const iconButtonClass =
+  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+const activeIconButtonClass = "bg-secondary text-foreground"
+
+function updateActiveHunkFromScroll(
+  container: HTMLElement,
+  setActiveHunkIndex: (index: number) => void,
+) {
+  const starts = Array.from(
+    container.querySelectorAll<HTMLElement>("[data-diff-hunk-start='true']"),
+  )
+  if (starts.length === 0) {
+    setActiveHunkIndex(0)
+    return
+  }
+  const anchorTop = container.getBoundingClientRect().top + 24
+  let current = Number(starts[0].dataset.diffHunkIndex ?? 0)
+  for (const start of starts) {
+    if (start.getBoundingClientRect().top <= anchorTop) {
+      current = Number(start.dataset.diffHunkIndex ?? current)
+    } else {
+      break
+    }
+  }
+  setActiveHunkIndex(current)
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName.toLowerCase()
+  return tag === "input" || tag === "textarea" || target.isContentEditable
+}
+
+function ActionBadge({ action }: { action: FileChangeMetadata["action"] }) {
+  const { t } = useTranslation()
+  const label =
+    action === "create"
+      ? t("diffPanel.actionCreate", "创建")
+      : action === "delete"
+        ? t("diffPanel.actionDelete", "删除")
+        : t("diffPanel.actionEdit", "修改")
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-[10px] leading-none",
+        action === "create" &&
+          "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        action === "delete" &&
+          "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+        action === "edit" && "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+      )}
+    >
+      {label}
+    </span>
   )
 }
 

@@ -105,6 +105,8 @@ export function FilePreviewPane({
     }
   }, [source])
 
+  const effectiveViewSource = viewSource || (!!highlightLines && loaded?.kind === "markdown")
+
   const handleQuoteSelection = useCallback(
     (sel: CodeSelection) => {
       if (!source || !onQuote) return
@@ -224,7 +226,7 @@ export function FilePreviewPane({
           <PreviewBody
             loaded={loaded}
             source={source}
-            viewSource={viewSource}
+            viewSource={effectiveViewSource}
             onQuote={onQuote ? handleQuoteSelection : undefined}
             highlightLines={highlightLines}
           />

@@ -2756,8 +2756,10 @@ export default function ChatScreen({
               <DiffPanel
                 changes={diffPanel.activeChanges}
                 activeIndex={diffPanel.activeIndex}
+                openNonce={diffPanel.openNonce}
                 onActiveIndexChange={diffPanel.setActiveIndex}
                 onClose={diffPanel.closeDiff}
+                onPreviewFile={filePreview.openPreview}
                 embedded
               />
             </RightPanelShell>

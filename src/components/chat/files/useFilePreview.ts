@@ -8,7 +8,14 @@ import type { MediaItem } from "@/types/chat"
  * a `PreviewSource` (see `previewSource.ts`).
  */
 export type PreviewTarget =
-  | { kind: "path"; path: string; name: string; mime?: string }
+  | {
+      kind: "path"
+      path: string
+      name: string
+      mime?: string
+      /** Optional line reveal requested by callers such as the diff panel. */
+      revealLines?: { start: number; end: number; nonce: number }
+    }
   | { kind: "media"; item: MediaItem }
 
 export interface UseFilePreview {

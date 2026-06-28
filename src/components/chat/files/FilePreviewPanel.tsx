@@ -38,11 +38,13 @@ export default function FilePreviewPanel({
       ? mediaPreviewSource(target.item, sessionId)
       : pathPreviewSource(target.path, target.name, sessionId, target.mime)
   }, [target, sessionId])
+  const highlightLines = target?.kind === "path" ? (target.revealLines ?? null) : null
 
   return (
     <FilePreviewPane
       source={source}
       onClose={onClose}
+      highlightLines={highlightLines}
       className="h-full min-h-0"
       maximized={maximized}
       onToggleMaximize={onToggleMaximize}

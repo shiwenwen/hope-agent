@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Loader2, Sparkles, X } from "lucide-react"
 
 import { UnifiedDiffView } from "@/components/chat/diff-panel/UnifiedDiffView"
+import {
+  buildUnifiedRows,
+  buildVisibleRowItems,
+  isUnifiedRowChanged,
+} from "@/components/chat/diff-panel/diffLayout"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -119,6 +124,19 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
     language: "markdown",
     truncated: false,
   }
+  const diffRows = useMemo(
+    () => buildUnifiedRows(change.before ?? "", change.after ?? ""),
+    [change.before, change.after],
+  )
+  const diffItems = useMemo(
+    () =>
+      buildVisibleRowItems(diffRows, {
+        collapseContext: false,
+        expandedFoldIds: new Set(),
+        isChanged: isUnifiedRowChanged,
+      }),
+    [diffRows],
+  )
 
   return (
     <div className="w-[420px] max-w-[90vw] rounded-xl border border-border/60 bg-popover/95 p-3 shadow-[0_8px_30px_rgb(0,0,0,0.18)] backdrop-blur-xl">
@@ -176,7 +194,14 @@ export function QuickRewriteBar({ kbId, notePath, before, onApply, onClose }: Pr
       ) : (
         <div className="space-y-2">
           <div className="max-h-[40vh] overflow-auto rounded-md border border-border/50 bg-muted/20">
-            <UnifiedDiffView change={change} />
+            <UnifiedDiffView
+              items={diffItems}
+              omittedItemCount={0}
+              onToggleFold={() => {}}
+              onRenderAll={() => {}}
+              onCopyLocation={() => {}}
+              onOpenLocation={() => {}}
+            />
           </div>
           <div className="flex items-center justify-end gap-2">
             <Button

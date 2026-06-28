@@ -1,10 +1,17 @@
-import { useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { FileChangeMetadata } from "@/types/chat"
-import { buildSplitRows } from "./diffLayout"
+import type { DiffViewItem, InlineToken, SplitCell, SplitRow } from "./diffLayout"
+
+type DiffLineSide = "old" | "new"
 
 interface SplitDiffViewProps {
-  change: FileChangeMetadata
+  items: DiffViewItem<SplitRow>[]
+  omittedItemCount: number
+  onToggleFold: (id: string) => void
+  onRenderAll: () => void
+  onCopyLocation: (line: number, side: DiffLineSide) => void
+  onOpenLocation: (line: number, side: DiffLineSide) => void
 }
 
 /**
@@ -12,58 +19,190 @@ interface SplitDiffViewProps {
  * removed/added blocks pair across rows; lone removed/added lines occupy
  * only their column with a blank counterpart.
  */
-export function SplitDiffView({ change }: SplitDiffViewProps) {
-  const rows = useMemo(
-    () => buildSplitRows(change.before ?? "", change.after ?? ""),
-    [change.before, change.after],
-  )
+export function SplitDiffView({
+  items,
+  omittedItemCount,
+  onToggleFold,
+  onRenderAll,
+  onCopyLocation,
+  onOpenLocation,
+}: SplitDiffViewProps) {
+  const { t } = useTranslation()
 
   return (
     <div className="font-mono text-[11.5px] leading-5">
-      {rows.map((row, idx) => {
-        const leftBg = row.left
-          ? row.left.type === "removed"
-            ? "bg-rose-500/10"
-            : ""
-          : "bg-muted/20"
-        const rightBg = row.right
-          ? row.right.type === "added"
-            ? "bg-emerald-500/10"
-            : ""
-          : "bg-muted/20"
+      {items.map((item) => {
+        if (item.kind === "fold") {
+          return (
+            <FoldRow
+              key={`fold-${item.id}`}
+              hiddenCount={item.hiddenCount}
+              onClick={() => onToggleFold(item.id)}
+            />
+          )
+        }
+
+        const row = item.row
+        const changed = row.left?.type === "removed" || row.right?.type === "added"
         return (
-          <div key={idx} className="flex items-start">
-            <div
-              className={cn(
-                "flex flex-1 min-w-0 items-start border-r border-border/40 whitespace-pre",
-                leftBg,
-                row.left?.type === "removed" && "text-rose-700 dark:text-rose-300",
-              )}
-            >
-              <span className="shrink-0 w-10 select-none px-1.5 text-right tabular-nums text-muted-foreground/60">
-                {row.left?.lineNumber ?? ""}
-              </span>
-              <span className="flex-1 whitespace-pre-wrap break-all px-2">
-                {row.left ? row.left.text || " " : ""}
-              </span>
-            </div>
-            <div
-              className={cn(
-                "flex flex-1 min-w-0 items-start whitespace-pre",
-                rightBg,
-                row.right?.type === "added" && "text-emerald-700 dark:text-emerald-300",
-              )}
-            >
-              <span className="shrink-0 w-10 select-none px-1.5 text-right tabular-nums text-muted-foreground/60">
-                {row.right?.lineNumber ?? ""}
-              </span>
-              <span className="flex-1 whitespace-pre-wrap break-all px-2">
-                {row.right ? row.right.text || " " : ""}
-              </span>
-            </div>
+          <div
+            key={`row-${item.rowIndex}`}
+            data-diff-row={changed ? "true" : undefined}
+            data-diff-hunk-index={row.hunkIndex ?? undefined}
+            data-diff-hunk-start={row.isHunkStart ? "true" : undefined}
+            data-first-diff-row={row.hunkIndex === 0 && row.isHunkStart ? "true" : undefined}
+            className="group/diff-row flex items-start"
+          >
+            <SplitCellView
+              cell={row.left}
+              blankClass="bg-muted/20"
+              changedClass="bg-rose-500/10 text-rose-700 dark:text-rose-300"
+              border
+              side="old"
+              onCopyLocation={onCopyLocation}
+              onOpenLocation={onOpenLocation}
+            />
+            <SplitCellView
+              cell={row.right}
+              blankClass="bg-muted/20"
+              changedClass="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              side="new"
+              onCopyLocation={onCopyLocation}
+              onOpenLocation={onOpenLocation}
+            />
           </div>
         )
       })}
+      {omittedItemCount > 0 && (
+        <button
+          type="button"
+          onClick={onRenderAll}
+          className="flex w-full items-center justify-center gap-1 border-t border-border/50 px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-foreground"
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          {t("diffPanel.renderMore", "显示剩余 {{count}} 行", { count: omittedItemCount })}
+        </button>
+      )}
     </div>
+  )
+}
+
+function SplitCellView({
+  cell,
+  blankClass,
+  changedClass,
+  border,
+  side,
+  onCopyLocation,
+  onOpenLocation,
+}: {
+  cell?: SplitCell
+  blankClass: string
+  changedClass: string
+  border?: boolean
+  side: DiffLineSide
+  onCopyLocation: (line: number, side: DiffLineSide) => void
+  onOpenLocation: (line: number, side: DiffLineSide) => void
+}) {
+  const changed = cell?.type === "added" || cell?.type === "removed"
+  return (
+    <div
+      className={cn(
+        "flex flex-1 min-w-0 items-start whitespace-pre",
+        border && "border-r border-border/40",
+        cell ? changed && changedClass : blankClass,
+      )}
+    >
+      <LineNumber
+        line={cell?.lineNumber}
+        side={side}
+        onCopyLocation={onCopyLocation}
+        onOpenLocation={onOpenLocation}
+      />
+      <span className="flex-1 whitespace-pre-wrap break-all px-2">
+        {cell ? (
+          <InlineText text={cell.text} tokens={cell.inlineTokens} tone={cell.type} />
+        ) : (
+          ""
+        )}
+      </span>
+    </div>
+  )
+}
+
+function FoldRow({ hiddenCount, onClick }: { hiddenCount: number; onClick: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 border-y border-border/40 bg-muted/25 px-3 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-secondary/55 hover:text-foreground"
+    >
+      <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+      <span className="h-px flex-1 bg-border/60" />
+      <span className="shrink-0">
+        {t("diffPanel.expandHiddenLines", "展开 {{count}} 行未变更内容", { count: hiddenCount })}
+      </span>
+      <span className="h-px flex-1 bg-border/60" />
+    </button>
+  )
+}
+
+function LineNumber({
+  line,
+  side,
+  onCopyLocation,
+  onOpenLocation,
+}: {
+  line?: number
+  side: DiffLineSide
+  onCopyLocation: (line: number, side: DiffLineSide) => void
+  onOpenLocation: (line: number, side: DiffLineSide) => void
+}) {
+  if (!line) {
+    return (
+      <span className="shrink-0 w-10 select-none px-1.5 text-right tabular-nums text-muted-foreground/60" />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="shrink-0 w-10 select-none px-1.5 text-right tabular-nums text-muted-foreground/60 transition-colors hover:bg-secondary/70 hover:text-foreground"
+      onClick={() => onOpenLocation(line, side)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        onCopyLocation(line, side)
+      }}
+    >
+      {line}
+    </button>
+  )
+}
+
+function InlineText({
+  text,
+  tokens,
+  tone,
+}: {
+  text: string
+  tokens?: InlineToken[]
+  tone: SplitCell["type"]
+}) {
+  if (!tokens?.some((token) => token.changed)) return <>{text || " "}</>
+  const highlight =
+    tone === "added"
+      ? "bg-emerald-500/20 text-emerald-800 dark:text-emerald-200"
+      : tone === "removed"
+        ? "bg-rose-500/20 text-rose-800 dark:text-rose-200"
+        : undefined
+  return (
+    <>
+      {tokens.map((token, idx) => (
+        <span key={idx} className={token.changed ? highlight : undefined}>
+          {token.text || " "}
+        </span>
+      ))}
+    </>
   )
 }
