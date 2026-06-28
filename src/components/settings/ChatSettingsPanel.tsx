@@ -15,12 +15,14 @@ import {
 import ContextCompactPanel from "@/components/settings/ContextCompactPanel"
 import AwarenessPanel from "@/components/settings/AwarenessPanel"
 import { invalidateThinkingExpandCache } from "@/components/chat/thinkingCache"
+import { emitCompletedTurnCollapsePreference } from "@/components/chat/completedTurnCollapsePreference"
 import { Check, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface ChatConfig {
   autoSendPending: boolean
   autoExpandThinking: boolean
+  autoCollapseCompletedTurns: boolean
 }
 
 interface SessionTitleConfig {
@@ -41,6 +43,7 @@ export default function ChatSettingsPanel() {
   const [config, setConfig] = useState<ChatConfig>({
     autoSendPending: true,
     autoExpandThinking: true,
+    autoCollapseCompletedTurns: true,
   })
   const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [sessionTitleConfig, setSessionTitleConfig] = useState<SessionTitleConfig>({
@@ -59,6 +62,7 @@ export default function ChatSettingsPanel() {
       getTransport().call<{
         autoSendPending?: boolean
         autoExpandThinking?: boolean
+        autoCollapseCompletedTurns?: boolean
       }>("get_user_config"),
       getTransport().call<boolean>("get_tool_call_narration_enabled"),
       getTransport().call<SessionTitleConfig>("get_session_title_config"),
@@ -68,6 +72,7 @@ export default function ChatSettingsPanel() {
         setConfig({
           autoSendPending: cfg.autoSendPending !== false,
           autoExpandThinking: cfg.autoExpandThinking !== false,
+          autoCollapseCompletedTurns: cfg.autoCollapseCompletedTurns !== false,
         })
         setNarrationEnabled(narration === true)
         setSessionTitleConfig({
@@ -86,7 +91,7 @@ export default function ChatSettingsPanel() {
       .finally(() => setLoaded(true))
   }, [])
 
-  async function toggle(key: "autoSendPending" | "autoExpandThinking") {
+  async function toggle(key: "autoSendPending" | "autoExpandThinking" | "autoCollapseCompletedTurns") {
     const updated = { ...config, [key]: !config[key] }
     setConfig(updated)
     try {
@@ -94,6 +99,8 @@ export default function ChatSettingsPanel() {
       await getTransport().call("save_user_config", { config: { ...full, ...updated } })
       if (key === "autoExpandThinking") {
         invalidateThinkingExpandCache()
+      } else if (key === "autoCollapseCompletedTurns") {
+        emitCompletedTurnCollapsePreference(updated.autoCollapseCompletedTurns)
       }
     } catch (e) {
       logger.error("settings", "ChatSettingsPanel::save", "Failed to save chat config", e)
@@ -182,6 +189,20 @@ export default function ChatSettingsPanel() {
               <Switch
                 checked={config.autoExpandThinking}
                 onCheckedChange={() => toggle("autoExpandThinking")}
+              />
+            </div>
+
+            <div
+              className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer"
+              onClick={() => toggle("autoCollapseCompletedTurns")}
+            >
+              <div className="space-y-0.5">
+                <div className="text-sm font-medium">{t("settings.chatAutoCollapseCompletedTurns")}</div>
+                <div className="text-xs text-muted-foreground">{t("settings.chatAutoCollapseCompletedTurnsDesc")}</div>
+              </div>
+              <Switch
+                checked={config.autoCollapseCompletedTurns}
+                onCheckedChange={() => toggle("autoCollapseCompletedTurns")}
               />
             </div>
 

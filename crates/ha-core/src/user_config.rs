@@ -21,7 +21,7 @@ pub const SERVER_MODE_REMOTE: &str = "remote";
 
 /// Global user configuration, shared across all Agents.
 /// Stored at ~/.hope-agent/user.json
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserConfig {
     /// User's display name / nickname
@@ -73,6 +73,10 @@ pub struct UserConfig {
     #[serde(default = "crate::default_true")]
     pub auto_expand_thinking: bool,
 
+    /// Whether completed chat turns collapse their intermediate assistant steps (default: true)
+    #[serde(default = "crate::default_true")]
+    pub auto_collapse_completed_turns: bool,
+
     /// Preferred chat rendering mode: "bubble" or "timeline".
     #[serde(default)]
     pub chat_display_mode: Option<String>,
@@ -108,6 +112,34 @@ pub struct UserConfig {
     /// Longitude for weather lookup
     #[serde(default)]
     pub weather_longitude: Option<f64>,
+}
+
+impl Default for UserConfig {
+    fn default() -> Self {
+        Self {
+            name: None,
+            avatar: None,
+            gender: None,
+            birthday: None,
+            role: None,
+            timezone: None,
+            language: None,
+            ai_experience: None,
+            response_style: None,
+            custom_info: None,
+            auto_send_pending: false,
+            auto_expand_thinking: true,
+            auto_collapse_completed_turns: true,
+            chat_display_mode: None,
+            server_mode: None,
+            remote_server_url: None,
+            remote_api_key: None,
+            weather_enabled: true,
+            weather_city: None,
+            weather_latitude: None,
+            weather_longitude: None,
+        }
+    }
 }
 
 // ── Persistence ──────────────────────────────────────────────────
@@ -221,5 +253,28 @@ fn language_display_name(code: &str) -> &str {
         "vi" => "Tiếng Việt",
         "ms" => "Bahasa Melayu",
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UserConfig;
+
+    #[test]
+    fn default_keeps_default_on_chat_preferences_enabled() {
+        let config = UserConfig::default();
+
+        assert!(config.auto_expand_thinking);
+        assert!(config.auto_collapse_completed_turns);
+        assert!(config.weather_enabled);
+    }
+
+    #[test]
+    fn serde_missing_default_on_preferences_stay_enabled() {
+        let config: UserConfig = serde_json::from_str("{}").unwrap();
+
+        assert!(config.auto_expand_thinking);
+        assert!(config.auto_collapse_completed_turns);
+        assert!(config.weather_enabled);
     }
 }
