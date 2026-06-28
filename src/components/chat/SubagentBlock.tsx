@@ -15,7 +15,7 @@ interface SubagentBlockProps {
   agentId: string
   task: string
   initialStatus?: string
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
 }
 
 export default function SubagentBlock({
@@ -23,7 +23,7 @@ export default function SubagentBlock({
   agentId,
   task,
   initialStatus,
-  onSwitchSession,
+  onViewChildSession,
 }: SubagentBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -103,7 +103,7 @@ export default function SubagentBlock({
   const emoji = agentMeta?.emoji?.trim() || null
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
 
-  const canViewSession = !!(onSwitchSession && childSessionId)
+  const canViewSession = !!(onViewChildSession && childSessionId)
   async function handleCancel() {
     if (isTerminal || cancelling) return
     setCancelling(true)
@@ -181,7 +181,7 @@ export default function SubagentBlock({
                 type="button"
                 className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                 onClick={() => {
-                  if (onSwitchSession && childSessionId) onSwitchSession(childSessionId)
+                  if (onViewChildSession && childSessionId) onViewChildSession(childSessionId)
                 }}
                 aria-label={t("subagent.viewChildSession")}
               >

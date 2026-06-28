@@ -5033,6 +5033,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "该 Agent 已被删除",
+    "dialog": {
+      "subtitle": "实时查看 · {{sessionId}}",
+      "untitled": "子 Agent 会话"
+    },
     "group": {
       "finished": "已完成 {{count}} 个 Agent",
       "running": "正在运行 {{count}} 个 Agent"

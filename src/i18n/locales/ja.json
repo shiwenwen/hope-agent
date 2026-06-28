@@ -5033,6 +5033,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "このエージェントは削除されました",
+    "dialog": {
+      "subtitle": "ライブ表示 · {{sessionId}}",
+      "untitled": "サブエージェント セッション"
+    },
     "group": {
       "finished": "{{count}} 個のエージェントが完了",
       "running": "{{count}} 個のエージェントを実行中"

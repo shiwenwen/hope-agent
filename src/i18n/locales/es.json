@@ -5033,6 +5033,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "Este agente ha sido eliminado",
+    "dialog": {
+      "subtitle": "Vista en vivo · {{sessionId}}",
+      "untitled": "Sesión de sub-agente"
+    },
     "group": {
       "finished": "{{count}} agentes finalizados",
       "running": "Ejecutando {{count}} agentes"

@@ -77,8 +77,8 @@ export interface MessageBubbleProps {
   // Plan mode
   sessionId?: string | null
   onOpenPlanPanel?: () => void
-  // Session switching (used by SubagentBlock's "jump to child session" button)
-  onSwitchSession?: (sessionId: string) => void
+  // Child-session preview (used by SubagentBlock's "view child session" button)
+  onViewChildSession?: (sessionId: string) => void
   // Model switching
   onSwitchModel?: (providerId: string, modelId: string) => void
   // View system prompt (triggered from context breakdown card)
@@ -252,7 +252,7 @@ function MessageBubbleInner({
   onCopy,
   sessionId,
   onOpenPlanPanel,
-  onSwitchSession,
+  onViewChildSession,
   onSwitchModel,
   onViewSystemPrompt,
   compacting,
@@ -461,7 +461,7 @@ function MessageBubbleInner({
         <SkillForkStatusCard
           runId={msg.skillForkData.runId}
           skillName={msg.skillForkData.skillName}
-          onSwitchSession={onSwitchSession}
+          onViewChildSession={onViewChildSession}
         />
       )
     }
@@ -654,7 +654,7 @@ function MessageBubbleInner({
             executionState={executionState}
             sessionId={sessionId}
             onOpenPlanPanel={onOpenPlanPanel}
-            onSwitchSession={onSwitchSession}
+            onViewChildSession={onViewChildSession}
             onOpenDiff={onOpenDiff}
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
@@ -781,7 +781,7 @@ function MessageBubbleInner({
               executionState={executionState}
               sessionId={sessionId}
               onOpenPlanPanel={onOpenPlanPanel}
-              onSwitchSession={onSwitchSession}
+              onViewChildSession={onViewChildSession}
               onOpenDiff={onOpenDiff}
               contentRenderMode={contentRenderMode}
             />

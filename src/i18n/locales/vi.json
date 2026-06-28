@@ -5033,6 +5033,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "Agent này đã bị xoá",
+    "dialog": {
+      "subtitle": "Xem trực tiếp · {{sessionId}}",
+      "untitled": "Phiên sub-agent"
+    },
     "group": {
       "finished": "Đã hoàn tất {{count}} agent",
       "running": "Đang chạy {{count}} agent"

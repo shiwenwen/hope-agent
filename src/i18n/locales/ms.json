@@ -5033,6 +5033,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "Agen ini telah dipadam",
+    "dialog": {
+      "subtitle": "Paparan langsung · {{sessionId}}",
+      "untitled": "Sesi sub-agen"
+    },
     "group": {
       "finished": "{{count}} agen selesai",
       "running": "Menjalankan {{count}} agen"

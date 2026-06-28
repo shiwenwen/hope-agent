@@ -26,7 +26,7 @@ export interface SubagentGroupRun {
 
 interface SubagentGroupProps {
   runs: SubagentGroupRun[]
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
 }
 
 interface RunState {
@@ -42,7 +42,7 @@ interface RunState {
   childSessionId?: string
 }
 
-export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupProps) {
+export default function SubagentGroup({ runs, onViewChildSession }: SubagentGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [states, setStates] = useState<Map<string, RunState>>(() => {
@@ -235,7 +235,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
               state={states.get(run.runId)}
               agentMeta={agentMetas.get(run.agentId)}
               agentMetasLoaded={metadataLoaded}
-              onSwitchSession={onSwitchSession}
+              onViewChildSession={onViewChildSession}
             />
           ))}
         </div>
@@ -249,7 +249,7 @@ interface SubagentRowProps {
   state: RunState | undefined
   agentMeta: AgentSummaryForSidebar | undefined
   agentMetasLoaded: boolean
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
 }
 
 function SubagentRow({
@@ -257,7 +257,7 @@ function SubagentRow({
   state,
   agentMeta,
   agentMetasLoaded,
-  onSwitchSession,
+  onViewChildSession,
 }: SubagentRowProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -272,7 +272,7 @@ function SubagentRow({
   const agentMissing = agentMetasLoaded && !agentMeta
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
   const childSessionId = state?.childSessionId
-  const canViewSession = !!(onSwitchSession && childSessionId)
+  const canViewSession = !!(onViewChildSession && childSessionId)
 
   async function handleCancel() {
     if (isTerminal || cancelling) return
@@ -347,7 +347,7 @@ function SubagentRow({
                 type="button"
                 className="p-0.5 rounded hover:bg-secondary text-muted-foreground/50 hover:text-foreground transition-colors"
                 onClick={() => {
-                  if (onSwitchSession && childSessionId) onSwitchSession(childSessionId)
+                  if (onViewChildSession && childSessionId) onViewChildSession(childSessionId)
                 }}
                 aria-label={t("subagent.viewChildSession")}
               >

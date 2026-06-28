@@ -1,6 +1,6 @@
 import { useCallback, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { Cpu, Layers, Terminal, X, XCircle, type LucideIcon } from "lucide-react"
+import { ArrowUpRight, Cpu, Layers, Terminal, X, XCircle, type LucideIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -18,6 +18,7 @@ import {
 } from "@/types/local-model-jobs"
 import { useLocalModelJobsMirror } from "./useLocalModelJobsMirror"
 import { BackgroundJobKindIcon, BackgroundJobStatusChip } from "./jobDisplay"
+import { resolveBackgroundSubagentSessionId } from "./subagentSession"
 
 function SectionHeader({
   icon: Icon,
@@ -46,9 +47,13 @@ function EmptyHint({ children }: { children: ReactNode }) {
 function BackgroundJobRow({
   job,
   onCancel,
+  onViewSubagentSession,
+  viewing,
 }: {
   job: BackgroundJobSnapshot
   onCancel: (jobId: string) => void
+  onViewSubagentSession?: (job: BackgroundJobSnapshot) => void
+  viewing?: boolean
 }) {
   const { t } = useTranslation()
   const label = backgroundJobLabel(job, t)
@@ -58,6 +63,8 @@ function BackgroundJobRow({
   const groupTotal = job.childCount ?? 0
   const groupPct = groupTotal > 0 ? Math.round((groupDone / groupTotal) * 100) : 0
   const cancellable = isBackgroundJobCancellable(job)
+  const canViewSubagentSession =
+    job.kind === "subagent" && !!job.subagentRunId && !!onViewSubagentSession
 
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5">
@@ -72,6 +79,19 @@ function BackgroundJobRow({
           </span>
         </IconTip>
         <BackgroundJobStatusChip status={job.status} />
+        {canViewSubagentSession && (
+          <IconTip label={t("subagent.viewChildSession", "查看子会话")}>
+            <button
+              type="button"
+              onClick={() => onViewSubagentSession(job)}
+              disabled={viewing}
+              className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+              aria-label={t("subagent.viewChildSession", "查看子会话")}
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+        )}
         {cancellable && (
           <IconTip label={t("common.cancel", "取消")}>
             <button
@@ -149,14 +169,17 @@ function LocalModelJobRow({ job }: { job: LocalModelJobSnapshot }) {
 export default function BackgroundJobsPanel({
   jobs,
   onClose,
+  onViewSubagentSession,
 }: {
   jobs: BackgroundJobSnapshot[]
   onClose: () => void
+  onViewSubagentSession?: (sessionId: string) => void
 }) {
   const { t } = useTranslation()
   // The global model-job mirror only subscribes while this panel is mounted.
   const localModelJobs = useLocalModelJobsMirror()
   const [pendingCancel, setPendingCancel] = useState<Set<string>>(new Set())
+  const [pendingViewRunIds, setPendingViewRunIds] = useState<Set<string>>(new Set())
 
   const clearPending = useCallback((jobId: string) => {
     setPendingCancel((prev) => {
@@ -181,6 +204,28 @@ export default function BackgroundJobsPanel({
         .catch(() => clearPending(jobId))
     },
     [clearPending],
+  )
+
+  const handleViewSubagentSession = useCallback(
+    (job: BackgroundJobSnapshot) => {
+      const runId = job.subagentRunId
+      if (!runId || !onViewSubagentSession) return
+      setPendingViewRunIds((prev) => new Set(prev).add(runId))
+      resolveBackgroundSubagentSessionId(runId)
+        .then((childSessionId) => {
+          if (childSessionId) onViewSubagentSession(childSessionId)
+        })
+        .catch(() => {})
+        .finally(() => {
+          setPendingViewRunIds((prev) => {
+            if (!prev.has(runId)) return prev
+            const next = new Set(prev)
+            next.delete(runId)
+            return next
+          })
+        })
+    },
+    [onViewSubagentSession],
   )
 
   // Optimistically show "cancelling" for any cancellable job whose cancel is in
@@ -223,7 +268,13 @@ export default function BackgroundJobsPanel({
           {visibleJobs.length > 0 ? (
             <div className="space-y-1">
               {visibleJobs.map((job) => (
-                <BackgroundJobRow key={job.jobId} job={job} onCancel={handleCancel} />
+                <BackgroundJobRow
+                  key={job.jobId}
+                  job={job}
+                  onCancel={handleCancel}
+                  onViewSubagentSession={handleViewSubagentSession}
+                  viewing={!!job.subagentRunId && pendingViewRunIds.has(job.subagentRunId)}
+                />
               ))}
             </div>
           ) : (
