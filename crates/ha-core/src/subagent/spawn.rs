@@ -10,7 +10,8 @@ use super::injection::{build_subagent_push_message, inject_and_run_parent};
 use super::mailbox::SUBAGENT_MAILBOX;
 use super::types::{SpawnParams, SubagentEvent, SubagentRun, SubagentStatus};
 use super::{
-    max_concurrent_for_agent, max_depth_for_agent, queue, DEFAULT_TIMEOUT_SECS, MAX_RESULT_CHARS,
+    default_timeout_for_agent, max_concurrent_for_agent, max_depth_for_agent, queue,
+    MAX_RESULT_CHARS,
 };
 
 // ── Spawn Logic ─────────────────────────────────────────────────
@@ -249,10 +250,12 @@ pub(crate) fn launch_subagent_run(
     let agent_id = params.agent_id.clone();
     let task = params.task.clone();
     let depth = params.depth;
-    let timeout_secs = params.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
+    let parent_agent_id = params.parent_agent_id.clone();
+    let timeout_secs = params
+        .timeout_secs
+        .unwrap_or_else(|| default_timeout_for_agent(&parent_agent_id));
     let model_override = params.model_override.clone();
     let parent_session_id = params.parent_session_id.clone();
-    let parent_agent_id = params.parent_agent_id.clone();
     let child_session_id_clone = child_session_id.clone();
     let label = params.label.clone();
     let attachments = params.attachments.clone();
@@ -309,29 +312,44 @@ pub(crate) fn launch_subagent_run(
                 .with_source(crate::chat_engine::ChatSource::Subagent),
         );
 
-        let exec_result = std::panic::AssertUnwindSafe(tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            execute_subagent(
-                agent_id_exec,
-                task_exec,
-                depth,
-                model_override_exec,
-                cancel_exec,
-                run_id_exec,
-                child_session_id_exec,
-                db.clone(),
-                attachments_exec,
-                parent_session_id.clone(),
-                plan_agent_mode_exec,
-                plan_mode_allow_paths_exec,
-                lock_plan_agent_mode_exec,
-                extra_system_context_exec,
-                skill_allowed_tools_exec,
-                reasoning_effort_exec,
-                origin_source,
-                origin_channel_kb_context,
-            ),
-        ));
+        enum ExecutionResult {
+            Finished(Result<(String, Option<String>)>),
+            Timeout,
+        }
+
+        let execution = execute_subagent(
+            agent_id_exec,
+            task_exec,
+            depth,
+            model_override_exec,
+            cancel_exec,
+            run_id_exec,
+            child_session_id_exec,
+            db.clone(),
+            attachments_exec,
+            parent_session_id.clone(),
+            plan_agent_mode_exec,
+            plan_mode_allow_paths_exec,
+            lock_plan_agent_mode_exec,
+            extra_system_context_exec,
+            skill_allowed_tools_exec,
+            reasoning_effort_exec,
+            origin_source,
+            origin_channel_kb_context,
+        );
+
+        let exec_result = std::panic::AssertUnwindSafe(async move {
+            if timeout_secs == 0 {
+                ExecutionResult::Finished(execution.await)
+            } else {
+                match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), execution)
+                    .await
+                {
+                    Ok(result) => ExecutionResult::Finished(result),
+                    Err(_) => ExecutionResult::Timeout,
+                }
+            }
+        });
         let result = futures_util::FutureExt::catch_unwind(exec_result).await;
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -339,11 +357,11 @@ pub(crate) fn launch_subagent_run(
 
         // Determine outcome — handles Ok, Err, Timeout, Cancel, and Panic
         let (status, result_text, error_text, model_used) = match result {
-            Ok(Ok(Ok((response, model)))) => {
+            Ok(ExecutionResult::Finished(Ok((response, model)))) => {
                 let truncated = truncate_str(&response, MAX_RESULT_CHARS);
                 (SubagentStatus::Completed, Some(truncated), None, model)
             }
-            Ok(Ok(Err(e))) => {
+            Ok(ExecutionResult::Finished(Err(e))) => {
                 if cancel_flag.load(Ordering::SeqCst) {
                     (
                         SubagentStatus::Killed,
@@ -355,7 +373,7 @@ pub(crate) fn launch_subagent_run(
                     (SubagentStatus::Error, None, Some(e.to_string()), None)
                 }
             }
-            Ok(Err(_)) => {
+            Ok(ExecutionResult::Timeout) => {
                 // Timeout
                 (
                     SubagentStatus::Timeout,

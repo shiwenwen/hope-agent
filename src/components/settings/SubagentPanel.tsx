@@ -65,8 +65,13 @@ export default function SubagentPanel({
       <h3 className="text-sm font-medium">{t("settings.subagentTitle")}</h3>
 
       {/* Enable toggle */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm">{t("settings.subagentEnabled")}</span>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 space-y-1">
+          <span className="text-sm">{t("settings.subagentEnabled")}</span>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t("settings.subagentEnabledDesc")}
+          </p>
+        </div>
         <Switch checked={enabled} onCheckedChange={onEnabledChange} />
       </div>
 
@@ -122,8 +127,13 @@ export default function SubagentPanel({
 
           {/* Max spawn depth */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">{t("settings.subagentMaxDepth")}</span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentMaxDepth")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentMaxDepthDesc")}
+                </p>
+              </div>
               <DeferredNumberInput
                 value={config.maxSpawnDepth ?? 3}
                 onValueCommit={(value) =>
@@ -132,7 +142,7 @@ export default function SubagentPanel({
                     maxSpawnDepth: value,
                   })
                 }
-                className="w-20 text-sm"
+                className="w-20 shrink-0 text-sm"
                 min={1}
                 max={5}
               />
@@ -141,8 +151,13 @@ export default function SubagentPanel({
 
           {/* Max concurrent */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">{t("settings.subagentMaxConcurrent")}</span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentMaxConcurrent")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentMaxConcurrentDesc")}
+                </p>
+              </div>
               <DeferredNumberInput
                 value={config.maxConcurrent}
                 onValueCommit={(value) =>
@@ -151,7 +166,7 @@ export default function SubagentPanel({
                     maxConcurrent: value,
                   })
                 }
-                className="w-20 text-sm"
+                className="w-20 shrink-0 text-sm"
                 min={1}
                 max={50}
               />
@@ -160,8 +175,13 @@ export default function SubagentPanel({
 
           {/* Max batch size */}
           <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">{t("settings.subagentMaxBatchSize")}</span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentMaxBatchSize")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentMaxBatchSizeDesc")}
+                </p>
+              </div>
               <DeferredNumberInput
                 value={config.maxBatchSize ?? 10}
                 onValueCommit={(value) =>
@@ -170,7 +190,7 @@ export default function SubagentPanel({
                     maxBatchSize: value,
                   })
                 }
-                className="w-20 text-sm"
+                className="w-20 shrink-0 text-sm"
                 min={1}
                 max={50}
               />
@@ -179,45 +199,59 @@ export default function SubagentPanel({
 
           {/* Default timeout */}
           <div className="space-y-1">
-            <span className="text-sm">{t("settings.subagentTimeout")}</span>
-            <div className="flex items-center gap-2">
-              <DeferredNumberInput
-                value={config.defaultTimeoutSecs}
-                onValueCommit={(value) =>
-                  onChange({
-                    ...config,
-                    defaultTimeoutSecs: value,
-                  })
-                }
-                className="w-24 text-sm"
-                min={30}
-                max={1800}
-              />
-              <span className="text-xs text-muted-foreground">
-                {t("settings.subagentTimeoutUnit")}
-              </span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentTimeout")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentTimeoutDesc")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <DeferredNumberInput
+                  value={config.defaultTimeoutSecs}
+                  onValueCommit={(value) =>
+                    onChange({
+                      ...config,
+                      defaultTimeoutSecs: value,
+                    })
+                  }
+                  className="w-24 text-sm"
+                  min={0}
+                  max={1800}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {t("settings.subagentTimeoutUnit")}
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Announce timeout */}
           <div className="space-y-1">
-            <span className="text-sm">{t("settings.subagentAnnounceTimeout")}</span>
-            <div className="flex items-center gap-2">
-              <DeferredNumberInput
-                value={config.announceTimeoutSecs ?? 120}
-                onValueCommit={(value) =>
-                  onChange({
-                    ...config,
-                    announceTimeoutSecs: value,
-                  })
-                }
-                className="w-24 text-sm"
-                min={10}
-                max={600}
-              />
-              <span className="text-xs text-muted-foreground">
-                {t("settings.subagentTimeoutUnit")}
-              </span>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 space-y-1">
+                <span className="text-sm">{t("settings.subagentAnnounceTimeout")}</span>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t("settings.subagentAnnounceTimeoutDesc")}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <DeferredNumberInput
+                  value={config.announceTimeoutSecs ?? 120}
+                  onValueCommit={(value) =>
+                    onChange({
+                      ...config,
+                      announceTimeoutSecs: value,
+                    })
+                  }
+                  className="w-24 text-sm"
+                  min={10}
+                  max={600}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {t("settings.subagentTimeoutUnit")}
+                </span>
+              </div>
             </div>
           </div>
         </>

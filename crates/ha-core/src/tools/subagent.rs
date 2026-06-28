@@ -106,7 +106,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let timeout_secs = args
         .get("timeout_secs")
         .and_then(|v| v.as_u64())
-        .map(|t| t.min(1800)); // Cap at 30 minutes
+        .map(|t| t.min(1800)); // 0 = no timeout; positive values cap at 30 minutes.
 
     let model_override = args
         .get("model")
