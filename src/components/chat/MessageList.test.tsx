@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import type { Message } from "@/types/chat"
 import MessageList from "./MessageList"
@@ -216,6 +216,180 @@ describe("MessageList", () => {
     const bubbles = screen.getAllByTestId("message-bubble")
     expect(bubbles[0].getAttribute("data-execution-state")).toBe("none")
     expect(bubbles[1].getAttribute("data-execution-state")).toBe("failed")
+  })
+
+  test("collapses intermediate assistant messages in a completed turn", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({
+            role: "user",
+            content: "question",
+            dbId: 1,
+            timestamp: "2026-04-26T00:00:00.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "step one",
+            dbId: 2,
+            timestamp: "2026-04-26T00:00:03.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "step two",
+            dbId: 3,
+            timestamp: "2026-04-26T00:00:07.000Z",
+          }),
+          baseMessage({
+            role: "assistant",
+            content: "final answer",
+            dbId: 4,
+            timestamp: "2026-04-26T00:00:10.000Z",
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    expect(screen.getByText("question")).toBeTruthy()
+    expect(screen.getByText("final answer")).toBeTruthy()
+    expect(screen.getByText("chat.completedTurnCollapsedWithDuration")).toBeTruthy()
+    expect(screen.queryByText("step one")).toBeNull()
+    expect(screen.queryByText("step two")).toBeNull()
+  })
+
+  test("collapses historical assistant content blocks before the final answer", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "question", dbId: 1 }),
+          baseMessage({
+            role: "assistant",
+            content: "final answer",
+            dbId: 2,
+            usage: { durationMs: 10_000 },
+            contentBlocks: [
+              { type: "thinking", content: "thinking details", durationMs: 2000 },
+              {
+                type: "tool_call",
+                tool: {
+                  callId: "call-1",
+                  name: "exec",
+                  arguments: "{}",
+                  result: "done",
+                  durationMs: 3000,
+                },
+              },
+              { type: "text", content: "intermediate note" },
+              { type: "text", content: "final answer" },
+            ],
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    expect(screen.getByText("final answer")).toBeTruthy()
+    expect(screen.getByText("chat.completedTurnCollapsedWithDuration")).toBeTruthy()
+    expect(screen.queryByText("intermediate note")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { expanded: false }))
+    expect(screen.getByText("intermediate note")).toBeTruthy()
+  })
+
+  test("expands collapsed historical prefix when search targets text inside it", async () => {
+    const scrolled: Element[] = []
+    vi.spyOn(Element.prototype, "scrollIntoView").mockImplementation(function (this: Element) {
+      scrolled.push(this)
+    })
+
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "question", dbId: 1 }),
+          baseMessage({
+            role: "assistant",
+            content: "final answer",
+            dbId: 2,
+            contentBlocks: [
+              { type: "thinking", content: "thinking details" },
+              { type: "text", content: "needle intermediate note" },
+              { type: "text", content: "final answer" },
+            ],
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        pendingScrollIntent={{ messageId: 2, highlightTerms: ["needle"] }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText("needle intermediate note")).toBeTruthy()
+      expect(scrolled.length).toBeGreaterThan(0)
+    })
+    expect(scrolled[0]?.textContent).toContain("needle intermediate note")
+  })
+
+  test("expands and collapses completed turn details", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "question", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "step one", dbId: 2 }),
+          baseMessage({ role: "assistant", content: "final answer", dbId: 3 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const toggle = screen.getByRole("button", { expanded: false })
+    fireEvent.click(toggle)
+    expect(screen.getByText("step one")).toBeTruthy()
+
+    fireEvent.click(toggle)
+    expect(screen.queryByText("step one")).toBeNull()
+  })
+
+  test("does not collapse completed turns when the preference is disabled", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "question", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "step one", dbId: 2 }),
+          baseMessage({ role: "assistant", content: "final answer", dbId: 3 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        autoCollapseCompletedTurns={false}
+      />,
+    )
+
+    expect(screen.queryByText("chat.completedTurnCollapsed")).toBeNull()
+    expect(screen.getByText("step one")).toBeTruthy()
   })
 
   test("renders LoadMoreRow when hasMore is true and click triggers onLoadMore", () => {

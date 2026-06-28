@@ -73,6 +73,10 @@ pub struct UserConfig {
     #[serde(default = "crate::default_true")]
     pub auto_expand_thinking: bool,
 
+    /// Whether completed chat turns collapse their intermediate assistant steps (default: true)
+    #[serde(default = "crate::default_true")]
+    pub auto_collapse_completed_turns: bool,
+
     /// Preferred chat rendering mode: "bubble" or "timeline".
     #[serde(default)]
     pub chat_display_mode: Option<String>,
