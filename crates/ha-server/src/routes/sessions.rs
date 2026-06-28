@@ -823,6 +823,22 @@ pub async fn get_session_environment(
     Ok(Json(env))
 }
 
+/// `GET /api/sessions/:id/git-diff` — read-only Git working-tree diff for the
+/// session workspace. The client cannot supply a path; core resolves the
+/// session's own `WorkspaceScope`.
+pub async fn get_session_git_diff(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<ha_core::session::WorkspaceGitDiff>, AppError> {
+    let db = ctx.session_db.clone();
+    let diff =
+        tokio::task::spawn_blocking(move || ha_core::session::load_session_git_diff(&db, &id))
+            .await
+            .map_err(|e| AppError::internal(format!("git diff task failed: {e}")))?
+            .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(diff))
+}
+
 /// `GET /api/sessions/:id/messages?limit=N` — load latest messages for a session.
 ///
 /// Returns a JSON tuple `[messages, total, hasMore]` (same shape as Tauri IPC).

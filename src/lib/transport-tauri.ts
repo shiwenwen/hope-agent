@@ -22,7 +22,7 @@ import type {
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport";
-import type { MediaItem } from "@/types/chat";
+import type { FileChangesMetadata, MediaItem } from "@/types/chat";
 
 export class TauriTransport implements Transport {
   // ----- call -----
@@ -172,6 +172,10 @@ export class TauriTransport implements Transport {
 
   async loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot> {
     return invoke<WorkspaceEnvironmentSnapshot>("load_session_environment_cmd", { sessionId });
+  }
+
+  async loadSessionGitDiff(sessionId: string): Promise<FileChangesMetadata> {
+    return invoke<FileChangesMetadata>("load_session_git_diff_cmd", { sessionId });
   }
 
   async projectFsUpload(

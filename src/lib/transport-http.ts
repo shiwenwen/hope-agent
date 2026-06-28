@@ -21,7 +21,7 @@ import type {
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport";
-import type { MediaItem } from "@/types/chat";
+import type { FileChangesMetadata, MediaItem } from "@/types/chat";
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage";
 
 // ---------------------------------------------------------------------------
@@ -153,6 +153,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_background_jobs:            { method: "GET",    path: "/api/sessions/{sessionId}/background-jobs" },
   get_background_job:              { method: "GET",    path: "/api/background-jobs/{jobId}" },
   load_session_environment_cmd:    { method: "GET",    path: "/api/sessions/{sessionId}/environment" },
+  load_session_git_diff_cmd:       { method: "GET",    path: "/api/sessions/{sessionId}/git-diff" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
   load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },
   load_session_messages_before_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/before" },
@@ -1214,6 +1215,10 @@ export class HttpTransport implements Transport {
 
   async loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot> {
     return this.call<WorkspaceEnvironmentSnapshot>("load_session_environment_cmd", { sessionId });
+  }
+
+  async loadSessionGitDiff(sessionId: string): Promise<FileChangesMetadata> {
+    return this.call<FileChangesMetadata>("load_session_git_diff_cmd", { sessionId });
   }
 
   async projectFsUpload(
