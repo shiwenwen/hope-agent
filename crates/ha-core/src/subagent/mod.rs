@@ -43,8 +43,20 @@ pub fn max_batch_size_for_agent(agent_id: &str) -> usize {
         .unwrap_or(DEFAULT_MAX_BATCH_SIZE)
 }
 
-/// Default timeout for sub-agent execution (seconds)
-pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
+/// Default timeout for sub-agent execution (seconds). 0 = no timeout.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 0;
+
+/// Effective default timeout for sub-agents spawned by this parent agent.
+pub fn default_timeout_for_agent(agent_id: &str) -> u64 {
+    crate::agent_loader::load_agent(agent_id)
+        .ok()
+        .map(|def| clamp_default_timeout_secs(def.config.subagents.default_timeout_secs))
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+}
+
+fn clamp_default_timeout_secs(raw: u64) -> u64 {
+    raw.min(1800)
+}
 
 /// Max result characters stored in DB
 const MAX_RESULT_CHARS: usize = 10_000;
@@ -219,6 +231,15 @@ mod concurrency_tests {
     }
 
     #[test]
+    fn default_timeout_is_unlimited() {
+        assert_eq!(DEFAULT_TIMEOUT_SECS, 0);
+        assert_eq!(
+            crate::agent_config::SubagentConfig::default().default_timeout_secs,
+            0
+        );
+    }
+
+    #[test]
     fn max_concurrent_for_agent_reads_configured_field() {
         // The whole point of wiring this fn: prove the (formerly dead)
         // subagents.maxConcurrent field on disk is actually consulted.
@@ -234,6 +255,30 @@ mod concurrency_tests {
             std::fs::write(dir.join("agent.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
             assert_eq!(max_concurrent_for_agent(agent_id), 3);
         });
+    }
+
+    #[test]
+    fn default_timeout_for_agent_reads_configured_field() {
+        let root = tempfile::tempdir().unwrap();
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            let agent_id = "test-subagent-timeout-agent";
+            let dir = crate::paths::agent_dir(agent_id).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
+            let mut cfg = crate::agent_config::AgentConfig::default();
+            cfg.subagents.default_timeout_secs = 480;
+            std::fs::write(dir.join("agent.json"), serde_json::to_string(&cfg).unwrap()).unwrap();
+            assert_eq!(default_timeout_for_agent(agent_id), 480);
+        });
+    }
+
+    #[test]
+    fn default_timeout_for_agent_clamps_to_supported_range() {
+        assert_eq!(clamp_default_timeout_secs(0), 0);
+        assert_eq!(clamp_default_timeout_secs(1), 1);
+        assert_eq!(clamp_default_timeout_secs(30), 30);
+        assert_eq!(clamp_default_timeout_secs(300), 300);
+        assert_eq!(clamp_default_timeout_secs(1800), 1800);
+        assert_eq!(clamp_default_timeout_secs(1801), 1800);
     }
 
     #[test]

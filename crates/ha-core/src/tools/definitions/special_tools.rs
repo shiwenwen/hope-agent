@@ -41,7 +41,9 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "timeout_secs": {
                     "type": "integer",
-                    "description": "Timeout in seconds for spawn (default 300, max 1800)"
+                    "minimum": 0,
+                    "maximum": 1800,
+                    "description": "Timeout in seconds for spawn. 0 = no timeout. Omit to use the parent agent default (default 0/no timeout). Positive values are capped at 1800."
                 },
                 "wait": {
                     "type": "boolean",
@@ -72,7 +74,12 @@ pub fn get_subagent_tool() -> ToolDefinition {
                             "task": { "type": "string" },
                             "agent_id": { "type": "string" },
                             "label": { "type": "string" },
-                            "timeout_secs": { "type": "integer" },
+                            "timeout_secs": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1800,
+                                "description": "Timeout in seconds for this child task. 0 = no timeout. Omit to use the parent agent default."
+                            },
                             "model": { "type": "string" }
                         },
                         "required": ["task"]
