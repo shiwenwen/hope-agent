@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Columns2,
   Copy,
@@ -115,6 +116,18 @@ export function DiffPanel({
     key: "",
     value: 0,
   }))
+  const [collapsedFileState, setCollapsedFileState] = useState<KeyedFoldState>(() => ({
+    key: "",
+    ids: new Set(),
+  }))
+  const [stackedExpandedFoldState, setStackedExpandedFoldState] = useState<KeyedFoldState>(() => ({
+    key: "",
+    ids: new Set(),
+  }))
+  const [stackedRenderAllState, setStackedRenderAllState] = useState<KeyedFoldState>(() => ({
+    key: "",
+    ids: new Set(),
+  }))
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const scrollPositionsRef = useRef<Map<string, number>>(new Map())
   const previousOpenNonceRef = useRef(openNonce)
@@ -124,17 +137,38 @@ export function DiffPanel({
   }, [layout])
 
   const safeIndex = Math.min(Math.max(0, activeIndex), Math.max(0, changes.length - 1))
+  const stackedMode = changes.length > 1
+  const changesKey = useMemo(
+    () =>
+      changes
+        .map(
+          (c, idx) =>
+            `${idx}:${c.path}:${c.action}:${c.before?.length ?? -1}:${c.after?.length ?? -1}`,
+        )
+        .join("\u001e"),
+    [changes],
+  )
   const change = changes[safeIndex]
   const changeKey = change
     ? `${safeIndex}:${change.path}:${change.action}:${change.before?.length ?? -1}:${change.after?.length ?? -1}`
     : "none"
   const scrollKey = `${changeKey}:${layout}:${ignoreWhitespace}:${collapseContext}`
   const resetKey = `${openNonce}:${scrollKey}`
+  const stackedFileResetKey = `${openNonce}:stacked-files:${changesKey}`
+  const stackedDiffResetKey = `${openNonce}:stacked-diff:${changesKey}:${layout}:${ignoreWhitespace}:${collapseContext}`
   const expandedFoldIds =
     expandedFoldState.key === resetKey ? expandedFoldState.ids : EMPTY_FOLD_IDS
   const renderAllRows =
     renderAllRowsState.key === resetKey ? renderAllRowsState.value : false
   const activeHunkIndex = activeHunkState.key === resetKey ? activeHunkState.value : 0
+  const collapsedFileIds =
+    collapsedFileState.key === stackedFileResetKey ? collapsedFileState.ids : EMPTY_FOLD_IDS
+  const stackedExpandedFoldIds =
+    stackedExpandedFoldState.key === stackedDiffResetKey
+      ? stackedExpandedFoldState.ids
+      : EMPTY_FOLD_IDS
+  const stackedRenderAllIds =
+    stackedRenderAllState.key === stackedDiffResetKey ? stackedRenderAllState.ids : EMPTY_FOLD_IDS
   const setRenderAllRows = useCallback(
     (value: boolean) => setRenderAllRowsState({ key: resetKey, value }),
     [resetKey],
@@ -263,6 +297,7 @@ export function DiffPanel({
   )
 
   useEffect(() => {
+    if (stackedMode) return
     const container = scrollRef.current
     if (!container || !change) return
     const saved = scrollPositionsRef.current.get(scrollKey)
@@ -280,7 +315,7 @@ export function DiffPanel({
       cancelled = true
       window.cancelAnimationFrame(frame)
     }
-  }, [change, scrollKey, scrollToHunk, setActiveHunkIndex])
+  }, [change, scrollKey, scrollToHunk, setActiveHunkIndex, stackedMode])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -290,12 +325,12 @@ export function DiffPanel({
         onClose()
         return
       }
-      if (e.key === "n" || e.key === "j") {
+      if (!stackedMode && (e.key === "n" || e.key === "j")) {
         e.preventDefault()
         scrollToHunk(clampedActiveHunkIndex + 1)
         return
       }
-      if (e.key === "p" || e.key === "k") {
+      if (!stackedMode && (e.key === "p" || e.key === "k")) {
         e.preventDefault()
         scrollToHunk(clampedActiveHunkIndex - 1)
         return
@@ -322,14 +357,14 @@ export function DiffPanel({
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [clampedActiveHunkIndex, onClose, scrollToHunk])
+  }, [clampedActiveHunkIndex, onClose, scrollToHunk, stackedMode])
 
   const handleScroll = useCallback(() => {
     const container = scrollRef.current
-    if (!container || !change) return
+    if (!container || !change || stackedMode) return
     scrollPositionsRef.current.set(scrollKey, container.scrollTop)
     updateActiveHunkFromScroll(container, setActiveHunkIndex)
-  }, [change, scrollKey, setActiveHunkIndex])
+  }, [change, scrollKey, setActiveHunkIndex, stackedMode])
 
   const toggleFold = useCallback((id: string) => {
     setExpandedFoldState((prev) => {
@@ -340,34 +375,125 @@ export function DiffPanel({
     })
   }, [resetKey])
 
-  const copyLocation = useCallback(
-    (line: number) => {
-      if (!change) return
-      const location = `${change.path}:${line}`
+  const toggleStackedFile = useCallback((id: string) => {
+    setCollapsedFileState((prev) => {
+      const next = new Set(prev.key === stackedFileResetKey ? prev.ids : EMPTY_FOLD_IDS)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { key: stackedFileResetKey, ids: next }
+    })
+  }, [stackedFileResetKey])
+
+  const toggleStackedFold = useCallback((fileKey: string, foldId: string) => {
+    const id = `${fileKey}\u001f${foldId}`
+    setStackedExpandedFoldState((prev) => {
+      const next = new Set(prev.key === stackedDiffResetKey ? prev.ids : EMPTY_FOLD_IDS)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return { key: stackedDiffResetKey, ids: next }
+    })
+  }, [stackedDiffResetKey])
+
+  const setStackedRenderAll = useCallback((fileKey: string) => {
+    setStackedRenderAllState((prev) => {
+      const next = new Set(prev.key === stackedDiffResetKey ? prev.ids : EMPTY_FOLD_IDS)
+      next.add(fileKey)
+      return { key: stackedDiffResetKey, ids: next }
+    })
+  }, [stackedDiffResetKey])
+
+  const copyLocationForChange = useCallback(
+    (target: FileChangeMetadata, line: number) => {
+      const location = `${target.path}:${line}`
       navigator.clipboard.writeText(location).then(
         () => toast.success(t("diffPanel.locationCopied", "已复制定位")),
         () => toast.error(t("diffPanel.locationCopyFailed", "复制定位失败")),
       )
     },
-    [change, t],
+    [t],
+  )
+
+  const openLocationForChange = useCallback(
+    (target: FileChangeMetadata, line: number, side: DiffLineSide = "new") => {
+      if (side !== "new" || target.action === "delete" || !onPreviewFile) {
+        copyLocationForChange(target, line)
+        return
+      }
+      onPreviewFile({
+        kind: "path",
+        path: target.path,
+        name: basename(target.path),
+        revealLines: { start: line, end: line, nonce: Date.now() },
+      })
+    },
+    [copyLocationForChange, onPreviewFile],
+  )
+
+  const copyLocation = useCallback(
+    (line: number) => {
+      if (!change) return
+      copyLocationForChange(change, line)
+    },
+    [change, copyLocationForChange],
   )
 
   const openLocation = useCallback(
     (line: number, side: DiffLineSide = "new") => {
       if (!change) return
-      if (side !== "new" || change.action === "delete" || !onPreviewFile) {
-        copyLocation(line)
-        return
-      }
-      onPreviewFile({
-        kind: "path",
-        path: change.path,
-        name: basename(change.path),
-        revealLines: { start: line, end: line, nonce: Date.now() },
-      })
+      openLocationForChange(change, line, side)
     },
-    [change, copyLocation, onPreviewFile],
+    [change, openLocationForChange],
   )
+
+  const stackedSections = useMemo(() => {
+    if (!stackedMode) return []
+    return filteredChangeIndexes.map((idx) => {
+      const c = changes[idx]
+      const fileKey = fileKeyForChange(c, idx)
+      const rows =
+        layout === "unified"
+          ? buildUnifiedRows(c.before ?? "", c.after ?? "", { ignoreWhitespace })
+          : buildSplitRows(c.before ?? "", c.after ?? "", { ignoreWhitespace })
+      const fileExpandedFoldIds = new Set<string>()
+      for (const id of stackedExpandedFoldIds) {
+        const prefix = `${fileKey}\u001f`
+        if (id.startsWith(prefix)) fileExpandedFoldIds.add(id.slice(prefix.length))
+      }
+      const items =
+        layout === "unified"
+          ? buildVisibleRowItems(rows as UnifiedRow[], {
+              collapseContext,
+              expandedFoldIds: fileExpandedFoldIds,
+              isChanged: isUnifiedRowChanged,
+              contextLines: CONTEXT_LINES,
+            })
+          : buildVisibleRowItems(rows as SplitRow[], {
+              collapseContext,
+              expandedFoldIds: fileExpandedFoldIds,
+              isChanged: isSplitRowChanged,
+              contextLines: CONTEXT_LINES,
+            })
+      const renderAll = stackedRenderAllIds.has(fileKey)
+      const displayed = renderAll ? items : items.slice(0, MAX_RENDERED_DIFF_ITEMS)
+      return {
+        change: c,
+        fileKey,
+        items: displayed,
+        omittedItemCount: Math.max(0, items.length - displayed.length),
+        collapsed: collapsedFileIds.has(fileKey),
+      }
+    })
+  }, [
+    changes,
+    collapseContext,
+    collapsedFileIds,
+    filteredChangeIndexes,
+    ignoreWhitespace,
+    layout,
+    stackedExpandedFoldIds,
+    stackedMode,
+    stackedRenderAllIds,
+  ])
 
   const wrapperClasses = cn(
     "flex h-full min-h-0 w-full flex-col overflow-hidden",
@@ -384,29 +510,33 @@ export function DiffPanel({
           {t("diffPanel.title", "文件改动")}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-1">
-          <IconTip label={t("diffPanel.prevHunk", "上一处变更")}>
-            <button
-              type="button"
-              className={iconButtonClass}
-              onClick={() => scrollToHunk(clampedActiveHunkIndex - 1)}
-              disabled={hunkCount === 0}
-            >
-              <ChevronUp className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
-          <IconTip label={t("diffPanel.nextHunk", "下一处变更")}>
-            <button
-              type="button"
-              className={iconButtonClass}
-              onClick={() => scrollToHunk(clampedActiveHunkIndex + 1)}
-              disabled={hunkCount === 0}
-            >
-              <ChevronDown className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
-          <span className="hidden min-w-10 text-center text-[11px] tabular-nums text-muted-foreground sm:inline">
-            {hunkCount > 0 ? `${clampedActiveHunkIndex + 1}/${hunkCount}` : "0/0"}
-          </span>
+          {!stackedMode && (
+            <>
+              <IconTip label={t("diffPanel.prevHunk", "上一处变更")}>
+                <button
+                  type="button"
+                  className={iconButtonClass}
+                  onClick={() => scrollToHunk(clampedActiveHunkIndex - 1)}
+                  disabled={hunkCount === 0}
+                >
+                  <ChevronUp className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+              <IconTip label={t("diffPanel.nextHunk", "下一处变更")}>
+                <button
+                  type="button"
+                  className={iconButtonClass}
+                  onClick={() => scrollToHunk(clampedActiveHunkIndex + 1)}
+                  disabled={hunkCount === 0}
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </IconTip>
+              <span className="hidden min-w-10 text-center text-[11px] tabular-nums text-muted-foreground sm:inline">
+                {hunkCount > 0 ? `${clampedActiveHunkIndex + 1}/${hunkCount}` : "0/0"}
+              </span>
+            </>
+          )}
           <span className="inline-flex items-center gap-1 rounded-md border border-border/60 p-0.5">
             <IconTip label={t("diffPanel.layoutUnified", "Unified")}>
               <button
@@ -462,8 +592,8 @@ export function DiffPanel({
         </Button>
       </div>
 
-      {changes.length > 1 && (
-        <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-muted/30 px-2 py-1.5">
+      {stackedMode && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-2 py-1.5">
           <div className="relative w-40 shrink-0">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
             <input
@@ -473,41 +603,83 @@ export function DiffPanel({
               className="h-7 w-full rounded-md border border-border/70 bg-background/60 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-ring"
             />
           </div>
-          {filteredChangeIndexes.length > 0 ? (
-            filteredChangeIndexes.map((idx) => {
-              const c = changes[idx]
-              return (
-                <button
-                  key={`${c.path}-${idx}`}
-                  type="button"
-                  className={cn(
-                    "shrink-0 max-w-[260px] truncate rounded-md px-2 py-1 text-xs transition-colors",
-                    idx === safeIndex
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:bg-secondary/60",
-                  )}
-                  onClick={() => handleActiveIndexChange(idx)}
-                  title={c.path}
-                >
-                  <span className="font-mono">{shortenPath(c.path)}</span>
-                  <span className="ml-2 tabular-nums text-emerald-600">
-                    +{c.linesAdded}
-                  </span>
-                  <span className="ml-1 tabular-nums text-rose-600">
-                    -{c.linesRemoved}
-                  </span>
-                </button>
-              )
-            })
-          ) : (
-            <span className="px-2 text-xs text-muted-foreground">
-              {t("diffPanel.noMatchingFiles", "没有匹配文件")}
-            </span>
-          )}
+          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            {filteredChangeIndexes.length > 0
+              ? t("diffPanel.matchingFiles", "{{shown}} / {{total}} 个文件", {
+                  shown: filteredChangeIndexes.length,
+                  total: changes.length,
+                })
+              : t("diffPanel.noMatchingFiles", "没有匹配文件")}
+          </span>
         </div>
       )}
 
-      {change ? (
+      {stackedMode ? (
+        <div ref={scrollRef} className={cn("flex-1 overflow-auto", PANEL_SCROLL_FADE)}>
+          {stackedSections.length > 0 ? (
+            <div className="divide-y divide-border/60">
+              {stackedSections.map((section) => {
+                const c = section.change
+                return (
+                  <div key={section.fileKey} className="bg-background/40">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-secondary/45"
+                      onClick={() => toggleStackedFile(section.fileKey)}
+                      aria-expanded={!section.collapsed}
+                    >
+                      <ChevronRight
+                        className={cn(
+                          "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                          !section.collapsed && "rotate-90",
+                        )}
+                      />
+                      <ActionBadge action={c.action} />
+                      <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground/90" title={c.path}>
+                        {c.path}
+                      </span>
+                      <span className="shrink-0 tabular-nums text-emerald-600">+{c.linesAdded}</span>
+                      <span className="shrink-0 tabular-nums text-rose-600">-{c.linesRemoved}</span>
+                    </button>
+                    {!section.collapsed && (
+                      <div className="border-t border-border/40">
+                        {c.truncated && (
+                          <div className="px-3 py-1.5 text-[11px] text-amber-600">
+                            {t("diffPanel.fileTooLarge", "文件过大，仅渲染前 256KB")}
+                          </div>
+                        )}
+                        {layout === "unified" ? (
+                          <UnifiedDiffView
+                            items={section.items as DiffViewItem<UnifiedRow>[]}
+                            omittedItemCount={section.omittedItemCount}
+                            onToggleFold={(id) => toggleStackedFold(section.fileKey, id)}
+                            onRenderAll={() => setStackedRenderAll(section.fileKey)}
+                            onCopyLocation={(line) => copyLocationForChange(c, line)}
+                            onOpenLocation={(line, side) => openLocationForChange(c, line, side)}
+                          />
+                        ) : (
+                          <SplitDiffView
+                            items={section.items as DiffViewItem<SplitRow>[]}
+                            omittedItemCount={section.omittedItemCount}
+                            onToggleFold={(id) => toggleStackedFold(section.fileKey, id)}
+                            onRenderAll={() => setStackedRenderAll(section.fileKey)}
+                            onCopyLocation={(line) => copyLocationForChange(c, line)}
+                            onOpenLocation={(line, side) => openLocationForChange(c, line, side)}
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t("diffPanel.noMatchingFiles", "没有匹配文件")}
+            </div>
+          )}
+        </div>
+      ) : change ? (
         <>
           <div className="shrink-0 border-b border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
             <div className="flex items-center gap-2 truncate">
@@ -638,9 +810,6 @@ function ActionBadge({ action }: { action: FileChangeMetadata["action"] }) {
   )
 }
 
-/** Compact a long file path to its tail segments to keep tab labels readable. */
-function shortenPath(path: string): string {
-  const segments = path.replace(/\\/g, "/").split("/")
-  if (segments.length <= 2) return path
-  return `…/${segments.slice(-2).join("/")}`
+function fileKeyForChange(change: FileChangeMetadata, index: number): string {
+  return `${index}\u001f${change.path}\u001f${change.action}`
 }

@@ -7,11 +7,15 @@
 
 use anyhow::{anyhow, Result};
 use serde::Serialize;
-use std::path::Path;
+use std::collections::HashSet;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use crate::filesystem::{git_info, WorkspaceScope, WorktreeInfo};
 use crate::session::{effective_working_dir_for_meta, SessionDB, SessionMeta};
+use crate::tools::diff_util::{
+    compute_line_delta, detect_language, truncate_for_metadata, MAX_METADATA_CONTENT_BYTES,
+};
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +96,35 @@ pub struct WorkspaceGitCommit {
     pub subject: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitDiff {
+    pub kind: &'static str,
+    pub changes: Vec<WorkspaceGitFileChange>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceGitFileChange {
+    pub kind: &'static str,
+    pub path: String,
+    pub action: WorkspaceGitFileAction,
+    pub lines_added: u32,
+    pub lines_removed: u32,
+    pub before: Option<String>,
+    pub after: Option<String>,
+    pub language: &'static str,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkspaceGitFileAction {
+    Create,
+    Edit,
+    Delete,
+}
+
 /// Build the environment snapshot for a session. Missing sessions are treated
 /// as bad input because the UI only calls this for an existing session id.
 pub fn load_session_environment(
@@ -107,6 +140,75 @@ pub fn load_session_environment(
         .and_then(|scope| build_git_snapshot(scope.root()));
 
     Ok(WorkspaceEnvironmentSnapshot { working_dir, git })
+}
+
+/// Build a text diff payload for the current Git working tree relative to
+/// HEAD. The shape intentionally mirrors the chat tool `file_changes`
+/// metadata so the frontend can render it through the same DiffPanel.
+pub fn load_session_git_diff(db: &SessionDB, session_id: &str) -> Result<WorkspaceGitDiff> {
+    db.get_session(session_id)?
+        .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+
+    let scope = WorkspaceScope::for_session(session_id)
+        .map_err(|e| anyhow!("session has no workspace scope: {e}"))?;
+    let repo_root = run_git(scope.root(), &["rev-parse", "--show-toplevel"])
+        .map(|s| PathBuf::from(s.trim()))
+        .and_then(|p| p.canonicalize().ok())
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| anyhow!("workspace is not a git repository"))?;
+    let scope_root = scope.root().to_path_buf();
+    let pathspec = pathspec_for_scope(&repo_root, &scope_root)?;
+
+    let mut specs = parse_name_status_z(
+        &run_git_bytes(
+            &repo_root,
+            &[
+                "diff",
+                "--name-status",
+                "-z",
+                "HEAD",
+                "--",
+                pathspec.as_str(),
+            ],
+        )
+        .unwrap_or_default(),
+    );
+    let mut seen: HashSet<String> = specs.iter().map(|spec| spec.path.clone()).collect();
+
+    for path in parse_nul_paths(
+        &run_git_bytes(
+            &repo_root,
+            &[
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                pathspec.as_str(),
+            ],
+        )
+        .unwrap_or_default(),
+    ) {
+        if seen.insert(path.clone()) {
+            specs.push(GitChangeSpec {
+                status: GitChangeStatus::Added,
+                path,
+                old_path: None,
+            });
+        }
+    }
+
+    let mut changes = Vec::new();
+    for spec in specs {
+        if let Some(change) = build_git_file_change(&repo_root, &scope_root, &spec) {
+            changes.push(change);
+        }
+    }
+
+    Ok(WorkspaceGitDiff {
+        kind: "file_changes",
+        changes,
+    })
 }
 
 fn resolve_working_dir_snapshot(meta: &SessionMeta) -> WorkspaceWorkingDirSnapshot {
@@ -270,6 +372,223 @@ fn run_git(root: &Path, args: &[&str]) -> Option<String> {
     } else {
         None
     }
+}
+
+fn run_git_bytes(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(root).args(args);
+    crate::platform::hide_console(&mut cmd);
+    let output = cmd.output()?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(anyhow!(
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GitChangeStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Other,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct GitChangeSpec {
+    status: GitChangeStatus,
+    path: String,
+    old_path: Option<String>,
+}
+
+fn parse_name_status_z(bytes: &[u8]) -> Vec<GitChangeSpec> {
+    let fields: Vec<String> = bytes
+        .split(|b| *b == 0)
+        .filter(|part| !part.is_empty())
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .collect();
+    let mut specs = Vec::new();
+    let mut i = 0;
+    while i < fields.len() {
+        let status_raw = fields[i].as_str();
+        i += 1;
+        let Some(code) = status_raw.chars().next() else {
+            continue;
+        };
+        let status = match code {
+            'A' => GitChangeStatus::Added,
+            'M' | 'T' => GitChangeStatus::Modified,
+            'D' => GitChangeStatus::Deleted,
+            'R' | 'C' => GitChangeStatus::Renamed,
+            'U' => GitChangeStatus::Other,
+            _ => GitChangeStatus::Other,
+        };
+        if status == GitChangeStatus::Renamed {
+            let Some(old_path) = fields.get(i).cloned() else {
+                break;
+            };
+            let Some(path) = fields.get(i + 1).cloned() else {
+                break;
+            };
+            i += 2;
+            specs.push(GitChangeSpec {
+                status,
+                path,
+                old_path: Some(old_path),
+            });
+            continue;
+        }
+        let Some(path) = fields.get(i).cloned() else {
+            break;
+        };
+        i += 1;
+        specs.push(GitChangeSpec {
+            status,
+            path,
+            old_path: None,
+        });
+    }
+    specs
+}
+
+fn parse_nul_paths(bytes: &[u8]) -> Vec<String> {
+    bytes
+        .split(|b| *b == 0)
+        .filter(|part| !part.is_empty())
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .collect()
+}
+
+fn pathspec_for_scope(repo_root: &Path, scope_root: &Path) -> Result<String> {
+    let rel = scope_root
+        .strip_prefix(repo_root)
+        .map_err(|_| anyhow!("session workspace is outside the git repository"))?;
+    if rel.as_os_str().is_empty() {
+        return Ok(".".to_string());
+    }
+    Ok(rel.to_string_lossy().replace('\\', "/"))
+}
+
+fn git_rel_to_abs_under_scope(repo_root: &Path, scope_root: &Path, rel: &str) -> Option<PathBuf> {
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() {
+        return None;
+    }
+    if rel_path.components().any(|c| {
+        matches!(
+            c,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return None;
+    }
+    let abs = repo_root.join(rel_path);
+    if abs.starts_with(scope_root) {
+        Some(abs)
+    } else {
+        None
+    }
+}
+
+fn build_git_file_change(
+    repo_root: &Path,
+    scope_root: &Path,
+    spec: &GitChangeSpec,
+) -> Option<WorkspaceGitFileChange> {
+    let abs_path = git_rel_to_abs_under_scope(repo_root, scope_root, &spec.path)?;
+    let head_path = spec.old_path.as_deref().unwrap_or(&spec.path);
+    let before = match (
+        spec.status,
+        git_rel_to_abs_under_scope(repo_root, scope_root, head_path),
+    ) {
+        (GitChangeStatus::Added, _) | (_, None) => None,
+        _ => read_head_text_for_diff(repo_root, head_path),
+    };
+    let after = match spec.status {
+        GitChangeStatus::Deleted => None,
+        _ => read_worktree_text_for_diff(&abs_path, scope_root),
+    };
+
+    if before.is_none() && after.is_none() {
+        return None;
+    }
+
+    let action = match spec.status {
+        GitChangeStatus::Added => WorkspaceGitFileAction::Create,
+        GitChangeStatus::Deleted => WorkspaceGitFileAction::Delete,
+        _ => WorkspaceGitFileAction::Edit,
+    };
+    let before_text = before.as_ref().map(|s| s.0.as_str()).unwrap_or("");
+    let after_text = after.as_ref().map(|s| s.0.as_str()).unwrap_or("");
+    let (mut lines_added, mut lines_removed) = compute_line_delta(before_text, after_text);
+    if before.as_ref().is_some_and(|s| s.1) || after.as_ref().is_some_and(|s| s.1) {
+        if let Some((added, removed)) = git_numstat_for_path(repo_root, &spec.path) {
+            lines_added = added;
+            lines_removed = removed;
+        }
+    }
+
+    let truncated = before.as_ref().is_some_and(|s| s.1) || after.as_ref().is_some_and(|s| s.1);
+
+    Some(WorkspaceGitFileChange {
+        kind: "file_change",
+        path: abs_path.to_string_lossy().into_owned(),
+        action,
+        lines_added,
+        lines_removed,
+        before: before.map(|s| s.0),
+        after: after.map(|s| s.0),
+        language: detect_language(&spec.path),
+        truncated,
+    })
+}
+
+fn read_head_text_for_diff(repo_root: &Path, rel_path: &str) -> Option<(String, bool)> {
+    let object = format!("HEAD:{rel_path}");
+    let size = run_git(repo_root, &["cat-file", "-s", &object])?
+        .trim()
+        .parse::<usize>()
+        .ok()?;
+    if size > MAX_METADATA_CONTENT_BYTES {
+        return Some((String::new(), true));
+    }
+    let bytes = run_git_bytes(repo_root, &["show", &object]).ok()?;
+    let content = String::from_utf8(bytes).ok()?;
+    Some(truncate_for_metadata(&content))
+}
+
+fn read_worktree_text_for_diff(path: &Path, scope_root: &Path) -> Option<(String, bool)> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        let target = std::fs::read_link(path).ok()?;
+        return Some((target.to_string_lossy().into_owned(), false));
+    }
+    if !file_type.is_file() {
+        return None;
+    }
+    let canonical = path.canonicalize().ok()?;
+    if !canonical.starts_with(scope_root) {
+        return None;
+    }
+    if metadata.len() as usize > MAX_METADATA_CONTENT_BYTES {
+        return Some((String::new(), true));
+    }
+    let content = std::fs::read_to_string(canonical).ok()?;
+    Some(truncate_for_metadata(&content))
+}
+
+fn git_numstat_for_path(repo_root: &Path, rel_path: &str) -> Option<(u32, u32)> {
+    let out = run_git(repo_root, &["diff", "--numstat", "HEAD", "--", rel_path])?;
+    let mut parts = out.split_whitespace();
+    let added = parts.next()?.parse::<u32>().ok()?;
+    let removed = parts.next()?.parse::<u32>().ok()?;
+    Some((added, removed))
 }
 
 fn parse_status_porcelain(out: &str) -> WorkspaceGitStatus {

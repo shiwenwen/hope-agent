@@ -18,7 +18,8 @@ pub use db::{
     LastAssistantTokens, ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,
 };
 pub use environment::{
-    load_session_environment, WorkspaceEnvironmentSnapshot, WorkspaceGitCommit,
+    load_session_environment, load_session_git_diff, WorkspaceEnvironmentSnapshot,
+    WorkspaceGitCommit, WorkspaceGitDiff, WorkspaceGitFileAction, WorkspaceGitFileChange,
     WorkspaceGitSnapshot, WorkspaceGitStatus, WorkspaceGitSync, WorkspaceGitSyncState,
     WorkspaceWorkingDirSnapshot, WorkspaceWorkingDirSource,
 };
