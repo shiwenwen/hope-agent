@@ -238,6 +238,85 @@ function WakeupTriggerBubble({ t }: { t: (key: string) => string }) {
   )
 }
 
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+}
+
+function xmlTag(content: string, tag: string): string | null {
+  const match = content.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))
+  return match?.[1] ? decodeXmlText(match[1].trim()) : null
+}
+
+function parseProcessNotification(content: string): {
+  processId: string | null
+  status: string
+  summary: string
+  detail: string | null
+} {
+  const processId = xmlTag(content, "process-id")
+  const status = xmlTag(content, "status") || "completed"
+  const summary = xmlTag(content, "summary") || content
+  const tail = xmlTag(content, "output-tail")
+  const detail = tail ? tail : content.includes("<process-notification>") ? null : content
+  return { processId, status, summary, detail }
+}
+
+function ProcessNotificationBubble({ msg, t }: { msg: Message; t: TFunction }) {
+  const [expanded, setExpanded] = useState(false)
+  const parsed = useMemo(() => parseProcessNotification(msg.content), [msg.content])
+  const tone =
+    parsed.status === "completed"
+      ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-700 dark:text-emerald-400"
+      : "bg-red-500/8 border-red-500/20 text-red-700 dark:text-red-400"
+  return (
+    <div className="flex w-full max-w-[80%] flex-col items-center gap-1">
+      <button
+        type="button"
+        aria-expanded={parsed.detail ? expanded : undefined}
+        disabled={!parsed.detail}
+        onClick={() => parsed.detail && setExpanded((v) => !v)}
+        className={cn(
+          "flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors",
+          parsed.detail && "cursor-pointer",
+          !parsed.detail && "disabled:cursor-default",
+          tone,
+        )}
+      >
+        <Code2 className="h-3 w-3 shrink-0" />
+        <span className="font-medium">
+          {t("chat.processNotification", "进程已结束")}
+        </span>
+        {parsed.processId && (
+          <>
+            <span className="opacity-50">·</span>
+            <span className="font-mono">{parsed.processId}</span>
+          </>
+        )}
+        <span className="opacity-70">·</span>
+        <span>{parsed.status}</span>
+        {parsed.detail && (
+          <ChevronDown
+            className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+          />
+        )}
+      </button>
+      <div className="max-w-full truncate px-3 text-[11px] text-muted-foreground/75">
+        {parsed.summary}
+      </div>
+      {parsed.detail && (
+        <AnimatedCollapse open={expanded}>
+          <pre className="max-h-[360px] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/40 bg-secondary/40 px-3 py-2 font-mono text-[11px] text-foreground/85">
+            {parsed.detail}
+          </pre>
+        </AnimatedCollapse>
+      )}
+    </div>
+  )
+}
+
 function MessageBubbleInner({
   msg,
   index,
@@ -577,6 +656,10 @@ function MessageBubbleInner({
 
   if (msg.isWakeupTrigger) {
     return <WakeupTriggerBubble t={t} />
+  }
+
+  if (msg.isProcessNotification) {
+    return <ProcessNotificationBubble msg={msg} t={t} />
   }
 
   if (msg.isPlanTrigger) {

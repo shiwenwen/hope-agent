@@ -144,7 +144,7 @@ impl ToolDefinition {
 
 | 工具 | 类别 | 标记 | 说明 |
 |------|------|------|------|
-| `exec` | Shell | always_load, **async_capable** | 执行 shell 命令，返回 stdout/stderr。参数：`command` (必填)、`cwd`、`timeout`（秒，默认 `0` = 不限制 exec 命令超时，正数上限 7200）、`env`、`background`（exec 自身的 PTY 后台会话）、`yield_ms`、`pty`、`sandbox`（Docker 沙箱）、`run_in_background`（detach 整轮 tool call 成 async job，与 `background` 互斥语义见下文）、`job_timeout_secs`（单次设置 / 收紧 async job 外层超时）。有独立的命令级审批流程（见 exec 流程图）。 |
+| `exec` | Shell | always_load, **async_capable** | 执行 shell 命令，返回 stdout/stderr。参数：`command` (必填)、`cwd`、`timeout`（秒，默认 `0` = 不限制 exec 命令超时，正数上限 7200）、`env`、`run_in_background`（普通长跑命令的首选后台方式，后续用 `job_status` / 完成注入查）、`job_timeout_secs`（单次设置 / 收紧 async job 外层超时）、`background` / `yield_ms`（legacy exec process-session 兼容面，后续用 `process` 查；默认尽量不用）、`pty`、`sandbox`（Docker 沙箱）。有独立的命令级审批流程（见 exec 流程图）。 |
 | `process` | Shell | always_load | 管理 `exec` 创建的后台会话。`action`：`list` / `poll`（按 timeout 等待）/ `log`（含 offset/limit 分页）/ `write`（向 stdin 写入）/ `kill` / `clear` / `remove`。除 `list` 外均需 `session_id`。 |
 
 ### 2. 文件系统
@@ -712,12 +712,18 @@ job 结算的终态状态由**类型派生**而非字符串再解析。`async_jo
 - `always-background`：所有 async-capable 工具一律 detach；适合 IM/GUI 不想被长任务卡住的场景，但不表示模型要主动 poll，完成结果仍靠自动注入
 - `never-background`：禁用 async 路径（Tier 1/2/3 全不触发）
 
+**exec 收敛规则**：普通长跑 shell 命令统一交给 async_jobs（`run_in_background` / `job_status` / `<task-notification>`）。`exec(background=true)` 与 `exec(yield_ms=...)` 只保留为 legacy process-session 兼容面（返回 `session_id`，用 `process(action="poll"|"log"|"kill")` 管理）。执行层规则如下：
+
+- async_tools 开启且 agent 不是 `never-background`：`background/yield_ms` 会在执行入口兼容迁移为 `run_in_background=true`，并移除 legacy process flags，避免外层 job 只返回“process session started”。
+- async_tools 关闭 / agent `never-background`：保留 legacy process-session 行为，后续通过 `process` 查询/取消。
+- 保留下来的 process session 退出时会发 `process:completed` EventBus 信号，并在父会话空闲时注入 `<process-notification>`；显式 `process poll/log/kill/remove` 会标记为已观察，尽量避免重复注入。
+
 ### 递归再入与权限
 
 显式后台 + 自动后台 都通过把工具的 `execute_tool_with_context` 在新线程上**递归再入**完成实际工作。再入时必须设置：
 
 - `bypass_async_dispatch = true`：跳过 async 决策，直奔 sync dispatch，避免 `always-background` 策略触发死循环
-- `auto_approve_tools = true`：外层已经过审批门，内层不能再弹（背景线程没有 UI 接驳的审批 channel）
+- `external_pre_approved = true`：外层已经过通用审批门，内层不能重复跑 engine gate；但它**不能**绕过 exec 的命令级危险/编辑审计，exec 只在 `exec_pre_approved = true` 时跳过内层命令 gate
 
 可见性 / Plan-mode 路径检查仍会在内层走一遍，作为 belt-and-suspenders。
 

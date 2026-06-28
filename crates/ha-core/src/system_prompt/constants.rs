@@ -46,8 +46,9 @@ pub(super) const SOUL_EMBODIMENT_GUIDANCE: &str =
 
 const TOOL_DESC_EXEC: &str = "\
 - exec: Execute shell commands and return output.\n\
-  - Supports cwd, timeout (default 30min, max 2h), custom env vars\n\
-  - Background execution: background=true or yield_ms for auto-backgrounding\n\
+  - Supports cwd, timeout (default 0 = no exec command timeout; positive values are capped at 2h), custom env vars\n\
+  - Background execution: for ordinary long-running commands, use run_in_background=true so async_jobs owns status, cancellation, output tail, and completion notification\n\
+  - Legacy process-session mode: background=true or yield_ms only when you truly need the process session surface; legacy flags are migrated to async jobs when async tools are enabled\n\
   - Docker sandbox isolation: sandbox=true for untrusted or risky commands\n\
   - IMPORTANT: Prefer dedicated tools over exec for common operations:\n\
     - Read files → use `read` (not cat/head/tail)\n\
@@ -55,7 +56,7 @@ const TOOL_DESC_EXEC: &str = "\
     - Create files → use `write` (not echo/cat heredoc)\n\
     - Search content → use `grep` (not grep/rg command)\n\
     - Find files → use `find` (not find command)\n\
-  - For long-running commands (builds, installs), use background=true then process(action='poll')\n\
+  - For long-running commands (builds, installs), use run_in_background=true and rely on job_status snapshots or the automatic <task-notification> result\n\
   - Use absolute paths throughout; avoid cd unless user explicitly requests it\n\
   - When creating files/dirs, first verify parent directory exists with ls\n\
   - Quote file paths containing spaces with double quotes\n\
@@ -63,10 +64,11 @@ const TOOL_DESC_EXEC: &str = "\
   - For independent commands, make separate parallel exec calls";
 
 const TOOL_DESC_PROCESS: &str = "\
-- process: Manage background exec sessions.\n\
+- process: Manage legacy exec process sessions.\n\
   - Actions: list, poll (get new output), log (full output), write (stdin), kill, clear, remove\n\
-  - Use after backgrounding a command with exec(background=true)\n\
-  - Do not poll in a loop with sleep — you will be notified when the process completes";
+  - Use only for process-session commands created with exec(background=true) or yield_ms; ordinary async exec jobs use job_status instead\n\
+  - Running process output is streamed to the UI, and completed background processes can notify the conversation with <process-notification>\n\
+  - Do not poll in a loop with sleep — use process(log) only when you need more detail";
 
 const TOOL_DESC_READ: &str = "\
 - read: Read file contents with line-based pagination (offset/limit).\n\

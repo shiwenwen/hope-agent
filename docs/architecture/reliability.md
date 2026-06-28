@@ -554,7 +554,7 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 |------|------|---------|
 | `AsyncJob` | async-capable 工具 detach 出去的 job | `background_jobs.db` 里的 `job_id` |
 | `Subagent` | sub-agent / team member 子会话运行 | subagent runs 表的 `run_id` |
-| `Process` | `exec` 创建的后台 PTY 会话 | `process_sessions` 的 `session_id` |
+| `Process` | legacy `exec` process-session 后台会话 | process registry 的 `session_id` |
 | `Cron` | 正在执行中的某次 cron tick | `cron_jobs.id` |
 
 调用方包括前端「取消」按钮、`runtime_cancel` 工具（[`crates/ha-core/src/tools/runtime_cancel.rs`](../../crates/ha-core/src/tools/runtime_cancel.rs)，`always_load + internal`）和后端清理路径。取消是 best-effort——已经终态的任务不再二次写入；正在跑的任务通过各子模块自有的 cancel token / kill 信号收尾。把 4 类后台任务的 cancel 收口到一处，前端不用再为每种类型记一套 invoke 名，模型也只需要学一个工具就能管全部 background work。

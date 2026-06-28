@@ -183,6 +183,9 @@ export interface Message {
    *  (R10 `schedule_wakeup`) — sent to the LLM as a normal user turn but
    *  rendered as a system chip, like a cron trigger. */
   isWakeupTrigger?: boolean
+  /** If true, this is an exec process completion notification injected by
+   *  the backend after a legacy process session exits. */
+  isProcessNotification?: boolean
   /** If true, this user message is a Plan Mode trigger (approve / resume) —
    *  sent to the LLM as a normal user turn but rendered as a system chip
    *  in the UI to distinguish it from real user input. */

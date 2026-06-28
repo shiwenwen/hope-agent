@@ -690,7 +690,7 @@ pub async fn execute_tool(name: &str, args: &Value) -> anyhow::Result<String> {
 }
 
 /// Outcome of the async-tool dispatch decision.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AsyncDecision {
     /// Tool is sync-only — run through the normal dispatch + tool_timeout path.
     Sync,
@@ -702,34 +702,144 @@ enum AsyncDecision {
     ImmediateBackground(JobOrigin),
 }
 
+/// Which exec-native process lifecycle the call requested, if any.
+///
+/// `exec(background=true)` and `exec(yield_ms=...)` return a process
+/// `session_id` and are later observed through `process(action=...)`. That is a
+/// separate lifecycle from async tool jobs. The execution entry migrates
+/// ordinary uses to async_jobs when available, leaving this detector for
+/// compatibility paths that still need the process-session surface.
+fn exec_process_background_mode(args: &Value) -> Option<&'static str> {
+    let background = args
+        .get("background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let has_yield_ms = args.get("yield_ms").is_some();
+
+    match (background, has_yield_ms) {
+        (true, true) => Some("background/yield_ms"),
+        (true, false) => Some("background"),
+        (false, true) => Some("yield_ms"),
+        (false, false) => None,
+    }
+}
+
+fn explicit_async_job_requested(args: &Value) -> bool {
+    args.get("run_in_background")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn should_migrate_exec_process_mode_to_async_job(
+    name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+) -> bool {
+    should_migrate_exec_process_mode_to_async_job_with_config(
+        name,
+        args,
+        ctx,
+        crate::config::cached_config().async_tools.enabled,
+    )
+}
+
+fn should_migrate_exec_process_mode_to_async_job_with_config(
+    name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    async_enabled: bool,
+) -> bool {
+    if name != TOOL_EXEC || ctx.bypass_async_dispatch {
+        return false;
+    }
+    if exec_process_background_mode(args).is_none() {
+        return false;
+    }
+    if matches!(ctx.async_tool_policy, AsyncToolPolicy::NeverBackground) {
+        return false;
+    }
+    async_enabled
+}
+
+fn migrate_exec_process_mode_to_async_job_args(args: &Value) -> Option<Value> {
+    let mut migrated = args.clone();
+    let obj = migrated.as_object_mut()?;
+    obj.remove("background");
+    obj.remove("yield_ms");
+    obj.insert("run_in_background".to_string(), Value::Bool(true));
+    Some(migrated)
+}
+
+fn validate_async_background_contract(name: &str, args: &Value) -> anyhow::Result<()> {
+    if name == TOOL_EXEC {
+        if let (true, Some(process_mode)) = (
+            explicit_async_job_requested(args),
+            exec_process_background_mode(args),
+        ) {
+            anyhow::bail!(
+                "exec background conflict: do not combine `run_in_background` with \
+                 exec `{}` mode. Choose one lifecycle: use `run_in_background` for \
+                 an async job whose result is delivered through `job_status` / \
+                 task notification, or use `background` / `yield_ms` for an exec \
+                 process session managed with `process(action=\"poll\"|\"log\"|\"kill\")`.",
+                process_mode
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Inspect tool metadata, args, and agent policy to decide whether this call
 /// should detach immediately, become eligible for auto-background, or run
 /// purely synchronously. Recursion-safe via `bypass_async_dispatch`.
 fn decide_async_path(name: &str, args: &Value, ctx: &ToolExecContext) -> AsyncDecision {
+    let cfg = crate::config::cached_config();
+    decide_async_path_with_config(
+        name,
+        args,
+        ctx,
+        cfg.async_tools.enabled,
+        cfg.async_tools.auto_background_secs,
+    )
+}
+
+fn decide_async_path_with_config(
+    name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    async_enabled: bool,
+    auto_background_secs: u64,
+) -> AsyncDecision {
     if ctx.bypass_async_dispatch {
         return AsyncDecision::Sync;
     }
     if !super::is_async_capable(name) {
         return AsyncDecision::Sync;
     }
-    let cfg = crate::config::cached_config();
-    if !cfg.async_tools.enabled {
+    if !async_enabled {
         return AsyncDecision::Sync;
     }
     if matches!(ctx.async_tool_policy, AsyncToolPolicy::NeverBackground) {
         return AsyncDecision::Sync;
     }
-    let explicit_bg = args
-        .get("run_in_background")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if explicit_bg {
+    if explicit_async_job_requested(args) {
         return AsyncDecision::ImmediateBackground(JobOrigin::Explicit);
     }
+
+    // Exec has its own process-session backgrounding surface:
+    // `background=true` and `yield_ms` return a session id and are controlled
+    // by the `process` tool. The default path migrates legacy requests to
+    // `run_in_background` before this decision is computed; the remaining
+    // process-session requests are explicit compatibility paths and must not be
+    // wrapped in async_jobs too.
+    if name == TOOL_EXEC && exec_process_background_mode(args).is_some() {
+        return AsyncDecision::Sync;
+    }
+
     if matches!(ctx.async_tool_policy, AsyncToolPolicy::AlwaysBackground) {
         return AsyncDecision::ImmediateBackground(JobOrigin::PolicyForced);
     }
-    if cfg.async_tools.auto_background_secs > 0 {
+    if auto_background_secs > 0 {
         return AsyncDecision::AutoBackgroundEligible;
     }
     AsyncDecision::Sync
@@ -1257,6 +1367,21 @@ pub async fn execute_tool_with_context(
     } else {
         args
     };
+
+    let migrated_exec_args_holder = should_migrate_exec_process_mode_to_async_job(name, args, ctx)
+        .then(|| migrate_exec_process_mode_to_async_job_args(args))
+        .flatten();
+    if let Some(ref migrated) = migrated_exec_args_holder {
+        app_info!(
+            "tool",
+            "exec",
+            "Migrating legacy exec background/yield_ms request to async job dispatch"
+        );
+        ctx.emit_effective_args(migrated.clone()).await;
+    }
+    let args: &Value = migrated_exec_args_holder.as_ref().unwrap_or(args);
+
+    validate_async_background_contract(name, args)?;
 
     // Async-tool decision is computed up front but acted on after the
     // approval + plan-mode gates have run (so user-facing safeguards apply
@@ -2178,10 +2303,14 @@ fn persist_large_result(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_persisted_large_result_preview, maybe_persist_large_tool_result,
-        mcp_server_auto_approves_config, needs_permission_engine, should_run_exec_reorder_gate,
-        tool_timeout, AsyncDecision, JobOrigin, ToolExecContext,
+        build_persisted_large_result_preview, decide_async_path_with_config,
+        exec_process_background_mode, maybe_persist_large_tool_result,
+        mcp_server_auto_approves_config, migrate_exec_process_mode_to_async_job_args,
+        needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
+        should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
+        AsyncDecision, JobOrigin, ToolExecContext,
     };
+    use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
     use crate::tools::image_markers::IMAGE_FILE_PREFIX;
@@ -2242,6 +2371,102 @@ mod tests {
         };
 
         assert!(tool_timeout(&ctx).is_none());
+    }
+
+    #[test]
+    fn exec_process_background_mode_detects_exec_native_lifecycle() {
+        assert_eq!(
+            exec_process_background_mode(&json!({"command": "sleep 1", "background": true})),
+            Some("background")
+        );
+        assert_eq!(
+            exec_process_background_mode(&json!({"command": "sleep 1", "yield_ms": 50})),
+            Some("yield_ms")
+        );
+        assert_eq!(
+            exec_process_background_mode(&json!({
+                "command": "sleep 1",
+                "background": true,
+                "yield_ms": 50
+            })),
+            Some("background/yield_ms")
+        );
+        assert_eq!(
+            exec_process_background_mode(&json!({
+                "command": "sleep 1",
+                "background": false
+            })),
+            None
+        );
+    }
+
+    #[test]
+    fn explicit_async_job_cannot_wrap_unmigrated_exec_process_background() {
+        let err = validate_async_background_contract(
+            "exec",
+            &json!({
+                "command": "sleep 60",
+                "background": true,
+                "run_in_background": true
+            }),
+        )
+        .expect_err("preserved process lifecycle must not also be an async job");
+
+        let message = err.to_string();
+        assert!(message.contains("exec background conflict"));
+        assert!(message.contains("do not combine `run_in_background`"));
+        assert!(message.contains("process session"));
+    }
+
+    #[test]
+    fn legacy_exec_process_background_migrates_to_async_job_args() {
+        let ctx = ToolExecContext::default();
+        let legacy = json!({"command": "sleep 60", "background": true});
+
+        assert!(should_migrate_exec_process_mode_to_async_job_with_config(
+            "exec", &legacy, &ctx, true
+        ));
+        let migrated =
+            migrate_exec_process_mode_to_async_job_args(&legacy).expect("object args migrate");
+        assert_eq!(migrated.get("background"), None);
+        assert_eq!(migrated.get("yield_ms"), None);
+        assert_eq!(
+            migrated.get("run_in_background").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        assert_eq!(
+            decide_async_path_with_config("exec", &migrated, &ctx, true, 30,),
+            AsyncDecision::ImmediateBackground(JobOrigin::Explicit)
+        );
+
+        let pty_legacy = json!({"command": "top", "pty": true, "background": true});
+        assert!(should_migrate_exec_process_mode_to_async_job_with_config(
+            "exec",
+            &pty_legacy,
+            &ctx,
+            true
+        ));
+    }
+
+    #[test]
+    fn preserved_exec_process_background_stays_sync() {
+        let ctx = ToolExecContext::default();
+        let never = ToolExecContext {
+            async_tool_policy: AsyncToolPolicy::NeverBackground,
+            ..ToolExecContext::default()
+        };
+        let legacy = json!({"command": "sleep 60", "yield_ms": 1000});
+        assert!(!should_migrate_exec_process_mode_to_async_job_with_config(
+            "exec", &legacy, &never, true
+        ));
+        assert!(!should_migrate_exec_process_mode_to_async_job_with_config(
+            "exec", &legacy, &ctx, false
+        ));
+        assert_eq!(
+            decide_async_path_with_config("exec", &legacy, &never, true, 30),
+            AsyncDecision::Sync
+        );
     }
 
     #[test]

@@ -32,6 +32,7 @@ export interface BackgroundJobSnapshot {
   completedAt: number | null
   error: string | null
   resultPreview: string | null
+  resultPath: string | null
   childCount: number | null
   childrenTerminal: number | null
   childrenCompleted: number | null

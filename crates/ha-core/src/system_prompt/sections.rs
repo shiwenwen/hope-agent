@@ -162,6 +162,11 @@ pub(super) fn build_async_tools_section() -> Option<String> {
          **Result injection:** when the job finishes, you'll see a `<task-notification>` user message. \
          Match `task-id` against the original synthetic `job_id`; when `output-file` is present, use \
          `read` only if you need the detailed output.\n\n\
+         **Exec convergence:** for ordinary long-running shell commands, use `exec` with \
+         `run_in_background: true`. Do not use exec-native `background`/`yield_ms` just to wait \
+         on a long command; those legacy process-session flags are reserved for cases that truly \
+         need the `process` session surface. If an existing process session finishes, you may see \
+         a `<process-notification>` message; use `process(log)` only when you need more detail.\n\n\
          {auto_bg_line}"
     ))
 }

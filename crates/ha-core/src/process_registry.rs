@@ -122,6 +122,7 @@ impl ProcessRegistry {
             session.exit_code = exit_code;
             session.exit_signal = exit_signal;
             session.status = status;
+            crate::process_notification::on_process_exited(session.clone());
         }
     }
 
@@ -157,6 +158,7 @@ impl ProcessRegistry {
                 "stderr" => session.pending_stderr.push_str(data),
                 _ => {}
             }
+            crate::process_notification::emit_output(session, stream, data);
         }
     }
 

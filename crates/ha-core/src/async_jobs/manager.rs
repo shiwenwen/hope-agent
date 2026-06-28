@@ -156,6 +156,11 @@ impl JobManager {
             } else {
                 job.result_preview.clone()
             },
+            result_path: if job.incognito {
+                None
+            } else {
+                job.result_path.clone()
+            },
             child_count,
             children_terminal,
             children_completed,

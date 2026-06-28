@@ -375,10 +375,13 @@ async fn action_cancel(args: &Value, session_id: Option<&str>) -> Result<String>
 
 /// R5 `wait`: a SHORT convenience sync for fast jobs — clamped to
 /// `MAX_BLOCK_WAIT_SECS`, never a long block (turn=1 single-flight would
-/// otherwise lock the session). Targets are an explicit `ids` array, or every
-/// active job in the session when omitted. `mode` ∈ {all (default), any}. On
-/// clamp expiry it returns the still-running ids and steers the model to the
-/// auto-injection path rather than pretending the work is done.
+/// otherwise lock the session). Targets are an explicit `ids` array, or the
+/// session's active + recent terminal jobs when omitted. The recent-terminal
+/// fallback matters when the job settles before the model asks to wait but the
+/// completion injection has not landed yet: we can still return the result
+/// snapshot instead of saying "nothing is running." `mode` ∈ {all (default),
+/// any}. On clamp expiry it returns the still-running ids and steers the model
+/// to the auto-injection path rather than pretending the work is done.
 async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
     let db =
         async_jobs::get_async_jobs_db().ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
@@ -391,7 +394,7 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         None => {
             let session_id = session_id
                 .ok_or_else(|| anyhow!("job_status wait: provide `ids` or run within a session"))?;
-            db.list_active_by_session(session_id)?
+            db.list_for_session(session_id, MAX_WAIT_TARGETS)?
                 .into_iter()
                 .map(|j| j.job_id)
                 .collect()
@@ -437,6 +440,7 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
         // Snapshot current statuses.
         let mut settled: Vec<Value> = Vec::new();
         let mut still_running: Vec<String> = Vec::new();
+        let mut still_running_jobs: Vec<Value> = Vec::new();
         // Track real terminal settlements separately from unknown ids: an
         // unknown/typo'd id must NOT count as "any settled" (it would let
         // mode=any return immediately while real targets are still running).
@@ -447,7 +451,13 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
                     saw_real_terminal = true;
                     settled.push(job_response_value(&job, false));
                 }
-                Some(_) => still_running.push(id.clone()),
+                Some(job) => {
+                    still_running.push(id.clone());
+                    // `wait` stays short, but when it times out the caller still
+                    // needs evidence that work is progressing. Single-job snapshots
+                    // include `output_tail` for running backgrounded exec jobs.
+                    still_running_jobs.push(job_response_value(&job, true));
+                }
                 // Unknown id: report it as settled-unknown so the model isn't
                 // left waiting forever on a typo'd / purged id (but it doesn't
                 // count toward mode=any).
@@ -478,6 +488,7 @@ async fn action_wait(args: &Value, session_id: Option<&str>) -> Result<String> {
                 "mode": if wait_any { "any" } else { "all" },
                 "settled": settled,
                 "still_running": still_running,
+                "still_running_jobs": still_running_jobs,
                 "dropped": dropped,
                 "truncated": !dropped.is_empty(),
                 "note": note,
@@ -913,6 +924,58 @@ mod tests {
         let v: Value = serde_json::from_str(&out).unwrap();
         assert!(v["still_running"].as_array().unwrap().is_empty());
         assert_eq!(v["settled"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn action_wait_without_ids_includes_recent_terminal_jobs() {
+        let _guard = test_lock();
+        ensure_fixture();
+        let sid = format!("sess-{}", uuid::Uuid::new_v4().simple());
+        let job_id = fresh_id();
+        insert_running_in_session(&job_id, &sid);
+        finalize_ok(&job_id, "finished while injection was pending");
+
+        let out = tool_job_status(&json!({ "action": "wait", "timeout_ms": 100 }), Some(&sid))
+            .await
+            .expect("wait ok");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v["still_running"].as_array().unwrap().is_empty());
+        let settled = v["settled"].as_array().unwrap();
+        assert_eq!(settled.len(), 1);
+        assert_eq!(settled[0]["job_id"], job_id);
+        assert_eq!(settled[0]["status"], "completed");
+        assert_eq!(
+            settled[0]["result_preview"],
+            "finished while injection was pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn action_wait_surfaces_running_output_tail_snapshots() {
+        let _guard = test_lock();
+        ensure_fixture();
+        let sid = format!("sess-{}", uuid::Uuid::new_v4().simple());
+        let job_id = fresh_id();
+        insert_running_in_session(&job_id, &sid);
+        async_jobs::output_tail::register(&job_id, 8192);
+        async_jobs::output_tail::append(&job_id, b"step 1\nstep 2\n");
+
+        let out = tool_job_status(
+            &json!({ "action": "wait", "ids": [job_id], "timeout_ms": 100 }),
+            Some(&sid),
+        )
+        .await
+        .expect("wait ok");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["still_running"].as_array().unwrap().len(), 1);
+        let snapshots = v["still_running_jobs"].as_array().unwrap();
+        assert_eq!(snapshots.len(), 1);
+        assert_eq!(snapshots[0]["status"], "running");
+        assert!(snapshots[0]["output_tail"]
+            .as_str()
+            .unwrap()
+            .contains("step 2"));
+        async_jobs::output_tail::remove(&job_id);
     }
 
     #[tokio::test]
