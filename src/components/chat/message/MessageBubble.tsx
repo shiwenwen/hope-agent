@@ -707,7 +707,7 @@ function MessageBubbleInner({
 
   return (
     <div
-      className={cn("relative max-w-[95%]", msg.fromAgentId && "flex items-start gap-2")}
+      className={cn("relative min-w-0 max-w-[95%]", msg.fromAgentId && "flex items-start gap-2")}
       onMouseEnter={() => onHover(index)}
       onMouseLeave={() => {
         onHover(null)
@@ -731,7 +731,7 @@ function MessageBubbleInner({
           )}
         </div>
       )}
-      <div>
+      <div className="min-w-0 max-w-full">
         {msg.fromAgentId && (
           <div className="text-[10px] text-purple-500 mb-0.5 font-medium">
             {fromAgent?.name || msg.fromAgentId}
@@ -751,7 +751,7 @@ function MessageBubbleInner({
         )}
         <div
           className={cn(
-            "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
+            "max-w-full min-w-0 px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
             isUserAligned && !msg.fromAgentId
               ? "bg-[var(--color-user-bubble)] text-foreground"
               : msg.fromAgentId
