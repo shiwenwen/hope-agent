@@ -169,7 +169,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
     : t("executionStatus.subagent.group.finished", { count: agg.total })
 
   return (
-    <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
+    <div className="my-1.5 min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-secondary/50 text-xs">
       <button
         type="button"
         className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-secondary/80 rounded-lg transition-colors"
@@ -227,7 +227,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
 
       {/* Expanded rows */}
       <AnimatedCollapse open={expanded} unmountOnExit={false}>
-        <div className="border-t border-border/60">
+        <div className="min-w-0 max-w-full border-t border-border/60">
           {runs.map((run) => (
             <SubagentRow
               key={run.runId}
@@ -288,7 +288,7 @@ function SubagentRow({
   }
 
   return (
-    <div className="text-[11px]">
+    <div className="min-w-0 text-[11px]">
       <div className={cn("flex items-center transition-colors", "hover:bg-secondary/60")}>
         <button
           type="button"
@@ -372,7 +372,7 @@ function SubagentRow({
       </div>
 
       <AnimatedCollapse open={expanded} unmountOnExit={false}>
-        <div className="space-y-2 px-2.5 pb-2 pt-0.5 max-h-[760px] overflow-y-auto">
+        <div className="min-w-0 max-w-full space-y-2 overflow-x-hidden overflow-y-auto px-2.5 pb-2 pt-0.5 max-h-[760px]">
           <SubagentRunDetails
             runId={run.runId}
             agentId={run.agentId}
@@ -384,12 +384,12 @@ function SubagentRow({
             outputTokens={state?.outputTokens}
           />
           {state?.error && (
-            <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
+            <pre className="max-w-full whitespace-pre-wrap break-words text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
               {state.error}
             </pre>
           )}
           {state?.resultFull && (
-            <div className="bg-background rounded p-2 text-[11px] leading-relaxed">
+            <div className="min-w-0 max-w-full overflow-hidden bg-background rounded p-2 text-[11px] leading-relaxed">
               <MarkdownRenderer content={state.resultFull} />
             </div>
           )}
