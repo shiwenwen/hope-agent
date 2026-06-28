@@ -68,6 +68,8 @@ Tauri ↔ COMMAND_MAP 差集为 8 条合法非 REST 命令（5 条 Desktop-only 
 |---|---|---|
 | `chat:stream_delta` | chat_engine streaming | `{ sessionId, seq, event }`，`seq` 用于重载恢复去重 |
 | `chat:stream_end` | tool loop 末轮结束 | `{ sessionId, streamId }` |
+| `process:output` | legacy exec process 运行中输出 | `{ process_id, parent_session_id, stream, chunk, truncated, status }`，仅保留下来的 process-session 兼容面使用；普通后台 exec 走 `job:*` + `output_tail` |
+| `process:completed` | legacy exec process 终态 | `{ process_id, parent_session_id, status, exit_code?, exit_signal? }`，前端用于收尾 process 卡片，模型侧结果走 `<process-notification>` 注入 |
 | `channel:stream_start` / `delta` / `end` | IM 渠道消息生成 | `{ accountId, messageId, ... }` |
 | `channel:message_update` | IM 会话有新消息 | `{ accountId, sessionId }` |
 

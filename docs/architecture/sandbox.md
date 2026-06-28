@@ -281,8 +281,8 @@ Docker 容器属性：
 
 后台执行：
 
-- `exec(background=true)` 且 sandbox enabled 时，spawn tokio task 调 `exec_in_sandbox_mode()`。
-- 结果写回 process registry，用户通过 `process(action="poll")` 查询。
+- 普通长跑沙箱 exec 走 `async_jobs`：`run_in_background=true` 由 `JobManager` 持有后台生命周期，stdout/stderr 进入 job `output_tail`，结果经 `job_status` / `<task-notification>` 返回。
+- legacy process 兼容面仍存在：只有 async_tools 关闭 / agent `never-background` 等保留场景，`exec(background=true)` / `yield_ms` 才 spawn tokio task 调 `exec_in_sandbox_mode()`，结果写回 process registry，用户通过 `process(action="poll")` 查询；退出时还会发 `process:completed` / `<process-notification>`。
 - 显式 async job 的审批 park 仍由 `async_jobs::approval_bridge` 负责；沙箱只改变实际命令执行位置。
 
 ## Docker 安全边界

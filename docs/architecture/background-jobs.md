@@ -80,6 +80,8 @@ camelCase、只读、与 model-facing JSON 物理分离：`jobId` · `kind` · `
 
 `async_capable=true` 的工具：`exec` / `browser` / `web_search` / `image_generate`（外加 `app_update`）。
 
+**exec 收敛（process 兼容面）**：普通长跑 exec 统一进 `async_jobs`。当 `exec(background=true)` / `exec(yield_ms=...)` 出现在 async_tools 开启且 agent 未禁用后台的上下文里，执行入口会把它兼容迁移为 `run_in_background=true`，移除 legacy process flags，让 `JobManager` 持有唯一后台生命周期。只有 async_tools 关闭 / agent `never-background` 等兼容场景继续返回 process `session_id`；这些 process session 退出时走 `<process-notification>`，不冒充 async job。
+
 ### 执行
 
 `start_runner`（spawn.rs）起一条 **OS 线程 + current-thread tokio runtime**（非 Send，镜像 subagent 注入），持 `SlotReservation` 直到 job 终态（任何退出路径 Drop 释放槽 + 唤醒调度器）。线程内 `run_job_to_completion`：装审批桥（R8）→ 起跨进程取消 watcher（I4）→ 跑 `run_tool_with_retry`（R7.4）→ `finalize_job`。
@@ -122,7 +124,7 @@ camelCase、只读、与 model-facing JSON 物理分离：`jobId` · `kind` · `
 
 ## 后台审批桥（R8）
 
-显式 `run_in_background` 的 exec **不再脱钩前同步审批**（`should_run_exec_reorder_gate` 仅 `AutoBackgroundEligible` 跑——保 ASYNC-2「审批不计入 `auto_background_secs`/`max_job_secs`」预算），命令 gate 落到后台 job 线程。
+显式 `run_in_background` 的普通 exec **不再脱钩前同步审批**（`should_run_exec_reorder_gate` 仅 `AutoBackgroundEligible` 跑——保 ASYNC-2「审批不计入 `auto_background_secs`/`max_job_secs`」预算），命令 gate 落到后台 job 线程。
 
 - **桥**：thread-local `BackgroundApprovalBridge` / `BackgroundApprovalScope`（定义在 [`tools::approval`](../../crates/ha-core/src/tools/approval.rs)，**tools 零依赖 async_jobs**——runner 在 `run_job_to_completion` 注入闭包回调 job DB）。
 - **park**：dispatch 命中 gate → `on_park`：`mark_awaiting_approval`（`Running→AwaitingApproval`，WHERE status='running' 守）+ `park_timing_enter`（预算排除起算）+ 记 `request_id`，然后 `rx.await` 阻塞。

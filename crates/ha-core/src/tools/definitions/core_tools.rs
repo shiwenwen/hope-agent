@@ -21,7 +21,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
     let mut tools = vec![
         ToolDefinition {
             name: TOOL_EXEC.into(),
-            description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params. Also supports `run_in_background: true` to detach the entire tool call as an async job whose result is auto-injected as a `<task-notification>` when ready.".into(),
+            description: "Execute a shell command. Returns stdout/stderr. For ordinary long-running commands, use `run_in_background: true` so the async job layer owns status, cancellation, output tail, and `<task-notification>` completion. The legacy exec-native `background`/`yield_ms` process session is reserved for cases that truly need the `process` tool's session surface; legacy flags are migrated to async jobs when async tools are enabled.".into(),
             tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
             concurrent_safe: false,
@@ -48,11 +48,11 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "background": {
                         "type": "boolean",
-                        "description": "Run in background immediately, return session ID"
+                        "description": "Legacy process-session mode for exec-owned sessions. Prefer `run_in_background` for ordinary long-running commands; legacy flags are migrated to async jobs when async tools are enabled."
                     },
                     "yield_ms": {
                         "type": "integer",
-                        "description": "Milliseconds to wait before backgrounding (default 10000). If command finishes before this, returns result directly."
+                        "description": "Legacy process-session yield. Prefer `run_in_background` for ordinary long-running commands; legacy flags are migrated to async jobs when async tools are enabled."
                     },
                     "pty": {
                         "type": "boolean",

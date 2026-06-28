@@ -193,6 +193,7 @@ fn cancel_subagent(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
 async fn cancel_process(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
     use crate::process_registry::{get_registry, ProcessStatus};
 
+    crate::process_notification::mark_observed(id);
     let mut registry = get_registry().lock().await;
     let Some(session) = registry.get_session(id).cloned() else {
         return Ok(CancelRuntimeTaskResult::new(

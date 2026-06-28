@@ -208,6 +208,8 @@ pub struct BackgroundJobSnapshot {
     pub error: Option<String>,
     /// Inline result preview head (completed tool jobs only).
     pub result_preview: Option<String>,
+    /// Path to the spooled full result on disk (completed tool jobs only).
+    pub result_path: Option<String>,
     /// Group (R5) child progress; `None` for non-group kinds.
     pub child_count: Option<usize>,
     pub children_terminal: Option<usize>,

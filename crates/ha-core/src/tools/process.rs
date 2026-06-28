@@ -130,6 +130,7 @@ async fn tool_process_poll(session_id: &str, timeout_ms: u64) -> Result<String> 
     }
 
     if session.exited {
+        crate::process_notification::mark_observed(session_id);
         let exit_info = if let Some(signal) = &session.exit_signal {
             format!("signal {}", signal)
         } else {
@@ -161,6 +162,9 @@ async fn tool_process_log(
         .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
 
     let log_text = &session.aggregated_output;
+    if session.exited {
+        crate::process_notification::mark_observed(session_id);
+    }
     if log_text.is_empty() {
         return Ok("(no output recorded)".to_string());
     }
@@ -214,9 +218,11 @@ async fn tool_process_kill(session_id: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("No session found for {}", session_id))?;
 
     if session.exited {
+        crate::process_notification::mark_observed(session_id);
         return Ok(format!("Session {} has already exited.", session_id));
     }
 
+    crate::process_notification::mark_observed(session_id);
     if let Some(pid) = session.pid {
         // Kill the process and its children (Unix: SIGKILL to pgid;
         // Windows: taskkill /F /T).
@@ -233,6 +239,7 @@ async fn tool_process_kill(session_id: &str) -> Result<String> {
 }
 
 async fn tool_process_remove(session_id: &str) -> Result<String> {
+    crate::process_notification::mark_observed(session_id);
     let mut registry = get_registry().lock().await;
     if registry.remove_session(session_id).is_some() {
         Ok(format!("Removed session {}.", session_id))

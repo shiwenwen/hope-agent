@@ -135,6 +135,28 @@ async fn cleanup_session(
     // A-8: cancel active / awaiting-approval background jobs (DELETE-4).
     let cancelled_jobs = crate::async_jobs::JobManager::cancel_for_session(session_id);
 
+    // Process sessions are exec-owned rather than async_jobs-owned. Cancel them
+    // on session deletion too, otherwise a legacy/background process can outlive
+    // its parent chat and later attempt a ghost completion notification.
+    let process_ids = {
+        let registry = crate::process_registry::get_registry().lock().await;
+        registry.list_running_ids_for_parent_session(Some(session_id))
+    };
+    let mut cancelled_processes = 0usize;
+    for process_id in process_ids {
+        crate::process_notification::mark_observed(&process_id);
+        if let Ok(result) = crate::runtime_tasks::cancel_runtime_task(
+            crate::runtime_tasks::RuntimeTaskKind::Process,
+            &process_id,
+        )
+        .await
+        {
+            if result.accepted {
+                cancelled_processes += 1;
+            }
+        }
+    }
+
     // A-9: deny + resolve pending approvals so a blocked tool turn unblocks and
     // every surface dismisses its dialog (DELETE-1 / INCOG-4).
     let denied = crate::tools::deny_pending_for_session(
@@ -215,13 +237,14 @@ async fn cleanup_session(
         crate::async_jobs::JobManager::purge_for_session(session_id);
     }
 
-    if cancelled_jobs > 0 || denied > 0 {
+    if cancelled_jobs > 0 || cancelled_processes > 0 || denied > 0 {
         app_debug!(
             "session",
             "cleanup_watcher",
-            "fanned out cleanup for {} (jobs={}, approvals={})",
+            "fanned out cleanup for {} (jobs={}, processes={}, approvals={})",
             session_id,
             cancelled_jobs,
+            cancelled_processes,
             denied
         );
     }

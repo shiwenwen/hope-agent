@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowUpRight, Cpu, Layers, Terminal, X, XCircle, type LucideIcon } from "lucide-react"
 
@@ -9,6 +9,7 @@ import {
   type BackgroundJobSnapshot,
   type BackgroundJobStatus,
   backgroundJobLabel,
+  isBackgroundJobActive,
   isBackgroundJobCancellable,
 } from "@/types/background-jobs"
 import {
@@ -44,33 +45,80 @@ function EmptyHint({ children }: { children: ReactNode }) {
   )
 }
 
+function mergeJobSnapshot(
+  job: BackgroundJobSnapshot,
+  detail?: BackgroundJobSnapshot,
+): BackgroundJobSnapshot {
+  if (!detail) return job
+
+  const jobActive = isBackgroundJobActive(job)
+  const detailActive = isBackgroundJobActive(detail)
+
+  if (!jobActive) {
+    return job
+  }
+  if (!detailActive) {
+    return {
+      ...job,
+      ...detail,
+      error: detail.error ?? job.error,
+      resultPreview: detail.resultPreview ?? job.resultPreview,
+      resultPath: detail.resultPath ?? job.resultPath,
+      outputTail: null,
+    }
+  }
+
+  return {
+    ...job,
+    ...detail,
+    status:
+      job.status === "cancelling" && isBackgroundJobCancellable(detail)
+        ? job.status
+        : detail.status,
+    error: detail.error ?? job.error,
+    resultPreview: detail.resultPreview ?? job.resultPreview,
+    resultPath: detail.resultPath ?? job.resultPath,
+    outputTail: detail.outputTail ?? job.outputTail,
+  }
+}
+
 function BackgroundJobRow({
   job,
+  detail,
   onCancel,
   onViewSubagentSession,
   viewing,
 }: {
   job: BackgroundJobSnapshot
+  detail?: BackgroundJobSnapshot
   onCancel: (jobId: string) => void
   onViewSubagentSession?: (job: BackgroundJobSnapshot) => void
   viewing?: boolean
 }) {
   const { t } = useTranslation()
-  const label = backgroundJobLabel(job, t)
+  const merged = mergeJobSnapshot(job, detail)
+  const label = backgroundJobLabel(merged, t)
   const showGroupProgress =
-    job.kind === "group" && job.childCount != null && job.childCount > 0
-  const groupDone = job.childrenTerminal ?? 0
-  const groupTotal = job.childCount ?? 0
+    merged.kind === "group" && merged.childCount != null && merged.childCount > 0
+  const groupDone = merged.childrenTerminal ?? 0
+  const groupTotal = merged.childCount ?? 0
   const groupPct = groupTotal > 0 ? Math.round((groupDone / groupTotal) * 100) : 0
-  const cancellable = isBackgroundJobCancellable(job)
+  const cancellable = isBackgroundJobCancellable(merged)
   const canViewSubagentSession =
-    job.kind === "subagent" && !!job.subagentRunId && !!onViewSubagentSession
+    merged.kind === "subagent" && !!merged.subagentRunId && !!onViewSubagentSession
+  const liveOutput = isBackgroundJobActive(merged) ? merged.outputTail : null
+  const outputText = liveOutput || merged.resultPreview || merged.error
+  const outputLabel = liveOutput
+    ? t("backgroundJobs.liveOutput", "实时输出")
+    : merged.error
+      ? t("backgroundJobs.errorOutput", "错误")
+      : t("backgroundJobs.resultPreview", "结果预览")
 
   return (
     <div className="flex flex-col gap-1 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5">
       <div className="flex items-center gap-2">
         <BackgroundJobKindIcon
-          kind={job.kind}
+          kind={merged.kind}
           className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
         />
         <IconTip label={label}>
@@ -78,12 +126,12 @@ function BackgroundJobRow({
             {label}
           </span>
         </IconTip>
-        <BackgroundJobStatusChip status={job.status} />
+        <BackgroundJobStatusChip status={merged.status} />
         {canViewSubagentSession && (
           <IconTip label={t("subagent.viewChildSession", "查看子会话")}>
             <button
               type="button"
-              onClick={() => onViewSubagentSession(job)}
+              onClick={() => onViewSubagentSession(merged)}
               disabled={viewing}
               className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-50"
               aria-label={t("subagent.viewChildSession", "查看子会话")}
@@ -96,7 +144,7 @@ function BackgroundJobRow({
           <IconTip label={t("common.cancel", "取消")}>
             <button
               type="button"
-              onClick={() => onCancel(job.jobId)}
+              onClick={() => onCancel(merged.jobId)}
               className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-red-500"
               aria-label={t("common.cancel", "取消")}
             >
@@ -118,9 +166,15 @@ function BackgroundJobRow({
           </span>
         </div>
       )}
-      {job.error && job.status !== "cancelled" && (
-        <div className="truncate text-[10px] text-destructive/80" title={job.error}>
-          {job.error}
+      {outputText && (
+        <div className="mt-1 border-t border-border/40 pt-1">
+          <div className="pb-1 text-[10px] text-muted-foreground">{outputLabel}</div>
+          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-foreground/85">{outputText}</pre>
+        </div>
+      )}
+      {merged.resultPath && (
+        <div className="truncate text-[10px] text-muted-foreground/75" title={merged.resultPath}>
+          {t("backgroundJobs.outputFile", "完整结果")}: {merged.resultPath}
         </div>
       )}
     </div>
@@ -180,6 +234,7 @@ export default function BackgroundJobsPanel({
   const localModelJobs = useLocalModelJobsMirror()
   const [pendingCancel, setPendingCancel] = useState<Set<string>>(new Set())
   const [pendingViewRunIds, setPendingViewRunIds] = useState<Set<string>>(new Set())
+  const [details, setDetails] = useState<Record<string, BackgroundJobSnapshot>>({})
 
   const clearPending = useCallback((jobId: string) => {
     setPendingCancel((prev) => {
@@ -233,11 +288,60 @@ export default function BackgroundJobsPanel({
   // set). The override is gated on `isBackgroundJobCancellable`, so once a refetch
   // flips the job terminal a lingering id is inert (no stale "cancelling" pin) —
   // and `accepted === false` already self-heals via `clearPending`.
-  const visibleJobs = jobs.map((j) =>
-    pendingCancel.has(j.jobId) && isBackgroundJobCancellable(j)
-      ? ({ ...j, status: "cancelling" as BackgroundJobStatus })
-      : j,
+  const visibleJobs = useMemo(
+    () =>
+      jobs.map((j) =>
+        pendingCancel.has(j.jobId) && isBackgroundJobCancellable(j)
+          ? ({ ...j, status: "cancelling" as BackgroundJobStatus })
+          : j,
+      ),
+    [jobs, pendingCancel],
   )
+  const activeJobIds = useMemo(
+    () => visibleJobs.filter(isBackgroundJobActive).map((j) => j.jobId),
+    [visibleJobs],
+  )
+  const activeJobKey = activeJobIds.join("|")
+
+  useEffect(() => {
+    if (activeJobIds.length === 0) return
+
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const fetchDetails = () => {
+      Promise.all(
+        activeJobIds.map((jobId) =>
+          getTransport()
+            .call<BackgroundJobSnapshot | null>("get_background_job", { jobId })
+            .catch(() => null),
+        ),
+      )
+        .then((rows) => {
+          if (!alive) return
+          const byId = new Map(
+            rows.filter((row): row is BackgroundJobSnapshot => !!row).map((row) => [row.jobId, row]),
+          )
+          setDetails((prev) => {
+            const next: Record<string, BackgroundJobSnapshot> = {}
+            for (const job of visibleJobs) {
+              next[job.jobId] = byId.get(job.jobId) ?? prev[job.jobId] ?? job
+            }
+            return next
+          })
+        })
+        .finally(() => {
+          if (alive) timer = setTimeout(fetchDetails, 1000)
+        })
+    }
+
+    fetchDetails()
+
+    return () => {
+      alive = false
+      if (timer) clearTimeout(timer)
+    }
+  }, [activeJobKey, activeJobIds, visibleJobs])
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
@@ -271,6 +375,7 @@ export default function BackgroundJobsPanel({
                 <BackgroundJobRow
                   key={job.jobId}
                   job={job}
+                  detail={details[job.jobId]}
                   onCancel={handleCancel}
                   onViewSubagentSession={handleViewSubagentSession}
                   viewing={!!job.subagentRunId && pendingViewRunIds.has(job.subagentRunId)}

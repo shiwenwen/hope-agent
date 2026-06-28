@@ -445,17 +445,22 @@ impl Drop for ProcessGroupGuard {
     }
 }
 
-/// Like [`tokio::process::Child::wait_with_output`], but tees stdout/stderr
-/// chunks into the running-output tail ring (`async_jobs::output_tail`, R3 ①) as
-/// they arrive, so `job_status` can show a *running* backgrounded exec's latest
-/// output (BashOutput parity). Reads both pipes concurrently with the child wait
-/// (no deadlock when a pipe fills) and still returns the complete `Output` for
-/// the normal result / `result_path` path. Only used when a tail buffer is
-/// registered (backgrounded, non-incognito jobs); foreground exec keeps the
-/// stock `wait_with_output`.
-async fn wait_with_output_teed(
+/// Like [`tokio::process::Child::wait_with_output`], but can stream
+/// stdout/stderr chunks into live observers as they arrive. For legacy
+/// background/yielded process sessions this updates the process registry so
+/// `process(action="poll")` does not wait until child exit before exposing
+/// output. When the exec is owned by an async job, chunks are tee'd into
+/// `async_jobs::output_tail` so `job_status` can show live progress without
+/// routing ordinary jobs through the process surface.
+///
+/// Reads both pipes concurrently with the child wait (no deadlock when a pipe
+/// fills) and still returns the complete `Output` for the normal tool result /
+/// async `result_path` path.
+async fn wait_with_output_streamed(
     mut child: tokio::process::Child,
-    job_id: String,
+    session_id: String,
+    output_tail_job_id: Option<String>,
+    stream_process_registry: bool,
 ) -> std::io::Result<std::process::Output> {
     use tokio::io::AsyncReadExt;
 
@@ -465,7 +470,10 @@ async fn wait_with_output_teed(
     // report success.
     async fn drain<R: tokio::io::AsyncRead + Unpin>(
         pipe: Option<R>,
-        job_id: &str,
+        session_id: &str,
+        stream: &'static str,
+        output_tail_job_id: Option<&str>,
+        stream_process_registry: bool,
     ) -> std::io::Result<Vec<u8>> {
         let mut buf = Vec::new();
         if let Some(mut pipe) = pipe {
@@ -475,7 +483,14 @@ async fn wait_with_output_teed(
                 if n == 0 {
                     break;
                 }
-                crate::async_jobs::output_tail::append(job_id, &chunk[..n]);
+                if let Some(job_id) = output_tail_job_id {
+                    crate::async_jobs::output_tail::append(job_id, &chunk[..n]);
+                }
+                if stream_process_registry {
+                    let text = String::from_utf8_lossy(&chunk[..n]);
+                    let mut registry = get_registry().lock().await;
+                    registry.append_output(session_id, stream, &text);
+                }
                 buf.extend_from_slice(&chunk[..n]);
             }
         }
@@ -488,8 +503,20 @@ async fn wait_with_output_teed(
     // the first error (matches the semantics of `wait_with_output`).
     let (status, stdout, stderr) = tokio::try_join!(
         child.wait(),
-        drain(stdout_pipe, &job_id),
-        drain(stderr_pipe, &job_id),
+        drain(
+            stdout_pipe,
+            &session_id,
+            "stdout",
+            output_tail_job_id.as_deref(),
+            stream_process_registry,
+        ),
+        drain(
+            stderr_pipe,
+            &session_id,
+            "stderr",
+            output_tail_job_id.as_deref(),
+            stream_process_registry,
+        ),
     )?;
     Ok(std::process::Output {
         status,
@@ -504,6 +531,7 @@ async fn spawn_exec_waiter(
     timeout_secs: u64,
     max_output: usize,
     output_tail_job_id: Option<String>,
+    stream_process_registry: bool,
 ) -> Result<tokio::task::JoinHandle<Result<String>>> {
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(unix)]
@@ -551,15 +579,20 @@ async fn spawn_exec_waiter(
         // Guard moved in; it will SIGKILL the process group if the
         // waiter task is dropped (panic / runtime shutdown).
         let guard = guard;
-        // Collect output: tee into the tail ring for backgrounded jobs (R3 ①),
-        // else the stock `wait_with_output` so foreground exec is unchanged.
-        // Boxed so the shared timeout logic below operates on one future type.
+        // Collect output while optionally streaming it into the process
+        // registry, so `process(action="poll")` can see legacy
+        // background/yielded exec output before process exit. Ordinary async
+        // jobs only tee into output_tail. The finalizer marks streamed process
+        // sessions terminal without re-appending the full output, avoiding
+        // duplicated logs.
         let collect: std::pin::Pin<
             Box<dyn std::future::Future<Output = std::io::Result<std::process::Output>> + Send>,
-        > = match output_tail_job_id {
-            Some(jid) => Box::pin(wait_with_output_teed(child, jid)),
-            None => Box::pin(child.wait_with_output()),
-        };
+        > = Box::pin(wait_with_output_streamed(
+            child,
+            session_id.clone(),
+            output_tail_job_id,
+            stream_process_registry,
+        ));
         let result = if timeout_secs == 0 {
             collect.await.map_err(ExecWaitError::Wait)
         } else {
@@ -579,7 +612,7 @@ async fn spawn_exec_waiter(
         // or already SIGKILLed it via the timeout branch above. Either
         // way, dropping the guard would be a no-op or redundant — disarm.
         guard.disarm();
-        finish_exec_sync(&session_id, result, max_output).await
+        finish_exec_sync(&session_id, result, max_output, stream_process_registry).await
     }))
 }
 
@@ -741,7 +774,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         exit_code: None,
         exit_signal: None,
         status: ProcessStatus::Running,
-        backgrounded: false,
+        backgrounded: background,
         aggregated_output: String::new(),
         tail: String::new(),
         truncated: false,
@@ -943,12 +976,15 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // ── Normal execution path ──────────────────────────────────
 
+    let wants_yield = args.get("yield_ms").is_some();
+    let stream_process_registry = background || wants_yield;
     let mut exec_handle = spawn_exec_waiter(
         session_id.clone(),
         cmd,
         timeout_secs,
         max_output,
         ctx.output_tail_job_id.clone(),
+        stream_process_registry,
     )
     .await?;
 
@@ -981,9 +1017,6 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             session_id, session_id
         ));
     }
-
-    // If yield_ms is specified (and not default 10s for non-background), use it
-    let wants_yield = args.get("yield_ms").is_some();
 
     if wants_yield {
         // Wait yield_ms, if not done, leave the already-spawned waiter
@@ -1020,6 +1053,7 @@ async fn finish_exec_sync(
     session_id: &str,
     result: std::result::Result<std::process::Output, ExecWaitError>,
     max_output: usize,
+    output_already_streamed: bool,
 ) -> Result<String> {
     match result {
         Ok(output) => {
@@ -1049,10 +1083,23 @@ async fn finish_exec_sync(
                 result_text.push_str("\n... (output truncated)");
             }
 
-            // Update registry
+            // Update registry. Legacy process sessions stream stdout/stderr into
+            // the process registry chunk-by-chunk, so do not append the full
+            // result again. Keep the nonzero exit marker visible in poll / log,
+            // because it is synthesized after the pipes are drained.
             {
                 let mut registry = get_registry().lock().await;
-                registry.append_output(session_id, "stdout", &result_text);
+                if output_already_streamed {
+                    if exit_code != 0 {
+                        registry.append_output(
+                            session_id,
+                            "stderr",
+                            &format!("\n[exit code: {}]", exit_code),
+                        );
+                    }
+                } else {
+                    registry.append_output(session_id, "stdout", &result_text);
+                }
                 let status = if exit_code == 0 {
                     ProcessStatus::Completed
                 } else {
@@ -1378,5 +1425,55 @@ mod tests {
     #[test]
     fn exec_timeout_zero_means_unlimited() {
         assert_eq!(parse_exec_timeout_secs(&json!({ "timeout": 0 })), 0);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn background_exec_poll_streams_output_before_exit() {
+        let ctx = super::super::ToolExecContext {
+            auto_approve_tools: true,
+            ..Default::default()
+        };
+        let started = tool_exec(
+            &json!({
+                "command": "printf streaming-ready; sleep 5",
+                "background": true
+            }),
+            &ctx,
+        )
+        .await
+        .expect("background exec starts");
+        let session_id = started
+            .split_once("(session ")
+            .and_then(|(_, rest)| rest.split_once(')').map(|(id, _)| id.to_string()))
+            .expect("started response contains process session id");
+
+        let poll = crate::tools::process::tool_process(&json!({
+            "action": "poll",
+            "session_id": session_id,
+            "timeout": 2000
+        }))
+        .await
+        .expect("poll ok");
+
+        assert!(
+            poll.contains("streaming-ready"),
+            "poll should include live output before exit, got {poll}"
+        );
+        assert!(
+            poll.contains("Process still running."),
+            "test command should still be alive when first output arrives, got {poll}"
+        );
+
+        let _ = crate::tools::process::tool_process(&json!({
+            "action": "kill",
+            "session_id": session_id.clone()
+        }))
+        .await;
+        let _ = crate::tools::process::tool_process(&json!({
+            "action": "remove",
+            "session_id": session_id
+        }))
+        .await;
     }
 }
