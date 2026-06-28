@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -143,18 +144,18 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       {/* Custom date inputs */}
       {rangeKey === "custom" && (
         <div className="flex items-center gap-2">
-          <input
+          <Input
             type="date"
             value={customStart}
             onChange={(e) => setCustomStart(e.target.value)}
-            className="h-7 rounded-md border border-input bg-transparent px-2 text-xs"
+            className="h-7 w-auto px-2 text-xs shadow-none"
           />
           <span className="text-xs text-muted-foreground">-</span>
-          <input
+          <Input
             type="date"
             value={customEnd}
             onChange={(e) => setCustomEnd(e.target.value)}
-            className="h-7 rounded-md border border-input bg-transparent px-2 text-xs"
+            className="h-7 w-auto px-2 text-xs shadow-none"
           />
           <Button variant="secondary" size="sm" className="text-xs h-7" onClick={handleCustomApply}>
             {t("dashboard.filter.apply")}

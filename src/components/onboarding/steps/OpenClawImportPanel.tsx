@@ -15,6 +15,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 
 // ── Types mirroring the backend OpenClawImportPreview ──────────
@@ -516,7 +517,7 @@ export function OpenClawImportPanel({
                       </div>
                       <div className="text-xs text-muted-foreground">
                         ID:{" "}
-                        <input
+                        <Input
                           type="text"
                           value={edit?.targetId ?? a.id}
                           onChange={(ev) =>
@@ -525,7 +526,7 @@ export function OpenClawImportPanel({
                               [a.id]: { ...edit!, targetId: ev.target.value },
                             }))
                           }
-                          className="bg-transparent border-b border-muted-foreground/30 outline-none font-mono text-xs px-1 focus:border-primary"
+                          className="h-auto w-auto rounded-none border-0 border-b border-muted-foreground/30 bg-transparent px-1 py-0 shadow-none outline-none font-mono text-xs focus:border-primary focus-visible:border-primary"
                         />
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1">

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { recenterHighlightedSnippet, renderHighlightedSnippet } from "@/lib/highlight"
 import { parseHighlightTerms } from "@/lib/inlineHighlight"
 import { IconTip } from "@/components/ui/tooltip"
+import { Input } from "@/components/ui/input"
 import type { SessionSearchResult } from "@/types/chat"
 import { sortSessionSearchResults } from "./chatUtils"
 import { SEARCH_LIMIT } from "./hooks/constants"
@@ -164,14 +165,14 @@ export default function SessionSearchBar({
         onMouseDown={handleSearchSurfaceMouseDown}
       >
         <Search className="pointer-events-none h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
-        <input
+        <Input
           ref={inputRef}
           aria-label={t("chat.sessionSearch") || ""}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={t("chat.sessionSearchPlaceholder") || ""}
-          className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground"
+          className="h-auto w-auto px-0 py-0 shadow-none flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground"
         />
         {searching && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />}
         {hasQuery && !searching && (
