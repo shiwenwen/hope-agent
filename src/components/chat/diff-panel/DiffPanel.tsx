@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import type { FileChangeMetadata } from "@/types/chat"
 import type { PreviewTarget } from "../files/useFilePreview"
+import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { UnifiedDiffView } from "./UnifiedDiffView"
 import { SplitDiffView } from "./SplitDiffView"
 import {
@@ -490,12 +491,11 @@ export function DiffPanel({
                   title={c.path}
                 >
                   <span className="font-mono">{shortenPath(c.path)}</span>
-                  <span className="ml-2 tabular-nums text-emerald-600">
-                    +{c.linesAdded}
-                  </span>
-                  <span className="ml-1 tabular-nums text-rose-600">
-                    -{c.linesRemoved}
-                  </span>
+                  <FileDeltaCounter
+                    linesAdded={c.linesAdded}
+                    linesRemoved={c.linesRemoved}
+                    className="ml-2 text-[11px]"
+                  />
                 </button>
               )
             })
@@ -537,8 +537,11 @@ export function DiffPanel({
                   ) : null}
                 </>
               ) : null}
-              <span className="tabular-nums text-emerald-600">+{change.linesAdded}</span>
-              <span className="tabular-nums text-rose-600">-{change.linesRemoved}</span>
+              <FileDeltaCounter
+                linesAdded={change.linesAdded}
+                linesRemoved={change.linesRemoved}
+                className="text-[11px]"
+              />
             </div>
             {change.truncated && (
               <div className="mt-0.5 text-amber-600">

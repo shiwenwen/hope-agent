@@ -89,6 +89,7 @@ import type {
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
+import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
 import { useFileActions } from "@/components/chat/files/useFileActions"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
@@ -270,10 +271,11 @@ function FileRow({
           >
             <span className="truncate text-xs font-medium text-foreground/90">{name}</span>
             {showDelta ? (
-              <span className="shrink-0 text-[10px] tabular-nums">
-                <span className="text-emerald-600 dark:text-emerald-400">+{entry.linesAdded}</span>{" "}
-                <span className="text-rose-600 dark:text-rose-400">-{entry.linesRemoved}</span>
-              </span>
+              <FileDeltaCounter
+                linesAdded={entry.linesAdded}
+                linesRemoved={entry.linesRemoved}
+                className="text-[10px]"
+              />
             ) : entry.kind === "read" ? (
               <span className="shrink-0 text-[10px] text-muted-foreground/70">
                 {t("workspace.action.read")}
@@ -893,14 +895,11 @@ function EnvironmentSection({
               }
               detail={
                 git.status.linesAdded > 0 || git.status.linesRemoved > 0 ? (
-                  <span>
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      +{git.status.linesAdded}
-                    </span>{" "}
-                    <span className="text-rose-600 dark:text-rose-400">
-                      -{git.status.linesRemoved}
-                    </span>
-                  </span>
+                  <FileDeltaCounter
+                    linesAdded={git.status.linesAdded}
+                    linesRemoved={git.status.linesRemoved}
+                    className="text-[10px]"
+                  />
                 ) : git.status.conflictedFiles > 0 ? (
                   t("workspace.environment.conflictCount", "{{count}} 个冲突", {
                     count: git.status.conflictedFiles,
