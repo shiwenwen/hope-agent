@@ -7,67 +7,21 @@
 //! directive built from [`language_name`]; section *titles* are fixed strings
 //! translated here.
 
-use crate::config::AppConfig;
-
-/// The recap output locales we have full title/name coverage for. Column order
-/// here is the single source of truth for [`locale_index`] and therefore for
-/// the per-section title rows in [`localized_section_title`].
-pub(super) const SUPPORTED_LOCALES: [&str; 12] = [
-    "zh", "zh-TW", "en", "ja", "ko", "es", "pt", "ru", "ar", "tr", "vi", "ms",
-];
+use crate::{config::AppConfig, i18n::SUPPORTED_LOCALES};
 
 /// Resolve the effective output locale for recap generation.
 ///
 /// Precedence: explicit `recap.language` > global `AppConfig.language` >
 /// system locale. Empty / `"auto"` at any level falls through to the next.
 pub(super) fn effective_recap_locale(config: &AppConfig) -> String {
-    fn pick(s: &str) -> Option<String> {
-        let t = s.trim();
-        if t.is_empty() || t.eq_ignore_ascii_case("auto") {
-            None
-        } else {
-            Some(t.to_string())
-        }
-    }
-    let resolved = config
-        .recap
-        .language
-        .as_deref()
-        .and_then(pick)
-        .or_else(|| pick(&config.language))
-        .unwrap_or_else(crate::agent_loader::detect_system_locale);
-    // Normalize to a supported locale — `detect_system_locale` returns the first
-    // 2 chars of the OS locale, which can be a code we have no coverage for
-    // (e.g. "de"/"fr"). Fall back to English rather than emit a contradictory
-    // "write in English" directive while titles silently use the English column.
-    // Case-insensitive match back to the canonical code; non-GUI paths
-    // (ha-settings skill / manual config edits) may write e.g. "zh-tw" or "ZH",
-    // which must still resolve to the canonical "zh-TW"/"zh" rather than English.
-    SUPPORTED_LOCALES
-        .iter()
-        .find(|c| c.eq_ignore_ascii_case(&resolved))
-        .map(|c| c.to_string())
-        .unwrap_or_else(|| "en".to_string())
+    crate::i18n::effective_locale(config.recap.language.as_deref(), &config.language).to_string()
 }
 
 /// Human-readable language name (with native script hint) for a locale code,
 /// used to instruct the LLM which language to write in. Unknown codes fall
 /// back to English.
 pub(super) fn language_name(locale: &str) -> &'static str {
-    match locale {
-        "zh" => "Simplified Chinese (简体中文)",
-        "zh-TW" => "Traditional Chinese (繁體中文)",
-        "ja" => "Japanese (日本語)",
-        "ko" => "Korean (한국어)",
-        "es" => "Spanish (Español)",
-        "pt" => "Portuguese (Português)",
-        "ru" => "Russian (Русский)",
-        "ar" => "Arabic (العربية)",
-        "tr" => "Turkish (Türkçe)",
-        "vi" => "Vietnamese (Tiếng Việt)",
-        "ms" => "Malay (Bahasa Melayu)",
-        _ => "English",
-    }
+    crate::i18n::language_name(locale)
 }
 
 /// Localized report list title, e.g. `复盘 2024-01-01 → 2024-02-01 (12 个会话)`.

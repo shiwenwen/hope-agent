@@ -12,6 +12,23 @@ pub enum DeliveryOutcome<'a> {
     Failure { error: &'a str },
 }
 
+fn cron_failure_delivery_text(locale: &str, name: &str, error: &str) -> String {
+    match crate::i18n::normalize_locale(locale).unwrap_or(crate::i18n::DEFAULT_LOCALE) {
+        "zh" => format!("⚠️ [Cron] {name} 失败：{error}"),
+        "zh-TW" => format!("⚠️ [Cron] {name} 失敗：{error}"),
+        "ja" => format!("⚠️ [Cron] {name} が失敗しました: {error}"),
+        "ko" => format!("⚠️ [Cron] {name} 실패: {error}"),
+        "es" => format!("⚠️ [Cron] {name} falló: {error}"),
+        "pt" => format!("⚠️ [Cron] {name} falhou: {error}"),
+        "ru" => format!("⚠️ [Cron] {name} завершилось с ошибкой: {error}"),
+        "ar" => format!("⚠️ [Cron] فشل {name}: {error}"),
+        "tr" => format!("⚠️ [Cron] {name} başarısız oldu: {error}"),
+        "vi" => format!("⚠️ [Cron] {name} thất bại: {error}"),
+        "ms" => format!("⚠️ [Cron] {name} gagal: {error}"),
+        _ => format!("⚠️ [Cron] {name} failed: {error}"),
+    }
+}
+
 /// Per-target, per-attempt send timeout. A single target hanging must not block
 /// the scheduler from clearing `running_at`.
 const SEND_TIMEOUT_SECS: u64 = 10;
@@ -149,7 +166,7 @@ pub async fn deliver_results(job: &CronJob, outcome: DeliveryOutcome<'_>) -> Del
             }
         }
         DeliveryOutcome::Failure { error } => {
-            format!("⚠️ [Cron] {} failed: {}", job.name, error)
+            cron_failure_delivery_text(crate::i18n::effective_ui_locale(&store), &job.name, error)
         }
     };
 

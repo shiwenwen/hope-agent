@@ -891,7 +891,7 @@ async fn handle_card_action(
         };
 
         match result {
-            Ok(label) => Some(card_action_toast("success", label)),
+            Ok(label) => Some(card_action_toast("success", &label)),
             Err(e) => {
                 app_warn!("channel", "feishu:gateway", "Card action failed: {}", e);
                 Some(card_action_toast("error", "Action failed"))

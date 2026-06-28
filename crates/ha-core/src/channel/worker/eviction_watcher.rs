@@ -12,21 +12,15 @@
 //!    `notify_session_eviction` toggle on the affected account (default
 //!    `true`) can mute the notice.
 //!
-//! The notice text is intentionally hard-coded English-with-emoji.
-//! IM servers don't carry per-recipient locale, so attempting to
-//! localize on the backend would either pick the wrong language or
-//! force every account to declare one. A future enhancement could read
-//! `ChannelAccountConfig.locale` if we add the field.
+//! Notice text follows `AppConfig.language` through `ha_core::i18n`.
+//! IM servers do not carry per-recipient locale today, so this is a global
+//! process preference rather than per-chat language negotiation.
 
 use std::sync::Arc;
 
 use crate::channel::db::{payload_keys, EVENT_CHANNEL_SESSION_EVICTED};
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{ParseMode, ReplyPayload};
-
-const EVICTED_TEXT: &str = "📢 This chat has been taken over by another endpoint. \
-                            You've left the previous session — \
-                            send a new message to start a fresh one.";
 
 /// Spawn the EventBus subscriber that turns `channel:session_evicted`
 /// events into a system message on the evicted chat. No-op when the
@@ -146,9 +140,13 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                 Some(p) => p.clone(),
                 None => continue,
             };
+            let evicted_text = crate::i18n::localized_backend_message(
+                crate::i18n::BackendMessage::ChannelSessionEvicted,
+                crate::i18n::effective_ui_locale(&store),
+            );
 
             let reply = ReplyPayload {
-                text: Some(plugin.markdown_to_native(EVICTED_TEXT)),
+                text: Some(plugin.markdown_to_native(evicted_text)),
                 thread_id,
                 parse_mode: Some(ParseMode::Html),
                 ..ReplyPayload::text("")

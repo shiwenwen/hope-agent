@@ -47,6 +47,7 @@ pub mod file_extract;
 pub mod filesystem;
 pub mod guardian;
 pub mod hooks;
+pub mod i18n;
 pub mod issue_reporting;
 pub mod knowledge;
 pub mod local_embedding;
