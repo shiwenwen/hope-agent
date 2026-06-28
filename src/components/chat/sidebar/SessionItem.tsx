@@ -298,7 +298,11 @@ export default function SessionItem({
                     </span>
                   )}
                   {hasPending && (
-                    <IconTip label={t("chat.pendingInteractionHint")}>
+                    <IconTip
+                      label={t("chat.pendingInteractionInline", {
+                        count: pendingInteractionCount,
+                      })}
+                    >
                       <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-pulse">
                         {pendingInteractionCount > 99 ? "99+" : pendingInteractionCount}
                       </span>
@@ -368,24 +372,6 @@ export default function SessionItem({
                     <span className="mx-1">·</span>
                     {formatRelativeTime(session.updatedAt)}
                   </>
-                )}
-              </div>
-            )}
-            {isCompact && (isLoading || hasPending) && (
-              <div className="text-[10px] leading-4 text-muted-foreground truncate">
-                {isLoading ? (
-                  <span className="text-primary animate-pulse">
-                    {t("chat.thinking") || "执行中..."}
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-amber-500 font-medium">
-                    <BellRing className="h-3 w-3 shrink-0" />
-                    <span className="truncate">
-                      {t("chat.pendingInteractionInline", {
-                        count: pendingInteractionCount,
-                      })}
-                    </span>
-                  </span>
                 )}
               </div>
             )}
