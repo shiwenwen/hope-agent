@@ -547,7 +547,7 @@ fn default_default_agent_id() -> Option<String> {
 }
 
 pub(crate) fn default_tool_timeout() -> u64 {
-    300
+    0
 }
 
 pub(crate) fn default_ask_user_question_timeout() -> u64 {
@@ -884,7 +884,7 @@ pub struct AppConfig {
     /// Global hard timeout (seconds) for a foreground/synchronous tool execution.
     /// Safety net for when inner tool timeouts don't fire (network issues, etc.).
     /// Async background jobs bypass this and use `async_tools.max_job_secs`.
-    /// Default 300 (5 min). Set to 0 to disable.
+    /// Default 0 (disabled). Set a positive value to enable.
     #[serde(default = "default_tool_timeout")]
     pub tool_timeout: u64,
     /// Threshold (bytes) for persisting large tool results to disk.

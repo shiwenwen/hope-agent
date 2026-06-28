@@ -462,6 +462,7 @@ pub(super) fn build_subagent_section(
     lines
         .push("- `files`: file attachments `[{name, content, mime_type?, encoding?}]`".to_string());
     lines.push("- `model`: model override `\"provider_id/model_id\"`".to_string());
+    lines.push("- `timeout_secs`: child run timeout in seconds; `0` means no timeout; omit to use this Agent's default".to_string());
     lines.push(String::new());
     lines.push("Sub-agents run in isolated sessions with their own tools and context.".to_string());
     lines.push(format!("Current depth: {}/{}", depth, effective_max));

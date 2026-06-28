@@ -51,8 +51,8 @@ const DEFAULT_LIMITS: ToolLimitsConfig = {
 
 export default function ToolGeneralPanel() {
   const { t, i18n } = useTranslation()
-  const [toolTimeout, setToolTimeout] = useState(300)
-  const [savedTimeout, setSavedTimeout] = useState(300)
+  const [toolTimeout, setToolTimeout] = useState(0)
+  const [savedTimeout, setSavedTimeout] = useState(0)
   const [approvalTimeoutEnabled, setApprovalTimeoutEnabled] = useState(false)
   const [savedApprovalTimeoutEnabled, setSavedApprovalTimeoutEnabled] = useState(false)
   const [approvalTimeout, setApprovalTimeout] = useState(300)

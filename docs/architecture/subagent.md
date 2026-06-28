@@ -74,7 +74,7 @@ stateDiagram-v2
 | `parent_session_id` | `String` | 父会话 ID |
 | `parent_agent_id` | `String` | 父 Agent ID |
 | `depth` | `u32` | 当前嵌套深度 |
-| `timeout_secs` | `Option<u64>` | 执行超时秒数（默认 300，工具层 cap 1800） |
+| `timeout_secs` | `Option<u64>` | 执行超时秒数；`None` 使用父 Agent 默认（产品默认 `0` = 不超时），显式 `0` 也表示不超时，正数由工具层 cap 到 1800 |
 | `model_override` | `Option<String>` | 模型覆盖（优先级最高） |
 | `label` | `Option<String>` | 显示标签 |
 | `attachments` | `Vec<Attachment>` | 文件附件列表（支持 base64 和 UTF-8 文本） |
@@ -377,7 +377,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 | `DEFAULT_MAX_DEPTH` | 3 | 默认最大嵌套深度 |
 | `DEFAULT_MAX_CONCURRENT_PER_SESSION` | 8 | 单会话并发子 Agent 默认/兜底上限（实际按 Agent `subagents.maxConcurrent` 配置，clamp 1–50，经 `max_concurrent_for_agent` 解析）。**R7.2 起命中此上限改排队**（`Queued`）而非拒绝，见「[并发排队（R7.2）](#并发排队r72)」|
 | `MAX_QUEUED_SUBAGENTS` | 256 | （R7.2）`subagent/queue.rs` 内存等待队列上限；满则该 spawn 硬拒（界定内存）|
-| `DEFAULT_TIMEOUT_SECS` | 300 | 子 Agent 默认执行超时（5 分钟） |
+| `DEFAULT_TIMEOUT_SECS` | 0 | 子 Agent 默认执行超时；`0` 表示不超时 |
 | `MAX_RESULT_CHARS` | 10,000 | DB 中结果文本最大字符数 |
 
 **深度覆盖**：Agent 级别可通过 `agent.json` 的 `subagents.max_spawn_depth` 字段覆盖，`clamp(1, 5)` 限制范围。`max_depth_for_agent(agent_id)` 函数加载 Agent 配置获取有效值。

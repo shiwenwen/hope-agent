@@ -134,7 +134,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             allowedAgents: [],
             deniedAgents: [],
             maxConcurrent: 8,
-            defaultTimeoutSecs: 300,
+            defaultTimeoutSecs: 0,
             model: null,
           }
         }

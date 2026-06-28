@@ -151,7 +151,7 @@ fn record_smart_session_edits(name: &str, args: &Value, ctx: &ToolExecContext) {
 
 /// Load the user-configured tool timeout from config.json. Returns `None`
 /// when the user explicitly set 0 (disabled). The serde default in
-/// [`AppConfig`] provides the 300s fallback when the field is missing.
+/// [`AppConfig`] also defaults missing values to 0 (disabled).
 fn tool_timeout(ctx: &ToolExecContext) -> Option<Duration> {
     if ctx.suppress_global_tool_timeout {
         return None;

@@ -547,7 +547,7 @@ pub struct SubagentConfig {
     #[serde(default = "default_max_concurrent")]
     pub max_concurrent: u32,
 
-    /// Default timeout for spawned sub-agents (seconds)
+    /// Default timeout for spawned sub-agents (seconds). 0 = no timeout.
     #[serde(default = "default_subagent_timeout")]
     pub default_timeout_secs: u64,
 
@@ -581,7 +581,7 @@ fn default_max_concurrent() -> u32 {
 }
 
 fn default_subagent_timeout() -> u64 {
-    300
+    0
 }
 
 impl Default for SubagentConfig {
