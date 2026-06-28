@@ -53,7 +53,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 
 | Category | Fields |
 |----------|--------|
-| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `serverMode`, `remoteServerUrl`, `remoteApiKey`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude` |
+| `user` | `name`, `avatar`, `gender`, `birthday`, `role`, `timezone`, `language`, `aiExperience`, `responseStyle`, `customInfo`, `autoSendPending`, `autoExpandThinking`, `autoCollapseCompletedTurns`, `serverMode`, `remoteServerUrl`, `remoteApiKey`, `weatherEnabled`, `weatherCity`, `weatherLatitude`, `weatherLongitude` |
 | `theme` | `theme` (`auto`/`light`/`dark`) |
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `ui_effects` | `uiEffectsEnabled` |

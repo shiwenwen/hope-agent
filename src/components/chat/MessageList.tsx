@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
-import { isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
+import { formatDuration, isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
@@ -71,6 +71,7 @@ interface MessageListProps {
   ) => void
   onResume?: (message: string) => void
   displayMode?: ChatDisplayMode
+  autoCollapseCompletedTurns?: boolean
 }
 
 const AT_BOTTOM_THRESHOLD_PX = 48
@@ -85,6 +86,26 @@ const COMPACT_USER_ANCHOR_LEAD_PX = 32
 const COMPACT_USER_ANCHOR_EXIT_MS = 200
 const ASK_USER_FOLLOW_FRAMES = 16
 
+interface MessageRenderItem {
+  msg: Message
+  originalIndex: number
+  keyOverride?: string
+  sourceDbId?: number
+}
+
+interface CompletedTurnCollapseRow {
+  kind: "completed-turn-collapse"
+  key: string
+  items: MessageRenderItem[]
+  assistantCount: number
+  elapsedMs?: number
+  expanded: boolean
+}
+
+type MessageRenderRow =
+  | { kind: "message"; item: MessageRenderItem }
+  | CompletedTurnCollapseRow
+
 function preferredScrollBehavior(): ScrollBehavior {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "smooth"
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
@@ -98,6 +119,341 @@ function shouldPassExecutionStateToBubble(
   if (!isLast) return false
   if (!executionState || executionState === "completed") return false
   return loading || executionState !== "running"
+}
+
+function isHumanTurnStart(msg: Message): boolean {
+  if (msg.fromAgentId) return false
+  if (msg.role === "user" && !isCenteredSystemMessage(msg)) return true
+  return msg.slashEvent?.displayAs === "user"
+}
+
+function timestampMs(msg: Message): number | null {
+  if (!msg.timestamp) return null
+  const ms = Date.parse(msg.timestamp)
+  return Number.isFinite(ms) ? ms : null
+}
+
+function messageElapsedMs(msg: Message): number {
+  let total = msg.usage?.durationMs ?? 0
+  const blocks = msg.contentBlocks
+  if (blocks && blocks.length > 0) {
+    for (const block of blocks) {
+      if (block.type === "thinking") total += block.durationMs ?? 0
+      if (block.type === "tool_call") total += block.tool.durationMs ?? 0
+    }
+  } else if (msg.toolCalls) {
+    for (const tool of msg.toolCalls) total += tool.durationMs ?? 0
+  }
+  return total
+}
+
+function rowKeyForItem(item: MessageRenderItem): string {
+  return item.keyOverride ?? getMessageRowKey(item.msg, item.originalIndex)
+}
+
+function itemMatchesMessageId(item: MessageRenderItem, messageId: number | null): boolean {
+  if (messageId == null) return false
+  return item.msg.dbId === messageId || item.sourceDbId === messageId
+}
+
+function textContentFromBlocks(blocks: NonNullable<Message["contentBlocks"]>): string {
+  const texts: string[] = []
+  for (const block of blocks) {
+    if (block.type === "text" && block.content.trim().length > 0) {
+      texts.push(block.content)
+    }
+  }
+  return texts.join("\n\n")
+}
+
+function assistantProcessBlockCount(blocks: NonNullable<Message["contentBlocks"]>): number {
+  return blocks.filter(
+    (block) => block.type === "thinking" || block.type === "tool_call" || block.type === "text",
+  ).length
+}
+
+function appendToolText(parts: string[], tool: NonNullable<Message["toolCalls"]>[number]) {
+  parts.push(tool.name, tool.arguments)
+  if (tool.result) parts.push(tool.result)
+}
+
+function messageSearchText(msg: Message): string {
+  const parts = [msg.content, msg.thinking ?? ""]
+  if (msg.contentBlocks) {
+    for (const block of msg.contentBlocks) {
+      if (block.type === "text" || block.type === "thinking") {
+        parts.push(block.content)
+      } else if (block.type === "tool_call") {
+        appendToolText(parts, block.tool)
+      }
+    }
+  }
+  if (msg.toolCalls) {
+    for (const tool of msg.toolCalls) appendToolText(parts, tool)
+  }
+  return parts.filter(Boolean).join("\n")
+}
+
+function containsAnyHighlightTerm(text: string | null | undefined, terms: string[] | null): boolean {
+  if (!terms || terms.length === 0 || !text) return false
+  const haystack = text.toLowerCase()
+  return terms.some((term) => term && haystack.includes(term.toLowerCase()))
+}
+
+function itemContainsAnyHighlightTerm(item: MessageRenderItem, terms: string[] | null): boolean {
+  return containsAnyHighlightTerm(messageSearchText(item.msg), terms)
+}
+
+function findMessageScrollTarget(
+  scope: ParentNode,
+  targetId: number,
+  highlightTerms: string[] | null,
+): HTMLElement | null {
+  const candidates = Array.from(
+    scope.querySelectorAll<HTMLElement>(
+      `[data-message-id="${targetId}"], [data-message-source-id="${targetId}"]`,
+    ),
+  )
+  if (candidates.length === 0) return null
+  const termMatch = candidates.find((candidate) =>
+    containsAnyHighlightTerm(candidate.textContent, highlightTerms),
+  )
+  return termMatch ?? candidates[0]
+}
+
+function splitAssistantFinalAnswer(item: MessageRenderItem): {
+  prefixItem: MessageRenderItem
+  finalItem: MessageRenderItem
+  prefixCount: number
+} | null {
+  const blocks = item.msg.contentBlocks
+  if (item.msg.role !== "assistant" || !blocks || blocks.length < 2) return null
+
+  let finalTextIndex = -1
+  for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const block = blocks[i]
+    if (block.type === "text" && block.content.trim().length > 0) {
+      finalTextIndex = i
+      break
+    }
+  }
+  if (finalTextIndex <= 0) return null
+
+  const prefixBlocks = blocks.slice(0, finalTextIndex)
+  const finalBlocks = blocks.slice(finalTextIndex)
+  const prefixCount = assistantProcessBlockCount(prefixBlocks)
+  if (prefixCount === 0) return null
+
+  const baseKey = rowKeyForItem(item)
+  const prefixContent = textContentFromBlocks(prefixBlocks)
+  const finalContent = textContentFromBlocks(finalBlocks) || item.msg.content
+
+  return {
+    prefixCount,
+    prefixItem: {
+      msg: {
+        ...item.msg,
+        dbId: undefined,
+        _clientId: item.msg._clientId ? `${item.msg._clientId}:prefix` : undefined,
+        content: prefixContent,
+        contentBlocks: prefixBlocks,
+        toolCalls: undefined,
+        usage: undefined,
+      },
+      originalIndex: item.originalIndex,
+      keyOverride: `${baseKey}:prefix`,
+      sourceDbId: item.msg.dbId,
+    },
+    finalItem: {
+      msg: {
+        ...item.msg,
+        content: finalContent,
+        contentBlocks: finalBlocks,
+        toolCalls: undefined,
+        thinking: undefined,
+      },
+      originalIndex: item.originalIndex,
+      keyOverride: `${baseKey}:final`,
+    },
+  }
+}
+
+function completedTurnElapsedMs(
+  turnItems: MessageRenderItem[],
+  foldedItems: MessageRenderItem[],
+  finalAssistantItem: MessageRenderItem,
+): number | undefined {
+  const start = timestampMs(turnItems[0]?.msg)
+  const end = timestampMs(finalAssistantItem.msg)
+  const wallClockMs = start != null && end != null && end > start ? end - start : 0
+  const measuredMs = [...foldedItems, finalAssistantItem].reduce(
+    (sum, item) => sum + messageElapsedMs(item.msg),
+    0,
+  )
+  const elapsed = Math.max(wallClockMs, measuredMs)
+  return elapsed > 0 ? elapsed : undefined
+}
+
+function completedTurnCollapseKey(
+  userItem: MessageRenderItem,
+  finalAssistantItem: MessageRenderItem,
+): string {
+  return [
+    "completed-turn",
+    rowKeyForItem(userItem),
+    rowKeyForItem(finalAssistantItem),
+  ].join(":")
+}
+
+function isCurrentTurnStillRunning(
+  finalAssistantItem: MessageRenderItem,
+  messagesLength: number,
+  loading: boolean,
+  executionState: ChatTurnStatus | null | undefined,
+): boolean {
+  if (finalAssistantItem.originalIndex !== messagesLength - 1) return false
+  return loading || executionState === "running" || executionState === "cancelling"
+}
+
+function buildMessageRenderRows(
+  items: MessageRenderItem[],
+  options: {
+    enabled: boolean
+    expandedKeys: Set<string>
+    loading: boolean
+    executionState: ChatTurnStatus | null | undefined
+    messagesLength: number
+  },
+): MessageRenderRow[] {
+  if (!options.enabled) return items.map((item) => ({ kind: "message", item }))
+
+  const rows: MessageRenderRow[] = []
+  let i = 0
+  while (i < items.length) {
+    const item = items[i]
+    if (!isHumanTurnStart(item.msg)) {
+      rows.push({ kind: "message", item })
+      i += 1
+      continue
+    }
+
+    let nextTurn = i + 1
+    while (nextTurn < items.length && !isHumanTurnStart(items[nextTurn].msg)) {
+      nextTurn += 1
+    }
+
+    const turnItems = items.slice(i, nextTurn)
+    let finalAssistantPos = -1
+    for (let j = turnItems.length - 1; j >= 1; j -= 1) {
+      if (turnItems[j].msg.role === "assistant") {
+        finalAssistantPos = j
+        break
+      }
+    }
+
+    const finalAssistantItem =
+      finalAssistantPos >= 0 ? turnItems[finalAssistantPos] : undefined
+    const finalAssistantSplit = finalAssistantItem
+      ? splitAssistantFinalAnswer(finalAssistantItem)
+      : null
+    const foldedItems = finalAssistantPos > 1 ? turnItems.slice(1, finalAssistantPos) : []
+    const collapsedItems = finalAssistantSplit
+      ? [...foldedItems, finalAssistantSplit.prefixItem]
+      : foldedItems
+    const assistantCount =
+      foldedItems.filter((folded) => folded.msg.role === "assistant").length +
+      (finalAssistantSplit?.prefixCount ?? 0)
+    const canFold =
+      finalAssistantItem &&
+      assistantCount > 0 &&
+      !isCurrentTurnStillRunning(
+        finalAssistantItem,
+        options.messagesLength,
+        options.loading,
+        options.executionState,
+      )
+
+    if (!canFold || !finalAssistantItem) {
+      for (const turnItem of turnItems) rows.push({ kind: "message", item: turnItem })
+      i = nextTurn
+      continue
+    }
+
+    const collapseKey = completedTurnCollapseKey(turnItems[0], finalAssistantItem)
+    const expanded = options.expandedKeys.has(collapseKey)
+    rows.push({ kind: "message", item: turnItems[0] })
+    rows.push({
+      kind: "completed-turn-collapse",
+      key: collapseKey,
+      items: collapsedItems,
+      assistantCount,
+      elapsedMs: completedTurnElapsedMs(
+        turnItems,
+        finalAssistantSplit ? foldedItems : collapsedItems,
+        finalAssistantItem,
+      ),
+      expanded,
+    })
+    if (expanded) {
+      for (const collapsedItem of collapsedItems) {
+        rows.push({ kind: "message", item: collapsedItem })
+      }
+    }
+    const tailItems = turnItems.slice(finalAssistantPos)
+    if (finalAssistantSplit) {
+      rows.push({ kind: "message", item: finalAssistantSplit.finalItem })
+      for (const tailItem of tailItems.slice(1)) rows.push({ kind: "message", item: tailItem })
+    } else {
+      for (const tailItem of tailItems) {
+        rows.push({ kind: "message", item: tailItem })
+      }
+    }
+    i = nextTurn
+  }
+  return rows
+}
+
+function CompletedTurnCollapseSummary({
+  row,
+  onToggle,
+}: {
+  row: CompletedTurnCollapseRow
+  onToggle: (key: string) => void
+}) {
+  const { t } = useTranslation()
+  const duration = row.elapsedMs != null ? formatDuration(row.elapsedMs) : null
+  const label = duration
+    ? t("chat.completedTurnCollapsedWithDuration", {
+        duration,
+        count: row.assistantCount,
+        defaultValue: `Processed for ${duration}, ${row.assistantCount} messages`,
+      })
+    : t("chat.completedTurnCollapsed", {
+        count: row.assistantCount,
+        defaultValue: `Processed ${row.assistantCount} messages`,
+      })
+
+  return (
+    <div
+      key={row.key}
+      className="grid w-full min-w-0 grid-cols-1 justify-items-stretch pb-3"
+    >
+      <button
+        type="button"
+        aria-expanded={row.expanded}
+        onClick={() => onToggle(row.key)}
+        className="group flex h-9 w-full cursor-pointer items-center gap-1.5 border-b border-border/50 px-0 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span className="truncate">{label}</span>
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 shrink-0 transition-transform duration-200",
+            row.expanded && "rotate-90",
+          )}
+        />
+      </button>
+    </div>
+  )
 }
 
 export default function MessageList({
@@ -134,6 +490,7 @@ export default function MessageList({
   onOpenDiff,
   onResume,
   displayMode = "bubble",
+  autoCollapseCompletedTurns = true,
 }: MessageListProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -145,6 +502,9 @@ export default function MessageList({
   const [highlightMessageId, setHighlightMessageId] = useState<number | null>(null)
   const [compactUserAnchorVisible, setCompactUserAnchorVisible] = useState(false)
   const [compactUserAnchorMounted, setCompactUserAnchorMounted] = useState(false)
+  const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(
+    () => new Set(),
+  )
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const askUserFollowRafRef = useRef<number | null>(null)
@@ -266,7 +626,42 @@ export default function MessageList({
     }
     return out
   }, [messages, displayedStart])
+
+  const renderRows = useMemo(
+    () =>
+      buildMessageRenderRows(items, {
+        enabled: autoCollapseCompletedTurns,
+        expandedKeys: expandedCompletedTurns,
+        loading,
+        executionState,
+        messagesLength: messages.length,
+      }),
+    [
+      autoCollapseCompletedTurns,
+      expandedCompletedTurns,
+      executionState,
+      items,
+      loading,
+      messages.length,
+    ],
+  )
   const pendingQuestionRequestId = pendingQuestionGroup?.requestId ?? null
+
+  useEffect(() => {
+    setExpandedCompletedTurns(new Set())
+  }, [sessionKey])
+
+  const toggleCompletedTurn = useCallback((key: string) => {
+    setExpandedCompletedTurns((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }, [])
 
   const isTimelineMode = displayMode === "timeline"
   const compactUserAnchor = useMemo(() => {
@@ -308,7 +703,7 @@ export default function MessageList({
 
   useLayoutEffect(() => {
     updateCompactUserAnchor()
-  }, [items, updateCompactUserAnchor])
+  }, [renderRows, updateCompactUserAnchor])
 
   useEffect(() => {
     if (compactUserAnchorVisible) {
@@ -626,6 +1021,29 @@ export default function MessageList({
     const { messageId: targetId, highlightTerms } = pendingScrollIntent
     if (handledScrollTargetRef.current === targetId) return
 
+    if (autoCollapseCompletedTurns) {
+      const collapsedTarget = renderRows.find(
+        (row): row is CompletedTurnCollapseRow =>
+          row.kind === "completed-turn-collapse" &&
+          !row.expanded &&
+          row.items.some(
+            (item) =>
+              item.msg.dbId === targetId ||
+              (item.sourceDbId === targetId &&
+                itemContainsAnyHighlightTerm(item, highlightTerms)),
+          ),
+      )
+      if (collapsedTarget) {
+        setExpandedCompletedTurns((prev) => {
+          if (prev.has(collapsedTarget.key)) return prev
+          const next = new Set(prev)
+          next.add(collapsedTarget.key)
+          return next
+        })
+        return
+      }
+    }
+
     const targetIdx = messagesRef.current.findIndex((m) => m.dbId === targetId)
     if (targetIdx >= 0 && targetIdx < displayedStart) {
       setDisplayedStart(0)
@@ -636,7 +1054,7 @@ export default function MessageList({
     if (!el) return
 
     const tryScroll = (attemptsLeft: number): void => {
-      const target = el.querySelector<HTMLElement>(`[data-message-id="${targetId}"]`)
+      const target = findMessageScrollTarget(el, targetId, highlightTerms)
       if (!target) {
         if (attemptsLeft > 0) {
           scrollRetryRafRef.current = requestAnimationFrame(() => tryScroll(attemptsLeft - 1))
@@ -683,7 +1101,14 @@ export default function MessageList({
         scrollRetryRafRef.current = null
       }
     }
-  }, [pendingScrollIntent, onScrollTargetHandled, displayedStart, sessionId])
+  }, [
+    autoCollapseCompletedTurns,
+    pendingScrollIntent,
+    onScrollTargetHandled,
+    displayedStart,
+    renderRows,
+    sessionId,
+  ])
 
   useEffect(
     () => () => {
@@ -810,9 +1235,19 @@ export default function MessageList({
             </div>
           )}
 
-          {items.map((item) => {
-            const { msg, originalIndex } = item
-            const rowKey = getMessageRowKey(msg, originalIndex)
+          {renderRows.map((row) => {
+            if (row.kind === "completed-turn-collapse") {
+              return (
+                <CompletedTurnCollapseSummary
+                  key={row.key}
+                  row={row}
+                  onToggle={toggleCompletedTurn}
+                />
+              )
+            }
+
+            const { msg, originalIndex } = row.item
+            const rowKey = rowKeyForItem(row.item)
             const isLast = originalIndex === messages.length - 1
             // Only the last bubble cares about the `loading` prop (drives
             // streaming-bubble class, dots placeholder, MarkdownRenderer
@@ -833,9 +1268,10 @@ export default function MessageList({
                 key={rowKey}
                 data-message-key={rowKey}
                 data-message-id={msg.dbId ?? undefined}
+                data-message-source-id={row.item.sourceDbId ?? undefined}
                 className={cn(
                   "grid w-full min-w-0 grid-cols-1 rounded-lg transition-colors",
-                  msg.dbId === highlightMessageId && "message-hit-pulse",
+                  itemMatchesMessageId(row.item, highlightMessageId) && "message-hit-pulse",
                   isTimelineMode
                     ? isCenteredSystemMessage(msg)
                       ? "justify-items-center pb-4"
