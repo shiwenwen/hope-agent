@@ -4773,7 +4773,7 @@
     "toolTeamDesc": "Create and manage agent teams with shared task boards and inter-member messaging",
     "toolTeamName": "Agent Team",
     "toolTimeout": "Synchronous tool timeout",
-    "toolTimeoutDesc": "Max execution time for foreground/synchronous tool calls. Prevents infinite hangs from network issues. Background async jobs use the async-tools max job duration. Set to 0 to disable",
+    "toolTimeoutDesc": "Global fallback timeout for foreground/synchronous tool calls. Default 0 disables this global timeout; set a positive value to cancel calls after that many seconds. Background async jobs use the async-tools max job duration; individual tools may still have their own internal timeouts.",
     "toolUpdateCoreMemoryDesc": "Update the memory.md file injected into the system prompt",
     "toolUpdateCoreMemoryName": "Update Core Memory",
     "toolUpdateMemoryDesc": "Update the content of an existing memory",

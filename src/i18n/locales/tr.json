@@ -4773,7 +4773,7 @@
     "toolTeamDesc": "Paylaşılan görev panoları ve üyeler arası mesajlaşma ile agent takımları oluştur ve yönet",
     "toolTeamName": "Agent Takımı",
     "toolTimeout": "Senkron araç zaman aşımı",
-    "toolTimeoutDesc": "Ön plan/senkron araç çağrıları için maksimum çalıştırma süresi. Ağ sorunlarından kaynaklanan sonsuz takılmaları önler. Arka plan async job'ları async araçlardaki maksimum iş süresini kullanır. Devre dışı bırakmak için 0",
+    "toolTimeoutDesc": "Ön plan/senkron araç çağrıları için genel fallback zaman aşımı. Varsayılan 0 bu genel zaman aşımını devre dışı bırakır; pozitif değer çağrıları bu kadar saniye sonra iptal eder. Arka plan async job'ları async araçlardaki maksimum iş süresini kullanır; tekil araçların kendi dahili zaman aşımları olabilir.",
     "toolUpdateCoreMemoryDesc": "Sistem istemine enjekte edilen memory.md dosyasını güncelle",
     "toolUpdateCoreMemoryName": "Çekirdek Belleği Güncelle",
     "toolUpdateMemoryDesc": "Mevcut bir hafızanın içeriğini güncelle",

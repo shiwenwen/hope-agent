@@ -4773,7 +4773,7 @@
     "toolTeamDesc": "Tạo và quản lý nhóm agent với bảng nhiệm vụ chung và nhắn tin giữa các thành viên",
     "toolTeamName": "Nhóm Agent",
     "toolTimeout": "Timeout công cụ đồng bộ",
-    "toolTimeoutDesc": "Thời gian thực thi tối đa cho các lệnh gọi công cụ foreground/đồng bộ. Ngăn treo vô hạn do vấn đề mạng. Các async job nền dùng thời lượng job tối đa trong công cụ async. Đặt 0 để tắt",
+    "toolTimeoutDesc": "Timeout dự phòng toàn cục cho các lệnh gọi công cụ foreground/đồng bộ. Mặc định 0 tắt timeout toàn cục này; đặt giá trị dương để hủy lệnh gọi sau số giây đó. Các async job nền dùng thời lượng job tối đa trong công cụ async; từng công cụ vẫn có thể có timeout nội bộ riêng.",
     "toolUpdateCoreMemoryDesc": "Cập nhật file memory.md được nạp vào system prompt",
     "toolUpdateCoreMemoryName": "Cập Nhật Bộ Nhớ Lõi",
     "toolUpdateMemoryDesc": "Cập nhật nội dung của bộ nhớ hiện có",

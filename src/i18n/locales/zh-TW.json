@@ -4773,7 +4773,7 @@
     "toolTeamDesc": "建立並管理 Agent 團隊（多成員協作、共享任務板、跨成員訊息）",
     "toolTeamName": "Agent 團隊",
     "toolTimeout": "同步工具執行超時",
-    "toolTimeoutDesc": "前台/同步工具調用的最大執行時間，防止網絡異常導致無限等待。背景 async job 使用非同步工具裡的單 job 最大時長。設為 0 表示不限時",
+    "toolTimeoutDesc": "前台/同步工具調用的全域兜底超時。預設 0，表示關閉這層全域超時；設為正數後，超過該秒數會取消調用。背景 async job 使用非同步工具裡的單 job 最大時長；單個工具仍可能有自己的內部超時。",
     "toolUpdateCoreMemoryDesc": "更新常駐系統提示詞的 memory.md 檔案",
     "toolUpdateCoreMemoryName": "更新核心記憶",
     "toolUpdateMemoryDesc": "更新已有記憶的內容",

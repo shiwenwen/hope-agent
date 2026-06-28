@@ -4773,7 +4773,7 @@
     "toolTeamDesc": "Cipta dan urus pasukan agen dengan papan tugas dikongsi dan pemesejan antara ahli",
     "toolTeamName": "Pasukan Agen",
     "toolTimeout": "Tamat masa alat segerak",
-    "toolTimeoutDesc": "Masa pelaksanaan maksimum untuk panggilan alat latar depan/segerak. Mengelakkan gantung tidak terhingga akibat masalah rangkaian. Kerja async latar menggunakan tempoh kerja maksimum alat async. Tetapkan 0 untuk lumpuhkan",
+    "toolTimeoutDesc": "Tamat masa sandaran global untuk panggilan alat latar depan/segerak. Lalai 0 melumpuhkan tamat masa global ini; tetapkan nilai positif untuk membatalkan panggilan selepas bilangan saat tersebut. Kerja async latar menggunakan tempoh kerja maksimum alat async; alat individu masih mungkin mempunyai tamat masa dalaman sendiri.",
     "toolUpdateCoreMemoryDesc": "Kemas kini fail memory.md yang disuntik ke dalam system prompt",
     "toolUpdateCoreMemoryName": "Kemas Kini Memori Teras",
     "toolUpdateMemoryDesc": "Kemas kini kandungan ingatan sedia ada",

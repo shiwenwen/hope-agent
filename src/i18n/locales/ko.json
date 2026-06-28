@@ -4773,7 +4773,7 @@
     "toolTeamDesc": "Agent 팀 생성 및 관리 (멀티멤버 협업, 공유 작업 보드, 멤버 간 메시지)",
     "toolTeamName": "Agent 팀",
     "toolTimeout": "동기 도구 시간 초과",
-    "toolTimeoutDesc": "포그라운드/동기 도구 호출의 최대 실행 시간입니다. 네트워크 문제로 인한 무한 대기를 방지합니다. 백그라운드 async job은 비동기 도구의 작업 최대 시간을 사용합니다. 0으로 설정하면 비활성화됩니다",
+    "toolTimeoutDesc": "포그라운드/동기 도구 호출에 적용되는 전역 fallback 시간 제한입니다. 기본값 0은 이 전역 시간 제한을 끕니다. 양수로 설정하면 해당 초를 넘긴 호출을 취소합니다. 백그라운드 async job은 비동기 도구의 작업 최대 시간을 사용하며, 개별 도구에는 자체 내부 시간 제한이 있을 수 있습니다.",
     "toolUpdateCoreMemoryDesc": "시스템 프롬프트에 상주하는 memory.md 파일 업데이트",
     "toolUpdateCoreMemoryName": "핵심 기억 업데이트",
     "toolUpdateMemoryDesc": "기존 기억의 내용 업데이트",
