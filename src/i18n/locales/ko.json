@@ -5039,6 +5039,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
+    "dialog": {
+      "subtitle": "실시간 보기 · {{sessionId}}",
+      "untitled": "하위 에이전트 세션"
+    },
     "group": {
       "finished": "에이전트 {{count}}개 완료",
       "running": "에이전트 {{count}}개 실행 중"

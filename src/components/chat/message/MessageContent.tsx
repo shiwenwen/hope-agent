@@ -126,7 +126,7 @@ interface MessageContentProps {
   executionState?: ChatTurnStatus | null
   sessionId?: string | null
   onOpenPlanPanel?: () => void
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
   displayMode?: ChatDisplayMode
@@ -358,7 +358,7 @@ export function AssistantContentBlocks({
   executionState,
   sessionId,
   onOpenPlanPanel,
-  onSwitchSession,
+  onViewChildSession,
   onOpenDiff,
   displayMode = "bubble",
   contentRenderMode = "markdown",
@@ -572,7 +572,11 @@ export function AssistantContentBlocks({
               key: groupKey,
               markerAlign: "control",
               node: (
-                <SubagentGroup key={groupKey} runs={runs} onSwitchSession={onSwitchSession} />
+                <SubagentGroup
+                  key={groupKey}
+                  runs={runs}
+                  onViewChildSession={onViewChildSession}
+                />
               ),
             })
           } else {
@@ -590,7 +594,7 @@ export function AssistantContentBlocks({
                   runId={run.runId}
                   agentId={run.agentId}
                   task={run.task}
-                  onSwitchSession={onSwitchSession}
+                  onViewChildSession={onViewChildSession}
                 />
               ),
             })

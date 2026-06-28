@@ -5039,6 +5039,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "Bu ajan silindi",
+    "dialog": {
+      "subtitle": "Canlı görünüm · {{sessionId}}",
+      "untitled": "Alt ajan oturumu"
+    },
     "group": {
       "finished": "{{count}} ajan tamamlandı",
       "running": "{{count}} ajan çalışıyor"

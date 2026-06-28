@@ -5039,6 +5039,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "Этот агент был удалён",
+    "dialog": {
+      "subtitle": "Просмотр в реальном времени · {{sessionId}}",
+      "untitled": "Сеанс под-агента"
+    },
     "group": {
       "finished": "{{count}} агентов завершено",
       "running": "Выполняется {{count}} агентов"

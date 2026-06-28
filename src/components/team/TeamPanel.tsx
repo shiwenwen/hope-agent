@@ -19,7 +19,7 @@ interface TeamPanelProps {
   reservedMainWidth?: number
   collapsed?: boolean
   onClose: () => void
-  onSwitchSession?: (sessionId: string) => void
+  onViewSession?: (sessionId: string) => void
 }
 
 const MIN_WIDTH = 320
@@ -33,7 +33,7 @@ export function TeamPanel({
   reservedMainWidth,
   collapsed = false,
   onClose,
-  onSwitchSession,
+  onViewSession,
 }: TeamPanelProps) {
   const { t } = useTranslation()
   const { team, members, messages, tasks, sendMessage, hasMore, loadingMore, loadMoreMessages } =
@@ -126,7 +126,7 @@ export function TeamPanel({
               members={members}
               tasks={tasks}
               team={team}
-              onViewSession={onSwitchSession}
+              onViewSession={onViewSession}
             />
           </TabsContent>
 

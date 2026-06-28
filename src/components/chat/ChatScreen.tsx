@@ -95,6 +95,7 @@ import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionSta
 import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
 import { messagesHaveKnowledgeActivity } from "./workspace/useSessionKnowledge"
+import SubagentSessionDialog from "./SubagentSessionDialog"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
@@ -575,6 +576,7 @@ export default function ChatScreen({
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
   const [handoverSessionId, setHandoverSessionId] = useState<string | null>(null)
+  const [subagentPreviewSessionId, setSubagentPreviewSessionId] = useState<string | null>(null)
   const openSessionSearch = useCallback(() => {
     setSearchBarOpen(true)
     setSearchFocusSignal((n) => n + 1)
@@ -2601,8 +2603,8 @@ export default function ChatScreen({
                 compacting={compacting}
                 onCompactContext={runCompactContextForCurrentSession}
                 onOpenDashboardTab={onOpenDashboardTab}
-                onSwitchSession={(sid) => {
-                  void session.handleSwitchSession(sid)
+                onViewChildSession={(sid) => {
+                  setSubagentPreviewSessionId(sid)
                 }}
                 onOpenDiff={diffPanel.openDiff}
                 onResume={(message) => {
@@ -2867,7 +2869,7 @@ export default function ChatScreen({
                 collapsed={rightPanelCollapsed}
                 reservedMainWidth={rightPanelReservedMainWidth}
                 onClose={() => setShowTeamPanel(false)}
-                onSwitchSession={session.handleSwitchSession}
+                onViewSession={setSubagentPreviewSessionId}
               />
             )}
 
@@ -2913,6 +2915,7 @@ export default function ChatScreen({
                 }
                 backgroundJobs={backgroundJobs.jobs}
                 onOpenBackgroundJobs={() => setShowBackgroundJobsPanel(true)}
+                onViewSubagentSession={setSubagentPreviewSessionId}
                 onClose={() => {
                   workspacePanelDismissedRef.current = true
                   setShowWorkspacePanel(false)
@@ -2936,6 +2939,7 @@ export default function ChatScreen({
               <BackgroundJobsPanel
                 jobs={backgroundJobs.jobs}
                 onClose={() => setShowBackgroundJobsPanel(false)}
+                onViewSubagentSession={setSubagentPreviewSessionId}
               />
             </RightPanelShell>
           )}
@@ -2975,6 +2979,15 @@ export default function ChatScreen({
           if (!o) setHandoverSessionId(null)
         }}
         sessionId={handoverSessionId}
+      />
+
+      <SubagentSessionDialog
+        sessionId={subagentPreviewSessionId}
+        agents={session.agents}
+        onOpenChange={(open) => {
+          if (!open) setSubagentPreviewSessionId(null)
+        }}
+        onOpenNestedSession={setSubagentPreviewSessionId}
       />
     </>
   )

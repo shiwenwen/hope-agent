@@ -63,7 +63,7 @@ interface MessageListProps {
   compacting?: boolean
   onCompactContext?: () => Promise<CompactResult | null>
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
   onOpenDiff?: (
     metadata:
       | import("@/types/chat").FileChangeMetadata
@@ -486,7 +486,7 @@ export default function MessageList({
   compacting,
   onCompactContext,
   onOpenDashboardTab,
-  onSwitchSession,
+  onViewChildSession,
   onOpenDiff,
   onResume,
   displayMode = "bubble",
@@ -1305,7 +1305,7 @@ export default function MessageList({
                   onCopy={handleCopyMessage}
                   sessionId={sessionId}
                   onOpenPlanPanel={onOpenPlanPanel}
-                  onSwitchSession={onSwitchSession}
+                  onViewChildSession={onViewChildSession}
                   onSwitchModel={onSwitchModel}
                   onViewSystemPrompt={onViewSystemPrompt}
                   compacting={compacting}

@@ -15,7 +15,7 @@ interface SubagentBlockProps {
   agentId: string
   task: string
   initialStatus?: string
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
 }
 
 export default function SubagentBlock({
@@ -23,7 +23,7 @@ export default function SubagentBlock({
   agentId,
   task,
   initialStatus,
-  onSwitchSession,
+  onViewChildSession,
 }: SubagentBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
@@ -103,7 +103,7 @@ export default function SubagentBlock({
   const emoji = agentMeta?.emoji?.trim() || null
   const nameTooltip = agentMissing ? t("subagent.deletedAgentTooltip") : undefined
 
-  const canViewSession = !!(onSwitchSession && childSessionId)
+  const canViewSession = !!(onViewChildSession && childSessionId)
   async function handleCancel() {
     if (isTerminal || cancelling) return
     setCancelling(true)
@@ -119,7 +119,7 @@ export default function SubagentBlock({
   }
 
   return (
-    <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
+    <div className="my-1.5 min-w-0 max-w-full overflow-hidden rounded-lg border border-border bg-secondary/50 text-xs">
       <div
         className={cn("flex items-center rounded-lg transition-colors", "hover:bg-secondary/80")}
       >
@@ -181,7 +181,7 @@ export default function SubagentBlock({
                 type="button"
                 className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
                 onClick={() => {
-                  if (onSwitchSession && childSessionId) onSwitchSession(childSessionId)
+                  if (onViewChildSession && childSessionId) onViewChildSession(childSessionId)
                 }}
                 aria-label={t("subagent.viewChildSession")}
               >
@@ -218,7 +218,7 @@ export default function SubagentBlock({
         </div>
       )}
       <AnimatedCollapse open={expanded} unmountOnExit={false}>
-        <div className="space-y-2 px-2.5 pb-2 pt-0.5 max-h-[760px] overflow-y-auto">
+        <div className="min-w-0 max-w-full space-y-2 overflow-x-hidden overflow-y-auto px-2.5 pb-2 pt-0.5 max-h-[760px]">
           <SubagentRunDetails
             runId={runId}
             agentId={agentId}
@@ -230,12 +230,12 @@ export default function SubagentBlock({
             outputTokens={outputTokens}
           />
           {error && (
-            <pre className="whitespace-pre-wrap text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
+            <pre className="max-w-full whitespace-pre-wrap break-words text-red-400 bg-background rounded p-2 text-[11px] leading-relaxed">
               {error}
             </pre>
           )}
           {resultFull && (
-            <div className="bg-background rounded p-2 text-[11px] leading-relaxed">
+            <div className="min-w-0 max-w-full overflow-hidden bg-background rounded p-2 text-[11px] leading-relaxed">
               <MarkdownRenderer content={resultFull} />
             </div>
           )}

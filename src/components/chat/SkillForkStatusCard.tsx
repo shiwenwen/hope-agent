@@ -9,7 +9,7 @@ import type { SubagentEvent, SubagentRun } from "@/types/chat"
 interface SkillForkStatusCardProps {
   runId?: string | null
   skillName?: string | null
-  onSwitchSession?: (sessionId: string) => void
+  onViewChildSession?: (sessionId: string) => void
 }
 
 type SkillForkStatus = SubagentRun["status"]
@@ -17,7 +17,7 @@ type SkillForkStatus = SubagentRun["status"]
 export default function SkillForkStatusCard({
   runId,
   skillName,
-  onSwitchSession,
+  onViewChildSession,
 }: SkillForkStatusCardProps) {
   const { t } = useTranslation()
   const safeRunId = runId?.trim() ?? ""
@@ -101,9 +101,9 @@ export default function SkillForkStatusCard({
               type="button"
               size="sm"
               variant="secondary"
-              disabled={!childSessionId || !onSwitchSession}
+              disabled={!childSessionId || !onViewChildSession}
               onClick={() => {
-                if (childSessionId) onSwitchSession?.(childSessionId)
+                if (childSessionId) onViewChildSession?.(childSessionId)
               }}
             >
               <ArrowUpRight className="mr-1.5 h-3.5 w-3.5" />

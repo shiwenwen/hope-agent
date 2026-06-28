@@ -5039,6 +5039,10 @@
   },
   "subagent": {
     "deletedAgentTooltip": "تم حذف هذا العميل",
+    "dialog": {
+      "subtitle": "عرض مباشر · {{sessionId}}",
+      "untitled": "جلسة العميل الفرعي"
+    },
     "group": {
       "finished": "اكتمل {{count}} عملاء",
       "running": "تشغيل {{count}} عملاء"

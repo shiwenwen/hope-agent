@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
+  ArrowUpRight,
   BarChart3,
   BookText,
   Bot,
@@ -61,6 +62,7 @@ import {
   isBackgroundJobActive,
 } from "@/types/background-jobs"
 import { BackgroundJobStatusChip } from "../background-jobs/jobDisplay"
+import { resolveBackgroundSubagentSessionId } from "../background-jobs/subagentSession"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
 import {
   computeContextUsage,
@@ -148,6 +150,8 @@ interface WorkspacePanelProps {
   backgroundJobs?: BackgroundJobSnapshot[]
   /** R4:打开独立「后台任务」面板（取消 / 完整列表在那里管理）。 */
   onOpenBackgroundJobs?: () => void
+  /** 打开子 agent 实时会话弹层，不切换当前主会话。 */
+  onViewSubagentSession?: (sessionId: string) => void
   onClose: () => void
 }
 
@@ -1059,16 +1063,79 @@ function KnowledgeSection({
  */
 const WORKSPACE_JOBS_PREVIEW = 6
 
+function BackgroundJobPreviewRow({
+  job,
+  onViewSubagentSession,
+  viewing,
+}: {
+  job: BackgroundJobSnapshot
+  onViewSubagentSession?: (runId: string) => void
+  viewing?: boolean
+}) {
+  const { t } = useTranslation()
+  const runId = job.kind === "subagent" ? job.subagentRunId : null
+  const canView = !!runId && !!onViewSubagentSession
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5">
+      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
+        {backgroundJobLabel(job, t)}
+      </span>
+      <BackgroundJobStatusChip status={job.status} />
+      {canView && (
+        <IconTip label={t("subagent.viewChildSession", "查看子会话")}>
+          <button
+            type="button"
+            onClick={() => {
+              if (runId) onViewSubagentSession(runId)
+            }}
+            disabled={viewing}
+            className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-50"
+            aria-label={t("subagent.viewChildSession", "查看子会话")}
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" />
+          </button>
+        </IconTip>
+      )}
+    </div>
+  )
+}
+
 function BackgroundJobsSection({
   jobs,
   onOpenPanel,
+  onViewSubagentSession,
 }: {
   jobs: BackgroundJobSnapshot[]
   onOpenPanel?: () => void
+  onViewSubagentSession?: (sessionId: string) => void
 }) {
   const { t } = useTranslation()
+  const [pendingViewRunIds, setPendingViewRunIds] = useState<Set<string>>(new Set())
   const activeCount = jobs.filter(isBackgroundJobActive).length
   const preview = jobs.slice(0, WORKSPACE_JOBS_PREVIEW)
+
+  const handleViewSubagentSession = useCallback(
+    (runId: string) => {
+      if (!onViewSubagentSession) return
+      setPendingViewRunIds((prev) => new Set(prev).add(runId))
+      resolveBackgroundSubagentSessionId(runId)
+        .then((childSessionId) => {
+          if (childSessionId) onViewSubagentSession(childSessionId)
+        })
+        .catch(() => {})
+        .finally(() => {
+          setPendingViewRunIds((prev) => {
+            if (!prev.has(runId)) return prev
+            const next = new Set(prev)
+            next.delete(runId)
+            return next
+          })
+        })
+    },
+    [onViewSubagentSession],
+  )
+
   return (
     <WorkspaceSection
       title={t("backgroundJobs.panelTitle", "后台任务")}
@@ -1078,15 +1145,12 @@ function BackgroundJobsSection({
       {jobs.length > 0 ? (
         <div className="space-y-1">
           {preview.map((job) => (
-            <div
+            <BackgroundJobPreviewRow
               key={job.jobId}
-              className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5"
-            >
-              <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
-                {backgroundJobLabel(job, t)}
-              </span>
-              <BackgroundJobStatusChip status={job.status} />
-            </div>
+              job={job}
+              onViewSubagentSession={handleViewSubagentSession}
+              viewing={!!job.subagentRunId && pendingViewRunIds.has(job.subagentRunId)}
+            />
           ))}
           {onOpenPanel && (
             <button
@@ -1138,6 +1202,7 @@ export default function WorkspacePanel({
   turnActive = false,
   backgroundJobs = [],
   onOpenBackgroundJobs,
+  onViewSubagentSession,
   onClose,
 }: WorkspacePanelProps) {
   const { t } = useTranslation()
@@ -1218,7 +1283,11 @@ export default function WorkspacePanel({
         )}
 
         {/* 后台任务 — R4 简化速览;完整管理在独立面板。 */}
-        <BackgroundJobsSection jobs={backgroundJobs} onOpenPanel={onOpenBackgroundJobs} />
+        <BackgroundJobsSection
+          jobs={backgroundJobs}
+          onOpenPanel={onOpenBackgroundJobs}
+          onViewSubagentSession={onViewSubagentSession}
+        />
 
         {/* 输出 — 本会话碰到的文件(读 + 改),定高内部滚动 + 滚动增量渲染。 */}
         <WorkspaceSection title={t("workspace.sectionOutput", "输出")} count={files.length} icon={Files}>
