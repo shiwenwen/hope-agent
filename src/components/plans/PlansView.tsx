@@ -10,11 +10,20 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
+import type { AgentSummary } from "@/components/settings/types"
 import type {
   PlanIndexEntry,
   PlanIndexFilter,
@@ -27,6 +36,11 @@ interface PlansViewProps {
   onJumpToSession: (sessionId: string) => void
   onInsertMention: (token: string) => void
 }
+
+// Radix Select forbids empty-string item values, so the "all" option uses this
+// sentinel (matching the dashboard filter's "__all__" convention) and maps back
+// to "" at the filter boundary.
+const ALL_FILTER = "__all__"
 
 const STATE_FILTERS: { value: "" | PlanModeStateString; labelKey: string }[] = [
   { value: "", labelKey: "plans.filter.state.all" },
@@ -48,6 +62,7 @@ export default function PlansView({
   const [error, setError] = useState<string | null>(null)
   const [stateFilter, setStateFilter] = useState<"" | PlanModeStateString>("")
   const [agentFilter, setAgentFilter] = useState<string>("")
+  const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
 
   // State filter is sent to the backend so the result set stays small. Agent
@@ -73,6 +88,31 @@ export default function PlansView({
     void loadPlans()
   }, [loadPlans])
 
+  // Agent metadata (name / emoji / avatar) is loaded once so the agent filter
+  // can render the shared <AgentSelectDisplay> instead of a bare agent id,
+  // mirroring the dashboard filter. It is decorative: a missing entry (e.g. a
+  // deleted agent that still has plans) falls back to the raw id.
+  useEffect(() => {
+    let alive = true
+    getTransport()
+      .call<AgentSummary[]>("list_agents")
+      .then((list) => {
+        if (alive) setAgents(list)
+      })
+      .catch(() => {
+        // ignore — fall back to raw agentId
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const agentMetaById = useMemo(() => {
+    const map = new Map<string, AgentSummary>()
+    for (const a of agents) map.set(a.id, a)
+    return map
+  }, [agents])
+
   const agentOptions = useMemo(() => {
     const seen = new Set<string>()
     for (const e of entries) seen.add(e.agentId)
@@ -94,6 +134,8 @@ export default function PlansView({
       null,
     [visibleEntries, selectedSessionId],
   )
+
+  const selectedAgentMeta = agentFilter ? agentMetaById.get(agentFilter) : undefined
 
   return (
     <div className="flex-1 flex min-h-0 flex-col overflow-hidden bg-background">
@@ -127,30 +169,62 @@ export default function PlansView({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <div className="w-[360px] shrink-0 border-r border-border bg-background flex flex-col">
           <div className="px-3 py-2 border-b border-border/70 flex items-center gap-2">
-            <select
-              value={stateFilter}
-              onChange={(e) => setStateFilter(e.target.value as "" | PlanModeStateString)}
-              className="text-xs bg-secondary/40 rounded-md px-2 py-1 border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary"
+            <Select
+              value={stateFilter || ALL_FILTER}
+              onValueChange={(v) =>
+                setStateFilter(v === ALL_FILTER ? "" : (v as PlanModeStateString))
+              }
             >
-              {STATE_FILTERS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey)}
-                </option>
-              ))}
-            </select>
-            {agentOptions.length > 0 && (
-              <select
-                value={agentFilter}
-                onChange={(e) => setAgentFilter(e.target.value)}
-                className="text-xs bg-secondary/40 rounded-md px-2 py-1 border border-border/50 focus:outline-none focus:ring-1 focus:ring-primary flex-1 min-w-0"
-              >
-                <option value="">{t("plans.filter.allAgents")}</option>
-                {agentOptions.map((agent) => (
-                  <option key={agent} value={agent}>
-                    {agent}
-                  </option>
+              <SelectTrigger className="h-7 w-auto gap-1 border-border/50 bg-secondary/40 px-2 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATE_FILTERS.map((opt) => (
+                  <SelectItem
+                    key={opt.value || ALL_FILTER}
+                    value={opt.value || ALL_FILTER}
+                    className="text-xs"
+                  >
+                    {t(opt.labelKey)}
+                  </SelectItem>
                 ))}
-              </select>
+              </SelectContent>
+            </Select>
+            {agentOptions.length > 0 && (
+              <Select
+                value={agentFilter || ALL_FILTER}
+                onValueChange={(v) => setAgentFilter(v === ALL_FILTER ? "" : v)}
+              >
+                <SelectTrigger className="h-7 min-w-0 flex-1 gap-1 border-border/50 bg-secondary/40 px-2 text-xs">
+                  {selectedAgentMeta ? (
+                    <AgentSelectDisplay agent={selectedAgentMeta} size="xs" />
+                  ) : (
+                    <SelectValue placeholder={t("plans.filter.allAgents")} />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_FILTER} className="text-xs">
+                    {t("plans.filter.allAgents")}
+                  </SelectItem>
+                  {agentOptions.map((agentId) => {
+                    const meta = agentMetaById.get(agentId)
+                    return (
+                      <SelectItem
+                        key={agentId}
+                        value={agentId}
+                        textValue={meta?.name ?? agentId}
+                        className="text-xs"
+                      >
+                        {meta ? (
+                          <AgentSelectDisplay agent={meta} size="xs" />
+                        ) : (
+                          agentId
+                        )}
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -331,17 +405,21 @@ function PlanReadOnlyDetail({
         {versions.length > 1 && (
           <div className="flex items-center gap-1">
             <History className="h-3.5 w-3.5 text-muted-foreground" />
-            <select
-              value={selectedVersion}
-              onChange={(e) => void handleVersionChange(Number(e.target.value))}
-              className="text-xs bg-secondary/40 rounded-md px-2 py-1 border border-border/50 focus:outline-none"
+            <Select
+              value={String(selectedVersion)}
+              onValueChange={(v) => void handleVersionChange(Number(v))}
             >
-              {versions.map((v) => (
-                <option key={v.version} value={v.version}>
-                  v{v.version} {v.isCurrent ? `(${t("planMode.currentVersion")})` : ""}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-7 w-auto gap-1 border-border/50 bg-secondary/40 px-2 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {versions.map((v) => (
+                  <SelectItem key={v.version} value={String(v.version)} className="text-xs">
+                    v{v.version} {v.isCurrent ? `(${t("planMode.currentVersion")})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         )}
 

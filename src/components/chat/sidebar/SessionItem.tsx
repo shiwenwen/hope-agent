@@ -1,10 +1,11 @@
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { desktopUnreadCount, channelUnreadCount } from "@/lib/unread"
 import { IconTip } from "@/components/ui/tooltip"
+import { Input } from "@/components/ui/input"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -95,6 +96,12 @@ export default function SessionItem({
 }: SessionItemProps) {
   const { t } = useTranslation()
   const [exportOpen, setExportOpen] = useState(false)
+  // Rename launches from the context menu below. Radix restores focus to the
+  // trigger when the menu closes, which would immediately blur the freshly
+  // opened rename input → onBlur commits → the box vanishes. This flag lets the
+  // rename path suppress that one focus-restore (see ContextMenuContent's
+  // onCloseAutoFocus); other menu items keep normal focus behaviour.
+  const renameTriggeredRef = useRef(false)
   const isCompact = displayMode === "compact"
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
@@ -262,9 +269,9 @@ export default function SessionItem({
                 </IconTip>
               )}
               {renamingSessionId === session.id ? (
-                <input
+                <Input
                   ref={renameInputRef}
-                  className="flex-1 min-w-0 bg-transparent border-b border-primary text-[13px] font-medium text-foreground outline-none py-0"
+                  className="h-auto w-auto rounded-none border-0 border-b border-primary px-0 py-0 shadow-none flex-1 min-w-0 bg-transparent text-[13px] font-medium text-foreground outline-none focus-visible:border-primary"
                   value={renameValue}
                   onChange={(e) => onRenameValueChange(e.target.value)}
                   onBlur={onCommitRename}
@@ -393,7 +400,14 @@ export default function SessionItem({
           </IconTip>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent
+        onCloseAutoFocus={(e) => {
+          if (renameTriggeredRef.current) {
+            e.preventDefault()
+            renameTriggeredRef.current = false
+          }
+        }}
+      >
         {onTogglePinned && (
           <ContextMenuItem
             onClick={() => onTogglePinned(session.id, !session.pinnedAt)}
@@ -407,7 +421,10 @@ export default function SessionItem({
           </ContextMenuItem>
         )}
         <ContextMenuItem
-          onClick={() => onStartRename(session.id, session.title || t("chat.newChat") || "New Chat")}
+          onClick={() => {
+            renameTriggeredRef.current = true
+            onStartRename(session.id, session.title || t("chat.newChat") || "New Chat")
+          }}
         >
           <Pencil className="h-4 w-4 mr-2" />
           {t("chat.renameSession")}

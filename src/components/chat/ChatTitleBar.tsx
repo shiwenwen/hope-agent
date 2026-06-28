@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useAppVersion } from "@/lib/appMeta"
 import { basename } from "@/lib/path"
 import { IconTip } from "@/components/ui/tooltip"
+import { Input } from "@/components/ui/input"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import {
   Copy,
@@ -452,9 +453,9 @@ export default function ChatTitleBar({
             <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
             {editingTitle ? (
               <div className="flex items-center gap-1 min-w-0">
-                <input
+                <Input
                   ref={titleInputRef}
-                  className="text-sm text-foreground/80 bg-transparent border-b border-primary outline-none min-w-[80px] max-w-[300px] py-0"
+                  className="h-auto w-auto rounded-none border-0 border-b border-primary bg-transparent px-0 py-0 shadow-none text-sm text-foreground/80 outline-none min-w-[80px] max-w-[300px] focus-visible:border-primary"
                   value={titleValue}
                   onChange={(e) => setTitleValue(e.target.value)}
                   onBlur={commitTitle}
