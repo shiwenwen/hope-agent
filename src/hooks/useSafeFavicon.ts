@@ -6,12 +6,15 @@ const MAX_CONCURRENT_REQUESTS = 4
 const cache = new Map<string, string | null>()
 const inFlight = new Map<string, Promise<string | null>>()
 const queue: Array<() => void> = []
-const budgetSeen = new Map<string, Set<string>>()
 let activeRequests = 0
+
+export interface SafeFaviconBudget {
+  seen: Set<string>
+}
 
 interface UseSafeFaviconOptions {
   enabled?: boolean
-  budgetKey?: string
+  budget?: SafeFaviconBudget | null
   maxRequests?: number
 }
 
@@ -45,22 +48,21 @@ function enqueueSafeFaviconRequest(pageUrl: string): Promise<string | null> {
   })
 }
 
-function reserveBudget(pageUrl: string, budgetKey?: string, maxRequests?: number): boolean {
-  if (!budgetKey || maxRequests == null) return true
-  let seen = budgetSeen.get(budgetKey)
-  if (!seen) {
-    seen = new Set()
-    budgetSeen.set(budgetKey, seen)
-  }
-  if (seen.has(pageUrl)) return true
-  if (seen.size >= maxRequests) return false
-  seen.add(pageUrl)
+function reserveBudget(
+  pageUrl: string,
+  budget: SafeFaviconBudget | null | undefined,
+  maxRequests?: number,
+): boolean {
+  if (!budget || maxRequests == null) return true
+  if (budget.seen.has(pageUrl)) return true
+  if (budget.seen.size >= maxRequests) return false
+  budget.seen.add(pageUrl)
   return true
 }
 
 function loadSafeFavicon(
   pageUrl: string,
-  budgetKey?: string,
+  budget?: SafeFaviconBudget | null,
   maxRequests?: number,
 ): Promise<string | null> {
   const cached = cache.get(pageUrl)
@@ -69,7 +71,7 @@ function loadSafeFavicon(
   const pending = inFlight.get(pageUrl)
   if (pending) return pending
 
-  if (!reserveBudget(pageUrl, budgetKey, maxRequests)) return Promise.resolve(null)
+  if (!reserveBudget(pageUrl, budget, maxRequests)) return Promise.resolve(null)
 
   const request = enqueueSafeFaviconRequest(pageUrl)
   inFlight.set(pageUrl, request)
@@ -80,7 +82,7 @@ export function useSafeFavicon(
   href: string | undefined,
   options: UseSafeFaviconOptions = {},
 ): string | null {
-  const { enabled = true, budgetKey, maxRequests } = options
+  const { enabled = true, budget, maxRequests } = options
   const pageUrl = enabled ? faviconPageUrlForHref(href) : null
   const [loaded, setLoaded] = useState<{ pageUrl: string; dataUrl: string | null } | null>(null)
 
@@ -88,14 +90,14 @@ export function useSafeFavicon(
     let cancelled = false
     if (!pageUrl || cache.has(pageUrl)) return
 
-    void loadSafeFavicon(pageUrl, budgetKey, maxRequests).then((next) => {
+    void loadSafeFavicon(pageUrl, budget, maxRequests).then((next) => {
       if (!cancelled) setLoaded({ pageUrl, dataUrl: next })
     })
 
     return () => {
       cancelled = true
     }
-  }, [pageUrl, budgetKey, maxRequests])
+  }, [pageUrl, budget, maxRequests])
 
   if (!pageUrl) return null
   if (cache.has(pageUrl)) return cache.get(pageUrl) ?? null

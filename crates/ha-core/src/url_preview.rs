@@ -354,12 +354,7 @@ pub async fn fetch_preview(url_str: &str) -> Result<UrlPreviewMeta> {
 
     let html = String::from_utf8_lossy(body_slice);
 
-    let (title, description, image, site_name, parsed_favicon) = parse_head(&html, &final_url);
-    let favicon = fetch_favicon_with_candidate(&final_url, parsed_favicon.as_deref())
-        .await
-        .ok()
-        .flatten()
-        .map(|icon| icon.data_url);
+    let (title, description, image, site_name, _) = parse_head(&html, &final_url);
 
     let meta = UrlPreviewMeta {
         url: url_str.to_string(),
@@ -367,7 +362,7 @@ pub async fn fetch_preview(url_str: &str) -> Result<UrlPreviewMeta> {
         title,
         description,
         image,
-        favicon,
+        favicon: None,
         site_name,
         domain,
     };
@@ -463,8 +458,56 @@ async fn fetch_favicon_with_candidate(
     fetch_favicon_url(default_url.as_str()).await
 }
 
+async fn fetch_declared_favicon_candidate(page_url: &str) -> Result<Option<String>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(FAVICON_TIMEOUT_SECS))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(PREVIEW_USER_AGENT)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))?;
+
+    let resp = checked_get(&client, page_url, PREVIEW_MAX_REDIRECTS).await?;
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+
+    let final_url = resp.url().to_string();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if !content_type.contains("text/html") && !content_type.contains("application/xhtml") {
+        return Ok(None);
+    }
+
+    let bytes = crate::security::http_stream::read_bytes_capped(resp, PREVIEW_MAX_BYTES).await?;
+    let html = String::from_utf8_lossy(&bytes);
+    let (_, _, _, _, favicon) = parse_head(&html, &final_url);
+    Ok(favicon)
+}
+
 pub async fn fetch_favicon(page_url: &str) -> Result<Option<FaviconData>> {
-    fetch_favicon_with_candidate(page_url, None).await
+    let checked_page_url = {
+        let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+        crate::security::ssrf::check_url(page_url, ssrf_cfg.url_preview(), &ssrf_cfg.trusted_hosts)
+            .await?
+            .to_string()
+    };
+
+    if let Some(cached) = read_favicon_cache(&checked_page_url) {
+        return Ok(cached);
+    }
+
+    let candidate = fetch_declared_favicon_candidate(&checked_page_url)
+        .await
+        .ok()
+        .flatten();
+    let data = fetch_favicon_with_candidate(&checked_page_url, candidate.as_deref()).await?;
+    write_favicon_cache(checked_page_url, data.clone());
+    Ok(data)
 }
 
 #[cfg(test)]

@@ -1,5 +1,7 @@
 import {
+  createContext,
   memo,
+  useContext,
   useState,
   useEffect,
   useMemo,
@@ -39,7 +41,7 @@ import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
 import { basename } from "@/lib/path"
 import { faviconPageUrlForHref } from "@/lib/favicon"
-import { useSafeFavicon } from "@/hooks/useSafeFavicon"
+import { useSafeFavicon, type SafeFaviconBudget } from "@/hooks/useSafeFavicon"
 import { findAutoLinkMatches } from "@/lib/autoLink"
 import { shouldRenderAsBareJson } from "./markdownJson"
 import { useFileActions } from "@/components/chat/files/useFileActions"
@@ -116,8 +118,8 @@ const streamingAnimation: AnimateOptions = {
 // 长中文尤其致命（一段 = 上千 span）。超过该阈值就关掉逐字动画：仍按流式渲染、
 // 保留 incomplete-markdown 处理，只是不再逐字渐显，长回复换来平滑出字。
 const ANIMATE_MAX_CHARS = 4000
-const MARKDOWN_FAVICON_BUDGET_KEY = "markdown-links"
 const MARKDOWN_FAVICON_MAX_REQUESTS = 48
+const MarkdownFaviconBudgetContext = createContext<SafeFaviconBudget | null>(null)
 
 // Streamdown 默认 linkSafety 弹窗的 "Open link" 按钮调用 window.open，
 // Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
@@ -348,9 +350,10 @@ function MarkdownWebLinkIcon({
   href: string | undefined
   enabled: boolean
 }) {
+  const faviconBudget = useContext(MarkdownFaviconBudgetContext)
   const faviconDataUrl = useSafeFavicon(href, {
     enabled,
-    budgetKey: MARKDOWN_FAVICON_BUDGET_KEY,
+    budget: faviconBudget,
     maxRequests: MARKDOWN_FAVICON_MAX_REQUESTS,
   })
   if (faviconDataUrl) {
@@ -534,10 +537,13 @@ export function MarkdownStreamdown({
   children,
   ...props
 }: Omit<ComponentProps<typeof Streamdown>, "components">) {
+  const faviconBudget = useMemo<SafeFaviconBudget>(() => ({ seen: new Set() }), [])
   return (
-    <Streamdown {...props} components={markdownComponents}>
-      {children}
-    </Streamdown>
+    <MarkdownFaviconBudgetContext.Provider value={faviconBudget}>
+      <Streamdown {...props} components={markdownComponents}>
+        {children}
+      </Streamdown>
+    </MarkdownFaviconBudgetContext.Provider>
   )
 }
 
@@ -627,6 +633,7 @@ function BareJsonRenderer({ content, isStreaming }: MarkdownRendererProps) {
 
 function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRendererProps) {
   const plugins = useHeavyPlugins(content)
+  const faviconBudget = useMemo<SafeFaviconBudget>(() => ({ seen: new Set() }), [])
 
   // 外部接管 Streamdown 的 animate plugin 生命周期。Streamdown 自带的
   // `animated={AnimateOptions}` 简便用法把 plugin 实例藏在内部 useMemo，且
@@ -685,17 +692,19 @@ function StreamdownMarkdownRenderer({ content, isStreaming = false }: MarkdownRe
   return (
     <div className="markdown-content">
       <div>
-        <Streamdown
-          animated={false}
-          plugins={plugins}
-          isAnimating={isActive}
-          parseIncompleteMarkdown={isActive}
-          rehypePlugins={rehypePlugins}
-          linkSafety={linkSafetyDisabled}
-          components={markdownComponents}
-        >
-          {content}
-        </Streamdown>
+        <MarkdownFaviconBudgetContext.Provider value={faviconBudget}>
+          <Streamdown
+            animated={false}
+            plugins={plugins}
+            isAnimating={isActive}
+            parseIncompleteMarkdown={isActive}
+            rehypePlugins={rehypePlugins}
+            linkSafety={linkSafetyDisabled}
+            components={markdownComponents}
+          >
+            {content}
+          </Streamdown>
+        </MarkdownFaviconBudgetContext.Provider>
       </div>
     </div>
   )
