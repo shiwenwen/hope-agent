@@ -27,7 +27,7 @@ use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
 use super::super::types::{AssistantAgent, ProviderFormat};
-use super::openai_responses_adapter::parse_openai_sse;
+use super::openai_responses_adapter::{parse_openai_sse, push_responses_assistant_message};
 use crate::tools::ToolProvider;
 
 /// Process-stable User-Agent for Codex requests.
@@ -387,9 +387,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         &self,
         history: &mut Vec<Value>,
         round: u32,
-        _outcome: &RoundOutcome,
+        outcome: &RoundOutcome,
         executed: &[ExecutedTool],
     ) {
+        push_responses_assistant_message(history, Some(round), &outcome.text);
+
         for et in executed {
             crate::context_compact::push_and_stamp(
                 history,
@@ -420,14 +422,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         final_text: &str,
         _last_thinking: &str,
     ) {
-        if !final_text.is_empty() {
-            history.push(json!({
-                "type": "message",
-                "role": "assistant",
-                "content": [{ "type": "output_text", "text": final_text }],
-                "status": "completed"
-            }));
-        }
+        push_responses_assistant_message(history, None, final_text);
     }
 
     fn loop_should_exit(&self, outcome: &RoundOutcome) -> bool {

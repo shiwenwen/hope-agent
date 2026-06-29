@@ -1581,7 +1581,10 @@ impl AssistantAgent {
                             .collect::<Vec<_>>()
                             .join("");
                         if !text.is_empty() {
-                            result.push(json!({ "role": role, "content": text }));
+                            Self::push_anthropic_normalized_message(
+                                &mut result,
+                                json!({ "role": role, "content": text }),
+                            );
                         }
                     }
                 }
@@ -1605,11 +1608,56 @@ impl AssistantAgent {
                         }
                         msg.as_object_mut().map(|o| o.remove("reasoning_content"));
                     }
-                    result.push(msg);
+                    Self::push_anthropic_normalized_message(&mut result, msg);
                 }
             }
         }
         result
+    }
+
+    fn push_anthropic_normalized_message(
+        messages: &mut Vec<serde_json::Value>,
+        msg: serde_json::Value,
+    ) {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            messages.push(msg);
+            return;
+        }
+
+        if let Some(last) = messages.last_mut() {
+            if last.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                let Some(new_content) = msg.get("content").cloned() else {
+                    messages.push(msg);
+                    return;
+                };
+                let merged = match (last.get("content").cloned(), new_content) {
+                    (Some(serde_json::Value::String(old)), serde_json::Value::String(new)) => {
+                        serde_json::Value::String(format!("{}\n\n{}", old, new))
+                    }
+                    (
+                        Some(serde_json::Value::Array(mut old_arr)),
+                        serde_json::Value::Array(new_arr),
+                    ) => {
+                        old_arr.extend(new_arr);
+                        serde_json::Value::Array(old_arr)
+                    }
+                    (Some(serde_json::Value::Array(mut old_arr)), serde_json::Value::String(s)) => {
+                        old_arr.push(json!({"type": "text", "text": s}));
+                        serde_json::Value::Array(old_arr)
+                    }
+                    (Some(serde_json::Value::String(old)), serde_json::Value::Array(new_arr)) => {
+                        let mut arr = vec![json!({"type": "text", "text": old})];
+                        arr.extend(new_arr);
+                        serde_json::Value::Array(arr)
+                    }
+                    (_, other) => other,
+                };
+                last["content"] = merged;
+                return;
+            }
+        }
+
+        messages.push(msg);
     }
 
     /// Normalize conversation history for OpenAI Chat Completions API.
@@ -2351,6 +2399,50 @@ mod responses_history_tests {
         );
         // user + assistant survive; both reasoning items dropped.
         assert_eq!(normalized.len(), 2);
+    }
+
+    #[test]
+    fn anthropic_normalization_merges_responses_interim_assistant_text() {
+        let history = vec![
+            json!({"role": "user", "content": "check this"}),
+            json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "I am checking it." }]
+            }),
+            json!({
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "read",
+                "arguments": "{}"
+            }),
+            json!({
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "file contents"
+            }),
+            json!({
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "It is fixed." }]
+            }),
+            json!({"role": "user", "content": "continue"}),
+        ];
+
+        let normalized = AssistantAgent::normalize_history_for_anthropic(&history);
+
+        assert_eq!(
+            normalized
+                .iter()
+                .map(|v| v.get("role").and_then(|r| r.as_str()).unwrap_or(""))
+                .collect::<Vec<_>>(),
+            vec!["user", "assistant", "user"],
+            "normalized history must preserve Anthropic role alternation: {normalized:?}"
+        );
+        assert_eq!(
+            normalized[1].get("content").and_then(|c| c.as_str()),
+            Some("I am checking it.\n\nIt is fixed.")
+        );
     }
 }
 
