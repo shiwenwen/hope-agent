@@ -5,7 +5,13 @@ import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
-import { formatDuration, isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
+import {
+  extractMessageFileAttachments,
+  formatDuration,
+  isCenteredSystemMessage,
+  isUserAlignedMessage,
+  type MessageFileAttachment,
+} from "./chatUtils"
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
@@ -91,6 +97,8 @@ interface MessageRenderItem {
   originalIndex: number
   keyOverride?: string
   sourceDbId?: number
+  footerFiles?: MessageFileAttachment[]
+  hideOwnFooterFiles?: boolean
 }
 
 interface CompletedTurnCollapseRow {
@@ -164,6 +172,40 @@ function textContentFromBlocks(blocks: NonNullable<Message["contentBlocks"]>): s
     }
   }
   return texts.join("\n\n")
+}
+
+function messageFileAttachmentKey(file: MessageFileAttachment): string {
+  return file.kind === "media"
+    ? `media:${file.item.localPath || file.item.url || file.item.name}`
+    : `path:${file.path}`
+}
+
+function mergeMessageFileAttachments(
+  ...groups: Array<readonly MessageFileAttachment[] | undefined>
+): MessageFileAttachment[] {
+  const merged = new Map<string, MessageFileAttachment>()
+  for (const group of groups) {
+    for (const file of group ?? []) {
+      const key = messageFileAttachmentKey(file)
+      if (!merged.has(key)) merged.set(key, file)
+    }
+  }
+  return [...merged.values()]
+}
+
+function filesFromRenderItem(item: MessageRenderItem): MessageFileAttachment[] {
+  const blocks = item.msg.contentBlocks
+  return item.msg.role === "assistant" && blocks
+    ? extractMessageFileAttachments(blocks)
+    : []
+}
+
+function hideFooterFilesOnItems(items: MessageRenderItem[]): MessageRenderItem[] {
+  return items.map((item) =>
+    filesFromRenderItem(item).length > 0 || item.footerFiles?.length
+      ? { ...item, hideOwnFooterFiles: true }
+      : item,
+  )
 }
 
 function assistantProcessBlockCount(blocks: NonNullable<Message["contentBlocks"]>): number {
@@ -357,9 +399,6 @@ function buildMessageRenderRows(
       ? splitAssistantFinalAnswer(finalAssistantItem)
       : null
     const foldedItems = finalAssistantPos > 1 ? turnItems.slice(1, finalAssistantPos) : []
-    const collapsedItems = finalAssistantSplit
-      ? [...foldedItems, finalAssistantSplit.prefixItem]
-      : foldedItems
     const assistantCount =
       foldedItems.filter((folded) => folded.msg.role === "assistant").length +
       (finalAssistantSplit?.prefixCount ?? 0)
@@ -378,6 +417,32 @@ function buildMessageRenderRows(
       i = nextTurn
       continue
     }
+
+    const rawCollapsedItems = finalAssistantSplit
+      ? [...foldedItems, finalAssistantSplit.prefixItem]
+      : foldedItems
+    const hoistedFiles = mergeMessageFileAttachments(
+      ...rawCollapsedItems.map(filesFromRenderItem),
+      ...rawCollapsedItems.map((collapsedItem) => collapsedItem.footerFiles),
+    )
+    const collapsedItems = hideFooterFilesOnItems(rawCollapsedItems)
+    const finalAssistantWithHoistedFiles: MessageRenderItem =
+      hoistedFiles.length > 0
+        ? {
+            ...finalAssistantItem,
+            footerFiles: mergeMessageFileAttachments(finalAssistantItem.footerFiles, hoistedFiles),
+          }
+        : finalAssistantItem
+    const finalSplitItemWithHoistedFiles: MessageRenderItem | undefined =
+      finalAssistantSplit && hoistedFiles.length > 0
+        ? {
+            ...finalAssistantSplit.finalItem,
+            footerFiles: mergeMessageFileAttachments(
+              finalAssistantSplit.finalItem.footerFiles,
+              hoistedFiles,
+            ),
+          }
+        : finalAssistantSplit?.finalItem
 
     const collapseKey = completedTurnCollapseKey(turnItems[0], finalAssistantItem)
     const expanded = options.expandedKeys.has(collapseKey)
@@ -401,11 +466,19 @@ function buildMessageRenderRows(
     }
     const tailItems = turnItems.slice(finalAssistantPos)
     if (finalAssistantSplit) {
-      rows.push({ kind: "message", item: finalAssistantSplit.finalItem })
+      rows.push({
+        kind: "message",
+        item: finalSplitItemWithHoistedFiles ?? finalAssistantSplit.finalItem,
+      })
       for (const tailItem of tailItems.slice(1)) rows.push({ kind: "message", item: tailItem })
     } else {
-      for (const tailItem of tailItems) {
-        rows.push({ kind: "message", item: tailItem })
+      for (let tailIdx = 0; tailIdx < tailItems.length; tailIdx += 1) {
+        const tailItem = tailItems[tailIdx]
+        if (!tailItem) continue
+        rows.push({
+          kind: "message",
+          item: tailIdx === 0 ? finalAssistantWithHoistedFiles : tailItem,
+        })
       }
     }
     i = nextTurn
@@ -1314,6 +1387,8 @@ export default function MessageList({
                   onOpenDiff={onOpenDiff}
                   onResume={onResume}
                   displayMode={displayMode}
+                  footerFiles={row.item.footerFiles}
+                  hideOwnFooterFiles={row.item.hideOwnFooterFiles}
                 />
               </div>
             )

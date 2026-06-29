@@ -23,6 +23,7 @@ import {
   formatDuration,
   formatMessageTime,
   extractMessageFileAttachments,
+  type MessageFileAttachment,
   isUserAlignedMessage,
 } from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -60,6 +61,93 @@ import {
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
 
+const USER_MESSAGE_COLLAPSE_CHARS = 900
+const USER_MESSAGE_COLLAPSE_LINES = 12
+
+function shouldCollapseUserMessage(content: string): boolean {
+  if (!content) return false
+  if (content.length > USER_MESSAGE_COLLAPSE_CHARS) return true
+  return content.split(/\r\n|\r|\n/).length > USER_MESSAGE_COLLAPSE_LINES
+}
+
+function collapsedUserMessagePreview(content: string): string {
+  const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+  const lineLimited = normalized
+    .split("\n")
+    .slice(0, USER_MESSAGE_COLLAPSE_LINES)
+    .join("\n")
+  const charLimited =
+    lineLimited.length > USER_MESSAGE_COLLAPSE_CHARS
+      ? lineLimited.slice(0, USER_MESSAGE_COLLAPSE_CHARS)
+      : lineLimited
+  const trimmed = charLimited.trimEnd()
+  return trimmed ? `${trimmed}...` : "..."
+}
+
+function UserMessageContent({
+  content,
+  renderMode,
+  fadeToClassName,
+}: {
+  content: string
+  renderMode: ContentRenderMode
+  fadeToClassName: string
+}) {
+  const { t } = useTranslation()
+  const [expandedState, setExpandedState] = useState(() => ({ content, expanded: false }))
+  const collapsible = useMemo(() => shouldCollapseUserMessage(content), [content])
+  const preview = useMemo(() => collapsedUserMessagePreview(content), [content])
+  const expanded = expandedState.content === content ? expandedState.expanded : false
+
+  const rendered =
+    renderMode === "markdown" ? (
+      <MarkdownRenderer content={content} />
+    ) : (
+      <PlainTextRenderer content={content} />
+    )
+
+  if (!collapsible) return rendered
+
+  return (
+    <div>
+      <div className="relative">
+        {expanded ? rendered : <PlainTextRenderer content={preview} />}
+        {!expanded && (
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-b from-transparent",
+              fadeToClassName,
+            )}
+          />
+        )}
+      </div>
+      <div className="mt-1.5 flex justify-end">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={() =>
+            setExpandedState((current) => {
+              const currentExpanded =
+                current.content === content ? current.expanded : false
+              return { content, expanded: !currentExpanded }
+            })
+          }
+          className="inline-flex items-center gap-1 rounded-md bg-background/45 px-2 py-1 text-xs font-medium text-foreground/60 transition-colors hover:bg-background/70 hover:text-foreground"
+        >
+          <ChevronDown
+            className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")}
+          />
+          <span>
+            {expanded
+              ? t("chat.collapseMessage", { defaultValue: "Collapse message" })
+              : t("chat.expandMessage", { defaultValue: "Expand message" })}
+          </span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export interface MessageBubbleProps {
   msg: Message
   index: number
@@ -95,6 +183,28 @@ export interface MessageBubbleProps {
   ) => void
   onResume?: (message: string) => void
   displayMode?: ChatDisplayMode
+  footerFiles?: MessageFileAttachment[]
+  hideOwnFooterFiles?: boolean
+}
+
+function messageFileAttachmentKey(file: MessageFileAttachment): string {
+  return file.kind === "media"
+    ? `media:${file.item.localPath || file.item.url || file.item.name}`
+    : `path:${file.path}`
+}
+
+function mergeMessageFileAttachments(
+  ownFiles: MessageFileAttachment[],
+  footerFiles: MessageFileAttachment[] | undefined,
+): MessageFileAttachment[] {
+  if (!footerFiles?.length) return ownFiles
+  const merged = new Map<string, MessageFileAttachment>()
+  for (const file of ownFiles) merged.set(messageFileAttachmentKey(file), file)
+  for (const file of footerFiles) {
+    const key = messageFileAttachmentKey(file)
+    if (!merged.has(key)) merged.set(key, file)
+  }
+  return [...merged.values()]
 }
 
 function hasRenderableTextContent(msg: Message): boolean {
@@ -340,18 +450,24 @@ function MessageBubbleInner({
   onOpenDiff,
   onResume,
   displayMode = "bubble",
+  footerFiles,
+  hideOwnFooterFiles = false,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
   const [resultExpanded, setResultExpanded] = useState(false)
   const [contentRenderMode, setContentRenderMode] = useState<ContentRenderMode>("markdown")
 
-  const messageFiles = useMemo(
+  const ownMessageFiles = useMemo(
     () =>
-      msg.role === "assistant" && msg.contentBlocks
+      !hideOwnFooterFiles && msg.role === "assistant" && msg.contentBlocks
         ? extractMessageFileAttachments(msg.contentBlocks)
         : [],
-    [msg.role, msg.contentBlocks],
+    [hideOwnFooterFiles, msg.role, msg.contentBlocks],
+  )
+  const messageFiles = useMemo(
+    () => mergeMessageFileAttachments(ownMessageFiles, footerFiles),
+    [footerFiles, ownMessageFiles],
   )
 
   const fromAgent = msg.fromAgentId ? agents.find((a) => a.id === msg.fromAgentId) : undefined
@@ -364,6 +480,12 @@ function MessageBubbleInner({
     }
   }, [msg.content, msg.role])
   const isUserAligned = isUserAlignedMessage(msg)
+  const userMessageFadeToClassName =
+    isUserAligned && !msg.fromAgentId
+      ? "to-[var(--color-user-bubble)]"
+      : msg.fromAgentId
+        ? "to-purple-500/10"
+        : "to-card"
   const hasTextContent = hasRenderableTextContent(msg)
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
   const hasToolbarActions = hasTextContent || hasDetails
@@ -871,11 +993,11 @@ function MessageBubbleInner({
           ) : (
             <>
               <UserAttachments attachments={msg.attachments} />
-              {contentRenderMode === "markdown" ? (
-                <MarkdownRenderer content={msg.content} />
-              ) : (
-                <PlainTextRenderer content={msg.content} />
-              )}
+              <UserMessageContent
+                content={msg.content}
+                renderMode={contentRenderMode}
+                fadeToClassName={userMessageFadeToClassName}
+              />
             </>
           )}
           {/* URL Previews (only for non-streaming messages) */}
