@@ -21,6 +21,23 @@
 import { useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
+} from "@dnd-kit/core"
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
+import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
@@ -33,6 +50,7 @@ import {
   Archive,
   ArchiveRestore,
   CheckCheck,
+  GripVertical,
 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
@@ -76,6 +94,7 @@ interface ProjectSectionProps {
   onOpenProjectSettings: (project: ProjectMeta) => void
   onNewChatInProject: (projectId: string, opts?: { incognito?: boolean }) => void
   onArchiveProject: (projectId: string, archived: boolean) => void
+  onReorderProjects?: (projectIds: string[]) => void
   onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
   onDeleteSession: (sessionId: string, e: React.MouseEvent) => void
   onMarkAllRead?: () => void
@@ -123,9 +142,15 @@ export default function ProjectSection(props: ProjectSectionProps) {
     expanded,
     setExpanded,
     onAddProject,
+    onReorderProjects,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
+  const visibleProjectIds = useMemo(
+    () => visibleProjects.map((project) => project.id),
+    [visibleProjects],
+  )
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const [archivedExpanded, setArchivedExpandedState] = useState(() =>
     readStoredBoolean(ARCHIVED_EXPANDED_STORAGE_KEY, false),
   )
@@ -158,6 +183,31 @@ export default function ProjectSection(props: ProjectSectionProps) {
       return next
     })
   }, [])
+
+  const collapseAllProjects = useCallback(() => {
+    setExpandedMap((prev) => {
+      if (Object.keys(prev).length === 0) return prev
+      try {
+        localStorage.setItem(EXPANDED_STORAGE_KEY, "{}")
+      } catch {
+        /* ignore */
+      }
+      return {}
+    })
+  }, [])
+
+  const handleProjectDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!onReorderProjects) return
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = visibleProjects.findIndex((project) => project.id === active.id)
+      const newIndex = visibleProjects.findIndex((project) => project.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return
+      onReorderProjects(arrayMove(visibleProjects, oldIndex, newIndex).map((project) => project.id))
+    },
+    [onReorderProjects, visibleProjects],
+  )
 
   // Group sessions by projectId once per render so each ProjectGroup is O(1)
   // instead of re-scanning the full list (O(N×M) for N sessions × M projects).
@@ -204,16 +254,39 @@ export default function ProjectSection(props: ProjectSectionProps) {
                 : t("project.createFirstProject")}
             </button>
           )}
-          {visibleProjects.map((project) => (
-            <ProjectGroup
-              key={project.id}
-              {...props}
-              project={project}
-              projectSessions={sessionsByProject.get(project.id) ?? []}
-              expanded={expandedMap[project.id] ?? false}
-              onToggleExpanded={() => toggleProjectExpanded(project.id)}
-            />
-          ))}
+          {onReorderProjects ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={() => collapseAllProjects()}
+              onDragEnd={handleProjectDragEnd}
+            >
+              <SortableContext items={visibleProjectIds} strategy={verticalListSortingStrategy}>
+                {visibleProjects.map((project) => (
+                  <SortableProjectGroup
+                    key={project.id}
+                    {...props}
+                    project={project}
+                    projectSessions={sessionsByProject.get(project.id) ?? []}
+                    expanded={expandedMap[project.id] ?? false}
+                    onToggleExpanded={() => toggleProjectExpanded(project.id)}
+                    canReorder
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          ) : (
+            visibleProjects.map((project) => (
+              <ProjectGroup
+                key={project.id}
+                {...props}
+                project={project}
+                projectSessions={sessionsByProject.get(project.id) ?? []}
+                expanded={expandedMap[project.id] ?? false}
+                onToggleExpanded={() => toggleProjectExpanded(project.id)}
+              />
+            ))
+          )}
           {archivedProjects.length > 0 && (
             <div className="mt-2 border-t border-border/40 pt-2">
               <button
@@ -263,6 +336,36 @@ interface ProjectGroupProps extends Omit<ProjectSectionProps, "expanded" | "setE
   expanded: boolean
   onToggleExpanded: () => void
   archivedView?: boolean
+  canReorder?: boolean
+  dragAttributes?: DraggableAttributes
+  dragListeners?: DraggableSyntheticListeners
+  setSortableNodeRef?: (node: HTMLElement | null) => void
+  sortableStyle?: React.CSSProperties
+  isDragging?: boolean
+}
+
+function SortableProjectGroup(props: ProjectGroupProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props.project.id,
+    disabled: !props.canReorder,
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.45 : 1,
+    zIndex: isDragging ? 50 : undefined,
+  }
+
+  return (
+    <ProjectGroup
+      {...props}
+      dragAttributes={attributes}
+      dragListeners={listeners}
+      setSortableNodeRef={setNodeRef}
+      sortableStyle={style}
+      isDragging={isDragging}
+    />
+  )
 }
 
 function ProjectGroup({
@@ -293,6 +396,12 @@ function ProjectGroup({
   projects,
   archivedView = false,
   displayMode,
+  canReorder = false,
+  dragAttributes,
+  dragListeners,
+  setSortableNodeRef,
+  sortableStyle,
+  isDragging = false,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
   // The active session is already excluded from `project.unreadCount` by the
@@ -353,144 +462,162 @@ function ProjectGroup({
   }, [project.id, project.unreadCount, onMarkAllRead])
 
   return (
-    <div>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div
-            className={cn(
-              "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/35",
-              "cursor-pointer",
-              displayMode === "compact" && "min-h-8 gap-1.5 px-2 py-1",
-            )}
-            onClick={handleToggleExpanded}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                handleToggleExpanded()
-              }
-            }}
-          >
-            <ProjectToggleIcon
+    <div className={cn(isDragging && "relative z-40")}>
+      <div ref={setSortableNodeRef} style={sortableStyle}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div
               className={cn(
-                "h-3.5 w-3.5 shrink-0 transition-colors duration-150",
-                projectFolderColorClass,
+                "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/35",
+                "cursor-pointer",
+                displayMode === "compact" && "min-h-8 gap-1.5 px-2 py-1",
               )}
-            />
-            {displayMode === "detailed" && (
-              <div className="relative shrink-0">
-                <ProjectIcon project={project} size="sm" withColorChip />
-                {projectUnreadCount > 0 && (
-                  <span
-                    className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
+              onClick={handleToggleExpanded}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  handleToggleExpanded()
+                }
+              }}
+            >
+              {canReorder && !archivedView && (
+                <IconTip label={t("common.dragToSort")}>
+                  <button
+                    type="button"
+                    aria-label={t("common.dragToSort")}
+                    className="absolute left-1 top-1/2 z-20 -translate-y-1/2 cursor-grab touch-none rounded bg-background/80 p-0.5 text-muted-foreground/0 opacity-0 shadow-sm backdrop-blur-sm transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    {...dragAttributes}
+                    {...dragListeners}
                   >
-                    {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+                    <GripVertical className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+              )}
+              <ProjectToggleIcon
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 transition-colors duration-150",
+                  projectFolderColorClass,
+                )}
+              />
+              {displayMode === "detailed" && (
+                <div className="relative shrink-0">
+                  <ProjectIcon project={project} size="sm" withColorChip />
+                  {projectUnreadCount > 0 && (
+                    <span
+                      className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"
+                    >
+                      {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="min-w-0 flex-1 pr-12">
+                <div
+                  title={project.name}
+                  className={cn(
+                    "truncate font-semibold text-foreground",
+                    displayMode === "compact" ? "text-[12.5px]" : "text-sm",
+                  )}
+                >
+                  {project.name}
+                </div>
+              </div>
+              {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
+                  the two sections feel consistent. */}
+              <div className="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
+                {!archivedView && (
+                  <IconTip label={t("project.newChatInProject")}>
+                    <button
+                      className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onNewChatInProject(project.id)
+                      }}
+                    >
+                      <MessageSquarePlus className="h-3.5 w-3.5" />
+                    </button>
+                  </IconTip>
+                )}
+                <IconTip label={t("project.openProjectSettings")}>
+                  <button
+                    className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onOpenProjectSettings(project)
+                    }}
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+                {archivedView && (
+                  <IconTip label={t("project.unarchiveProject")}>
+                    <button
+                      className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onArchiveProject(project.id, false)
+                      }}
+                    >
+                      <ArchiveRestore className="h-3.5 w-3.5" />
+                    </button>
+                  </IconTip>
+                )}
+              </div>
+              {displayMode === "compact" && projectUnreadCount > 0 && (
+                <span className="pointer-events-none absolute right-3 top-1/2 inline-flex h-[15px] min-w-[15px] -translate-y-1/2 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0">
+                  {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+                </span>
+              )}
+              {project.sessionCount > 0 &&
+                !(displayMode === "compact" && projectUnreadCount > 0) && (
+                  <span
+                    className={cn(
+                      "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] tabular-nums transition-opacity",
+                      "text-muted-foreground/70 group-hover/project:opacity-0 group-focus-within/project:opacity-0",
+                    )}
+                  >
+                    {project.sessionCount}
                   </span>
                 )}
-              </div>
-            )}
-
-            <div className="min-w-0 flex-1 pr-12">
-              <div
-                title={project.name}
-                className={cn(
-                  "truncate font-semibold text-foreground",
-                  displayMode === "compact" ? "text-[12.5px]" : "text-sm",
-                )}
-              >
-                {project.name}
-              </div>
             </div>
-            {/* Hover-only action buttons. Match `AgentSection.tsx` styling so
-                the two sections feel consistent. */}
-            <div className="absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/project:pointer-events-auto group-hover/project:opacity-100 group-focus-within/project:pointer-events-auto group-focus-within/project:opacity-100">
-              {!archivedView && (
-                <IconTip label={t("project.newChatInProject")}>
-                  <button
-                    className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onNewChatInProject(project.id)
-                    }}
-                  >
-                    <MessageSquarePlus className="h-3.5 w-3.5" />
-                  </button>
-                </IconTip>
-              )}
-              <IconTip label={t("project.openProjectSettings")}>
-                <button
-                  className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onOpenProjectSettings(project)
-                  }}
-                >
-                  <Settings className="h-3.5 w-3.5" />
-                </button>
-              </IconTip>
-              {archivedView && (
-                <IconTip label={t("project.unarchiveProject")}>
-                  <button
-                    className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-background/70 hover:text-primary"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onArchiveProject(project.id, false)
-                    }}
-                  >
-                    <ArchiveRestore className="h-3.5 w-3.5" />
-                  </button>
-                </IconTip>
-              )}
-            </div>
-            {displayMode === "compact" && projectUnreadCount > 0 && (
-              <span className="pointer-events-none absolute right-3 top-1/2 inline-flex h-[15px] min-w-[15px] -translate-y-1/2 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums transition-opacity group-hover/project:opacity-0 group-focus-within/project:opacity-0">
-                {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
-              </span>
+          </ContextMenuTrigger>
+          <ContextMenuContent>
+            {!archivedView && (
+              <ContextMenuItem onClick={() => onNewChatInProject(project.id)}>
+                <MessageSquarePlus className="h-3 w-3 mr-2" />
+                {t("project.newChatInProject")}
+              </ContextMenuItem>
             )}
-            {project.sessionCount > 0 && !(displayMode === "compact" && projectUnreadCount > 0) && (
-              <span
-                className={cn(
-                  "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[10px] tabular-nums transition-opacity",
-                  "text-muted-foreground/70 group-hover/project:opacity-0 group-focus-within/project:opacity-0",
-                )}
-              >
-                {project.sessionCount}
-              </span>
-            )}
-          </div>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {!archivedView && (
-            <ContextMenuItem onClick={() => onNewChatInProject(project.id)}>
-              <MessageSquarePlus className="h-3 w-3 mr-2" />
-              {t("project.newChatInProject")}
+            <ContextMenuItem onClick={() => onOpenProjectSettings(project)}>
+              <Settings className="h-3 w-3 mr-2" />
+              {t("project.openProjectSettings")}
             </ContextMenuItem>
-          )}
-          <ContextMenuItem onClick={() => onOpenProjectSettings(project)}>
-            <Settings className="h-3 w-3 mr-2" />
-            {t("project.openProjectSettings")}
-          </ContextMenuItem>
-          <ContextMenuItem
-            onClick={handleMarkProjectRead}
-            disabled={project.unreadCount === 0}
-          >
-            <CheckCheck className="h-3 w-3 mr-2" />
-            {t("chat.markAllRead")}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            onClick={() => onArchiveProject(project.id, archivedView ? false : !project.archived)}
-          >
-            {archivedView ? (
-              <ArchiveRestore className="h-3 w-3 mr-2" />
-            ) : (
-              <Archive className="h-3 w-3 mr-2" />
-            )}
-            {project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+            <ContextMenuItem
+              onClick={handleMarkProjectRead}
+              disabled={project.unreadCount === 0}
+            >
+              <CheckCheck className="h-3 w-3 mr-2" />
+              {t("chat.markAllRead")}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => onArchiveProject(project.id, archivedView ? false : !project.archived)}
+            >
+              {archivedView ? (
+                <ArchiveRestore className="h-3 w-3 mr-2" />
+              ) : (
+                <Archive className="h-3 w-3 mr-2" />
+              )}
+              {project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      </div>
 
       <AnimatedCollapse open={groupExpanded}>
         <div

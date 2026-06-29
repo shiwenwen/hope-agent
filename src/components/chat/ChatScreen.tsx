@@ -644,6 +644,7 @@ export default function ChatScreen({
     updateProject,
     deleteProject,
     archiveProject,
+    reorderProjects,
     moveSessionToProject,
     reloadProjects,
   } = useProjects({
@@ -2489,6 +2490,9 @@ export default function ChatScreen({
         }}
         onArchiveProject={(projectId, archived) => {
           void archiveProject(projectId, archived)
+        }}
+        onReorderProjects={(projectIds) => {
+          void reorderProjects(projectIds)
         }}
         onMoveSessionToProject={handleMoveSessionToProject}
         searchFocusSignal={globalSearchFocusSignal}

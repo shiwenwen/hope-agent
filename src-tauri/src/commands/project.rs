@@ -112,6 +112,22 @@ pub async fn archive_project_cmd(
     Ok(project)
 }
 
+#[tauri::command]
+pub async fn reorder_projects_cmd(
+    project_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    state.project_db.reorder(&project_ids)?;
+
+    if let Some(bus) = ha_core::get_event_bus() {
+        let _ = bus.emit(
+            "project:updated",
+            serde_json::json!({ "kind": "reordered" }),
+        );
+    }
+    Ok(())
+}
+
 // ── Session ↔ Project binding ───────────────────────────────────
 
 #[tauri::command]

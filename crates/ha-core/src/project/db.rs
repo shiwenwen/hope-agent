@@ -7,6 +7,7 @@
 
 use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::types::{CreateProjectInput, Project, ProjectMeta, UpdateProjectInput};
@@ -46,7 +47,8 @@ impl ProjectDB {
                 updated_at        INTEGER NOT NULL,
                 archived          INTEGER NOT NULL DEFAULT 0,
                 logo              TEXT,
-                working_dir       TEXT
+                working_dir       TEXT,
+                sort_order        INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
                 ON projects(archived, updated_at DESC);",
@@ -64,6 +66,34 @@ impl ProjectDB {
         if !has_working_dir {
             conn.execute_batch("ALTER TABLE projects ADD COLUMN working_dir TEXT;")?;
         }
+
+        let has_sort_order = conn
+            .prepare("SELECT sort_order FROM projects LIMIT 1")
+            .is_ok();
+        if !has_sort_order {
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0;",
+            )?;
+            let mut stmt =
+                conn.prepare("SELECT id FROM projects ORDER BY updated_at DESC, created_at DESC")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            let mut ids = Vec::new();
+            for row in rows {
+                ids.push(row?);
+            }
+            drop(stmt);
+            for (idx, id) in ids.into_iter().enumerate() {
+                conn.execute(
+                    "UPDATE projects SET sort_order = ?1 WHERE id = ?2",
+                    params![((idx as i64) + 1) * 1024, id],
+                )?;
+            }
+        }
+
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_projects_archived_sort
+                ON projects(archived, sort_order ASC, updated_at DESC);",
+        )?;
 
         // Migration: drop the legacy bound_channel columns/index on upgrade.
         // Project ↔ Channel reverse-claim is gone; routing is now explicit
@@ -111,12 +141,13 @@ impl ProjectDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let sort_order = next_project_sort_order(&conn)?;
 
         conn.execute(
             "INSERT INTO projects (id, name, description, instructions, emoji, color,
                 default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                working_dir)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12)",
+                working_dir, sort_order)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12, ?13)",
             params![
                 id,
                 name,
@@ -130,6 +161,7 @@ impl ProjectDB {
                 now,
                 logo.as_deref(),
                 working_dir.as_deref(),
+                sort_order,
             ],
         )?;
 
@@ -148,6 +180,7 @@ impl ProjectDB {
             working_dir,
             created_at: now,
             updated_at: now,
+            sort_order,
             archived: false,
         })
     }
@@ -163,7 +196,7 @@ impl ProjectDB {
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir
+                        working_dir, sort_order
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -290,7 +323,7 @@ impl ProjectDB {
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir
+                        working_dir, sort_order
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -348,6 +381,64 @@ impl ProjectDB {
         Ok(out)
     }
 
+    /// Persist the sidebar project order. The input may include a subset of
+    /// active project ids; any omitted active projects keep their relative
+    /// order and are appended after the supplied sequence.
+    pub fn reorder(&self, project_ids: &[String]) -> Result<()> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let mut seen = HashSet::new();
+        for id in project_ids {
+            if !seen.insert(id.as_str()) {
+                anyhow::bail!("duplicate project id in reorder request: {}", id);
+            }
+        }
+
+        let tx = conn.transaction()?;
+        let existing: Vec<String> = {
+            let mut stmt = tx.prepare(
+                "SELECT id FROM projects
+                 WHERE archived = 0
+                 ORDER BY sort_order ASC, updated_at DESC, created_at DESC",
+            )?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            let mut ids = Vec::new();
+            for row in rows {
+                ids.push(row?);
+            }
+            ids
+        };
+        let existing_set: HashSet<&str> = existing.iter().map(String::as_str).collect();
+        for id in project_ids {
+            if !existing_set.contains(id.as_str()) {
+                anyhow::bail!("project not found or archived: {}", id);
+            }
+        }
+
+        let mut ordered = Vec::with_capacity(existing.len());
+        for id in project_ids {
+            ordered.push(id.clone());
+        }
+        for id in existing {
+            if !seen.contains(id.as_str()) {
+                ordered.push(id);
+            }
+        }
+
+        for (idx, id) in ordered.iter().enumerate() {
+            tx.execute(
+                "UPDATE projects SET sort_order = ?1 WHERE id = ?2",
+                params![((idx as i64) + 1) * 1024, id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// List all projects with aggregated counts.
     /// `include_archived = false` hides archived projects.
     ///
@@ -383,7 +474,7 @@ impl ProjectDB {
         let sql = format!(
             "SELECT p.id, p.name, p.description, p.instructions, p.emoji, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
-                    p.logo, p.working_dir,
+                    p.logo, p.working_dir, p.sort_order,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
                     (SELECT COUNT(*)
                        FROM messages m
@@ -399,7 +490,7 @@ impl ProjectDB {
                         AND COALESCE(m.source, 'desktop') != 'channel') AS unread_count
              FROM projects p
              {}
-             ORDER BY p.updated_at DESC",
+             ORDER BY p.sort_order ASC, p.updated_at DESC",
             where_sql
         );
 
@@ -408,8 +499,8 @@ impl ProjectDB {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
-                session_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
-                unread_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
+                session_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
+                unread_count: row.get::<_, i64>(15).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
@@ -439,7 +530,17 @@ fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
         archived: row.get::<_, i64>(10).unwrap_or(0) != 0,
         logo: row.get::<_, Option<String>>(11).unwrap_or(None),
         working_dir: row.get::<_, Option<String>>(12).unwrap_or(None),
+        sort_order: row.get::<_, i64>(13).unwrap_or(0),
     })
+}
+
+fn next_project_sort_order(conn: &rusqlite::Connection) -> Result<i64> {
+    let min_order: Option<i64> = conn.query_row(
+        "SELECT MIN(sort_order) FROM projects WHERE archived = 0",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(min_order.unwrap_or(2048) - 1024)
 }
 
 /// Maximum accepted length of a logo data URL (512 KB). Frontend is expected
@@ -561,6 +662,74 @@ mod tests {
         let project_db = ProjectDB::new(session_db);
         project_db.migrate().expect("first migrate");
         project_db.migrate().expect("second migrate (idempotent)");
+    }
+
+    #[test]
+    fn reorder_projects_persists_sidebar_order() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+        {
+            let conn = session_db.conn.lock().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL, account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL, thread_id TEXT,
+                    session_id TEXT NOT NULL, chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+                );",
+            )
+            .unwrap();
+        }
+        let project_db = ProjectDB::new(session_db);
+        project_db.migrate().expect("migrate");
+
+        let create = |name: &str| {
+            project_db
+                .create(CreateProjectInput {
+                    name: name.into(),
+                    description: None,
+                    instructions: None,
+                    emoji: None,
+                    logo: None,
+                    color: None,
+                    default_agent_id: None,
+                    default_model_id: None,
+                    working_dir: None,
+                })
+                .expect("create project")
+        };
+
+        let a = create("A");
+        let b = create("B");
+        let c = create("C");
+
+        // Partial reorder: omitted active projects keep their existing relative
+        // order and are appended after the supplied ids.
+        project_db
+            .reorder(&[a.id.clone(), c.id.clone()])
+            .expect("reorder projects");
+
+        let names: Vec<String> = project_db
+            .list(false, None)
+            .expect("list projects")
+            .into_iter()
+            .map(|p| p.project.name)
+            .collect();
+        assert_eq!(names, vec!["A", "C", "B"]);
+
+        project_db
+            .reorder(&[b.id.clone(), a.id.clone(), c.id.clone()])
+            .expect("reorder projects again");
+        let names: Vec<String> = project_db
+            .list(false, None)
+            .expect("list projects")
+            .into_iter()
+            .map(|p| p.project.name)
+            .collect();
+        assert_eq!(names, vec!["B", "A", "C"]);
     }
 
     /// §3 regression: a project-bound cron run persists assistant rows with

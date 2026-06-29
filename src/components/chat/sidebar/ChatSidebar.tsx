@@ -71,6 +71,7 @@ export default function ChatSidebar({
   onEditAgent,
   onToggleSessionPinned,
   onReorderAgents,
+  onReorderProjects,
   onMarkAllRead,
   onRenameSession,
   hasMoreSessions,
@@ -567,6 +568,7 @@ export default function ChatSidebar({
                       onOpenProjectSettings={(p) => onOpenProjectSettings?.(p)}
                       onNewChatInProject={(pid, opts) => onNewChatInProject?.(pid, opts)}
                       onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
+                      onReorderProjects={onReorderProjects}
                       onSwitchSession={onSwitchSession}
                       onDeleteSession={handleDeleteClick}
                       onMarkAllRead={onMarkAllRead}
