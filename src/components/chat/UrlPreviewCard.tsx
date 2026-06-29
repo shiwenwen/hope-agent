@@ -2,6 +2,7 @@ import { useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { X, ExternalLink, Globe } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useSafeFavicon } from "@/hooks/useSafeFavicon"
 
 export interface UrlPreviewData {
   url: string
@@ -42,11 +43,14 @@ export default function UrlPreviewCard({
 }: UrlPreviewCardProps) {
   const [faviconError, setFaviconError] = useState(false)
   const [imageError, setImageError] = useState(false)
+  const safeFaviconUrl = useSafeFavicon(data?.finalUrl || data?.url)
 
   if (!data) return <SkeletonCard />
 
   // Don't render if there's no meaningful content
   if (!data.title && !data.description) return null
+
+  const faviconUrl = data.favicon?.startsWith("data:image/") ? data.favicon : safeFaviconUrl
 
   const handleClick = () => {
     getTransport().call("open_url", { url: data.finalUrl || data.url })
@@ -68,9 +72,9 @@ export default function UrlPreviewCard({
     >
       {/* Favicon */}
       <div className="shrink-0 pt-0.5">
-        {data.favicon && !faviconError ? (
+        {faviconUrl && !faviconError ? (
           <img
-            src={data.favicon}
+            src={faviconUrl}
             alt=""
             className="size-4 rounded-sm object-contain"
             onError={() => setFaviconError(true)}

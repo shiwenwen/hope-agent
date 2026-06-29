@@ -54,6 +54,7 @@ import { basename } from "@/lib/path"
 import { logger } from "@/lib/logger"
 import { useAppVersion } from "@/lib/appMeta"
 import { openExternalUrl } from "@/lib/openExternalUrl"
+import { useSafeFavicon } from "@/hooks/useSafeFavicon"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import {
@@ -299,6 +300,7 @@ function FileRow({
 
 function SourceRow({ source }: { source: SessionUrlSource }) {
   const { t } = useTranslation()
+  const faviconUrl = useSafeFavicon(source.url)
   return (
     <IconTip label={source.url}>
       <button
@@ -306,7 +308,15 @@ function SourceRow({ source }: { source: SessionUrlSource }) {
         onClick={() => openExternalUrl(source.url)}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/45"
       >
-        <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        {faviconUrl ? (
+          <img
+            src={faviconUrl}
+            alt=""
+            className="h-3.5 w-3.5 shrink-0 rounded-[3px] bg-background/70 object-contain"
+          />
+        ) : (
+          <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
         <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{domainOf(source.url)}</span>
         {source.origin === "web_search" && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">

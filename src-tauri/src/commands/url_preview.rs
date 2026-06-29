@@ -7,6 +7,11 @@ pub async fn fetch_url_preview(url: String) -> Result<url_preview::UrlPreviewMet
 }
 
 #[tauri::command]
+pub async fn fetch_url_favicon(url: String) -> Result<Option<url_preview::FaviconData>, CmdError> {
+    url_preview::fetch_favicon(&url).await.map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn fetch_url_previews(
     urls: Vec<String>,
 ) -> Result<Vec<url_preview::UrlPreviewMeta>, CmdError> {

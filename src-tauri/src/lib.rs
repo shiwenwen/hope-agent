@@ -801,6 +801,7 @@ pub fn run() {
             commands::acp_control::acp_set_config,
             // URL preview
             commands::url_preview::fetch_url_preview,
+            commands::url_preview::fetch_url_favicon,
             commands::url_preview::fetch_url_previews,
             // Embedded browser
             commands::browser::browser_get_status,

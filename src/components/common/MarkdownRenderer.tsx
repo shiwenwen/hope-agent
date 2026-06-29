@@ -38,6 +38,8 @@ import "streamdown/styles.css"
 import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
 import { basename } from "@/lib/path"
+import { faviconPageUrlForHref } from "@/lib/favicon"
+import { useSafeFavicon } from "@/hooks/useSafeFavicon"
 import { findAutoLinkMatches } from "@/lib/autoLink"
 import { shouldRenderAsBareJson } from "./markdownJson"
 import { useFileActions } from "@/components/chat/files/useFileActions"
@@ -114,6 +116,8 @@ const streamingAnimation: AnimateOptions = {
 // 长中文尤其致命（一段 = 上千 span）。超过该阈值就关掉逐字动画：仍按流式渲染、
 // 保留 incomplete-markdown 处理，只是不再逐字渐显，长回复换来平滑出字。
 const ANIMATE_MAX_CHARS = 4000
+const MARKDOWN_FAVICON_BUDGET_KEY = "markdown-links"
+const MARKDOWN_FAVICON_MAX_REQUESTS = 48
 
 // Streamdown 默认 linkSafety 弹窗的 "Open link" 按钮调用 window.open，
 // Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
@@ -269,6 +273,8 @@ const CODE_EXTENSIONS = new Set([
   "vue",
 ])
 
+const WEB_PAGE_EXTENSIONS = new Set(["asp", "aspx", "htm", "html", "jsp", "php"])
+
 type LinkKind =
   | "anchor"
   | "archive"
@@ -304,6 +310,7 @@ function hrefExtension(href: string): string | null {
 function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo | null {
   if (!href || href === "streamdown:incomplete-link") return null
   const extension = hrefExtension(href)
+  const faviconPageUrl = faviconPageUrlForHref(href)
   if (extension === "pdf") return { Icon: FileText, kind: "pdf" }
   if (extension && IMAGE_EXTENSIONS.has(extension)) return { Icon: FileImage, kind: "image" }
   if (extension && AUDIO_EXTENSIONS.has(extension)) return { Icon: FileAudio, kind: "audio" }
@@ -316,14 +323,84 @@ function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo
     return { Icon: FileType, kind: "presentation" }
   }
   if (extension && DOCUMENT_EXTENSIONS.has(extension)) return { Icon: FileType, kind: "document" }
+  if (faviconPageUrl && (!extension || WEB_PAGE_EXTENSIONS.has(extension))) {
+    return { Icon: Globe, kind: "web" }
+  }
   if (extension && CONFIG_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "config" }
   if (extension && DATA_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "data" }
   if (extension && CODE_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "code" }
   if (local) return { Icon: FolderOpen, kind: "folder" }
   if (href.startsWith("mailto:")) return { Icon: Mail, kind: "mail" }
   if (href.startsWith("#")) return { Icon: Hash, kind: "anchor" }
-  if (/^https?:\/\//i.test(href)) return { Icon: Globe, kind: "web" }
+  if (faviconPageUrl) return { Icon: Globe, kind: "web" }
   return { Icon: Link2, kind: "link" }
+}
+
+function MarkdownLinkIcon({ icon }: { icon: LinkIconInfo }) {
+  const Icon = icon.Icon
+  return <Icon aria-hidden="true" className="markdown-link-icon" />
+}
+
+function MarkdownWebLinkIcon({
+  href,
+  enabled,
+}: {
+  href: string | undefined
+  enabled: boolean
+}) {
+  const faviconDataUrl = useSafeFavicon(href, {
+    enabled,
+    budgetKey: MARKDOWN_FAVICON_BUDGET_KEY,
+    maxRequests: MARKDOWN_FAVICON_MAX_REQUESTS,
+  })
+  if (faviconDataUrl) {
+    return (
+      <img
+        aria-hidden="true"
+        alt=""
+        className="markdown-link-icon markdown-link-favicon"
+        src={faviconDataUrl}
+      />
+    )
+  }
+  return <Globe aria-hidden="true" className="markdown-link-icon" />
+}
+
+function MarkdownWebLink({
+  href,
+  children,
+  className,
+  linkIcon,
+  isIncomplete,
+  ...rest
+}: MarkdownAnchorProps & { linkIcon: LinkIconInfo; isIncomplete: boolean }) {
+  const [faviconArmed, setFaviconArmed] = useState(false)
+  return (
+    <a
+      {...rest}
+      href={href}
+      className={cn("wrap-anywhere markdown-link font-medium", className)}
+      data-incomplete={isIncomplete || undefined}
+      data-link-kind={linkIcon.kind}
+      data-streamdown="link"
+      onClick={(event) => {
+        if (!href || isIncomplete) return
+        event.preventDefault()
+        openExternalUrl(href)
+      }}
+      onFocus={(event) => {
+        setFaviconArmed(true)
+        rest.onFocus?.(event)
+      }}
+      onMouseEnter={(event) => {
+        setFaviconArmed(true)
+        rest.onMouseEnter?.(event)
+      }}
+    >
+      <MarkdownWebLinkIcon href={href} enabled={faviconArmed} />
+      <span className="markdown-link-label">{children}</span>
+    </a>
+  )
 }
 
 type MarkdownAnchorProps = AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }
@@ -378,7 +455,19 @@ export function MarkdownLink({
     )
   }
   const linkIcon = linkIconForHref(href, false)
-  const LinkIcon = linkIcon?.Icon
+  if (linkIcon?.kind === "web") {
+    return (
+      <MarkdownWebLink
+        {...rest}
+        href={href}
+        className={className}
+        linkIcon={linkIcon}
+        isIncomplete={isIncomplete}
+      >
+        {children}
+      </MarkdownWebLink>
+    )
+  }
   // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百 anchor，
   // 包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。
   return (
@@ -395,7 +484,7 @@ export function MarkdownLink({
         openExternalUrl(href)
       }}
     >
-      {LinkIcon && <LinkIcon aria-hidden="true" className="markdown-link-icon" />}
+      {linkIcon && <MarkdownLinkIcon icon={linkIcon} />}
       <span className="markdown-link-label">{children}</span>
     </a>
   )
@@ -418,7 +507,6 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   )
   const { primary, run } = useFileActions(target)
   const linkIcon = linkIconForHref(href, true)
-  const LinkIcon = linkIcon?.Icon
   return (
     <FileContextMenu target={target}>
       <a
@@ -433,7 +521,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           run(primary)
         }}
       >
-        {LinkIcon && <LinkIcon aria-hidden="true" className="markdown-link-icon" />}
+        {linkIcon && <MarkdownLinkIcon icon={linkIcon} />}
         <span className="markdown-link-label">{children}</span>
       </a>
     </FileContextMenu>

@@ -645,6 +645,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- URL preview --
   fetch_url_preview:               { method: "POST",   path: "/api/url-preview" },
+  fetch_url_favicon:               { method: "POST",   path: "/api/url-preview/favicon" },
   fetch_url_previews:              { method: "POST",   path: "/api/url-preview/batch" },
 
   // -- Embedded browser --

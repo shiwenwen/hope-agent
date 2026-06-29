@@ -454,6 +454,12 @@
   stroke-width: 2.35;
 }
 
+.markdown-content [data-streamdown="link"] .markdown-link-favicon {
+  border-radius: 0.18em;
+  object-fit: contain;
+  background: color-mix(in srgb, var(--color-background) 78%, transparent);
+}
+
 .markdown-content [data-streamdown="link"]:hover .markdown-link-icon {
   opacity: 1;
 }

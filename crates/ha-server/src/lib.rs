@@ -1494,6 +1494,10 @@ fn build_router_with_cors(
         // URL Preview
         .route("/url-preview", post(routes::url_preview::fetch_url_preview))
         .route(
+            "/url-preview/favicon",
+            post(routes::url_preview::fetch_url_favicon),
+        )
+        .route(
             "/url-preview/batch",
             post(routes::url_preview::fetch_url_previews),
         )

@@ -17,6 +17,13 @@ pub async fn fetch_url_preview(
     Ok(Json(url_preview::fetch_preview(&body.url).await?))
 }
 
+/// `POST /api/url-preview/favicon`
+pub async fn fetch_url_favicon(
+    Json(body): Json<SingleBody>,
+) -> Result<Json<Option<url_preview::FaviconData>>, AppError> {
+    Ok(Json(url_preview::fetch_favicon(&body.url).await?))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct BatchBody {
     pub urls: Vec<String>,
