@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "添加工作目录",
-    "askAnything": "告诉我你的想法，@ 找文件/笔记/技能，# 叫出快捷指令...",
+    "askAnything": "告诉我你的想法，@ 找文件/笔记/技能，# 快捷输入，/ 快捷指令...",
     "browserPanel": {
       "backendBadgeTooltip": "浏览器后端：{{backend}}",
       "captureFailed": "截图失败，等待下一帧",
@@ -366,13 +366,13 @@
     "copied": "已复制",
     "copy": "复制",
     "quickPrompts": {
-      "addAction": "添加到快捷指令",
-      "addFailed": "添加快捷指令失败",
-      "added": "已添加到快捷指令",
-      "duplicate": "这条快捷指令已经在小抄里了",
-      "empty": "还没有快捷指令。先从用户消息底部添加一条吧。",
-      "heading": "快捷指令",
-      "noMatches": "没有匹配的快捷指令"
+      "addAction": "添加到快捷输入",
+      "addFailed": "添加快捷输入失败",
+      "added": "已添加到快捷输入",
+      "duplicate": "这条快捷输入已经在小抄里了",
+      "empty": "还没有快捷输入。先从用户消息底部添加一条吧。",
+      "heading": "快捷输入",
+      "noMatches": "没有匹配的快捷输入"
     },
     "cronTaskStarted": "定时器触发了一个任务",
     "cronTrigger": "定时任务",

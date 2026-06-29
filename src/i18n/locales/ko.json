@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "작업 디렉터리 추가",
-    "askAnything": "아이디어를 말씀해 주세요. @로 파일/노트/스킬을 찾고, #로 빠른 지시를 불러오세요...",
+    "askAnything": "아이디어를 말씀해 주세요. @로 파일/노트/스킬, #로 빠른 입력, /로 빠른 명령...",
     "browserPanel": {
       "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
       "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",
@@ -366,13 +366,13 @@
     "copied": "복사됨",
     "copy": "복사",
     "quickPrompts": {
-      "addAction": "빠른 지시에 추가",
-      "addFailed": "빠른 지시 추가 실패",
-      "added": "빠른 지시에 추가됨",
-      "duplicate": "이미 저장된 빠른 지시입니다",
-      "empty": "아직 빠른 지시가 없습니다. 사용자 메시지 하단에서 하나 추가해 보세요.",
-      "heading": "빠른 지시",
-      "noMatches": "일치하는 빠른 지시가 없습니다"
+      "addAction": "빠른 입력에 추가",
+      "addFailed": "빠른 입력 추가 실패",
+      "added": "빠른 입력에 추가됨",
+      "duplicate": "이미 저장된 빠른 입력입니다",
+      "empty": "아직 빠른 입력이 없습니다. 사용자 메시지 하단에서 하나 추가해 보세요.",
+      "heading": "빠른 입력",
+      "noMatches": "일치하는 빠른 입력이 없습니다"
     },
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
     "cronTrigger": "예약 작업",
