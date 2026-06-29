@@ -195,7 +195,7 @@ hope-agent server [--bind 0.0.0.0:8420] [--api-key KEY]
 ### 3. ACP 模式
 
 ```
-hope-agent acp [--agent-id default] [--verbose]
+hope-agent acp [--agent-id ha-main] [--verbose]
 ```
 
 - stdio NDJSON JSON-RPC 协议

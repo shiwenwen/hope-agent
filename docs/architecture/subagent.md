@@ -166,8 +166,8 @@ flowchart TD
 3. 若有 `plan_agent_mode`，配置 Plan 模式 + allow_paths
 4. 若有 `skill_allowed_tools`，配置工具白名单
 5. 继承父 Agent 的 `denied_tools` + Plan 模式限制（防止子 Agent 绕过 Plan 安全）
-6. Failover 逻辑：遍历 model_chain，每个模型重试 `MAX_RETRIES=2` 次（指数退避 1s-10s）
-7. 每次 attempt 前检查 cancel flag，支持即时取消
+6. 解析 `model_chain`（`resolve_model_chain`）后委托 `crate::chat_engine::run_chat_engine`——**failover / 重试由 chat engine 内部承担**，`execute_subagent` 自身不跑模型轮换循环；全链失败映射为 `All models failed for sub-agent`
+7. cancel flag 经 `cancel: Arc<AtomicBool>` 传入引擎，在 tool loop 迭代与 API 调用前检查，支持即时取消
 8. `catch_unwind` 包裹整个执行，保证 panic 不会导致事件丢失
 
 ## 结果注入机制
@@ -357,7 +357,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 
 标记会话正在进行前台用户/cron 发起的 turn（注入靠它判定「忙时排队、空闲再注入」）：
 
-**创建点（R2 — 四入口统一）**：在共享的 `chat_engine::run_chat_engine` 入口按 `ChatSource::holds_foreground_idle_guard()`（`Desktop` / `Http` / `Channel`，cron turn 用 `Channel`）创建，使桌面 / HTTP / IM / cron 自动共享同一 idle 判定；ACP 直跑 `AssistantAgent::chat`（不经引擎），在其 turn 边界自建同一 guard。`ParentInjection`（注入自身——若建 guard 会经 `INJECTION_CANCELS` 自取消）/ `Subagent`（独立子会话）**不创建**。Tauri 壳额外保留一个更早创建的 guard，仅为「用户一发消息即取消在途注入」（早于本 turn preflight），靠下方引用计数与引擎 guard 安全重叠。**此前该 guard 只在 Tauri 壳创建 → 自托管 / IM / ACP 下 `ACTIVE_CHAT_SESSIONS` 恒为 0、注入撞活跃 turn（§5.4）**。
+**创建点（R2 — 四入口统一）**：在共享的 `chat_engine::run_chat_engine` 入口按 `ChatSource::holds_foreground_idle_guard()`（`Desktop` / `Http` / `Channel` / `Cron`，cron turn 用专属 `ChatSource::Cron`）创建，使桌面 / HTTP / IM / cron 自动共享同一 idle 判定；ACP 直跑 `AssistantAgent::chat`（不经引擎），在其 turn 边界自建同一 guard。`ParentInjection`（注入自身——若建 guard 会经 `INJECTION_CANCELS` 自取消）/ `Subagent`（独立子会话）**不创建**。Tauri 壳额外保留一个更早创建的 guard，仅为「用户一发消息即取消在途注入」（早于本 turn preflight），靠下方引用计数与引擎 guard 安全重叠。**此前该 guard 只在 Tauri 壳创建 → 自托管 / IM / ACP 下 `ACTIVE_CHAT_SESSIONS` 恒为 0、注入撞活跃 turn（§5.4）**。
 
 **构造时 (`new`)**：
 1. `ACTIVE_CHAT_SESSIONS[session_id]` 引用计数 `+1`（`HashMap<String, usize>`，支持同会话多 guard 重叠）
@@ -426,7 +426,7 @@ R7.1 的队列（`async_jobs/slots.rs`）在 `PreparedJob` 里钉死一份 live 
 |------|------|
 | `crates/ha-core/src/subagent/mod.rs` | 模块入口、常量（DEFAULT_MAX_DEPTH/DEFAULT_MAX_CONCURRENT_PER_SESSION 等）、7 个全局 LazyLock 静态量、re-exports |
 | `crates/ha-core/src/subagent/types.rs` | SubagentRun / SpawnParams / SubagentStatus / SubagentEvent / ParentAgentStreamEvent 定义 |
-| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验 +（排队 \| `launch_subagent_run()`）入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
+| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验 +（排队 \| `launch_subagent_run()`）入口、`execute_subagent()` 解析 model_chain 后委托 `run_chat_engine`（failover/重试在引擎内）+ plan mode 继承 |
 | `crates/ha-core/src/subagent/queue.rs` | （R7.2）`PendingSubagentSpawn` 等待队列 + per-session 提升调度器（`enqueue` / `remove_for_run` / `purge_for_session` / `run_subagent_scheduler` / `promote`）|
 | `crates/ha-core/src/subagent/injection.rs` | `inject_and_run_parent()` 等待空闲+恢复历史+流式注入、`PendingInjection` 队列、`flush_pending_injections()` 串行重试、`build_subagent_push_message()` 格式化 |
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |

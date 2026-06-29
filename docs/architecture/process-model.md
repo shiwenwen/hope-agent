@@ -126,7 +126,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 `init_runtime()` 起手就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-core/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：
 
 - **Unix**：`flock(LOCK_EX | LOCK_NB)`，文件 fd 带 `O_CLOEXEC` 防 Guardian fork 继承
-- **Windows**：`OpenOptions::share_mode(0)`（`FILE_SHARE_NONE`）+ `FILE_FLAG_NO_INHERIT_HANDLE`
+- **Windows**：`OpenOptions::share_mode(FILE_SHARE_READ)` 写独占（挡其它 writer 的 ERROR_SHARING_VIOLATION，但放行同进程只读诊断 `current_holder()`，故不用 `FILE_SHARE_NONE`）+ `FILE_FLAG_NO_INHERIT_HANDLE`
 - **共同**：进程退出 / panic / SIGKILL / 断电时 OS 自动释放，无 heartbeat 调度依赖
 
 第一个抢到的进程是 **Primary**，第二个起来的是 **Secondary**。模式不参与（first-come-first-served）：单跑 ACP 时 ACP 自然成为 Primary 并完成 cleanup；桌面 + ACP 共存时桌面通常先抢，ACP 退让为 Secondary。
@@ -211,7 +211,7 @@ ACP minimal 的"少做"主要是后台 tier 选择（不跑 cron / dreaming / ch
 
 ### D3 · 一次性系统注册（不拉起进程，只落配置）
 
-`hope-agent server install` 把 [`service_install.rs`](../../crates/ha-core/src/service_install.rs) 的 plist / unit 写入系统，由 launchd / systemd 真正去执行 `hope-agent server start`：
+`hope-agent server install` 把 [`platform/service.rs`](../../crates/ha-core/src/platform/service.rs) 的 plist / unit 写入系统（`service_install.rs` 仅是转发到 `platform::service` 的兼容薄壳），由 launchd / systemd 真正去执行 `hope-agent server start`：
 
 - macOS：`~/Library/LaunchAgents/ai.hopeagent.server.plist`（label = `SERVICE_LABEL` 常量）
 - Linux：`~/.config/systemd/user/hope-agent.service`

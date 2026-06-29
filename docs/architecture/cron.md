@@ -275,23 +275,15 @@ flowchart TD
     D -->|session 创建失败，turn 未起跑| INF[record_failure count_toward_disable=false<br/>→ reschedule_without_failure<br/>推进 next_run_at、不 bump、不禁用]
     D -->|ok| DR[add_running_run_log<br/>status=running、finished_at=NULL<br/>崩溃留痕]
     DR --> E[tokio::time::timeout<br/>job.job_timeout_secs 覆盖 else 全局<br/>默认 600、钳 30-7200]
-    E --> F[build_and_run_agent]
+    E --> F[build_and_run_agent_with_context]
 
-    F --> G[load_config + resolve_model_chain]
+    F --> G[load_config + resolve_model_chain<br/>注入 cron 执行上下文]
     G --> H{model_chain 为空?}
     H -->|是| H1[返回 Err:<br/>No model configured]
-    H -->|否| I[遍历 model_chain]
+    H -->|否| I[run_chat_engine engine_params<br/>模型链遍历 / classify_error / 重试 / 模型轮换<br/>全在 ChatEngine + failover/executor.rs]
 
-    I --> J[创建 AssistantAgent<br/>注入 cron 执行上下文]
-    J --> K[agent.chat<br/>prompt, cancel=AtomicBool]
-
-    K -->|成功| L[返回 Ok response]
-    K -->|失败| M{classify_error}
-    M -->|Terminal| M1[立即返回 Err]
-    M -->|Retryable & 重试次数 < 2| N[指数退避 1s-10s<br/>retry_count++]
-    N --> J
-    M -->|Non-retryable 或重试耗尽| O[尝试下一个模型]
-    O --> I
+    I -->|成功| L[返回 Ok response]
+    I -->|失败| M1[返回 Err]
 
     E -->|超时| TO[置 cancel_flag + 等 5s 宽限<br/>resolve_after_timeout_grace .., user_cancelled_pre_timeout<br/>未取消且期内非空 Ok→Ok；否则含超时前已取消→Err timeout]
 
@@ -466,11 +458,11 @@ backoff_delay_ms = base_ms * 2^min(consecutive_failures, 20)
 
 ## Failover 策略
 
-`build_and_run_agent` 复用 ChatEngine 的模型链重试逻辑：
+`build_and_run_agent_with_context` 只负责 `resolve_model_chain` 构建模型链 + 一次性交给 `run_chat_engine`；模型链遍历、错误分类、重试与模型轮换全在 ChatEngine（`failover/executor.rs`）里完成，cron 不再内联任何 `classify_error` / 重试循环：
 
 | 错误分类 | 处理方式 |
 |----------|----------|
-| Terminal（ContextOverflow） | 立即返回错误，不尝试其他模型 |
+| ContextOverflow | 不再是 terminal——经 `needs_compaction()` 触发上下文压缩后重试（`is_terminal()` 恒返回 `false`，无错误立即终止其他模型尝试的情形） |
 | Retryable（RateLimit / Overloaded / Timeout） | 同模型重试最多 `MAX_RETRIES=2` 次，指数退避 `retry_delay_ms(attempt, 1000, 10000)` |
 | Non-retryable（Auth / Billing / ModelNotFound / Unknown） | 跳过当前模型，尝试链中下一个 |
 

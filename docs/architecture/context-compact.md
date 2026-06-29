@@ -147,7 +147,7 @@ priority = age × 0.6 + size × 0.4
 **流程**：
 1. **split_for_summarization**：从同一个 `BoundarySnapshot` 派生 `SummarizeUnderPressure` 边界作为分割点；普通短回合尽量扩到所属 user turn 起点，若普通边界 fail-closed 且已触发摘要压力，则保留最近 live round、摘要更早 prefix
 2. **build_summarization_prompt**：构建摘要指令，包含标识符保留策略
-3. LLM 调用（`summarization_timeout_secs` 默认 60s 超时，`summary_max_tokens` 默认 4096）
+3. LLM 调用（`summarization_timeout_secs` 默认 300s 超时，`summary_max_tokens` 默认 4096）
 4. **apply_summary**：用摘要消息替换旧历史，保留最近的消息
 
 **摘要 System Prompt 要求保留**：
@@ -438,7 +438,7 @@ calibrated_estimate = raw_estimate × calibration_factor
 | `identifierPolicy` | `String` | `"strict"` | 标识符保留策略。`"strict"`：摘要中严格保留所有不透明标识符（UUID/hash/ID/token/URL/文件名等）不缩短不重构；`"off"`：不做特殊保留；`"custom"`：使用 `identifierInstructions` 自定义指令 |
 | `identifierInstructions` | `Option<String>` | — | 自定义标识符保留指令，仅当 `identifierPolicy` 为 `"custom"` 时生效 |
 | `customInstructions` | `Option<String>` | — | 追加到摘要 prompt 的自定义指令。可用于指导 LLM 摘要时特别关注或保留某些信息 |
-| `summarizationTimeoutSecs` | `u64` | `60` | 摘要 LLM 调用的超时时间（秒）。超时后摘要失败，保持原始历史不变 |
+| `summarizationTimeoutSecs` | `u64` | `300` | 摘要 LLM 调用的超时时间（秒），为对话模型摘要预留更长超时。超时后摘要失败，保持原始历史不变 |
 | `summaryMaxTokens` | `u32` | `4096` | 摘要 LLM 调用的最大输出 token 数 |
 | `maxHistoryShare` | `f64` | `0.5` | 裁剪时历史消息最大允许占用的上下文窗口比例 |
 | `maxCompactionSummaryChars` | `usize` | `16000` | 摘要文本的最大字符数，超出截断并追加 `[truncated]` 标记。范围 `4000–64000`：调高可保留更完整的摘要上下文（适合复杂长对话），但摘要本身也会占用更多上下文预算 |

@@ -229,6 +229,6 @@ category `async_tools`，归 **MEDIUM**，GUI 走专用 `save_async_tools_config
 ## 诊断
 
 - 生命周期日志 `category='async_jobs'`（**非** `background_jobs`）；EventBus 用 `job:*`；watcher lag 日志 source `approval_projection`。
-- 表/文件 `~/.hope-agent/background_jobs.db`（表 `background_jobs`）；spool 在 `~/.hope-agent/async_jobs/`。
+- 表/文件 `~/.hope-agent/background_jobs.db`（表 `background_jobs`）；结果 spool 在 `~/.hope-agent/background_jobs/`（`paths::background_jobs_dir`，per-job `{job_id}.txt`）。`~/.hope-agent/async_jobs/` 是 pre-R1 legacy 目录，启动时尽力删除。
 - stale-schema 探针 `SELECT group_id`（最新列）；升级时 pre-R5 表 + legacy `async_jobs.db` 尽力 drop（纯缓存，无迁移）。
 - 子系统速查见 [`diagnostic-playbook.md`](../../skills/ha-self-diagnosis/references/diagnostic-playbook.md)（R1 命名分裂 / R5 Group / R6 投影 / R7.2 排队 / R8 审批投影 的故障 gotcha）。

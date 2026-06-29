@@ -31,7 +31,7 @@
 | [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
 | [文件操作统一](architecture/file-operations.md)     | 三处文件（Markdown 链接 / 下挂文件 / 工作台产物）统一操作策略、本机 vs 远端行为矩阵、右侧内置预览面板、preview-by-path 双壳后端与会话鉴权 | `lib/fileActions.ts`, `lib/fileKind.ts`, `components/chat/files/`, `filesystem/ops.rs` |
 | [浏览器自动化](architecture/browser.md)            | 8-action 表面、CDP / chrome-devtools-mcp 双 backend、stale-ref 自恢复、BrowserPanel 实时镜像、SSRF 守卫 | `browser/`, `tools/browser/`, `browser_state.rs`, `components/chat/BrowserPanel.tsx` |
-| [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `mac_control/`, `tools/mac_control.rs`, `src-tauri/src/macos_control.rs` |
+| [macOS 控制](architecture/macos-control.md)        | 原生 macOS GUI 控制子系统：权限 readiness、AX snapshot、display/window 截图、App/窗口/元素/菜单/dialog 操作与审批分类 | `mac_control.rs`, `tools/mac_control.rs`, `src-tauri/src/macos_control.rs` |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、mid-loop checkpoint、runtime ledger 与文件恢复 | `context_compact/` / `agent/context.rs`        |
 | [Session 系统](architecture/session.md)          | 会话 + 消息持久化、FTS5 搜索、无痕会话关闭即焚、会话级工作目录、自动会话标题、Subagent/ACP 运行记录 | `session/`, `session_title.rs`                 |
 | [Project 系统](architecture/project.md)          | 会话分组容器、项目记忆/工作目录/指令、7 级 Agent 解析、`/project` 命令、侧边栏树状渲染 | `project/`                                     |
@@ -82,6 +82,7 @@
 | [Recap 深度复盘](architecture/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 | [可靠性与崩溃自愈](architecture/reliability.md) | Guardian 父子三层保活、退出码协议、Crash Journal、Self-Diagnosis prompt + Auto-Fix 覆盖范围、子系统 watchdog | `guardian.rs`, `crash_journal.rs`, `self_diagnosis.rs`, `service_install.rs` |
+| [自诊断与问题上报](architecture/self-diagnosis-issue-reporting.md) | 对话式自我理解：`ha-self-diagnosis` 技能（fork 隔离的自学习 / 排障流程）+ `issue_report` 工具，用户/会话触发、不跑后台健康扫描 | `tools/issue_report.rs`, `skills/ha-self-diagnosis/` |
 | [配置系统](architecture/config-system.md)     | `cached_config` / `mutate_config`、ArcSwap 快照、写锁串行化、`config:changed` 事件 | `config/`               |
 | [安全子系统](architecture/security.md)         | SSRF 三档 policy、`trusted_hosts`、Metadata IP 硬拒、Dangerous Mode (YOLO)、HTTP 响应封顶 | `security/`             |
 | [跨平台抽象层](architecture/platform.md)       | OS 适配入口集合（进程组 kill、安全文件写、shell 命令、系统代理探测、Chrome 定位、advisory lock、GPU 探测、原子 binary swap 等）、Unix/Windows 双实现 | `platform/`             |
@@ -110,9 +111,7 @@
 
 ## 发版说明（Release Notes）
 
-| 版本 | 中文 | 英文 |
-| --- | --- | --- |
-| v0.1.0 | [v0.1.0.md](release-notes/v0.1.0.md) | [v0.1.0.en.md](release-notes/v0.1.0.en.md) |
+逐版本发版说明（中英双份 `vX.Y.Z.md` / `vX.Y.Z.en.md`）见 [release-notes/](release-notes/) 目录。
 
 > 任一改动需在同次提交内中英双份同步（AGENTS.md 强制约定）。完整发版流程（PR 工作流、tag 推送、cherry-pick backport、避坑速查）见 [release-process.md](release-process.md)。
 
@@ -127,7 +126,7 @@
 | 首次启动向导 | `crates/ha-core/src/onboarding/` | [前后端分离架构](architecture/backend-separation.md)、[进程与并发模型](architecture/process-model.md) |
 | Agent 配置/解析链 | `crates/ha-core/src/agent_config.rs`、`agent_loader.rs`、`agent/resolver.rs` | [Project 系统](architecture/project.md#agent-解析链5-级)、[提示词系统](architecture/prompt-system.md) |
 | Backup / Autosave | `crates/ha-core/src/backup.rs` | [配置系统](architecture/config-system.md)、[可靠性与崩溃自愈](architecture/reliability.md) |
-| Browser 子系统（CDP） | `crates/ha-core/src/browser_state.rs`、`browser_ui.rs`、`tools/browser/` | [工具系统](architecture/tool-system.md)、[跨平台抽象层](architecture/platform.md) |
+| 语音转写（STT） | `crates/ha-core/src/stt/` | [Provider 系统](architecture/provider-system.md)（独立 config bucket / provider 列表 / engine trait，与主 LLM provider 列表隔离） |
 | 主 LLM OAuth | `crates/ha-core/src/oauth.rs` | [Provider 系统](architecture/provider-system.md)（与 [MCP 客户端](architecture/mcp.md) 的 OAuth 实现互不共用） |
 | 系统权限（macOS） | `crates/ha-core/src/permissions.rs` | [跨平台抽象层](architecture/platform.md) |
 | OpenClaw 导入 | `crates/ha-core/src/openclaw_import/` | [API 参考](architecture/api-reference.md) |

@@ -49,21 +49,22 @@ pub struct CacheSafeParams {
 
 ## side_query() 流程
 
-`side_query()` 自身只做"取快照 + 构 client + 调 adapter"三步——所有 Provider 特异性都在 [`agent/llm_adapter.rs`](../../crates/ha-core/src/agent/llm_adapter.rs) 的 `LlmApiAdapter` trait 实现里。`summarize_direct()` 复用同一组 adapter，仅传不同的 `OneShotRequest`（`system_override` 字段决定走哪条分支）。
+`side_query()` 自身只做"取快照 + 构 client + 调 adapter"三步——所有 Provider 特异性都在 [`agent/llm_adapter.rs`](../../crates/ha-core/src/agent/llm_adapter.rs) 的 `LlmApiAdapter` trait 实现里。`summarize_direct()` 复用同一组 adapter，仅传不同的 `OneShotRequest`（`mode: OneShotMode` 字段决定走哪条分支）。`OneShotMode` 是三态枚举：`Cached(&CacheSafeParams)`（复用前缀缓存）/ `Independent { system }`（独立 system，summarize_direct 走此）/ `Bare`（仅 instruction）。
 
 ```mermaid
 flowchart TD
     A["side_query(instruction, max_tokens)"] --> B["构建 reqwest::Client<br/>apply_proxy() 应用代理配置"]
     B --> C["Arc::clone() 获取<br/>cache_safe_params"]
     C --> D["self.provider.as_adapter()"]
-    D --> E["adapter.one_shot(client,<br/>OneShotRequest { instruction, max_tokens,<br/>cached, system_override: None })"]
+    D --> E["adapter.one_shot(client,<br/>OneShotRequest { instruction, max_tokens, mode })"]
 
-    E --> F{"system_override?<br/>(summarize_direct 为 Some)"}
-    F -- "Some(sys)" --> G["独立 system 路径<br/>system=sys + 单条 user message<br/>不带 tools / history"]
-    F -- "None" --> H{"cached.filter(format == 匹配)?"}
+    E --> F{"mode?<br/>(summarize_direct 为 Independent)"}
+    F -- "Independent { system }" --> G["独立 system 路径<br/>system=sys + 单条 user message<br/>不带 tools / history"]
+    F -- "Cached(params)" --> H{"mode.cached_for(format) 匹配?"}
+    F -- "Bare" --> J["Bare fallback<br/>仅 instruction 作为 user message"]
 
     H -- "Some(params)" --> I["Cache-friendly 路径<br/>复用 system + tools + history 前缀<br/>push_user_message(instruction)"]
-    H -- "None" --> J["Bare fallback<br/>仅 instruction 作为 user message"]
+    H -- "None（format 不匹配）" --> J
 
     G --> K["send_json_request()<br/>POST + JSON + 自定义 headers"]
     I --> K
@@ -113,7 +114,7 @@ flowchart TD
 | 文本提取 | `choices[0].message.content` |
 | usage 字段 | `prompt_tokens` + `completion_tokens` + `prompt_tokens_details.cached_tokens` |
 
-### OpenAI Responses / Codex（共享 `side_query_responses()`）
+### OpenAI Responses / Codex（共享 `build_responses_body()`）
 
 | 特性 | OpenAI Responses | Codex |
 |------|-----------------|-------|
@@ -161,7 +162,7 @@ OpenAI 对相同前缀的请求自动缓存，cached tokens 按 50% 折扣计费
 | 条件 | 行为 | 影响 |
 |------|------|------|
 | `cache_safe_params` 为 `None` | 发送最简请求：仅 `instruction` 作为 user message | 功能正常，无成本优化 |
-| `provider_format` 不匹配 | `cached.filter()` 返回 `None`，同上 | 功能正常，无成本优化 |
+| `provider_format` 不匹配 | `mode.cached_for(format)` 返回 `None`，回退 Bare 形状 | 功能正常，无成本优化 |
 | API 请求失败（非 2xx） | 返回 `Err(anyhow)` | 调用方处理，通常降级为不使用侧查询结果 |
 | 旧会话无快照 | 退化为普通请求 | 功能不受影响，仅缺少缓存优化 |
 | Anthropic cache 过期（>5min） | 请求正常但无 cache hit | 按全价计费，功能不受影响 |
@@ -198,7 +199,7 @@ pub struct ChatUsage {
 |------|------|------|
 | Side Query 入口 | `crates/ha-core/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()`（薄壳，委托给 adapter） |
 | LLM Adapter | `crates/ha-core/src/agent/llm_adapter.rs` | `LlmApiAdapter` trait + 4 个 Provider adapter + 共享 helpers（`send_json_request` / 5 个 `extract_*`）；`LlmProvider::as_adapter()` 入口 |
-| 摘要直连 | `crates/ha-core/src/agent/context.rs::summarize_direct()` | Tier 3 fallback 路径，复用同一 adapter 走 `system_override` 分支 |
+| 摘要直连 | `crates/ha-core/src/agent/context.rs::summarize_direct()` | Tier 3 fallback 路径，复用同一 adapter 走 `OneShotMode::Independent` 分支 |
 | 类型定义 | `crates/ha-core/src/agent/types.rs` | `CacheSafeParams` / `ProviderFormat` / `SideQueryResult` / `ChatUsage` |
 | Provider 配置 | `crates/ha-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` / `CODEX_API_URL` |
 | 上下文压缩 | `crates/ha-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query / summarize_direct 执行 |
@@ -209,7 +210,7 @@ pub struct ChatUsage {
 
 `AssistantAgent` 通过 builder `with_failover_context(Arc<ProviderConfig>)` 注入源 ProviderConfig 后，`side_query()` 会在 `provider_config + session_id` 都齐备时把 one-shot 调用包到 `failover::execute_with_failover` 里走 `FailoverPolicy::side_query_default`（max_retries=1 + 允许 profile 轮换，低频后台路径不需要长退避）。
 
-每次 retry / 轮换：closure 拿到 `Option<&AuthProfile>` 后用 `AssistantAgent::build_llm_provider_with_profile(config, model_id, profile)` 重建一个临时 `LlmProvider`（owned api_key + base_url），再调 `as_adapter().one_shot(...)`。`cache_safe_params` 在外层 lock 一次 + clone Arc，每次 closure 调用 `Arc::clone` 是 pointer bump 不是 deep copy。Profile 轮换不破坏前缀缓存：单 key 限流时换到下一个 key，新请求按各 provider 的 prompt-cache 规则走（Anthropic 重新创建 cache，OpenAI 重新前缀匹配——这是底层语义，无 workaround）。
+每次 retry / 轮换：closure 拿到 `Option<&AuthProfile>` 后用 `AssistantAgent::build_llm_provider(config, model_id, profile)`（profile 是第三个参数）重建一个临时 `LlmProvider`（owned api_key + base_url），再调 `as_adapter().one_shot(...)`。`cache_safe_params` 在外层 lock 一次 + clone Arc，每次 closure 调用 `Arc::clone` 是 pointer bump 不是 deep copy。Profile 轮换不破坏前缀缓存：单 key 限流时换到下一个 key，新请求按各 provider 的 prompt-cache 规则走（Anthropic 重新创建 cache，OpenAI 重新前缀匹配——这是底层语义，无 workaround）。
 
 未注入 `provider_config` 的旧构造路径（`new_anthropic` 测试 / `new_openai` Codex OAuth）走 fast path —— 单次 direct one_shot，零 failover，行为完全等价改造前。
 

@@ -142,32 +142,20 @@ reqwest `redirect::Policy::custom` 的 callback 是同步上下文，没法 `.aw
 | 来源 | 持久化 | 设置入口 | 典型场景 |
 |---|---|---|---|
 | CLI flag `--dangerously-skip-all-approvals` | 进程内 `AtomicBool`，重启清零 | [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs) 启动早期 | 一次性脚本调用 / CI 环境 |
-| `AppConfig.dangerous_skip_all_approvals` | 持久化到 `config.json` | Settings UI / `update_settings(category="security")` | 高信任本地环境长开 |
+| `AppConfig.permission.global_yolo`（`PermissionGlobalConfig`） | 持久化到 `config.json` | Settings UI / `update_settings(category="security")`（写 `skipAllApprovals` 子字段映射到 `permission.global_yolo`） | 高信任本地环境长开 |
 
-唯一判定入口：[`security::dangerous::is_dangerous_skip_active()`](../../crates/ha-core/src/security/dangerous.rs)，禁止业务代码自己读 `cfg.dangerous_skip_all_approvals` 绕开 CLI flag 路径。
+唯一判定入口：[`security::dangerous::is_dangerous_skip_active()`](../../crates/ha-core/src/security/dangerous.rs)，禁止业务代码自己读 `cfg.permission.global_yolo` 绕开 CLI flag 路径。
 
 `active_source()` 给日志用——CLI 优先标注（"CLI flag"），因为 CLI 来源不可清除、最容易让用户惊讶（点了 Settings 关闭却仍在跳过审批，必然是 CLI 还开着）。
 
 ### 与审批门控的交互
 
-[`tools/execution.rs::execute_tool_with_context`](../../crates/ha-core/src/tools/execution.rs) 是唯一的审批 chokepoint。决策表：
-
-```text
-if ctx.auto_approve_tools || dangerous_mode {
-    needs_approval = false      // 全跳
-} else {
-    match perm_mode {
-        FullApprove   => needs_approval = false   // session 级整体放行
-        AskEveryTime  => needs_approval = !is_internal && name != EXEC && !is_skill_read(name, args)
-        Auto          => needs_approval = tool_needs_approval(name, args, ctx) && name != EXEC
-    }
-}
-```
+审批裁决统一走 [`permission::engine::resolve_async()`](../../crates/ha-core/src/permission/engine.rs)（完整优先级与 `SessionMode` 三档 `Default` / `Smart` / `Yolo` 语义见 [`permission-system.md`](permission-system.md)）。[`tools/execution.rs::execute_tool_with_context`](../../crates/ha-core/src/tools/execution.rs) 是构造 `ResolveContext` 并调引擎的 chokepoint：`is_dangerous_skip_active()` 经 `resolve_tool_permission` 喂进 `ResolveContext.global_yolo`，bypass 决策本身落在引擎里——`engine::resolve` 见 `ctx.global_yolo || session_mode == Yolo` 即整体跳过审批门。
 
 跳过时**强制 emit `app_warn!`**：
 
 ```text
-[WARN] tool / dangerous_mode / Tool 'write' bypassed approval (DANGEROUS MODE active via CLI flag)
+[WARN] permission / yolo_bypass / YOLO mode bypassed approval for tool 'write' (edit-class tool)
 ```
 
 internal tool 不在 warn 范围内（每轮多次调用，刷屏无意义）。审计 log 是唯一回溯依据——重启清 CLI flag 后无法靠"上次启动用了什么"反查执行历史。
@@ -237,6 +225,6 @@ pub fn status() -> DangerousModeStatus;
 | [`crates/ha-core/src/security/ssrf.rs`](../../crates/ha-core/src/security/ssrf.rs) | `SsrfPolicy` / `HostKind` / `SsrfConfig` / `classify_ip` / `is_metadata_ip` / `is_in_allowlist` / `policy_allows` / `check_url` / `check_host_blocking_sync` / `resolve_and_classify` |
 | [`crates/ha-core/src/security/dangerous.rs`](../../crates/ha-core/src/security/dangerous.rs) | `set_cli_flag` / `cli_flag_active` / `is_dangerous_skip_active` / `active_source` / `status` |
 | [`crates/ha-core/src/security/http_stream.rs`](../../crates/ha-core/src/security/http_stream.rs) | `read_bytes_capped` / `read_text_capped` |
-| [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.ssrf: SsrfConfig` + `AppConfig.dangerous_skip_all_approvals: bool` 字段定义 |
-| [`crates/ha-core/src/tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs) | 审批 chokepoint，消费 `is_dangerous_skip_active` |
+| [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.ssrf: SsrfConfig` + `AppConfig.permission: PermissionGlobalConfig`（含 `global_yolo`）字段定义 |
+| [`crates/ha-core/src/tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs) | 构造 `ResolveContext` 把 `is_dangerous_skip_active()` 喂进 `global_yolo`，bypass 决策落在 `permission::engine` |
 | [`crates/ha-core/src/logging/file_ops.rs`](../../crates/ha-core/src/logging/file_ops.rs) | `redact_sensitive` 脱敏函数 |

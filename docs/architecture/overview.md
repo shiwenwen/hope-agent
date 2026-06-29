@@ -93,7 +93,7 @@ flowchart TD
 
     F --> G["解析 tool_calls"]
     G --> H{"有 tool_calls?"}
-    H -- Yes --> I["Tool Loop (默认最多 20 轮，可配置)"]
+    H -- Yes --> I["Tool Loop (默认不限轮次 max_tool_rounds=0，可在 Agent 能力配置上限)"]
     I --> J{"concurrent_safe?"}
     J -- Yes --> K["并发安全组<br/>join_all() 并行执行"]
     J -- No --> L["串行组<br/>for loop 逐个执行"]
@@ -189,7 +189,7 @@ graph LR
 
 ## 本地模型加载
 
-`local_llm/` 模块通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 50% 统一内存 / Windows + Linux 优先 dGPU VRAM 50%）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 `local_model_jobs.rs` 后台任务表，事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
+`local_llm/` 模块通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 统一内存 / Windows + Linux 优先 dGPU VRAM 取所选轴 60%，再扣 1 GiB runtime buffer；常量 `RECOMMENDATION_BUDGET_PERCENT=60`）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 `local_model_jobs.rs` 后台任务表，事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
 
 ## 存储架构
 

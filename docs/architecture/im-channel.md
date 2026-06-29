@@ -558,7 +558,7 @@ crates/ha-core/src/channel/
     ├── mod.rs, api.rs, format.rs, webhook.rs
 
 src-tauri/src/commands/
-└── channel.rs          12 个 Tauri 命令（CRUD + 生命周期 + 健康探针）
+└── channel.rs          Tauri 命令（CRUD + 生命周期 + 健康探针 + WeChat 登录 + handover 等）
 
 src/components/settings/
 └── ChannelPanel.tsx    渠道设置面板（账户列表 + 添加/删除/启停）
@@ -829,23 +829,45 @@ pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover"];
 `worker.rs` 中的分发器是一个后台 tokio task，负责将入站消息路由到 Agent：
 
 ```rust
+const MAX_CONCURRENT_INBOUND: usize = 20;
+
 pub fn spawn_dispatcher(
     registry: Arc<ChannelRegistry>,
     channel_db: Arc<ChannelDB>,
-    mut inbound_rx: mpsc::Receiver<MsgContext>,
+    mut inbound_rx: mpsc::Receiver<InboundEvent>,
 ) {
-    tokio::spawn(async move {
-        while let Some(msg) = inbound_rx.recv().await {
-            // 每条消息在独立 task 中处理（并发）
-            tokio::spawn(handle_inbound_message(registry, channel_db, msg));
-        }
+    // 专用线程自建 tokio runtime（init_app_state() 期 Tauri runtime 尚未就绪）
+    std::thread::Builder::new().name("channel-dispatcher".into()).spawn(move || {
+        let rt = tokio::runtime::Runtime::new()?;
+        rt.block_on(async move {
+            let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND));
+            while let Some(event) = inbound_rx.recv().await {
+                match event {
+                    // 仅 Message 走完整 chat round；owned permit 限全局并发上限
+                    InboundEvent::Message(msg) => {
+                        let permit = semaphore.clone().acquire_owned().await;
+                        tokio::spawn(async move {
+                            let _permit = permit; // 持有至 task 结束
+                            handle_inbound_message(&registry, &channel_db, msg).await;
+                        });
+                    }
+                    // 其余变体仅 log（v0.2.0）
+                    InboundEvent::Reaction(ev) => log_reaction(&ev),
+                    InboundEvent::MessageEdited(ev) => log_message_edited(&ev),
+                    InboundEvent::MessageRecalled(ev) => log_message_recalled(&ev),
+                    InboundEvent::Membership(ev) => log_membership(&ev),
+                    InboundEvent::ReadReceipt(ev) => log_read_receipt(&ev),
+                }
+            }
+        });
     });
 }
 ```
 
 **关键设计决策：**
 
-- **并发处理**：每条入站消息在独立 `tokio::spawn` 中处理，不阻塞其他消息
+- **入站事件枚举**：分发器收 `InboundEvent`（`Message` / `Reaction` / `MessageEdited` / `MessageRecalled` / `Membership` / `ReadReceipt` 多变体），仅 `Message` 触发完整 chat round，其余变体当前仅 log
+- **并发处理 + 全局上限**：每条 `Message` 在独立 `tokio::spawn` 中处理，不阻塞其他消息；`Semaphore::new(MAX_CONCURRENT_INBOUND=20)` 的 owned permit 限全局在飞消息并发上限。整个 dispatcher 跑在专用线程自建的 tokio runtime 上
 - **斜杠命令拦截**：在调用 LLM 和写入 user turn 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并转发给 `slash_commands::handlers::dispatch()`。`Reply` 类命令（`/help`、`/clear`、`/model`、`/status` 等）把原始 slash 与结果落为 `messages.role="event"`（command event 带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM，并按真实对话 user turn 落库（详见 [斜杠命令系统](slash-commands.md)）
 - **共享 ChatEngine**：调用 `chat_engine::run_chat_engine()` — 与 UI 聊天使用完全相同的 Agent 执行引擎，拥有相同的能力：流式输出、会话历史恢复、工具事件持久化、Failover 降级、Context compaction、Token 跟踪、异步记忆提取
 - **EventSink 抽象**：UI 聊天在桌面通过 `ChannelSink`（Tauri Channel）推流，在 HTTP 模式通过 `chat:stream_delta` EventBus 推到 `/ws/events`；IM 聊天通过 `ChannelStreamSink`（EventBus）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件

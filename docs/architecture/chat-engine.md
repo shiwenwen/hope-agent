@@ -265,19 +265,19 @@ sequenceDiagram
 
 崩溃后 messages 表里会留一行 `stream_status='streaming'` 的 partial 记录，节流粒度内的几百毫秒 / 1KB 文本一并保住。
 
-### 3. 启动扫尾 + restore 时摘要注入
+### 3. 启动扫尾 + finalize 反建 partial
 
 - `init_runtime` 在 `SESSION_DB` 初始化、`APP_LOGGER` 就绪后调一次 `mark_orphaned_streaming_rows()`：所有遗留的 `streaming` 行批量改成 `orphaned`
-- `restore_agent_context` 在加载完 `context_json` 后调 `inject_orphaned_partial_summary`：扫描末尾 user 之后的 orphaned 行，收集 `text_block` 内容（thinking 不取，避免 leakage）+ 紧邻的最后一次 `tool_call`，拼成 `[System event] 上一轮在生成中被中断…请基于已完成内容继续，不要重复执行上面已经做过的工具调用。`，作为 `assistant` role 单条 item 追加到 history 末尾
-- 注入完毕调 `save_agent_context` 落盘，避免下一轮 restore 重复注入
+- `restore_agent_context` 只调 `restore_agent_context_from_json` 加载 `context_json`，**不在 restore 期做任何 orphaned 摘要注入**
+- partial 重建已迁移到启动 sweep 期：`recover_startup_session_state` 对每个残留 `running` / `cancelling` turn 调 `finalize_turn_context_blocking`，reverse-rebuild 从 messages 表反查 partial 文本 / thinking / tool 行重建结构化 blocks 写回 `context_json`（见下文「统一 Turn Finalize」§启动 sweep）
 
-恢复后第一轮 cache prefix 因末尾追加一个新 item 而失效（这是已知代价），第二轮起恢复正常命中。
+恢复后第一轮 cache prefix 因 finalize 在 history 末尾拼一条 `[系统事件] ...` marker 而失效（这是已知代价），第二轮起恢复正常命中。
 
 ### 4. Shutdown / panic hook（兜优雅退出）
 
 `crash_flush.rs` 暴露：
 
-- `install_panic_hook()`：在 `init_runtime` 末尾装一次（同步），用 `std::panic::set_hook` 包装现有 hook，panic 时先 flush 再转发
+- `install_panic_hook()`：保留为幂等 no-op（仅 set 一个 `OnceLock` 维持 API 稳定）。**刻意不设全局 `std::panic::set_hook`**——tokio task panic 常经 `JoinHandle` / `catch_unwind` 边界被恢复而进程不退出，在任意线程 panic 上 flush 全部 persister 会污染不相关的活跃会话。per-task 清理走 `StreamPersister::Drop`（finalize 那一行 placeholder）与 `tools::exec::ProcessGroupGuard::Drop`（杀该 exec 自己的进程组）
 - `install_signal_handlers()`：tokio task，桌面 setup async block / Server `block_on` / ACP `bg_rt` 各自调一次；监听 SIGINT/SIGTERM (Unix) 或 Ctrl+C/Break (Windows)，flush 后 `std::process::exit(0)`
 
 `active_persisters.rs` 维护 `Mutex<Vec<Weak<StreamPersister>>>`；`StreamPersister` 在 `engine.rs` 构造为 `Arc<...>` 并在创建时 `register`，`Drop` 自动断 weak。`flush_all_blocking()` 同步迭代所有活跃 persister 调 `crash_flush(db)`（即 `finalize_active_placeholder`），rusqlite 是同步 API、不会死锁。
@@ -374,19 +374,17 @@ stop 与 active-turn registry。后续如果要把这些入口纳入 turn 生命
 
 ### 信号处理器（`crash_flush::install_signal_handlers`）
 
-SIGTERM / SIGINT / Ctrl+C / Ctrl+Break 触发：
+SIGTERM / SIGINT / Ctrl+C / Ctrl+Break 触发 `run_clean_shutdown()`：
 1. `sentinel::write_clean_marker()` 写 sentinel 标记下次启动认作 Shutdown
-2. 对每个 `active_turn::all_current()` 调 `finalize_turn_context_blocking(Shutdown, …)`
-3. `active_persisters::flush_all_blocking()` 把残余 streaming placeholder 翻 completed
+2. `active_persisters::flush_all_blocking()` 把残余 streaming placeholder 翻 orphaned
+3. `finalize_active_turns_for_shutdown()` 对每个 `active_turn::all_current()` 调 `finalize_turn_context_blocking(Shutdown, …)`
 4. `std::process::exit(0)`
+
+**次序红线**：`flush_all_blocking` 必须在 finalize **之前**——finalize 的 reverse-rebuild 从 messages 表反查 partial 行重建 `context_json`，若先 finalize 则最后一截尚未 flush 的 buffer 会被遗漏。
 
 ### panic hook（`crash_flush::install_panic_hook`）
 
-设置全局 `set_hook`，进 hook 时 try_lock `process_registry::get_registry()`，
-对所有 running PID 调 `platform::terminate_process_tree(pid)`（= `kill(-pid, SIGKILL)`）
-杀整个进程组防孙进程泄漏，**不写 sentinel** —— panic 等同 crash，下次启动 sweep
-按 Crash reason 处理。`StreamPersister::Drop` 仍按现有路径 finalize 单 row
-placeholder 不变。
+当前是幂等 no-op stub（仅 set 一个 `OnceLock`），**不设全局 `set_hook`、不做 flush、不引用进程组终止**。曾考虑过一个 SIGKILL 已注册 exec 子进程的全局 panic hook，但被否决：tokio task panic 常经 `JoinHandle` 边界被恢复而进程不退出，任意线程 panic 上的全局 kill 会拆掉不相关的长跑用户命令。per-task 清理改由 `tools::exec::ProcessGroupGuard::Drop`（杀该 exec 自己的进程组）与 `StreamPersister::Drop`（finalize 那一行 placeholder）兜底；panic 不写 sentinel，等同 crash，下次启动 sweep 按 Crash reason 处理。
 
 ### exec 孙进程清理（`tools::exec::ProcessGroupGuard`）
 

@@ -93,7 +93,7 @@ graph TD
             └── snapshot_YYYYMMDD_HHMMSS.png   # 每次 snapshot 动作落盘的 PNG
 ```
 
-路径解析入口集中在 [`crates/ha-core/src/paths.rs:255-268`](../../crates/ha-core/src/paths.rs#L255-L268)：
+路径解析入口集中在 [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) 的 `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir`：
 
 - `canvas_dir()` → `~/.hope-agent/canvas/`
 - `canvas_projects_dir()` → `…/canvas/projects/`
@@ -456,7 +456,7 @@ const iframeSrc = indexPath ? (getTransport().resolveAssetUrl(indexPath) ?? "") 
 `resolveAssetUrl` 是 Transport 抽象的核心方法，两种模式不同：
 
 - **Tauri**：调 `convertFileSrc` 转成 `asset://localhost/{escaped-path}`
-- **HTTP**：[`transport-http.ts:885-895`](../../src/lib/transport-http.ts#L885-L895) 用正则匹配 `…/canvas/projects/{id}/{rest}`，重写为 `{baseUrl}/api/canvas/projects/{id}/{rest}?token=...`，附加 Bearer token query 参数（浏览器 iframe 不支持自定义 header）
+- **HTTP**：[`transport-http.ts`](../../src/lib/transport-http.ts) 的 `resolveAssetUrl`（canvas-projects 重写分支）用正则匹配 `…/canvas/projects/{id}/{rest}`，重写为 `{baseUrl}/api/canvas/projects/{id}/{rest}?token=...`，附加 Bearer token query 参数（浏览器 iframe 不支持自定义 header）
 
 ### iframe 沙盒
 
@@ -529,9 +529,9 @@ useEffect(() => {
 
 注册位置：
 
-- Tauri：[`src-tauri/src/lib.rs:498-507`](../../src-tauri/src/lib.rs#L498-L507) 的 `invoke_handler!`，包装在 `src-tauri/src/tauri_wrappers.rs:65-121`
-- HTTP：[`crates/ha-server/src/lib.rs:1144-1170`](../../crates/ha-server/src/lib.rs#L1144-L1170)，配置路由 [`672-673`](../../crates/ha-server/src/lib.rs#L672-L673)，处理逻辑 [`routes/canvas.rs`](../../crates/ha-server/src/routes/canvas.rs)
-- Transport HTTP 映射：[`src/lib/transport-http.ts:107-109, 328-333`](../../src/lib/transport-http.ts#L107-L109)
+- Tauri：[`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) 的 `invoke_handler!`（canvas 命令段），包装在 [`src-tauri/src/tauri_wrappers.rs`](../../src-tauri/src/tauri_wrappers.rs)
+- HTTP：[`crates/ha-server/src/lib.rs`](../../crates/ha-server/src/lib.rs) 的 `build_router_with_cors`（`/canvas/projects` 系列路由），配置路由 `/config/canvas`（同文件），处理逻辑 [`routes/canvas.rs`](../../crates/ha-server/src/routes/canvas.rs)
+- Transport HTTP 映射：[`src/lib/transport-http.ts`](../../src/lib/transport-http.ts) 的 `COMMAND_MAP`（`list_canvas_projects` / `canvas_submit_*` / `show_canvas_panel` 等条目）
 
 ### 静态文件路由的资产托管
 
@@ -661,7 +661,7 @@ pub async fn serve_canvas_project_file(
 | [`crates/ha-core/src/tools/canvas/renderer.rs`](../../crates/ha-core/src/tools/canvas/renderer.rs) | 7 种 `build_*_page` 模板 + `write_project_files` 分发器 |
 | [`crates/ha-core/src/tools/definitions/extra_tools.rs`](../../crates/ha-core/src/tools/definitions/extra_tools.rs) | `get_canvas_tool()` 工具 schema 定义 |
 | [`crates/ha-core/src/tools/definitions/registry.rs`](../../crates/ha-core/src/tools/definitions/registry.rs) | 注册到 internal / async-capable 集合 |
-| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs)（253-268 行） | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
+| [`crates/ha-core/src/paths.rs`](../../crates/ha-core/src/paths.rs) | `canvas_dir` / `canvas_projects_dir` / `canvas_project_dir` |
 | [`crates/ha-core/src/config/mod.rs`](../../crates/ha-core/src/config/mod.rs) | `AppConfig.canvas` 字段挂载 |
 
 ### 后端（ha-server / src-tauri）
@@ -669,10 +669,10 @@ pub async fn serve_canvas_project_file(
 | 文件 | 角色 |
 | --- | --- |
 | [`crates/ha-server/src/routes/canvas.rs`](../../crates/ha-server/src/routes/canvas.rs) | HTTP 路由处理器（含静态文件托管 + ID 校验单测） |
-| [`crates/ha-server/src/lib.rs`](../../crates/ha-server/src/lib.rs)（1144-1170 行） | 路由注册 |
+| [`crates/ha-server/src/lib.rs`](../../crates/ha-server/src/lib.rs) | 路由注册（`build_router_with_cors` 内 canvas 段） |
 | [`crates/ha-server/src/routes/config.rs`](../../crates/ha-server/src/routes/config.rs) | `get_canvas_config` / `save_canvas_config` 配置路由 |
-| [`src-tauri/src/tauri_wrappers.rs`](../../src-tauri/src/tauri_wrappers.rs)（65-121 行） | Tauri IPC 薄壳 |
-| [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs)（498-507 行） | `invoke_handler!` 注册 |
+| [`src-tauri/src/tauri_wrappers.rs`](../../src-tauri/src/tauri_wrappers.rs) | Tauri IPC 薄壳 |
+| [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) | `invoke_handler!` 注册（canvas 命令段） |
 
 ### 前端
 

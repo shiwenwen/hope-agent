@@ -3,10 +3,10 @@
 
 ## 概述
 
-Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 8 个文件，采用「筛选器 + 查询函数」的管道式架构。
+Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 10 个文件，采用「筛选器 + 查询函数」的管道式架构。
 
 核心设计原则：
-- **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL`，排除定时任务会话和子 Agent 会话
+- **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL AND incognito = 0`，排除定时任务会话、子 Agent 会话和无痕会话
 - **统一筛选**：所有查询接受同一个 `DashboardFilter` 结构体，支持时间范围 + Agent/Provider/Model 维度筛选
 - **成本估算内联**：Token 统计查询自动附带基于硬编码定价表的 USD 成本估算
 - **进程级系统指标**：通过 sysinfo crate 采集当前进程的 CPU/内存/磁盘 IO 实时快照
@@ -22,7 +22,8 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `filters.rs` | 筛选器构建（session / log 两套） |
 | `cost.rs` | 模型定价表与成本计算引擎 |
 | `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
-| `learning.rs` | Learning Tracker 4 个查询 + 12 个事件常量（埋点写入 `session.db.learning_events`） |
+| `learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（埋点写入 `session.db.learning_events`） |
+| `plan_stats.rs` | Plan 统计聚合：Dashboard "Plans" tab 数据源（详见下文） |
 | `local_models.rs` | 本地模型 Tab 专属聚合：按 `provider::local::known_local_backends` 反查"本地"provider name 列表后对 sessions / messages 表做 token / 调用次数 / TTFT / 错误率统计；前端 `LocalModelsSection` 消费 |
 
 ## 数据源架构
@@ -98,6 +99,7 @@ fn build_session_filter(
 自动注入的硬编码条件：
 - `{session_alias}.is_cron = 0` -- 排除定时任务会话
 - `{session_alias}.parent_session_id IS NULL` -- 排除子 Agent 会话
+- `{session_alias}.incognito = 0` -- 排除无痕会话
 
 时间范围过滤逻辑：
 - 当提供 `message_alias` 时，时间条件作用于 `{message_alias}.timestamp`
@@ -269,15 +271,13 @@ fn build_session_filter(
 
 Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 的 `learning_events` 表，再由 `learning.rs` 提供时间窗口聚合查询，对应前端 Dashboard Learning Tab。
 
-### 事件常量（12 个）
+### 事件常量（9 个）
 
 | 类别 | 常量 | 触发埋点 |
 |------|------|----------|
 | Skill 生命周期 | `EVT_SKILL_CREATED` / `EVT_SKILL_PATCHED` / `EVT_SKILL_ACTIVATED` / `EVT_SKILL_DISCARDED` / `EVT_SKILL_USED` | `skills::author` CRUD + skill 激活 / 丢弃，详见 [skill-system.md](skill-system.md) |
 | 记忆召回 | `EVT_RECALL_HIT` / `EVT_RECALL_SUMMARY_USED` | `tool_recall_memory` 命中 + 召回摘要被注入 system prompt，详见 [memory.md](memory.md) |
 | MCP 工具 | `EVT_MCP_TOOL_CALLED` / `EVT_MCP_TOOL_FAILED` | 每次 MCP 工具调用成功 / 失败，meta 含 `{ server, tool, durationMs, error? }` |
-
-剩余三个常量是用于按事件类型分组聚合的查询辅助 key（见 `learning.rs` 头部）。
 
 ### 查询函数
 
@@ -290,7 +290,7 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 
 ### 数据源
 
-- 写：`learning::emit(db, kind, ref_id, meta)` 单点入口，所有埋点经此写入 `session.db.learning_events` 表，schema 含 `(id, kind, ref_id, ts, meta_json)`
+- 写：`learning::emit(kind, session_id, ref_id, meta)` 单点入口（懒解析全局 SessionDB，无需 caller 透传 `db`），所有埋点经此写入 `session.db.learning_events` 表，schema 含 `(id, ts, kind, session_id, ref_id, meta_json)`
 - 读：上述 4 个查询函数按 `kind IN (...)` + `ts >= now - window_days` 做窗口聚合
 - 表归属在 `session.db` 而非独立库，避免新增 SQLite 文件；与 sessions / messages 共享连接池
 
@@ -469,6 +469,6 @@ sequenceDiagram
 | `crates/ha-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
 | `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
 | `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
-| `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 12 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
+| `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

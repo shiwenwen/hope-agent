@@ -266,7 +266,7 @@ rrf_score = vector_weight / (k + rank_vec) + text_weight / (k + rank_fts)
 
 > **重要变更**：旧版基于 `embedding.providerType=Auto` 自动优先级机制已全部移除。当前是**多模型显式配置 + 用户选活跃模型**，由两组独立配置驱动：
 > - `AppConfig.embedding_models: Vec<EmbeddingModelConfig>` — 用户已配置的多个 embedding 模型
-> - `AppConfig.memory_embedding: MemoryEmbeddingSelection { enabled, model_config_id }` — 当前给"记忆"用哪个模型
+> - `AppConfig.memory_embedding: EmbeddingSelection { enabled, model_config_id, active_signature, last_reembedded_signature }` — 当前给"记忆"用哪个模型
 
 ### EmbeddingModelConfig
 
@@ -277,8 +277,8 @@ rrf_score = vector_weight / (k + rank_vec) + text_weight / (k + rank_fts)
 | `id` | `String` | 模型配置 id（被 `memory_embedding.model_config_id` 引用） |
 | `name` | `String` | 显示名 |
 | `provider_type` | `EmbeddingProviderType` | `Local` / `OpenaiCompatible` / `Google` |
-| `model_id` / `dimensions` / `base_url` / `api_key` | … | 各 provider 自身配置 |
-| `template_id` | `Option<String>` | 创建自哪个模板预设（GUI 一键安装路径用于回溯） |
+| `api_model` / `api_dimensions` / `api_base_url` / `api_key` | … | 各 provider 自身配置 |
+| `source` | `Option<String>` | 创建自哪个模板预设（GUI 一键安装路径用于回溯） |
 
 `provider_type` 枚举只剩 3 类（不再有 `Auto`）：
 
@@ -288,14 +288,16 @@ rrf_score = vector_weight / (k + rank_vec) + text_weight / (k + rank_fts)
 | `OpenaiCompatible` | OpenAI `/v1/embeddings` 兼容 | OpenAI / Jina / Cohere / SiliconFlow / Voyage / Mistral / Ollama 等 |
 | `Google` | Google Gemini Embedding API（独立格式） | gemini-embedding-001 |
 
-> Voyage / Mistral 单独 ProviderType 已**不存在**——它们都是 `OpenaiCompatible` 类型下的预设模板（`template_id`）。
+> Voyage / Mistral 单独 ProviderType 已**不存在**——它们都是 `OpenaiCompatible` 类型下的预设模板（`source`）。
 
-### MemoryEmbeddingSelection
+### EmbeddingSelection
 
 ```rust
-pub struct MemoryEmbeddingSelection {
-    pub enabled: bool,                       // 总开关
-    pub model_config_id: Option<String>,     // 引用 embedding_models[].id
+pub struct EmbeddingSelection {
+    pub enabled: bool,                            // 总开关
+    pub model_config_id: Option<String>,          // 引用 embedding_models[].id
+    pub active_signature: Option<String>,         // 当前活跃模型的 signature
+    pub last_reembedded_signature: Option<String>,// 上次完成重嵌入的 signature（驱动 needsReembed 指示）
 }
 ```
 
@@ -307,7 +309,7 @@ pub struct MemoryEmbeddingSelection {
 
 ### 模板选择器（commit ae804aca / 52b27de4）
 
-`recommended_remote_embedding_models()` 返回内建预设模板列表（来源：[`config/mod.rs`](../../crates/ha-core/src/config/mod.rs)），覆盖：
+`embedding_model_templates()` 返回内建预设模板列表（来源：[`memory/embedding/config.rs`](../../crates/ha-core/src/memory/embedding/config.rs)），覆盖：
 
 | 模板 | provider_type | 默认模型 | 维度 |
 |---|---|---|---|
@@ -690,9 +692,11 @@ flowchart TD
 | `embeddingCache` | `enabled` | `true` | 启用 embedding 缓存 |
 | `embeddingCache` | `maxEntries` | `10000` | 最大缓存条目数 |
 | `memoryExtract` | `autoExtract` | `true` | 启用自动提取 |
-| `memoryExtract` | `extractMinTurns` | `3` | 最小轮数门槛 |
 | `memoryExtract` | `flushBeforeCompact` | `true` | 压缩前提取 |
-| `memoryExtract` | `maxExtractionsPerSession` | `5` | 每会话最大提取次数 |
+| `memoryExtract` | `extractTokenThreshold` | `8000` | 自上次提取累计 token 触发阈值 |
+| `memoryExtract` | `extractMessageThreshold` | `10` | 自上次提取累计消息数触发阈值 |
+| `memoryExtract` | `extractTimeThresholdSecs` | `300` | 提取冷却（秒），未到不触发 |
+| `memoryExtract` | `extractIdleTimeoutSecs` | `1800` | 会话空闲超时（秒）触发收尾提取，`0` = 关 |
 
 ## 硬编码参数
 

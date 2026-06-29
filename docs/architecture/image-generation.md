@@ -187,7 +187,7 @@ flowchart TD
 
     VALIDATE -- "兼容" --> GEN["构造 ImageGenParams<br/>generate(params).await"]
     GEN --> RESULT{"结果?"}
-    RESULT -- "Ok" --> SUCCESS["build_success_result()<br/>保存图片 → __MEDIA_URLS__<br/>→ failover 日志 → 结构化日志"]
+    RESULT -- "Ok" --> SUCCESS["build_success_result()<br/>保存图片 → __MEDIA_ITEMS__<br/>→ failover 日志 → 结构化日志"]
     SUCCESS --> RETURN_OK(["返回成功"])
 
     RESULT -- "Err" --> CLASSIFY{"classify_error()<br/>可重试?"}
@@ -473,7 +473,11 @@ block-beta
 ```mermaid
 graph LR
     subgraph backend["crates/ha-core/src/tools/image_generate/"]
-        MOD["mod.rs<br/>核心模块：trait + capabilities<br/>+ 入口 + failover + list"]
+        MOD["mod.rs<br/>路由 + 重导出<br/>resolve_provider / known_provider_ids<br/>/ normalize_provider_id"]
+        TYP["types.rs<br/>trait + capabilities + config<br/>ImageGenParams / ImageGenResult"]
+        GEN["generate.rs<br/>入口 tool_image_generate<br/>+ failover 循环"]
+        HLP["helpers.rs<br/>load_input_image / infer_resolution<br/>validate_capabilities / effective_model"]
+        OUT["output.rs<br/>build_list_result<br/>+ build_success_result"]
         OAI["openai.rs<br/>gpt-image-1<br/>base64 响应"]
         GOO["google.rs<br/>Gemini<br/>多模态 + thinkingLevel"]
         FAL["fal.rs<br/>Flux<br/>URL + CDN 下载"]
@@ -495,6 +499,8 @@ graph LR
     end
 
     MOD --> OAI & GOO & FAL & MM & SF & ZP & TY
+    MOD -.-> TYP & GEN & HLP & OUT
+    GEN --> TYP & HLP & OUT
     DEF -.-> MOD
     PANEL -.-> CFG
     PANEL -.-> PRO

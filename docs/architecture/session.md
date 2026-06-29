@@ -49,7 +49,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 
 ### SessionMeta
 
-会话元信息，用于列表展示和路由。源：[crates/ha-core/src/session/types.rs:11](../../crates/ha-core/src/session/types.rs)。
+会话元信息，用于列表展示和路由。源：`SessionMeta`（[crates/ha-core/src/session/types.rs](../../crates/ha-core/src/session/types.rs)）。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -60,19 +60,25 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `provider_id` | `Option<String>` | 当前使用的 Provider ID |
 | `provider_name` | `Option<String>` | Provider 显示名称 |
 | `model_id` | `Option<String>` | 当前使用的模型 ID |
+| `reasoning_effort` | `Option<String>` | 会话级 Think / 推理强度覆盖；`None` 回退运行时默认 |
 | `created_at` | `String` | RFC 3339 创建时间 |
 | `updated_at` | `String` | RFC 3339 最后更新时间 |
+| `pinned_at` | `Option<String>` | 置顶时间戳；非空时 sidebar 将该会话排在未置顶会话之上 |
 | `message_count` | `i64` | 消息总数（子查询计算） |
-| `unread_count` | `i64` | 未读消息数（子查询计算） |
+| `unread_count` | `i64` | 未读桌面 assistant 消息数（排除 cron / subagent / IM 来源行） |
+| `channel_unread_count` | `i64` | IM（`source='channel'`）来源未读 assistant 消息数；与 `unread_count` 分离，非 channel 会话恒 `0` |
+| `has_error` | `bool` | 最新持久化消息是否标记为错误（sidebar 红色感叹号指示） |
 | `pending_interaction_count` | `i64` | 待用户交互数（pending 工具审批 + ask_user 组数）；由 command/route 层填充，`list_sessions_paged` 不计算 |
 | `is_cron` | `bool` | 是否为定时任务创建的会话 |
 | `parent_session_id` | `Option<String>` | 父会话 ID（子 Agent 会话） |
-| `plan_mode` | `String` | Plan Mode 状态：`"off"` / `"planning"` / `"executing"` |
-| `tool_permission_mode` | `String` | 工具审批模式：`"auto"` / `"ask_every_time"` / `"full_approve"`（默认 auto） |
+| `plan_mode` | `PlanModeState` | Plan Mode 状态（snake_case 序列化）：`off` / `planning` / `review` / `executing` / `completed`（默认 off） |
+| `permission_mode` | `SessionMode` | 会话级权限模式（snake_case 序列化）：`default` / `smart` / `yolo`（默认 default） |
+| `sandbox_mode` | `SandboxMode` | 会话级沙箱模式（snake_case 序列化）：`off` / `standard` / `isolated` / `workspace` / `trusted`（默认 off） |
 | `project_id` | `Option<String>` | 所属项目 ID；项目作用域记忆/文件在该项目内全部会话间共享 |
 | `channel_info` | `Option<ChannelSessionInfo>` | IM Channel 关联信息（LEFT JOIN channel_conversations） |
 | `incognito` | `bool` | 无痕模式开关：true 时不注入被动记忆/awareness、不做自动记忆提取，且关闭即焚 |
 | `working_dir` | `Option<String>` | 会话级工作目录绝对路径（注入 system prompt + 作为 `exec`/`read` 默认 cwd）；server 模式下指 server 机器路径 |
+| `kind` | `SessionKind` | 会话分类：`regular`（普通对话）/ `knowledge`（知识空间侧边栏对话，从主 sidebar / picker 隐藏、精简工具集） |
 
 ### SessionMessage
 
@@ -100,7 +106,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `tool_duration_ms` | `Option<i64>` | 工具执行耗时（毫秒） |
 | `is_error` | `Option<bool>` | 工具是否执行失败 |
 | `thinking` | `Option<String>` | 旧路径思考内容（Assistant 消息内联）；新路径用独立 `ThinkingBlock` 行存储以保持工具调用前后顺序，详见下方 `MessageRole` |
-| `source` | `Option<String>` | 触发该 turn 的入口（`ChatSource::as_str()` lowercase：`desktop` / `http` / `channel` / `subagent` / `parentinjection`）。NULL 视作 `desktop`（保守，不破坏老会话已有未读）。Unread badge / GUI→IM 镜像引用前缀都按此字段分流 |
+| `source` | `Option<String>` | 触发该 turn 的入口（`ChatSource::as_str()` lowercase：`desktop` / `http` / `channel` / `subagent` / `parent_injection` / `cron`）。NULL 视作 `desktop`（保守，不破坏老会话已有未读）。Unread badge / GUI→IM 镜像引用前缀都按此字段分流 |
 
 ### MessageRole
 
@@ -145,7 +151,7 @@ CREATE TABLE sessions (
     id                       TEXT PRIMARY KEY,
     title                    TEXT,
     title_source             TEXT NOT NULL DEFAULT 'manual',  -- manual / first_message / llm
-    agent_id                 TEXT NOT NULL DEFAULT 'default',
+    agent_id                 TEXT NOT NULL DEFAULT 'ha-main',
     provider_id              TEXT,
     provider_name            TEXT,
     model_id                 TEXT,
@@ -157,7 +163,8 @@ CREATE TABLE sessions (
     parent_session_id        TEXT,
     plan_mode                TEXT DEFAULT 'off',
     plan_steps               TEXT,                            -- Plan 步骤进度 JSON（崩溃恢复）
-    tool_permission_mode     TEXT NOT NULL DEFAULT 'auto',    -- 工具审批模式
+    permission_mode          TEXT NOT NULL DEFAULT 'default', -- 会话级权限模式（default/smart/yolo）
+    sandbox_mode             TEXT NOT NULL DEFAULT 'off',     -- 会话级沙箱模式（off/standard/isolated/workspace/trusted）
     project_id               TEXT,                            -- 所属项目（外部表 projects）
     awareness_config_json    TEXT,                            -- per-session awareness override
     incognito                INTEGER NOT NULL DEFAULT 0,      -- 无痕模式
@@ -343,7 +350,8 @@ DELETE FROM acp_runs                  WHERE parent_session_id = ?;
 | `update_session_model(session_id, provider_id, provider_name, model_id)` | 更新当前模型信息 |
 | `mark_session_cron(session_id)` | 标记为 Cron 会话 |
 | `update_session_plan_mode(session_id, plan_mode)` | 更新 Plan Mode 状态 |
-| `update_session_tool_permission_mode(session_id, mode)` | 更新工具审批模式 |
+| `update_session_permission_mode(session_id, mode)` | 更新会话级权限模式（`default` / `smart` / `yolo`） |
+| `update_session_sandbox_mode(session_id, mode)` | 更新会话级沙箱模式（`off` / `standard` / `isolated` / `workspace` / `trusted`） |
 | `update_session_incognito(session_id, bool)` | 切换无痕态；`project_id IS NOT NULL` 或 `channel_info IS NOT NULL` 时直接 `Err`（互斥防御） |
 | `update_session_working_dir(session_id, Option<&str>)` | 设置/清空会话级工作目录；空串当清空 |
 | `update_session_agent(session_id, agent_id)` | 切换会话 Agent；SQL 层强制 `message_count == 0`，非空会话直接拒绝（防止改动一半切 Agent 造成上下文错乱） |

@@ -12,7 +12,7 @@
   - [Agent Home 与 Session Working Directory](#agent-home-与-session-working-directory)
 - [Per-Tool 描述系统](#per-tool-描述系统)
   - [设计理念](#设计理念)
-  - [工具描述清单（36 个工具）](#工具描述清单36-个工具)
+  - [工具描述清单（37 个工具）](#工具描述清单37-个工具)
   - [动态过滤机制](#动态过滤机制)
 - [Plan Mode 提示词](#plan-mode-提示词)
   - [5 阶段规划 Prompt](#5-阶段规划-prompt)
@@ -36,7 +36,7 @@
 
 ## 概述
 
-Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。Runtime Info 只展示 Agent 自己的 home/scratch 目录；用户为当前会话选择的工作目录会作为独立的 `# Working Directory` 条件段注入。当前会话的权限审批模式会注入为 `# Current Permission Mode`，让模型知道 `default` / `smart` / `yolo` 的自主执行边界；绑定 IM chat 的会话还会注入 `# IM Channel Attachment`，提醒桌面 / HTTP 发起的回复也可能镜像到 IM。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
+Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。Tool-Call Narration（⑥c）同样是编译常量，但由 `AppConfig.tool_call_narration_enabled` 旗标门控（默认 `true`，可关）。Runtime Info 只展示 Agent 自己的 home/scratch 目录；用户为当前会话选择的工作目录会作为独立的 `# Working Directory` 条件段注入。当前会话的权限审批模式会注入为 `# Current Permission Mode`，让模型知道 `default` / `smart` / `yolo` 的自主执行边界；绑定 IM chat 的会话还会注入 `# IM Channel Attachment`，提醒桌面 / HTTP 发起的回复也可能镜像到 IM。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
 
 ```mermaid
 graph TD
@@ -44,7 +44,7 @@ graph TD
         direction LR
         S1["① Identity"] --> S2["② agent.md / Project Context"] --> S3["③ persona.md"]
         S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions (filtered)"]
-        S6 --> S6b["⑥c Tool-Call Narration (hardcoded, always)"]
+        S6 --> S6b["⑥c Tool-Call Narration (opt-in, AppConfig gated)"]
         S6b --> S6c["⑥c¹ Permission Mode (session)"]
         S6c --> S6d["⑥d Human-in-the-loop (hardcoded, conditional)"]
         S6d --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S7e["⑦e IM Attachment (conditional)"] --> S8["⑧ Memory"]
@@ -94,7 +94,7 @@ graph LR
     AD --> S4["④ persona.md"]
     AD --> S5["⑤ tools.md"]
     AD --> S6["⑥ Tool Descriptions (dispatch::resolve_tool_fate)"]
-    S6 --> S6b["⑥c Tool-Call Narration guidance (hardcoded, always injected)"]
+    S6 --> S6b["⑥c Tool-Call Narration guidance (opt-in, AppConfig gated)"]
     S6b --> S6c["⑥c¹ Permission Mode guidance (session)"]
     S6c --> S6d["⑥d Human-in-the-loop guidance (hardcoded, always injected)"]
     AD --> S7["⑦ Skills (FilterConfig)"]
@@ -219,7 +219,7 @@ The following project context files have been loaded:
 2. **详细指南**：每个工具包含使用指南、最佳实践、常见陷阱
 3. **工具优先级**：`exec` 工具明确标注「优先使用专用工具」规则，防止模型绕过专用工具直接用 shell
 
-### 工具描述清单（36 个工具）
+### 工具描述清单（37 个工具）
 
 工具描述以 `TOOL_DESC_*` 常量定义，通过 `TOOL_DESCRIPTIONS` 数组映射：
 
@@ -324,8 +324,8 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 **常量**：`PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX`（`plan.rs`）
 
 - 逐步执行已审批计划
-- `update_plan_step(step_index, status)` 追踪进度
-- `amend_plan()` 动态修改计划（insert/delete/update）
+- 用 `task_create` / `task_update` 追踪进度（三态：pending / in_progress / completed）
+- 执行期不改 plan 文件；需修订计划时退出再重新进入 plan mode
 - Git checkpoint 已创建，失败可回滚
 
 ### 完成阶段 Prompt
@@ -350,7 +350,7 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 ## Tool-Call Narration（工具调用前叙述）
 
-**位置**：`system_prompt/build.rs` 的 ⑥c 段，紧跟 Async Tools 指南、先于 Human-in-the-loop，`build()` / `build_legacy()` 两条路径都会注入。
+**位置**：`system_prompt/build.rs` 的 ⑥c 段，紧跟 Async Tools 指南、先于 Human-in-the-loop。`build()` / `build_legacy()` 两条路径都在 `AppConfig.tool_call_narration_enabled` 为真时注入（默认 `true`，可关），与无条件注入的 Human-in-the-loop 不同。
 
 **动机**：对齐 Claude Code 的"边说边做"体验。Anthropic Messages API / OpenAI streaming 协议原生支持一个 assistant turn 内 `text_delta` 与 `tool_use` block 交替输出，模型完全可以"先吐一段自然语言预告 → 再 emit 工具调用"。体验核心不在流式或 UI 管线（现有 `MessageList` 按事件顺序渲染已足够），而在 system prompt 是否显式要求模型这样做。
 
@@ -360,11 +360,12 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 - 禁止"let me think…"这种内部独白，直接说结果和决策
 - 每轮末一两句收尾：what changed / what's next
 
-**为什么硬编码而非走 `agent.md` 模板**：和 Human-in-the-loop 同样的理由，防止用户自定义 agent.md 时整段删掉导致行为退化。用 `TOOL_CALL_NARRATION_GUIDANCE` 编译常量 + `sections.push(...)` 直接注入。
+**为什么用编译常量而非走 `agent.md` 模板**：和 Human-in-the-loop 同样的理由，防止用户自定义 agent.md 时整段删掉导致行为退化。用 `TOOL_CALL_NARRATION_GUIDANCE` 编译常量 + `sections.push(...)` 注入，但整段是否注入由 `AppConfig.tool_call_narration_enabled`（默认 `true`）门控，用户可在配置里关掉。
 
 **代码位置**：
 - 常量：`crates/ha-core/src/system_prompt/constants.rs` — `TOOL_CALL_NARRATION_GUIDANCE`
-- 注入：`crates/ha-core/src/system_prompt/build.rs` — ⑥c 段（`build()` 和 `build_legacy()` 均调用）
+- 注入：`crates/ha-core/src/system_prompt/build.rs` — ⑥c 段（`build()` 和 `build_legacy()` 均在 `tool_call_narration_enabled` 为真时注入）
+- 门控旗标：`AppConfig.tool_call_narration_enabled`（`crates/ha-core/src/config/mod.rs` — `default_tool_call_narration_enabled()` 返回 `true`）
 
 ---
 
@@ -485,7 +486,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | `soft_trim_tail_chars`       | 2,000  | 软截断保留尾部               |
 | `summarization_threshold`    | 0.85   | Tier 3 总结触发比例          |
 | `summary_max_tokens`         | 4,096  | 总结输出最大 token           |
-| `summarization_timeout_secs` | 60     | 总结调用超时                 |
+| `summarization_timeout_secs` | 300    | 总结调用超时                 |
 | `max_compaction_injected_context_share` | 0.5 | Tier 3 摘要、ledger、recovery 的联合注入预算 |
 
 **代码位置**：`crates/ha-core/src/context_compact/config.rs`
@@ -562,7 +563,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | 文件                                            | 内容                                                                      |
 | ----------------------------------------------- | ------------------------------------------------------------------------- |
 | `crates/ha-core/src/system_prompt/build.rs`     | **核心**：三模式组装（结构化/自定义/OpenClaw）、13 段拼接逻辑             |
-| `crates/ha-core/src/system_prompt/constants.rs` | 36 条 `TOOL_DESCRIPTIONS` 映射（由 36 个 `TOOL_DESC_*` 常量提供，`ASK_USER_QUESTION` 等供 system prompt 复用）、`HUMAN_IN_THE_LOOP_GUIDANCE` 等行为指导常量 |
+| `crates/ha-core/src/system_prompt/constants.rs` | 37 条 `TOOL_DESCRIPTIONS` 映射（由 37 个 `TOOL_DESC_*` 常量提供，`ASK_USER_QUESTION` 等供 system prompt 复用）、`HUMAN_IN_THE_LOOP_GUIDANCE` 等行为指导常量 |
 | `crates/ha-core/src/system_prompt/sections.rs`  | 各 section builder（personality/tools/skills/runtime/subagent/acp）       |
 | `crates/ha-core/src/agent_config.rs`            | Agent 配置结构（personality/tools/skills/memory/subagents/openclaw_mode） |
 | `crates/ha-core/src/agent_loader.rs`            | Agent 加载（agent.json + md 文件 + OpenClaw 模板）                        |

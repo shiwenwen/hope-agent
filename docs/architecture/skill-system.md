@@ -1645,6 +1645,14 @@ sequenceDiagram
 | `ha-settings` | meta | `always: true`（跳过依赖检查） | 通过自然语言查看 / 修改 Hope Agent 设置，指导模型使用 `get_settings` / `update_settings` / settings backup 工具，不直接编辑配置文件 |
 | `ha-skill-creator` | meta | `always: true`（跳过依赖检查） | 创建、编辑、改进、审核 Hope Agent skill；包含格式规范、评估思路和 frontmatter 指南 |
 | `ha-find-skills` | meta | `always: true`（跳过依赖检查） | 当当前 catalog 没有合适能力时，指导模型发现并安装第三方 skill；安装第三方代码必须先显式确认 |
+| `ha-browser` | meta | 全局可见 | `browser` 工具自动化方法论：`status → tabs → snapshot → act` 循环、stale-ref 恢复、登录 / 2FA / 验证码阻塞处理（`@skill` allowlist 成员） |
+| `ha-mac-control` | meta | 全局可见（macOS-only） | `mac_control` 原生 macOS 桌面控制方法论：apps / dock / spaces / 视觉定位 / 菜单 / 窗口 / 对话框循环（`@skill` allowlist 成员） |
+| `ha-knowledge` | meta | 全局可见 | 知识空间笔记工作方法：用 `note_*` 工具捕获 / 组织 / 关联 / 检索 / 维护 Markdown 笔记 |
+| `ha-logs` | meta | `requires.anyBins: [sqlite3, python3]` | 自助诊断：经 `exec` 直查本地 `logs / sessions / background_jobs` SQLite（只读 SELECT）排查问题、分析用量 |
+| `ha-data-stores` | meta | 全局可见 | Hope Agent 本地数据存储地图 + 安全只读查询流程（sessions.db / memory.db / logs.db / knowledge index 等） |
+| `ha-self-diagnosis` | meta | 全局可见 | Hope Agent 自我理解与问题上报：解释内部运作、诊断日志、创建 / 提交 GitHub issue |
+| `ha-self-update` | meta | `always: false` | 通过对话检查并安装 Hope Agent 更新；覆盖桌面 bundle / server 包管理 / headless 单 binary 三形态，始终经 `ask_user_question` 用户确认 |
+| `feishu` | 办公集成 | `paths:` 飞书 / feishu / lark 文件触发；`allowed-tools:` 白名单 `feishu_*` + `read` / `web_search` | 飞书 / Lark workspace 操作：云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘 |
 | `systematic-debugging` | 编程方法论 | `paths:` 代码文件触发 | Debug / test failure / 异常行为的 4 阶段根因调查流程 |
 | `test-driven-development` | 编程方法论 | `paths:` 代码文件触发 | Feature / bugfix 的 RED-GREEN-REFACTOR test-first 流程 |
 | `writing-plans` | 编程方法论 | `paths:` 代码文件触发 | 多步骤实现计划，要求拆成小任务、明确文件路径和验证方式 |

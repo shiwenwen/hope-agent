@@ -287,7 +287,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.1 Anthropic Messages API
 
-**`crates/ha-core/src/agent/providers/anthropic.rs`**
+**`crates/ha-core/src/agent/providers/anthropic.rs`**（`chat_anthropic` 公开入口薄壳）+ **`anthropic_adapter.rs`**（请求体构建 / SSE 解析 / history 持久化实现）
 
 **请求格式：**
 ```json
@@ -320,9 +320,9 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.2 OpenAI Chat Completions API
 
-**`crates/ha-core/src/agent/providers/openai_chat.rs`**
+**`crates/ha-core/src/agent/providers/openai_chat.rs`**（`chat_openai_chat` 公开入口薄壳）+ **`openai_chat_adapter.rs`**（请求体构建 / SSE 解析 / history 持久化实现）
 
-**ThinkingStyle 分发（`apply_thinking_to_chat_body`）：**
+**ThinkingStyle 分发（`apply_thinking_to_chat_body`，定义在 `crates/ha-core/src/agent/config.rs`）：**
 
 | ThinkingStyle | 参数格式 | 适用 Provider |
 |---------------|---------|-------------|
@@ -348,7 +348,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.3 OpenAI Responses API
 
-**`crates/ha-core/src/agent/providers/openai_responses.rs`**
+**`crates/ha-core/src/agent/providers/openai_responses.rs`**（`chat_openai_responses` 公开入口薄壳）+ **`openai_responses_adapter.rs`**（请求体构建 / `parse_openai_sse` 解析 / history 持久化实现）
 
 **请求格式：**
 ```json
@@ -400,14 +400,14 @@ Hope Agent 始终用 `store: false` 调 Responses API。在这一模式下，服
 
 ### 4.4 Codex OAuth API
 
-**`crates/ha-core/src/agent/providers/codex.rs`**
+**`crates/ha-core/src/agent/providers/codex.rs`**（`chat_openai`/Codex 公开入口薄壳）+ **`codex_adapter.rs`**（请求体构建 / 历史持久化实现，SSE 解析复用 Responses 的 `parse_openai_sse`）
 
 与 OpenAI Responses API 相同的请求/响应格式，额外特性：
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` header
 - **终端登录入口**：`hope-agent auth codex login` 复用同一 PKCE loopback 流程，登录成功后写 `~/.hope-agent/credentials/auth.json` 并调用 `ensure_codex_provider_persisted(Always("gpt-5.4"))`；`--no-open` 只打印 URL，适合 SSH/headless 配合 `ssh -L 1455:127.0.0.1:1455 <host>` 使用
 - **重试 / 降级**：Codex 调用同样走 `failover::executor::execute_with_failover` + `chat_engine_default` policy（max_retries=2，退避基数与上限统一），不再有 Codex 自管的「3 次 1s/2s/4s」逻辑
 - **不参与 auth profile 轮换**：executor 内部硬编码 Codex Provider 跳过 profile 选择/轮换；Codex 凭据失败直接经标准失败路径走下一模型
-- **构造期失败保活**：Codex Provider 在 `crates/ha-core/src/provider/helpers.rs::ensure_codex_provider_persisted`（commit `99bc84a7`）保证 token 缺失或构造异常时配置仍持久化，下次手动登录补回即可，不会被静默移除
+- **构造期失败保活**：Codex Provider 在 `crates/ha-core/src/provider/crud.rs::ensure_codex_provider_persisted`（commit `99bc84a7`）保证 token 缺失或构造异常时配置仍持久化，下次手动登录补回即可，不会被静默移除
 - **共享 SSE 解析**：调用 `parse_openai_sse()`（与 Responses API 共享）
 
 ---
@@ -966,7 +966,7 @@ flowchart TD
 | Agent 类型 | `crates/ha-core/src/agent/types.rs` | LlmProvider、AssistantAgent、ThinkTagFilter |
 | Anthropic | `crates/ha-core/src/agent/providers/anthropic.rs` | Messages API + thinking 块回传 |
 | Chat Completions | `crates/ha-core/src/agent/providers/openai_chat.rs` | ThinkingStyle 分发 + reasoning_content 回传 |
-| Responses API | `crates/ha-core/src/agent/providers/openai_responses.rs` | encrypted_content 回传 + reasoning item 捕获 |
+| Responses API | `crates/ha-core/src/agent/providers/openai_responses.rs`（薄壳）+ `openai_responses_adapter.rs`（实现） | Responses 请求构建 + `parse_openai_sse` 解析；`store: false` 下 reasoning item 就地丢弃、不请求 encrypted_content、不回传 |
 | Codex OAuth | `crates/ha-core/src/agent/providers/codex.rs` | Responses 变体 + 重试逻辑 |
 | 推理参数 | `crates/ha-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制 |
 | 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |

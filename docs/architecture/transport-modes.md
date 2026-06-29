@@ -191,7 +191,7 @@ Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/se
 | Canvas | `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` | Canvas 面板生命周期。 |
 | Canvas | `canvas_snapshot_request` / `canvas_eval_request` | Canvas 工具请求前端截图或评估。 |
 | MCP | `mcp:server_status_changed` / `mcp:catalog_refreshed` / `mcp:auth_required` / `mcp:auth_completed` / `mcp:servers_changed` / `mcp:server_log` | MCP 服务器状态、catalog、OAuth 和日志。 |
-| Slash | `slash:model_switched` / `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | Slash 命令副作用广播。 |
+| Slash | `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | Slash 命令副作用广播。 |
 
 以下事件是 Tauri shell 直接发给 WebView 的桌面事件，不经过 `ha-core::EventBus`，HTTP 模式不会收到：
 

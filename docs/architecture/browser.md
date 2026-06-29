@@ -24,8 +24,8 @@ control { op: resize|scroll|wait_for|handle_dialog|evaluate|raw_cdp|download_can
 ```mermaid
 flowchart TB
     MOD["tools/browser/mod.rs<br/>8-action dispatch · URL guard"]
-    ACQ["browser::acquire_backend(requirement)"]
-    SEL["backend_select::acquire_backend_with_requirement()"]
+    ACQ["acquire_backend_for(ctx, requirement)"]
+    SEL["backend_select::acquire_backend_for()"]
     EXT["ExtensionBackend<br/>Chrome 扩展 + Native Messaging Host"]
     CDP["CdpBackend<br/>chromiumoxide · managed / user_attach"]
     REAL["用户真实 Chrome 标签页"]
@@ -50,7 +50,7 @@ flowchart TB
 
 ### `BrowserBackend` trait（[`backend.rs`](../../crates/ha-core/src/browser/backend.rs)）
 
-20 个 async method 覆盖 8-action 全部底层操作。共享类型 `ElementRef` / `Snapshot` / `ActKind` / `ActParams` / `ObserveEntry` / `ScreenshotParams` / `PdfParams` 等保持 backend-agnostic，方便后续接入其他实现。`ElementRef.locator` 是 backend 私有字段（CDP 用 CSS selector）——8-action 层从不读它，只透传 `ref_id`。
+27 个 async method 覆盖 8-action 全部底层操作。共享类型 `ElementRef` / `Snapshot` / `ActKind` / `ActParams` / `ObserveEntry` / `ScreenshotParams` / `PdfParams` 等保持 backend-agnostic，方便后续接入其他实现。`ElementRef.locator` 是 backend 私有字段（CDP 用 CSS selector）——8-action 层从不读它，只透传 `ref_id`。
 
 ### `ExtensionBackend`（[`extension/backend.rs`](../../crates/ha-core/src/browser/extension/backend.rs)）
 
@@ -278,7 +278,7 @@ Ring 容量 `OBSERVE_RING_CAPACITY=500`/kind，满则 shift 最旧。Core 侧对
     "launchCircuit": { "failureThreshold": 3, "cooldownSecs": 60 },
     "extension": {
       "enabled": true,
-      "allowRawCdp": true,                       // 兼容字段；不控制 raw_cdp 是否可用
+      "allowRawCdp": true,                       // 硬开关；false 则 raw_cdp 在执行 + 审批闸全被拒
       "showControlOverlay": true,
       "heartbeatIntervalSecs": 15,
       "extensionIds": ["<prod-or-dev-extension-id>"],
@@ -295,7 +295,7 @@ Ring 容量 `OBSERVE_RING_CAPACITY=500`/kind，满则 shift 最旧。Core 侧对
 
 `browser.defaultMode` 风险等级 **LOW**（仅 UI 偏好），可走 `update_settings`。Profile 字段（`profiles[*]`）也是 **LOW**，settings UI 直接编辑。
 
-`browser.extension.allowRawCdp` 只为旧配置 round-trip 保留；`control.raw_cdp` 的真实 gate 是统一权限引擎和 ExtensionBackend/controlled-tab 前提。把它设为 `false` 不会禁用 raw CDP。需要禁用某类工具能力时，应通过 agent 工具 allow/deny、session permission mode 或全局审批策略表达。
+`browser.extension.allowRawCdp` 是 raw CDP 的**硬开关**（默认 `true`，未设视为启用）：置 `false` 时 agent 完全发不出 raw DevTools Protocol——`control_raw_cdp` 执行入口直接返回 `control.raw_cdp is disabled by configuration` 拒绝，权限引擎也短路掉 `BrowserRawCdp` 审批闸。这与统一权限引擎、ExtensionBackend/controlled-tab 前提是叠加关系（后者管「能否审批通过」，本开关管「能力是否完全关闭」）。
 
 `browser.extension.extensionIds` 是生产/企业分发的显式信任列表；unpacked dev id 会从 repo 内 `extensions/chrome/manifest.json` 的 `key` 推导并追加到状态输出，但生产默认仍应回填 Web Store id 和 `storeUrl`。`showControlOverlay=false` 只隐藏页面 Stop overlay，不取消 toolbar popup / Settings Stop。`extension.heartbeatIntervalSecs` 是 native host / extension 活性诊断心跳，和 top-level `browser.heartbeatIntervalSecs`（CDP websocket keepalive）不是同一个开关。
 

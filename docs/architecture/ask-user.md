@@ -149,13 +149,15 @@ pub struct AskUserQuestionAnswer {
 pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 ```
 
-**Schema 定义**：`crates/ha-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键 flag：
+**Schema 定义**：`crates/ha-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键声明：
 
 | 字段 | 值 | 含义 |
 |------|-----|------|
+| `tier` | `ToolTier::Core { subclass: CoreSubclass::Interaction }` | Core 工具：`is_always_load()` 派生为 `true`（不支持 deferred），即使开启 `deferredTools.enabled` 也强制随 Core 描述注入 |
 | `internal` | `true` | 系统工具，不可被 Agent `denied_tools` 关闭 |
-| `deferred` | `false` | 始终发送给模型，不走延迟加载机制 |
-| `always_load` | `true` | 即使开启 `deferredTools.enabled` 也强制加载 |
+| `concurrent_safe` | `true` | 允许并发调度 |
+
+旧的 `deferred` / `always_load` 两个布尔字段已从 `ToolDefinition` 删除——三个旧 bool 现统一由 tier 派生（`is_always_load()` / `is_deferred_default()` 基于 `supports_deferred()`，定义在 `tools/definitions/types.rs`）。
 
 工具在 `core_tools.rs` 通过 `tools.push(super::plan_tools::get_ask_user_question_tool())` 统一注入（schema 定义仍在 `plan_tools.rs` 因为工具在 Plan Mode 中也被使用，但工具本身不依赖 plan 模块）。dispatch 在 `tools/execution.rs`：
 
@@ -668,13 +670,17 @@ Some((qi - 1, oi))
 文件：`channel/worker/ask_user.rs`
 
 ```rust
-pub fn try_dispatch_interactive_callback(data: &str, source: &'static str) -> bool {
+pub fn try_dispatch_interactive_callback(
+    data: &str,
+    source: &'static str,
+    callback_source: Option<InteractiveCallbackSource>,
+) -> bool {
     if super::approval::is_approval_callback(data) {
-        super::approval::spawn_callback_handler(data, source);
+        super::approval::spawn_callback_handler_with_source(data, source, callback_source);
         return true;
     }
     if is_ask_user_callback(data) {
-        spawn_callback_handler(data, source);
+        spawn_callback_handler_with_source(data, source, callback_source);
         return true;
     }
     false

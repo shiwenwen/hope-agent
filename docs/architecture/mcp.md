@@ -105,12 +105,12 @@ stateDiagram-v2
 
 **启动策略**：
 - 默认 lazy connect（省冷启时间）
-- `McpServerConfig.eager = true` → Guardian 心跳触发 `McpManager::warm_up()`
+- `McpServerConfig.eager = true` → watchdog tick 在该 server 仍 `Idle` 时自动 `client::connect_now` 预热
 - `src-tauri/src/lib.rs::run` + `crates/ha-server/src/main.rs` 两个入口都调 `McpManager::init_global()`
 
-**健康检查 + 指数退避**：`watchdog.rs` 每 `health_check_interval_secs`（默认 60s）发 `ping`；失败 `consecutive_failures++`，重连间隔 `min(2^n × 5s, 300s)`，n ≤ 6。
+**健康检查 + 指数退避**：`watchdog.rs` 固定每 `TICK_INTERVAL_SECS`（15s）tick，对每个 `Ready` server 检查 `RunningService::is_closed()`（**无网络 `ping`**——主动探测只增稳态流量收益甚微），断开即翻 `Failed` 触发退避；失败 `consecutive_failures++`，重连间隔 `min(2^n × 5s, 300s)`，n ≤ 6。`health_check_interval_secs` 不驱动 tick 周期。
 
-**优雅关闭**：App 退出 → `McpManager::shutdown_all()` → `client.cancel()` + stdio 子进程 SIGTERM（1.5s 后 SIGKILL）。stdio 的 `tokio::process::Child` 带 `.kill_on_drop(true)` 兜底。
+**断开 / 关闭**：`client::disconnect(handle)` 取出 `RunningService` 后 `running.cancel().await` 关连接。stdio 子进程的终止由 rmcp 的 `TokioChildProcess` 负责，mcp 模块不自己发 SIGTERM/SIGKILL。
 
 **并发上限**：
 - 全局：`McpGlobalSettings.max_concurrent_calls`（默认 8）
@@ -508,7 +508,7 @@ pub mcp_global: McpGlobalSettings,            // 全局开关、并发上限等
 | `allowed_tools` / `denied_tools` | `Vec<String>` | 工具白/黑名单（针对**原始** tool name，即 namespace 前缀之前） |
 | `connect_timeout_secs` | `u64`（默认 30） | handshake 上限 |
 | `call_timeout_secs` | `u64`（默认 120） | 单 tool call 上限 |
-| `health_check_interval_secs` | `u64`（默认 60） | watchdog ping 周期 |
+| `health_check_interval_secs` | `u64`（默认 60） | 历史字段，当前 watchdog 不读取（tick 周期固定 `TICK_INTERVAL_SECS`、无网络 ping） |
 | `max_concurrent_calls` | `u32`（默认 4） | per-server semaphore |
 | `auto_approve` | `bool` | 跳过工具审批（仅 `Trusted` 时生效） |
 | `trust_level` | `Untrusted` / `Trusted` | 影响 SSRF policy 和 `auto_approve` 门控 |
@@ -552,7 +552,7 @@ pub struct McpOAuthConfig {
 
 - **读** `cached_config().mcp_servers` / `.mcp_global`（`Arc<AppConfig>` 快照）
 - **写** `mutate_config(("mcp.<op>", "settings_panel"), |cfg| { ... })`
-  - `op` ∈ `add` / `update` / `remove` / `reorder` / `settings`
+  - `op` ∈ `add` / `update` / `remove` / `reorder` / `global` / `import`
   - 写入后调用 `McpManager::reconcile`：新增有效 server → Idle 等待 lazy/eager 连接；禁用 / deny / 删除 → 断开并移除；Ready server 的 `allowedTools` / `deniedTools` 等 catalog 过滤变化 → 用已有原始 catalog 立即重建 schema cache 和执行反查表
   - `update_settings(category="mcp_global")` 与 Settings UI 走同一条 reconcile 路径；不要假设 dispatch 会直接读取 `cached_config().mcp_global`
 
@@ -569,9 +569,9 @@ pub struct McpOAuthConfig {
 | 401/403 handshake → NeedsAuth | Bearer 过期 / scope 不匹配 / server 限制 IP | 点 **Authorize** 重跑 OAuth；必要时 **Sign out** 后重新授权 |
 | `Blocked: SSRF policy blocked...` | URL 指向私网或 metadata IP | 1. 把 host 加入 `ssrf.trusted_hosts`；2. 把 server `trust_level` 改为 `Trusted`；3. 确认 URL 确实是公网 |
 | `refresh_access_token failed: refresh_token invalid` | refresh token 过期 / server 轮换失败 | 自动 Sign out + NeedsAuth；重点是把孤儿凭据清掉（`remove_server` 已兜底） |
-| 子进程僵尸 | stdio server crash 但没被 SIGKILL 清 | 退出应用；`kill_on_drop(true)` + `SIGTERM→SIGKILL(1.5s)` 应覆盖；若残留可手动 kill |
+| 子进程僵尸 | stdio server crash 但没被清理 | 退出应用；子进程终止由 rmcp `TokioChildProcess` 负责，若残留可手动 kill |
 | 浏览器不自动打开 | `open::that` 失败 | 查 `mcp:auth_required` 事件 payload 里的 `authUrl`，手动复制 |
-| WebSocket 断流后不重连 | 当前 watchdog 只 ping HTTP/stdio；WS 是长连接 | v1 接受；v2 考虑给 `poll_next` 增加空闲计数 |
+| WebSocket 断流后不重连 | watchdog 只对 `Ready` server 查 `is_closed()`（无网络 ping）；WS 长连接断流未必翻 closed | v1 接受；v2 考虑给 `poll_next` 增加空闲计数 |
 
 ### 日志聚合入口
 

@@ -1,6 +1,6 @@
 # 可靠性与崩溃自愈
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-27 | 关联源码：[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../crates/ha-core/src/crash_journal.rs)、[`self_diagnosis.rs`](../../crates/ha-core/src/self_diagnosis.rs)、[`backup.rs`](../../crates/ha-core/src/backup.rs)、[`service_install.rs`](../../crates/ha-core/src/service_install.rs)、[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-27 | 关联源码：[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`crash_journal.rs`](../../crates/ha-core/src/crash_journal.rs)、[`self_diagnosis.rs`](../../crates/ha-core/src/self_diagnosis.rs)、[`backup.rs`](../../crates/ha-core/src/backup.rs)、[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)、[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)
 
 ## 概述
 
@@ -189,7 +189,7 @@ fn run_child() {
 
 ## 4. Layer 3 · 操作系统服务保活
 
-`hope-agent server install` 把进程登记给操作系统的服务管理器，让 OS 帮忙拉起。这层和 Guardian 是冗余的——即使 Guardian 自己被 `kill -9` 或机器重启后没启动，OS 仍会按规则拉起 server。源码在 [`service_install.rs`](../../crates/ha-core/src/service_install.rs)。
+`hope-agent server install` 把进程登记给操作系统的服务管理器，让 OS 帮忙拉起。这层和 Guardian 是冗余的——即使 Guardian 自己被 `kill -9` 或机器重启后没启动，OS 仍会按规则拉起 server。源码在 [`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)（`service_install.rs` 现仅是转发到该模块的兼容 re-export 薄壳）。
 
 ### 4.1 macOS · launchd LaunchAgent
 
@@ -198,12 +198,12 @@ fn run_child() {
 | Key | Value | 含义 |
 |-----|-------|------|
 | `Label` | `ai.hopeagent.server` | 服务标识，`launchctl` 操作通过它定位 |
-| `ProgramArguments` | `[exe_path, "server", "--bind", addr, ("--api-key", key)?]` | 启动命令；XML escape 防注入（[`service_install.rs:16-29`](../../crates/ha-core/src/service_install.rs#L16-L29)） |
+| `ProgramArguments` | `[exe_path, "server", "--bind", addr, ("--api-key", key)?]` | 启动命令；`xml_escape`（[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)）转义每个值防注入 |
 | `KeepAlive` | `true` | **进程消失自动拉起**——这是核心保活键 |
 | `RunAtLoad` | `true` | 开机自动启动（用户登录后 LaunchAgent domain 加载） |
 | `StandardOutPath` / `StandardErrorPath` | `~/.hope-agent/logs/server.{stdout,stderr}.log` | 标准流落盘，方便事后排查 |
 
-**安装流程**：写 plist → `launchctl bootstrap gui/<uid> <plist>`（macOS 10.10+ API）→ `launchctl enable` → 状态查询走 `launchctl print`。**legacy 标签清理**：`com.hopeagent.server` 是早期标签，安装新版会先 unload 老 plist 防"两个 LaunchAgent 抢同一端口"。
+**安装流程**：写 plist → `launchctl load <plist>` 加载并启动（`install_launchd`）；卸载走 `launchctl unload`，状态查询走 `launchctl list <label>`。**legacy 标签清理**：`com.hopeagent.server` 是早期标签，安装新版会先 unload 老 plist 并删除文件防"两个 LaunchAgent 抢同一端口"。
 
 ### 4.2 Linux · systemd user unit
 
@@ -231,7 +231,7 @@ WantedBy=default.target
 | `RestartSec=3` | 重启延迟 3 秒，避免崩溃循环打满 CPU |
 | `WantedBy=default.target` | `systemctl --user enable` 后随用户会话启动 |
 
-**ExecStart 转义** ([`service_install.rs:38-54`](../../crates/ha-core/src/service_install.rs#L38-L54))：路径和 api_key 都走 `systemd_escape_arg`——双引号 + 反斜杠转义 + `$` → `$$`，防止 systemd 的 `$VAR` / `${VAR}` 展开把环境变量值塞进命令行。
+**ExecStart 转义**（`systemd_escape_arg`，[`platform/service.rs`](../../crates/ha-core/src/platform/service.rs)）：路径和 api_key 都走 `systemd_escape_arg`——双引号 + 反斜杠转义 + `$` → `$$`，防止 systemd 的 `$VAR` / `${VAR}` 展开把环境变量值塞进命令行。
 
 **用户级而不是系统级**：`systemctl --user` 不需要 root，跟着用户会话起停。代价是机器重启后必须有用户登录才会拉起；要"机器开机即起"得另外配 `loginctl enable-linger <user>`，本文档暂不展开。
 

@@ -127,12 +127,12 @@ pub struct PlanMeta {
 
 ### System Prompt 注入
 
-入口在 [`src-tauri/src/commands/chat.rs`](../../src-tauri/src/commands/chat.rs)，按 plan state 分支：
+入口在 [`agent/plan_context.rs::resolve_plan_context_for_session`](../../crates/ha-core/src/agent/plan_context.rs)（核心逻辑在 ha-core，`src-tauri/src/commands/chat.rs` 只 early-resolve plan state 后委托进 chat_engine），按 plan state 分支：
 
 | State | 注入 prompt | 来源常量 |
 |---|---|---|
 | Planning | 5 阶段规划工作流 + Restrictions + Re-entry Check + 推荐 plan 结构 | `PLAN_MODE_SYSTEM_PROMPT` |
-| Review | 同 Planning | `PLAN_MODE_SYSTEM_PROMPT` |
+| Review | `# Plan Review` header + 待审批的 plan content | plan content（plan 文件中途消失时 fallback 到 `PLAN_MODE_SYSTEM_PROMPT`） |
 | Executing | "plan 已冻结" + "用 task_create 拆 todos + task_update 推进" + plan content | `PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX + plan_content` |
 | Completed | 总结指令 + plan content | `PLAN_COMPLETED_SYSTEM_PROMPT + plan_content` |
 

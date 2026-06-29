@@ -318,7 +318,7 @@ ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';
 pub fn resolve(ctx: &ResolveContext<'_>) -> Decision
 ```
 
-`ResolveContext` 14 字段，覆盖 tool 信息 + 模式状态 + Plan / YOLO / Agent / smart_config。caller（`tools/execution.rs` + `tools/exec.rs`）每次 dispatch 构造一份。
+`ResolveContext` 18 字段，覆盖 tool 信息 + 模式状态 + Plan / YOLO / Agent / smart_config / unattended / task_intent。caller（`tools/execution.rs` + `tools/exec.rs`）每次 dispatch 构造一份。
 
 判定顺序严格按[优先级矩阵](#优先级矩阵)。**所有 sync 路径无 IO、无 LLM、可用于热路径**。
 
@@ -528,9 +528,9 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 
 | 元素 | 来源 |
 |------|------|
-| 顶部图标（红 / 橙） | `isStrict = reason.kind ∈ {protected_path, dangerous_command, mac_control_dangerous_action}` 切红色 ShieldAlert |
+| 顶部图标（红 / 橙） | `isStrict = reason.kind ∈ {protected_path, dangerous_command, mac_control_dangerous_action, plan_mode_ask}` 切红色 ShieldAlert |
 | 倒计时圆环（右上） | 读 `get_approval_timeout` + `get_approval_timeout_action` 配置；剩 ≤30s 变红 |
-| Reason banner（红 / 琥珀） | 后端经 `ApprovalRequest.reason: { kind, detail }` 透传，对 9 种 `AskReason` 渲染 i18n 文案 |
+| Reason banner（红 / 琥珀） | 后端经 `ApprovalRequest.reason: { kind, detail }` 透传，对 14 种 `AskReason` 渲染 i18n 文案 |
 | 工作目录 | `current.cwd`，等宽字体 |
 | 命令 / 操作摘要 | `current.command`（args 自动截断到 200 字符） |
 | 三按钮 | `Deny`（红） + `Allow Once`（默认聚焦） + `Allow Always`（strict 时置灰） |
@@ -541,7 +541,8 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 const isStrict =
   reason?.kind === "protected_path" ||
   reason?.kind === "dangerous_command" ||
-  reason?.kind === "mac_control_dangerous_action"
+  reason?.kind === "mac_control_dangerous_action" ||
+  reason?.kind === "plan_mode_ask"
 ```
 
 `isStrict=true` 时：
@@ -575,7 +576,7 @@ useEffect(() => {
 
 ```json
 {
-  "kind": "protected_path" | "edit_tool" | "edit_command" | "dangerous_command" | "agent_custom_list" | "smart_judge" | "mac_control_action" | "mac_control_dangerous_action" | "plan_mode_ask" | "cron_delete",
+  "kind": "protected_path" | "edit_tool" | "edit_command" | "dangerous_command" | "agent_custom_list" | "smart_judge" | "browser_evaluate" | "browser_raw_cdp" | "browser_chrome_access" | "browser_download_action" | "mac_control_action" | "mac_control_dangerous_action" | "plan_mode_ask" | "cron_delete",
   "detail": "可选明文"
 }
 ```

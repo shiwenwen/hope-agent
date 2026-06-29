@@ -98,11 +98,16 @@ Manifest 结构（[`updater::manifest::Manifest`](../../crates/ha-core/src/updat
 
 ## 异步 job 跟踪
 
-`app_update install` 返回的 `job_id` 是 in-memory tracker 的键（`tools::app_update::tracker()` 单例 `Mutex<HashMap>`）。状态包含 `phase` ∈ `starting | running | downloading | verifying | staging | backing | swapping | restarting | done | failed`，`outcome` / `error` 在终态时填充。模型查 `app_update(action="status", job_id=...)`。
+`app_update install` 返回的 `job_id` 是 in-memory tracker 的键（`tools::app_update::tracker()` 单例 `Mutex<HashMap>`）。模型查 `app_update(action="status", job_id=...)`，`outcome` / `error` 在终态时填充。
+
+**tracker `phase` 与 event 帧 `phase` 是两套，不要混淆**：
+
+- **tracker 里持久化的 `phase`** 只会是 `starting`（建键时初始化）/ `running`（`update_phase()` 唯一调用点写入）/ `done`（`finalize_ok`）/ `failed`（`finalize_failed`），status 查不到对应 job 时回 `unknown`——`action=status` 返回的 `phase` 永远只看得到这几个粗粒度值。
+- **细粒度阶段** `checking` / `downloading` / `verifying` / `staging` / `backing` / `swapping` / `restarting`（`self_contained::Phase` enum，经 `emit_phase` 发到 EventBus `app_update:progress` 帧的 `phase` label）**只推送给 UI，从不写进 tracker**。若希望 status 工具也反映这些阶段，需在 `emit_phase` 旁同步调 `update_phase`（当前未做）。
 
 进度事件通过 EventBus 推到 UI：
 
-- `app_update:progress` —— 下载字节进度（每 5% 或每 1s 节流，含 `phase` / `percent` / `written` / `total`）+ 阶段切换（`lifecycle` label）。
+- `app_update:progress` —— 下载字节进度（每 5% 或每 1s 节流，含 `phase` / `percent` / `written` / `total`）+ 阶段切换（`lifecycle` label，`phase` 为上面的细粒度值）。
 - `app_update:completed` —— 终态时一次性发送，含 `status` + `outcome` 或 `error`。
 
 **为什么不走 `background_jobs.db`**：install 涉及 binary swap，pipeline 一旦开始就不能被外部 cancel 中断（中途断电留下 staging 半成品，重启后用户重跑即可——不需要持久化进度）。in-memory tracker 简单稳定。

@@ -32,8 +32,7 @@ crates/ha-core/src/awareness/
     render.rs       生成 markdown suffix
     session.rs      SessionAwareness —— 动态感知器（三层触发 + hash 判重）
     llm_digest.rs   LLM 抽取 prompt 构建
-    peek_tool.rs    peek_sessions deferred 工具
-    build.rs        静态预热块（baked into system prompt）
+    peek_tool.rs    peek_sessions 工具
 ```
 
 ### 数据流
@@ -85,7 +84,7 @@ session `incognito=true` 时整个 refresh 路径在入口处直接短路：
 
 **默认语义 hint 正则**（可配置）：
 ```
-(?i)(上次|之前|另一个|其它会话|其他会话|last time|previously|earlier|another session|other session|the other (chat|session|window))
+(?i)(上次|之前|之前那个|另一个|其它会话|其他会话|另一边|另一个窗口|另一个对话|last time|previously|earlier|another session|other session|the other (chat|session|window))
 ```
 
 ---
@@ -250,14 +249,14 @@ interface AwarenessConfig {
 
 ---
 
-## Deferred 工具：peek_sessions
+## peek_sessions 工具
 
 模型可主动调用 `peek_sessions(query?, limit?)` 获取实时跨会话数据：
 
-- **注册方式**：`deferred=true`，通过 `tool_search` 发现
+- **注册方式**：Core `SessionAware` 工具（`peek_sessions_schema()` 设 `tier = ToolTier::Core { subclass: SessionAware }`），始终 eager 注入——`is_deferred` 对非 Standard/Configured tier 恒返回 false，`resolve_tool_fate` 把 SessionAware 映射到 `InjectEager`；**不走 deferred / `tool_search` 发现**
 - **internal=true**：无需审批
 - **concurrent_safe=true**：可并行执行
-- **全局杀开关**：`enabled=false` 时返回 `"Cross-session awareness is disabled by the user."`
+- **全局杀开关**：`enabled=false` 时返回 `"Behavior awareness is disabled by the user."`
 - **查询过滤**：对 title / goal / summary 做 substring 匹配
 - **pull 4x limit**：先拉 `limit*4` 条，query 过滤后再 truncate 到 limit，避免 miss
 

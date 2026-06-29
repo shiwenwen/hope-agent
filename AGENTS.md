@@ -451,7 +451,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 ## 文档维护
 
-技术文档索引见 [`docs/README.md`](docs/README.md)（`docs/architecture/` 架构 + `docs/research/` 调研）。
+技术文档索引见 [`docs/README.md`](docs/README.md)（`docs/architecture/` 架构）。
 
 | 改动类型                                            | 需更新                                                                |
 | --------------------------------------------------- | --------------------------------------------------------------------- |

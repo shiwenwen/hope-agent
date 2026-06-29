@@ -56,10 +56,10 @@ crates/ha-core/src/team/
 | `TeamTaskCard.tsx` | 任务卡片 |
 | `TeamMessageFeed.tsx` | 实时消息流 + 输入框 |
 | `TeamMessageBubble.tsx` | 消息气泡（系统消息居中、用户消息带颜色） |
-| `TeamCreateDialog.tsx` | 创建团队对话框（模板/自定义两种模式） |
-| `TeamTemplateCard.tsx` | 模板预览卡 |
 | `TeamToolbar.tsx` | 操作栏（暂停/恢复/解散） |
 | `TeamMiniIndicator.tsx` | 聊天标题栏迷你指示器（自行获取数据） |
+
+> 团队没有专门的创建对话框；模板的创建 / 编辑 / 删除 UI 在 `src/components/settings/teams-panel/`（`TemplateListView` / `TemplateEditView` / `MemberRow` / `AgentSelector`，见「配置入口」）。
 
 ## 数据模型
 
@@ -303,7 +303,7 @@ flowchart TD
 **Settings → Teams** 面板（GUI）：
 
 - 添加 / 编辑 / 删除模板，定义成员名 + Agent + 角色 + 默认任务描述
-- 模板保存后即可在 `team(action="create", template="<name>")` 引用，或通过 `TeamCreateDialog` 的"使用模板"路径一键铺开成员
+- 模板保存后即可在 `team(action="create", template="<name>")` 引用，一键铺开成员
 - 模板与 Agent 的依赖松耦合：删除某个 Agent 后引用它的模板会在创建时报错（成员级 fallback 后续可补）
 
 ### 工具/命令访问
