@@ -23,11 +23,18 @@ vi.mock("./MessageBubble", () => ({
   default: ({
     msg,
     executionState,
+    forceExpandUserContent,
   }: {
     msg: Message
     executionState?: string | null
+    forceExpandUserContent?: boolean
   }) => (
-    <div data-testid="message-bubble" data-execution-state={executionState ?? "none"}>
+    <div
+      data-testid="message-bubble"
+      data-message-db-id={msg.dbId ?? ""}
+      data-execution-state={executionState ?? "none"}
+      data-force-expand-user-content={forceExpandUserContent ? "true" : "false"}
+    >
       {msg.content}
     </div>
   ),
@@ -619,6 +626,38 @@ describe("MessageList", () => {
     expect(scrollIntoViewSpy).toHaveBeenCalled()
     expect(scrollIntoViewSpy.mock.calls[0]?.[0]).toMatchObject({ block: "center" })
     expect(onScrollTargetHandled).toHaveBeenCalledTimes(1)
+  })
+
+  test("auto-expands a user message before scrolling to a search hit", async () => {
+    const scrollIntoViewSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {})
+
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "assistant", content: "earlier", dbId: 41 }),
+          baseMessage({
+            role: "user",
+            content: `first line\n${"middle\n".repeat(20)}hidden needle`,
+            dbId: 42,
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        pendingScrollIntent={{ messageId: 42, highlightTerms: ["needle"] }}
+      />,
+    )
+
+    await waitFor(() => {
+      const target = screen.getByText(/hidden needle/).closest("[data-message-db-id='42']")
+      expect(target?.getAttribute("data-force-expand-user-content")).toBe("true")
+      expect(scrollIntoViewSpy).toHaveBeenCalled()
+    })
   })
 
   test("shows the jump-to-bottom button while loading and not at bottom, and clicking calls scrollTo", () => {
