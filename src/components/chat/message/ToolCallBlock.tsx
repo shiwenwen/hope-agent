@@ -50,6 +50,14 @@ import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
 import { KnowledgeResultCard } from "@/components/chat/message/KnowledgeResultCard"
 import InlineToolDiffPreview from "@/components/chat/message/InlineToolDiffPreview"
+import { FileMimeIcon } from "@/components/chat/message/FileCard"
+import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
+import { getFileChangeSummary } from "@/components/chat/message/fileChangeSummary"
+import {
+  getFileToolTarget,
+  getFileToolTargetDisplay,
+  getFileToolTargetTooltip,
+} from "@/components/chat/message/fileToolTarget"
 
 /** Tools whose results render via {@link KnowledgeResultCard} (grouped by KB). */
 function isKnowledgeResultTool(name: string): boolean {
@@ -121,24 +129,28 @@ function truncateEllipsis(s: string, n: number): string {
 /** Extract a short, human-friendly summary of tool arguments */
 function getDisplayArgs(name: string, args: string): string {
   try {
+    const fileTarget = getFileToolTarget(name, args)
+    if (fileTarget) return getFileToolTargetDisplay(fileTarget)
+
     const parsed = JSON.parse(args)
     switch (name) {
       case "exec":
         return parsed.command || args
       case "read":
       case "ls":
-        return parsed.path || "."
+        return parsed.path || parsed.file_path || "."
       case "write":
       case "edit":
-        return parsed.path || args
+        return parsed.path || parsed.file_path || args
       case "find":
         return parsed.pattern ? `${parsed.path || "."} → ${parsed.pattern}` : parsed.path || args
       case "grep":
         return parsed.pattern
           ? `"${parsed.pattern}"${parsed.path ? ` in ${parsed.path}` : ""}`
           : args
-      case "apply_patch":
+      case "apply_patch": {
         return parsed.path || args
+      }
       case "web_search":
         return parsed.query || args
       case "web_fetch":
@@ -307,46 +319,21 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
   const isMcpTool = parseMcpToolName(tool.name) !== null
   const Icon = skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
+  const fileTarget = getFileToolTarget(tool.name, tool.arguments)
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
+  const displayArgsTitle = fileTarget ? getFileToolTargetTooltip(fileTarget) : undefined
 
-  // Diff summary and "open diff" button surface only when the tool emitted
-  // structured side-output. Legacy rows persisted before the diff panel
-  // shipped have `metadata === undefined` and stay on the original layout.
-  const fileChangeSummary = useMemo<{
-    linesAdded: number
-    linesRemoved: number
-    payload: FileChangeMetadata | FileChangesMetadata
-  } | null>(() => {
-    const meta = tool.metadata
-    if (!meta) return null
-    if (meta.kind === "file_change") {
-      return {
-        linesAdded: meta.linesAdded,
-        linesRemoved: meta.linesRemoved,
-        payload: meta,
-      }
-    }
-    if (meta.kind === "file_changes") {
-      const totals = meta.changes.reduce(
-        (acc, c) => {
-          acc.linesAdded += c.linesAdded
-          acc.linesRemoved += c.linesRemoved
-          return acc
-        },
-        { linesAdded: 0, linesRemoved: 0 },
-      )
-      return { ...totals, payload: meta }
-    }
-    return null
-  }, [tool.metadata])
+  // Prefer real tool metadata; fall back to conservative in-flight estimates for
+  // edit/apply_patch so file deltas can appear while the tool is still running.
+  const fileChangeSummary = useMemo(() => getFileChangeSummary(tool), [tool])
 
-  const showInlineDiff = state === "completed" && !!fileChangeSummary
+  const showInlineDiff = state === "completed" && !!fileChangeSummary?.payload
   const canExpand = tool.name === "exec" || !isRunning
 
   const handleOpenDiff = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
-      if (fileChangeSummary && onOpenDiff) {
+      if (fileChangeSummary?.payload && onOpenDiff) {
         onOpenDiff(fileChangeSummary.payload)
       }
     },
@@ -434,18 +421,22 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
         >
           {toolLabel}
         </span>
-        <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
+        {fileTarget && displayArgs && (
+          <FileMimeIcon mime="" name={fileTarget.name} className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <span
+          className="truncate font-mono text-[11px] text-muted-foreground/60"
+          title={displayArgsTitle}
+        >
           {displayArgs}
         </span>
         {fileChangeSummary && (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums">
-            <span className="text-emerald-600 dark:text-emerald-400">
-              +{fileChangeSummary.linesAdded}
-            </span>
-            <span className="text-rose-600 dark:text-rose-400">
-              -{fileChangeSummary.linesRemoved}
-            </span>
-          </span>
+          <FileDeltaCounter
+            linesAdded={fileChangeSummary.linesAdded}
+            linesRemoved={fileChangeSummary.linesRemoved}
+            estimated={fileChangeSummary.estimated}
+            className="ml-auto text-[10px]"
+          />
         )}
         {elapsedText && (
           <span
@@ -458,7 +449,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
           </span>
         )}
 
-        {fileChangeSummary && onOpenDiff && (
+        {fileChangeSummary?.payload && onOpenDiff && (
           <IconTip label={t("diffPanel.openDiff", "查看 diff")}>
             <span
               role="button"
@@ -564,7 +555,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
       >
         <div className="ml-5 mt-0.5 mb-1">
           {showInlineDiff ? (
-            <InlineToolDiffPreview payload={fileChangeSummary.payload} />
+            <InlineToolDiffPreview payload={fileChangeSummary.payload!} />
           ) : tool.name === "exec" ? (
             <ExecToolResultCard tool={tool} isRunning={isRunning} />
           ) : isKnowledgeResultTool(tool.name) && tool.result ? (

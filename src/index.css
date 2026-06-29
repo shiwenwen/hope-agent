@@ -358,6 +358,64 @@
   animation: tool-count-number-change 150ms ease-out both;
 }
 
+/* Odometer-style file delta counters. The value changes are pure CSS transforms
+ * on tiny digit columns, so streaming tool rows can update without per-frame JS
+ * work or layout thrash. */
+.tool-delta-counter {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  line-height: 1;
+  -webkit-text-fill-color: currentColor !important;
+}
+
+.tool-delta-stat {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tool-delta-sign {
+  display: inline-block;
+  width: 0.68em;
+  text-align: right;
+}
+
+.tool-delta-number {
+  display: inline-flex;
+  height: 1em;
+  min-width: 0.62em;
+  overflow: hidden;
+  line-height: 1;
+  vertical-align: -0.08em;
+}
+
+.tool-delta-digit {
+  display: inline-block;
+  width: 0.62em;
+  height: 1em;
+  overflow: hidden;
+  contain: layout paint;
+}
+
+.tool-delta-digit-strip {
+  display: flex;
+  flex-direction: column;
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tool-delta-digit-strip > span {
+  display: block;
+  height: 1em;
+  line-height: 1;
+  text-align: center;
+}
+
+.tool-delta-estimate-mark {
+  font-size: 0.9em;
+  line-height: 1;
+}
+
 /* Respect reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
+import type { ComponentProps } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
 import type { WorkspaceEnvironmentSnapshot } from "@/lib/transport"
+import type { BackgroundJobSnapshot } from "@/types/background-jobs"
 import WorkspacePanel from "./WorkspacePanel"
 
 const envMock = vi.hoisted(() => ({
@@ -35,7 +37,7 @@ vi.mock("@/lib/transport-provider", () => ({
     supportsLocalFileOps: () => true,
     // KnowledgeSection (useSessionKnowledge) fetches attachments + subscribes to
     // knowledge:changed — stub both so the panel mounts in tests.
-    call: () => Promise.resolve([]),
+    call: (name: string) => Promise.resolve(name === "get_background_job" ? null : []),
     listen: () => () => {},
   }),
 }))
@@ -62,7 +64,34 @@ afterEach(() => {
   envMock.state = { snapshot: null, loading: false, error: null }
 })
 
-function renderPanel(snapshot: WorkspaceEnvironmentSnapshot | null) {
+function backgroundJob(patch: Partial<BackgroundJobSnapshot> = {}): BackgroundJobSnapshot {
+  return {
+    jobId: "job-1",
+    kind: "tool",
+    status: "running",
+    tool: "exec",
+    label: "cargo test",
+    origin: "chat",
+    sessionId: "s1",
+    createdAt: 1,
+    completedAt: null,
+    error: null,
+    resultPreview: null,
+    resultPath: null,
+    childCount: null,
+    childrenTerminal: null,
+    childrenCompleted: null,
+    childrenFailed: null,
+    subagentRunId: null,
+    outputTail: "running output",
+    ...patch,
+  }
+}
+
+function renderPanel(
+  snapshot: WorkspaceEnvironmentSnapshot | null,
+  props: Partial<ComponentProps<typeof WorkspacePanel>> = {},
+) {
   envMock.state = { snapshot, loading: false, error: null }
   return render(
     <TooltipProvider>
@@ -107,6 +136,7 @@ function renderPanel(snapshot: WorkspaceEnvironmentSnapshot | null) {
         permissionMode="default"
         planState="review"
         activeModel={{ providerId: "openai", modelId: "gpt-test" }}
+        {...props}
       />
     </TooltipProvider>,
   )
@@ -160,5 +190,19 @@ describe("WorkspacePanel environment section", () => {
     expect(screen.getByText("main")).toBeTruthy()
     expect(screen.getByText("2 个文件")).toBeTruthy()
     expect(screen.getByText("Add workspace env")).toBeTruthy()
+  })
+
+  it("reuses expandable background job controls in the workspace section", () => {
+    const onBackgroundJobExpandedChange = vi.fn()
+    renderPanel(null, {
+      backgroundJobs: [backgroundJob()],
+      onBackgroundJobExpandedChange,
+    })
+
+    expect(screen.getByText("running output")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "收起任务" }))
+
+    expect(onBackgroundJobExpandedChange).toHaveBeenCalledWith("job-1", false)
   })
 })

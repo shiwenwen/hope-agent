@@ -24,6 +24,14 @@ import { MediaHoistContext } from "./mediaHoistContext"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
 import InlineToolDiffPreview from "@/components/chat/message/InlineToolDiffPreview"
+import { FileMimeIcon } from "@/components/chat/message/FileCard"
+import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
+import { getFileChangeSummary } from "@/components/chat/message/fileChangeSummary"
+import {
+  getFileToolTarget,
+  getFileToolTargetDisplay,
+  getFileToolTargetTooltip,
+} from "@/components/chat/message/fileToolTarget"
 import {
   getExecutionToolGroupLabelSegments,
   getExecutionToolGroupSegmentSeparator,
@@ -94,8 +102,11 @@ function getSkillName(tool: ToolCall): string | null {
 function getFullTarget(tool: ToolCall): string {
   try {
     const parsed = JSON.parse(tool.arguments)
+    const fileTarget = getFileToolTarget(tool.name, tool.arguments)
+    if (fileTarget) return fileTarget.multiple ? `${fileTarget.path} +` : fileTarget.path
     return (
       parsed.path ||
+      parsed.file_path ||
       parsed.url ||
       parsed.query ||
       parsed.pattern ||
@@ -142,7 +153,10 @@ function GroupItem({
   const isRunning = state === "running"
   const isFailed = state === "failed"
   const skillName = getSkillName(tool)
+  const fileTarget = getFileToolTarget(tool.name, tool.arguments)
   const fullTarget = skillName ? "" : getFullTarget(tool)
+  const targetText = fileTarget ? getFileToolTargetDisplay(fileTarget) : fullTarget
+  const targetTitle = fileTarget ? getFileToolTargetTooltip(fileTarget) : undefined
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const preview = skillName ? null : getResultPreview(tool.result)
   const cat = getToolCategory(tool.name)
@@ -154,34 +168,9 @@ function GroupItem({
     [elapsedMs],
   )
 
-  const fileChangeSummary = useMemo<{
-    linesAdded: number
-    linesRemoved: number
-    payload: FileChangeMetadata | FileChangesMetadata
-  } | null>(() => {
-    const meta = tool.metadata
-    if (!meta) return null
-    if (meta.kind === "file_change") {
-      return {
-        linesAdded: meta.linesAdded,
-        linesRemoved: meta.linesRemoved,
-        payload: meta,
-      }
-    }
-    if (meta.kind === "file_changes") {
-      const totals = meta.changes.reduce(
-        (acc, c) => {
-          acc.linesAdded += c.linesAdded
-          acc.linesRemoved += c.linesRemoved
-          return acc
-        },
-        { linesAdded: 0, linesRemoved: 0 },
-      )
-      return { ...totals, payload: meta }
-    }
-    return null
-  }, [tool.metadata])
-  const showInlineDiff = state === "completed" && !!fileChangeSummary
+  const fileChangeSummary = useMemo(() => getFileChangeSummary(tool), [tool])
+  const diffPayload = fileChangeSummary?.payload
+  const showInlineDiff = state === "completed" && !!diffPayload
   const canExpand = tool.name === "exec" || (!isRunning && (!!tool.result || showInlineDiff))
 
   useEffect(() => {
@@ -218,7 +207,12 @@ function GroupItem({
         >
           {toolLabel}
         </span>
-        <span className="text-muted-foreground/60 truncate font-mono">{fullTarget}</span>
+        {fileTarget && targetText && (
+          <FileMimeIcon mime="" name={fileTarget.name} className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <span className="text-muted-foreground/60 truncate font-mono" title={targetTitle}>
+          {targetText}
+        </span>
         {/* Inline result preview when collapsed */}
         {!showResult && preview && !fileChangeSummary && (
           <span className="text-muted-foreground/30 truncate ml-auto pl-2 max-w-[40%]">
@@ -226,14 +220,12 @@ function GroupItem({
           </span>
         )}
         {fileChangeSummary && (
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums">
-            <span className="text-emerald-600 dark:text-emerald-400">
-              +{fileChangeSummary.linesAdded}
-            </span>
-            <span className="text-rose-600 dark:text-rose-400">
-              -{fileChangeSummary.linesRemoved}
-            </span>
-          </span>
+          <FileDeltaCounter
+            linesAdded={fileChangeSummary.linesAdded}
+            linesRemoved={fileChangeSummary.linesRemoved}
+            estimated={fileChangeSummary.estimated}
+            className="ml-auto text-[10px]"
+          />
         )}
         {elapsedText && (
           <span
@@ -245,14 +237,14 @@ function GroupItem({
             {t("tools.elapsed", { time: elapsedText })}
           </span>
         )}
-        {fileChangeSummary && onOpenDiff && (
+        {diffPayload && onOpenDiff && (
           <IconTip label={t("diffPanel.openDiff", "查看 diff")}>
             <span
               role="button"
               className="shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/60 hover:text-muted-foreground transition-colors"
               onClick={(e) => {
                 e.stopPropagation()
-                onOpenDiff(fileChangeSummary.payload)
+                onOpenDiff(diffPayload)
               }}
             >
               <GitCompare className="h-3 w-3" />
@@ -289,7 +281,7 @@ function GroupItem({
       >
         <div className="ml-4 mt-0.5 mb-1">
           {showInlineDiff ? (
-            <InlineToolDiffPreview payload={fileChangeSummary.payload} />
+            <InlineToolDiffPreview payload={diffPayload!} />
           ) : tool.name === "exec" ? (
             <ExecToolResultCard tool={tool} isRunning={isRunning} />
           ) : (

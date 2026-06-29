@@ -2976,6 +2976,8 @@ export default function ChatScreen({
                   workspaceTaskExecutionState === "cancelling"
                 }
                 backgroundJobs={backgroundJobs.jobs}
+                backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
+                onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
                 onViewSubagentSession={setSubagentPreviewSessionId}
                 onClose={() => {
