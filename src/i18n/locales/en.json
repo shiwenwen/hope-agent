@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Add working directory",
-    "askAnything": "Tell me your idea, @ finds files/notes/skills, # summons quick prompts...",
+    "askAnything": "Tell me your idea, @ finds files/notes/skills, # quick prompts, / quick commands...",
     "browserPanel": {
       "backendBadgeTooltip": "Browser backend: {{backend}}",
       "captureFailed": "Frame capture failed, waiting for next one",

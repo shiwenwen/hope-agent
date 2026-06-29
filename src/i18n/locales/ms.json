@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
-    "askAnything": "Beritahu idea anda, @ cari fail/nota/kemahiran, # panggil arahan pantas...",
+    "askAnything": "Beritahu idea anda, @ cari fail/nota/kemahiran, # input pantas, / arahan pantas...",
     "browserPanel": {
       "backendBadgeTooltip": "Backend pelayar: {{backend}}",
       "captureFailed": "Gagal menangkap bingkai, menunggu yang seterusnya",
@@ -366,13 +366,13 @@
     "copied": "Disalin",
     "copy": "Salin",
     "quickPrompts": {
-      "addAction": "Tambah ke arahan pantas",
-      "addFailed": "Gagal menambah arahan pantas",
-      "added": "Ditambah ke arahan pantas",
-      "duplicate": "Arahan pantas ini sudah disimpan",
-      "empty": "Belum ada arahan pantas. Tambah satu dari bahagian bawah mesej pengguna.",
-      "heading": "Arahan pantas",
-      "noMatches": "Tiada arahan pantas yang sepadan"
+      "addAction": "Tambah ke input pantas",
+      "addFailed": "Gagal menambah input pantas",
+      "added": "Ditambah ke input pantas",
+      "duplicate": "Input pantas ini sudah disimpan",
+      "empty": "Belum ada input pantas. Tambah satu dari bahagian bawah mesej pengguna.",
+      "heading": "Input pantas",
+      "noMatches": "Tiada input pantas yang sepadan"
     },
     "cronTaskStarted": "Satu tugasan berjadual telah dicetuskan",
     "cronTrigger": "Tugasan berjadual",

@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
-    "askAnything": "Hãy cho tôi biết ý tưởng của bạn, @ tìm tệp/ghi chú/kỹ năng, # mở lệnh nhanh...",
+    "askAnything": "Hãy cho tôi biết ý tưởng của bạn, @ tìm tệp/ghi chú/kỹ năng, # nhập nhanh, / lệnh nhanh...",
     "browserPanel": {
       "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
       "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",
@@ -366,13 +366,13 @@
     "copied": "Đã sao chép",
     "copy": "Sao chép",
     "quickPrompts": {
-      "addAction": "Thêm vào lệnh nhanh",
-      "addFailed": "Không thể thêm lệnh nhanh",
-      "added": "Đã thêm vào lệnh nhanh",
-      "duplicate": "Lệnh nhanh này đã được lưu",
-      "empty": "Chưa có lệnh nhanh. Hãy thêm một lệnh từ cuối tin nhắn người dùng.",
-      "heading": "Lệnh nhanh",
-      "noMatches": "Không có lệnh nhanh phù hợp"
+      "addAction": "Thêm vào nhập nhanh",
+      "addFailed": "Không thể thêm nhập nhanh",
+      "added": "Đã thêm vào nhập nhanh",
+      "duplicate": "Mục nhập nhanh này đã được lưu",
+      "empty": "Chưa có mục nhập nhanh. Hãy thêm một mục từ cuối tin nhắn người dùng.",
+      "heading": "Nhập nhanh",
+      "noMatches": "Không có mục nhập nhanh phù hợp"
     },
     "cronTaskStarted": "Một tác vụ định kỳ đã được kích hoạt",
     "cronTrigger": "Tác vụ định kỳ",

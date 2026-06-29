@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Agregar directorio de trabajo",
-    "askAnything": "Cuéntame tu idea, @ busca archivos/notas/habilidades y # abre prompts rápidos...",
+    "askAnything": "Cuéntame tu idea, @ busca archivos/notas/habilidades, # prompts rápidos y / comandos rápidos...",
     "browserPanel": {
       "backendBadgeTooltip": "Backend del navegador: {{backend}}",
       "captureFailed": "Fallo al capturar el fotograma, esperando el siguiente",
