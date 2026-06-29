@@ -75,6 +75,7 @@ fn risk_level(category: &str) -> &'static str {
         | "awareness"
         | "web_fetch"
         | "web_search"
+        | "timeout_policy"
         | "deferred_tools"
         | "async_tools"
         | "approval"
@@ -177,6 +178,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "mcp_global" => Some(
             "MCP subsystem master switch + concurrency / backoff caps. Flipping enabled=false disconnects every MCP server; loosening backoff caps can cause retry storms; deniedServers prevents users from re-adding listed server names."
+        ),
+        "timeout_policy" => Some(
+            "Controls model-supplied runtime timeout overrides for long-running work (exec.timeout, async job_timeout_secs, sub-agent / ACP / cron per-job timeouts). It does not affect short polling windows or network/connect timeouts. modelRuntimeOverrides = allow | warn | ignore_when_user_unlimited."
         ),
         "mcp_servers" => Some(
             "Read-only via this tool. Server configs carry OAuth tokens, stdio command paths and trust acknowledgements; writes must go through Settings → MCP Servers which drives the trust dialog and writes credentials with 0600 permissions."
@@ -466,6 +470,7 @@ fn read_category(category: &str) -> Result<Value> {
         "auto_update" => Ok(serde_json::to_value(&cfg.auto_update)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
+        "timeout_policy" => Ok(serde_json::to_value(&cfg.timeout_policy)?),
         "unattended_approval" => Ok(json!({
             "unattendedApprovalAction": cfg.permission.unattended_approval_action,
         })),
@@ -605,6 +610,7 @@ fn get_all_overview() -> Result<String> {
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
+        "timeoutPolicy": cfg.timeout_policy,
         "approvalTimeoutEnabled": cfg.permission.approval_timeout_enabled,
         "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
         "notification": {
@@ -693,7 +699,7 @@ fn get_all_overview() -> Result<String> {
             "compact", "session_title", "memory_extract", "memory_selection", "memory_budget",
             "embedding_cache", "dedup", "hybrid_search", "temporal_decay",
             "mmr", "multimodal", "dreaming", "recap", "awareness", "web_fetch", "web_search",
-            "deferred_tools", "async_tools", "cron", "approval",
+            "deferred_tools", "async_tools", "timeout_policy", "cron", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
             "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite"
@@ -901,6 +907,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.tool_timeout = v;
             }
         }
+        "timeout_policy" => merge_field(&mut store.timeout_policy, values)?,
         "approval" => {
             if let Some(v) = values
                 .get("approvalTimeoutEnabled")

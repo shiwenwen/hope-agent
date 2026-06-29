@@ -256,6 +256,12 @@ export interface UseChatStreamOptions {
   getExtraAttachments?: () => ChatAttachment[]
   /** Called after a persisted session sandbox-mode update succeeds. */
   onSandboxModeSynced?: (sessionId: string, mode: SandboxMode) => void
+  /**
+   * When true, this surface has `useChatStreamReattach` mounted and should let
+   * ParentInjection deltas arrive through `chat:stream_delta` instead of the
+   * legacy `parent_agent_stream` delta side channel.
+   */
+  parentInjectionDeltasViaChatStream?: boolean
 }
 
 export interface UseChatStreamReturn {
@@ -332,6 +338,7 @@ export function useChatStream({
   toolScope,
   getExtraAttachments,
   onSandboxModeSynced,
+  parentInjectionDeltasViaChatStream = false,
 }: UseChatStreamOptions): UseChatStreamReturn {
   // Latest draft attaches, snapshotted into the startChat payload at send time
   // (mirrors how draftWorkingDir is baked into the create call) so a later
@@ -667,6 +674,7 @@ export function useChatStream({
     setLoadingSessionIds,
     sessionCacheRef,
     reloadSessions,
+    consumeParentStreamDeltas: !parentInjectionDeltasViaChatStream,
   })
 
   // Keep refs in sync

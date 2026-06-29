@@ -87,7 +87,7 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
       headers: [],
       description: "",
       connectTimeoutSecs: "30",
-      callTimeoutSecs: "120",
+      callTimeoutSecs: "0",
       maxConcurrentCalls: "4",
       trustLevel: "untrusted",
       autoApprove: false,
@@ -111,7 +111,7 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
     headers: Object.entries(s.headers ?? {}),
     description: s.description ?? "",
     connectTimeoutSecs: String(s.connectTimeoutSecs ?? 30),
-    callTimeoutSecs: String(s.callTimeoutSecs ?? 120),
+    callTimeoutSecs: String(s.callTimeoutSecs ?? 0),
     maxConcurrentCalls: String(s.maxConcurrentCalls ?? 4),
     trustLevel: s.trustLevel ?? "untrusted",
     autoApprove: s.autoApprove,
@@ -159,7 +159,9 @@ function formToDraft(form: FormState): McpServerDraft {
     headers,
     description: form.description.trim() || null,
     connectTimeoutSecs: Number(form.connectTimeoutSecs) || 30,
-    callTimeoutSecs: Number(form.callTimeoutSecs) || 120,
+    callTimeoutSecs: Number.isFinite(Number(form.callTimeoutSecs))
+      ? Math.max(0, Math.floor(Number(form.callTimeoutSecs)))
+      : 0,
     maxConcurrentCalls: Number(form.maxConcurrentCalls) || 4,
     trustLevel: form.trustLevel,
     autoApprove: form.autoApprove,
@@ -396,6 +398,7 @@ export default function McpServerEditDialog({
                 label={t("settings.mcp.callTimeout")}
                 value={form.callTimeoutSecs}
                 onChange={(v) => setForm({ ...form, callTimeoutSecs: v })}
+                min={0}
               />
               <TimeoutInput
                 label={t("settings.mcp.concurrency")}
@@ -608,10 +611,12 @@ function TimeoutInput({
   label,
   value,
   onChange,
+  min = 1,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
+  min?: number
 }) {
   return (
     <div className="space-y-1">
@@ -620,7 +625,7 @@ function TimeoutInput({
         type="number"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        min={1}
+        min={min}
         className="h-9"
       />
     </div>

@@ -39,7 +39,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "timeout": {
                         "type": "integer",
-                        "description": "Timeout in seconds. Defaults to 0 (no exec command timeout). Positive values are capped at 7200; set a positive value when you want this command to be killed after that many seconds."
+                        "description": "Optional command-kill timeout in seconds. Omit by default so user/system timeout policy applies. 0 = no exec command timeout. Set a positive value only when the user requested a deadline or this should be a short bounded probe; positive values are capped at 7200."
                     },
                     "env": {
                         "type": "object",
@@ -536,7 +536,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "job_timeout_secs": {
                         "type": "integer",
-                        "description": "Per-run wall-clock timeout in seconds for THIS job, overriding the global default (clamped to [30, 7200]). Use for a task that legitimately runs long (deep research / many tool calls) instead of raising the global cap for everything. Omit or pass null to use the global default; on update a number sets it, null clears it back to the default."
+                        "description": "Optional per-run wall-clock timeout in seconds for THIS scheduled task. Omit or pass null to use the global cron default; on update a number sets it and null clears it. 0 = no cron-level timeout for this job; positive values are clamped to [30, 7200]. Do not set by default—use only when the user explicitly wants a per-task budget or this scheduled task truly needs a different budget."
                     },
                     "notify_on_complete": {
                         "type": "boolean",
@@ -1576,7 +1576,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "enum": [
                             "all", "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "proxy",
                             "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
-                            "temperature", "tool_timeout", "approval", "unattended_approval",
+                            "temperature", "tool_timeout", "timeout_policy", "approval", "unattended_approval",
                             "image_generate", "canvas", "image", "pdf",
                             "async_tools", "cron", "deferred_tools",
                             "memory_extract", "memory_selection", "memory_budget", "embedding",
@@ -1620,7 +1620,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "enum": [
                             "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "proxy",
                             "web_search", "web_fetch", "browser", "compact", "session_title", "notification", "startup_notification",
-                            "temperature", "tool_timeout", "approval", "unattended_approval",
+                            "temperature", "tool_timeout", "timeout_policy", "approval", "unattended_approval",
                             "image_generate", "canvas", "image", "pdf",
                             "async_tools", "cron", "deferred_tools",
                             "memory_extract", "memory_selection", "memory_budget", "embedding",

@@ -434,6 +434,24 @@ pub async fn set_tool_timeout(Json(body): Json<Value>) -> Result<Json<Value>, Ap
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/timeout-policy` -- get model-supplied runtime timeout policy.
+pub async fn get_timeout_policy_config(
+) -> Result<Json<ha_core::config::TimeoutPolicyConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.timeout_policy))
+}
+
+/// `PUT /api/config/timeout-policy` -- save model-supplied runtime timeout policy.
+pub async fn save_timeout_policy_config(
+    Json(body): Json<ConfigBody<ha_core::config::TimeoutPolicyConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("timeout_policy", "http"), |store| {
+        store.timeout_policy = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/approval-timeout` -- get tool approval wait timeout (seconds).
 pub async fn get_approval_timeout() -> Result<Json<Value>, AppError> {
     let store = load_config()?;

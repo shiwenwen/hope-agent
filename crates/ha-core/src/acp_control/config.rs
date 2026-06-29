@@ -24,7 +24,7 @@ pub struct AcpControlConfig {
     #[serde(default = "default_max_concurrent")]
     pub max_concurrent_sessions: u32,
 
-    /// Default timeout per turn (seconds).
+    /// Default timeout per turn (seconds). 0 = no ACP turn timeout.
     #[serde(default = "default_timeout")]
     pub default_timeout_secs: u64,
 
@@ -87,7 +87,7 @@ fn default_max_concurrent() -> u32 {
 }
 
 fn default_timeout() -> u64 {
-    600
+    0
 }
 
 fn default_runtime_ttl() -> u64 {

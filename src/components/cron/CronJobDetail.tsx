@@ -286,7 +286,9 @@ export default function CronJobDetail({
             <div className="flex justify-between">
               <span className="text-muted-foreground">{t("cron.jobTimeoutOverride")}</span>
               <span>
-                {job.jobTimeoutSecs ? `${job.jobTimeoutSecs}s` : t("cron.timeoutGlobalDefault")}
+                {job.jobTimeoutSecs != null
+                  ? `${job.jobTimeoutSecs}s`
+                  : t("cron.timeoutGlobalDefault")}
               </span>
             </div>
             <div className="flex items-center justify-between">

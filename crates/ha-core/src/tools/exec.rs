@@ -183,6 +183,67 @@ fn parse_exec_timeout_secs(args: &Value) -> u64 {
     }
 }
 
+async fn resolve_exec_timeout_secs(args: &Value, ctx: &super::ToolExecContext) -> u64 {
+    let requested = args.get("timeout").and_then(|v| v.as_u64());
+    let parsed = parse_exec_timeout_secs(args);
+    let Some(requested_secs) = requested.filter(|v| *v > 0) else {
+        return parsed;
+    };
+
+    let cfg = crate::config::cached_config();
+    // `exec.timeout` is a command-killing runtime budget. If both the
+    // foreground tool safety net and async job budget are unlimited, a model
+    // timeout is the only thing that would shorten the user's runtime policy.
+    let user_limit_secs = cfg.tool_timeout.max(cfg.async_tools.max_job_secs);
+    if super::should_ignore_model_runtime_timeout_when_user_unlimited(user_limit_secs) {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_EXEC,
+            "timeout",
+            requested_secs,
+            0,
+            Some(user_limit_secs),
+            true,
+            "user runtime limits are unlimited",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_EXEC,
+            "timeout",
+            requested_secs,
+            0,
+            Some(user_limit_secs),
+            true,
+            "user runtime limits are unlimited",
+        )
+        .await;
+        return 0;
+    }
+
+    super::audit_model_runtime_timeout_override(
+        Some(ctx),
+        super::TOOL_EXEC,
+        "timeout",
+        requested_secs,
+        parsed,
+        Some(user_limit_secs),
+        false,
+        "model supplied exec command timeout",
+    );
+    super::emit_model_runtime_timeout_metadata(
+        ctx,
+        super::TOOL_EXEC,
+        "timeout",
+        requested_secs,
+        parsed,
+        Some(user_limit_secs),
+        false,
+        "model supplied exec command timeout",
+    )
+    .await;
+    parsed
+}
+
 /// Decide what to do when the exec approval dialog times out, per
 /// `approval_timeout_action`. Registry-free (see
 /// [`resolve_exec_command_approval`]); callers own any `ProcessSession`
@@ -666,7 +727,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .and_then(|v| v.as_str())
         .map(|raw| ctx.resolve_path(raw));
 
-    let timeout_secs = parse_exec_timeout_secs(args);
+    let timeout_secs = resolve_exec_timeout_secs(args, ctx).await;
 
     let background = args
         .get("background")

@@ -63,7 +63,7 @@ export default function AcpControlPanel() {
     enabled: false,
     backends: [],
     maxConcurrentSessions: 5,
-    defaultTimeoutSecs: 600,
+    defaultTimeoutSecs: 0,
     runtimeTtlSecs: 1800,
     autoDiscover: true,
   })
@@ -282,11 +282,11 @@ export default function AcpControlPanel() {
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">{t("settings.acpTimeout", "Timeout (s)")}</Label>
+                <Label className="text-xs text-muted-foreground">{t("settings.acpTimeout", "Timeout (s, 0 = none)")}</Label>
                 <DeferredNumberInput
                   className="h-7 text-xs"
                   value={config.defaultTimeoutSecs}
-                  min={60}
+                  min={0}
                   max={7200}
                   onValueCommit={(value) =>
                     setConfig((prev) => ({ ...prev, defaultTimeoutSecs: value }))

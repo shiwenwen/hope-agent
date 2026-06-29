@@ -1445,6 +1445,7 @@ export default function ChatScreen({
     draftProjectId,
     draftKbAttachments,
     onSandboxModeSynced: handleSandboxModeSynced,
+    parentInjectionDeltasViaChatStream: true,
   })
 
   useEffect(() => {

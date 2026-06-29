@@ -210,7 +210,8 @@ impl ToolDefinition {
 
     /// When this tool is async-capable, inject optional async-job control
     /// parameters into the JSON schema so the model can discover background
-    /// execution and choose a shorter per-call job timeout. Idempotent.
+    /// execution and choose a shorter per-call job timeout when warranted.
+    /// Idempotent.
     fn augmented_parameters(&self) -> Value {
         if !self.async_capable {
             return self.parameters.clone();
@@ -240,7 +241,7 @@ impl ToolDefinition {
                 json!({
                     "type": "integer",
                     "minimum": 0,
-                    "description": "Optional per-call timeout in seconds for the outer async background job. It only applies if the call runs as an async job (explicitly or via auto-background). If asyncTools.maxJobSecs is 0, a positive value sets this job's outer timeout; if asyncTools.maxJobSecs is positive, it can only shorten that hard limit. Omit or set 0 to use the user-configured behavior."
+                    "description": "Optional per-call timeout in seconds for the outer async background job. Omit by default so user/system timeout policy applies. It only applies if the call runs as an async job (explicitly or via auto-background). Use a positive value only when the user requested a per-job deadline or this specific background job should be shorter than the configured default. If asyncTools.maxJobSecs is positive, this can only shorten that hard limit. 0 means no per-call override."
                 }),
             );
         }

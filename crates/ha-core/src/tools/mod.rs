@@ -1,4 +1,4 @@
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub(crate) mod acp_spawn;
 mod agents;
@@ -165,6 +165,101 @@ pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
 /// user's `asyncTools.maxJobSecs` is unlimited, and can only tighten a positive
 /// user-configured boundary.
 pub const ASYNC_JOB_TIMEOUT_ARG: &str = "job_timeout_secs";
+
+// ── Runtime Timeout Policy Helpers ───────────────────────────────
+
+pub(crate) fn should_ignore_model_runtime_timeout_when_user_unlimited(
+    user_limit_secs: u64,
+) -> bool {
+    matches!(
+        crate::config::cached_config()
+            .timeout_policy
+            .model_runtime_overrides,
+        crate::config::ModelRuntimeTimeoutOverrides::IgnoreWhenUserUnlimited
+    ) && user_limit_secs == 0
+}
+
+pub(crate) fn audit_model_runtime_timeout_override(
+    ctx: Option<&ToolExecContext>,
+    tool: &str,
+    parameter: &str,
+    requested_secs: u64,
+    effective_secs: u64,
+    user_limit_secs: Option<u64>,
+    ignored: bool,
+    reason: &str,
+) {
+    let mode = crate::config::cached_config()
+        .timeout_policy
+        .model_runtime_overrides;
+    if matches!(mode, crate::config::ModelRuntimeTimeoutOverrides::Allow) && !ignored {
+        return;
+    }
+
+    let details = json!({
+        "tool": tool,
+        "parameter": parameter,
+        "requestedSecs": requested_secs,
+        "effectiveSecs": effective_secs,
+        "userLimitSecs": user_limit_secs,
+        "ignored": ignored,
+        "reason": reason,
+        "policy": mode,
+    });
+    let level = if ignored { "warn" } else { "info" };
+    let message = if ignored {
+        format!(
+            "Ignored model runtime timeout override for {tool}.{parameter}: requested {requested_secs}s, effective {effective_secs}s ({reason})"
+        )
+    } else {
+        format!(
+            "Model runtime timeout override for {tool}.{parameter}: requested {requested_secs}s, effective {effective_secs}s ({reason})"
+        )
+    };
+
+    if let Some(logger) = crate::get_logger() {
+        logger.log(
+            level,
+            "tool",
+            "timeout_policy::model_runtime_override",
+            &message,
+            Some(details.to_string()),
+            ctx.and_then(|c| c.session_id.clone()),
+            ctx.and_then(|c| c.agent_id.clone()),
+        );
+    }
+}
+
+pub(crate) async fn emit_model_runtime_timeout_metadata(
+    ctx: &ToolExecContext,
+    tool: &str,
+    parameter: &str,
+    requested_secs: u64,
+    effective_secs: u64,
+    user_limit_secs: Option<u64>,
+    ignored: bool,
+    reason: &str,
+) {
+    let mode = crate::config::cached_config()
+        .timeout_policy
+        .model_runtime_overrides;
+    if matches!(mode, crate::config::ModelRuntimeTimeoutOverrides::Allow) && !ignored {
+        return;
+    }
+
+    ctx.emit_metadata(json!({
+        "kind": "runtime_timeout_override",
+        "tool": tool,
+        "parameter": parameter,
+        "requestedSecs": requested_secs,
+        "effectiveSecs": effective_secs,
+        "userLimitSecs": user_limit_secs,
+        "ignored": ignored,
+        "reason": reason,
+        "policy": mode,
+    }))
+    .await;
+}
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

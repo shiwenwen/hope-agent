@@ -112,10 +112,43 @@ fn strip_async_control_args(mut args: Value) -> Value {
     args
 }
 
-fn requested_job_timeout_secs(args: &Value) -> Option<u64> {
-    args.get(ASYNC_JOB_TIMEOUT_ARG)
+fn requested_job_timeout_secs(
+    tool_name: &str,
+    args: &Value,
+    ctx: Option<&ToolExecContext>,
+    configured_max_secs: u64,
+) -> Option<u64> {
+    let requested = args
+        .get(ASYNC_JOB_TIMEOUT_ARG)
         .and_then(|v| v.as_u64())
-        .filter(|secs| *secs > 0)
+        .filter(|secs| *secs > 0)?;
+
+    if crate::tools::should_ignore_model_runtime_timeout_when_user_unlimited(configured_max_secs) {
+        crate::tools::audit_model_runtime_timeout_override(
+            ctx,
+            tool_name,
+            ASYNC_JOB_TIMEOUT_ARG,
+            requested,
+            0,
+            Some(configured_max_secs),
+            true,
+            "asyncTools.maxJobSecs is unlimited",
+        );
+        return None;
+    }
+
+    let effective = clamp_job_timeout_secs(configured_max_secs, Some(requested));
+    crate::tools::audit_model_runtime_timeout_override(
+        ctx,
+        tool_name,
+        ASYNC_JOB_TIMEOUT_ARG,
+        requested,
+        effective,
+        Some(configured_max_secs),
+        false,
+        "model supplied async job timeout",
+    );
+    Some(requested)
 }
 
 fn clamp_job_timeout_secs(configured_max_secs: u64, requested_secs: Option<u64>) -> u64 {
@@ -127,11 +160,10 @@ fn clamp_job_timeout_secs(configured_max_secs: u64, requested_secs: Option<u64>)
     }
 }
 
-fn effective_max_job_secs(args: &Value) -> u64 {
-    clamp_job_timeout_secs(
-        crate::config::cached_config().async_tools.max_job_secs,
-        requested_job_timeout_secs(args),
-    )
+fn effective_max_job_secs(tool_name: &str, args: &Value, ctx: Option<&ToolExecContext>) -> u64 {
+    let configured_max_secs = crate::config::cached_config().async_tools.max_job_secs;
+    let requested_secs = requested_job_timeout_secs(tool_name, args, ctx, configured_max_secs);
+    clamp_job_timeout_secs(configured_max_secs, requested_secs)
 }
 
 /// Public API: spawn a background tool job.
@@ -164,7 +196,7 @@ pub(crate) fn spawn_explicit_job(
 
     // Prepare the ctx for the (possibly deferred) inner re-dispatch BEFORE the
     // slot decision, so a queued job carries a ready-to-run ctx in the queue.
-    let max_secs = effective_max_job_secs(&args);
+    let max_secs = effective_max_job_secs(tool_name, &args, Some(&ctx));
     ctx.bypass_async_dispatch = true;
     // Engine gate already ran (or was deliberately skipped for `exec`) at the
     // outer dispatch; the recursive inner call must not re-prompt (the user has
@@ -476,7 +508,7 @@ pub(crate) async fn dispatch_with_auto_background(
     // inline, or the awaiter already bailed), and `finalize_job` removes it on
     // the detached path. So no exit can leak the ring.
     let preview_bytes = preview_byte_budget();
-    let max_secs = effective_max_job_secs(args);
+    let max_secs = effective_max_job_secs(name, args, Some(ctx));
 
     // R7.1: a job that auto-detaches must count against the concurrency pool for
     // the rest of its life (so later `try_reserve` sees the slot occupied). The

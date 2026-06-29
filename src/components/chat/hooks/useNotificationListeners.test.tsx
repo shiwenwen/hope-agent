@@ -43,7 +43,13 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function Harness({ onMessages }: { onMessages: (messages: Message[]) => void }) {
+function Harness({
+  onMessages,
+  consumeParentStreamDeltas,
+}: {
+  onMessages: (messages: Message[]) => void
+  consumeParentStreamDeltas?: boolean
+}) {
   const [messages, setMessages] = useState<Message[]>([])
   const [loading, setLoading] = useState(false)
   const [, setLoadingSessionIds] = useState<Set<string>>(new Set())
@@ -59,6 +65,7 @@ function Harness({ onMessages }: { onMessages: (messages: Message[]) => void }) 
     setLoadingSessionIds,
     sessionCacheRef,
     reloadSessions: async () => {},
+    consumeParentStreamDeltas,
   })
 
   useEffect(() => {
@@ -184,5 +191,41 @@ describe("useNotificationListeners", () => {
       { type: "text", content: "final chunk" },
     ])
     expect(rafCallbacks.size).toBe(0)
+  })
+
+  test("can leave parent-agent deltas to the chat stream reattach path", async () => {
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0)
+      return 1
+    })
+    vi.stubGlobal("cancelAnimationFrame", () => {})
+
+    let latest: Message[] = []
+    render(
+      <Harness
+        consumeParentStreamDeltas={false}
+        onMessages={(messages) => { latest = messages }}
+      />,
+    )
+
+    const emit = transportMock.listeners.get("parent_agent_stream")
+    expect(emit).toBeTruthy()
+
+    await act(async () => {
+      emit?.({ eventType: "started", parentSessionId: "parent-session" })
+    })
+    expect(latest).toHaveLength(1)
+    expect(latest[0]?.role).toBe("assistant")
+
+    await act(async () => {
+      emit?.({
+        eventType: "delta",
+        parentSessionId: "parent-session",
+        delta: JSON.stringify({ type: "text_delta", content: "handled elsewhere" }),
+      })
+    })
+
+    expect(latest[0]?.content).toBe("")
+    expect(latest[0]?.contentBlocks).toBeUndefined()
   })
 })

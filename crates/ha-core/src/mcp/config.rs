@@ -115,7 +115,7 @@ fn default_connect_timeout_secs() -> u64 {
 }
 
 fn default_call_timeout_secs() -> u64 {
-    120
+    0
 }
 
 fn default_health_check_interval_secs() -> u64 {
@@ -180,6 +180,7 @@ pub struct McpServerConfig {
     pub denied_tools: Vec<String>,
     #[serde(default = "default_connect_timeout_secs")]
     pub connect_timeout_secs: u64,
+    /// Per MCP tool-call timeout in seconds. 0 = no call-level timeout.
     #[serde(default = "default_call_timeout_secs")]
     pub call_timeout_secs: u64,
     #[serde(default = "default_health_check_interval_secs")]

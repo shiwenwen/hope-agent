@@ -101,6 +101,9 @@ pub struct AcpExternalSession {
     /// PID of the child process (for process management).
     #[serde(default)]
     pub pid: Option<u32>,
+    /// Effective turn timeout in seconds. 0 = no ACP turn timeout.
+    #[serde(default)]
+    pub timeout_secs: u64,
     /// Timestamp (ISO-8601).
     pub created_at: String,
 }

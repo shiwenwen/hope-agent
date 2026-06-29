@@ -192,7 +192,7 @@ export default function CronJobForm({
   )
   // C19: per-job timeout override; blank string = use the global default.
   const [jobTimeoutSecs, setJobTimeoutSecs] = useState(
-    job?.jobTimeoutSecs ? String(job.jobTimeoutSecs) : "",
+    job?.jobTimeoutSecs != null ? String(job.jobTimeoutSecs) : "",
   )
   // Per-job permission / sandbox overrides; FOLLOW sentinel = follow agent default.
   const [permissionModeOverride, setPermissionModeOverride] = useState<string>(
@@ -362,6 +362,12 @@ export default function CronJobForm({
         : (permissionModeOverride as SessionMode)
     const resolvedSandboxMode: SandboxMode | null =
       sandboxModeOverride === FOLLOW_MODE_VALUE ? null : (sandboxModeOverride as SandboxMode)
+    const parseJobTimeoutSecs = () => {
+      const raw = jobTimeoutSecs.trim()
+      if (!raw) return null
+      const parsed = Number(raw)
+      return Number.isFinite(parsed) ? Math.floor(parsed) : null
+    }
 
     try {
       if (isEditing && job) {
@@ -381,7 +387,7 @@ export default function CronJobForm({
           notifyOnComplete,
           deliveryTargets: validTargets,
           prefixDeliveryWithName,
-          jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
+          jobTimeoutSecs: parseJobTimeoutSecs(),
           permissionModeOverride: resolvedPermissionMode,
           sandboxModeOverride: resolvedSandboxMode,
         }
@@ -403,7 +409,7 @@ export default function CronJobForm({
             notifyOnComplete,
             deliveryTargets: validTargets,
             prefixDeliveryWithName,
-            jobTimeoutSecs: jobTimeoutSecs.trim() ? parseInt(jobTimeoutSecs) || null : null,
+            jobTimeoutSecs: parseJobTimeoutSecs(),
             permissionModeOverride: resolvedPermissionMode,
             sandboxModeOverride: resolvedSandboxMode,
           },
@@ -746,7 +752,7 @@ export default function CronJobForm({
             </label>
             <Input
               type="number"
-              min="30"
+              min="0"
               max="7200"
               placeholder={t("cron.jobTimeoutOverrideHint")}
               value={jobTimeoutSecs}

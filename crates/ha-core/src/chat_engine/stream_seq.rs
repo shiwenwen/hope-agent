@@ -57,23 +57,27 @@ impl ChatSource {
     /// shared `_oc_seq` between the two paths to dedupe. GUI ↔ IM live
     /// mirror needs a unified seq scheme to enable, tracked separately.
     ///
-    /// Subagent / ParentInjection stay off the bus — those are background
-    /// turns the user shouldn't see streaming live.
+    /// ParentInjection is user-visible: it is the follow-up turn that answers
+    /// when a background job/subagent result is injected back into a normal
+    /// conversation. Subagent stays off the bus because child sessions have no
+    /// UI counterpart waiting to reattach.
     pub fn broadcasts_to_user_ui(&self) -> bool {
-        matches!(self, Self::Desktop | Self::Http)
+        matches!(self, Self::Desktop | Self::Http | Self::ParentInjection)
     }
 
     /// Sources tracked by the stream_seq registry (so reload-recovery can
     /// dedupe deltas via session_id+seq). Background sub-agent runs don't
-    /// need this — they have no UI counterpart waiting to reattach. `Cron` is
-    /// included: its run is a real, persisted, user-viewable session, and
-    /// registering it also takes the active-stream concurrency guard (a second
-    /// concurrent stream on the same session is rejected, not silently
-    /// overwritten).
+    /// need this — they have no UI counterpart waiting to reattach.
+    /// `ParentInjection` is included so background-completion follow-up turns
+    /// emit resumable `chat:stream_delta` frames instead of relying only on the
+    /// legacy `parent_agent_stream` side channel. `Cron` is included: its run is
+    /// a real, persisted, user-viewable session, and registering it also takes
+    /// the active-stream concurrency guard (a second concurrent stream on the
+    /// same session is rejected, not silently overwritten).
     pub fn tracks_seq(&self) -> bool {
         matches!(
             self,
-            Self::Desktop | Self::Http | Self::Channel | Self::Cron
+            Self::Desktop | Self::Http | Self::Channel | Self::ParentInjection | Self::Cron
         )
     }
 
@@ -369,6 +373,18 @@ mod tests {
         assert!(ChatSource::Channel.holds_foreground_idle_guard());
         assert!(ChatSource::Cron.holds_foreground_idle_guard());
         assert!(!ChatSource::Subagent.holds_foreground_idle_guard());
+        assert!(!ChatSource::ParentInjection.holds_foreground_idle_guard());
+    }
+
+    #[test]
+    fn parent_injection_streams_to_user_ui_without_lifecycle_hooks() {
+        // Background completion injection is an internal trigger, so it must not
+        // fire SessionStart hooks or hold the foreground idle guard. Its parent
+        // reply is still a visible conversation turn, so it needs the same
+        // resumable chat stream as desktop / HTTP.
+        assert!(ChatSource::ParentInjection.tracks_seq());
+        assert!(ChatSource::ParentInjection.broadcasts_to_user_ui());
+        assert!(!ChatSource::ParentInjection.fires_user_lifecycle_hooks());
         assert!(!ChatSource::ParentInjection.holds_foreground_idle_guard());
     }
 

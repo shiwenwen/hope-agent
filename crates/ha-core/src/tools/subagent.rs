@@ -89,6 +89,92 @@ pub(crate) async fn tool_subagent(args: &Value, ctx: &ToolExecContext) -> Result
     }
 }
 
+async fn resolve_subagent_timeout_secs(
+    requested: Option<u64>,
+    ctx: &ToolExecContext,
+    parent_agent_id: &str,
+    parameter: &str,
+) -> Option<u64> {
+    let requested_secs = requested?;
+    let effective_secs = requested_secs.min(1800);
+    let user_limit_secs = subagent::default_timeout_for_agent(parent_agent_id);
+
+    if user_limit_secs > 0 && (requested_secs == 0 || effective_secs > user_limit_secs) {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_SUBAGENT,
+            parameter,
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "model supplied sub-agent timeout would relax parent agent timeout",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_SUBAGENT,
+            parameter,
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "model supplied sub-agent timeout would relax parent agent timeout",
+        )
+        .await;
+        return None;
+    }
+
+    if requested_secs > 0
+        && super::should_ignore_model_runtime_timeout_when_user_unlimited(user_limit_secs)
+    {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_SUBAGENT,
+            parameter,
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "parent agent sub-agent timeout is unlimited",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_SUBAGENT,
+            parameter,
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "parent agent sub-agent timeout is unlimited",
+        )
+        .await;
+        return None;
+    }
+
+    super::audit_model_runtime_timeout_override(
+        Some(ctx),
+        super::TOOL_SUBAGENT,
+        parameter,
+        requested_secs,
+        effective_secs,
+        Some(user_limit_secs),
+        false,
+        "model supplied sub-agent timeout",
+    );
+    super::emit_model_runtime_timeout_metadata(
+        ctx,
+        super::TOOL_SUBAGENT,
+        parameter,
+        requested_secs,
+        effective_secs,
+        Some(user_limit_secs),
+        false,
+        "model supplied sub-agent timeout",
+    )
+    .await;
+    Some(effective_secs)
+}
+
 /// Core spawn logic shared by action_spawn and action_spawn_and_wait.
 /// Returns the run_id on success.
 async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -103,11 +189,6 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .unwrap_or(DEFAULT_AGENT_ID)
         .to_string();
 
-    let timeout_secs = args
-        .get("timeout_secs")
-        .and_then(|v| v.as_u64())
-        .map(|t| t.min(1800)); // 0 = no timeout; positive values cap at 30 minutes.
-
     let model_override = args
         .get("model")
         .and_then(|v| v.as_str())
@@ -118,6 +199,13 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     })?;
 
     let parent_agent_id = ctx.agent_id.as_deref().unwrap_or(DEFAULT_AGENT_ID);
+    let timeout_secs = resolve_subagent_timeout_secs(
+        args.get("timeout_secs").and_then(|v| v.as_u64()),
+        ctx,
+        parent_agent_id,
+        "timeout_secs",
+    )
+    .await;
 
     // Enforce the parent's delegation gates (Tier 3 capability toggle + allowed
     // delegation list). Fail-closed — see `check_subagent_delegation_allowed`.
@@ -478,6 +566,13 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         // Group is created) so a denied agent fails the whole call cleanly; no
         // `?` may run after the group's creation (see the comment above).
         check_subagent_delegation_allowed(parent_agent_id, &child_agent_id)?;
+        let timeout_secs = resolve_subagent_timeout_secs(
+            task_def.get("timeout_secs").and_then(|v| v.as_u64()),
+            ctx,
+            parent_agent_id,
+            "tasks[].timeout_secs",
+        )
+        .await;
         parsed.push(BatchTask {
             task: task.to_string(),
             agent_id: child_agent_id,
@@ -485,10 +580,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
                 .get("label")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            timeout_secs: task_def
-                .get("timeout_secs")
-                .and_then(|v| v.as_u64())
-                .map(|t| t.min(1800)),
+            timeout_secs,
             model_override: task_def
                 .get("model")
                 .and_then(|v| v.as_str())

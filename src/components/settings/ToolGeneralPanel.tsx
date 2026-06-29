@@ -33,6 +33,12 @@ interface DeferredToolsConfig {
   toolNames?: string[]
 }
 
+type ModelRuntimeTimeoutOverrides = "allow" | "warn" | "ignore_when_user_unlimited"
+
+interface TimeoutPolicyConfig {
+  modelRuntimeOverrides: ModelRuntimeTimeoutOverrides
+}
+
 interface BuiltinTool {
   name: string
   description: string
@@ -49,10 +55,20 @@ const DEFAULT_LIMITS: ToolLimitsConfig = {
   maxVisionPages: 10,
 }
 
+const DEFAULT_TIMEOUT_POLICY: TimeoutPolicyConfig = {
+  modelRuntimeOverrides: "warn",
+}
+
 export default function ToolGeneralPanel() {
   const { t, i18n } = useTranslation()
   const [toolTimeout, setToolTimeout] = useState(0)
   const [savedTimeout, setSavedTimeout] = useState(0)
+  const [timeoutPolicy, setTimeoutPolicy] = useState<ModelRuntimeTimeoutOverrides>(
+    DEFAULT_TIMEOUT_POLICY.modelRuntimeOverrides,
+  )
+  const [savedTimeoutPolicy, setSavedTimeoutPolicy] = useState<ModelRuntimeTimeoutOverrides>(
+    DEFAULT_TIMEOUT_POLICY.modelRuntimeOverrides,
+  )
   const [approvalTimeoutEnabled, setApprovalTimeoutEnabled] = useState(false)
   const [savedApprovalTimeoutEnabled, setSavedApprovalTimeoutEnabled] = useState(false)
   const [approvalTimeout, setApprovalTimeout] = useState(300)
@@ -84,6 +100,17 @@ export default function ToolGeneralPanel() {
     getTransport().call<number>("get_tool_timeout")
       .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
+
+    // Load model runtime timeout policy
+    getTransport().call<TimeoutPolicyConfig>("get_timeout_policy_config")
+      .then((cfg) => {
+        if (!cancelled) {
+          const value = cfg?.modelRuntimeOverrides ?? DEFAULT_TIMEOUT_POLICY.modelRuntimeOverrides
+          setTimeoutPolicy(value)
+          setSavedTimeoutPolicy(value)
+        }
+      })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load timeout policy", e))
 
     // Load approval timeout
     getTransport().call<boolean>("get_approval_timeout_enabled")
@@ -150,6 +177,18 @@ export default function ToolGeneralPanel() {
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save tool timeout", e)
     }
   }, [savedTimeout])
+
+  const saveTimeoutPolicy = useCallback(async (value: ModelRuntimeTimeoutOverrides) => {
+    try {
+      await getTransport().call("save_timeout_policy_config", {
+        config: { modelRuntimeOverrides: value },
+      })
+      setSavedTimeoutPolicy(value)
+    } catch (e) {
+      setTimeoutPolicy(savedTimeoutPolicy)
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save timeout policy", e)
+    }
+  }, [savedTimeoutPolicy])
 
   const saveApprovalTimeout = useCallback(async (value: number) => {
     try {
@@ -307,6 +346,31 @@ export default function ToolGeneralPanel() {
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
             </div>
+          </div>
+
+          <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
+            <div className="space-y-0.5 pr-4">
+              <div className="text-sm font-medium">{t("settings.timeoutPolicy")}</div>
+              <div className="text-xs text-muted-foreground">{t("settings.timeoutPolicyDesc")}</div>
+            </div>
+            <Select
+              value={timeoutPolicy}
+              onValueChange={(value: ModelRuntimeTimeoutOverrides) => {
+                setTimeoutPolicy(value)
+                void saveTimeoutPolicy(value)
+              }}
+            >
+              <SelectTrigger className="w-56 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="warn">{t("settings.timeoutPolicyWarn")}</SelectItem>
+                <SelectItem value="ignore_when_user_unlimited">
+                  {t("settings.timeoutPolicyIgnoreWhenUserUnlimited")}
+                </SelectItem>
+                <SelectItem value="allow">{t("settings.timeoutPolicyAllow")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">

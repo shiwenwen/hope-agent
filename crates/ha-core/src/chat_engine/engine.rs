@@ -104,8 +104,9 @@ struct FailedAttemptPartial {
 /// Drop-guarded scope for a session's visible stream lifecycle. Ensures
 /// `stream_seq::end` fires on every `run_chat_engine` return path (including
 /// panics), while allowing the successful path to end the UI stream before
-/// post-turn follow-ups run. Only desktop / HTTP turns broadcast on the main
-/// `chat:*` bus; IM channel turns have a separate `channel:*` lifecycle.
+/// post-turn follow-ups run. Desktop / HTTP / parent-injection turns broadcast
+/// on the main `chat:*` bus; IM channel turns have a separate `channel:*`
+/// lifecycle.
 struct StreamLifecycle {
     session_id: String,
     stream_id: Option<String>,
@@ -225,8 +226,10 @@ fn discard_failed_attempt_partial(slot: &Arc<Mutex<Option<FailedAttemptPartial>>
 
 /// Emit one stream event. Desktop / HTTP turns send through both the per-call
 /// sink and the main `chat:stream_delta` EventBus path with a shared `_oc_seq`
-/// for dedup. Channel / cron turns stay off the main chat bus; IM uses
-/// `ChannelStreamSink` to emit `channel:stream_delta` instead.
+/// for dedup. Parent-injection turns use the same bus so background-completion
+/// follow-up replies are visible while they stream. Channel / cron turns stay
+/// off the main chat bus; IM uses `ChannelStreamSink` to emit
+/// `channel:stream_delta` instead.
 fn emit_stream_event(
     db: &session::SessionDB,
     event_sink: &std::sync::Arc<dyn EventSink>,
@@ -1802,6 +1805,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     }
 
     schedule_browser_turn_finalize(source, &session_id);
+    stream_lifecycle.finish();
     Err(final_error)
 }
 

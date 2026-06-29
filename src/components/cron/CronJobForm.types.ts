@@ -46,7 +46,7 @@ export interface CronJob {
   deliveryTargets: CronDeliveryTarget[]
   /** §8: prefix successful deliveries with `[Cron] {name}` (opt-in). */
   prefixDeliveryWithName?: boolean
-  /** C19: per-job run timeout override (seconds); null/undefined = global default. */
+  /** C19: per-job run timeout override (seconds); 0 = no cron-level timeout; null/undefined = global default. */
   jobTimeoutSecs?: number | null
   /** Per-job permission-mode override; null/undefined = follow the agent default. */
   permissionModeOverride?: "default" | "smart" | "yolo" | null

@@ -43,7 +43,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 1800,
-                    "description": "Timeout in seconds for spawn. 0 = no timeout. Omit to use the parent agent default (default 0/no timeout). Positive values are capped at 1800."
+                    "description": "Optional child run timeout in seconds. Omit by default to use the parent Agent's configured default (default 0/no timeout). 0 = no timeout. Set a positive value only when the user requested a deadline or this child task should be explicitly bounded; positive values are capped at 1800."
                 },
                 "wait": {
                     "type": "boolean",
@@ -78,7 +78,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 1800,
-                                "description": "Timeout in seconds for this child task. 0 = no timeout. Omit to use the parent agent default."
+                                "description": "Optional timeout in seconds for this child task. Omit by default to use the parent Agent's configured default. 0 = no timeout. Use a positive value only for an explicitly bounded child task."
                             },
                             "model": { "type": "string" }
                         },
@@ -159,7 +159,7 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
                 },
                 "timeout_secs": {
                     "type": "integer",
-                    "description": "Timeout in seconds (default 600, max 3600)"
+                    "description": "Optional ACP run timeout in seconds. Omit by default to use the ACP default (default 0/no timeout). 0 = no timeout. Use a positive value only when the user requested a deadline or this external run should be explicitly bounded; positive values are capped at 3600."
                 },
                 "message": {
                     "type": "string",

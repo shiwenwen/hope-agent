@@ -688,6 +688,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Tools --
   get_tool_timeout:                { method: "GET",    path: "/api/config/tool-timeout" },
   set_tool_timeout:                { method: "POST",   path: "/api/config/tool-timeout" },
+  get_timeout_policy_config:       { method: "GET",    path: "/api/config/timeout-policy" },
+  save_timeout_policy_config:      { method: "PUT",    path: "/api/config/timeout-policy" },
   get_approval_timeout:            { method: "GET",    path: "/api/config/approval-timeout" },
   set_approval_timeout:            { method: "POST",   path: "/api/config/approval-timeout" },
   get_approval_timeout_enabled:    { method: "GET",    path: "/api/config/approval-timeout-enabled" },

@@ -187,7 +187,7 @@ name if crate::mcp::catalog::is_mcp_tool_name(n) => {
 1. 反查 `tool_index` → `(server_id, original_tool_name)`；找不到 → 带恢复指引的错误（"可能 server 离线"）
 2. 检查 server state — `Disabled` / `NeedsAuth` / `Failed` 都返回 actionable error
 3. 全局 + per-server semaphore acquire
-4. `handle.peer()` + `tokio::time::timeout(call_timeout_secs)` 包裹 `call_tool`
+4. `handle.peer()` 调 `call_tool`；`call_timeout_secs > 0` 时外包 `tokio::time::timeout`，`0` 表示不加 call-level timeout
 5. 结果归一化（`normalize_content`）：`text` 直接拼；`image` 走 [`tools/image.rs`](../../crates/ha-core/src/tools/image.rs) 的持久化路径；`resource_link` → markdown 链接
 6. `emit_learning` 发 `mcp_tool_called` / `mcp_tool_failed` 事件
 
@@ -507,7 +507,7 @@ pub mcp_global: McpGlobalSettings,            // 全局开关、并发上限等
 | `oauth` | `Option<McpOAuthConfig>` | OAuth 配置（仅网络 transport 有意义） |
 | `allowed_tools` / `denied_tools` | `Vec<String>` | 工具白/黑名单（针对**原始** tool name，即 namespace 前缀之前） |
 | `connect_timeout_secs` | `u64`（默认 30） | handshake 上限 |
-| `call_timeout_secs` | `u64`（默认 120） | 单 tool call 上限 |
+| `call_timeout_secs` | `u64`（默认 0） | 单 tool call 上限；`0` = 不加 call-level timeout |
 | `health_check_interval_secs` | `u64`（默认 60） | 历史字段，当前 watchdog 不读取（tick 周期固定 `TICK_INTERVAL_SECS`、无网络 ping） |
 | `max_concurrent_calls` | `u32`（默认 4） | per-server semaphore |
 | `auto_approve` | `bool` | 跳过工具审批（仅 `Trusted` 时生效） |

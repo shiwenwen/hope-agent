@@ -600,9 +600,9 @@ export function useChatSession({
 
   // Note: background completions injected into a session (tool job / sub-agent
   // / group result → `<task-notification>`) already refresh the sidebar via the
-  // `parent_agent_stream` `done`/`error` listener in `useNotificationListeners`
-  // (which calls `reloadSessions` unconditionally, post-persist). No extra
-  // listener is needed here — the new unread surfaces once that fires.
+  // parent-injection stream end listeners (`chat:stream_end` on the main screen,
+  // `parent_agent_stream` done/error on lightweight screens). No extra listener
+  // is needed here — the new unread surfaces once those fire.
 
   // Compute total unread count — channel and sub-agent sessions don't surface
   // global unread indicators in the primary chat entry, and the active session

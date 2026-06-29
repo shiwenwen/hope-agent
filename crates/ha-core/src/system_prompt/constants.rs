@@ -46,7 +46,7 @@ pub(super) const SOUL_EMBODIMENT_GUIDANCE: &str =
 
 const TOOL_DESC_EXEC: &str = "\
 - exec: Execute shell commands and return output.\n\
-  - Supports cwd, timeout (default 0 = no exec command timeout; positive values are capped at 2h), custom env vars\n\
+  - Supports cwd, timeout, custom env vars. Omit timeout by default; set a positive timeout only for a user-requested deadline or a short bounded probe (0 = no exec command timeout; positives cap at 2h)\n\
   - Background execution: for ordinary long-running commands, use run_in_background=true so async_jobs owns status, cancellation, output tail, and completion notification\n\
   - Legacy process-session mode: background=true or yield_ms only when you truly need the process session surface; legacy flags are migrated to async jobs when async tools are enabled\n\
   - Docker sandbox isolation: sandbox=true for untrusted or risky commands\n\
@@ -185,7 +185,7 @@ const TOOL_DESC_SUBAGENT: &str = "\
 - subagent: Spawn and manage sub-agents to delegate tasks.\n\
   - Actions: spawn, check, list, result, kill, kill_all, steer, batch_spawn, wait_all, spawn_and_wait\n\
   - Sub-agents run asynchronously — results are auto-pushed as `<subagent-result>` user messages when complete\n\
-  - spawn/batch_spawn `timeout_secs`: 0 = no timeout; omit to use the parent Agent default (default 0/no timeout); positive values cap at 1800s\n\
+  - spawn/batch_spawn `timeout_secs`: omit by default to use the parent Agent default (default 0/no timeout); set positive values only for explicitly bounded child tasks; 0 = no timeout; positives cap at 1800s\n\
   - spawn_and_wait: spawn + wait up to foreground_timeout (default 30s, max 120s). If completes in time, returns result inline. Otherwise auto-backgrounds — result injected later\n\
   - Use steer to redirect a running sub-agent without killing it";
 

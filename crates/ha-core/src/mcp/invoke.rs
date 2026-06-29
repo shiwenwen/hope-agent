@@ -74,7 +74,7 @@ pub async fn call_tool(
         .await
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let call_timeout_secs = handle.config.read().await.call_timeout_secs.max(1);
+    let call_timeout_secs = handle.config.read().await.call_timeout_secs;
 
     // Global + per-server concurrency gating. The `Owned` permits are
     // dropped when the call completes or errors out.
@@ -93,7 +93,12 @@ pub async fn call_tool(
 
     let start = std::time::Instant::now();
     let fut = dispatch_inner(handle.clone(), &entry.original_tool_name, args);
-    let result: anyhow::Result<String> =
+    let result: anyhow::Result<String> = if call_timeout_secs == 0 {
+        match fut.await {
+            Ok(body) => Ok(body),
+            Err(e) => Err(anyhow::anyhow!("{}", e)),
+        }
+    } else {
         match timeout(Duration::from_secs(call_timeout_secs), fut).await {
             Ok(Ok(body)) => Ok(body),
             Ok(Err(e)) => Err(anyhow::anyhow!("{}", e)),
@@ -112,7 +117,8 @@ pub async fn call_tool(
                     }
                 ))
             }
-        };
+        }
+    };
     emit_learning(
         &entry,
         name,

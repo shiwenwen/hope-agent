@@ -196,9 +196,21 @@ impl AcpSessionManager {
                     .unwrap_or_else(|| Arc::new(AtomicBool::new(false)))
             };
 
-            let turn_result = runtime
-                .run_turn(&session, &task_owned, event_tx, cancel_flag)
-                .await;
+            let timeout_secs = session.timeout_secs;
+            let turn_fut = runtime.run_turn(&session, &task_owned, event_tx, cancel_flag.clone());
+            let turn_result = if timeout_secs == 0 {
+                turn_fut.await
+            } else {
+                match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), turn_fut)
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(_) => {
+                        cancel_flag.store(true, Ordering::SeqCst);
+                        Err(anyhow::anyhow!("Turn timed out after {}s", timeout_secs))
+                    }
+                }
+            };
 
             // Wait for events to flush
             let _ = events_task.await;

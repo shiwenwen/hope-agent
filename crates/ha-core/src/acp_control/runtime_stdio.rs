@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{mpsc, Mutex};
 
 use super::health;
@@ -29,7 +29,8 @@ pub struct StdioAcpRuntime {
 
 struct ChildHandle {
     child: Child,
-    stdin_open: bool,
+    stdin: Arc<Mutex<ChildStdin>>,
+    stdout: Arc<Mutex<BufReader<ChildStdout>>>,
     external_session_id: Option<String>,
 }
 
@@ -107,7 +108,7 @@ impl StdioAcpRuntime {
 
     /// Send a JSON-RPC request to the child's stdin and read the response from stdout.
     async fn send_request(
-        child: &mut ChildHandle,
+        child: &ChildHandle,
         method: &str,
         params: serde_json::Value,
         id: u64,
@@ -119,25 +120,16 @@ impl StdioAcpRuntime {
             "params": params,
         });
 
-        let stdin = child
-            .child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Child stdin closed"))?;
-
-        let mut line = serde_json::to_string(&request)?;
-        line.push('\n');
-        stdin.write_all(line.as_bytes()).await?;
-        stdin.flush().await?;
+        {
+            let mut stdin = child.stdin.lock().await;
+            let mut line = serde_json::to_string(&request)?;
+            line.push('\n');
+            stdin.write_all(line.as_bytes()).await?;
+            stdin.flush().await?;
+        }
 
         // Read response lines from stdout until we get a response with our ID
-        let stdout = child
-            .child
-            .stdout
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("Child stdout closed"))?;
-
-        let mut reader = BufReader::new(stdout);
+        let mut reader = child.stdout.lock().await;
         let mut buf = String::new();
 
         loop {
@@ -207,19 +199,33 @@ impl AcpRuntime for StdioAcpRuntime {
 
     async fn create_session(&self, params: AcpCreateParams) -> anyhow::Result<AcpExternalSession> {
         let session_id = uuid::Uuid::new_v4().to_string();
+        let timeout_secs = params.timeout_secs.unwrap_or_else(|| {
+            crate::config::cached_config()
+                .acp_control
+                .default_timeout_secs
+        });
 
-        let child = self.spawn_child(params.cwd.as_deref())?;
+        let mut child = self.spawn_child(params.cwd.as_deref())?;
         let pid = child.id();
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Child stdin unavailable"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Child stdout unavailable"))?;
 
         let mut handle = ChildHandle {
             child,
-            stdin_open: true,
+            stdin: Arc::new(Mutex::new(stdin)),
+            stdout: Arc::new(Mutex::new(BufReader::new(stdout))),
             external_session_id: None,
         };
 
         // Step 1: initialize
         let _init_result = Self::send_request(
-            &mut handle,
+            &handle,
             "initialize",
             serde_json::json!({
                 "protocolVersion": "0.2",
@@ -245,7 +251,7 @@ impl AcpRuntime for StdioAcpRuntime {
             new_params["resumeSessionId"] = serde_json::json!(resume_id);
         }
 
-        let session_result = Self::send_request(&mut handle, "session/new", new_params, 2).await?;
+        let session_result = Self::send_request(&handle, "session/new", new_params, 2).await?;
 
         let external_sid = session_result
             .get("sessionId")
@@ -264,6 +270,7 @@ impl AcpRuntime for StdioAcpRuntime {
             backend_id: self.id.clone(),
             external_session_id: external_sid,
             pid,
+            timeout_secs,
             created_at: chrono::Utc::now().to_rfc3339(),
         })
     }
@@ -275,12 +282,20 @@ impl AcpRuntime for StdioAcpRuntime {
         event_tx: mpsc::Sender<AcpStreamEvent>,
         cancel: Arc<AtomicBool>,
     ) -> anyhow::Result<AcpTurnResult> {
-        let mut children = self.children.lock().await;
-        let handle = children
-            .get_mut(&session.session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session.session_id))?;
-
-        let ext_sid = handle.external_session_id.as_deref().unwrap_or("unknown");
+        let (stdin, stdout, ext_sid) = {
+            let children = self.children.lock().await;
+            let handle = children
+                .get(&session.session_id)
+                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session.session_id))?;
+            (
+                handle.stdin.clone(),
+                handle.stdout.clone(),
+                handle
+                    .external_session_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string()),
+            )
+        };
 
         // Send session/prompt
         let prompt_request = serde_json::json!({
@@ -296,25 +311,16 @@ impl AcpRuntime for StdioAcpRuntime {
             }
         });
 
-        let stdin = handle
-            .child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("stdin closed"))?;
-
-        let mut line = serde_json::to_string(&prompt_request)?;
-        line.push('\n');
-        stdin.write_all(line.as_bytes()).await?;
-        stdin.flush().await?;
+        {
+            let mut stdin = stdin.lock().await;
+            let mut line = serde_json::to_string(&prompt_request)?;
+            line.push('\n');
+            stdin.write_all(line.as_bytes()).await?;
+            stdin.flush().await?;
+        }
 
         // Read events until we get the prompt response
-        let stdout = handle
-            .child
-            .stdout
-            .as_mut()
-            .ok_or_else(|| anyhow::anyhow!("stdout closed"))?;
-
-        let mut reader = BufReader::new(stdout);
+        let mut reader = stdout.lock().await;
         let mut buf = String::new();
         let mut accumulated_text = String::new();
         let mut tool_calls = Vec::new();
@@ -339,12 +345,17 @@ impl AcpRuntime for StdioAcpRuntime {
             }
 
             buf.clear();
-            let n = tokio::time::timeout(
-                std::time::Duration::from_secs(600),
-                reader.read_line(&mut buf),
-            )
-            .await
-            .map_err(|_| anyhow::anyhow!("Turn timed out after 600s"))??;
+            let read_line = reader.read_line(&mut buf);
+            let n = if session.timeout_secs == 0 {
+                read_line.await?
+            } else {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(session.timeout_secs),
+                    read_line,
+                )
+                .await
+                .map_err(|_| anyhow::anyhow!("Turn timed out after {}s", session.timeout_secs))??
+            };
 
             if n == 0 {
                 break; // EOF
@@ -538,21 +549,20 @@ impl AcpRuntime for StdioAcpRuntime {
         let mut children = self.children.lock().await;
         if let Some(mut handle) = children.remove(&session.session_id) {
             // Try graceful close first
-            if handle.stdin_open {
-                if let Some(stdin) = handle.child.stdin.as_mut() {
-                    let close_req = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": 999,
-                        "method": "session/close",
-                        "params": {
-                            "sessionId": handle.external_session_id.as_deref().unwrap_or("")
-                        }
-                    });
-                    let mut line = serde_json::to_string(&close_req).unwrap_or_default();
-                    line.push('\n');
-                    let _ = stdin.write_all(line.as_bytes()).await;
-                    let _ = stdin.flush().await;
-                }
+            {
+                let mut stdin = handle.stdin.lock().await;
+                let close_req = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 999,
+                    "method": "session/close",
+                    "params": {
+                        "sessionId": handle.external_session_id.as_deref().unwrap_or("")
+                    }
+                });
+                let mut line = serde_json::to_string(&close_req).unwrap_or_default();
+                line.push('\n');
+                let _ = stdin.write_all(line.as_bytes()).await;
+                let _ = stdin.flush().await;
             }
 
             // Wait briefly, then force kill

@@ -13,16 +13,17 @@ import { Loader2, Check } from "lucide-react"
  * real `get_cron_config` load (so a failed fetch never persists the hard-coded
  * defaults over stored values); each commit clamps to the backend band and
  * writes the WHOLE CronConfig (save_cron_config replaces the struct, so a
- * partial body would reset the other fields to their defaults); three-state save
- * feedback auto-clears after 2s.
+ * partial body would reset the other fields to their defaults). For the job
+ * timeout, 0 means no cron-level timeout; positive values clamp to the backend
+ * band. Three-state save feedback auto-clears after 2s.
  */
 export default function CronSettingsPanel() {
   const { t } = useTranslation()
 
   const [maxConcurrent, setMaxConcurrent] = useState<number>(5)
   const [mcInput, setMcInput] = useState<string>("5")
-  const [jobTimeout, setJobTimeout] = useState<number>(600)
-  const [jtInput, setJtInput] = useState<string>("600")
+  const [jobTimeout, setJobTimeout] = useState<number>(0)
+  const [jtInput, setJtInput] = useState<string>("0")
   const [atGrace, setAtGrace] = useState<number>(300)
   const [agInput, setAgInput] = useState<string>("300")
   const [saving, setSaving] = useState(false)
@@ -99,7 +100,8 @@ export default function CronSettingsPanel() {
       setJtInput(String(jobTimeout))
       return
     }
-    const n = Math.max(30, Math.min(7200, Math.floor(Number(raw))))
+    const value = Math.floor(Number(raw))
+    const n = value <= 0 ? 0 : Math.max(30, Math.min(7200, value))
     setJtInput(String(n))
     if (n === jobTimeout) return
     setJobTimeout(n)
@@ -140,7 +142,7 @@ export default function CronSettingsPanel() {
     {
       label: t("cron.jobTimeout"),
       hint: t("cron.jobTimeoutHint"),
-      min: 30,
+      min: 0,
       max: 7200,
       value: jtInput,
       onChange: setJtInput,

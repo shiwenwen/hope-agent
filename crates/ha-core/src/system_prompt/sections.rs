@@ -141,10 +141,11 @@ pub(super) fn build_async_tools_section() -> Option<String> {
          and returns immediately with a synthetic `{{job_id, status: \"started\"}}` response. The \
          conversation can continue while the job runs, and the real result is auto-injected back \
          into the chat as a `<task-notification>` user message when the session is idle.\n\n\
-         Async-capable tools also accept optional `job_timeout_secs`. Use it only when this specific \
-         background job should have an outer timeout. If `asyncTools.maxJobSecs` is `0`, a positive \
-         `job_timeout_secs` sets the per-call cap; if `asyncTools.maxJobSecs` is positive, it can only \
-         shorten that hard limit. Individual tools may still have their own internal timeouts.\n\n\
+         Async-capable tools also accept optional `job_timeout_secs`. Omit it by default so the \
+         user/system timeout policy applies. Use a positive value only when the user requested a \
+         per-job deadline or this specific background job should be shorter than the configured \
+         default. If `asyncTools.maxJobSecs` is positive, `job_timeout_secs` can only shorten that \
+         hard limit. Individual tools may still have their own internal timeouts.\n\n\
          **Use `run_in_background: true` when:**\n\
          - The task is expected to take more than a few seconds (long builds, slow web searches, \
            image generation, network-heavy operations), AND\n\
@@ -467,7 +468,7 @@ pub(super) fn build_subagent_section(
     lines
         .push("- `files`: file attachments `[{name, content, mime_type?, encoding?}]`".to_string());
     lines.push("- `model`: model override `\"provider_id/model_id\"`".to_string());
-    lines.push("- `timeout_secs`: child run timeout in seconds; `0` means no timeout; omit to use this Agent's default".to_string());
+    lines.push("- `timeout_secs`: omit by default to use this Agent's configured default; set a positive value only for an explicitly bounded child task; `0` means no timeout".to_string());
     lines.push(String::new());
     lines.push("Sub-agents run in isolated sessions with their own tools and context.".to_string());
     lines.push(format!("Current depth: {}/{}", depth, effective_max));

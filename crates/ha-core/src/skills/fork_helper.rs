@@ -118,9 +118,9 @@ pub async fn extract_fork_result(run_id: &str, skill_name: &str) -> Result<Strin
         .ok_or_else(|| anyhow!("Session DB not initialized"))?
         .clone();
 
-    // Cap overall wait at 15 min; individual spawn already enforces its own
-    // timeout via SpawnParams.timeout_secs (600s default). This is a ceiling
-    // for the polling loop in case something gets wedged.
+    // Cap overall wait at 15 min; this helper explicitly gives skill forks a
+    // 600s SpawnParams.timeout_secs. This is a ceiling for the polling loop in
+    // case something gets wedged.
     let hard_deadline = Instant::now() + Duration::from_secs(900);
 
     loop {

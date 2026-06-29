@@ -24,6 +24,12 @@ export interface UseNotificationListenersDeps {
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
   reloadSessions: () => Promise<void>
+  /**
+   * Main ChatScreen receives ParentInjection deltas through the resumable
+   * `chat:stream_delta` bus. Lightweight surfaces that do not mount
+   * `useChatStreamReattach` keep consuming the legacy parent stream.
+   */
+  consumeParentStreamDeltas?: boolean
 }
 
 export function useNotificationListeners(deps: UseNotificationListenersDeps) {
@@ -35,6 +41,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
     setLoadingSessionIds,
     sessionCacheRef,
     reloadSessions,
+    consumeParentStreamDeltas = true,
   } = deps
   const parentDeltaBuffersRef = useRef(createStreamDeltaBuffers())
 
@@ -93,7 +100,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
         setLoading(true)
         loadingSessionsRef.current.add(parentSessionId)
         setLoadingSessionIds(new Set(loadingSessionsRef.current))
-      } else if (eventType === "delta" && delta && isCurrentSession) {
+      } else if (eventType === "delta" && delta && isCurrentSession && consumeParentStreamDeltas) {
         try {
           const event = JSON.parse(delta) as Record<string, unknown>
           const sid = parentSessionId

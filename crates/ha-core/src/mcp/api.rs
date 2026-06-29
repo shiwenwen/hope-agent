@@ -208,7 +208,7 @@ impl McpServerDraft {
             allowed_tools: self.allowed_tools,
             denied_tools: self.denied_tools,
             connect_timeout_secs: self.connect_timeout_secs.unwrap_or(30),
-            call_timeout_secs: self.call_timeout_secs.unwrap_or(120),
+            call_timeout_secs: self.call_timeout_secs.unwrap_or(0),
             health_check_interval_secs: self.health_check_interval_secs.unwrap_or(60),
             max_concurrent_calls: self.max_concurrent_calls.unwrap_or(4),
             auto_approve: self.auto_approve,

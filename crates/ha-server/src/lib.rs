@@ -845,6 +845,14 @@ fn build_router_with_cors(
             post(routes::config::set_tool_timeout),
         )
         .route(
+            "/config/timeout-policy",
+            get(routes::config::get_timeout_policy_config),
+        )
+        .route(
+            "/config/timeout-policy",
+            put(routes::config::save_timeout_policy_config),
+        )
+        .route(
             "/config/approval-timeout",
             get(routes::config::get_approval_timeout),
         )

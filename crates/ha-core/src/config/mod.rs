@@ -74,6 +74,39 @@ impl Default for ShortcutConfig {
     }
 }
 
+// ── Timeout Policy Config ────────────────────────────────────────
+
+/// How model-supplied runtime timeout overrides are handled.
+///
+/// These are the timeout arguments that can shorten or kill a long-running unit
+/// of work (`exec.timeout`, async `job_timeout_secs`, sub-agent timeouts, ACP
+/// run timeouts, cron per-job overrides). Short polling windows such as
+/// `job_status.timeout_ms` or `browser.wait_for.timeout` are intentionally not
+/// governed by this policy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelRuntimeTimeoutOverrides {
+    /// Honor the model-provided value without extra audit noise.
+    Allow,
+    /// Honor the value but audit it. This is the default: it keeps existing
+    /// capability while making accidental model-shortening visible.
+    #[default]
+    Warn,
+    /// When the corresponding user/system runtime budget is unlimited (`0`),
+    /// ignore the model's positive timeout and keep the unlimited budget.
+    /// If the user configured a positive budget, the model may still tighten it.
+    IgnoreWhenUserUnlimited,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimeoutPolicyConfig {
+    /// Runtime timeout overrides supplied by the model. Defaults to `warn` so
+    /// existing behavior is preserved but visible in logs/metadata.
+    #[serde(default)]
+    pub model_runtime_overrides: ModelRuntimeTimeoutOverrides,
+}
+
 // ── Quick Prompt Config ──────────────────────────────────────────
 
 pub const MAX_QUICK_PROMPT_CONTENT_CHARS: usize = 20_000;
@@ -326,7 +359,8 @@ pub struct AsyncToolsConfig {
     /// being killed. Default: 0 (no async-job limit); individual tools may still
     /// enforce their own timeouts when the model sets one (for example
     /// `exec.timeout`). Per-call `job_timeout_secs` can set a timeout when this
-    /// is 0, or tighten the configured limit when this is positive.
+    /// is 0 unless `timeout_policy.modelRuntimeOverrides` ignores it, or tighten
+    /// the configured limit when this is positive.
     /// **R7.4 note:** this is a PER-ATTEMPT budget — a retry-eligible job that
     /// fails (not times out) and retries gets a fresh budget per attempt, so a
     /// retried job's total wall-clock can reach `max_job_secs × max_retry_attempts`
@@ -563,14 +597,10 @@ pub struct CronConfig {
     #[serde(default = "default_cron_max_concurrent")]
     pub max_concurrent: u32,
 
-    /// Per-run wall-clock timeout in seconds. Each cron run is wrapped in this
-    /// budget; on expiry the run is abandoned (recorded as a `timeout` failure)
-    /// and its concurrency slot is freed. Unlike `max_concurrent`, `0` is NOT
-    /// "unlimited" — a genuinely wedged run (an infinite loop, not a panic) is
-    /// only freed by this timeout, so it is clamped to a safe band at read:
-    /// `[30, 7200]` (30s–2h). Default: 600 (10min) so a longer agent turn (tool
-    /// loops / subagents) doesn't false-timeout. A per-job `CronJob.job_timeout_secs`
-    /// override takes precedence when set; this is the global fallback.
+    /// Per-run wall-clock timeout in seconds. `0` = no cron-level timeout.
+    /// Positive values are clamped to `[30, 7200]` (30s–2h). A per-job
+    /// `CronJob.job_timeout_secs` override takes precedence when set; this is
+    /// the global fallback. Default: 0 (no cron-level timeout).
     #[serde(default = "default_cron_job_timeout_secs")]
     pub job_timeout_secs: u64,
 
@@ -605,9 +635,8 @@ impl CronConfig {
         }
     }
 
-    /// Per-run timeout, clamped to the safe band `[30, 7200]` seconds. `0` (or any
-    /// sub-floor value) floors to 30s — never unlimited, so a wedged run can't
-    /// hold its concurrency slot indefinitely.
+    /// Per-run timeout, clamped to the safe band `[30, 7200]` seconds for
+    /// positive values. `0` means no cron-level timeout.
     pub fn effective_job_timeout_secs(&self) -> u64 {
         clamp_cron_job_timeout_secs(self.job_timeout_secs)
     }
@@ -621,11 +650,14 @@ impl CronConfig {
 }
 
 /// Clamp a per-run cron timeout — the global `CronConfig.job_timeout_secs` or a
-/// per-job `CronJob.job_timeout_secs` override — to the safe band `[30, 7200]`
-/// seconds. `0` (or any sub-floor value) floors to 30s, never unlimited, so a
-/// wedged run can't hold its concurrency slot forever.
+/// per-job `CronJob.job_timeout_secs` override. `0` means no cron-level timeout;
+/// positive values are clamped to `[30, 7200]` seconds.
 pub fn clamp_cron_job_timeout_secs(secs: u64) -> u64 {
-    secs.clamp(30, 7200)
+    if secs == 0 {
+        0
+    } else {
+        secs.clamp(30, 7200)
+    }
 }
 
 pub use crate::permission::ApprovalTimeoutAction;
@@ -638,7 +670,7 @@ fn default_cron_max_concurrent() -> u32 {
 }
 
 fn default_cron_job_timeout_secs() -> u64 {
-    600
+    0
 }
 
 fn default_cron_at_grace_secs() -> u64 {
@@ -1002,6 +1034,11 @@ pub struct AppConfig {
     /// Default 0 (disabled). Set a positive value to enable.
     #[serde(default = "default_tool_timeout")]
     pub tool_timeout: u64,
+    /// Policy for runtime timeout values supplied by the model. This only
+    /// governs timeout arguments that can shorten/kill long-running work; short
+    /// waits and network request timeouts keep their own bounded semantics.
+    #[serde(default)]
+    pub timeout_policy: TimeoutPolicyConfig,
     /// Threshold (bytes) for persisting large tool results to disk.
     /// Results exceeding this size are written to disk with a preview in context.
     /// Default: 50000 (50KB). Set to 0 to disable.
@@ -1267,6 +1304,7 @@ impl Default for AppConfig {
             image: crate::tools::image::ImageToolConfig::default(),
             pdf: crate::tools::pdf::PdfToolConfig::default(),
             tool_timeout: default_tool_timeout(),
+            timeout_policy: TimeoutPolicyConfig::default(),
             tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),
@@ -1557,10 +1595,10 @@ mod async_tools_defaults_tests {
 
     #[test]
     fn cron_config_defaults_and_clamps() {
-        // Defaults: cap 5 (0 = unlimited escape hatch), timeout 600s, grace 300s.
+        // Defaults: cap 5 (0 = unlimited escape hatch), no cron-level timeout, grace 300s.
         let d = CronConfig::default();
         assert_eq!(d.max_concurrent, 5);
-        assert_eq!(d.job_timeout_secs, 600);
+        assert_eq!(d.job_timeout_secs, 0);
         assert_eq!(d.at_grace_secs, 300);
         assert_eq!(d.effective_max_concurrent(), Some(5));
         assert_eq!(d.effective_at_grace_secs(), 300);
@@ -1572,15 +1610,15 @@ mod async_tools_defaults_tests {
             .effective_max_concurrent(),
             None
         );
-        // Timeout clamps to [30, 7200] at read — 0 floors to 30 (never unlimited),
-        // huge values cap at 7200, in-band values pass through.
+        // Timeout clamps positive values to [30, 7200] at read; 0 means
+        // unlimited / no cron-level timeout.
         assert_eq!(
             CronConfig {
                 job_timeout_secs: 0,
                 ..d.clone()
             }
             .effective_job_timeout_secs(),
-            30
+            0
         );
         assert_eq!(
             CronConfig {

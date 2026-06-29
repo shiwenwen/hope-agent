@@ -26,6 +26,90 @@ pub(crate) async fn tool_acp_spawn(args: &Value, ctx: &ToolExecContext) -> Resul
     }
 }
 
+async fn resolve_acp_timeout_secs(
+    args: &Value,
+    ctx: &ToolExecContext,
+    default_timeout_secs: u64,
+) -> Option<u64> {
+    let requested_secs = args.get("timeout_secs").and_then(|v| v.as_u64())?;
+    let effective_secs = requested_secs.min(3600);
+
+    if default_timeout_secs > 0 && (requested_secs == 0 || effective_secs > default_timeout_secs) {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_ACP_SPAWN,
+            "timeout_secs",
+            requested_secs,
+            default_timeout_secs,
+            Some(default_timeout_secs),
+            true,
+            "model supplied ACP run timeout would relax ACP default timeout",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_ACP_SPAWN,
+            "timeout_secs",
+            requested_secs,
+            default_timeout_secs,
+            Some(default_timeout_secs),
+            true,
+            "model supplied ACP run timeout would relax ACP default timeout",
+        )
+        .await;
+        return None;
+    }
+
+    if requested_secs > 0
+        && super::should_ignore_model_runtime_timeout_when_user_unlimited(default_timeout_secs)
+    {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_ACP_SPAWN,
+            "timeout_secs",
+            requested_secs,
+            default_timeout_secs,
+            Some(default_timeout_secs),
+            true,
+            "ACP default timeout is unlimited",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_ACP_SPAWN,
+            "timeout_secs",
+            requested_secs,
+            default_timeout_secs,
+            Some(default_timeout_secs),
+            true,
+            "ACP default timeout is unlimited",
+        )
+        .await;
+        return None;
+    }
+
+    super::audit_model_runtime_timeout_override(
+        Some(ctx),
+        super::TOOL_ACP_SPAWN,
+        "timeout_secs",
+        requested_secs,
+        effective_secs,
+        Some(default_timeout_secs),
+        false,
+        "model supplied ACP run timeout",
+    );
+    super::emit_model_runtime_timeout_metadata(
+        ctx,
+        super::TOOL_ACP_SPAWN,
+        "timeout_secs",
+        requested_secs,
+        effective_secs,
+        Some(default_timeout_secs),
+        false,
+        "model supplied ACP run timeout",
+    )
+    .await;
+    Some(effective_secs)
+}
+
 async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let backend = args
         .get("backend")
@@ -79,10 +163,8 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .get("model")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let timeout_secs = args
-        .get("timeout_secs")
-        .and_then(|v| v.as_u64())
-        .map(|t| t.min(3600));
+    let timeout_secs =
+        resolve_acp_timeout_secs(args, ctx, store.acp_control.default_timeout_secs).await;
     let label = args
         .get("label")
         .and_then(|v| v.as_str())

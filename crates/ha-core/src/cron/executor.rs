@@ -400,11 +400,10 @@ pub(crate) async fn execute_claimed_job(
         }
     }
 
-    // Per-run timeout (configurable, clamped to [30, 7200]s) to keep a wedged run
-    // from holding its concurrency slot indefinitely (§5).
-    // C19: a per-job override (clamped to the same safe band) takes precedence
-    // over the global CronConfig default, so a legitimately long task can declare
-    // its own budget without raising the cap for every job.
+    // Per-run timeout. `0` means no cron-level timeout; positive values are
+    // clamped to [30, 7200]s. C19: a per-job override takes precedence over the
+    // global CronConfig default, so a legitimately long task can declare its own
+    // budget without raising the cap for every job.
     let timeout_secs = match job.job_timeout_secs {
         Some(secs) => crate::config::clamp_cron_job_timeout_secs(secs),
         None => crate::config::cached_config()
@@ -425,55 +424,59 @@ pub(crate) async fn execute_claimed_job(
     // user cancel makes a timed-out run count as Cancelled rather than
     // Failure(timeout); our own grace-cancel below must not.
     let mut user_cancelled_pre_timeout = false;
-    let result = match tokio::time::timeout(
-        std::time::Duration::from_secs(timeout_secs),
-        &mut run_fut,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => {
-            timed_out = true;
-            // A cancel flag already set when the outer timeout fired means the USER
-            // cancelled first (we self-set it only just below) — capture that so the
-            // run classifies as Cancelled, not a timeout failure (C08).
-            user_cancelled_pre_timeout = cancel_flag.load(Ordering::SeqCst);
-            // Review fix: don't hard-drop the in-flight turn. Set the cooperative
-            // cancel flag and give the engine a *bounded* grace to wind down
-            // cleanly (flush its session rows, stop spawning more work) instead of
-            // being torn down mid-write at an arbitrary await point. Detached
-            // subagents / async jobs carry their own budgets + cancel paths; this
-            // at least stops the engine turn gracefully. The flag set here is NOT
-            // counted as a user cancel (see `was_cancelled`) — a timed-out run is a
-            // Failure(timeout) unless the user had already cancelled (captured above).
-            cancel_flag.store(true, Ordering::SeqCst);
-            // C02 review fix: if the engine actually FINISHES within the grace with
-            // real output, honor that completed work instead of discarding it and
-            // recording a timeout failure. Otherwise a job that always finishes a
-            // hair over budget loses its real result, delivers a bogus "timed out"
-            // failure, and is silently auto-disabled after max_failures.
-            let grace_completed = tokio::time::timeout(
-                std::time::Duration::from_secs(CRON_TIMEOUT_CANCEL_GRACE_SECS),
-                &mut run_fut,
-            )
-            .await
-            .ok();
-            // C08 > C02: a genuine timeout (log as such) is one where the user did
-            // NOT cancel first AND the engine produced no real output in the grace.
-            // A pre-timeout user cancel is not a timeout failure — its grace output
-            // is discarded in resolve_after_timeout_grace and it classifies Cancelled.
-            let genuine_timeout = !user_cancelled_pre_timeout
-                && !matches!(&grace_completed, Some(Ok(r)) if !r.trim().is_empty());
-            if genuine_timeout {
-                app_error!(
-                    "cron",
-                    "executor",
-                    "Job '{}' timed out after {}s",
-                    job.name,
-                    timeout_secs
-                );
+    let result = if timeout_secs == 0 {
+        run_fut.await
+    } else {
+        match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), &mut run_fut).await
+        {
+            Ok(r) => r,
+            Err(_) => {
+                timed_out = true;
+                // A cancel flag already set when the outer timeout fired means the USER
+                // cancelled first (we self-set it only just below) — capture that so the
+                // run classifies as Cancelled, not a timeout failure (C08).
+                user_cancelled_pre_timeout = cancel_flag.load(Ordering::SeqCst);
+                // Review fix: don't hard-drop the in-flight turn. Set the cooperative
+                // cancel flag and give the engine a *bounded* grace to wind down
+                // cleanly (flush its session rows, stop spawning more work) instead of
+                // being torn down mid-write at an arbitrary await point. Detached
+                // subagents / async jobs carry their own budgets + cancel paths; this
+                // at least stops the engine turn gracefully. The flag set here is NOT
+                // counted as a user cancel (see `was_cancelled`) — a timed-out run is a
+                // Failure(timeout) unless the user had already cancelled (captured above).
+                cancel_flag.store(true, Ordering::SeqCst);
+                // C02 review fix: if the engine actually FINISHES within the grace with
+                // real output, honor that completed work instead of discarding it and
+                // recording a timeout failure. Otherwise a job that always finishes a
+                // hair over budget loses its real result, delivers a bogus "timed out"
+                // failure, and is silently auto-disabled after max_failures.
+                let grace_completed = tokio::time::timeout(
+                    std::time::Duration::from_secs(CRON_TIMEOUT_CANCEL_GRACE_SECS),
+                    &mut run_fut,
+                )
+                .await
+                .ok();
+                // C08 > C02: a genuine timeout (log as such) is one where the user did
+                // NOT cancel first AND the engine produced no real output in the grace.
+                // A pre-timeout user cancel is not a timeout failure — its grace output
+                // is discarded in resolve_after_timeout_grace and it classifies Cancelled.
+                let genuine_timeout = !user_cancelled_pre_timeout
+                    && !matches!(&grace_completed, Some(Ok(r)) if !r.trim().is_empty());
+                if genuine_timeout {
+                    app_error!(
+                        "cron",
+                        "executor",
+                        "Job '{}' timed out after {}s",
+                        job.name,
+                        timeout_secs
+                    );
+                }
+                resolve_after_timeout_grace(
+                    grace_completed,
+                    timeout_secs,
+                    user_cancelled_pre_timeout,
+                )
             }
-            resolve_after_timeout_grace(grace_completed, timeout_secs, user_cancelled_pre_timeout)
         }
     };
 

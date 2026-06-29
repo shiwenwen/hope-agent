@@ -57,6 +57,11 @@ pub(crate) fn tool_manage_cron<'a>(
                     resolve_delivery_targets_for_create(args, session_id.as_deref())?;
                 let project_id = resolve_project_id_for_create(args, session_id.as_deref())?;
 
+                let job_timeout_secs = match resolve_cron_job_timeout_secs_arg(args, ctx).await {
+                    CronTimeoutArg::Set(value) => value,
+                    CronTimeoutArg::Absent | CronTimeoutArg::Ignored => None,
+                };
+
                 let input = NewCronJob {
                     name: name.to_string(),
                     description,
@@ -75,7 +80,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     prefix_delivery_with_name: args
                         .get("prefix_delivery_with_name")
                         .and_then(|v| v.as_bool()),
-                    job_timeout_secs: args.get("job_timeout_secs").and_then(|v| v.as_u64()),
+                    job_timeout_secs,
                     // Permission / sandbox overrides are owner-plane only (set via
                     // the GUI cron form / Tauri / HTTP). The model-facing tool must
                     // NOT set them — otherwise it could schedule a `yolo` task to
@@ -168,8 +173,11 @@ pub(crate) fn tool_manage_cron<'a>(
                 }
                 // C19 per-job timeout: a number sets the override, explicit null
                 // clears it (back to the global default); absent leaves it as-is.
-                if let Some(v) = args.get("job_timeout_secs") {
-                    job.job_timeout_secs = v.as_u64();
+                match resolve_cron_job_timeout_secs_arg(args, ctx).await {
+                    CronTimeoutArg::Set(value) => {
+                        job.job_timeout_secs = value;
+                    }
+                    CronTimeoutArg::Absent | CronTimeoutArg::Ignored => {}
                 }
                 if let Some(v) = args.get("project_id") {
                     job.project_id = parse_project_id_value(v)?;
@@ -400,6 +408,107 @@ async fn gate_cron_delete(args: &Value, ctx: &super::ToolExecContext, desc: Stri
             .map(|_origin| ())
         }
     }
+}
+
+enum CronTimeoutArg {
+    Absent,
+    Set(Option<u64>),
+    Ignored,
+}
+
+async fn resolve_cron_job_timeout_secs_arg(
+    args: &Value,
+    ctx: &super::ToolExecContext,
+) -> CronTimeoutArg {
+    let Some(value) = args.get("job_timeout_secs") else {
+        return CronTimeoutArg::Absent;
+    };
+    if value.is_null() {
+        return CronTimeoutArg::Set(None);
+    }
+    let Some(requested_secs) = value.as_u64() else {
+        return CronTimeoutArg::Set(None);
+    };
+
+    let effective_secs = crate::config::clamp_cron_job_timeout_secs(requested_secs);
+    let user_limit_secs = crate::config::cached_config()
+        .cron
+        .effective_job_timeout_secs();
+
+    if user_limit_secs > 0 && (requested_secs == 0 || effective_secs > user_limit_secs) {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_MANAGE_CRON,
+            "job_timeout_secs",
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "model supplied cron per-job timeout would relax global cron timeout",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_MANAGE_CRON,
+            "job_timeout_secs",
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "model supplied cron per-job timeout would relax global cron timeout",
+        )
+        .await;
+        return CronTimeoutArg::Ignored;
+    }
+
+    if requested_secs > 0
+        && super::should_ignore_model_runtime_timeout_when_user_unlimited(user_limit_secs)
+    {
+        super::audit_model_runtime_timeout_override(
+            Some(ctx),
+            super::TOOL_MANAGE_CRON,
+            "job_timeout_secs",
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "global cron job timeout is unlimited",
+        );
+        super::emit_model_runtime_timeout_metadata(
+            ctx,
+            super::TOOL_MANAGE_CRON,
+            "job_timeout_secs",
+            requested_secs,
+            user_limit_secs,
+            Some(user_limit_secs),
+            true,
+            "global cron job timeout is unlimited",
+        )
+        .await;
+        return CronTimeoutArg::Ignored;
+    }
+
+    super::audit_model_runtime_timeout_override(
+        Some(ctx),
+        super::TOOL_MANAGE_CRON,
+        "job_timeout_secs",
+        requested_secs,
+        effective_secs,
+        Some(user_limit_secs),
+        false,
+        "model supplied cron per-job timeout",
+    );
+    super::emit_model_runtime_timeout_metadata(
+        ctx,
+        super::TOOL_MANAGE_CRON,
+        "job_timeout_secs",
+        requested_secs,
+        effective_secs,
+        Some(user_limit_secs),
+        false,
+        "model supplied cron per-job timeout",
+    )
+    .await;
+    CronTimeoutArg::Set(Some(requested_secs))
 }
 
 fn resolve_project_id_for_create(args: &Value, session_id: Option<&str>) -> Result<Option<String>> {
