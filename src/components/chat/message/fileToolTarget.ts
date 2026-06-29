@@ -4,6 +4,7 @@ export interface FileToolTarget {
   path: string
   name: string
   multiple: boolean
+  paths: string[]
 }
 
 function extractStringParam(value: unknown): string | null {
@@ -47,14 +48,21 @@ function pathsFromPatch(input: string): string[] {
 }
 
 export function getFileToolTarget(name: string, args: string): FileToolTarget | null {
-  if (name !== "write" && name !== "edit" && name !== "apply_patch") return null
+  if (name !== "read" && name !== "write" && name !== "edit" && name !== "apply_patch") {
+    return null
+  }
 
   const parsed = parseArgs(args)
   if (!parsed) return null
 
   const directPath = extractStringParam(parsed.path ?? parsed.file_path)
   if (directPath) {
-    return { path: directPath, name: basename(directPath), multiple: false }
+    return {
+      path: directPath,
+      name: basename(directPath),
+      multiple: false,
+      paths: [directPath],
+    }
   }
 
   if (name === "apply_patch") {
@@ -63,8 +71,16 @@ export function getFileToolTarget(name: string, args: string): FileToolTarget | 
     const paths = pathsFromPatch(input)
     const first = paths[0]
     if (!first) return null
-    return { path: first, name: basename(first), multiple: paths.length > 1 }
+    return { path: first, name: basename(first), multiple: paths.length > 1, paths }
   }
 
   return null
+}
+
+export function getFileToolTargetDisplay(target: FileToolTarget): string {
+  return target.multiple ? `${target.name} +` : target.name
+}
+
+export function getFileToolTargetTooltip(target: FileToolTarget): string {
+  return target.paths.length > 1 ? target.paths.join("\n") : target.path
 }

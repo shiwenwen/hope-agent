@@ -53,7 +53,11 @@ import InlineToolDiffPreview from "@/components/chat/message/InlineToolDiffPrevi
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
 import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { getFileChangeSummary } from "@/components/chat/message/fileChangeSummary"
-import { getFileToolTarget } from "@/components/chat/message/fileToolTarget"
+import {
+  getFileToolTarget,
+  getFileToolTargetDisplay,
+  getFileToolTargetTooltip,
+} from "@/components/chat/message/fileToolTarget"
 
 /** Tools whose results render via {@link KnowledgeResultCard} (grouped by KB). */
 function isKnowledgeResultTool(name: string): boolean {
@@ -125,6 +129,9 @@ function truncateEllipsis(s: string, n: number): string {
 /** Extract a short, human-friendly summary of tool arguments */
 function getDisplayArgs(name: string, args: string): string {
   try {
+    const fileTarget = getFileToolTarget(name, args)
+    if (fileTarget) return getFileToolTargetDisplay(fileTarget)
+
     const parsed = JSON.parse(args)
     switch (name) {
       case "exec":
@@ -142,8 +149,7 @@ function getDisplayArgs(name: string, args: string): string {
           ? `"${parsed.pattern}"${parsed.path ? ` in ${parsed.path}` : ""}`
           : args
       case "apply_patch": {
-        const target = getFileToolTarget(name, args)
-        return target ? (target.multiple ? `${target.path} +` : target.path) : parsed.path || args
+        return parsed.path || args
       }
       case "web_search":
         return parsed.query || args
@@ -313,8 +319,9 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
   const isMcpTool = parseMcpToolName(tool.name) !== null
   const Icon = skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
-  const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
   const fileTarget = getFileToolTarget(tool.name, tool.arguments)
+  const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
+  const displayArgsTitle = fileTarget ? getFileToolTargetTooltip(fileTarget) : undefined
 
   // Prefer real tool metadata; fall back to conservative in-flight estimates for
   // edit/apply_patch so file deltas can appear while the tool is still running.
@@ -417,7 +424,10 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
         {fileTarget && displayArgs && (
           <FileMimeIcon mime="" name={fileTarget.name} className="h-3.5 w-3.5 shrink-0" />
         )}
-        <span className="truncate font-mono text-[11px] text-muted-foreground/60">
+        <span
+          className="truncate font-mono text-[11px] text-muted-foreground/60"
+          title={displayArgsTitle}
+        >
           {displayArgs}
         </span>
         {fileChangeSummary && (
