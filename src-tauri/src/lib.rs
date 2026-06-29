@@ -523,6 +523,9 @@ pub fn run() {
             commands::config::get_shortcut_config,
             commands::config::save_shortcut_config,
             commands::config::set_shortcuts_paused,
+            // Quick prompts
+            commands::config::get_quick_prompt_config,
+            commands::config::add_quick_prompt,
             // Weather
             commands::config::geocode_search,
             commands::config::preview_weather,

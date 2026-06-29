@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Çalışma dizini ekle",
-    "askAnything": "Fikrini söyle, gerisini bana bırak...",
+    "askAnything": "Fikrini söyle, @ dosya/not/beceri bulur, # hızlı komutları çağırır...",
     "browserPanel": {
       "backendBadgeTooltip": "Tarayıcı arka ucu: {{backend}}",
       "captureFailed": "Kare yakalanamadı, sonraki kare bekleniyor",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "Ayrıntılı moda geç",
     "copied": "Kopyalandı",
     "copy": "Kopyala",
+    "quickPrompts": {
+      "addAction": "Hızlı komutlara ekle",
+      "addFailed": "Hızlı komut eklenemedi",
+      "added": "Hızlı komutlara eklendi",
+      "duplicate": "Bu hızlı komut zaten kayıtlı",
+      "empty": "Henüz hızlı komut yok. Bir kullanıcı mesajının altından ekleyin.",
+      "heading": "Hızlı komutlar",
+      "noMatches": "Eşleşen hızlı komut yok"
+    },
     "cronTaskStarted": "Zamanlanmış bir görev tetiklendi",
     "cronTrigger": "Zamanlanmış görev",
     "wakeupResumed": "Devam etmek için sürdürüldü",

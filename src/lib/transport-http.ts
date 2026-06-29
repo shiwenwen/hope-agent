@@ -450,6 +450,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_shortcut_config:             { method: "GET",    path: "/api/config/shortcuts" },
   save_shortcut_config:            { method: "PUT",    path: "/api/config/shortcuts" },
   set_shortcuts_paused:            { method: "POST",   path: "/api/config/shortcuts/pause" },
+  get_quick_prompt_config:         { method: "GET",    path: "/api/config/quick-prompts" },
+  add_quick_prompt:                { method: "POST",   path: "/api/config/quick-prompts" },
 
   // -- Sandbox --
   get_sandbox_config:              { method: "GET",    path: "/api/config/sandbox" },

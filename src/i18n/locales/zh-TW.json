@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
-    "askAnything": "告訴我你的想法，剩下的交給我...",
+    "askAnything": "告訴我你的想法，@ 找檔案/筆記/技能，# 叫出快捷指令...",
     "browserPanel": {
       "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
       "captureFailed": "截圖失敗，等待下一幀",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "切換到詳細模式",
     "copied": "已複制",
     "copy": "複制",
+    "quickPrompts": {
+      "addAction": "加入快捷指令",
+      "addFailed": "加入快捷指令失敗",
+      "added": "已加入快捷指令",
+      "duplicate": "這條快捷指令已經存過了",
+      "empty": "還沒有快捷指令。先從使用者訊息底部加入一條吧。",
+      "heading": "快捷指令",
+      "noMatches": "沒有符合的快捷指令"
+    },
     "cronTaskStarted": "定時器觸發了一個任務",
     "cronTrigger": "定時任務",
     "wakeupResumed": "已喚醒繼續",

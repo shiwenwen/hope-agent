@@ -76,6 +76,7 @@ interface MessageListProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onAddQuickPrompt?: (content: string) => void
   displayMode?: ChatDisplayMode
   autoCollapseCompletedTurns?: boolean
 }
@@ -562,6 +563,7 @@ export default function MessageList({
   onViewChildSession,
   onOpenDiff,
   onResume,
+  onAddQuickPrompt,
   displayMode = "bubble",
   autoCollapseCompletedTurns = true,
 }: MessageListProps) {
@@ -1376,6 +1378,7 @@ export default function MessageList({
                   onContextMenu={handleContextMenu}
                   isCopied={copiedIndex === originalIndex}
                   onCopy={handleCopyMessage}
+                  onAddQuickPrompt={onAddQuickPrompt}
                   sessionId={sessionId}
                   onOpenPlanPanel={onOpenPlanPanel}
                   onViewChildSession={onViewChildSession}
