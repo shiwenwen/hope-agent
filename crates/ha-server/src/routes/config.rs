@@ -1003,6 +1003,47 @@ pub async fn set_shortcuts_paused(Json(_body): Json<Value>) -> Result<Json<Value
     Ok(Json(json!({ "ok": true, "note": "desktop-only" })))
 }
 
+// ── Quick Prompts ───────────────────────────────────────────────
+
+/// `GET /api/config/quick-prompts` -- get user-global quick prompts.
+pub async fn get_quick_prompt_config() -> Result<Json<ha_core::config::QuickPromptConfig>, AppError>
+{
+    let store = load_config()?;
+    Ok(Json(store.quick_prompts))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddQuickPromptBody {
+    pub content: String,
+}
+
+/// `POST /api/config/quick-prompts` -- add a user-global quick prompt.
+pub async fn add_quick_prompt(
+    Json(body): Json<AddQuickPromptBody>,
+) -> Result<Json<ha_core::config::QuickPromptAddResult>, AppError> {
+    let trimmed = body.content.trim();
+    if trimmed.is_empty() {
+        return Err(AppError::bad_request("quick prompt content is empty"));
+    }
+    if trimmed.chars().count() > ha_core::config::MAX_QUICK_PROMPT_CONTENT_CHARS {
+        return Err(AppError::bad_request(format!(
+            "quick prompt content exceeds {} characters",
+            ha_core::config::MAX_QUICK_PROMPT_CONTENT_CHARS
+        )));
+    }
+
+    let mut result: Option<ha_core::config::QuickPromptAddResult> = None;
+    ha_core::config::mutate_config(("quick_prompts", "http"), |store| {
+        let added = store.quick_prompts.add_prompt(&body.content)?;
+        result = Some(added);
+        Ok(())
+    })?;
+    result
+        .map(Json)
+        .ok_or_else(|| AppError::internal("failed to add quick prompt"))
+}
+
 // ── Theme / Language / UI ──────────────────────────────────────
 
 /// `GET /api/config/theme` -- get UI theme ("auto" | "light" | "dark").

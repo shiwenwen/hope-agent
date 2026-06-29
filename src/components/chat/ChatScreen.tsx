@@ -30,6 +30,11 @@ import type {
   SessionMode,
   SandboxMode,
 } from "@/types/chat"
+import type {
+  QuickPromptAddResult,
+  QuickPromptConfig,
+  QuickPromptItem,
+} from "@/types/quickPrompts"
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { CommandResult } from "./slash-commands/types"
@@ -68,6 +73,7 @@ import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import { computeContextUsage, formatContextUsage } from "./chatUtils"
+import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import {
   COMPACT_CONTEXT_UPDATED_EVENT,
   type CompactResult,
@@ -706,10 +712,57 @@ export default function ChatScreen({
   const updateSessionMeta = session.updateSessionMeta
   const handleSwitchSession = session.handleSwitchSession
   const latestMessagesRef = useRef<Message[]>(session.messages)
+  const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
 
   useEffect(() => {
     latestMessagesRef.current = session.messages
   }, [session.messages])
+
+  const inputHistory = useMemo(
+    () => recentUserInputHistory(session.messages),
+    [session.messages],
+  )
+
+  const reloadQuickPrompts = useCallback(async () => {
+    try {
+      const config = await getTransport().call<QuickPromptConfig>("get_quick_prompt_config")
+      setQuickPrompts(config.items ?? [])
+    } catch (e) {
+      logger.error("chat", "ChatScreen::reloadQuickPrompts", "Failed to load quick prompts", e)
+    }
+  }, [])
+
+  useEffect(() => {
+    void reloadQuickPrompts()
+  }, [reloadQuickPrompts])
+
+  const handleAddQuickPrompt = useCallback(
+    async (content: string) => {
+      if (incognitoEnabled) return
+      try {
+        const result = await getTransport().call<QuickPromptAddResult>("add_quick_prompt", {
+          content,
+        })
+        setQuickPrompts((prev) => {
+          if (result.duplicate) {
+            return prev.some((item) => item.id === result.item.id)
+              ? prev
+              : [result.item, ...prev]
+          }
+          return [result.item, ...prev.filter((item) => item.id !== result.item.id)]
+        })
+        toast.success(
+          result.duplicate
+            ? t("chat.quickPrompts.duplicate")
+            : t("chat.quickPrompts.added"),
+        )
+      } catch (e) {
+        logger.error("chat", "ChatScreen::addQuickPrompt", "Failed to add quick prompt", e)
+        toast.error(t("chat.quickPrompts.addFailed"))
+      }
+    },
+    [incognitoEnabled, t],
+  )
 
   // Keep the project-unread rollup's active-session exclusion in sync: when the
   // user switches sessions, refresh projects so the newly-active session drops
@@ -2670,6 +2723,7 @@ export default function ChatScreen({
                 onResume={(message) => {
                   void stream.handleSend(message)
                 }}
+                onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                 displayMode={displayMode}
                 autoCollapseCompletedTurns={autoCollapseCompletedTurns}
               />
@@ -2718,6 +2772,8 @@ export default function ChatScreen({
                     <ChatInput
                       input={stream.input}
                       onInputChange={stream.setInput}
+                      inputHistory={inputHistory}
+                      quickPrompts={quickPrompts}
                       onSend={() => stream.handleSend()}
                       loading={session.loading}
                       availableModels={availableModels}
@@ -2976,6 +3032,8 @@ export default function ChatScreen({
                   workspaceTaskExecutionState === "cancelling"
                 }
                 backgroundJobs={backgroundJobs.jobs}
+                backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
+                onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
                 onViewSubagentSession={setSubagentPreviewSessionId}
                 onClose={() => {

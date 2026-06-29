@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "作業ディレクトリを追加",
-    "askAnything": "アイデアを教えてください、あとはお任せを...",
+    "askAnything": "アイデアを教えてください。@ でファイル/ノート/スキル、# でクイック指示を呼び出せます...",
     "browserPanel": {
       "backendBadgeTooltip": "ブラウザバックエンド：{{backend}}",
       "captureFailed": "フレーム取得に失敗、次のフレームを待っています",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "詳細表示に切り替え",
     "copied": "コピーしました",
     "copy": "コピー",
+    "quickPrompts": {
+      "addAction": "クイック指示に追加",
+      "addFailed": "クイック指示を追加できませんでした",
+      "added": "クイック指示に追加しました",
+      "duplicate": "このクイック指示はすでに保存されています",
+      "empty": "クイック指示はまだありません。ユーザーメッセージ下部から追加できます。",
+      "heading": "クイック指示",
+      "noMatches": "一致するクイック指示はありません"
+    },
     "cronTaskStarted": "定期タスクが起動されました",
     "cronTrigger": "定期タスク",
     "wakeupResumed": "再開して続行",

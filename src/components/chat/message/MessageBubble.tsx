@@ -16,6 +16,7 @@ import {
   ChevronDown,
   Code2,
   Type,
+  Hash,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
@@ -59,6 +60,7 @@ import {
   TOOL_JOB_AGENT_PREFIX,
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
+import { isQuickPromptEligibleUserMessage } from "../quick-prompts/messageQuickPrompts"
 
 export interface MessageBubbleProps {
   msg: Message
@@ -74,6 +76,7 @@ export interface MessageBubbleProps {
   // Copy
   isCopied: boolean
   onCopy: (content: string, index: number) => void
+  onAddQuickPrompt?: (content: string) => void
   // Plan mode
   sessionId?: string | null
   onOpenPlanPanel?: () => void
@@ -329,6 +332,7 @@ function MessageBubbleInner({
   onContextMenu,
   isCopied,
   onCopy,
+  onAddQuickPrompt,
   sessionId,
   onOpenPlanPanel,
   onViewChildSession,
@@ -366,7 +370,8 @@ function MessageBubbleInner({
   const isUserAligned = isUserAlignedMessage(msg)
   const hasTextContent = hasRenderableTextContent(msg)
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
-  const hasToolbarActions = hasTextContent || hasDetails
+  const canAddQuickPrompt = !!onAddQuickPrompt && isQuickPromptEligibleUserMessage(msg)
+  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt
   // Always-visible total turn duration, shown at the message bottom once the
   // assistant turn has finished (the per-step / per-group times live above).
   const totalDurationText =
@@ -395,6 +400,17 @@ function MessageBubbleInner({
         ) : (
           <Code2 className="h-3.5 w-3.5" />
         )}
+      </button>
+    </IconTip>
+  ) : null
+  const addQuickPromptButton = canAddQuickPrompt ? (
+    <IconTip label={t("chat.quickPrompts.addAction")}>
+      <button
+        type="button"
+        onClick={() => onAddQuickPrompt?.(msg.content)}
+        className={toolbarButtonClass}
+      >
+        <Hash className="h-3.5 w-3.5" />
       </button>
     </IconTip>
   ) : null
@@ -780,6 +796,7 @@ function MessageBubbleInner({
                 </button>
               </IconTip>
             )}
+            {addQuickPromptButton}
             {renderToggleButton}
             {detailsButton}
           </div>
@@ -930,6 +947,7 @@ function MessageBubbleInner({
               </button>
             </IconTip>
           )}
+          {addQuickPromptButton}
           {renderToggleButton}
           {detailsButton}
         </div>

@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
-    "askAnything": "Hãy cho tôi biết ý tưởng của bạn, phần còn lại để tôi lo...",
+    "askAnything": "Hãy cho tôi biết ý tưởng của bạn, @ tìm tệp/ghi chú/kỹ năng, # mở lệnh nhanh...",
     "browserPanel": {
       "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
       "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "Chuyển sang chế độ chi tiết",
     "copied": "Đã sao chép",
     "copy": "Sao chép",
+    "quickPrompts": {
+      "addAction": "Thêm vào lệnh nhanh",
+      "addFailed": "Không thể thêm lệnh nhanh",
+      "added": "Đã thêm vào lệnh nhanh",
+      "duplicate": "Lệnh nhanh này đã được lưu",
+      "empty": "Chưa có lệnh nhanh. Hãy thêm một lệnh từ cuối tin nhắn người dùng.",
+      "heading": "Lệnh nhanh",
+      "noMatches": "Không có lệnh nhanh phù hợp"
+    },
     "cronTaskStarted": "Một tác vụ định kỳ đã được kích hoạt",
     "cronTrigger": "Tác vụ định kỳ",
     "wakeupResumed": "Tiếp tục lại",

@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Add working directory",
-    "askAnything": "Tell me your idea, I'll handle the rest...",
+    "askAnything": "Tell me your idea, @ finds files/notes/skills, # summons quick prompts...",
     "browserPanel": {
       "backendBadgeTooltip": "Browser backend: {{backend}}",
       "captureFailed": "Frame capture failed, waiting for next one",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "Switch to detailed mode",
     "copied": "Copied",
     "copy": "Copy",
+    "quickPrompts": {
+      "addAction": "Add to quick prompts",
+      "addFailed": "Failed to add quick prompt",
+      "added": "Added to quick prompts",
+      "duplicate": "That quick prompt is already saved",
+      "empty": "No quick prompts yet. Add one from the bottom of a user message.",
+      "heading": "Quick prompts",
+      "noMatches": "No matching quick prompts"
+    },
     "cronTaskStarted": "A scheduled task was triggered",
     "cronTrigger": "Scheduled Task",
     "wakeupResumed": "Resumed to continue",
