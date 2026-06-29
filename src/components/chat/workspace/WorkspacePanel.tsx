@@ -83,12 +83,14 @@ import type {
   ActiveModel,
   AvailableModel,
   FileChangeMetadata,
+  FileChangesMetadata,
   Message,
   SessionMeta,
   SessionMode,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
+import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
 import { useFileActions } from "@/components/chat/files/useFileActions"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
@@ -116,7 +118,7 @@ interface WorkspacePanelProps {
   messages: Message[]
   contextUsageOverride?: ContextUsageInfo | null
   /** 改写类文件「查看 diff」→ 右侧 diff 面板。 */
-  onOpenDiff: (payload: FileChangeMetadata) => void
+  onOpenDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
   /** 预览文件 → 右侧预览面板（与下挂文件 / Markdown 链接同一策略）。 */
   onPreviewFile?: (target: PreviewTarget) => void
   /** 当前会话 id,后端聚合 + 文件作用域解析都需要它。 */
@@ -240,7 +242,7 @@ function FileRow({
 }: {
   entry: SessionFileEntry
   sessionId?: string | null
-  onOpenDiff: (payload: FileChangeMetadata) => void
+  onOpenDiff: (payload: FileChangeMetadata | FileChangesMetadata) => void
   onPreviewFile?: (target: PreviewTarget) => void
 }) {
   const { t } = useTranslation()
@@ -270,10 +272,11 @@ function FileRow({
           >
             <span className="truncate text-xs font-medium text-foreground/90">{name}</span>
             {showDelta ? (
-              <span className="shrink-0 text-[10px] tabular-nums">
-                <span className="text-emerald-600 dark:text-emerald-400">+{entry.linesAdded}</span>{" "}
-                <span className="text-rose-600 dark:text-rose-400">-{entry.linesRemoved}</span>
-              </span>
+              <FileDeltaCounter
+                linesAdded={entry.linesAdded}
+                linesRemoved={entry.linesRemoved}
+                className="text-[10px]"
+              />
             ) : entry.kind === "read" ? (
               <span className="shrink-0 text-[10px] text-muted-foreground/70">
                 {t("workspace.action.read")}
@@ -359,6 +362,8 @@ function EnvRow({
   detail,
   tone = "muted",
   title,
+  onClick,
+  disabled,
 }: {
   icon: LucideIcon
   label: string
@@ -366,6 +371,8 @@ function EnvRow({
   detail?: ReactNode
   tone?: "muted" | "good" | "warn" | "danger" | "info"
   title?: string
+  onClick?: () => void
+  disabled?: boolean
 }) {
   const iconClass =
     tone === "good"
@@ -377,13 +384,25 @@ function EnvRow({
           : tone === "info"
             ? "text-blue-500"
             : "text-muted-foreground"
-  const row = (
-    <div className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary/35">
+  const className = cn(
+    "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-secondary/35",
+    onClick && "w-full text-left",
+    disabled && "cursor-not-allowed opacity-60",
+  )
+  const content = (
+    <>
       <Icon className={cn("h-3.5 w-3.5 shrink-0", iconClass)} />
       <span className="w-14 shrink-0 text-muted-foreground">{label}</span>
       <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">{value}</span>
       {detail ? <span className="max-w-[45%] shrink-0 truncate text-muted-foreground">{detail}</span> : null}
-    </div>
+    </>
+  )
+  const row = onClick ? (
+    <button type="button" className={className} onClick={onClick} disabled={disabled}>
+      {content}
+    </button>
+  ) : (
+    <div className={className}>{content}</div>
   )
   return title ? <IconTip label={title}>{row}</IconTip> : row
 }
@@ -711,6 +730,7 @@ function EnvironmentSection({
   permissionMode = "default",
   planState = "off",
   turnActive,
+  onOpenDiff,
 }: {
   sessionId?: string | null
   sessionMeta?: SessionMeta | null
@@ -720,8 +740,10 @@ function EnvironmentSection({
   permissionMode?: SessionMode
   planState?: PlanModeState
   turnActive?: boolean
+  onOpenDiff?: (payload: FileChangeMetadata | FileChangesMetadata) => void
 }) {
   const { t } = useTranslation()
+  const [gitDiffLoading, setGitDiffLoading] = useState(false)
   const appVersion = useAppVersion()
   const environmentRefreshKey = useMemo(
     () =>
@@ -751,6 +773,24 @@ function EnvironmentSection({
   const git = env.snapshot?.git ?? null
   const currentWorktree = git?.worktrees.find((w) => w.isCurrent) ?? null
   const syncLabel = git ? gitSyncLabel(t, git) : null
+  const canOpenGitDiff = !!sessionId && !!git && !git.status.clean && !!onOpenDiff
+  const handleOpenGitDiff = useCallback(async () => {
+    if (!sessionId || !onOpenDiff || gitDiffLoading) return
+    setGitDiffLoading(true)
+    try {
+      const payload = await getTransport().loadSessionGitDiff(sessionId)
+      if (payload.changes.length === 0) {
+        toast.info(t("workspace.environment.noTextDiff", "没有可展示的文本 diff"))
+        return
+      }
+      onOpenDiff(payload)
+    } catch (e) {
+      logger.error("ui", "WorkspaceEnvironment::gitDiff", "Load git diff failed", e)
+      toast.error(t("workspace.environment.gitDiffFailed", "读取 Git diff 失败"))
+    } finally {
+      setGitDiffLoading(false)
+    }
+  }, [gitDiffLoading, onOpenDiff, sessionId, t])
 
   const sessionSource = sessionMeta?.channelInfo
     ? {
@@ -885,22 +925,26 @@ function EnvironmentSection({
               icon={git.status.clean ? CheckCircle2 : GitCompare}
               label={t("workspace.environment.changes", "变更")}
               value={
-                git.status.clean
-                  ? t("workspace.environment.clean", "无本地变更")
-                  : t("workspace.environment.changedFiles", "{{count}} 个文件", {
-                      count: git.status.changedFiles,
-                    })
+                gitDiffLoading ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {t("workspace.environment.loadingDiff", "读取 diff")}
+                  </span>
+                ) : git.status.clean ? (
+                  t("workspace.environment.clean", "无本地变更")
+                ) : (
+                  t("workspace.environment.changedFiles", "{{count}} 个文件", {
+                    count: git.status.changedFiles,
+                  })
+                )
               }
               detail={
                 git.status.linesAdded > 0 || git.status.linesRemoved > 0 ? (
-                  <span>
-                    <span className="text-emerald-600 dark:text-emerald-400">
-                      +{git.status.linesAdded}
-                    </span>{" "}
-                    <span className="text-rose-600 dark:text-rose-400">
-                      -{git.status.linesRemoved}
-                    </span>
-                  </span>
+                  <FileDeltaCounter
+                    linesAdded={git.status.linesAdded}
+                    linesRemoved={git.status.linesRemoved}
+                    className="text-[10px]"
+                  />
                 ) : git.status.conflictedFiles > 0 ? (
                   t("workspace.environment.conflictCount", "{{count}} 个冲突", {
                     count: git.status.conflictedFiles,
@@ -908,6 +952,8 @@ function EnvironmentSection({
                 ) : undefined
               }
               tone={git.status.conflictedFiles > 0 ? "danger" : git.status.clean ? "good" : "warn"}
+              onClick={canOpenGitDiff ? handleOpenGitDiff : undefined}
+              disabled={gitDiffLoading}
             />
             {(syncLabel || git.sync.upstream || git.sync.remote) && (
               <EnvRow
@@ -1271,6 +1317,7 @@ export default function WorkspacePanel({
           permissionMode={permissionMode}
           planState={planState}
           turnActive={turnActive}
+          onOpenDiff={onOpenDiff}
         />
 
         {/* 进度 — 复用 TaskProgressPanel(自带「任务 · N/M」折叠头)。 */}

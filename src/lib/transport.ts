@@ -6,7 +6,7 @@
  * standalone web app (HTTP / WebSocket).
  */
 
-import type { MediaItem, SandboxMode, SessionMode } from "@/types/chat";
+import type { FileChangesMetadata, MediaItem, SandboxMode, SessionMode } from "@/types/chat";
 
 /**
  * One entry in `ChatStartArgs.attachments`. Snake-case fields are the
@@ -317,6 +317,13 @@ export interface Transport {
    * context; it is not injected into the model prompt.
    */
   loadSessionEnvironment(sessionId: string): Promise<WorkspaceEnvironmentSnapshot>;
+
+  /**
+   * Read the current Git working-tree diff for the session workspace, relative
+   * to HEAD. Returns the same `file_changes` shape emitted by file-mutating
+   * tools so the DiffPanel can render it directly.
+   */
+  loadSessionGitDiff(sessionId: string): Promise<FileChangesMetadata>;
 }
 
 /**

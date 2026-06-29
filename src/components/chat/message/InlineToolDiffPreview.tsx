@@ -11,6 +11,7 @@ import {
   type UnifiedRow,
 } from "@/components/chat/diff-panel/diffLayout"
 import { PANEL_SCROLL_FADE } from "@/components/chat/right-panel/panelFade"
+import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 
 interface InlineToolDiffPreviewProps {
   payload: FileChangeMetadata | FileChangesMetadata
@@ -57,12 +58,11 @@ function ChangeSection({ change }: { change: FileChangeMetadata }) {
         >
           {change.path}
         </span>
-        <span className="shrink-0 tabular-nums text-emerald-600 dark:text-emerald-400">
-          +{change.linesAdded}
-        </span>
-        <span className="shrink-0 tabular-nums text-rose-600 dark:text-rose-400">
-          -{change.linesRemoved}
-        </span>
+        <FileDeltaCounter
+          linesAdded={change.linesAdded}
+          linesRemoved={change.linesRemoved}
+          className="text-[11px]"
+        />
       </div>
       {change.truncated && (
         <div className="border-b border-border/40 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-700 dark:text-amber-300">

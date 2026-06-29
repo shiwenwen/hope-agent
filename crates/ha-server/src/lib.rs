@@ -189,6 +189,10 @@ fn build_router_with_cors(
             "/sessions/{id}/files/extract",
             get(routes::sessions::extract_session_file_by_path),
         )
+        .route(
+            "/sessions/{id}/git-diff",
+            get(routes::sessions::get_session_git_diff),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))
