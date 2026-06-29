@@ -154,9 +154,10 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
     ///  - Anthropic: `{role:assistant, content:[thinking,text,tool_use...]}`
     ///    + `{role:user, content:[tool_result...]}`
     ///  - OpenAI Chat: assistant message with `tool_calls` + role=tool messages
-    ///  - Responses/Codex: `function_call` + `function_call_output` items
-    ///    (reasoning items are intentionally not replayed; both providers run
-    ///    with `store: false`, where stale `rs_*` ids 404 the next request)
+    ///  - Responses/Codex: optional assistant `message` text, followed by
+    ///    `function_call` + `function_call_output` items (reasoning items are
+    ///    intentionally not replayed; both providers run with `store: false`,
+    ///    where stale `rs_*` ids 404 the next request)
     ///
     /// Implementations must use `crate::context_compact::push_and_stamp` to
     /// stamp the `_oc_round` metadata for compaction round-boundary alignment.
@@ -168,11 +169,14 @@ pub(crate) trait StreamingChatAdapter: Send + Sync {
         executed: &[ExecutedTool],
     );
 
-    /// Append the final assistant message (last round's text + thinking)
-    /// when the loop exits naturally or hits `max_rounds`. Anthropic packs
-    /// thinking + text into a content-block array; OpenAI Chat puts thinking
-    /// in `reasoning_content`; Responses/Codex emits a `{type:message,
-    /// role:assistant, content:[{type:output_text, text}]}` item.
+    /// Append the terminal assistant message (the no-tool exit round, not the
+    /// full accumulated turn text) when the loop exits naturally or hits
+    /// `max_rounds`. Earlier tool-round narration belongs to
+    /// `append_round_to_history`; duplicating it here makes the next turn see
+    /// the same user-facing update twice. Anthropic packs thinking + text into
+    /// a content-block array; OpenAI Chat puts thinking in `reasoning_content`;
+    /// Responses/Codex emits a `{type:message, role:assistant,
+    /// content:[{type:output_text, text}]}` item.
     fn append_final_assistant(
         &self,
         history: &mut Vec<Value>,

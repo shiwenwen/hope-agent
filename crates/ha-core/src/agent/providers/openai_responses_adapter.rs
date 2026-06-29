@@ -4,9 +4,10 @@
 //! `instructions` + `input` fields), HTTP send, SSE event decoding (with
 //! `response.output_text.delta` / `response.function_call_arguments.delta` /
 //! reasoning summary events), and history persistence as Responses native
-//! items (`function_call` + `function_call_output`). Reasoning items are
-//! intentionally dropped from history — Hope Agent runs with `store: false`,
-//! where any `rs_*` id replayed in a follow-up request 404s.
+//! items (`message` text + `function_call` + `function_call_output`).
+//! Reasoning items are intentionally dropped from history — Hope Agent runs
+//! with `store: false`, where any `rs_*` id replayed in a follow-up request
+//! 404s.
 //!
 //! The SSE parser ([`parse_openai_sse`]) is shared with the Codex adapter
 //! since they speak the same protocol — only auth header and endpoint differ.
@@ -114,6 +115,33 @@ fn redact_and_truncate_log_payload(raw: &str, max_bytes: usize) -> String {
         )
     } else {
         redacted
+    }
+}
+
+pub(in crate::agent::providers) fn responses_assistant_message(text: &str) -> Option<Value> {
+    if text.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "type": "message",
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": text }],
+        "status": "completed"
+    }))
+}
+
+pub(in crate::agent::providers) fn push_responses_assistant_message(
+    history: &mut Vec<Value>,
+    round: Option<u32>,
+    text: &str,
+) {
+    let Some(message) = responses_assistant_message(text) else {
+        return;
+    };
+    if let Some(round) = round {
+        crate::context_compact::push_and_stamp(history, message, round);
+    } else {
+        history.push(message);
     }
 }
 
@@ -742,9 +770,14 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         &self,
         history: &mut Vec<Value>,
         round: u32,
-        _outcome: &RoundOutcome,
+        outcome: &RoundOutcome,
         executed: &[ExecutedTool],
     ) {
+        // Keep assistant narration in the next round's model-visible context,
+        // matching the Responses item stream shape: message, function_call,
+        // then function_call_output.
+        push_responses_assistant_message(history, Some(round), &outcome.text);
+
         // Per executed tool: function_call item + function_call_output item.
         for et in executed {
             crate::context_compact::push_and_stamp(
@@ -780,14 +813,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         // content. With `store: false` we never replay reasoning items, so
         // thinking is intentionally dropped here — it streams to the UI live
         // but does not persist into history.
-        if !final_text.is_empty() {
-            history.push(json!({
-                "type": "message",
-                "role": "assistant",
-                "content": [{ "type": "output_text", "text": final_text }],
-                "status": "completed"
-            }));
-        }
+        push_responses_assistant_message(history, None, final_text);
     }
 
     fn loop_should_exit(&self, outcome: &RoundOutcome) -> bool {
@@ -992,8 +1018,9 @@ mod tests {
         extract_request_id_from_message, finalize_pending_tool_calls,
         handle_openai_sse_event_block, has_complete_stream_output, sse_event_error_code,
         sse_event_error_message, sse_event_error_type, take_next_sse_event_block, FunctionCallItem,
-        SseEvent,
+        OpenAIResponsesStreamingAdapter, SseEvent,
     };
+    use crate::agent::streaming_adapter::{ExecutedTool, RoundOutcome, StreamingChatAdapter};
     use crate::agent::types::ChatUsage;
     use std::collections::HashMap;
 
@@ -1081,6 +1108,64 @@ mod tests {
         assert!(!has_complete_stream_output("", &[]));
         assert!(has_complete_stream_output("hello", &[]));
         assert!(has_complete_stream_output("", &[tool_call]));
+    }
+
+    #[test]
+    fn append_round_to_history_keeps_assistant_text_before_tool_items() {
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "",
+            model: "gpt-test",
+            reasoning: None,
+        };
+        let outcome = RoundOutcome {
+            text: "I found the scripts and will inspect them now.".to_string(),
+            thinking: String::new(),
+            tool_calls: vec![FunctionCallItem {
+                call_id: "call_1".to_string(),
+                name: "read".to_string(),
+                arguments: r#"{"path":"scripts/a.py"}"#.to_string(),
+            }],
+            usage: ChatUsage::default(),
+            ttft_ms: None,
+            stop_reason: None,
+        };
+        let executed = vec![ExecutedTool {
+            call_id: "call_1".to_string(),
+            name: "read".to_string(),
+            arguments: r#"{"path":"scripts/a.py"}"#.to_string(),
+            clean_result: "file contents".to_string(),
+        }];
+
+        let mut history = Vec::new();
+        adapter.append_round_to_history(&mut history, 3, &outcome, &executed);
+
+        assert_eq!(history.len(), 3);
+        assert_eq!(history[0]["type"], "message");
+        assert_eq!(history[0]["role"], "assistant");
+        assert_eq!(history[0]["content"][0]["type"], "output_text");
+        assert_eq!(
+            history[0]["content"][0]["text"],
+            "I found the scripts and will inspect them now."
+        );
+        assert_eq!(history[0]["_oc_round"], "r3");
+        assert_eq!(history[1]["type"], "function_call");
+        assert_eq!(history[2]["type"], "function_call_output");
+    }
+
+    #[test]
+    fn append_final_assistant_skips_empty_terminal_text() {
+        let adapter = OpenAIResponsesStreamingAdapter {
+            api_key: "",
+            base_url: "",
+            model: "gpt-test",
+            reasoning: None,
+        };
+        let mut history = Vec::new();
+
+        adapter.append_final_assistant(&mut history, "", "");
+
+        assert!(history.is_empty());
     }
 
     #[test]

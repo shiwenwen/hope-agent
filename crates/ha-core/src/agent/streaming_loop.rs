@@ -39,6 +39,18 @@ const TOOL_CANCEL_CLEANUP_GRACE: std::time::Duration = std::time::Duration::from
 /// to the IM-inbound concurrency const), not a user-facing knob.
 const MAX_CONCURRENT_SAFE_TOOLS: usize = 8;
 
+fn terminal_assistant_text_for_history<'a>(
+    cancelled: bool,
+    final_assistant_text: &'a str,
+    pending_terminal_text: &'a str,
+) -> &'a str {
+    if cancelled && final_assistant_text.is_empty() {
+        pending_terminal_text
+    } else {
+        final_assistant_text
+    }
+}
+
 /// Run `futs` concurrently with at most `max` in flight at any time, returning
 /// results in the SAME order as the input. Order preservation lets callers pair
 /// results to inputs positionally. The semaphore is never closed, so permit
@@ -614,6 +626,14 @@ impl AssistantAgent {
         let mut round_count: u32 = 0;
         let mut natural_exit = false;
         let mut collected_text = String::new();
+        // Text from the terminal no-tool round only. Earlier tool-round text is
+        // already persisted by append_round_to_history so replaying it as the
+        // final assistant message would make the model see duplicate narration.
+        let mut final_assistant_text = String::new();
+        // Text from the latest round that has not yet been committed to provider
+        // history. If the user stops before the round reaches a normal exit or
+        // tool-history append, this becomes the model-visible partial assistant.
+        let mut pending_terminal_text = String::new();
         let mut collected_thinking = String::new();
         let mut last_round_thinking = String::new();
         let mut total_usage = ChatUsage::default();
@@ -730,6 +750,7 @@ impl AssistantAgent {
                 first_ttft_ms = outcome.ttft_ms;
             }
             collected_text.push_str(&outcome.text);
+            pending_terminal_text = outcome.text.clone();
             collected_thinking.push_str(&outcome.thinking);
             last_round_thinking = outcome.thinking.clone();
             total_usage.accumulate_round(&outcome.usage);
@@ -740,6 +761,7 @@ impl AssistantAgent {
 
             if adapter.loop_should_exit(&outcome) {
                 natural_exit = true;
+                final_assistant_text = std::mem::take(&mut pending_terminal_text);
                 break;
             }
 
@@ -1006,6 +1028,7 @@ impl AssistantAgent {
             // native shape (Anthropic content blocks / OpenAI tool_calls /
             // Responses function_call+function_call_output items).
             adapter.append_round_to_history(&mut messages, round, &outcome, &executed);
+            pending_terminal_text.clear();
 
             drain_queued_turn_user_messages(self, adapter, &mut messages, on_delta).await;
 
@@ -1032,6 +1055,7 @@ impl AssistantAgent {
         if rounds_exhausted {
             let notice = emit_max_rounds_notice(on_delta, max_rounds);
             collected_text.push_str(&notice);
+            final_assistant_text.push_str(&notice);
             emit_round_limit_event(on_delta, max_rounds);
         }
         if collected_text.is_empty() && !cancelled {
@@ -1041,8 +1065,14 @@ impl AssistantAgent {
             ));
         }
 
-        // Persist final assistant message in this provider's native shape.
-        adapter.append_final_assistant(&mut messages, &collected_text, &last_round_thinking);
+        // Persist the terminal assistant message in this provider's native
+        // shape. Tool-round narration was already written with its tool calls.
+        let terminal_text = terminal_assistant_text_for_history(
+            cancelled,
+            &final_assistant_text,
+            &pending_terminal_text,
+        );
+        adapter.append_final_assistant(&mut messages, terminal_text, &last_round_thinking);
 
         *self
             .conversation_history
@@ -1101,13 +1131,19 @@ impl AssistantAgent {
         } else {
             Some(collected_thinking)
         };
-        Ok((collected_text, thinking_result))
+        let user_visible_response = if terminal_text.is_empty() {
+            collected_text
+        } else {
+            terminal_text.to_string()
+        };
+
+        Ok((user_visible_response, thinking_result))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::extract_started_job_id;
+    use super::{extract_started_job_id, terminal_assistant_text_for_history};
     use crate::async_jobs::{synthetic_started_result, JobOrigin};
 
     #[test]
@@ -1117,6 +1153,26 @@ mod tests {
 
         let auto = synthetic_started_result("job_xyz", "web_search", JobOrigin::AutoBackgrounded);
         assert_eq!(extract_started_job_id(&auto).as_deref(), Some("job_xyz"));
+    }
+
+    #[test]
+    fn terminal_history_text_preserves_cancelled_partial_reply() {
+        assert_eq!(
+            terminal_assistant_text_for_history(true, "", "partial before stop"),
+            "partial before stop"
+        );
+        assert_eq!(
+            terminal_assistant_text_for_history(true, "final answer", "partial before stop"),
+            "final answer"
+        );
+        assert_eq!(
+            terminal_assistant_text_for_history(false, "final answer", "partial before stop"),
+            "final answer"
+        );
+        assert_eq!(
+            terminal_assistant_text_for_history(false, "", "partial"),
+            ""
+        );
     }
 
     #[tokio::test]
