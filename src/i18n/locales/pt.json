@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "Adicionar diretório de trabalho",
-    "askAnything": "Me conte sua ideia, eu cuido do resto...",
+    "askAnything": "Me conte sua ideia, @ encontra arquivos/notas/habilidades e # chama prompts rápidos...",
     "browserPanel": {
       "backendBadgeTooltip": "Backend do navegador: {{backend}}",
       "captureFailed": "Falha ao capturar quadro, aguardando o próximo",
@@ -365,6 +365,15 @@
     "sidebarDetailedMode": "Mudar para modo detalhado",
     "copied": "Copiado",
     "copy": "Copiar",
+    "quickPrompts": {
+      "addAction": "Adicionar aos prompts rápidos",
+      "addFailed": "Falha ao adicionar prompt rápido",
+      "added": "Adicionado aos prompts rápidos",
+      "duplicate": "Esse prompt rápido já está salvo",
+      "empty": "Ainda não há prompts rápidos. Adicione um pela parte inferior de uma mensagem do usuário.",
+      "heading": "Prompts rápidos",
+      "noMatches": "Nenhum prompt rápido correspondente"
+    },
     "cronTaskStarted": "Uma tarefa agendada foi acionada",
     "cronTrigger": "Tarefa agendada",
     "wakeupResumed": "Retomado para continuar",

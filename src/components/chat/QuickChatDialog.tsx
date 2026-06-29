@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { X, Plus, ChevronDown, Bot, ExternalLink } from "lucide-react"
@@ -14,6 +15,12 @@ import { useQuickChatSession } from "./useQuickChatSession"
 import { useChatStream } from "./useChatStream"
 import type { CommandResult } from "./slash-commands/types"
 import type { AgentSummaryForSidebar } from "@/types/chat"
+import type {
+  QuickPromptAddResult,
+  QuickPromptConfig,
+  QuickPromptItem,
+} from "@/types/quickPrompts"
+import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 
 interface QuickChatDialogProps {
   open: boolean
@@ -34,6 +41,7 @@ export default function QuickChatDialog({
   // still has to be supplied to `useChatStream` and local-only is fine here.
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
+  const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
 
   // Effective incognito = persisted session.incognito (continued chat) or
   // draft toggle (new chat). Same shape as `ChatScreen` so `useChatStream`
@@ -48,6 +56,53 @@ export default function QuickChatDialog({
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : session.draftIncognito
+  const inputHistory = useMemo(
+    () => recentUserInputHistory(session.messages),
+    [session.messages],
+  )
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    getTransport()
+      .call<QuickPromptConfig>("get_quick_prompt_config")
+      .then((config) => {
+        if (!cancelled) setQuickPrompts(config.items ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setQuickPrompts([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const handleAddQuickPrompt = useCallback(
+    async (content: string) => {
+      if (incognitoEnabled) return
+      try {
+        const result = await getTransport().call<QuickPromptAddResult>("add_quick_prompt", {
+          content,
+        })
+        setQuickPrompts((prev) => {
+          if (result.duplicate) {
+            return prev.some((item) => item.id === result.item.id)
+              ? prev
+              : [result.item, ...prev]
+          }
+          return [result.item, ...prev.filter((item) => item.id !== result.item.id)]
+        })
+        toast.success(
+          result.duplicate
+            ? t("chat.quickPrompts.duplicate")
+            : t("chat.quickPrompts.added"),
+        )
+      } catch {
+        toast.error(t("chat.quickPrompts.addFailed"))
+      }
+    },
+    [incognitoEnabled, t],
+  )
 
   // ── Stream Hook ─────────────────────────────────
   const stream = useChatStream({
@@ -220,6 +275,7 @@ export default function QuickChatDialog({
           onLoadMore={session.handleLoadMore}
           sessionId={session.currentSessionId}
           incognito={incognitoEnabled}
+          onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
@@ -233,6 +289,8 @@ export default function QuickChatDialog({
           <ChatInput
             input={stream.input}
             onInputChange={stream.setInput}
+            inputHistory={inputHistory}
+            quickPrompts={quickPrompts}
             onSend={() => stream.handleSend()}
             loading={session.loading}
             availableModels={session.availableModels}

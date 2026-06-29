@@ -360,6 +360,115 @@ describe("ChatInput", () => {
     expect(onInputChange).toHaveBeenCalledWith("@notes.md ")
   })
 
+  test("cycles recent user input history only from an empty draft", () => {
+    const onInputChange = vi.fn()
+    const { props, view } = renderChatInput({
+      input: "",
+      inputHistory: ["second", "first"],
+      onInputChange,
+    })
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp" })
+    expect(onInputChange).toHaveBeenLastCalledWith("second")
+
+    view.rerender(
+      <TooltipProvider>
+        <ChatInput {...props} input="second" />
+      </TooltipProvider>,
+    )
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowDown" })
+    expect(onInputChange).toHaveBeenLastCalledWith("")
+  })
+
+  test("resets history browsing after sending a selected history item", () => {
+    const onInputChange = vi.fn()
+    const onSend = vi.fn()
+    const { props, view } = renderChatInput({
+      input: "",
+      inputHistory: ["second", "first"],
+      onInputChange,
+      onSend,
+    })
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp" })
+    expect(onInputChange).toHaveBeenLastCalledWith("second")
+
+    view.rerender(
+      <TooltipProvider>
+        <ChatInput {...props} input="second" />
+      </TooltipProvider>,
+    )
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+    expect(onSend).toHaveBeenCalledTimes(1)
+
+    view.rerender(
+      <TooltipProvider>
+        <ChatInput {...props} input="" />
+      </TooltipProvider>,
+    )
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp" })
+    expect(onInputChange).toHaveBeenLastCalledWith("second")
+  })
+
+  test("does not replace a manual draft with input history", () => {
+    const onInputChange = vi.fn()
+    renderChatInput({
+      input: "manual draft",
+      inputHistory: ["previous"],
+      onInputChange,
+    })
+
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp" })
+
+    expect(onInputChange).not.toHaveBeenCalled()
+  })
+
+  test("inserts a selected quick prompt from the hash menu", async () => {
+    const onInputChange = vi.fn()
+    renderChatInput({
+      input: "please #sum",
+      onInputChange,
+      quickPrompts: [
+        {
+          id: "qp1",
+          title: "Summarize",
+          content: "summarize this thread",
+          createdAt: "2026-06-28T00:00:00Z",
+        },
+      ],
+    })
+
+    fireEvent.select(screen.getByRole("textbox"))
+
+    await waitFor(() => expect(screen.getByText("Summarize")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    expect(onInputChange).toHaveBeenCalledWith("please summarize this thread")
+  })
+
+  test("lets Enter send when the hash menu has no quick prompt matches", async () => {
+    const onSend = vi.fn()
+    renderChatInput({
+      input: "#triage",
+      onSend,
+      quickPrompts: [
+        {
+          id: "qp1",
+          title: "Summarize",
+          content: "summarize this thread",
+          createdAt: "2026-06-28T00:00:00Z",
+        },
+      ],
+    })
+
+    fireEvent.select(screen.getByRole("textbox"))
+
+    await waitFor(() => expect(screen.getByText("chat.quickPrompts.noMatches")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
   test("explicit interrupted execution state wins over loading for task progress", () => {
     renderChatInput({
       loading: true,
