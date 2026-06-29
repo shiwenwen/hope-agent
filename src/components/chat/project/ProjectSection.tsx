@@ -487,7 +487,7 @@ function ProjectGroup({
                   <button
                     type="button"
                     aria-label={t("common.dragToSort")}
-                    className="absolute left-1 top-1/2 z-20 -translate-y-1/2 cursor-grab touch-none rounded bg-background/80 p-0.5 text-muted-foreground/0 opacity-0 shadow-sm backdrop-blur-sm transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
+                    className="flex h-4 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded p-0.5 text-muted-foreground/0 opacity-0 transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
                     {...dragAttributes}
