@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
-  ArrowUpRight,
   BarChart3,
   BookText,
   Bot,
@@ -58,11 +57,9 @@ import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import {
   type BackgroundJobSnapshot,
-  backgroundJobLabel,
   isBackgroundJobActive,
 } from "@/types/background-jobs"
-import { BackgroundJobStatusChip } from "../background-jobs/jobDisplay"
-import { resolveBackgroundSubagentSessionId } from "../background-jobs/subagentSession"
+import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
 import {
   computeContextUsage,
@@ -150,6 +147,9 @@ interface WorkspacePanelProps {
   turnActive?: boolean
   /** R4:本会话后台任务（由 ChatScreen 的 useBackgroundJobs 传入,与头部徽标 / 独立面板共用一份订阅）。 */
   backgroundJobs?: BackgroundJobSnapshot[]
+  /** R4:后台任务展开状态,与独立面板共享,避免工作台和面板交互分叉。 */
+  backgroundJobExpansionOverrides?: Record<string, boolean>
+  onBackgroundJobExpandedChange?: (jobId: string, expanded: boolean) => void
   /** R4:打开独立「后台任务」面板（完整列表和单项管理在那里处理）。 */
   onOpenBackgroundJobs?: () => void
   /** 打开子 agent 实时会话弹层，不切换当前主会话。 */
@@ -1104,83 +1104,26 @@ function KnowledgeSection({
 }
 
 /**
- * R4 简化区块:本会话后台任务的速览(标签 + 状态)。完整列表和单项管理在独立「后台
- * 任务」面板里处理 —— 这里只展示 + 一个「查看全部」入口,避免与独立面板重复造轮子。
+ * R4 工作台区块:复用独立「后台任务」面板的本会话任务行能力
+ * (展开 / 实时输出 / 取消 / 子会话入口),但保留工作台内的紧凑展示上限。
  */
 const WORKSPACE_JOBS_PREVIEW = 6
 
-function BackgroundJobPreviewRow({
-  job,
-  onViewSubagentSession,
-  viewing,
-}: {
-  job: BackgroundJobSnapshot
-  onViewSubagentSession?: (runId: string) => void
-  viewing?: boolean
-}) {
-  const { t } = useTranslation()
-  const runId = job.kind === "subagent" ? job.subagentRunId : null
-  const canView = !!runId && !!onViewSubagentSession
-
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-border/50 bg-secondary/30 px-2.5 py-1.5">
-      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/90">
-        {backgroundJobLabel(job, t)}
-      </span>
-      <BackgroundJobStatusChip status={job.status} />
-      {canView && (
-        <IconTip label={t("subagent.viewChildSession", "查看子会话")}>
-          <button
-            type="button"
-            onClick={() => {
-              if (runId) onViewSubagentSession(runId)
-            }}
-            disabled={viewing}
-            className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-wait disabled:opacity-50"
-            aria-label={t("subagent.viewChildSession", "查看子会话")}
-          >
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
-        </IconTip>
-      )}
-    </div>
-  )
-}
-
 function BackgroundJobsSection({
   jobs,
+  jobExpansionOverrides,
+  onJobExpandedChange,
   onOpenPanel,
   onViewSubagentSession,
 }: {
   jobs: BackgroundJobSnapshot[]
+  jobExpansionOverrides?: Record<string, boolean>
+  onJobExpandedChange?: (jobId: string, expanded: boolean) => void
   onOpenPanel?: () => void
   onViewSubagentSession?: (sessionId: string) => void
 }) {
   const { t } = useTranslation()
-  const [pendingViewRunIds, setPendingViewRunIds] = useState<Set<string>>(new Set())
   const activeCount = jobs.filter(isBackgroundJobActive).length
-  const preview = jobs.slice(0, WORKSPACE_JOBS_PREVIEW)
-
-  const handleViewSubagentSession = useCallback(
-    (runId: string) => {
-      if (!onViewSubagentSession) return
-      setPendingViewRunIds((prev) => new Set(prev).add(runId))
-      resolveBackgroundSubagentSessionId(runId)
-        .then((childSessionId) => {
-          if (childSessionId) onViewSubagentSession(childSessionId)
-        })
-        .catch(() => {})
-        .finally(() => {
-          setPendingViewRunIds((prev) => {
-            if (!prev.has(runId)) return prev
-            const next = new Set(prev)
-            next.delete(runId)
-            return next
-          })
-        })
-    },
-    [onViewSubagentSession],
-  )
 
   return (
     <WorkspaceSection
@@ -1190,14 +1133,13 @@ function BackgroundJobsSection({
     >
       {jobs.length > 0 ? (
         <div className="space-y-1">
-          {preview.map((job) => (
-            <BackgroundJobPreviewRow
-              key={job.jobId}
-              job={job}
-              onViewSubagentSession={handleViewSubagentSession}
-              viewing={!!job.subagentRunId && pendingViewRunIds.has(job.subagentRunId)}
-            />
-          ))}
+          <SessionBackgroundJobsList
+            jobs={jobs}
+            jobExpansionOverrides={jobExpansionOverrides}
+            onJobExpandedChange={onJobExpandedChange}
+            onViewSubagentSession={onViewSubagentSession}
+            limit={WORKSPACE_JOBS_PREVIEW}
+          />
           {onOpenPanel && (
             <button
               type="button"
@@ -1247,6 +1189,8 @@ export default function WorkspacePanel({
   incognito = false,
   turnActive = false,
   backgroundJobs = [],
+  backgroundJobExpansionOverrides,
+  onBackgroundJobExpandedChange,
   onOpenBackgroundJobs,
   onViewSubagentSession,
   onClose,
@@ -1329,9 +1273,11 @@ export default function WorkspacePanel({
           </WorkspaceSection>
         )}
 
-        {/* 后台任务 — R4 简化速览;完整管理在独立面板。 */}
+        {/* 后台任务 — R4 复用独立面板的任务行能力,工作台内保留紧凑展示。 */}
         <BackgroundJobsSection
           jobs={backgroundJobs}
+          jobExpansionOverrides={backgroundJobExpansionOverrides}
+          onJobExpandedChange={onBackgroundJobExpandedChange}
           onOpenPanel={onOpenBackgroundJobs}
           onViewSubagentSession={onViewSubagentSession}
         />
