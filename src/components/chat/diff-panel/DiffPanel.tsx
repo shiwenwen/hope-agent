@@ -625,7 +625,7 @@ export function DiffPanel({
                   <div key={section.fileKey} className="bg-background/40">
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-secondary/45"
+                      className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/40 bg-surface-panel/95 px-3 py-2 text-left backdrop-blur transition-colors hover:bg-secondary/45"
                       onClick={() => toggleStackedFile(section.fileKey)}
                       aria-expanded={!section.collapsed}
                     >
@@ -646,7 +646,7 @@ export function DiffPanel({
                       />
                     </button>
                     {!section.collapsed && (
-                      <div className="border-t border-border/40">
+                      <div>
                         {c.truncated && (
                           <div className="px-3 py-1.5 text-[11px] text-amber-600">
                             {t("diffPanel.fileTooLarge", "文件过大，仅渲染前 256KB")}
