@@ -112,9 +112,12 @@ export function useQuickPrompts(
     (e: React.KeyboardEvent<HTMLElement>): boolean => {
       if (!active) return false
       if (entries.length === 0) {
+        if (e.key === "Enter") {
+          reset()
+          return false
+        }
         if (
           e.key === "Escape" ||
-          e.key === "Enter" ||
           e.key === "Tab" ||
           e.key === "ArrowDown" ||
           e.key === "ArrowUp"

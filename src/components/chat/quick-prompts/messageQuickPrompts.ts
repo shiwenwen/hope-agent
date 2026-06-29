@@ -12,6 +12,7 @@ export function isQuickPromptEligibleUserMessage(msg: Message): boolean {
     !msg.planComment &&
     !msg.isMeta &&
     !msg.slashEvent &&
+    !msg.channelInbound &&
     msg.content.trim().length > 0
   )
 }

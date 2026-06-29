@@ -446,6 +446,29 @@ describe("ChatInput", () => {
     expect(onInputChange).toHaveBeenCalledWith("please summarize this thread")
   })
 
+  test("lets Enter send when the hash menu has no quick prompt matches", async () => {
+    const onSend = vi.fn()
+    renderChatInput({
+      input: "#triage",
+      onSend,
+      quickPrompts: [
+        {
+          id: "qp1",
+          title: "Summarize",
+          content: "summarize this thread",
+          createdAt: "2026-06-28T00:00:00Z",
+        },
+      ],
+    })
+
+    fireEvent.select(screen.getByRole("textbox"))
+
+    await waitFor(() => expect(screen.getByText("chat.quickPrompts.noMatches")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
   test("explicit interrupted execution state wins over loading for task progress", () => {
     renderChatInput({
       loading: true,

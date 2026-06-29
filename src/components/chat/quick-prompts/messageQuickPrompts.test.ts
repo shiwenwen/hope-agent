@@ -17,6 +17,15 @@ describe("message quick prompt helpers", () => {
     expect(isQuickPromptEligibleUserMessage(user("agent", { fromAgentId: "a1" }))).toBe(false)
     expect(
       isQuickPromptEligibleUserMessage(
+        user("from channel", {
+          channelInbound: {
+            channelId: "telegram",
+          },
+        }),
+      ),
+    ).toBe(false)
+    expect(
+      isQuickPromptEligibleUserMessage(
         user("slash", { slashEvent: { kind: "command", displayAs: "user" } }),
       ),
     ).toBe(false)
@@ -30,6 +39,11 @@ describe("message quick prompt helpers", () => {
         user("second"),
         user(" first "),
         user("plan", { isPlanTrigger: true }),
+        user("channel", {
+          channelInbound: {
+            channelId: "telegram",
+          },
+        }),
       ] as Message[]),
     ).toEqual(["first", "second"])
   })
