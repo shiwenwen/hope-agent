@@ -1,11 +1,16 @@
-import React, { useMemo } from "react"
+import React, { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { ChevronDown } from "lucide-react"
+import { AnimatedCollapse } from "@/components/ui/animated-presence"
+import { cn } from "@/lib/utils"
 import { basename } from "@/lib/path"
 import { FileMimeIcon } from "./FileCard"
 import type { MessageFileAttachment } from "../chatUtils"
 import { FileContextMenu, FileActionsMoreButton } from "@/components/chat/files/FileActionMenu"
 import { useFileActions } from "@/components/chat/files/useFileActions"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+
+const DEFAULT_VISIBLE_FILE_ATTACHMENTS = 6
 
 interface FileAttachmentsProps {
   files: MessageFileAttachment[]
@@ -68,16 +73,57 @@ function AttachmentRow({
 
 function FileAttachments({ files, sessionId }: FileAttachmentsProps) {
   const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
   if (files.length === 0) return null
+
+  const hasOverflow = files.length > DEFAULT_VISIBLE_FILE_ATTACHMENTS
+  const visibleFiles = hasOverflow ? files.slice(0, DEFAULT_VISIBLE_FILE_ATTACHMENTS) : files
+  const hiddenFiles = hasOverflow ? files.slice(DEFAULT_VISIBLE_FILE_ATTACHMENTS) : []
 
   return (
     <div className="mt-2 pt-2 border-t border-border/30">
-      <div className="text-[10px] text-muted-foreground/60 mb-1">{t("chat.modifiedFiles")}</div>
+      <div className="mb-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground/60">
+        <span>{t("chat.modifiedFiles")}</span>
+        {hasOverflow && (
+          <span className="shrink-0 tabular-nums">
+            {expanded ? files.length : visibleFiles.length}/{files.length}
+          </span>
+        )}
+      </div>
       <div className="flex flex-wrap gap-1.5">
-        {files.map((file) => (
+        {visibleFiles.map((file) => (
           <AttachmentRow key={attachmentKey(file)} file={file} sessionId={sessionId} />
         ))}
       </div>
+      {hasOverflow && (
+        <>
+          <AnimatedCollapse open={expanded} durationMs={180}>
+            <div className="flex flex-wrap gap-1.5 pt-1.5">
+              {hiddenFiles.map((file) => (
+                <AttachmentRow key={attachmentKey(file)} file={file} sessionId={sessionId} />
+              ))}
+            </div>
+          </AnimatedCollapse>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")}
+            />
+            <span>
+              {expanded
+                ? t("chat.showFewerFiles", { defaultValue: "Show fewer files" })
+                : t("chat.showMoreFiles", {
+                    count: hiddenFiles.length,
+                    defaultValue: "Show {{count}} more files",
+                  })}
+            </span>
+          </button>
+        </>
+      )}
     </div>
   )
 }
