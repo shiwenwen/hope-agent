@@ -27,7 +27,11 @@ import InlineToolDiffPreview from "@/components/chat/message/InlineToolDiffPrevi
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
 import { FileDeltaCounter } from "@/components/chat/message/FileDeltaCounter"
 import { getFileChangeSummary } from "@/components/chat/message/fileChangeSummary"
-import { getFileToolTarget } from "@/components/chat/message/fileToolTarget"
+import {
+  getFileToolTarget,
+  getFileToolTargetDisplay,
+  getFileToolTargetTooltip,
+} from "@/components/chat/message/fileToolTarget"
 import {
   getExecutionToolGroupLabelSegments,
   getExecutionToolGroupSegmentSeparator,
@@ -149,8 +153,10 @@ function GroupItem({
   const isRunning = state === "running"
   const isFailed = state === "failed"
   const skillName = getSkillName(tool)
-  const fullTarget = skillName ? "" : getFullTarget(tool)
   const fileTarget = getFileToolTarget(tool.name, tool.arguments)
+  const fullTarget = skillName ? "" : getFullTarget(tool)
+  const targetText = fileTarget ? getFileToolTargetDisplay(fileTarget) : fullTarget
+  const targetTitle = fileTarget ? getFileToolTargetTooltip(fileTarget) : undefined
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const preview = skillName ? null : getResultPreview(tool.result)
   const cat = getToolCategory(tool.name)
@@ -201,10 +207,12 @@ function GroupItem({
         >
           {toolLabel}
         </span>
-        {fileTarget && fullTarget && (
+        {fileTarget && targetText && (
           <FileMimeIcon mime="" name={fileTarget.name} className="h-3.5 w-3.5 shrink-0" />
         )}
-        <span className="text-muted-foreground/60 truncate font-mono">{fullTarget}</span>
+        <span className="text-muted-foreground/60 truncate font-mono" title={targetTitle}>
+          {targetText}
+        </span>
         {/* Inline result preview when collapsed */}
         {!showResult && preview && !fileChangeSummary && (
           <span className="text-muted-foreground/30 truncate ml-auto pl-2 max-w-[40%]">
