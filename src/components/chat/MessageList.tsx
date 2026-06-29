@@ -575,6 +575,9 @@ export default function MessageList({
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
   const [highlightMessageId, setHighlightMessageId] = useState<number | null>(null)
+  const [searchExpandedUserMessageId, setSearchExpandedUserMessageId] = useState<
+    number | null
+  >(null)
   const [compactUserAnchorVisible, setCompactUserAnchorVisible] = useState(false)
   const [compactUserAnchorMounted, setCompactUserAnchorMounted] = useState(false)
   const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(
@@ -1124,6 +1127,15 @@ export default function MessageList({
       setDisplayedStart(0)
       return
     }
+    const targetMessage = messagesRef.current[targetIdx]
+    if (
+      targetMessage?.role === "user" &&
+      !isCenteredSystemMessage(targetMessage) &&
+      searchExpandedUserMessageId !== targetId
+    ) {
+      setSearchExpandedUserMessageId(targetId)
+      return
+    }
 
     const el = containerRef.current
     if (!el) return
@@ -1183,6 +1195,7 @@ export default function MessageList({
     displayedStart,
     renderRows,
     sessionId,
+    searchExpandedUserMessageId,
   ])
 
   useEffect(
@@ -1338,6 +1351,8 @@ export default function MessageList({
             )
               ? executionState
               : null
+            const forceExpandUserContent =
+              msg.dbId != null && searchExpandedUserMessageId === msg.dbId
             return (
               <div
                 key={rowKey}
@@ -1392,6 +1407,15 @@ export default function MessageList({
                   displayMode={displayMode}
                   footerFiles={row.item.footerFiles}
                   hideOwnFooterFiles={row.item.hideOwnFooterFiles}
+                  forceExpandUserContent={forceExpandUserContent}
+                  onForceExpandedUserContentDismiss={
+                    forceExpandUserContent
+                      ? () =>
+                          setSearchExpandedUserMessageId((current) =>
+                            current === msg.dbId ? null : current,
+                          )
+                      : undefined
+                  }
                 />
               </div>
             )

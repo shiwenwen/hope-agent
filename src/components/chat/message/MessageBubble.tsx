@@ -90,16 +90,21 @@ function UserMessageContent({
   content,
   renderMode,
   fadeToClassName,
+  forceExpanded = false,
+  onForceExpandedDismiss,
 }: {
   content: string
   renderMode: ContentRenderMode
   fadeToClassName: string
+  forceExpanded?: boolean
+  onForceExpandedDismiss?: () => void
 }) {
   const { t } = useTranslation()
   const [expandedState, setExpandedState] = useState(() => ({ content, expanded: false }))
   const collapsible = useMemo(() => shouldCollapseUserMessage(content), [content])
   const preview = useMemo(() => collapsedUserMessagePreview(content), [content])
-  const expanded = expandedState.content === content ? expandedState.expanded : false
+  const expanded =
+    forceExpanded || (expandedState.content === content ? expandedState.expanded : false)
 
   const rendered =
     renderMode === "markdown" ? (
@@ -107,6 +112,10 @@ function UserMessageContent({
     ) : (
       <PlainTextRenderer content={content} />
     )
+  const handleToggle = () => {
+    if (expanded) onForceExpandedDismiss?.()
+    setExpandedState({ content, expanded: !expanded })
+  }
 
   if (!collapsible) return rendered
 
@@ -127,13 +136,7 @@ function UserMessageContent({
         <button
           type="button"
           aria-expanded={expanded}
-          onClick={() =>
-            setExpandedState((current) => {
-              const currentExpanded =
-                current.content === content ? current.expanded : false
-              return { content, expanded: !currentExpanded }
-            })
-          }
+          onClick={handleToggle}
           className="inline-flex items-center gap-1 rounded-md bg-background/45 px-2 py-1 text-xs font-medium text-foreground/60 transition-colors hover:bg-background/70 hover:text-foreground"
         >
           <ChevronDown
@@ -188,6 +191,8 @@ export interface MessageBubbleProps {
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  forceExpandUserContent?: boolean
+  onForceExpandedUserContentDismiss?: () => void
 }
 
 function messageFileAttachmentKey(file: MessageFileAttachment): string {
@@ -456,6 +461,8 @@ function MessageBubbleInner({
   displayMode = "bubble",
   footerFiles,
   hideOwnFooterFiles = false,
+  forceExpandUserContent = false,
+  onForceExpandedUserContentDismiss,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
@@ -1014,6 +1021,8 @@ function MessageBubbleInner({
                 content={msg.content}
                 renderMode={contentRenderMode}
                 fadeToClassName={userMessageFadeToClassName}
+                forceExpanded={forceExpandUserContent}
+                onForceExpandedDismiss={onForceExpandedUserContentDismiss}
               />
             </>
           )}
