@@ -126,7 +126,7 @@ Failed      -- 终态失败（error_json 落库）
 
 ### 4.1 位置化 op-key，不要模型手写字面量 id
 
-上层方案 §8.5 要求"所有 host call 必须有字面量 id"，且 §8.1 示例用 `` `review:${file.relPath}` `` 作 id——这是**错误方向**，原因：
+早期草案曾要求"所有 host call 必须有字面量 id"，且示例用 `` `review:${file.relPath}` `` 作 id——这是**错误方向**，原因：
 
 - 模板 id 依赖上一个 op 的结果，模型既要保证唯一又要保证跨重放稳定，极易写错。
 - 结果驱动 fan-out（对 `fileSearch` 结果做 map）时，子 op 的**集合**取决于上游结果与顺序，上游稍变 op_key 集合就错位，replay 直接崩。
@@ -158,7 +158,7 @@ map / 并行扇出必须把**物化后的输入列表作为该 map op 自身的 
 区分两件常被混在一起的事：
 
 - **能力沙箱（结构性，可靠）**：用内嵌引擎且**只注入 host API 绑定**，脚本根本拿不到 `fs`/`net`/`process`/`require`——访问不到不是因为被 lint 拦，而是因为绑定不存在。**不要用 denylist 拦能力**（`[].constructor.constructor('return process')()` 这类逃逸让 denylist 形同虚设）。
-- **确定性 shim（行为性）**：`Date.now()` / `Math.random()` / `new Date()`（无参）在 runtime **直接 throw**，并提供确定性替代：`workflow.now()`（返回 run 起始锚定时间）、`workflow.random(id)`（按 op_key 派生的确定性随机）。这与本运行时一致——*Date.now/Math.random 会破坏 resume，所以直接禁用*。
+- **确定性 shim（行为性）**：`Date.now()` / `Math.random()` / `new Date()`（无参）在 runtime **直接 throw**，并提供确定性替代：`workflow.now()`（返回 run 起始锚定时间）、`workflow.random(seed)`（按 op_key + seed 派生的确定性随机）。这与本运行时一致——*Date.now/Math.random 会破坏 resume，所以直接禁用*。
 
 Script gate 的静态 lint（§10）只作**早期友好报错**（提前告诉模型"你用了 Date.now"），**不是安全/正确性边界**。边界是 runtime 的结构沙箱 + throw。
 
@@ -181,7 +181,7 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
       ├─ child_handle 指向在跑的 async job/subagent -> 重新 attach，等其终态
       └─ 不存在（新 op）   -> 正常执行（Pending->Started->Completed）
   脚本跑到 finish -> Completed
-  script_hash 与库内不一致 -> run = NeedsMigration/Blocked（见 §7 repair 例外）
+  script_hash 与库内不一致 -> run = Blocked(reason=script_hash_mismatch)
 ```
 
 红线细节：
@@ -189,6 +189,7 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 - **claim 用 CAS + primary_owner**，防两个 Primary（误配）或 Primary 重启竞态导致双跑；非 Primary 永不进入此循环。
 - Recovering 期间**不接受新外部输入**，跑完才回 Running。
 - 重放是"重新执行脚本"而非"从某行继续"——所以脚本必须满足 §2 纯函数不变量，否则重放分叉。
+- script hash 不一致不是自动 migration；统一进入 `Blocked(reason=script_hash_mismatch)`，由用户显式决定新建 run、重审脚本或取消。
 
 ## 6. Host API 契约
 
@@ -196,18 +197,18 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 
 | API | effect_class | 底层接入 | 备注 |
 | --- | --- | --- | --- |
-| `workflow.tool(name, args)` | 由工具元数据决定 | `execute_tool_with_context` + permission | op_key 自动；写类工具带 hash 守卫 |
-| `workflow.fileSearch(args)` | pure | `filesystem::search_files` | |
-| `workflow.read(path)` / `workflow.grep(args)` | pure | `read` / `grep` tool | |
-| `workflow.spawnAgent(args)` | non_idempotent | `subagent` 队列 | 返回 handle，记 `child_handle` |
-| `workflow.map(label, list, fn)` | 派生 | runtime | §4.2 物化；`fn` 内多为 spawnAgent |
-| `workflow.waitAll(handles, {concurrency})` | pure（等待） | async job / subagent status | bounded concurrency，见 §8 |
-| `workflow.task.create/update(args)` | idempotent | `task_create/update` | 与 op 自动绑定 |
-| `workflow.validate(args)` | non_idempotent(exec) | `exec` async job + AGENTS 策略 | 受 §AGENTS 验证约束 |
-| `workflow.askUser(args)` | — | `ask_user` | 走无人值守 fail-closed，见下 |
-| `workflow.trace(payload)` | pure | `workflow_events` | sanitize + 大小上限 |
-| `workflow.diff()` | pure | git / session artifacts | |
-| `workflow.now()` / `workflow.random(id)` | pure | runtime 确定性源 | 替代 Date.now/Math.random |
+| `workflow.tool({ name, args, label? })` | 由工具元数据决定 | `execute_tool_with_context` + permission | op_key 自动；写类工具带 hash 守卫 |
+| `workflow.fileSearch({ query, limit?, label? })` | pure | `filesystem::search_files` | |
+| `workflow.read({ path, label? })` / `workflow.grep({ pattern, path?, label? })` | pure | `read` / `grep` tool | |
+| `workflow.spawnAgent({ task, agent?, label?, ... })` | non_idempotent | `subagent` 队列 | 返回 handle，记 `child_handle` |
+| `workflow.map(label, list, fn)` | 派生 | runtime | §4.2 物化；`label` 只展示，op_key 仍由位置生成 |
+| `workflow.waitAll(handles, { label?, concurrency? })` | pure（等待） | async job / subagent status | bounded concurrency，见 §8 |
+| `workflow.task.create/update({ label?, ... })` | idempotent | `task_create/update` | 与 op 自动绑定 |
+| `workflow.validate({ commands, reason, label? })` | non_idempotent(exec) | `exec` async job + AGENTS 策略 | 受 §AGENTS 验证约束 |
+| `workflow.askUser({ question, context?, label? })` | — | `ask_user` | 走无人值守 fail-closed，见下 |
+| `workflow.trace({ payload, label? })` | pure | `workflow_events` | sanitize + 大小上限 |
+| `workflow.diff({ label? })` | pure | git / session artifacts | |
+| `workflow.now()` / `workflow.random(seed)` | pure | runtime 确定性源 | 替代 Date.now/Math.random |
 | `workflow.finish(result)` | — | `workflow_runs.state` | |
 
 **`workflow.askUser` 红线**：必须经 `evaluate_approval_surface(session_id)` 判定可应答性——autonomous / cron / headless 无人可答时按 `unattended_approval_action` deny/proceed，**绝不阻塞等待**（否则就是"无限等审批")。复用既有无人值守单一真相源，不另写一套。
@@ -227,7 +228,7 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 - repair 由 runtime 在 run 之上编排：validate 失败 → 生成 structured feedback → **作为新 op 的输入注入下一轮**（或受控的子 run），而非改写脚本。
 - no-progress 检测（diff hash / validation fingerprint / changed files 超出 plan critical files / repair 次数 / 预算）在 runtime 层判定，触发即 `AwaitingUser` 或 `Blocked`。
 
-这样 repair 可观察、可加闸、与 durable 模型相容；script_hash 不一致只发生在用户**显式编辑脚本**时，那时才走 NeedsMigration。
+这样 repair 可观察、可加闸、与 durable 模型相容；script_hash 不一致只发生在用户**显式编辑脚本**时，那时统一进入 `Blocked(reason=script_hash_mismatch)`。
 
 ## 8. 并发与背压（coordinator 不占 worker 槽）
 

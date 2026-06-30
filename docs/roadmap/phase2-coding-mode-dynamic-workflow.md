@@ -414,17 +414,20 @@ workflow 脚本是一个持久化 artifact：
 
 ```js
 export default async function main(workflow) {
-  await workflow.task.create("observe", {
+  await workflow.task.create({
+    label: "observe",
     title: "收集相关文件和约束"
   });
 
-  const files = await workflow.fileSearch("find-critical-files", {
+  const files = await workflow.fileSearch({
+    label: "find-critical-files",
     query: "file search scoring",
     limit: 20
   });
 
   const reviews = await workflow.map("parallel-review", files.matches.slice(0, 4), async (file) => {
-    return workflow.spawnAgent(`review:${file.relPath}`, {
+    return workflow.spawnAgent({
+      label: `review:${file.relPath}`,
       agent: "reviewer",
       task: `Review ${file.relPath} for correctness and missing tests.`,
       tools: ["read", "grep"],
@@ -432,16 +435,18 @@ export default async function main(workflow) {
     });
   });
 
-  await workflow.task.update("observe", { status: "completed" });
-  await workflow.trace("review_summaries", reviews);
+  await workflow.task.update({ label: "observe", status: "completed" });
+  await workflow.trace({ label: "review_summaries", payload: reviews });
 
-  const validation = await workflow.validate("targeted-check", {
+  const validation = await workflow.validate({
+    label: "targeted-check",
     commands: ["cargo check -p ha-core --tests"],
     reason: "Rust core scorer and tests changed"
   });
 
   if (!validation.ok) {
-    await workflow.askUser("validation-failed", {
+    await workflow.askUser({
+      label: "validation-failed",
       question: "验证失败，是否允许进入 guarded repair？",
       context: validation.summary
     });
@@ -454,7 +459,7 @@ export default async function main(workflow) {
 }
 ```
 
-> **op 身份注意**：示例里 `` `review:${file.relPath}` `` 只作展示 label，**不是 op_key**。真正的 op 身份由 runtime 按执行位置（`map/item#i/op#0`）自动生成，`workflow.map` 会把物化后的输入列表记进自身 op 输出以保证重放稳定。模型不需要、也不应手写字面量 id。详见 [Script-first Workflow Runtime 设计 §4](workflow-script-runtime.md)。
+> **op 身份注意**：示例里的 `label` 只用于 UI 展示和 trace 可读性，**不是 op_key**。真正的 op 身份由 runtime 按执行位置（`map/item#i/op#0`）自动生成，`workflow.map` 会把物化后的输入列表记进自身 op 输出以保证重放稳定。模型不需要、也不应手写字面量 id。详见 [Script-first Workflow Runtime 设计 §4](workflow-script-runtime.md)。
 
 ### 8.2 Runtime choice
 
@@ -534,23 +539,23 @@ workflow_events
 3. 遇到已完成 `op_key + input_hash`，直接返回历史 output。
 4. 遇到 running async job / subagent，重新 attach 状态。
 5. 遇到缺失 op，继续执行。
-6. 遇到 hash 不一致，进入 `NeedsMigration` 或 `Blocked`。
+6. 遇到 script hash 不一致，进入 `Blocked(reason=script_hash_mismatch)`；用户显式选择后才新建 run 或重审脚本。
 
 ### 8.4 Host API MVP
 
 | API | 作用 | 底层接入 |
 | --- | --- | --- |
-| `workflow.tool(id, { name, args })` | 调任意工具 | `execute_tool_with_context` + permission |
-| `workflow.fileSearch(id, args)` | 文件搜索 | `filesystem::search_files` |
-| `workflow.read(id, path)` | 读文件快捷方式 | `read` tool |
-| `workflow.grep(id, args)` | 内容搜索 | `grep` tool |
-| `workflow.spawnAgent(id, args)` | 子代理 | `subagent` |
-| `workflow.waitAll(id, handles)` | 等待多任务 | async job / subagent status |
-| `workflow.task.create/update(id, args)` | 用户可见进度 | `task_create/update` |
-| `workflow.validate(id, args)` | 验证命令 | `exec` async job + AGENTS 策略 |
-| `workflow.askUser(id, args)` | 人工 gate | `ask_user` |
-| `workflow.trace(id, payload)` | trace event | `workflow_events` |
-| `workflow.diff(id)` | diff snapshot | git / session artifacts |
+| `workflow.tool({ name, args, label? })` | 调任意工具 | `execute_tool_with_context` + permission |
+| `workflow.fileSearch({ query, limit?, label? })` | 文件搜索 | `filesystem::search_files` |
+| `workflow.read({ path, label? })` | 读文件快捷方式 | `read` tool |
+| `workflow.grep({ pattern, path?, label? })` | 内容搜索 | `grep` tool |
+| `workflow.spawnAgent({ task, agent?, label?, ... })` | 子代理 | `subagent` |
+| `workflow.waitAll(handles, { label?, concurrency? })` | 等待多任务 | async job / subagent status |
+| `workflow.task.create/update({ label?, ... })` | 用户可见进度 | `task_create/update` |
+| `workflow.validate({ commands, reason, label? })` | 验证命令 | `exec` async job + AGENTS 策略 |
+| `workflow.askUser({ question, context?, label? })` | 人工 gate | `ask_user` |
+| `workflow.trace({ payload, label? })` | trace event | `workflow_events` |
+| `workflow.diff({ label? })` | diff snapshot | git / session artifacts |
 | `workflow.finish(result)` | 完成 | `workflow_runs.state` |
 
 MVP 不提供：
@@ -572,7 +577,7 @@ MVP 不提供：
    - 禁 `eval`
    - 禁 `Function`
    - 禁 dynamic import
-   - 禁 raw `Date.now` / `Math.random` / `new Date()`，改用 `workflow.now()` / `workflow.random(id)`
+   - 禁 raw `Date.now` / `Math.random` / `new Date()`，改用 `workflow.now()` / `workflow.random(seed)`
    - op 身份由 runtime 按执行位置生成，模型无需也不应手写字面量 id（见 §8.3）
 2. 预算检查：
    - max runtime
@@ -1032,7 +1037,7 @@ Phase 2 不做：
 | 风险 | 处理 |
 | --- | --- |
 | JS runtime async bridge 复杂 | MVP host API 保守；先验证 3-5 个调用 |
-| replay 要求 stable id，模型可能忘 | script gate 强制字面量 id |
+| op identity 依赖执行位置，模型可能误把 label 当 id | runtime 只用位置化 op-key 做身份，label 仅展示；script gate 检查 host call 形态并提示不要依赖 label |
 | script 太自由导致难审 | preview + lint + budget + no raw capability |
 | 长任务 UI 复杂 | 先复用 Workspace panel |
 | subagent 成本高 | bounded concurrency + explicit budget |
@@ -1068,4 +1073,3 @@ Phase 2 完成时，应满足：
 4. 实现 Plan Gate / Script Gate 的纯函数和 fixture。
 5. 实现 durable store + 状态机（无 JS，纯函数 + fixture，[runtime §14](workflow-script-runtime.md)）。
 6. 再进入 embedded runtime 代码实现。
-
