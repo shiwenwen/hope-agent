@@ -18,7 +18,8 @@
  * see [src/components/chat/sidebar/ChatSidebar.tsx](sidebar/ChatSidebar.tsx).
  */
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { flushSync } from "react-dom"
 import { useTranslation } from "react-i18next"
 import {
   DndContext,
@@ -154,6 +155,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
   const [archivedExpanded, setArchivedExpandedState] = useState(() =>
     readStoredBoolean(ARCHIVED_EXPANDED_STORAGE_KEY, false),
   )
+  const [projectSorting, setProjectSorting] = useState(false)
 
   const setArchivedExpanded = useCallback((expanded: boolean) => {
     setArchivedExpandedState(expanded)
@@ -196,8 +198,30 @@ export default function ProjectSection(props: ProjectSectionProps) {
     })
   }, [])
 
+  const prepareProjectSorting = useCallback(() => {
+    flushSync(() => {
+      setProjectSorting(true)
+      collapseAllProjects()
+    })
+  }, [collapseAllProjects])
+
+  const finishProjectSorting = useCallback(() => {
+    setProjectSorting(false)
+  }, [])
+
+  useEffect(() => {
+    if (!projectSorting) return
+    window.addEventListener("pointerup", finishProjectSorting, { capture: true, once: true })
+    window.addEventListener("pointercancel", finishProjectSorting, { capture: true, once: true })
+    return () => {
+      window.removeEventListener("pointerup", finishProjectSorting, { capture: true })
+      window.removeEventListener("pointercancel", finishProjectSorting, { capture: true })
+    }
+  }, [finishProjectSorting, projectSorting])
+
   const handleProjectDragEnd = useCallback(
     (event: DragEndEvent) => {
+      finishProjectSorting()
       if (!onReorderProjects) return
       const { active, over } = event
       if (!over || active.id === over.id) return
@@ -206,8 +230,13 @@ export default function ProjectSection(props: ProjectSectionProps) {
       if (oldIndex === -1 || newIndex === -1) return
       onReorderProjects(arrayMove(visibleProjects, oldIndex, newIndex).map((project) => project.id))
     },
-    [onReorderProjects, visibleProjects],
+    [finishProjectSorting, onReorderProjects, visibleProjects],
   )
+
+  const handleProjectDragStart = useCallback(() => {
+    setProjectSorting(true)
+    collapseAllProjects()
+  }, [collapseAllProjects])
 
   // Group sessions by projectId once per render so each ProjectGroup is O(1)
   // instead of re-scanning the full list (O(N×M) for N sessions × M projects).
@@ -258,7 +287,8 @@ export default function ProjectSection(props: ProjectSectionProps) {
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
-              onDragStart={() => collapseAllProjects()}
+              onDragStart={handleProjectDragStart}
+              onDragCancel={finishProjectSorting}
               onDragEnd={handleProjectDragEnd}
             >
               <SortableContext items={visibleProjectIds} strategy={verticalListSortingStrategy}>
@@ -271,6 +301,8 @@ export default function ProjectSection(props: ProjectSectionProps) {
                     expanded={expandedMap[project.id] ?? false}
                     onToggleExpanded={() => toggleProjectExpanded(project.id)}
                     canReorder
+                    suppressChildren={projectSorting}
+                    onPrepareReorder={prepareProjectSorting}
                   />
                 ))}
               </SortableContext>
@@ -342,6 +374,8 @@ interface ProjectGroupProps extends Omit<ProjectSectionProps, "expanded" | "setE
   setSortableNodeRef?: (node: HTMLElement | null) => void
   sortableStyle?: React.CSSProperties
   isDragging?: boolean
+  suppressChildren?: boolean
+  onPrepareReorder?: () => void
 }
 
 function SortableProjectGroup(props: ProjectGroupProps) {
@@ -402,6 +436,8 @@ function ProjectGroup({
   setSortableNodeRef,
   sortableStyle,
   isDragging = false,
+  suppressChildren = false,
+  onPrepareReorder,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
   // The active session is already excluded from `project.unreadCount` by the
@@ -490,6 +526,10 @@ function ProjectGroup({
                     type="button"
                     aria-label={t("common.dragToSort")}
                     className="flex h-4 w-3 shrink-0 cursor-grab touch-none items-center justify-center rounded p-0 text-muted-foreground/0 opacity-0 transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
+                    onPointerDownCapture={(e) => {
+                      if (e.pointerType === "mouse" && e.button !== 0) return
+                      onPrepareReorder?.()
+                    }}
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
                     {...dragAttributes}
@@ -621,86 +661,88 @@ function ProjectGroup({
         </ContextMenu>
       </div>
 
-      <AnimatedCollapse open={groupExpanded}>
-        <div
-          className={cn(
-            "pl-4 pr-1 mt-0.5",
-            displayMode === "compact" ? "space-y-1" : "space-y-0.5",
-          )}
-        >
-          {childLoading ? (
-            <div className="flex justify-center py-3">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            </div>
-          ) : childSessions.length === 0 ? (
-            archivedView ? (
-              <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
-                {t("project.sessionsInProject", { count: 0 })}
+      {!suppressChildren && (
+        <AnimatedCollapse open={groupExpanded}>
+          <div
+            className={cn(
+              "pl-4 pr-1 mt-0.5",
+              displayMode === "compact" ? "space-y-1" : "space-y-0.5",
+            )}
+          >
+            {childLoading ? (
+              <div className="flex justify-center py-3">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
               </div>
-            ) : (
-              <button
-                onClick={() => onNewChatInProject(project.id)}
-                className="w-full text-left text-[11px] text-muted-foreground/70 italic px-2 py-1 rounded-md hover:bg-accent/30"
-              >
-                {t("project.noSessionsHint")}
-              </button>
-            )
-          ) : (
-            <>
-              {childSessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  sessions={sessions}
-                  agent={getAgentInfo(session.agentId)}
-                  projects={projects}
-                  isActive={session.id === currentSessionId}
-                  isLoading={loadingSessionIds.has(session.id)}
-                  renamingSessionId={renamingSessionId}
-                  renameValue={renameValue}
-                  renameInputRef={renameInputRef}
-                  onSwitchSession={onSwitchSession}
-                  onDeleteClick={onDeleteSession}
-                  onStartRename={onStartRename}
-                  onRenameValueChange={onRenameValueChange}
-                  onCommitRename={onCommitRename}
-                  onCancelRename={onCancelRename}
-                  onMarkAllRead={onMarkAllRead}
-                  onMoveToProject={onMoveSessionToProject}
-                  onTogglePinned={onToggleSessionPinned}
-                  getAgentInfo={getAgentInfo}
-                  formatRelativeTime={formatRelativeTime}
-                  displayMode={displayMode}
-                />
-              ))}
-              {showPaginationFooter && (
-                <div className="flex items-center justify-center gap-3 px-2 pt-0.5 pb-1">
-                  <button
-                    onClick={childShowMore}
-                    disabled={!childHasMore || childLoadingMore}
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    {childLoadingMore ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <ChevronDown className="h-3 w-3" />
-                    )}
-                    {t("project.showMore")}
-                  </button>
-                  <button
-                    onClick={childShowLess}
-                    disabled={!childCanCollapse}
-                    className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    <ChevronUp className="h-3 w-3" />
-                    {t("project.showLess")}
-                  </button>
+            ) : childSessions.length === 0 ? (
+              archivedView ? (
+                <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
+                  {t("project.sessionsInProject", { count: 0 })}
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      </AnimatedCollapse>
+              ) : (
+                <button
+                  onClick={() => onNewChatInProject(project.id)}
+                  className="w-full text-left text-[11px] text-muted-foreground/70 italic px-2 py-1 rounded-md hover:bg-accent/30"
+                >
+                  {t("project.noSessionsHint")}
+                </button>
+              )
+            ) : (
+              <>
+                {childSessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    sessions={sessions}
+                    agent={getAgentInfo(session.agentId)}
+                    projects={projects}
+                    isActive={session.id === currentSessionId}
+                    isLoading={loadingSessionIds.has(session.id)}
+                    renamingSessionId={renamingSessionId}
+                    renameValue={renameValue}
+                    renameInputRef={renameInputRef}
+                    onSwitchSession={onSwitchSession}
+                    onDeleteClick={onDeleteSession}
+                    onStartRename={onStartRename}
+                    onRenameValueChange={onRenameValueChange}
+                    onCommitRename={onCommitRename}
+                    onCancelRename={onCancelRename}
+                    onMarkAllRead={onMarkAllRead}
+                    onMoveToProject={onMoveSessionToProject}
+                    onTogglePinned={onToggleSessionPinned}
+                    getAgentInfo={getAgentInfo}
+                    formatRelativeTime={formatRelativeTime}
+                    displayMode={displayMode}
+                  />
+                ))}
+                {showPaginationFooter && (
+                  <div className="flex items-center justify-center gap-3 px-2 pt-0.5 pb-1">
+                    <button
+                      onClick={childShowMore}
+                      disabled={!childHasMore || childLoadingMore}
+                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      {childLoadingMore ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                      {t("project.showMore")}
+                    </button>
+                    <button
+                      onClick={childShowLess}
+                      disabled={!childCanCollapse}
+                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      <ChevronUp className="h-3 w-3" />
+                      {t("project.showLess")}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </AnimatedCollapse>
+      )}
     </div>
   )
 }
