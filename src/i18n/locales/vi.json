@@ -3127,7 +3127,7 @@
     "defaultModel": "Mô hình mặc định",
     "defaultModelDesc": "Mô hình chính sử dụng",
     "deferredToolsEnabled": "Tải công cụ trễ",
-    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsEnabledDesc": "Use tool_search to load low-frequency tools on demand. Recommended tools are deferred by default; changes take effect on the next conversation.",
     "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "deferredToolsPerToolTitle": "Deferred built-in tools",
     "devClearAll": "Xóa tất cả",

@@ -4,6 +4,22 @@
 
 ---
 
+## 规划与路线图
+
+> `docs/roadmap/` 放尚未完全实现、仍处在规划或方案设计阶段的路线图与 RFC；`docs/architecture/` 只放已经实现并稳定下来的最终技术架构。
+
+| 文档 | 说明 |
+| --- | --- |
+| [Coding 能力强化总纲](roadmap/coding-capability-roadmap.md) | 面向 coding-first 的总体路线：调研线索、能力模型、动态 workflow / loop、阶段计划与验收指标 |
+| [Coding Eval 体系方案](roadmap/coding-eval.md) | Phase 0 评测体系：任务 schema、trace、指标、失败分类、人工试跑流程 |
+| [Coding Eval 首批 Gold Tasks](roadmap/coding-eval-tasks.md) | 首批 20 个 coding eval 任务草案，用于人工试跑和指标校准 |
+| [Coding Eval Phase 0 完成报告](roadmap/coding-eval-phase0-report.md) | Phase 0 完成审计：5 个校准试跑、schema 修订、失败分类补充与 Phase 1 决策 |
+| [ToolDefinition v2 RFC](roadmap/tool-definition-v2.md) | Phase 1 工具元数据、tool_search v2、deferred 默认策略和 prompt render debug 设计 |
+| [ToolDefinition v2 迁移 Checklist](roadmap/tool-definition-v2-checklist.md) | Phase 1 工具覆盖、默认 deferred 清单和验收状态 |
+
+
+---
+
 ## 系统架构
 
 

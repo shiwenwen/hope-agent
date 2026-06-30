@@ -336,6 +336,18 @@ pub fn build(
 
     // Join all non-empty sections
     let section_lengths: Vec<usize> = sections.iter().map(|s| s.len()).collect();
+    let section_debug: Vec<_> = sections
+        .iter()
+        .enumerate()
+        .map(|(index, section)| {
+            serde_json::json!({
+                "index": index,
+                "label": section_debug_label(index),
+                "chars": section.len(),
+                "fingerprint": short_fingerprint(section),
+            })
+        })
+        .collect();
     let prompt = sections
         .into_iter()
         .filter(|s| !s.is_empty())
@@ -356,8 +368,10 @@ pub fn build(
             Some(
                 serde_json::json!({
                     "total_length": prompt.len(),
+                    "prompt_fingerprint": short_fingerprint(&prompt),
                     "section_count": section_lengths.len(),
                     "section_lengths": section_lengths,
+                    "section_debug": section_debug,
                     "agent_name": &definition.config.name,
                     "openclaw_mode": definition.config.openclaw_mode,
                 })
@@ -369,6 +383,16 @@ pub fn build(
     }
 
     prompt
+}
+
+fn short_fingerprint(text: &str) -> String {
+    let mut hash = blake3::hash(text.as_bytes()).to_hex().to_string();
+    hash.truncate(16);
+    hash
+}
+
+fn section_debug_label(index: usize) -> String {
+    format!("section_{index}")
 }
 
 /// Build the Memory section with layered budget negotiation.
@@ -1121,5 +1145,16 @@ mod memory_section_tests {
             !out.contains("## Memory Guidelines"),
             "incognito prompt should omit memory guidelines: {out}"
         );
+    }
+
+    #[test]
+    fn prompt_render_debug_helpers_are_stable_and_bounded() {
+        assert_eq!(short_fingerprint("abc").len(), 16);
+        assert_eq!(short_fingerprint("abc"), short_fingerprint("abc"));
+        assert_ne!(short_fingerprint("abc"), short_fingerprint("abcd"));
+
+        let label = section_debug_label(3);
+        assert_eq!(label, "section_3");
+        assert!(!label.contains("Available Tools"));
     }
 }

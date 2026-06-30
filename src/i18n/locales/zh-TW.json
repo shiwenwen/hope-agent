@@ -3127,7 +3127,7 @@
     "defaultModel": "默認模型",
     "defaultModelDesc": "主要使用的模型",
     "deferredToolsEnabled": "延遲工具載入",
-    "deferredToolsEnabledDesc": "啟用基於 tool_search 的按需載入。工具預設仍會直接注入，除非你在下方單獨設為延遲。下次對話生效",
+    "deferredToolsEnabledDesc": "使用 tool_search 按需載入低頻工具。推薦工具預設延遲載入；更改會在下次對話生效",
     "deferredToolsPerToolDesc": "只開啟那些希望透過 tool_search 發現、而不是首輪直接送出 schema 的工具。",
     "deferredToolsPerToolTitle": "延遲載入的內建工具",
     "devClearAll": "一鍵清除",
