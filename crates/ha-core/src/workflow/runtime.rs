@@ -664,20 +664,34 @@ impl WorkflowRuntimeHost {
         let task = optional_string(&args, "task");
         let input = json!({
             "args": tool_args.clone(),
-            "label": label,
+            "label": label.clone(),
         });
-        self.execute_op(
+        let child_handle = uuid::Uuid::new_v4().to_string();
+        self.execute_op_with_child_handle(
             "spawnAgent",
             WorkflowEffectClass::NonIdempotent,
             input,
-            |host| {
-                let output = host.dispatch_tool(tools::TOOL_SUBAGENT, &tool_args)?;
+            child_handle,
+            |host, child_handle| {
+                host.recover_spawn_agent_child(child_handle, label.as_deref(), task.as_deref())
+            },
+            |host, child_handle| {
+                let mut dispatch_args = tool_args.clone();
+                inject_workflow_preallocated_run_id(&mut dispatch_args, child_handle)?;
+                let output = host.dispatch_tool(tools::TOOL_SUBAGENT, &dispatch_args)?;
                 let parsed = parse_tool_json_output(&output, "workflow.spawnAgent")?;
                 let run_id = parsed
                     .get("run_id")
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .ok_or_else(|| anyhow!("workflow.spawnAgent subagent output missing run_id"))?;
+                if run_id != child_handle {
+                    return Err(anyhow!(
+                        "workflow.spawnAgent returned run_id {} but expected preallocated child handle {}",
+                        run_id,
+                        child_handle
+                    ));
+                }
                 Ok(subagent_handle(
                     &run_id,
                     label.as_deref(),
@@ -686,6 +700,18 @@ impl WorkflowRuntimeHost {
                 ))
             },
         )
+    }
+
+    fn recover_spawn_agent_child(
+        &self,
+        child_handle: &str,
+        label: Option<&str>,
+        task: Option<&str>,
+    ) -> Result<Option<Value>> {
+        let Some(run) = self.db.get_subagent_run(child_handle)? else {
+            return Ok(None);
+        };
+        Ok(Some(subagent_run_handle(&run, label, task)))
     }
 
     fn wait_all(&mut self, args: Value) -> Result<Value> {
@@ -801,18 +827,7 @@ impl WorkflowRuntimeHost {
         F: FnOnce(&mut WorkflowRuntimeHost) -> Result<Value>,
     {
         let op_key = self.next_op_key(op_type);
-        if matches!(
-            self.db.started_op_recovery_action(&self.run_id, &op_key)?,
-            Some(super::types::StartedOpRecoveryAction::BlockNonIdempotent)
-        ) {
-            let _ = self
-                .db
-                .block_run_for_started_non_idempotent_op(&self.run_id, &op_key);
-            return Err(anyhow!(
-                "workflow op {} is a previously-started non-idempotent op; run was blocked",
-                op_key
-            ));
-        }
+        let existing = self.db.get_workflow_op(&self.run_id, &op_key)?;
         let op = self.db.upsert_workflow_op_started(UpsertWorkflowOpInput {
             run_id: self.run_id.clone(),
             op_key: op_key.clone(),
@@ -833,8 +848,118 @@ impl WorkflowRuntimeHost {
             }
             WorkflowOpState::Pending | WorkflowOpState::Started => {}
         }
+        if existing
+            .as_ref()
+            .is_some_and(|op| op.state == WorkflowOpState::Started)
+        {
+            match self.db.started_op_recovery_action(&self.run_id, &op_key)? {
+                Some(super::types::StartedOpRecoveryAction::BlockNonIdempotent)
+                | Some(super::types::StartedOpRecoveryAction::AttachChildHandle(_)) => {
+                    let _ = self
+                        .db
+                        .block_run_for_started_non_idempotent_op(&self.run_id, &op_key);
+                    return Err(anyhow!(
+                        "workflow op {} is a previously-started non-idempotent op; run was blocked",
+                        op_key
+                    ));
+                }
+                Some(super::types::StartedOpRecoveryAction::RerunPure)
+                | Some(super::types::StartedOpRecoveryAction::RecheckIdempotent)
+                | None => {}
+            }
+        }
 
         let output = match f(self) {
+            Ok(output) => output,
+            Err(err) => {
+                let _ = self.db.fail_workflow_op(
+                    &self.run_id,
+                    &op_key,
+                    json!({ "message": err.to_string() }),
+                );
+                return Err(err);
+            }
+        };
+        self.db
+            .complete_workflow_op(&self.run_id, &op_key, output.clone())?;
+        Ok(output)
+    }
+
+    fn execute_op_with_child_handle<F, R>(
+        &mut self,
+        op_type: &str,
+        effect_class: WorkflowEffectClass,
+        input: Value,
+        child_handle: String,
+        recover_started_child: R,
+        f: F,
+    ) -> Result<Value>
+    where
+        F: FnOnce(&mut WorkflowRuntimeHost, &str) -> Result<Value>,
+        R: FnOnce(&mut WorkflowRuntimeHost, &str) -> Result<Option<Value>>,
+    {
+        let op_key = self.next_op_key(op_type);
+        let existing = self.db.get_workflow_op(&self.run_id, &op_key)?;
+        let existing_started_without_child = existing
+            .as_ref()
+            .is_some_and(|op| op.state == WorkflowOpState::Started && op.child_handle.is_none());
+        let effective_child_handle = existing
+            .as_ref()
+            .and_then(|op| op.child_handle.clone())
+            .unwrap_or(child_handle);
+        let op = self.db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+            run_id: self.run_id.clone(),
+            op_key: op_key.clone(),
+            op_type: op_type.to_string(),
+            effect_class,
+            input,
+            child_handle: if existing_started_without_child {
+                None
+            } else {
+                Some(effective_child_handle.clone())
+            },
+        })?;
+
+        match op.state {
+            WorkflowOpState::Completed => return Ok(op.output.unwrap_or(Value::Null)),
+            WorkflowOpState::Failed => {
+                return Err(anyhow!(
+                    "workflow op {} previously failed: {}",
+                    op_key,
+                    op.error.unwrap_or(Value::Null)
+                ));
+            }
+            WorkflowOpState::Pending | WorkflowOpState::Started => {}
+        }
+
+        if existing
+            .as_ref()
+            .is_some_and(|op| op.state == WorkflowOpState::Started)
+        {
+            match self.db.started_op_recovery_action(&self.run_id, &op_key)? {
+                Some(super::types::StartedOpRecoveryAction::AttachChildHandle(handle)) => {
+                    if let Some(output) = recover_started_child(self, &handle)? {
+                        self.db
+                            .complete_workflow_op(&self.run_id, &op_key, output.clone())?;
+                        return Ok(output);
+                    }
+                }
+                Some(super::types::StartedOpRecoveryAction::BlockNonIdempotent) => {
+                    let _ = self
+                        .db
+                        .block_run_for_started_non_idempotent_op(&self.run_id, &op_key);
+                    return Err(anyhow!(
+                        "workflow op {} is a previously-started non-idempotent op; run was blocked",
+                        op_key
+                    ));
+                }
+                Some(super::types::StartedOpRecoveryAction::RerunPure)
+                | Some(super::types::StartedOpRecoveryAction::RecheckIdempotent)
+                | None => {}
+            }
+        }
+
+        let output = match f(self, &effective_child_handle) {
             Ok(output) => output,
             Err(err) => {
                 let _ = self.db.fail_workflow_op(
@@ -936,6 +1061,19 @@ pub(crate) fn spawn_agent_tool_args(args: &Value) -> Result<Value> {
     Ok(Value::Object(map))
 }
 
+fn inject_workflow_preallocated_run_id(args: &mut Value, run_id: &str) -> Result<()> {
+    let Value::Object(map) = args else {
+        return Err(anyhow!(
+            "workflow.spawnAgent internal args must be an object"
+        ));
+    };
+    map.insert(
+        tools::subagent::WORKFLOW_PREALLOCATED_RUN_ID_ARG.to_string(),
+        Value::String(run_id.to_string()),
+    );
+    Ok(())
+}
+
 fn subagent_handle(run_id: &str, label: Option<&str>, task: Option<&str>, raw: &Value) -> Value {
     json!({
         "kind": "subagent",
@@ -945,6 +1083,22 @@ fn subagent_handle(run_id: &str, label: Option<&str>, task: Option<&str>, raw: &
         "label": label,
         "task": task,
         "message": raw.get("message").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn subagent_run_handle(
+    run: &crate::subagent::SubagentRun,
+    label: Option<&str>,
+    task: Option<&str>,
+) -> Value {
+    json!({
+        "kind": "subagent",
+        "runId": run.run_id,
+        "run_id": run.run_id,
+        "status": run.status.as_str(),
+        "label": label.map(ToOwned::to_owned).or_else(|| run.label.clone()),
+        "task": task.map(ToOwned::to_owned).unwrap_or_else(|| run.task.clone()),
+        "message": "attached to existing sub-agent run",
     })
 }
 

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use crate::permission::SessionMode;
 use crate::session::SessionDB;
+use crate::subagent::{SubagentRun, SubagentStatus};
 
 use super::{
     recover_pending_workflow_runs, run_workflow_script,
@@ -193,6 +194,99 @@ fn started_non_idempotent_recovery_action_blocks_run() {
         run.blocked_reason.as_deref(),
         Some("started_non_idempotent_op:main/op#1(validate)")
     );
+}
+
+#[test]
+fn started_spawn_agent_with_child_handle_attaches_and_preserves_original_handle() {
+    let (_dir, db) = temp_db();
+    let (_session_id, run_id) = create_run(&db);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+    let op_key = "main/op#1(spawnAgent)".to_string();
+    let original_handle = uuid::Uuid::new_v4().to_string();
+    let replay_handle = uuid::Uuid::new_v4().to_string();
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: op_key.clone(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Review",
+                "agent_id": "ha-review",
+                "label": "review"
+            },
+            "label": "review"
+        }),
+        child_handle: Some(original_handle.clone()),
+    })
+    .expect("start spawn op");
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: op_key.clone(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Review",
+                "agent_id": "ha-review",
+                "label": "review"
+            },
+            "label": "review"
+        }),
+        child_handle: Some(replay_handle),
+    })
+    .expect("replay spawn op");
+
+    let op = db
+        .get_workflow_op(&run_id, &op_key)
+        .expect("get op")
+        .expect("op exists");
+    assert_eq!(op.child_handle.as_deref(), Some(original_handle.as_str()));
+
+    let action = db
+        .started_op_recovery_action(&run_id, &op_key)
+        .expect("recovery action");
+    assert_eq!(
+        action,
+        Some(StartedOpRecoveryAction::AttachChildHandle(original_handle))
+    );
+}
+
+#[test]
+fn started_spawn_agent_without_child_handle_still_blocks() {
+    let (_dir, db) = temp_db();
+    let (_session_id, run_id) = create_run(&db);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+    let op_key = "main/op#1(spawnAgent)".to_string();
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: op_key.clone(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Review",
+                "agent_id": "ha-review",
+                "label": "review"
+            },
+            "label": "review"
+        }),
+        child_handle: None,
+    })
+    .expect("start spawn op");
+
+    let action = db
+        .started_op_recovery_action(&run_id, &op_key)
+        .expect("recovery action");
+    assert_eq!(action, Some(StartedOpRecoveryAction::BlockNonIdempotent));
 }
 
 #[test]
@@ -700,6 +794,88 @@ export default async function main(workflow) {
             "finish"
         ]
     );
+}
+
+#[test]
+fn runtime_attaches_started_spawn_agent_child_handle_without_rescheduling() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Delegate review" });
+  const review = await workflow.spawnAgent({
+    task: "Review",
+    agent: "ha-review",
+    label: "review"
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    runId: review.runId,
+    status: review.status,
+    label: review.label
+  });
+}
+"#;
+    let (session_id, run_id) = create_run_with_script(&db, script);
+    let child_handle = uuid::Uuid::new_v4().to_string();
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Review",
+                "agent_id": "ha-review",
+                "label": "review"
+            },
+            "label": "review"
+        }),
+        child_handle: Some(child_handle.clone()),
+    })
+    .expect("start preexisting spawn op");
+    db.insert_subagent_run(&SubagentRun {
+        run_id: child_handle.clone(),
+        parent_session_id: session_id.clone(),
+        parent_agent_id: "ha-main".to_string(),
+        child_agent_id: "ha-review".to_string(),
+        child_session_id: "child-session".to_string(),
+        task: "Review".to_string(),
+        status: SubagentStatus::Running,
+        result: None,
+        error: None,
+        depth: 1,
+        model_used: None,
+        started_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: None,
+        duration_ms: None,
+        label: Some("review".to_string()),
+        attachment_count: 0,
+        input_tokens: None,
+        output_tokens: None,
+    })
+    .expect("insert subagent run");
+
+    let result = run_workflow_script(db.clone(), &run_id).expect("recover workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    assert_eq!(
+        result.output,
+        Some(json!({
+            "runId": child_handle,
+            "status": "running",
+            "label": "review"
+        }))
+    );
+
+    let spawn_op = result
+        .snapshot
+        .ops
+        .iter()
+        .find(|op| op.op_key == "main/op#1(spawnAgent)")
+        .expect("spawn op");
+    assert_eq!(spawn_op.state, WorkflowOpState::Completed);
 }
 
 #[test]

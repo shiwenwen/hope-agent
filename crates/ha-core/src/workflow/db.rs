@@ -327,7 +327,7 @@ impl SessionDB {
                         WHEN workflow_ops.state IN ('completed','failed') THEN workflow_ops.state
                         ELSE 'started'
                     END,
-                    child_handle = COALESCE(excluded.child_handle, workflow_ops.child_handle),
+                    child_handle = COALESCE(workflow_ops.child_handle, excluded.child_handle),
                     started_at = CASE
                         WHEN workflow_ops.state IN ('completed','failed') THEN workflow_ops.started_at
                         ELSE excluded.started_at
@@ -479,7 +479,17 @@ impl SessionDB {
         Ok(Some(match op.effect_class {
             WorkflowEffectClass::Pure => StartedOpRecoveryAction::RerunPure,
             WorkflowEffectClass::Idempotent => StartedOpRecoveryAction::RecheckIdempotent,
-            WorkflowEffectClass::NonIdempotent => StartedOpRecoveryAction::BlockNonIdempotent,
+            WorkflowEffectClass::NonIdempotent => {
+                if op.op_type == "spawnAgent" {
+                    if let Some(handle) = op.child_handle {
+                        StartedOpRecoveryAction::AttachChildHandle(handle)
+                    } else {
+                        StartedOpRecoveryAction::BlockNonIdempotent
+                    }
+                } else {
+                    StartedOpRecoveryAction::BlockNonIdempotent
+                }
+            }
         }))
     }
 

@@ -39,6 +39,25 @@ pub async fn spawn_subagent(
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
 ) -> Result<String> {
+    let run_id = uuid::Uuid::new_v4().to_string();
+    spawn_subagent_with_run_id(params, session_db, cancel_registry, run_id).await
+}
+
+/// Spawn a sub-agent using a caller-preallocated run id.
+///
+/// This is used by durable workflow replay: the workflow op stores the run id as
+/// `child_handle` before the side effect is launched, so recovery can reattach to
+/// or safely retry the same child instead of creating an untracked duplicate.
+pub(crate) async fn spawn_subagent_with_run_id(
+    params: SpawnParams,
+    session_db: Arc<SessionDB>,
+    cancel_registry: Arc<SubagentCancelRegistry>,
+    run_id: String,
+) -> Result<String> {
+    let run_id = uuid::Uuid::parse_str(&run_id)
+        .map(|id| id.to_string())
+        .map_err(|_| anyhow::anyhow!("preallocated sub-agent run id must be a UUID"))?;
+
     // ── Structural limits: hard-reject (a breach can't become legal by waiting;
     // guarded by `structural_limit_tests`). ──
     // 1. Depth (use parent agent's configured max).
@@ -74,8 +93,7 @@ pub async fn spawn_subagent(
         SubagentStatus::Spawning
     };
 
-    // 4. Generate run_id and create isolated session (linked to parent)
-    let run_id = uuid::Uuid::new_v4().to_string();
+    // 4. Create isolated session (linked to parent)
     let child_session =
         session_db.create_session_with_parent(&params.agent_id, Some(&params.parent_session_id))?;
     let child_session_id = child_session.id.clone();

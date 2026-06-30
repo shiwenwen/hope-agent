@@ -347,7 +347,7 @@ LoopPolicy
 
 ### Phase 2：Coding Mode 与原生 Skills
 
-状态：详细方案见 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md)。2026-06-30 已完成 durable store/state machine 与 QuickJS runtime foundation；首批 host API（`task.create/update`、`fileSearch`、`tool/read/grep`、`spawnAgent/waitAll`、targeted `validate`、`trace`、`finish`）已可通过 Script Gate 后执行并 durable replay。真实子代理 fan-out E2E、child_handle attach、`diff/askUser`、validate async attach、控制面仍待接入。
+状态：详细方案见 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md)。2026-06-30 已完成 durable store/state machine 与 QuickJS runtime foundation；首批 host API（`task.create/update`、`fileSearch`、`tool/read/grep`、`spawnAgent/waitAll`、targeted `validate`、`trace`、`finish`）已可通过 Script Gate 后执行并 durable replay，`spawnAgent` 已具备 child_handle attach。真实子代理 fan-out E2E、`diff/askUser`、validate async attach、控制面仍待接入。
 
 目标：把已有 Plan、Task、Subagent、Async Jobs、Hooks、Permission 组合成 coding-first 体验，同时不把第三方移植 skills 直接作为核心策略。
 

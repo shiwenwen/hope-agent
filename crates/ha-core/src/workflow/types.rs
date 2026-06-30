@@ -246,5 +246,6 @@ pub struct WorkflowRunSnapshot {
 pub enum StartedOpRecoveryAction {
     RerunPure,
     RecheckIdempotent,
+    AttachChildHandle(String),
     BlockNonIdempotent,
 }

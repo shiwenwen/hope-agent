@@ -7,6 +7,8 @@ use crate::agent_config::AgentConfig;
 use crate::agent_loader::DEFAULT_AGENT_ID;
 use crate::subagent::{self, SpawnParams, SubagentStatus};
 
+pub(crate) const WORKFLOW_PREALLOCATED_RUN_ID_ARG: &str = "__hope_workflow_preallocated_run_id";
+
 /// Look up the dispatcher's verdict on the `subagent` Tier 3 tool for the
 /// given agent. Used by the runtime spawn gate (`tools::subagent`) and the
 /// system-prompt guidance section so both reach the same conclusion.
@@ -215,6 +217,15 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .get("label")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let workflow_preallocated_run_id = args
+        .get(WORKFLOW_PREALLOCATED_RUN_ID_ARG)
+        .and_then(|v| v.as_str())
+        .map(|raw| {
+            uuid::Uuid::parse_str(raw)
+                .map(|id| id.to_string())
+                .map_err(|_| anyhow::anyhow!("workflow preallocated run id must be a UUID"))
+        })
+        .transpose()?;
 
     // Parse file attachments
     let attachments = if let Some(files) = args.get("files").and_then(|v| v.as_array()) {
@@ -292,7 +303,11 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         group_id: None,
     };
 
-    let run_id = subagent::spawn_subagent(params, session_db, cancel_registry).await?;
+    let run_id = if let Some(run_id) = workflow_preallocated_run_id {
+        subagent::spawn_subagent_with_run_id(params, session_db, cancel_registry, run_id).await?
+    } else {
+        subagent::spawn_subagent(params, session_db, cancel_registry).await?
+    };
     Ok(run_id)
 }
 
