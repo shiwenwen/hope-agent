@@ -217,7 +217,7 @@ export default function SessionList({
                   )}
                 </button>
               </ContextMenuTrigger>
-              <ContextMenuContent>
+              <ContextMenuContent variant="floating">
                 <ContextMenuItem onClick={handleMarkAllRead} disabled={isSearching || count === 0}>
                   {t("chat.markAllRead") || "全部已读"}
                 </ContextMenuItem>

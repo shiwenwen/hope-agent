@@ -401,6 +401,7 @@ export default function SessionItem({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent
+        variant="floating"
         onCloseAutoFocus={(e) => {
           if (renameTriggeredRef.current) {
             e.preventDefault()

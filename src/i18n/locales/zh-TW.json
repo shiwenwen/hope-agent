@@ -292,7 +292,7 @@
   },
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
-    "askAnything": "告訴我你的想法，@ 找檔案/筆記/技能，# 叫出快捷指令...",
+    "askAnything": "告訴我你的想法，@ 找檔案/筆記/技能，# 快捷輸入，/ 快捷指令...",
     "browserPanel": {
       "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
       "captureFailed": "截圖失敗，等待下一幀",
@@ -366,13 +366,13 @@
     "copied": "已複制",
     "copy": "複制",
     "quickPrompts": {
-      "addAction": "加入快捷指令",
-      "addFailed": "加入快捷指令失敗",
-      "added": "已加入快捷指令",
-      "duplicate": "這條快捷指令已經存過了",
-      "empty": "還沒有快捷指令。先從使用者訊息底部加入一條吧。",
-      "heading": "快捷指令",
-      "noMatches": "沒有符合的快捷指令"
+      "addAction": "加入快捷輸入",
+      "addFailed": "加入快捷輸入失敗",
+      "added": "已加入快捷輸入",
+      "duplicate": "這條快捷輸入已經存過了",
+      "empty": "還沒有快捷輸入。先從使用者訊息底部加入一條吧。",
+      "heading": "快捷輸入",
+      "noMatches": "沒有符合的快捷輸入"
     },
     "cronTaskStarted": "定時器觸發了一個任務",
     "cronTrigger": "定時任務",
@@ -2195,7 +2195,7 @@
     "inheritGlobal": "沿用全域設定",
     "memoriesInProject": "{{count}} 條記憶",
     "moveToProject": "移動到專案",
-    "newChatInProject": "在此專案新增對話",
+    "newChatInProject": "新建會話",
     "newProject": "新增專案",
     "noProjects": "尚無專案",
     "noSessionsHint": "點擊建立第一個對話",

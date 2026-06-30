@@ -628,7 +628,7 @@ function ProjectGroup({
                 )}
             </div>
           </ContextMenuTrigger>
-          <ContextMenuContent>
+          <ContextMenuContent variant="floating">
             {!archivedView && (
               <ContextMenuItem onClick={() => onNewChatInProject(project.id)}>
                 <MessageSquarePlus className="h-3 w-3 mr-2" />

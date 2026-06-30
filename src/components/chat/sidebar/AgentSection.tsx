@@ -196,7 +196,7 @@ function SortableAgentCard({
           </ContextMenuTrigger>
           <TooltipContent>{agent.description || agent.name}</TooltipContent>
         </Tooltip>
-        <ContextMenuContent>
+        <ContextMenuContent variant="floating">
           <ContextMenuItem onClick={() => onNewChat(agent.id, { incognito: true })}>
             <Ghost className="h-3 w-3 mr-2" />
             {t("chat.newIncognitoChat")}

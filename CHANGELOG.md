@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **对话列表右键菜单更贴近输入框浮层风格**：侧边栏会话、项目、Agent 与分组筛选的右键菜单改用与对话输入框模型选择器一致的浮层样式；项目右键菜单里的「新建会话」文案也更短，避免菜单过宽。
+
 ## [0.14.0] - 2026-06-29
 
 ### Added

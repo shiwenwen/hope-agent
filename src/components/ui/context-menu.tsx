@@ -6,57 +6,109 @@ import { cn } from "@/lib/utils"
 const ContextMenu = ContextMenuPrimitive.Root
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 const ContextMenuSub = ContextMenuPrimitive.Sub
+type ContextMenuVariant = "default" | "floating"
+
+const ContextMenuVariantContext = React.createContext<ContextMenuVariant>("default")
+
+const contentVariantClass: Record<ContextMenuVariant, string> = {
+  default:
+    "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-80",
+  floating:
+    "z-50 min-w-[9.5rem] overflow-visible rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150",
+}
+
+const subContentVariantClass: Record<ContextMenuVariant, string> = {
+  default:
+    "z-50 min-w-[10rem] max-h-[300px] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-80",
+  floating:
+    "z-50 min-w-[10rem] max-h-[300px] overflow-y-auto rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 duration-150",
+}
+
+const itemVariantClass: Record<ContextMenuVariant, string> = {
+  default:
+    "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+  floating:
+    "relative flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] leading-5 text-foreground/80 outline-none transition-all duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0",
+}
+
+const subTriggerVariantClass: Record<ContextMenuVariant, string> = {
+  default:
+    "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent data-[state=open]:bg-accent",
+  floating:
+    "flex cursor-default select-none items-center rounded-md px-2.5 py-1.5 text-[13px] leading-5 text-foreground/80 outline-none transition-all duration-150 focus:bg-secondary/60 focus:text-foreground data-[state=open]:bg-secondary data-[state=open]:text-foreground data-[state=open]:shadow-sm [&_svg]:shrink-0",
+}
+
+const separatorVariantClass: Record<ContextMenuVariant, string> = {
+  default: "-mx-1 my-1 h-px bg-border",
+  floating: "-mx-1 my-1.5 h-px bg-border-soft",
+}
 
 const ContextMenuSubTrigger = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.SubTrigger>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger> & {
     inset?: boolean
+    variant?: ContextMenuVariant
   }
->(({ className, inset, children, ...props }, ref) => (
-  <ContextMenuPrimitive.SubTrigger
-    ref={ref}
-    className={cn(
-      "flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent data-[state=open]:bg-accent",
-      inset && "pl-8",
-      className,
-    )}
-    {...props}
-  >
-    {children}
-    <ChevronRight className="ml-auto h-3.5 w-3.5" />
-  </ContextMenuPrimitive.SubTrigger>
-))
+>(({ className, inset, variant, children, ...props }, ref) => {
+  const inheritedVariant = React.useContext(ContextMenuVariantContext)
+  const resolvedVariant = variant ?? inheritedVariant
+  return (
+    <ContextMenuPrimitive.SubTrigger
+      ref={ref}
+      className={cn(
+        subTriggerVariantClass[resolvedVariant],
+        inset && (resolvedVariant === "floating" ? "pl-9" : "pl-8"),
+        className,
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronRight
+        className={cn(
+          "ml-auto",
+          resolvedVariant === "floating" ? "h-4 w-4 opacity-60" : "h-3.5 w-3.5",
+        )}
+      />
+    </ContextMenuPrimitive.SubTrigger>
+  )
+})
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
 
 const ContextMenuSubContent = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.SubContent>,
-  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => (
-  <ContextMenuPrimitive.SubContent
-    ref={ref}
-    className={cn(
-      "z-50 min-w-[10rem] max-h-[300px] overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-80",
-      className,
-    )}
-    {...props}
-  />
-))
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent> & {
+    variant?: ContextMenuVariant
+  }
+>(({ className, variant, ...props }, ref) => {
+  const inheritedVariant = React.useContext(ContextMenuVariantContext)
+  const resolvedVariant = variant ?? inheritedVariant
+  return (
+    <ContextMenuVariantContext.Provider value={resolvedVariant}>
+      <ContextMenuPrimitive.SubContent
+        ref={ref}
+        className={cn(subContentVariantClass[resolvedVariant], className)}
+        {...props}
+      />
+    </ContextMenuVariantContext.Provider>
+  )
+})
 ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
 
 const ContextMenuContent = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content>
->(({ className, ...props }, ref) => (
-  <ContextMenuPrimitive.Portal>
-    <ContextMenuPrimitive.Content
-      ref={ref}
-      className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-80",
-        className,
-      )}
-      {...props}
-    />
-  </ContextMenuPrimitive.Portal>
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Content> & {
+    variant?: ContextMenuVariant
+  }
+>(({ className, variant = "default", ...props }, ref) => (
+  <ContextMenuVariantContext.Provider value={variant}>
+    <ContextMenuPrimitive.Portal>
+      <ContextMenuPrimitive.Content
+        ref={ref}
+        className={cn(contentVariantClass[variant], className)}
+        {...props}
+      />
+    </ContextMenuPrimitive.Portal>
+  </ContextMenuVariantContext.Provider>
 ))
 ContextMenuContent.displayName = ContextMenuPrimitive.Content.displayName
 
@@ -64,30 +116,41 @@ const ContextMenuItem = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Item> & {
     inset?: boolean
+    variant?: ContextMenuVariant
   }
->(({ className, inset, ...props }, ref) => (
-  <ContextMenuPrimitive.Item
-    ref={ref}
-    className={cn(
-      "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-xs outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-      inset && "pl-8",
-      className,
-    )}
-    {...props}
-  />
-))
+>(({ className, inset, variant, ...props }, ref) => {
+  const inheritedVariant = React.useContext(ContextMenuVariantContext)
+  const resolvedVariant = variant ?? inheritedVariant
+  return (
+    <ContextMenuPrimitive.Item
+      ref={ref}
+      className={cn(
+        itemVariantClass[resolvedVariant],
+        inset && (resolvedVariant === "floating" ? "pl-9" : "pl-8"),
+        className,
+      )}
+      {...props}
+    />
+  )
+})
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
 
 const ContextMenuSeparator = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.Separator>,
-  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator>
->(({ className, ...props }, ref) => (
-  <ContextMenuPrimitive.Separator
-    ref={ref}
-    className={cn("-mx-1 my-1 h-px bg-border", className)}
-    {...props}
-  />
-))
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Separator> & {
+    variant?: ContextMenuVariant
+  }
+>(({ className, variant, ...props }, ref) => {
+  const inheritedVariant = React.useContext(ContextMenuVariantContext)
+  const resolvedVariant = variant ?? inheritedVariant
+  return (
+    <ContextMenuPrimitive.Separator
+      ref={ref}
+      className={cn(separatorVariantClass[resolvedVariant], className)}
+      {...props}
+    />
+  )
+})
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName
 
 export {
