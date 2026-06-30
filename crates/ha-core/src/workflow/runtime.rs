@@ -378,6 +378,16 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let diff_host = host.clone();
+    workflow.set(
+        "diff",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &diff_host, args, WorkflowRuntimeHost::diff)
+            },
+        )),
+    )?;
+
     let trace_host = host.clone();
     workflow.set(
         "trace",
@@ -782,6 +792,20 @@ impl WorkflowRuntimeHost {
                 }))
             },
         )
+    }
+
+    fn diff(&mut self, args: Value) -> Result<Value> {
+        let input = compact_input(args);
+        self.execute_op("diff", WorkflowEffectClass::Pure, input, |host| {
+            let root = host
+                .session_context
+                .working_dir
+                .as_deref()
+                .ok_or_else(|| anyhow!("workflow.diff requires a session working directory"))?;
+            let diff = crate::session::load_git_diff_for_root(std::path::Path::new(root))
+                .context("workflow.diff failed")?;
+            serde_json::to_value(diff).context("serialize workflow.diff response")
+        })
     }
 
     fn trace(&mut self, args: Value) -> Result<Value> {

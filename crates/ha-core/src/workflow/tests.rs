@@ -1,4 +1,5 @@
 use serde_json::json;
+use std::process::Command;
 use std::sync::Arc;
 
 use crate::permission::SessionMode;
@@ -44,6 +45,21 @@ fn create_run_with_script(db: &SessionDB, script_source: &str) -> (String, Strin
         })
         .expect("create workflow run");
     (session.id, run.id)
+}
+
+fn git(root: &std::path::Path, args: &[&str]) {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {:?} failed\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -564,6 +580,106 @@ export default async function main(workflow) {
             "task.update",
             "finish"
         ]
+    );
+}
+
+#[test]
+fn runtime_diff_returns_git_snapshot_for_session_workspace() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
+    git(&workspace, &["init"]);
+    git(
+        &workspace,
+        &["config", "user.email", "hope-agent@example.invalid"],
+    );
+    git(&workspace, &["config", "user.name", "Hope Agent Test"]);
+    std::fs::write(
+        workspace.join("src/lib.rs"),
+        "pub fn answer() -> i32 {\n    1\n}\n",
+    )
+    .expect("write baseline");
+    git(&workspace, &["add", "src/lib.rs"]);
+    git(&workspace, &["commit", "-m", "initial"]);
+
+    std::fs::write(
+        workspace.join("src/lib.rs"),
+        "pub fn answer() -> i32 {\n    42\n}\n",
+    )
+    .expect("modify tracked file");
+    std::fs::write(workspace.join("README.md"), "# Hope\n").expect("write untracked file");
+
+    let session = db.create_session("ha-main").expect("create session");
+    db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+        .expect("set working dir");
+
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Snapshot diff" });
+  const diff = await workflow.diff({ label: "working-tree" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    kind: diff.kind,
+    changes: diff.changes.map((change) => ({
+      path: change.path,
+      action: change.action,
+      linesAdded: change.linesAdded,
+      linesRemoved: change.linesRemoved,
+      hasAfter: typeof change.after === "string" && change.after.length > 0
+    }))
+  });
+}
+"#;
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "coding.workflow".to_string(),
+            loop_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10 }),
+        })
+        .expect("create workflow run");
+
+    let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let output = result.output.expect("workflow output");
+    assert_eq!(output.get("kind"), Some(&json!("file_changes")));
+    let changes = output
+        .get("changes")
+        .and_then(|value| value.as_array())
+        .expect("changes array");
+    let tracked = changes
+        .iter()
+        .find(|change| {
+            change
+                .get("path")
+                .and_then(|value| value.as_str())
+                .is_some_and(|path| path.ends_with("src/lib.rs"))
+        })
+        .expect("tracked edit");
+    assert_eq!(tracked.get("action"), Some(&json!("edit")));
+    assert_eq!(tracked.get("hasAfter"), Some(&json!(true)));
+    let created = changes
+        .iter()
+        .find(|change| {
+            change
+                .get("path")
+                .and_then(|value| value.as_str())
+                .is_some_and(|path| path.ends_with("README.md"))
+        })
+        .expect("untracked create");
+    assert_eq!(created.get("action"), Some(&json!("create")));
+
+    let op_types: Vec<&str> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| op.op_type.as_str())
+        .collect();
+    assert_eq!(
+        op_types,
+        vec!["task.create", "diff", "task.update", "finish"]
     );
 }
 

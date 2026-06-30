@@ -151,12 +151,25 @@ pub fn load_session_git_diff(db: &SessionDB, session_id: &str) -> Result<Workspa
 
     let scope = WorkspaceScope::for_session(session_id)
         .map_err(|e| anyhow!("session has no workspace scope: {e}"))?;
-    let repo_root = run_git(scope.root(), &["rev-parse", "--show-toplevel"])
+    load_git_diff_for_root(scope.root())
+}
+
+/// Build a text diff payload for an already-authorized workspace root.
+pub(crate) fn load_git_diff_for_root(root: &Path) -> Result<WorkspaceGitDiff> {
+    let scope_root = root
+        .canonicalize()
+        .map_err(|e| anyhow!("cannot resolve workspace root '{}': {}", root.display(), e))?;
+    if !scope_root.is_dir() {
+        return Err(anyhow!(
+            "workspace root is not a directory: {}",
+            scope_root.display()
+        ));
+    }
+    let repo_root = run_git(&scope_root, &["rev-parse", "--show-toplevel"])
         .map(|s| PathBuf::from(s.trim()))
         .and_then(|p| p.canonicalize().ok())
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| anyhow!("workspace is not a git repository"))?;
-    let scope_root = scope.root().to_path_buf();
     let pathspec = pathspec_for_scope(&repo_root, &scope_root)?;
 
     let mut specs = parse_name_status_z(

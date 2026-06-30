@@ -17,6 +17,7 @@ pub(crate) use db::strip_fts_snippet_sentinels;
 pub use db::{
     LastAssistantTokens, ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter,
 };
+pub(crate) use environment::load_git_diff_for_root;
 pub use environment::{
     load_session_environment, load_session_git_diff, WorkspaceEnvironmentSnapshot,
     WorkspaceGitCommit, WorkspaceGitDiff, WorkspaceGitFileAction, WorkspaceGitFileChange,
