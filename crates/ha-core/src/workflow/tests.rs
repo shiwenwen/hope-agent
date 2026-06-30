@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 use std::process::Command;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::async_jobs::{BackgroundJob, JobKind, JobOrigin, JobStatus, JobsDB};
 use crate::permission::SessionMode;
@@ -57,9 +57,51 @@ fn ensure_async_jobs_db() {
     crate::async_jobs::set_async_jobs_db(Arc::new(db));
 }
 
+fn async_jobs_test_guard() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn insert_completed_async_job(job_id: &str, session_id: &str, output: &str) {
     ensure_async_jobs_db();
     let db = crate::async_jobs::get_async_jobs_db().expect("async jobs db initialized");
+    insert_async_job_row(
+        &db,
+        job_id,
+        session_id,
+        JobStatus::Completed,
+        Some(output.to_string()),
+        None,
+        true,
+    );
+}
+
+fn insert_running_async_job(job_id: &str, session_id: &str) {
+    ensure_async_jobs_db();
+    let db = crate::async_jobs::get_async_jobs_db().expect("async jobs db initialized");
+    insert_async_job_row(
+        &db,
+        job_id,
+        session_id,
+        JobStatus::Running,
+        None,
+        None,
+        true,
+    );
+}
+
+fn insert_async_job_row(
+    db: &JobsDB,
+    job_id: &str,
+    session_id: &str,
+    status: JobStatus,
+    result_preview: Option<String>,
+    error: Option<String>,
+    injected: bool,
+) {
+    let now = chrono::Utc::now().timestamp();
     let job = BackgroundJob {
         job_id: job_id.to_string(),
         kind: JobKind::Tool,
@@ -70,13 +112,13 @@ fn insert_completed_async_job(job_id: &str, session_id: &str, output: &str) {
         tool_name: crate::tools::TOOL_EXEC.to_string(),
         tool_call_id: None,
         args_json: "{}".to_string(),
-        status: JobStatus::Completed,
-        result_preview: Some(output.to_string()),
+        status,
+        result_preview,
         result_path: None,
-        error: None,
-        created_at: chrono::Utc::now().timestamp(),
-        completed_at: Some(chrono::Utc::now().timestamp()),
-        injected: true,
+        error,
+        created_at: now,
+        completed_at: status.is_terminal().then_some(now),
+        injected,
         origin: JobOrigin::Explicit.as_str().to_string(),
         approval_origin: None,
         incognito: false,
@@ -435,6 +477,124 @@ export default async function main(workflow) {
 }
 
 #[test]
+fn startup_like_recovery_replays_workflow_after_async_jobs_mark_interrupted() {
+    let _async_guard = async_jobs_test_guard();
+    ensure_async_jobs_db();
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Recover validation" });
+  const validation = await workflow.validate({ commands: ["echo never-finishes"] });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    ok: validation.ok,
+    jobStatus: validation.results[0].jobStatus,
+    output: validation.results[0].output
+  });
+}
+"#;
+    let (session_id, run_id) = create_run_with_script(&db, script);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+
+    let existing_task = db
+        .create_task(&session_id, "Recover validation", None)
+        .expect("create existing task");
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#0(task.create)".to_string(),
+        op_type: "task.create".to_string(),
+        effect_class: WorkflowEffectClass::Idempotent,
+        input: json!({ "title": "Recover validation" }),
+        child_handle: None,
+    })
+    .expect("start task op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#0(task.create)",
+        json!({
+            "id": existing_task.id,
+            "sessionId": session_id,
+            "title": existing_task.content,
+            "status": existing_task.status,
+            "label": null
+        }),
+    )
+    .expect("complete task op");
+
+    let job_id = format!("job_{}", uuid::Uuid::new_v4().simple());
+    insert_running_async_job(&job_id, &session_id);
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(validate)".to_string(),
+        op_type: "validate".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({ "commands": ["echo never-finishes"] }),
+        child_handle: Some(
+            json!({
+                "kind": "validate",
+                "jobs": [{
+                    "jobId": job_id.clone(),
+                    "command": "echo never-finishes",
+                    "cwd": null,
+                    "timeout": null
+                }]
+            })
+            .to_string(),
+        ),
+    })
+    .expect("start validate op");
+
+    crate::async_jobs::JobManager::replay_pending();
+    let job = crate::async_jobs::JobManager::get(&job_id)
+        .expect("load async job")
+        .expect("async job exists");
+    assert_eq!(job.status, JobStatus::Interrupted);
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let report = runtime
+        .block_on(recover_pending_workflow_runs(
+            db.clone(),
+            "startup-test-owner",
+        ))
+        .expect("recover workflows");
+    assert_eq!(report.attempted, 1);
+    assert_eq!(report.recovered, 1);
+    assert!(report.errors.is_empty());
+
+    let run = db
+        .get_workflow_run(&run_id)
+        .expect("get run")
+        .expect("run exists");
+    assert_eq!(run.state, WorkflowRunState::Completed);
+    assert!(run.primary_owner.is_none());
+
+    let output = db
+        .get_workflow_op(&run_id, "main/op#3(finish)")
+        .expect("get finish op")
+        .expect("finish op exists")
+        .output
+        .expect("workflow output");
+    assert_eq!(
+        output,
+        json!({
+            "ok": false,
+            "jobStatus": "interrupted",
+            "output": "interrupted by application restart"
+        })
+    );
+
+    let tasks = db.list_tasks(&session_id).expect("list tasks");
+    assert_eq!(tasks.len(), 1, "startup replay must not duplicate task");
+    assert_eq!(tasks[0].id, existing_task.id);
+    assert_eq!(tasks[0].status, "completed");
+}
+
+#[test]
 fn recovery_runner_does_not_steal_already_claimed_runs() {
     let (_dir, db_raw) = temp_db();
     let db = Arc::new(db_raw);
@@ -724,6 +884,7 @@ export default async function main(workflow) {
 
 #[test]
 fn runtime_validate_runs_targeted_exec_and_returns_structured_result() {
+    let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let dir = tempfile::tempdir().expect("tempdir");
     let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
@@ -1352,6 +1513,7 @@ export default async function main(workflow) {
 
 #[test]
 fn runtime_attaches_started_validate_child_job_without_blocking() {
+    let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let (_dir, db_raw) = temp_db();
     let db = Arc::new(db_raw);
@@ -1419,6 +1581,7 @@ export default async function main(workflow) {
 
 #[test]
 fn runtime_attaches_started_async_tool_child_job_without_blocking() {
+    let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();
     let (_dir, db_raw) = temp_db();
     let db = Arc::new(db_raw);
