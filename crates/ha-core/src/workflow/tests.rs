@@ -64,6 +64,50 @@ fn async_jobs_test_guard() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+fn workflow_spawn_global_env() -> (&'static tempfile::TempDir, Arc<SessionDB>) {
+    static ENV: OnceLock<(tempfile::TempDir, Arc<SessionDB>)> = OnceLock::new();
+    let env = ENV.get_or_init(|| {
+        let root = tempfile::tempdir().expect("workflow spawn data dir");
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+            write_workflow_spawn_agent("ha-main", |cfg| {
+                cfg.subagents.max_concurrent = 1;
+            });
+            write_workflow_spawn_agent("ha-review", |_| {});
+        });
+
+        let db = if let Some(existing) = crate::get_session_db() {
+            existing.clone()
+        } else {
+            let db = Arc::new(
+                SessionDB::open(&root.path().join("workflow-spawn-sessions.db"))
+                    .expect("open workflow spawn session db"),
+            );
+            let _ = crate::SESSION_DB.set(db.clone());
+            db
+        };
+        let _ =
+            crate::SUBAGENT_CANCELS.set(Arc::new(crate::subagent::SubagentCancelRegistry::new()));
+        ensure_async_jobs_db();
+        (root, db)
+    });
+    (&env.0, env.1.clone())
+}
+
+fn write_workflow_spawn_agent(
+    id: &str,
+    configure: impl FnOnce(&mut crate::agent_config::AgentConfig),
+) {
+    let dir = crate::paths::agent_dir(id).expect("agent dir");
+    std::fs::create_dir_all(&dir).expect("create agent dir");
+    let mut cfg = crate::agent_config::AgentConfig::default();
+    configure(&mut cfg);
+    std::fs::write(
+        dir.join("agent.json"),
+        serde_json::to_string(&cfg).expect("serialize agent config"),
+    )
+    .expect("write agent config");
+}
+
 fn insert_completed_async_job(job_id: &str, session_id: &str, output: &str) {
     ensure_async_jobs_db();
     let db = crate::async_jobs::get_async_jobs_db().expect("async jobs db initialized");
@@ -1456,6 +1500,109 @@ export default async function main(workflow) {
         .find(|op| op.op_key == "main/op#1(spawnAgent)")
         .expect("spawn op");
     assert_eq!(spawn_op.state, WorkflowOpState::Completed);
+}
+
+#[test]
+fn runtime_spawn_agent_dispatches_real_subagent_tool_with_preallocated_run_id() {
+    let _guard = async_jobs_test_guard();
+    let (root, db) = workflow_spawn_global_env();
+    crate::test_support::with_env_vars(&[("HA_DATA_DIR", root.path())], || {
+        let parent = db.create_session("ha-main").expect("create parent session");
+        let active_run_id = uuid::Uuid::new_v4().to_string();
+        db.insert_subagent_run(&SubagentRun {
+            run_id: active_run_id,
+            parent_session_id: parent.id.clone(),
+            parent_agent_id: "ha-main".to_string(),
+            child_agent_id: "ha-review".to_string(),
+            child_session_id: "child-active".to_string(),
+            task: "Active run holding the only slot".to_string(),
+            status: SubagentStatus::Running,
+            result: None,
+            error: None,
+            depth: 1,
+            model_used: None,
+            started_at: chrono::Utc::now().to_rfc3339(),
+            finished_at: None,
+            duration_ms: None,
+            label: Some("active".to_string()),
+            attachment_count: 0,
+            input_tokens: None,
+            output_tokens: None,
+        })
+        .expect("insert active subagent run");
+
+        let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Delegate review" });
+  const review = await workflow.spawnAgent({
+    task: "Review the generated patch",
+    agent: "ha-review",
+    label: "review"
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    runId: review.runId,
+    status: review.status,
+    label: review.label
+  });
+}
+"#;
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: parent.id.clone(),
+                kind: "coding.workflow".to_string(),
+                loop_mode: "guarded".to_string(),
+                script_source: script.to_string(),
+                budget: json!({ "max_script_secs": 10, "max_ops": 8 }),
+            })
+            .expect("create workflow run");
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
+            .expect("start workflow run");
+
+        let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+        assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+        let output = result.output.as_ref().expect("workflow output");
+        assert_eq!(output.get("status"), Some(&json!("spawned")));
+        assert_eq!(output.get("label"), Some(&json!("review")));
+        let child_run_id = output
+            .get("runId")
+            .and_then(Value::as_str)
+            .expect("child run id");
+
+        let child = db
+            .get_subagent_run(child_run_id)
+            .expect("read spawned subagent")
+            .expect("spawned subagent exists");
+        assert_eq!(child.parent_session_id, parent.id);
+        assert_eq!(child.parent_agent_id, "ha-main");
+        assert_eq!(child.child_agent_id, "ha-review");
+        assert_eq!(child.task, "Review the generated patch");
+        assert_eq!(child.status, SubagentStatus::Queued);
+        assert_eq!(child.label.as_deref(), Some("review"));
+
+        let spawn_op = result
+            .snapshot
+            .ops
+            .iter()
+            .find(|op| op.op_type == "spawnAgent")
+            .expect("spawn op");
+        assert_eq!(spawn_op.state, WorkflowOpState::Completed);
+        assert_eq!(spawn_op.child_handle.as_deref(), Some(child_run_id));
+
+        let jobs_db = crate::async_jobs::get_async_jobs_db().expect("async jobs db");
+        let projection = jobs_db
+            .get_subagent_projection(child_run_id)
+            .expect("read subagent projection")
+            .expect("subagent projection");
+        assert_eq!(projection.kind, JobKind::Subagent);
+        assert_eq!(projection.subagent_run_id.as_deref(), Some(child_run_id));
+        assert_eq!(projection.session_id.as_deref(), Some(parent.id.as_str()));
+
+        let _ = crate::subagent::queue::remove_for_run(child_run_id);
+        if let Some(registry) = crate::get_subagent_cancels() {
+            registry.remove(child_run_id);
+        }
+    });
 }
 
 #[test]

@@ -37,6 +37,8 @@ import {
   MessageCircle,
   MessageSquare,
   Monitor,
+  Pause,
+  Play,
   Radio,
   Search,
   Server,
@@ -101,6 +103,14 @@ import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
 import { useSessionKnowledge } from "./useSessionKnowledge"
+import {
+  useWorkflowRuns,
+  type WorkflowEvent,
+  type WorkflowOp,
+  type WorkflowRun,
+  type WorkflowRunSnapshot,
+  type WorkflowRunState,
+} from "./useWorkflowRuns"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import {
@@ -1167,6 +1177,437 @@ function BackgroundJobsSection({
   )
 }
 
+const WORKFLOW_RUN_PREVIEW = 6
+const WORKFLOW_EVENT_PREVIEW = 4
+const WORKFLOW_OP_PREVIEW = 6
+
+function workflowRunStateLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  state: WorkflowRunState,
+): string {
+  switch (state) {
+    case "draft":
+      return t("workspace.workflow.stateDraft", "待启动")
+    case "awaiting_approval":
+      return t("workspace.workflow.stateAwaitingApproval", "待批准")
+    case "running":
+      return t("workspace.workflow.stateRunning", "运行中")
+    case "awaiting_user":
+      return t("workspace.workflow.stateAwaitingUser", "待用户")
+    case "paused":
+      return t("workspace.workflow.statePaused", "已暂停")
+    case "recovering":
+      return t("workspace.workflow.stateRecovering", "恢复中")
+    case "completed":
+      return t("workspace.workflow.stateCompleted", "已完成")
+    case "failed":
+      return t("workspace.workflow.stateFailed", "失败")
+    case "cancelled":
+      return t("workspace.workflow.stateCancelled", "已取消")
+    case "blocked":
+      return t("workspace.workflow.stateBlocked", "已阻塞")
+  }
+}
+
+function workflowRunTone(state: WorkflowRunState): "muted" | "good" | "warn" | "danger" | "info" {
+  switch (state) {
+    case "completed":
+      return "good"
+    case "awaiting_approval":
+    case "awaiting_user":
+    case "paused":
+      return "warn"
+    case "failed":
+    case "blocked":
+      return "danger"
+    case "running":
+    case "recovering":
+      return "info"
+    case "draft":
+    case "cancelled":
+      return "muted"
+  }
+}
+
+function workflowRunIsLive(state: WorkflowRunState): boolean {
+  return state === "running" || state === "awaiting_user" || state === "paused" || state === "recovering"
+}
+
+function compactJson(value: unknown, fallback: string): string {
+  if (value == null) return fallback
+  if (typeof value === "string") return value
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return fallback
+  }
+}
+
+function truncateMiddle(value: string, max = 96): string {
+  if (value.length <= max) return value
+  const head = Math.max(8, Math.floor((max - 1) * 0.58))
+  const tail = Math.max(8, max - head - 1)
+  return `${value.slice(0, head)}…${value.slice(-tail)}`
+}
+
+function workflowOpSummary(
+  t: ReturnType<typeof useTranslation>["t"],
+  ops: WorkflowOp[],
+): string {
+  if (ops.length === 0) return t("workspace.workflow.noOps", "暂无 op")
+  const completed = ops.filter((op) => op.state === "completed").length
+  const failed = ops.filter((op) => op.state === "failed").length
+  if (failed > 0) {
+    return t("workspace.workflow.opSummaryFailed", "{{completed}}/{{total}} · {{failed}} 失败", {
+      completed,
+      total: ops.length,
+      failed,
+    })
+  }
+  return t("workspace.workflow.opSummary", "{{completed}}/{{total}} 完成", {
+    completed,
+    total: ops.length,
+  })
+}
+
+function WorkflowRunsSection({
+  sessionId,
+  incognito,
+  turnActive,
+}: {
+  sessionId?: string | null
+  incognito?: boolean
+  turnActive?: boolean
+}) {
+  const { t } = useTranslation()
+  const { runs, activeCount, loading, error, refresh } = useWorkflowRuns(sessionId, {
+    incognito,
+    turnActive,
+  })
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<WorkflowRunSnapshot | null>(null)
+  const [snapshotLoading, setSnapshotLoading] = useState(false)
+  const [actionKey, setActionKey] = useState<string | null>(null)
+  const snapshotReqRef = useRef(0)
+
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? null
+  const visibleRuns = runs.slice(0, WORKFLOW_RUN_PREVIEW)
+
+  useEffect(() => {
+    if (runs.length === 0) {
+      setSelectedRunId(null)
+      setSnapshot(null)
+      return
+    }
+    if (selectedRunId && runs.some((run) => run.id === selectedRunId)) return
+    const live = runs.find((run) => workflowRunIsLive(run.state) || run.state === "awaiting_approval")
+    setSelectedRunId((live ?? runs[0]).id)
+  }, [runs, selectedRunId])
+
+  const loadSnapshot = useCallback((runId: string) => {
+    const req = ++snapshotReqRef.current
+    setSnapshotLoading(true)
+    getTransport()
+      .call<WorkflowRunSnapshot | null>("get_workflow_run", { runId })
+      .then((next) => {
+        if (snapshotReqRef.current !== req) return
+        setSnapshot(next)
+        setSnapshotLoading(false)
+      })
+      .catch((e) => {
+        if (snapshotReqRef.current !== req) return
+        logger.error("ui", "WorkflowRunsSection::loadSnapshot", "Failed to load workflow snapshot", e)
+        setSnapshot(null)
+        setSnapshotLoading(false)
+      })
+  }, [])
+
+  useEffect(() => {
+    if (!selectedRunId || incognito) {
+      snapshotReqRef.current += 1
+      setSnapshot(null)
+      setSnapshotLoading(false)
+      return
+    }
+    loadSnapshot(selectedRunId)
+  }, [incognito, loadSnapshot, selectedRun?.state, selectedRun?.updatedAt, selectedRunId])
+
+  const runAction = useCallback(
+    async (run: WorkflowRun, command: string, label: string) => {
+      const key = `${command}:${run.id}`
+      setActionKey(key)
+      try {
+        await getTransport().call<WorkflowRun>(command, { runId: run.id })
+        toast.success(label)
+        refresh()
+        if (selectedRunId === run.id) {
+          loadSnapshot(run.id)
+        }
+      } catch (e) {
+        logger.error("ui", "WorkflowRunsSection::runAction", `Workflow action failed: ${command}`, e)
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setActionKey(null)
+      }
+    },
+    [loadSnapshot, refresh, selectedRunId],
+  )
+
+  const renderActions = (run: WorkflowRun) => {
+    const btn = (
+      command: string,
+      label: string,
+      icon: LucideIcon,
+      success: string,
+      danger = false,
+    ) => {
+      const Icon = icon
+      const key = `${command}:${run.id}`
+      return (
+        <IconTip key={command} label={label}>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/50 text-muted-foreground transition-colors hover:bg-secondary/65 hover:text-foreground disabled:opacity-50",
+              danger && "hover:border-destructive/50 hover:text-destructive",
+            )}
+            disabled={!!actionKey}
+            onClick={(e) => {
+              e.stopPropagation()
+              void runAction(run, command, success)
+            }}
+            aria-label={label}
+          >
+            {actionKey === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Icon className="h-3 w-3" />}
+          </button>
+        </IconTip>
+      )
+    }
+
+    switch (run.state) {
+      case "awaiting_approval":
+        return (
+          <div className="flex shrink-0 items-center gap-1">
+            {btn(
+              "approve_workflow_run",
+              t("workspace.workflow.approve", "批准"),
+              Check,
+              t("workspace.workflow.approved", "已批准 workflow"),
+            )}
+            {btn(
+              "cancel_workflow_run",
+              t("workspace.workflow.cancel", "取消"),
+              X,
+              t("workspace.workflow.cancelled", "已取消 workflow"),
+              true,
+            )}
+          </div>
+        )
+      case "running":
+        return (
+          <div className="flex shrink-0 items-center gap-1">
+            {btn(
+              "pause_workflow_run",
+              t("workspace.workflow.pause", "暂停"),
+              Pause,
+              t("workspace.workflow.paused", "已暂停 workflow"),
+            )}
+            {btn(
+              "cancel_workflow_run",
+              t("workspace.workflow.cancel", "取消"),
+              X,
+              t("workspace.workflow.cancelled", "已取消 workflow"),
+              true,
+            )}
+          </div>
+        )
+      case "paused":
+        return (
+          <div className="flex shrink-0 items-center gap-1">
+            {btn(
+              "resume_workflow_run",
+              t("workspace.workflow.resume", "恢复"),
+              Play,
+              t("workspace.workflow.resumed", "已恢复 workflow"),
+            )}
+            {btn(
+              "cancel_workflow_run",
+              t("workspace.workflow.cancel", "取消"),
+              X,
+              t("workspace.workflow.cancelled", "已取消 workflow"),
+              true,
+            )}
+          </div>
+        )
+      case "draft":
+      case "awaiting_user":
+      case "recovering":
+        return (
+          <div className="flex shrink-0 items-center gap-1">
+            {btn(
+              "cancel_workflow_run",
+              t("workspace.workflow.cancel", "取消"),
+              X,
+              t("workspace.workflow.cancelled", "已取消 workflow"),
+              true,
+            )}
+          </div>
+        )
+      case "completed":
+      case "failed":
+      case "cancelled":
+      case "blocked":
+        return null
+    }
+  }
+
+  const latestEvent = snapshot?.events.at(-1)
+  const detailRun = snapshot?.run ?? selectedRun
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.workflow.title", "Workflow")}
+      count={activeCount}
+      icon={GitPullRequest}
+      meta={loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+    >
+      {incognito ? (
+        <EmptyHint>{t("workspace.workflow.incognito", "无痕会话不持久化 workflow")}</EmptyHint>
+      ) : error ? (
+        <EmptyHint>{error}</EmptyHint>
+      ) : runs.length === 0 ? (
+        <EmptyHint>{t("workspace.workflow.empty", "暂无 workflow run")}</EmptyHint>
+      ) : (
+        <div className="space-y-2">
+          <div className="space-y-1">
+            {visibleRuns.map((run) => {
+              const selected = run.id === selectedRunId
+              return (
+                <div
+                  key={run.id}
+                  className={cn(
+                    "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/45",
+                    selected && "bg-secondary/45",
+                  )}
+                >
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => setSelectedRunId(run.id)}
+                  >
+                    <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
+                      {run.kind}
+                      <span className="px-1 text-muted-foreground/50">·</span>
+                      {run.loopMode}
+                    </span>
+                    <StatusPill
+                      label={workflowRunStateLabel(t, run.state)}
+                      tone={workflowRunTone(run.state)}
+                      loading={run.state === "running" || run.state === "recovering"}
+                    />
+                  </button>
+                  {renderActions(run)}
+                </div>
+              )
+            })}
+            {runs.length > WORKFLOW_RUN_PREVIEW ? (
+              <div className="px-2 text-[10px] text-muted-foreground/60">
+                {t("workspace.workflow.moreRuns", "另有 {{count}} 个历史 run", {
+                  count: runs.length - WORKFLOW_RUN_PREVIEW,
+                })}
+              </div>
+            ) : null}
+          </div>
+
+          {detailRun ? (
+            <div className="space-y-1.5 border-t border-border/60 pt-2">
+              <div className="flex min-w-0 items-center gap-2 px-2 text-[11px] text-muted-foreground">
+                <span className="min-w-0 flex-1 truncate">
+                  {t("workspace.workflow.updated", "更新")} {formatMessageTime(detailRun.updatedAt)}
+                </span>
+                <span className="shrink-0 font-mono">{detailRun.scriptHash.slice(0, 7)}</span>
+              </div>
+              {detailRun.blockedReason ? (
+                <div className="rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+                  {truncateMiddle(detailRun.blockedReason, 120)}
+                </div>
+              ) : null}
+
+              {snapshotLoading ? (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t("workspace.workflow.loadingTrace", "加载 trace")}
+                </div>
+              ) : snapshot ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2 px-2 text-[11px] text-muted-foreground">
+                    <span>{workflowOpSummary(t, snapshot.ops)}</span>
+                    {latestEvent ? (
+                      <span className="min-w-0 truncate">
+                        #{latestEvent.seq} {latestEvent.eventType}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {snapshot.ops.length > 0 ? (
+                    <div className="space-y-0.5">
+                      {snapshot.ops.slice(0, WORKFLOW_OP_PREVIEW).map((op) => (
+                        <WorkflowOpRow key={op.id} op={op} />
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {snapshot.events.length > 0 ? (
+                    <div className="space-y-0.5">
+                      {snapshot.events.slice(-WORKFLOW_EVENT_PREVIEW).map((event) => (
+                        <WorkflowEventRow key={event.id} event={event} />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <EmptyHint>{t("workspace.workflow.emptyTrace", "暂无 trace")}</EmptyHint>
+              )}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </WorkspaceSection>
+  )
+}
+
+function WorkflowOpRow({ op }: { op: WorkflowOp }) {
+  const tone = op.state === "completed" ? "good" : op.state === "failed" ? "danger" : "info"
+  return (
+    <IconTip label={compactJson(op.input, op.opKey)}>
+      <div className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-secondary/35">
+        <Radio className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/85">
+          {op.opKey}
+        </span>
+        <span className="shrink-0 text-[10px] text-muted-foreground">{op.opType}</span>
+        <StatusPill label={op.state} tone={tone} loading={op.state === "started"} />
+      </div>
+    </IconTip>
+  )
+}
+
+function WorkflowEventRow({ event }: { event: WorkflowEvent }) {
+  const label = truncateMiddle(compactJson(event.payload, event.eventType), 120)
+  return (
+    <IconTip label={label}>
+      <div className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-secondary/35">
+        <Clock className="h-3 w-3 shrink-0" />
+        <span className="shrink-0 font-mono">#{event.seq}</span>
+        <span className="min-w-0 flex-1 truncate text-foreground/80">{event.eventType}</span>
+        <span className="max-w-[38%] shrink-0 truncate">{formatMessageTime(event.createdAt)}</span>
+      </div>
+    </IconTip>
+  )
+}
+
 /**
  * 右侧「工作台」面板:把本会话的任务进度、碰到的文件、引用来源聚合到一处。
  * 文件 / 来源走 useWorkspaceArtifacts —— 后端读时聚合全会话历史 + 当前轮 live tail
@@ -1282,6 +1723,9 @@ export default function WorkspacePanel({
             <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
           </WorkspaceSection>
         )}
+
+        {/* Workflow — 动态脚本 / loop run 的可观察、可暂停、可批准控制面。 */}
+        <WorkflowRunsSection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
 
         {/* 后台任务 — R4 复用独立面板的任务行能力,工作台内保留紧凑展示。 */}
         <BackgroundJobsSection

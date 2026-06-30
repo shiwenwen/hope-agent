@@ -9,6 +9,7 @@ pub mod recap;
 pub mod session;
 pub mod team;
 pub mod utility;
+pub mod workflow;
 
 use crate::channel::db::ChannelConversation;
 use crate::get_memory_backend;
@@ -121,6 +122,8 @@ pub async fn dispatch(
         "search" => utility::handle_search(args),
         "prompts" => Ok(utility::handle_prompts()),
         "context" => context::handle_context(session_id, agent_id, args).await,
+        "workflow" => workflow::handle_workflow(session_db()?, session_id, args),
+        "loop" => workflow::handle_loop(args),
         "awareness" => awareness::handle_awareness(args),
         "imreply" => utility::handle_imreply(session_id, args).await,
         // `reasoning` is a silent alias for `reason` (only `reason` is in the

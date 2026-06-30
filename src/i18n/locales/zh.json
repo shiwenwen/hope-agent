@@ -4970,6 +4970,12 @@
     "context": {
       "description": "查看上下文占用明细"
     },
+    "workflow": {
+      "description": "查看和控制 Workflow run"
+    },
+    "loop": {
+      "description": "设置 Coding loop 模式"
+    },
     "export": {
       "description": "导出为 Markdown"
     },
@@ -5441,7 +5447,37 @@
     "kbViaProject": "项目",
     "kbWrote": "写入",
     "kbRead": "读取",
-    "kbSearchCount": "检索 {{n}} 次"
+    "kbSearchCount": "检索 {{n}} 次",
+    "workflow": {
+      "title": "Workflow",
+      "stateDraft": "待启动",
+      "stateAwaitingApproval": "待批准",
+      "stateRunning": "运行中",
+      "stateAwaitingUser": "待用户",
+      "statePaused": "已暂停",
+      "stateRecovering": "恢复中",
+      "stateCompleted": "已完成",
+      "stateFailed": "失败",
+      "stateCancelled": "已取消",
+      "stateBlocked": "已阻塞",
+      "noOps": "暂无 op",
+      "opSummaryFailed": "{{completed}}/{{total}} · {{failed}} 失败",
+      "opSummary": "{{completed}}/{{total}} 完成",
+      "approve": "批准",
+      "approved": "已批准 workflow",
+      "cancel": "取消",
+      "cancelled": "已取消 workflow",
+      "pause": "暂停",
+      "paused": "已暂停 workflow",
+      "resume": "恢复",
+      "resumed": "已恢复 workflow",
+      "incognito": "无痕会话不持久化 workflow",
+      "empty": "暂无 workflow run",
+      "moreRuns": "另有 {{count}} 个历史 run",
+      "updated": "更新",
+      "loadingTrace": "加载 trace",
+      "emptyTrace": "暂无 trace"
+    }
   },
   "knowledge": {
     "picker": {

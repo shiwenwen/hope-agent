@@ -4970,6 +4970,12 @@
     "context": {
       "description": "Bağlam penceresi dağılımını göster"
     },
+    "workflow": {
+      "description": "Inspect and control workflow runs"
+    },
+    "loop": {
+      "description": "Set coding loop mode"
+    },
     "export": {
       "description": "Markdown olarak dışa aktar"
     },
@@ -5441,7 +5447,37 @@
     "kbViaProject": "Proje",
     "kbWrote": "Yazıldı",
     "kbRead": "Okundu",
-    "kbSearchCount": "{{n}} arama"
+    "kbSearchCount": "{{n}} arama",
+    "workflow": {
+      "title": "Workflow",
+      "stateDraft": "Ready",
+      "stateAwaitingApproval": "Awaiting approval",
+      "stateRunning": "Running",
+      "stateAwaitingUser": "Waiting for user",
+      "statePaused": "Paused",
+      "stateRecovering": "Recovering",
+      "stateCompleted": "Completed",
+      "stateFailed": "Failed",
+      "stateCancelled": "Cancelled",
+      "stateBlocked": "Blocked",
+      "noOps": "No ops yet",
+      "opSummaryFailed": "{{completed}}/{{total}} · {{failed}} failed",
+      "opSummary": "{{completed}}/{{total}} complete",
+      "approve": "Approve",
+      "approved": "Workflow approved",
+      "cancel": "Cancel",
+      "cancelled": "Workflow cancelled",
+      "pause": "Pause",
+      "paused": "Workflow paused",
+      "resume": "Resume",
+      "resumed": "Workflow resumed",
+      "incognito": "Incognito sessions do not persist workflows",
+      "empty": "No workflow runs yet",
+      "moreRuns": "{{count}} more historical runs",
+      "updated": "Updated",
+      "loadingTrace": "Loading trace",
+      "emptyTrace": "No trace yet"
+    }
   },
   "knowledge": {
     "picker": {
