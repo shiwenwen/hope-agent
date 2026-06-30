@@ -303,6 +303,10 @@ pub struct AssistantAgent {
     /// `refresh_related_notes_suffix`. `None` = nothing to inject (disabled,
     /// incognito, no accessible KB, or no hits).
     pub(crate) related_notes_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Per-turn coding policy profile (Phase 2.2). Deterministic, cheap, and
+    /// injected outside the static prompt prefix so task-kind churn does not
+    /// invalidate prompt-cache hits.
+    pub(crate) coding_profile_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
     /// Per-turn memo of the resolved effective KB access map. `resolve_kb_access`
     /// is hit up to ~5× per turn (passive recall + the no-KB tool-schema gate +
     /// the `# Knowledge Bases` system-prompt section, the last built twice and

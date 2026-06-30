@@ -1,5 +1,6 @@
 pub(crate) mod active_memory;
 pub(super) mod api_types;
+mod coding_profile;
 mod config;
 mod content;
 mod context;
@@ -156,6 +157,7 @@ impl AssistantAgent {
             active_memory_suffix: std::sync::Mutex::new(None),
             related_notes_state: std::sync::Arc::new(related_notes::RelatedNotesState::new()),
             related_notes_suffix: std::sync::Mutex::new(None),
+            coding_profile_suffix: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
@@ -213,6 +215,7 @@ impl AssistantAgent {
             active_memory_suffix: std::sync::Mutex::new(None),
             related_notes_state: std::sync::Arc::new(related_notes::RelatedNotesState::new()),
             related_notes_suffix: std::sync::Mutex::new(None),
+            coding_profile_suffix: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
@@ -395,6 +398,7 @@ impl AssistantAgent {
             active_memory_suffix: std::sync::Mutex::new(None),
             related_notes_state: std::sync::Arc::new(related_notes::RelatedNotesState::new()),
             related_notes_suffix: std::sync::Mutex::new(None),
+            coding_profile_suffix: std::sync::Mutex::new(None),
             kb_access_cache: std::sync::Mutex::new(None),
             provider_config: None,
         }
@@ -909,6 +913,29 @@ impl AssistantAgent {
             .related_notes_suffix
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = block.map(std::sync::Arc::new);
+    }
+
+    /// Refresh the per-turn Coding Mode profile suffix (Phase 2.2).
+    ///
+    /// This is a deterministic classifier, not a side-query. It stays out of
+    /// the static system-prompt prefix and is injected as a separate provider
+    /// system block so task-kind churn does not invalidate prompt-cache hits.
+    pub(crate) fn refresh_coding_profile_suffix(&self, user_text: &str) {
+        let block = coding_profile::CodingSessionProfile::classify(user_text)
+            .map(|profile| std::sync::Arc::new(profile.render_prompt_block()));
+        *self
+            .coding_profile_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = block;
+    }
+
+    /// Return the currently-held Coding Mode profile suffix, if this turn's
+    /// user message looked like a coding task.
+    pub(crate) fn current_coding_profile_suffix(&self) -> Option<std::sync::Arc<String>> {
+        self.coding_profile_suffix
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Return the currently-held awareness suffix (if any), for use by
@@ -1667,12 +1694,18 @@ impl AssistantAgent {
         self.build_full_system_prompt(model, provider)
     }
 
-    /// Build the merged system prompt string (static prefix + awareness
-    /// suffix). Used for compaction token budgets and any code path that
-    /// needs a flat string.
+    /// Build the merged system prompt string (static prefix + dynamic suffixes
+    /// that should count toward compaction budgets). Provider adapters still
+    /// send those suffixes as separate system blocks when possible.
     pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
         let mut prompt = self.build_full_system_prompt(model, provider);
         if let Some(suffix) = self.current_awareness_suffix() {
+            if !suffix.is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(&suffix);
+            }
+        }
+        if let Some(suffix) = self.current_coding_profile_suffix() {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
                 prompt.push_str(&suffix);

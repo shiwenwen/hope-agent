@@ -547,6 +547,7 @@ impl AssistantAgent {
         let provider_label = adapter.provider_format().label();
 
         self.reset_chat_flags();
+        self.refresh_coding_profile_suffix(message);
         // Awareness + active_memory each write their own independent suffix
         // slot and never read the other; run them concurrently so the worst
         // case is max(awareness_timeout, active_memory_timeout) instead of
@@ -585,9 +586,9 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = messages.clone();
 
-        // Static system prompt prefix (cache-friendly). The dynamic awareness
-        // and active-memory suffixes go in their own cache breakpoints inside
-        // chat_round (each adapter handles the placement).
+        // Static system prompt prefix (cache-friendly). Dynamic suffixes
+        // (awareness, active memory, coding profile, related notes) go in
+        // their own provider-level system blocks inside chat_round.
         let system_prompt = self.build_full_system_prompt(model, provider_label);
         let mut system_prompt_for_budget = self.build_merged_system_prompt(model, provider_label);
 
@@ -704,6 +705,7 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            let coding_profile_suffix = self.current_coding_profile_suffix();
             let related_notes_suffix = self.current_related_notes_suffix();
             // Two-step: cheap existence probe first (one SQL row, no Vec
             // alloc), then list+format only when there's actually an active
@@ -731,6 +733,7 @@ impl AssistantAgent {
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                coding_profile_suffix: coding_profile_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,

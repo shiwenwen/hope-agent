@@ -860,12 +860,14 @@ stop reason if any
 
 ### Phase 2.2：CodingSessionProfile + task classifier
 
+状态：2026-06-30 已接入轻量规则版 `CodingSessionProfile` + 动态 profile block；重型 LLM classifier 后置，除非 eval 证明 description-based skills + 规则版不够。
+
 实现：
 
 - `CodingTaskKind`
 - `LoopMode`
 - `CodingSessionProfile`
-- Prompt/profile 注入摘要。
+- Prompt/profile 注入摘要（独立动态 system block，不进静态 prefix）。
 
 验收：
 

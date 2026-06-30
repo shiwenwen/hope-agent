@@ -89,6 +89,11 @@ fn build_chat_body(
             api_messages.push(json!({ "role": "system", "content": active_suffix }));
         }
     }
+    if let Some(profile_suffix) = req.coding_profile_suffix {
+        if !profile_suffix.is_empty() {
+            api_messages.push(json!({ "role": "system", "content": profile_suffix }));
+        }
+    }
     if let Some(related_suffix) = req.related_notes_suffix {
         if !related_suffix.is_empty() {
             api_messages.push(json!({ "role": "system", "content": related_suffix }));
