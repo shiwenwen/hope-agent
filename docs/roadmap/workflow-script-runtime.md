@@ -108,7 +108,7 @@ Failed      -- 终态失败（error_json 落库）
 | effect_class | 例 | 崩溃在 `Started` 时的恢复策略 |
 | --- | --- | --- |
 | `pure` | `read`/`grep`/`fileSearch`/`diff` | 直接重跑（无副作用，输出可能微变但不破坏世界） |
-| `idempotent` | 带 idempotency key 的写、`task.update` 到固定状态 | 重跑前先按 key 查真实状态，已生效则补记 output |
+| `idempotent` | 带 idempotency key 的写、按 task handle 执行 `task.update` 到固定状态 | 重跑前先按 key 查真实状态，已生效则补记 output |
 | `non_idempotent` | `apply_patch`/`edit`/`write`/有副作用的 `exec` | **不盲目重跑**：见下 |
 
 **`non_idempotent` op 在 `Started` 状态崩溃恢复**（红线）：
@@ -203,7 +203,7 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 | `workflow.spawnAgent({ task, agent?, label?, ... })` | non_idempotent | `subagent` 队列 | 返回 handle，记 `child_handle` |
 | `workflow.map(label, list, fn)` | 派生 | runtime | §4.2 物化；`label` 只展示，op_key 仍由位置生成 |
 | `workflow.waitAll(handles, { label?, concurrency? })` | pure（等待） | async job / subagent status | bounded concurrency，见 §8 |
-| `workflow.task.create/update({ label?, ... })` | idempotent | `task_create/update` | 与 op 自动绑定 |
+| `workflow.task.create({ title, label? })` / `workflow.task.update({ task, status, label? })` | idempotent | `task_create/update` | `create` 返回 task handle；`update` 按 handle 定位，`label` 仍仅展示 |
 | `workflow.validate({ commands, reason, label? })` | non_idempotent(exec) | `exec` async job + AGENTS 策略 | 受 §AGENTS 验证约束 |
 | `workflow.askUser({ question, context?, label? })` | — | `ask_user` | 走无人值守 fail-closed，见下 |
 | `workflow.trace({ payload, label? })` | pure | `workflow_events` | sanitize + 大小上限 |

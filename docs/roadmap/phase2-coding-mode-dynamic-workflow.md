@@ -414,7 +414,7 @@ workflow 脚本是一个持久化 artifact：
 
 ```js
 export default async function main(workflow) {
-  await workflow.task.create({
+  const observeTask = await workflow.task.create({
     label: "observe",
     title: "收集相关文件和约束"
   });
@@ -435,7 +435,7 @@ export default async function main(workflow) {
     });
   });
 
-  await workflow.task.update({ label: "observe", status: "completed" });
+  await workflow.task.update({ task: observeTask, status: "completed" });
   await workflow.trace({ label: "review_summaries", payload: reviews });
 
   const validation = await workflow.validate({
@@ -551,7 +551,7 @@ workflow_events
 | `workflow.grep({ pattern, path?, label? })` | 内容搜索 | `grep` tool |
 | `workflow.spawnAgent({ task, agent?, label?, ... })` | 子代理 | `subagent` |
 | `workflow.waitAll(handles, { label?, concurrency? })` | 等待多任务 | async job / subagent status |
-| `workflow.task.create/update({ label?, ... })` | 用户可见进度 | `task_create/update` |
+| `workflow.task.create({ title, label? })` / `workflow.task.update({ task, status, label? })` | 用户可见进度；`create` 返回 task handle，`update` 按 handle 定位 | `task_create/update` |
 | `workflow.validate({ commands, reason, label? })` | 验证命令 | `exec` async job + AGENTS 策略 |
 | `workflow.askUser({ question, context?, label? })` | 人工 gate | `ask_user` |
 | `workflow.trace({ payload, label? })` | trace event | `workflow_events` |
