@@ -241,6 +241,16 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let validate_host = host.clone();
+    workflow.set(
+        "validate",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &validate_host, args, WorkflowRuntimeHost::validate)
+            },
+        )),
+    )?;
+
     let trace_host = host.clone();
     workflow.set(
         "trace",
@@ -516,6 +526,49 @@ impl WorkflowRuntimeHost {
         })
     }
 
+    fn validate(&mut self, args: Value) -> Result<Value> {
+        let commands = validation_commands_from_args(&args)?;
+        let reason = optional_string(&args, "reason");
+        let input = compact_input(args);
+        self.execute_op(
+            "validate",
+            WorkflowEffectClass::NonIdempotent,
+            input,
+            |host| {
+                let mut results = Vec::with_capacity(commands.len());
+                for command in commands {
+                    let exec_args = command.exec_args();
+                    let output = host.dispatch_validation_exec(&command.command, &exec_args)?;
+                    let exit_code = validation_exit_code(&output);
+                    results.push(json!({
+                        "command": command.command,
+                        "cwd": command.cwd,
+                        "timeout": command.timeout,
+                        "ok": exit_code == 0,
+                        "exitCode": exit_code,
+                        "output": output,
+                    }));
+                }
+                let failed = results
+                    .iter()
+                    .filter(|result| !result.get("ok").and_then(Value::as_bool).unwrap_or(false))
+                    .count();
+                let ok = failed == 0;
+                let summary = if ok {
+                    format!("{} validation command(s) passed", results.len())
+                } else {
+                    format!("{failed}/{} validation command(s) failed", results.len())
+                };
+                Ok(json!({
+                    "ok": ok,
+                    "summary": summary,
+                    "reason": reason,
+                    "results": results,
+                }))
+            },
+        )
+    }
+
     fn trace(&mut self, args: Value) -> Result<Value> {
         let label = optional_string(&args, "label");
         let payload = args.get("payload").cloned().unwrap_or(Value::Null);
@@ -625,6 +678,20 @@ impl WorkflowRuntimeHost {
             })
     }
 
+    fn dispatch_validation_exec(&self, command: &str, args: &Value) -> Result<String> {
+        let mut ctx = self.tool_exec_context();
+        ctx.async_tool_policy = crate::agent_config::AsyncToolPolicy::NeverBackground;
+        let default_path = ctx.default_cwd();
+        let session_id = self.session_id.clone();
+        self.tokio_handle
+            .block_on(tools::execute_tool_with_context(tools::TOOL_EXEC, args, &ctx))
+            .with_context(|| {
+                format!(
+                    "workflow.validate command failed before completion (session={session_id}, cwd={default_path}, command={command})"
+                )
+            })
+    }
+
     fn tool_exec_context(&self) -> ToolExecContext {
         ToolExecContext {
             session_id: Some(self.session_id.clone()),
@@ -646,6 +713,137 @@ fn task_handle(task: &Task, label: Option<&str>) -> Value {
         "status": task.status,
         "label": label,
     })
+}
+
+#[derive(Debug, Clone)]
+struct ValidationCommand {
+    command: String,
+    cwd: Option<String>,
+    timeout: Option<u64>,
+}
+
+impl ValidationCommand {
+    fn exec_args(&self) -> Value {
+        let mut args = serde_json::Map::new();
+        args.insert("command".to_string(), Value::String(self.command.clone()));
+        if let Some(cwd) = self.cwd.clone() {
+            args.insert("cwd".to_string(), Value::String(cwd));
+        }
+        if let Some(timeout) = self.timeout {
+            args.insert("timeout".to_string(), Value::Number(timeout.into()));
+        }
+        Value::Object(args)
+    }
+}
+
+fn validation_commands_from_args(args: &Value) -> Result<Vec<ValidationCommand>> {
+    let default_cwd = optional_string(args, "cwd");
+    let default_timeout = args.get("timeout").and_then(Value::as_u64);
+    let raw_commands = args
+        .get("commands")
+        .or_else(|| args.get("command"))
+        .ok_or_else(|| anyhow!("workflow.validate requires commands"))?;
+    let mut commands = Vec::new();
+    match raw_commands {
+        Value::String(command) => {
+            commands.push(ValidationCommand {
+                command: normalize_command(command)?,
+                cwd: default_cwd,
+                timeout: default_timeout,
+            });
+        }
+        Value::Array(items) => {
+            for item in items {
+                commands.push(validation_command_from_value(
+                    item,
+                    default_cwd.clone(),
+                    default_timeout,
+                )?);
+            }
+        }
+        _ => {
+            return Err(anyhow!(
+                "workflow.validate commands must be a string or array of strings/objects"
+            ));
+        }
+    }
+    if commands.is_empty() {
+        return Err(anyhow!("workflow.validate requires at least one command"));
+    }
+    if commands.len() > 8 {
+        return Err(anyhow!(
+            "workflow.validate supports at most 8 commands per op"
+        ));
+    }
+    Ok(commands)
+}
+
+fn validation_command_from_value(
+    value: &Value,
+    default_cwd: Option<String>,
+    default_timeout: Option<u64>,
+) -> Result<ValidationCommand> {
+    match value {
+        Value::String(command) => Ok(ValidationCommand {
+            command: normalize_command(command)?,
+            cwd: default_cwd,
+            timeout: default_timeout,
+        }),
+        Value::Object(map) => {
+            let command = map
+                .get("command")
+                .or_else(|| map.get("cmd"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("workflow.validate command object requires command"))?;
+            Ok(ValidationCommand {
+                command: normalize_command(command)?,
+                cwd: map
+                    .get("cwd")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToOwned::to_owned)
+                    .or(default_cwd),
+                timeout: map
+                    .get("timeout")
+                    .and_then(Value::as_u64)
+                    .or(default_timeout),
+            })
+        }
+        _ => Err(anyhow!(
+            "workflow.validate command entries must be strings or objects"
+        )),
+    }
+}
+
+fn normalize_command(command: &str) -> Result<String> {
+    let command = command.trim();
+    if command.is_empty() {
+        return Err(anyhow!("workflow.validate command must not be empty"));
+    }
+    if command.len() > 4096 {
+        return Err(anyhow!("workflow.validate command is too long"));
+    }
+    Ok(command.to_string())
+}
+
+pub(crate) fn validation_exit_code(output: &str) -> i64 {
+    let trimmed = output.trim();
+    if let Some(code) = trimmed
+        .strip_prefix("Command completed with exit code ")
+        .and_then(|value| value.trim().parse::<i64>().ok())
+    {
+        return code;
+    }
+    if let Some(start) = trimmed.rfind("[exit code: ") {
+        let after = &trimmed[start + "[exit code: ".len()..];
+        if let Some(end) = after.find(']') {
+            if let Ok(code) = after[..end].trim().parse::<i64>() {
+                return code;
+            }
+        }
+    }
+    0
 }
 
 fn tool_effect_class(name: &str) -> WorkflowEffectClass {

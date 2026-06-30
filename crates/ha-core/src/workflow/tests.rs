@@ -1,11 +1,13 @@
 use serde_json::json;
 use std::sync::Arc;
 
+use crate::permission::SessionMode;
 use crate::session::SessionDB;
 
 use super::{
-    run_workflow_script, CreateWorkflowRunInput, StartedOpRecoveryAction, UpsertWorkflowOpInput,
-    WorkflowEffectClass, WorkflowOpState, WorkflowRunState,
+    run_workflow_script, runtime::validation_exit_code, CreateWorkflowRunInput,
+    StartedOpRecoveryAction, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowOpState,
+    WorkflowRunState,
 };
 
 fn temp_db() -> (tempfile::TempDir, SessionDB) {
@@ -368,6 +370,79 @@ export default async function main(workflow) {
             "finish"
         ]
     );
+}
+
+#[test]
+fn runtime_validate_runs_targeted_exec_and_returns_structured_result() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("create workspace");
+
+    let session = db.create_session("ha-main").expect("create session");
+    db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+        .expect("set working dir");
+    db.update_session_permission_mode(&session.id, SessionMode::Yolo)
+        .expect("set yolo mode");
+
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Targeted validation" });
+  const validation = await workflow.validate({
+    commands: ["rustc --version"],
+    reason: "workflow validate bridge smoke test"
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    ok: validation.ok,
+    resultCount: validation.results.length,
+    exitCode: validation.results[0].exitCode,
+    hasRustc: validation.results[0].output.includes("rustc")
+  });
+}
+"#;
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "coding.workflow".to_string(),
+            loop_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10 }),
+        })
+        .expect("create workflow run");
+
+    let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    assert_eq!(
+        result.output,
+        Some(json!({
+            "ok": true,
+            "resultCount": 1,
+            "exitCode": 0,
+            "hasRustc": true
+        }))
+    );
+
+    let op_types: Vec<&str> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| op.op_type.as_str())
+        .collect();
+    assert_eq!(
+        op_types,
+        vec!["task.create", "validate", "task.update", "finish"]
+    );
+}
+
+#[test]
+fn validation_exit_code_parses_exec_output_markers() {
+    assert_eq!(validation_exit_code("hello\n[exit code: 3]"), 3);
+    assert_eq!(
+        validation_exit_code("Command completed with exit code 7"),
+        7
+    );
+    assert_eq!(validation_exit_code("rustc 1.90.0"), 0);
 }
 
 #[test]
