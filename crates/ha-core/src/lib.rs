@@ -96,6 +96,7 @@ pub mod wakeup;
 pub mod weather;
 #[cfg(target_os = "macos")]
 pub mod weather_location_macos;
+pub mod workflow;
 
 // ── Re-exports ────────────────────────────────────────────────────
 pub use app_init::{

@@ -357,6 +357,7 @@ impl SessionDB {
         }
 
         Self::ensure_chat_turns_table(&conn)?;
+        crate::workflow::ensure_tables(&conn)?;
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
         // to avoid "database disk image is malformed" errors during CASCADE delete.

@@ -183,14 +183,14 @@ workflow 脚本不能直接拿：
 脚本只能调用 Hope 暴露的 host API：
 
 ```ts
-await workflow.tool(...)
-await workflow.spawnAgent(...)
-await workflow.createTask(...)
-await workflow.updateTask(...)
-await workflow.askUser(...)
-await workflow.recordTrace(...)
-await workflow.validate(...)
-await workflow.finish(...)
+await workflow.tool({ name, args, label? })
+await workflow.spawnAgent({ task, agent?, label? })
+await workflow.task.create({ title, label? })
+await workflow.task.update({ task, status, label? })
+await workflow.askUser({ question, context?, label? })
+await workflow.trace({ payload, label? })
+await workflow.validate({ commands, reason, label? })
+await workflow.finish(result)
 ```
 
 所有 host API 内部继续走原有工具、权限、hooks、async job、subagent 队列。
@@ -200,10 +200,10 @@ await workflow.finish(...)
 不依赖 JS VM 快照。脚本恢复采用 durable replay：
 
 1. 脚本源码和 hash 持久化。
-2. 每个 host call 必须有稳定 `id`。
-3. 第一次执行 host call 时，系统记录 `op_id`、输入、状态、输出。
+2. 每个 host call 的身份由 runtime 按执行位置生成 `op_key`，模型只可提供展示用 `label`。
+3. 第一次执行 host call 时，系统记录 `op_key`、输入 hash、状态、输出。
 4. 重启后从头执行脚本。
-5. 已完成的 host call 根据 `id + input_hash` 返回历史结果。
+5. 已完成的 host call 根据 `op_key + input_hash` 返回历史结果。
 6. 未完成的 host call 继续等待或恢复。
 7. 如果脚本 hash 或 host call 输入变了，需要新 run 或显式 migration。
 
@@ -894,6 +894,8 @@ stop reason if any
 
 ### Phase 2.4：WorkflowRun durable store
 
+状态：2026-06-30 已新增 `workflow_runs` / `workflow_ops` / `workflow_events` durable store、状态机、Tauri/HTTP owner API、`workflow:*` EventBus；embedded runtime 接入待 Phase 2.5。
+
 实现：
 
 - workflow_runs / workflow_ops / workflow_events。
@@ -1075,7 +1077,7 @@ Phase 2 完成时，应满足：
 
 1. ~~写 `docs/roadmap/coding-skills-detox.md`~~ → 已产出 [Coding Skills Detox 审计](coding-skills-detox.md)。
 2. ~~写 `docs/roadmap/workflow-script-runtime.md`~~ → 已产出 [Script-first Workflow Runtime 设计](workflow-script-runtime.md)。
-3. 新建第一批 `ha-*` native skills。
-4. 实现 Plan Gate / Script Gate 的纯函数和 fixture。
-5. 实现 durable store + 状态机（无 JS，纯函数 + fixture，[runtime §14](workflow-script-runtime.md)）。
+3. ~~新建第一批 `ha-*` native skills~~ → 已新增首批 5 个 Hope-native coding skills。
+4. ~~实现 Plan Gate / Script Gate 的纯函数和 fixture~~ → 已接入 Plan Gate，Script Gate 等 runtime 入口落地后执行。
+5. ~~实现 durable store + 状态机（无 JS，纯函数 + fixture，[runtime §14](workflow-script-runtime.md)）~~ → 已新增 durable store、owner API、状态机与无 LLM 单测。
 6. 再进入 embedded runtime 代码实现。

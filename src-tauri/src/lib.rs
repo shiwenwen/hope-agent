@@ -792,6 +792,12 @@ pub fn run() {
             commands::plan::get_plan_checkpoint,
             commands::plan::get_plan_file_path,
             commands::plan::cancel_plan_subagent,
+            // Workflow runs (Phase 2 durable coding workflows)
+            commands::workflow::list_workflow_runs,
+            commands::workflow::get_workflow_run,
+            commands::workflow::pause_workflow_run,
+            commands::workflow::resume_workflow_run,
+            commands::workflow::cancel_workflow_run,
             // Cross-session plan index (read-only)
             commands::plan_index::list_plans,
             commands::plan_index::resolve_plan_mention,

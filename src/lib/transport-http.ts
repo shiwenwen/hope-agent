@@ -362,6 +362,13 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_ask_user_question_timeout_enabled: { method: "POST", path: "/api/config/ask-user-question-timeout-enabled" },
   get_ask_user_question_timeout_enabled: { method: "GET",  path: "/api/config/ask-user-question-timeout-enabled" },
 
+  // -- Workflow runs --
+  list_workflow_runs:              { method: "GET",    path: "/api/sessions/{sessionId}/workflow-runs" },
+  get_workflow_run:                { method: "GET",    path: "/api/workflow-runs/{runId}" },
+  pause_workflow_run:              { method: "POST",   path: "/api/workflow-runs/{runId}/pause" },
+  resume_workflow_run:             { method: "POST",   path: "/api/workflow-runs/{runId}/resume" },
+  cancel_workflow_run:             { method: "POST",   path: "/api/workflow-runs/{runId}/cancel" },
+
   // -- Cron --
   cron_list_jobs:                  { method: "GET",    path: "/api/cron/jobs" },
   cron_get_job:                    { method: "GET",    path: "/api/cron/jobs/{id}" },

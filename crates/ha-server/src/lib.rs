@@ -1317,6 +1317,27 @@ fn build_router_with_cors(
             "/plan/resolve-mention",
             post(routes::plan::resolve_plan_mention),
         )
+        // Workflow runs (Phase 2 durable coding workflows)
+        .route(
+            "/sessions/{sid}/workflow-runs",
+            get(routes::workflow::list_workflow_runs),
+        )
+        .route(
+            "/workflow-runs/{id}",
+            get(routes::workflow::get_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/pause",
+            post(routes::workflow::pause_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/resume",
+            post(routes::workflow::resume_workflow_run),
+        )
+        .route(
+            "/workflow-runs/{id}/cancel",
+            post(routes::workflow::cancel_workflow_run),
+        )
         // Logging
         .route("/logs/query", post(routes::logging::query_logs))
         .route("/logs/stats", get(routes::logging::get_log_stats))
