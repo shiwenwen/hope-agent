@@ -240,6 +240,7 @@ fn execute_script(
         ctx.globals()
             .set("workflow", workflow.clone())
             .context("install workflow global")?;
+        install_workflow_js_helpers(&ctx)?;
         install_runtime_guards(&ctx)?;
 
         let script = prepare_script_for_eval(&run.script_source);
@@ -348,6 +349,51 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let materialize_map_host = host.clone();
+    workflow.set(
+        "__materializeMap",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &materialize_map_host,
+                    args,
+                    WorkflowRuntimeHost::materialize_map,
+                )
+            },
+        )),
+    )?;
+
+    let enter_map_item_host = host.clone();
+    workflow.set(
+        "__enterMapItem",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &enter_map_item_host,
+                    args,
+                    WorkflowRuntimeHost::enter_map_item,
+                )
+            },
+        )),
+    )?;
+
+    let exit_map_item_host = host.clone();
+    workflow.set(
+        "__exitMapItem",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &exit_map_item_host,
+                    args,
+                    WorkflowRuntimeHost::exit_map_item,
+                )
+            },
+        )),
+    )?;
+
     let read_host = host.clone();
     workflow.set(
         "read",
@@ -419,6 +465,53 @@ fn build_workflow_object<'js>(
     )?;
 
     Ok(workflow)
+}
+
+fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
+    ctx.eval::<(), _>(
+        r#"
+        const __hopeMaterializeMap = workflow.__materializeMap;
+        const __hopeEnterMapItem = workflow.__enterMapItem;
+        const __hopeExitMapItem = workflow.__exitMapItem;
+        Object.defineProperty(workflow, "map", {
+          configurable: false,
+          enumerable: true,
+          writable: false,
+          value: async function map(label, list, fn) {
+            if (typeof label !== "string" || label.trim().length === 0) {
+              throw new Error("workflow.map requires a non-empty label");
+            }
+            if (!Array.isArray(list)) {
+              throw new Error("workflow.map requires list to be an array");
+            }
+            if (typeof fn !== "function") {
+              throw new Error("workflow.map requires callback function");
+            }
+            const materialized = await __hopeMaterializeMap({ label, items: list });
+            const items = Array.isArray(materialized.items) ? materialized.items : [];
+            const mapOpKey = materialized.opKey;
+            if (typeof mapOpKey !== "string" || mapOpKey.length === 0) {
+              throw new Error("workflow.map materialization did not return opKey");
+            }
+            const results = [];
+            for (let i = 0; i < items.length; i++) {
+              await __hopeEnterMapItem({ mapOpKey, index: i });
+              try {
+                results.push(await fn(items[i], i));
+              } finally {
+                await __hopeExitMapItem({ mapOpKey, index: i });
+              }
+            }
+            return results;
+          }
+        });
+        delete workflow.__materializeMap;
+        delete workflow.__enterMapItem;
+        delete workflow.__exitMapItem;
+        "#,
+    )
+    .catch(ctx)
+    .map_err(|err| anyhow!("install workflow JS helpers failed: {}", err))
 }
 
 fn install_runtime_guards(ctx: &Ctx<'_>) -> Result<()> {
@@ -545,8 +638,13 @@ struct WorkflowRuntimeHost {
     session_id: String,
     session_context: WorkflowSessionContext,
     tokio_handle: TokioHandle,
-    next_op_index: usize,
+    op_scopes: Vec<WorkflowOpScope>,
     finished_output: Option<Value>,
+}
+
+struct WorkflowOpScope {
+    prefix: String,
+    next_op_index: usize,
 }
 
 impl WorkflowRuntimeHost {
@@ -563,7 +661,10 @@ impl WorkflowRuntimeHost {
             session_id,
             session_context,
             tokio_handle,
-            next_op_index: 0,
+            op_scopes: vec![WorkflowOpScope {
+                prefix: "main".to_string(),
+                next_op_index: 0,
+            }],
             finished_output: None,
         }
     }
@@ -745,6 +846,72 @@ impl WorkflowRuntimeHost {
         })
     }
 
+    fn materialize_map(&mut self, args: Value) -> Result<Value> {
+        let label = required_string(&args, "label")?;
+        let items = args
+            .get("items")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| anyhow!("workflow.map requires items array"))?;
+        let input = json!({
+            "label": label,
+            "items": items,
+        });
+        self.execute_op_with_key(
+            "map",
+            WorkflowEffectClass::Pure,
+            input.clone(),
+            |_host, op_key| {
+                let mut output = input;
+                if let Value::Object(map) = &mut output {
+                    map.insert("opKey".to_string(), Value::String(op_key.to_string()));
+                }
+                Ok(output)
+            },
+        )
+    }
+
+    fn enter_map_item(&mut self, args: Value) -> Result<Value> {
+        let map_op_key = required_string(&args, "mapOpKey")?;
+        let index = args
+            .get("index")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow!("workflow.map item scope requires index"))?;
+        self.op_scopes.push(WorkflowOpScope {
+            prefix: format!("{map_op_key}/item#{index}"),
+            next_op_index: 0,
+        });
+        Ok(json!({ "ok": true }))
+    }
+
+    fn exit_map_item(&mut self, args: Value) -> Result<Value> {
+        let map_op_key = required_string(&args, "mapOpKey")?;
+        let index = args
+            .get("index")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow!("workflow.map item scope requires index"))?;
+        let expected = format!("{map_op_key}/item#{index}");
+        let Some(scope) = self.op_scopes.pop() else {
+            return Err(anyhow!("workflow.map item scope stack is empty"));
+        };
+        if self.op_scopes.is_empty() {
+            self.op_scopes.push(scope);
+            return Err(anyhow!("workflow.map cannot exit root op scope"));
+        }
+        if scope.prefix != expected {
+            self.op_scopes.push(scope);
+            return Err(anyhow!(
+                "workflow.map item scope mismatch: expected {}, got {}",
+                expected,
+                self.op_scopes
+                    .last()
+                    .map(|scope| scope.prefix.as_str())
+                    .unwrap_or("<empty>")
+            ));
+        }
+        Ok(json!({ "ok": true }))
+    }
+
     fn read(&mut self, args: Value) -> Result<Value> {
         let tool_args = args.clone();
         self.execute_op("read", WorkflowEffectClass::Pure, args, |host| {
@@ -871,6 +1038,19 @@ impl WorkflowRuntimeHost {
     where
         F: FnOnce(&mut WorkflowRuntimeHost) -> Result<Value>,
     {
+        self.execute_op_with_key(op_type, effect_class, input, |host, _op_key| f(host))
+    }
+
+    fn execute_op_with_key<F>(
+        &mut self,
+        op_type: &str,
+        effect_class: WorkflowEffectClass,
+        input: Value,
+        f: F,
+    ) -> Result<Value>
+    where
+        F: FnOnce(&mut WorkflowRuntimeHost, &str) -> Result<Value>,
+    {
         let op_key = self.next_op_key(op_type);
         let existing = self.db.get_workflow_op(&self.run_id, &op_key)?;
         let op = self.db.upsert_workflow_op_started(UpsertWorkflowOpInput {
@@ -914,7 +1094,7 @@ impl WorkflowRuntimeHost {
             }
         }
 
-        let output = match f(self) {
+        let output = match f(self, &op_key) {
             Ok(output) => output,
             Err(err) => {
                 let _ = self.db.fail_workflow_op(
@@ -1021,9 +1201,13 @@ impl WorkflowRuntimeHost {
     }
 
     fn next_op_key(&mut self, op_type: &str) -> String {
-        let idx = self.next_op_index;
-        self.next_op_index += 1;
-        format!("main/op#{idx}({op_type})")
+        let scope = self
+            .op_scopes
+            .last_mut()
+            .expect("workflow runtime always has a root op scope");
+        let idx = scope.next_op_index;
+        scope.next_op_index += 1;
+        format!("{}/op#{idx}({op_type})", scope.prefix)
     }
 
     fn dispatch_tool(&self, name: &str, args: &Value) -> Result<String> {

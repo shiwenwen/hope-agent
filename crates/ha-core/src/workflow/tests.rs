@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{json, Value};
 use std::process::Command;
 use std::sync::Arc;
 
@@ -881,6 +881,118 @@ fn workflow_ask_user_host_args_normalize_question_options() {
             }],
             "context": "Validation failed after the first repair."
         })
+    );
+}
+
+#[test]
+fn runtime_map_materializes_items_and_replays_partial_children() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Fan out" });
+  const results = await workflow.map("letters", ["a", "b"], async (item, index) => {
+    const event = await workflow.trace({
+      label: `item:${item}`,
+      payload: { item, index }
+    });
+    return { item, index, eventSeq: event.eventSeq };
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ results });
+}
+"#;
+    let (_session_id, run_id) = create_run_with_script(&db, script);
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(map)".to_string(),
+        op_type: "map".to_string(),
+        effect_class: WorkflowEffectClass::Pure,
+        input: json!({
+            "label": "letters",
+            "items": ["a", "b"]
+        }),
+        child_handle: None,
+    })
+    .expect("start preexisting map op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#1(map)",
+        json!({
+            "label": "letters",
+            "items": ["a", "b"],
+            "opKey": "main/op#1(map)"
+        }),
+    )
+    .expect("complete preexisting map op");
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(map)/item#0/op#0(trace)".to_string(),
+        op_type: "trace".to_string(),
+        effect_class: WorkflowEffectClass::Pure,
+        input: json!({
+            "label": "item:a",
+            "payload": { "item": "a", "index": 0 }
+        }),
+        child_handle: None,
+    })
+    .expect("start preexisting first child op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#1(map)/item#0/op#0(trace)",
+        json!({ "eventSeq": 99 }),
+    )
+    .expect("complete preexisting first child op");
+
+    let result = run_workflow_script(db.clone(), &run_id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let output = result.output.as_ref().expect("workflow output");
+    let results = output
+        .get("results")
+        .and_then(Value::as_array)
+        .expect("results array");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].get("item"), Some(&json!("a")));
+    assert_eq!(results[0].get("index"), Some(&json!(0)));
+    assert_eq!(results[0].get("eventSeq"), Some(&json!(99)));
+    assert_eq!(results[1].get("item"), Some(&json!("b")));
+    assert_eq!(results[1].get("index"), Some(&json!(1)));
+    assert!(results[1]
+        .get("eventSeq")
+        .and_then(Value::as_i64)
+        .is_some_and(|seq| seq > 0));
+
+    let mut op_types: Vec<(String, String)> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| (op.op_key.clone(), op.op_type.clone()))
+        .collect();
+    op_types.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(
+        op_types,
+        vec![
+            (
+                "main/op#0(task.create)".to_string(),
+                "task.create".to_string()
+            ),
+            ("main/op#1(map)".to_string(), "map".to_string()),
+            (
+                "main/op#1(map)/item#0/op#0(trace)".to_string(),
+                "trace".to_string()
+            ),
+            (
+                "main/op#1(map)/item#1/op#0(trace)".to_string(),
+                "trace".to_string()
+            ),
+            (
+                "main/op#2(task.update)".to_string(),
+                "task.update".to_string()
+            ),
+            ("main/op#3(finish)".to_string(), "finish".to_string()),
+        ]
     );
 }
 
