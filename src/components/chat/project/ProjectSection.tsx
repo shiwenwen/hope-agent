@@ -471,6 +471,8 @@ function ProjectGroup({
                 "group/project relative flex min-h-10 items-center gap-2 overflow-hidden rounded-md bg-muted/20 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/35",
                 "cursor-pointer",
                 displayMode === "compact" && "min-h-8 gap-1.5 px-2 py-1",
+                canReorder && !archivedView && "gap-0.5 pl-0 pr-2.5",
+                canReorder && !archivedView && displayMode === "compact" && "pl-0 pr-2",
               )}
               onClick={handleToggleExpanded}
               role="button"
@@ -487,7 +489,7 @@ function ProjectGroup({
                   <button
                     type="button"
                     aria-label={t("common.dragToSort")}
-                    className="flex h-4 w-4 shrink-0 cursor-grab touch-none items-center justify-center rounded p-0.5 text-muted-foreground/0 opacity-0 transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
+                    className="flex h-4 w-3 shrink-0 cursor-grab touch-none items-center justify-center rounded p-0 text-muted-foreground/0 opacity-0 transition-[color,opacity] hover:!text-muted-foreground/80 active:cursor-grabbing focus-visible:text-muted-foreground/70 focus-visible:opacity-100 group-hover/project:text-muted-foreground/70 group-hover/project:opacity-100"
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => e.stopPropagation()}
                     {...dragAttributes}
@@ -622,7 +624,7 @@ function ProjectGroup({
       <AnimatedCollapse open={groupExpanded}>
         <div
           className={cn(
-            "pl-3 pr-1 mt-0.5",
+            "pl-4 pr-1 mt-0.5",
             displayMode === "compact" ? "space-y-1" : "space-y-0.5",
           )}
         >
