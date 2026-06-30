@@ -315,7 +315,7 @@ bundled 模板就是"被 release 信任的脚本"，与通用引擎共用同一 
 
 ## 14. 实现里程碑与可测性
 
-状态：2026-06-30 已完成第 1 项 durable store/state machine，并完成第 4 项的 runtime foundation 子集：QuickJS/rquickjs 受控执行、Script Gate 执行前阻断、`Date.now` / `new Date()` / `Math.random` runtime throw、位置化 op-key、`task.create/update` / `fileSearch` / `trace` / `finish`、Completed op replay 无重复副作用。第 2 项 fan-out 物化、第 3 项 Primary-only 恢复 worker、第 4 项中的 subagent/validate async bridge 仍待实现。
+状态：2026-06-30 已完成第 1 项 durable store/state machine，并完成第 4 项的 runtime foundation 子集：QuickJS/rquickjs 受控执行、Script Gate 执行前阻断、`Date.now` / `new Date()` / `Math.random` runtime throw、位置化 op-key、`task.create/update` / `fileSearch` / `tool/read/grep` / `trace` / `finish`、Completed op replay 无重复副作用、Started non-idempotent op fail-closed Blocked。第 2 项 fan-out 物化、第 3 项 Primary-only 恢复 worker、第 4 项中的 subagent/validate async bridge 仍待实现。
 
 对齐上层方案 Phase 2.4 / 2.5，补可测断言：
 

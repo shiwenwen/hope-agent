@@ -8,11 +8,14 @@ use rquickjs::prelude::{Func, MutFn};
 use rquickjs::{
     CatchResultExt, Context, Ctx, Exception, Function, Object, Runtime, Value as JsValue,
 };
+use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::runtime::Handle as TokioHandle;
 
 use crate::plan::{check_workflow_script_draft, ScriptGateOptions};
 use crate::session::{SessionDB, Task, TaskStatus};
+use crate::tools::{self, ToolExecContext};
 
 use super::types::{
     UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowOpState, WorkflowRunSnapshot,
@@ -33,6 +36,22 @@ pub struct WorkflowRuntimeResult {
 }
 
 pub fn run_workflow_script(db: Arc<SessionDB>, run_id: &str) -> Result<WorkflowRuntimeResult> {
+    if TokioHandle::try_current().is_ok() {
+        return Err(anyhow!(
+            "run_workflow_script was called from an async runtime; use run_workflow_script_async"
+        ));
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("create workflow runtime executor")?;
+    runtime.block_on(run_workflow_script_async(db, run_id))
+}
+
+pub async fn run_workflow_script_async(
+    db: Arc<SessionDB>,
+    run_id: &str,
+) -> Result<WorkflowRuntimeResult> {
     let run = db
         .get_workflow_run(run_id)?
         .ok_or_else(|| anyhow!("workflow run {} not found", run_id))?;
@@ -68,7 +87,16 @@ pub fn run_workflow_script(db: Arc<SessionDB>, run_id: &str) -> Result<WorkflowR
         db.transition_workflow_run(run_id, WorkflowRunState::Running, Some("runtime_start"))?;
     }
 
-    let output = match execute_script(db.clone(), &run) {
+    let session_context = workflow_session_context(&db, &run.session_id);
+    let tokio_handle = TokioHandle::current();
+    let db_for_script = db.clone();
+    let run_for_script = run.clone();
+    let output = match tokio::task::spawn_blocking(move || {
+        execute_script(db_for_script, run_for_script, session_context, tokio_handle)
+    })
+    .await
+    .context("workflow runtime worker panicked or was cancelled")?
+    {
         Ok(output) => output,
         Err(err) => {
             let _ =
@@ -86,12 +114,17 @@ pub fn run_workflow_script(db: Arc<SessionDB>, run_id: &str) -> Result<WorkflowR
     })
 }
 
-fn execute_script(db: Arc<SessionDB>, run: &super::types::WorkflowRun) -> Result<Value> {
+fn execute_script(
+    db: Arc<SessionDB>,
+    run: super::types::WorkflowRun,
+    session_context: WorkflowSessionContext,
+    tokio_handle: TokioHandle,
+) -> Result<Value> {
     let runtime = Runtime::new().context("create QuickJS runtime")?;
     runtime.set_memory_limit(SCRIPT_MEMORY_LIMIT_BYTES);
     runtime.set_max_stack_size(SCRIPT_STACK_LIMIT_BYTES);
 
-    let timeout = script_timeout(run);
+    let timeout = script_timeout(&run);
     let started_at = Instant::now();
     runtime.set_interrupt_handler(Some(Box::new(move || started_at.elapsed() >= timeout)));
 
@@ -101,6 +134,8 @@ fn execute_script(db: Arc<SessionDB>, run: &super::types::WorkflowRun) -> Result
             db.clone(),
             run.id.clone(),
             run.session_id.clone(),
+            session_context.clone(),
+            tokio_handle.clone(),
         )));
         let workflow = build_workflow_object(ctx.clone(), host.clone())?;
         ctx.globals()
@@ -172,6 +207,36 @@ fn build_workflow_object<'js>(
                     args,
                     WorkflowRuntimeHost::file_search,
                 )
+            },
+        )),
+    )?;
+
+    let tool_host = host.clone();
+    workflow.set(
+        "tool",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &tool_host, args, WorkflowRuntimeHost::tool)
+            },
+        )),
+    )?;
+
+    let read_host = host.clone();
+    workflow.set(
+        "read",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &read_host, args, WorkflowRuntimeHost::read)
+            },
+        )),
+    )?;
+
+    let grep_host = host.clone();
+    workflow.set(
+        "grep",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &grep_host, args, WorkflowRuntimeHost::grep)
             },
         )),
     )?;
@@ -300,16 +365,26 @@ struct WorkflowRuntimeHost {
     db: Arc<SessionDB>,
     run_id: String,
     session_id: String,
+    session_context: WorkflowSessionContext,
+    tokio_handle: TokioHandle,
     next_op_index: usize,
     finished_output: Option<Value>,
 }
 
 impl WorkflowRuntimeHost {
-    fn new(db: Arc<SessionDB>, run_id: String, session_id: String) -> Self {
+    fn new(
+        db: Arc<SessionDB>,
+        run_id: String,
+        session_id: String,
+        session_context: WorkflowSessionContext,
+        tokio_handle: TokioHandle,
+    ) -> Self {
         Self {
             db,
             run_id,
             session_id,
+            session_context,
+            tokio_handle,
             next_op_index: 0,
             finished_output: None,
         }
@@ -394,7 +469,7 @@ impl WorkflowRuntimeHost {
             .and_then(Value::as_u64)
             .map(|n| n as usize);
         let root = optional_string(&args, "root")
-            .or_else(|| workflow_root_for_session(&self.db, &self.session_id))
+            .or_else(|| self.session_context.working_dir.clone())
             .ok_or_else(|| anyhow!("workflow.fileSearch requires a session working directory"))?;
         let input = json!({
             "query": query.clone(),
@@ -406,6 +481,38 @@ impl WorkflowRuntimeHost {
             let response = crate::filesystem::search_files(&root, &query, limit)
                 .context("workflow.fileSearch failed")?;
             serde_json::to_value(response).context("serialize fileSearch response")
+        })
+    }
+
+    fn tool(&mut self, args: Value) -> Result<Value> {
+        let name = required_string(&args, "name")?;
+        let tool_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
+        let label = optional_string(&args, "label");
+        let effect_class = tool_effect_class(&name);
+        let op_type = format!("tool:{name}");
+        let input = json!({
+            "name": name.clone(),
+            "args": tool_args.clone(),
+            "label": label,
+        });
+        self.execute_op(&op_type, effect_class, input, |host| {
+            host.dispatch_tool(&name, &tool_args).map(Value::String)
+        })
+    }
+
+    fn read(&mut self, args: Value) -> Result<Value> {
+        let tool_args = args.clone();
+        self.execute_op("read", WorkflowEffectClass::Pure, args, |host| {
+            host.dispatch_tool(tools::TOOL_READ, &tool_args)
+                .map(Value::String)
+        })
+    }
+
+    fn grep(&mut self, args: Value) -> Result<Value> {
+        let tool_args = args.clone();
+        self.execute_op("grep", WorkflowEffectClass::Pure, args, |host| {
+            host.dispatch_tool(tools::TOOL_GREP, &tool_args)
+                .map(Value::String)
         })
     }
 
@@ -452,6 +559,18 @@ impl WorkflowRuntimeHost {
         F: FnOnce(&mut WorkflowRuntimeHost) -> Result<Value>,
     {
         let op_key = self.next_op_key(op_type);
+        if matches!(
+            self.db.started_op_recovery_action(&self.run_id, &op_key)?,
+            Some(super::types::StartedOpRecoveryAction::BlockNonIdempotent)
+        ) {
+            let _ = self
+                .db
+                .block_run_for_started_non_idempotent_op(&self.run_id, &op_key);
+            return Err(anyhow!(
+                "workflow op {} is a previously-started non-idempotent op; run was blocked",
+                op_key
+            ));
+        }
         let op = self.db.upsert_workflow_op_started(UpsertWorkflowOpInput {
             run_id: self.run_id.clone(),
             op_key: op_key.clone(),
@@ -494,6 +613,29 @@ impl WorkflowRuntimeHost {
         self.next_op_index += 1;
         format!("main/op#{idx}({op_type})")
     }
+
+    fn dispatch_tool(&self, name: &str, args: &Value) -> Result<String> {
+        let ctx = self.tool_exec_context();
+        let default_path = ctx.default_path().to_string();
+        let session_id = self.session_id.clone();
+        self.tokio_handle
+            .block_on(tools::execute_tool_with_context(name, args, &ctx))
+            .with_context(|| {
+                format!("workflow.tool({name}) failed (session={session_id}, cwd={default_path})")
+            })
+    }
+
+    fn tool_exec_context(&self) -> ToolExecContext {
+        ToolExecContext {
+            session_id: Some(self.session_id.clone()),
+            session_working_dir: self.session_context.working_dir.clone(),
+            agent_id: self.session_context.agent_id.clone(),
+            session_mode: self.session_context.session_mode,
+            project_id: self.session_context.project_id.clone(),
+            incognito: self.session_context.incognito,
+            ..Default::default()
+        }
+    }
 }
 
 fn task_handle(task: &Task, label: Option<&str>) -> Value {
@@ -504,6 +646,29 @@ fn task_handle(task: &Task, label: Option<&str>) -> Value {
         "status": task.status,
         "label": label,
     })
+}
+
+fn tool_effect_class(name: &str) -> WorkflowEffectClass {
+    match name {
+        tools::TOOL_READ
+        | "read_file"
+        | tools::TOOL_GREP
+        | tools::TOOL_FIND
+        | tools::TOOL_LS
+        | "list_dir"
+        | tools::TOOL_TOOL_SEARCH
+        | tools::TOOL_GET_SETTINGS
+        | tools::TOOL_AGENTS_LIST
+        | tools::TOOL_RECALL_MEMORY
+        | tools::TOOL_MEMORY_GET
+        | tools::TOOL_JOB_STATUS
+        | tools::TOOL_SESSIONS_LIST
+        | tools::TOOL_SESSION_STATUS
+        | tools::TOOL_SESSIONS_SEARCH
+        | tools::TOOL_SESSIONS_HISTORY
+        | tools::TOOL_PEEK_SESSIONS => WorkflowEffectClass::Pure,
+        _ => WorkflowEffectClass::NonIdempotent,
+    }
 }
 
 fn task_id_from_args(args: &Value) -> Result<i64> {
@@ -537,15 +702,70 @@ fn compact_input(value: Value) -> Value {
     value
 }
 
-fn workflow_root_for_session(db: &SessionDB, session_id: &str) -> Option<String> {
-    match db.get_session(session_id) {
-        Ok(Some(meta)) => {
-            if let Some(wd) = meta.working_dir.clone().filter(|s| !s.trim().is_empty()) {
-                return Some(wd);
+#[derive(Debug, Clone, Default)]
+struct WorkflowSessionContext {
+    working_dir: Option<String>,
+    agent_id: Option<String>,
+    session_mode: crate::permission::SessionMode,
+    project_id: Option<String>,
+    incognito: bool,
+}
+
+fn workflow_session_context(db: &SessionDB, session_id: &str) -> WorkflowSessionContext {
+    let row = {
+        let conn = match db.conn.lock() {
+            Ok(conn) => conn,
+            Err(err) => {
+                crate::app_warn!(
+                    "workflow",
+                    "resolve_root",
+                    "session {} lookup lock failed while resolving workflow root: {}",
+                    session_id,
+                    err
+                );
+                return WorkflowSessionContext {
+                    working_dir: current_dir_string(),
+                    ..Default::default()
+                };
             }
-            crate::session::effective_working_dir_for_meta(&meta)
+        };
+        conn.query_row(
+            "SELECT working_dir, project_id, agent_id, permission_mode, incognito FROM sessions WHERE id = ?1",
+            params![session_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                ))
+            },
+        )
+        .optional()
+    };
+
+    match row {
+        Ok(Some((working_dir, project_id, agent_id, permission_mode, incognito))) => {
+            let resolved_working_dir = working_dir
+                .filter(|s| !s.trim().is_empty())
+                .or_else(|| project_id.as_deref().and_then(workflow_root_for_project))
+                .or_else(current_dir_string);
+            WorkflowSessionContext {
+                working_dir: resolved_working_dir,
+                agent_id: agent_id.filter(|s| !s.trim().is_empty()),
+                session_mode: permission_mode
+                    .as_deref()
+                    .map(crate::permission::SessionMode::parse_or_default)
+                    .unwrap_or_default(),
+                project_id,
+                incognito: incognito.unwrap_or(0) != 0,
+            }
         }
-        Ok(None) => None,
+        Ok(None) => WorkflowSessionContext {
+            working_dir: current_dir_string(),
+            ..Default::default()
+        },
         Err(err) => {
             crate::app_warn!(
                 "workflow",
@@ -554,12 +774,40 @@ fn workflow_root_for_session(db: &SessionDB, session_id: &str) -> Option<String>
                 session_id,
                 err
             );
-            None
+            WorkflowSessionContext {
+                working_dir: current_dir_string(),
+                ..Default::default()
+            }
         }
     }
-    .or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .map(|p| p.to_string_lossy().to_string())
-    })
+}
+
+fn workflow_root_for_project(project_id: &str) -> Option<String> {
+    if let Some(db) = crate::get_project_db() {
+        match db.get(project_id) {
+            Ok(Some(project)) => {
+                if let Some(wd) = project.working_dir.filter(|s| !s.trim().is_empty()) {
+                    return Some(wd);
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                crate::app_warn!(
+                    "workflow",
+                    "resolve_root",
+                    "project {} lookup failed while resolving workflow root: {}",
+                    project_id,
+                    err
+                );
+            }
+        }
+    }
+    let ws = crate::paths::project_workspace_dir(project_id).ok()?;
+    crate::util::ensure_dir_canonical(&ws).ok()
+}
+
+fn current_dir_string() -> Option<String> {
+    std::env::current_dir()
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
 }

@@ -256,6 +256,7 @@ export default async function main(workflow) {
             budget: json!({ "max_script_secs": 10 }),
         })
         .expect("create workflow run");
+    assert_eq!(run.session_id, session.id);
 
     let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
     assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
@@ -289,6 +290,84 @@ export default async function main(workflow) {
     let tasks = db.list_tasks(&session.id).expect("list tasks");
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].status, "completed");
+}
+
+#[test]
+fn runtime_bridges_read_grep_and_generic_tool_through_tool_dispatch() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(workspace.join("src")).expect("create workspace");
+    std::fs::write(
+        workspace.join("src/workflow_runtime.rs"),
+        "fn main() {\n    println!(\"runtime bridge\");\n}\n",
+    )
+    .expect("write file");
+
+    let session = db.create_session("ha-main").expect("create session");
+    db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+        .expect("set working dir");
+
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Read and grep" });
+  const readOutput = await workflow.read({
+    path: "src/workflow_runtime.rs",
+    limit: 20
+  });
+  const grepOutput = await workflow.grep({
+    pattern: "runtime bridge",
+    path: "src",
+    limit: 5
+  });
+  const rawToolOutput = await workflow.tool({
+    name: "read",
+    args: { path: "src/workflow_runtime.rs", limit: 20 },
+    label: "read-via-tool"
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    readOk: readOutput.includes("runtime bridge"),
+    grepOk: grepOutput.includes("workflow_runtime.rs"),
+    toolOk: rawToolOutput.includes("runtime bridge")
+  });
+}
+"#;
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "coding.workflow".to_string(),
+            loop_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10 }),
+        })
+        .expect("create workflow run");
+    assert_eq!(run.session_id, session.id);
+
+    let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    assert_eq!(
+        result.output,
+        Some(json!({ "readOk": true, "grepOk": true, "toolOk": true }))
+    );
+
+    let op_types: Vec<&str> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| op.op_type.as_str())
+        .collect();
+    assert_eq!(
+        op_types,
+        vec![
+            "task.create",
+            "read",
+            "grep",
+            "tool:read",
+            "task.update",
+            "finish"
+        ]
+    );
 }
 
 #[test]
@@ -339,6 +418,76 @@ export default async function main(workflow) {
     assert_eq!(tasks.len(), 1, "task.create replay must not duplicate task");
     assert_eq!(tasks[0].id, existing_task.id);
     assert_eq!(tasks[0].status, "completed");
+}
+
+#[test]
+fn runtime_blocks_started_non_idempotent_tool_on_replay() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Observe" });
+  await workflow.tool({ name: "exec", args: { cmd: "echo should_not_run" } });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ summary: "unreachable" });
+}
+"#;
+    let (session_id, run_id) = create_run_with_script(&db, script);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+
+    let existing_task = db
+        .create_task(&session_id, "Observe", None)
+        .expect("create existing task");
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#0(task.create)".to_string(),
+        op_type: "task.create".to_string(),
+        effect_class: WorkflowEffectClass::Idempotent,
+        input: json!({ "title": "Observe" }),
+        child_handle: None,
+    })
+    .expect("start task op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#0(task.create)",
+        json!({
+            "id": existing_task.id,
+            "sessionId": session_id,
+            "title": existing_task.content,
+            "status": existing_task.status,
+            "label": null
+        }),
+    )
+    .expect("complete task op");
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(tool:exec)".to_string(),
+        op_type: "tool:exec".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "name": "exec",
+            "args": { "cmd": "echo should_not_run" },
+            "label": null
+        }),
+        child_handle: None,
+    })
+    .expect("start non-idempotent op");
+
+    let err = run_workflow_script(db.clone(), &run_id).expect_err("started exec must block");
+    assert!(err
+        .to_string()
+        .contains("previously-started non-idempotent op"));
+
+    let run = db
+        .get_workflow_run(&run_id)
+        .expect("get run")
+        .expect("run exists");
+    assert_eq!(run.state, WorkflowRunState::Blocked);
+    assert_eq!(
+        run.blocked_reason.as_deref(),
+        Some("started_non_idempotent_op:main/op#1(tool:exec)")
+    );
 }
 
 #[test]
