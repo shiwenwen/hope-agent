@@ -126,6 +126,7 @@ function renderPanel(
           name: "my-project",
           createdAt: 0,
           updatedAt: 0,
+          sortOrder: 0,
           archived: false,
           sessionCount: 1,
           unreadCount: 0,

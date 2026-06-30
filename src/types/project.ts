@@ -25,6 +25,8 @@ export interface Project {
   /** Unix milliseconds. */
   createdAt: number
   updatedAt: number
+  /** Sidebar sort key. Lower values render earlier. */
+  sortOrder: number
   archived: boolean
 }
 

@@ -36,6 +36,7 @@ export interface ChatSidebarProps {
   onEditAgent?: (agentId: string) => void
   onToggleSessionPinned?: (sessionId: string, pinned: boolean) => void
   onReorderAgents?: (agentIds: string[]) => void
+  onReorderProjects?: (projectIds: string[]) => void
   onMarkAllRead?: () => void
   onRenameSession?: (sessionId: string, title: string) => void
   hasMoreSessions?: boolean

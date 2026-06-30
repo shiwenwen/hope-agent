@@ -28,6 +28,7 @@ export interface UseProjectsReturn {
   updateProject: (id: string, patch: UpdateProjectInput) => Promise<Project | null>
   deleteProject: (id: string) => Promise<boolean>
   archiveProject: (id: string, archived: boolean) => Promise<Project | null>
+  reorderProjects: (projectIds: string[]) => Promise<void>
   moveSessionToProject: (sessionId: string, projectId: string | null) => Promise<void>
 }
 
@@ -174,6 +175,28 @@ export function useProjects(
     [reloadProjects],
   )
 
+  const reorderProjects = useCallback(
+    async (projectIds: string[]): Promise<void> => {
+      const current = projects
+      const byId = new Map(current.map((project) => [project.id, project]))
+      const next = [
+        ...projectIds
+          .map((id) => byId.get(id))
+          .filter((project): project is ProjectMeta => !!project),
+        ...current.filter((project) => project.archived || !projectIds.includes(project.id)),
+      ]
+      setProjects(next)
+      try {
+        await getTransport().call("reorder_projects_cmd", { projectIds })
+        await reloadProjects()
+      } catch (e) {
+        logger.warn("chat", "useProjects", "reorderProjects failed", e)
+        setProjects(current)
+      }
+    },
+    [projects, reloadProjects],
+  )
+
   const moveSessionToProject = useCallback(
     async (sessionId: string, projectId: string | null): Promise<void> => {
       try {
@@ -198,6 +221,7 @@ export function useProjects(
     updateProject,
     deleteProject,
     archiveProject,
+    reorderProjects,
     moveSessionToProject,
   }
 }

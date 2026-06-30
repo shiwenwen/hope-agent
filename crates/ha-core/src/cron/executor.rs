@@ -1318,6 +1318,7 @@ mod tests {
             working_dir: None,
             created_at: 0,
             updated_at: 0,
+            sort_order: 0,
             archived: false,
         }
     }

@@ -43,6 +43,9 @@ pub struct Project {
     /// Unix milliseconds.
     pub created_at: i64,
     pub updated_at: i64,
+    /// Sidebar sort key. Lower values render earlier.
+    #[serde(default)]
+    pub sort_order: i64,
     #[serde(default)]
     pub archived: bool,
 }

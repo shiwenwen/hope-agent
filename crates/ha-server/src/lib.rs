@@ -197,6 +197,10 @@ fn build_router_with_cors(
         // Projects
         .route("/projects", get(routes::projects::list_projects))
         .route("/projects", post(routes::projects::create_project))
+        .route(
+            "/projects/reorder",
+            post(routes::projects::reorder_projects),
+        )
         .route("/projects/{id}", get(routes::projects::get_project))
         .route("/projects/{id}", patch(routes::projects::update_project))
         .route("/projects/{id}", delete(routes::projects::delete_project))

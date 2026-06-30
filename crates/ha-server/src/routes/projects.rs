@@ -53,6 +53,12 @@ pub struct CreateProjectBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ReorderProjectsBody {
+    pub project_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MoveSessionBody {
     /// `None` removes the session from its current project.
     #[serde(default)]
@@ -167,6 +173,17 @@ pub async fn archive_project(
     ctx.event_bus
         .emit("project:updated", json!({ "projectId": project.id }));
     Ok(Json(project))
+}
+
+/// `POST /api/projects/reorder`
+pub async fn reorder_projects(
+    State(ctx): State<Arc<AppContext>>,
+    Json(body): Json<ReorderProjectsBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.project_db.reorder(&body.project_ids)?;
+    ctx.event_bus
+        .emit("project:updated", json!({ "kind": "reordered" }));
+    Ok(Json(json!({ "ok": true })))
 }
 
 // ── Session ↔ Project binding ───────────────────────────────────
