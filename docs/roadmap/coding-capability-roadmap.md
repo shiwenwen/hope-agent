@@ -345,42 +345,51 @@ LoopPolicy
 - `tool_search` v2。
 - 工具迁移 checklist。
 
-### Phase 2：Coding Mode 工作流
+### Phase 2：Coding Mode 与原生 Skills
 
-目标：把已有 Plan、Task、Skill、Subagent 组合成 coding-first 体验。
+状态：详细方案见 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md)。
+
+目标：把已有 Plan、Task、Subagent、Async Jobs、Hooks、Permission 组合成 coding-first 体验，同时不把第三方移植 skills 直接作为核心策略。
 
 任务：
 
+- 审计现有内置 coding skills，区分 `reference` / `vendor_optional` / `rewrite_native` / `deprecate`。
+- 重写 Hope-native coding skills：`hope-coding-common`、`hope-code-review`、`hope-debug`、`hope-verify`、`hope-workflow-script` 等。
 - 新增 `CodingSessionProfile` 或等价能力，按任务类型启用对应 workflow。
 - 分类任务：`fix_bug`、`feature`、`review`、`debug`、`test`、`refactor`。
 - Plan 输出固定包含 Context、Critical Files、Reuse、Steps、Verification、Risks。
 - 加 Plan quality gate：没有关键文件、没有验证方案、没有风险说明的计划不能进入实施。
 - 执行期强制 task 作为进度真相。
-- 把 `code-review`、`systematic-debugging`、`test-driven-development`、`subagent-driven-development` 从“可读技能”升级为 workflow policy 候选。
+- Hope-native skills 才能升级为 workflow policy 候选；第三方移植 skills 只作为参考或可选 vendor skill。
 - 所有验证策略遵守项目级 AGENTS。默认单点验证，不主动跑全套检查。
 
 产物：
 
-- `Coding Mode` 设计文档。
+- `Coding Mode` / native skills 设计文档。
+- skill detox 审计表。
 - workflow policy registry。
 - Plan quality gate。
 
-### Phase 2.5：Dynamic Workflow + Loop Engine
+### Phase 2.5：Script-first Dynamic Workflow + Loop Engine
 
-目标：让 coding 任务能在预算和护栏内自动闭环。
+状态：详细方案见 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md)。
+
+目标：让 coding 任务能通过“先写脚本、审批后执行”的动态 workflow，在预算和护栏内稳定闭环。
 
 任务：
 
-- 新增 `WorkflowRun`、`WorkflowNode`、`WorkflowEdge`、`LoopPolicy` 抽象。
+- 新增 durable `WorkflowRun` / `WorkflowOp` / `WorkflowEvent`，以 replay 而不是 VM snapshot 恢复长任务。
+- 新增受控 `workflow.js` runtime；脚本只能调用 host API，不能直接访问 raw fs/network/process/env。
 - MVP 先支持 `coding.fix_bug`、`coding.feature`、`coding.review`、`coding.debug`。
-- 节点先覆盖 `classify`、`observe`、`plan`、`implement`、`validate`、`review`、`repair`、`finish`。
-- `task_create/update` 与 workflow node 自动绑定。
+- host API 先覆盖 `tool`、`fileSearch`、`read`、`grep`、`spawnAgent`、`waitAll`、`task.create/update`、`validate`、`askUser`、`trace`、`diff`、`finish`。
+- 脚本执行前做 lint / budget / permission preview / user approval。
+- `task_create/update` 与 workflow op 自动绑定。
 - validation 失败自动生成 structured feedback，作为下一轮 repair 输入。
-- 增加 `/workflow`、`/workflow trace`、`/loop` 控制面。
+- 增加 `/workflow`、`/workflow trace`、`/workflow pause|resume|cancel`、`/loop` 控制面。
 
 产物：
 
-- `workflow` 架构文档。
+- script-first workflow runtime RFC。
 - workflow trace viewer。
 - loop policy 配置。
 
