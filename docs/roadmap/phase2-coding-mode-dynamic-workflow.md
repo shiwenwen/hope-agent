@@ -842,6 +842,8 @@ stop reason if any
 
 ### Phase 2.1：Hope-native coding skills MVP
 
+状态：2026-06-30 已新增首批 5 个 `ha-*` native coding skills；人工 coding eval 待跑。
+
 先写：
 
 - `ha-coding-common`
