@@ -354,7 +354,7 @@ LoopPolicy
 任务：
 
 - 审计现有内置 coding skills，区分 `reference` / `vendor_optional` / `rewrite_native` / `deprecate`。
-- 重写 Hope-native coding skills：`hope-coding-common`、`hope-code-review`、`hope-debug`、`hope-verify`、`hope-workflow-script` 等。
+- 重写 Hope-native coding skills：`ha-coding-common`、`ha-code-review`、`ha-debug`、`ha-verify`、`ha-workflow-script` 等。
 - 新增 `CodingSessionProfile` 或等价能力，按任务类型启用对应 workflow。
 - 分类任务：`fix_bug`、`feature`、`review`、`debug`、`test`、`refactor`。
 - Plan 输出固定包含 Context、Critical Files、Reuse、Steps、Verification、Risks。

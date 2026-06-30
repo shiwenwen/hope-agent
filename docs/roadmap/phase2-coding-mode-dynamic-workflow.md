@@ -6,6 +6,31 @@
 >
 > 更新时间：2026-06-30
 
+## 0. 设计修订说明（2026-06-30 Review 收口）
+
+本文经一轮对抗式架构 review 修订。**路线选择维持原方案**：Phase 2 内实现通用内嵌 JS 引擎（不降级为只跑固定模板）。在此前提下，把会咬死长任务的正确性/稳定性硬伤折进对应章节，并拆出两份可实现化子文档：
+
+- [Script-first Workflow Runtime 设计](workflow-script-runtime.md)：durable replay 的 op 生命周期、副作用语义、位置化 op-key、fan-out 物化、Primary-only 恢复、并发背压、预算——细化到可开工。
+- [Coding Skills Detox 审计](coding-skills-detox.md)：5 个 vendor skill 证据化审计 + attribution 卫生 + `ha-*` native 替代映射 + 迁移策略。
+
+本轮折入的修复（详节见各处与上述子文档）：
+
+| 修复点 | 原问题 | 落点 |
+| --- | --- | --- |
+| op 生命周期 + 副作用恰好一次 | replay 未定义"已发起未记录"崩溃窗口，非幂等写可能重复 | [runtime §3](workflow-script-runtime.md) |
+| 位置化 op-key + fan-out 物化 | 模型手写字面量 id 脆；结果驱动扇出重放错位 | [runtime §4](workflow-script-runtime.md)，本文 §8.1/§8.5 |
+| 确定性靠 runtime throw 非 lint | 能力沙箱与确定性混在一个 denylist，denylist 易逃逸 | [runtime §4.3](workflow-script-runtime.md)，本文 §8.5 |
+| repair 系统侧编排 | 脚本内 repair 改 script_hash 使整 run replay 失效 | [runtime §7](workflow-script-runtime.md)，本文 §10.4 |
+| Primary-only 执行/恢复 | 未定执行进程，多实例会双跑 | [runtime §5](workflow-script-runtime.md)，本文 §10.1 |
+| coordinator 不占 worker 槽 | 父占槽等子 = 死锁 | [runtime §8](workflow-script-runtime.md)，本文 §12.2 |
+| incognito × workflow 互斥 | durable 持久化与"关闭即焚"冲突 | 本文 §13.1 |
+| askUser 走无人值守 fail-closed | autonomous 下 askUser 永久阻塞 | 本文 §8.4 |
+| AGENTS 单点验证硬约束 | autonomous repair 易漂移成跑全套 | 本文 §13.1 |
+| profile 注入不破 cache | 动态内容进静态前缀使 cache 失效 | 本文 §7.1 |
+| token/cost 预算 | 原预算只有结构计数，缺成本天花板 | 本文 §10.3 |
+| 技能命名 `hope-*` → `ha-*` | 与现有 10 个 `ha-*` 内置系统 skill 不一致 | 本文 §6.3 |
+| eval 回归闸 | eval 仅作一次性验收，非持续闸 | 本文 §14/§19 |
+
 ## 1. 设计结论
 
 Phase 2 不应把当前内置第三方 coding skills 直接产品化，也不应先做一个静态结构化 workflow 状态机。新的方向是：
@@ -274,13 +299,7 @@ User Request
 
 ### 6.2 审计动作
 
-新增文档：
-
-```text
-docs/roadmap/coding-skills-detox.md
-```
-
-审计表字段：
+审计已产出：[Coding Skills Detox 审计](coding-skills-detox.md)（证据化逐 skill 判定 + attribution 卫生红线 + `ha-*` 替代映射 + 迁移策略）。审计表字段：
 
 | 字段 | 含义 |
 | --- | --- |
@@ -295,19 +314,19 @@ docs/roadmap/coding-skills-detox.md
 
 ### 6.3 Hope-native skill suite
 
-建议新增一组原生 skills，命名可先用 `hope-*`，避免与旧 skill 混淆：
+新增一组原生 skills，命名统一用 **`ha-*`**——与现有 10 个内置系统 skill（`ha-logs` / `ha-settings` / `ha-browser` / …）一致，**不引入第三套 `hope-*` 前缀**。完整映射与"吸收自哪份 vendor（重写非复制）"见 [Coding Skills Detox 审计 §5](coding-skills-detox.md)。
 
 | Skill | 目标 |
 | --- | --- |
-| `hope-coding-common` | 共享 coding 行为契约：读现有代码、尊重 AGENTS、最小改动、验证策略 |
-| `hope-implement` | feature / small implementation 的标准流程 |
-| `hope-debug` | 复现、trace、假设、最小修复、回归验证 |
-| `hope-code-review` | code review 输出格式、finding 标准、inline comment 约束 |
-| `hope-tdd` | 先写或补最小测试，再实现，适合明确行为变更 |
-| `hope-refactor` | 保行为重构、阶段性 diff、强验证 |
-| `hope-subagent-work` | 何时并行探索、何时禁止并行写 |
-| `hope-workflow-script` | 如何起草可执行 workflow script |
-| `hope-verify` | 按 AGENTS 选择最小验证，不主动跑全套 |
+| `ha-coding-common` | 共享 coding 行为契约：读现有代码、尊重 AGENTS、最小改动、单点验证默认 |
+| `ha-implement` | feature / small implementation 的标准流程 |
+| `ha-debug` | 复现、trace、假设、最小修复、回归验证 |
+| `ha-code-review` | code review 输出格式、finding 标准、inline comment 约束 |
+| `ha-tdd` | 先写或补最小测试，再实现，适合明确行为变更（opt-in，非默认策略） |
+| `ha-refactor` | 保行为重构、阶段性 diff、强验证 |
+| `ha-subagent-work` | 何时并行探索、何时禁止并行写 |
+| `ha-workflow-script` | 如何起草可执行 workflow script |
+| `ha-verify` | 按 AGENTS 选择最小验证，不主动跑全套 |
 
 ### 6.4 Skill 写法要求
 
@@ -354,6 +373,8 @@ CodingSessionProfile {
   risk_level,
 }
 ```
+
+**注入红线（cache 稳定性）**：profile 摘要注入 system prompt 时必须作**独立 cache block**（与 Memory / Awareness / User Profile 同款），绝不进静态前缀——否则每轮 profile 变化作废静态前缀缓存。先评估是否真需要独立 classifier：skill 的 description-based catalog 触发 + 模型自身可能已足够，重型 classifier 有重复造轮子 + 每轮 side-query 成本/cache 抖动的风险，能轻量则轻量。
 
 ### 7.2 任务分类
 
@@ -433,6 +454,8 @@ export default async function main(workflow) {
 }
 ```
 
+> **op 身份注意**：示例里 `` `review:${file.relPath}` `` 只作展示 label，**不是 op_key**。真正的 op 身份由 runtime 按执行位置（`map/item#i/op#0`）自动生成，`workflow.map` 会把物化后的输入列表记进自身 op 输出以保证重放稳定。模型不需要、也不应手写字面量 id。详见 [Script-first Workflow Runtime 设计 §4](workflow-script-runtime.md)。
+
 ### 8.2 Runtime choice
 
 建议使用内嵌 JS runtime，而不是依赖系统 Node：
@@ -462,13 +485,9 @@ TypeScript 可以后置，不作为 MVP 阻塞项。
 
 ### 8.3 Durable replay
 
-脚本每个 host call 必须带稳定 id：
+> 完整的 op 生命周期、副作用恰好一次语义、位置化 op-key、fan-out 物化、Primary-only 恢复算法见 [Script-first Workflow Runtime 设计](workflow-script-runtime.md)。本节只列要点。
 
-```js
-await workflow.spawnAgent("review.security", {...})
-await workflow.validate("cargo-check-core", {...})
-await workflow.tool("read-main-file", {...})
-```
+op 身份由 runtime 按**执行位置**自动生成，不由模型手写字面量 id 决定（模型写的字符串只作展示 label）。这等价于本类运行时"全局调用序号即身份"——同脚本同参数 100% 命中，恢复时最长未改前缀直接复用。结果驱动扇出由 map op **物化输入列表**保证重放稳定。副作用 op 走 `Pending → Started → Completed` 生命周期，崩溃落在 `Started` 的非幂等 op **绝不盲目重跑**（按世界状态判定，不可判定则转 `Blocked`）。
 
 数据库表草案：
 
@@ -543,16 +562,18 @@ MVP 不提供：
 - direct DB access
 - direct permission bypass
 
+**`workflow.askUser` 红线**：必须经 `evaluate_approval_surface(session_id)` 判定可应答性——autonomous / cron / headless 无人可答时按 `unattended_approval_action` deny/proceed，**绝不阻塞等待**（否则即"无限等审批"）。复用既有无人值守单一真相源，不另写一套。
+
 ### 8.5 Script gate
 
 脚本执行前必须过 gate：
 
-1. 静态 lint：
+1. 静态 lint（友好早报错，**非安全/正确性边界**——边界是 runtime 结构沙箱 + throw，见 [runtime §4.3](workflow-script-runtime.md)）：
    - 禁 `eval`
    - 禁 `Function`
    - 禁 dynamic import
-   - 禁 raw `Date.now` / `Math.random`，改用 host deterministic API
-   - 所有 host call 必须有字面量 id
+   - 禁 raw `Date.now` / `Math.random` / `new Date()`，改用 `workflow.now()` / `workflow.random(id)`
+   - op 身份由 runtime 按执行位置生成，模型无需也不应手写字面量 id（见 §8.3）
 2. 预算检查：
    - max runtime
    - max ops
@@ -622,6 +643,10 @@ Draft
   -> Blocked
 ```
 
+**执行与恢复 Primary-only（红线）**：WorkflowRun 的调度、脚本执行、崩溃恢复只在 Primary 实例发生（镜像 cron / wakeup），用 CAS + `primary_owner` 防多实例双跑。
+
+**与 Plan Mode 状态机的关系**：workflow 不替代 Plan Mode（`Off/Planning/Review/Executing/Completed`），而是 Plan 进入 `Executing` 后的一种执行机制。两套状态机各管各的轴——Plan 管"用户是否批准了设计"，workflow 管"这次执行跑到哪了"；审批面要合一展示，避免用户面对两层不相干的审批闸。task 仍是跨两者的用户可见进度真相。
+
 ### 10.2 取消与暂停
 
 要求：
@@ -655,7 +680,11 @@ Draft
 - 触发 strict action 必须 fail closed。
 - 不能无限等审批。
 
+**token/cost 维度（红线，补结构计数之外）**：每个 loop_mode 的预算除上述结构计数外，必须含 `max_output_tokens` 硬天花板（跨主线程 + 全部子 agent 共享一个池）。达上限后会消耗 token 的 op（spawnAgent / validate 触发的 LLM 轮）直接拒绝 + `Blocked`，对齐"耗尽即停"语义。`autonomous` **必须**显式设 token 与 runtime 上限，否则拒绝进入。`0` 语义按 async_tools 约定（仅明确允许项为不限，其余钳地板）。
+
 ### 10.4 No-progress 检测
+
+**repair 由 runtime 系统侧编排，不在脚本内循环（红线）**：脚本/模板只描述"一轮怎么跑"，单 run 内 script_hash 不可变；validate 失败 → 生成 structured feedback 作为下一轮 op 输入注入，而非改写脚本（脚本改写会使整 run replay 失效，与"同 run 内 repair"矛盾）。详见 [runtime §7](workflow-script-runtime.md)。
 
 每轮 repair 记录：
 
@@ -747,6 +776,7 @@ stop reason if any
 - tool jobs 继续走 `async_jobs::slots`。
 - workflow runtime 只发起请求，不自己维护平行池。
 - `waitAll` 需要支持 bounded concurrency。
+- **coordinator 不占 worker 槽（红线）**：脚本线程在 `waitAll` / `spawnAgent` 等待期间绝不持有 `async_jobs::slots` 槽或前台 idle guard——父占槽等子、子抢不到槽 = 死锁（async_jobs 已有"parked 持槽"同类陷阱）。详见 [runtime §8](workflow-script-runtime.md)。
 
 ### 12.3 大结果处理
 
@@ -761,8 +791,9 @@ stop reason if any
 
 - workflow script 不能绕过 `permission::engine`。
 - protected path / dangerous command / strict approval 继续生效。
-- unattended fail-closed 继续生效。
-- incognito session 不持久化用户内容到长期 workflow artifact。
+- unattended fail-closed 继续生效（含 `workflow.askUser`，见 §8.4）。
+- **incognito × WorkflowRun 互斥（红线）**：incognito 会话拒绝建 run。durable 的本质是持久化（op/event 天生含用户内容：文件路径、diff、validation 输出），与"关闭即焚"不可调和——对齐既有 `Project + incognito` 互斥、静默 coerce 先例，不做"少存一点"的折中。
+- **AGENTS 单点验证硬约束（红线）**：`workflow.validate` 默认单点验证；"跑全套"即使在 autonomous 也是 human-gated op（pre-push 钩子本就是全套兜底，autonomous 不该自跑全套）。
 - KB access 继续通过 `effective_kb_access`。
 - raw CDP / macOS 高危控制仍然 strict。
 
@@ -788,13 +819,15 @@ stop reason if any
 
 ## 14. 实现顺序
 
+> **eval 回归闸（贯穿）**：从 Phase 2.1 起，每个子阶段落地后对 [Phase 0 coding-eval baseline](coding-eval.md) 跑一遍并要求不回归——把"更稳更强"变成可度量而非断言，不是只在最终验收跑一次。
+
 ### Phase 2.0：文档与审计
 
 产物：
 
 - 本文。
-- `docs/roadmap/coding-skills-detox.md`
-- `docs/roadmap/workflow-script-runtime.md`
+- [Coding Skills Detox 审计](coding-skills-detox.md)（已产出）。
+- [Script-first Workflow Runtime 设计](workflow-script-runtime.md)（已产出）。
 
 验收：
 
@@ -806,11 +839,11 @@ stop reason if any
 
 先写：
 
-- `hope-coding-common`
-- `hope-code-review`
-- `hope-debug`
-- `hope-verify`
-- `hope-workflow-script`
+- `ha-coding-common`
+- `ha-code-review`
+- `ha-debug`
+- `ha-verify`
+- `ha-workflow-script`
 
 验收：
 
@@ -1018,7 +1051,7 @@ Phase 2 完成时，应满足：
 5. 长任务 UI 能展示当前状态、任务、子代理、验证、失败原因。
 6. guarded repair loop 有停止条件。
 7. 不绕过 permission / hooks / async jobs / subagent / task。
-8. 通过至少 5 个 coding eval 场景：
+8. 通过至少 5 个 coding eval 场景，并接 [Phase 0 baseline](coding-eval.md) 不回归：
    - parallel review
    - debug with failing test
    - feature implementation
@@ -1029,9 +1062,10 @@ Phase 2 完成时，应满足：
 
 推荐立即做：
 
-1. 写 `docs/roadmap/coding-skills-detox.md`。
-2. 写 `docs/roadmap/workflow-script-runtime.md`，把 durable replay 和 host API 细化到可实现。
-3. 新建第一批 Hope-native skills。
+1. ~~写 `docs/roadmap/coding-skills-detox.md`~~ → 已产出 [Coding Skills Detox 审计](coding-skills-detox.md)。
+2. ~~写 `docs/roadmap/workflow-script-runtime.md`~~ → 已产出 [Script-first Workflow Runtime 设计](workflow-script-runtime.md)。
+3. 新建第一批 `ha-*` native skills。
 4. 实现 Plan Gate / Script Gate 的纯函数和 fixture。
-5. 再进入 runtime 代码实现。
+5. 实现 durable store + 状态机（无 JS，纯函数 + fixture，[runtime §14](workflow-script-runtime.md)）。
+6. 再进入 embedded runtime 代码实现。
 

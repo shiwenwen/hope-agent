@@ -18,4 +18,6 @@
 | [Coding Eval Phase 0 完成报告](coding-eval-phase0-report.md) | Phase 0 完成审计：5 个校准试跑、schema 修订、失败分类补充与 Phase 1 决策 |
 | [ToolDefinition v2 RFC](tool-definition-v2.md) | Phase 1 工具元数据、tool_search v2、deferred 默认策略和 prompt render debug 设计 |
 | [ToolDefinition v2 迁移 Checklist](tool-definition-v2-checklist.md) | Phase 1 工具覆盖、默认 deferred 清单和验收状态 |
-| [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md) | Phase 2 详细 RFC：第三方 skill detox、Hope-native coding skills、脚本式动态 workflow、durable replay、长任务稳定性、UX 与性能 |
+| [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md) | Phase 2 详细 RFC：第三方 skill detox、Hope-native coding skills、脚本式动态 workflow、durable replay、长任务稳定性、UX 与性能（含 2026-06-30 review 收口） |
+| [Coding Skills Detox 审计](coding-skills-detox.md) | Phase 2.0 产物：5 个 vendor coding skill 证据化审计、attribution 卫生红线、`ha-*` native 替代映射与迁移策略 |
+| [Script-first Workflow Runtime 设计](workflow-script-runtime.md) | Phase 2.0 产物：durable replay 可实现化——op 生命周期与副作用恰好一次、位置化 op-key、fan-out 物化、Primary-only 恢复、并发背压、预算 |
