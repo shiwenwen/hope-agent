@@ -378,6 +378,16 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let ask_user_host = host.clone();
+    workflow.set(
+        "askUser",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &ask_user_host, args, WorkflowRuntimeHost::ask_user)
+            },
+        )),
+    )?;
+
     let diff_host = host.clone();
     workflow.set(
         "diff",
@@ -794,6 +804,17 @@ impl WorkflowRuntimeHost {
         )
     }
 
+    fn ask_user(&mut self, args: Value) -> Result<Value> {
+        let tool_args = ask_user_tool_args(&args)?;
+        let input = compact_input(args);
+        self.execute_op(
+            "askUser",
+            WorkflowEffectClass::NonIdempotent,
+            input,
+            |host| host.dispatch_ask_user(&tool_args),
+        )
+    }
+
     fn diff(&mut self, args: Value) -> Result<Value> {
         let input = compact_input(args);
         self.execute_op("diff", WorkflowEffectClass::Pure, input, |host| {
@@ -1030,6 +1051,74 @@ impl WorkflowRuntimeHost {
             })
     }
 
+    fn dispatch_ask_user(&self, args: &Value) -> Result<Value> {
+        if let crate::permission::ApprovalSurface::Unattended(reason) =
+            crate::permission::evaluate_approval_surface(Some(&self.session_id))
+        {
+            return self.resolve_unattended_ask_user(reason);
+        }
+
+        let raw = self
+            .tokio_handle
+            .block_on(tools::ask_user_question::execute(
+                args,
+                Some(&self.session_id),
+            ));
+        parse_ask_user_output(raw)
+    }
+
+    fn resolve_unattended_ask_user(
+        &self,
+        reason: crate::permission::UnattendedReason,
+    ) -> Result<Value> {
+        let action = crate::config::cached_config()
+            .permission
+            .unattended_approval_action;
+        if let Some(bus) = crate::globals::get_event_bus() {
+            bus.emit(
+                "approval:unattended",
+                json!({
+                    "session_id": self.session_id,
+                    "reason": reason.as_str(),
+                    "action": match action {
+                        crate::permission::UnattendedApprovalAction::Proceed => "proceed",
+                        crate::permission::UnattendedApprovalAction::Deny => "deny",
+                    },
+                    "strict": false,
+                    "effective": match action {
+                        crate::permission::UnattendedApprovalAction::Proceed => "proceed",
+                        crate::permission::UnattendedApprovalAction::Deny => "deny",
+                    },
+                    "command": "workflow.askUser",
+                }),
+            );
+        }
+
+        match action {
+            crate::permission::UnattendedApprovalAction::Deny => Err(anyhow!(
+                "workflow.askUser unattended surface ({}): {}",
+                reason.as_str(),
+                reason.explain()
+            )),
+            crate::permission::UnattendedApprovalAction::Proceed => {
+                crate::app_warn!(
+                    "workflow",
+                    "ask_user",
+                    "workflow.askUser auto-proceeded on unattended surface ({}) for session {}",
+                    reason.as_str(),
+                    self.session_id
+                );
+                Ok(json!({
+                    "answers": [],
+                    "unattended": true,
+                    "proceeded": true,
+                    "reason": reason.as_str(),
+                    "message": "No human approval surface was available; continued because unattendedApprovalAction=proceed.",
+                }))
+            }
+        }
+    }
+
     fn tool_exec_context(&self) -> ToolExecContext {
         ToolExecContext {
             session_id: Some(self.session_id.clone()),
@@ -1231,6 +1320,157 @@ fn normalize_wait_all_response(value: &mut Value) {
             }
         }
     }
+}
+
+pub(crate) fn ask_user_tool_args(args: &Value) -> Result<Value> {
+    let questions = if let Some(questions) = args.get("questions") {
+        let Value::Array(questions) = questions else {
+            return Err(anyhow!("workflow.askUser questions must be an array"));
+        };
+        questions.clone()
+    } else {
+        vec![ask_user_question_from_args(args)?]
+    };
+
+    if questions.is_empty() {
+        return Err(anyhow!("workflow.askUser requires at least one question"));
+    }
+    if questions.len() > 4 {
+        return Err(anyhow!(
+            "workflow.askUser supports at most 4 questions per call"
+        ));
+    }
+
+    let mut map = serde_json::Map::new();
+    map.insert("questions".to_string(), Value::Array(questions));
+    if let Some(context) = args.get("context").cloned() {
+        map.insert("context".to_string(), context);
+    }
+    Ok(Value::Object(map))
+}
+
+fn ask_user_question_from_args(args: &Value) -> Result<Value> {
+    let question = required_string(args, "question")?;
+    let mut map = serde_json::Map::new();
+    map.insert(
+        "question_id".to_string(),
+        Value::String(
+            optional_string(args, "question_id")
+                .or_else(|| optional_string(args, "questionId"))
+                .unwrap_or_else(|| "q_0".to_string()),
+        ),
+    );
+    map.insert("text".to_string(), Value::String(question));
+
+    if let Some(header) = args.get("header").cloned() {
+        map.insert("header".to_string(), header);
+    }
+    if let Some(options) = args.get("options") {
+        map.insert("options".to_string(), normalize_ask_user_options(options)?);
+    } else {
+        map.insert("options".to_string(), Value::Array(Vec::new()));
+    }
+    if let Some(allow_custom) = args.get("allow_custom").or_else(|| args.get("allowCustom")) {
+        map.insert("allow_custom".to_string(), allow_custom.clone());
+    }
+    if let Some(multi_select) = args.get("multi_select").or_else(|| args.get("multiSelect")) {
+        map.insert("multi_select".to_string(), multi_select.clone());
+    }
+    if let Some(template) = args.get("template") {
+        map.insert("template".to_string(), template.clone());
+    }
+    if let Some(timeout) = args.get("timeout_secs").or_else(|| args.get("timeoutSecs")) {
+        map.insert("timeout_secs".to_string(), timeout.clone());
+    }
+    if let Some(defaults) = args
+        .get("default_values")
+        .or_else(|| args.get("defaultValues"))
+    {
+        map.insert("default_values".to_string(), defaults.clone());
+    }
+
+    Ok(Value::Object(map))
+}
+
+fn normalize_ask_user_options(value: &Value) -> Result<Value> {
+    let Value::Array(options) = value else {
+        return Err(anyhow!("workflow.askUser options must be an array"));
+    };
+    if options.len() > 8 {
+        return Err(anyhow!(
+            "workflow.askUser supports at most 8 options per question"
+        ));
+    }
+
+    let mut normalized = Vec::with_capacity(options.len());
+    for option in options {
+        match option {
+            Value::String(label) => {
+                normalized.push(json!({
+                    "value": label,
+                    "label": label,
+                }));
+            }
+            Value::Object(option) => {
+                let label = option
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .or_else(|| option.get("value").and_then(Value::as_str))
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| anyhow!("workflow.askUser option requires label or value"))?;
+                let value = option
+                    .get("value")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(label);
+                let mut map = serde_json::Map::new();
+                map.insert("value".to_string(), Value::String(value.to_string()));
+                map.insert("label".to_string(), Value::String(label.to_string()));
+                for key in ["description", "recommended", "preview"] {
+                    if let Some(field) = option.get(key).cloned() {
+                        map.insert(key.to_string(), field);
+                    }
+                }
+                if let Some(preview_kind) = option
+                    .get("previewKind")
+                    .or_else(|| option.get("preview_kind"))
+                {
+                    map.insert("previewKind".to_string(), preview_kind.clone());
+                }
+                normalized.push(Value::Object(map));
+            }
+            _ => {
+                return Err(anyhow!(
+                    "workflow.askUser options must be strings or objects"
+                ));
+            }
+        }
+    }
+
+    Ok(Value::Array(normalized))
+}
+
+fn parse_ask_user_output(raw: String) -> Result<Value> {
+    if raw.starts_with("Error:") {
+        return Err(anyhow!("workflow.askUser failed: {raw}"));
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(&raw) {
+        return Ok(value);
+    }
+
+    let status = if raw.to_ascii_lowercase().contains("timed out") {
+        "timed_out"
+    } else if raw.to_ascii_lowercase().contains("cancelled") {
+        "cancelled"
+    } else {
+        "message"
+    };
+    Ok(json!({
+        "status": status,
+        "message": raw,
+    }))
 }
 
 #[derive(Debug, Clone)]

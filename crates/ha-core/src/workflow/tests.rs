@@ -8,7 +8,9 @@ use crate::subagent::{SubagentRun, SubagentStatus};
 
 use super::{
     recover_pending_workflow_runs, run_workflow_script,
-    runtime::{spawn_agent_tool_args, validation_exit_code, wait_all_tool_args},
+    runtime::{
+        ask_user_tool_args, spawn_agent_tool_args, validation_exit_code, wait_all_tool_args,
+    },
     CreateWorkflowRunInput, StartedOpRecoveryAction, UpsertWorkflowOpInput, WorkflowEffectClass,
     WorkflowOpState, WorkflowRunState,
 };
@@ -747,6 +749,42 @@ export default async function main(workflow) {
 }
 
 #[test]
+fn runtime_ask_user_fails_closed_on_unattended_surface() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Clarify" });
+  await workflow.askUser({
+    label: "clarify",
+    question: "Continue without a visible user?",
+    options: ["Continue", "Stop"]
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ summary: "unreachable" });
+}
+"#;
+    let (_session_id, run_id) = create_run_with_script(&db, script);
+
+    let err = run_workflow_script(db.clone(), &run_id).expect_err("askUser must fail closed");
+    assert!(err
+        .to_string()
+        .contains("workflow.askUser unattended surface"));
+
+    let run = db
+        .get_workflow_run(&run_id)
+        .expect("get run")
+        .expect("run exists");
+    assert_eq!(run.state, WorkflowRunState::Failed);
+    let ops = db.list_workflow_ops(&run_id).expect("list ops");
+    assert_eq!(ops.len(), 2);
+    assert_eq!(ops[0].op_type, "task.create");
+    assert_eq!(ops[0].state, WorkflowOpState::Completed);
+    assert_eq!(ops[1].op_type, "askUser");
+    assert_eq!(ops[1].state, WorkflowOpState::Failed);
+}
+
+#[test]
 fn validation_exit_code_parses_exec_output_markers() {
     assert_eq!(validation_exit_code("hello\n[exit code: 3]"), 3);
     assert_eq!(
@@ -794,6 +832,54 @@ fn workflow_subagent_host_args_normalize_agent_and_handles() {
             "action": "wait_all",
             "run_ids": ["sar_1", "sar_2"],
             "wait_timeout": 5
+        })
+    );
+}
+
+#[test]
+fn workflow_ask_user_host_args_normalize_question_options() {
+    let args = ask_user_tool_args(&json!({
+        "label": "choose-path",
+        "question": "How should the workflow continue?",
+        "context": "Validation failed after the first repair.",
+        "questionId": "next_step",
+        "header": "Next",
+        "options": [
+            "Retry",
+            {
+                "value": "stop",
+                "label": "Stop",
+                "description": "Return the current findings.",
+                "recommended": true,
+                "previewKind": "markdown"
+            }
+        ],
+        "defaultValues": ["stop"],
+        "timeoutSecs": 60
+    }))
+    .expect("normalize askUser args");
+
+    assert_eq!(
+        args,
+        json!({
+            "questions": [{
+                "question_id": "next_step",
+                "text": "How should the workflow continue?",
+                "header": "Next",
+                "options": [
+                    { "value": "Retry", "label": "Retry" },
+                    {
+                        "value": "stop",
+                        "label": "Stop",
+                        "description": "Return the current findings.",
+                        "recommended": true,
+                        "previewKind": "markdown"
+                    }
+                ],
+                "timeout_secs": 60,
+                "default_values": ["stop"]
+            }],
+            "context": "Validation failed after the first repair."
         })
     );
 }

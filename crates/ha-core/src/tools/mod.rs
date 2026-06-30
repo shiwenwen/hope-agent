@@ -5,7 +5,7 @@ mod agents;
 mod app_update;
 mod apply_patch;
 pub(crate) mod approval;
-mod ask_user_question;
+pub(crate) mod ask_user_question;
 pub(crate) mod browser;
 pub mod canvas;
 mod cron;
