@@ -5,7 +5,8 @@ use crate::permission::SessionMode;
 use crate::session::SessionDB;
 
 use super::{
-    recover_pending_workflow_runs, run_workflow_script, runtime::validation_exit_code,
+    recover_pending_workflow_runs, run_workflow_script,
+    runtime::{spawn_agent_tool_args, validation_exit_code, wait_all_tool_args},
     CreateWorkflowRunInput, StartedOpRecoveryAction, UpsertWorkflowOpInput, WorkflowEffectClass,
     WorkflowOpState, WorkflowRunState,
 };
@@ -543,6 +544,162 @@ fn validation_exit_code_parses_exec_output_markers() {
         7
     );
     assert_eq!(validation_exit_code("rustc 1.90.0"), 0);
+}
+
+#[test]
+fn workflow_subagent_host_args_normalize_agent_and_handles() {
+    let spawn = spawn_agent_tool_args(&json!({
+        "task": "Review the current diff",
+        "agent": "ha-review",
+        "label": "review",
+        "model": "openai/gpt-5",
+        "timeout": 30,
+        "files": []
+    }))
+    .expect("normalize spawn args");
+    assert_eq!(
+        spawn,
+        json!({
+            "action": "spawn",
+            "task": "Review the current diff",
+            "agent_id": "ha-review",
+            "label": "review",
+            "model": "openai/gpt-5",
+            "timeout_secs": 30,
+            "files": []
+        })
+    );
+
+    let wait = wait_all_tool_args(&json!({
+        "handles": [
+            { "runId": "sar_1" },
+            { "run_id": "sar_2" }
+        ],
+        "waitTimeout": 5
+    }))
+    .expect("normalize wait args");
+    assert_eq!(
+        wait,
+        json!({
+            "action": "wait_all",
+            "run_ids": ["sar_1", "sar_2"],
+            "wait_timeout": 5
+        })
+    );
+}
+
+#[test]
+fn runtime_replays_completed_spawn_agent_and_wait_all_without_rescheduling() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Delegate review" });
+  const review = await workflow.spawnAgent({
+    task: "Review the current diff",
+    agent: "ha-review",
+    label: "review"
+  });
+  const waited = await workflow.waitAll([review], { waitTimeout: 1 });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    runId: review.runId,
+    allCompleted: waited.allCompleted,
+    firstStatus: waited.runs[0].status
+  });
+}
+"#;
+    let (_session_id, run_id) = create_run_with_script(&db, script);
+
+    let handle = json!({
+        "kind": "subagent",
+        "runId": "sar_replayed",
+        "run_id": "sar_replayed",
+        "status": "spawned",
+        "label": "review",
+        "task": "Review the current diff",
+        "message": "pre-recorded"
+    });
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Review the current diff",
+                "agent_id": "ha-review",
+                "label": "review"
+            },
+            "label": "review"
+        }),
+        child_handle: None,
+    })
+    .expect("start preexisting spawn op");
+    db.complete_workflow_op(&run_id, "main/op#1(spawnAgent)", handle.clone())
+        .expect("complete preexisting spawn op");
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#2(waitAll)".to_string(),
+        op_type: "waitAll".to_string(),
+        effect_class: WorkflowEffectClass::Pure,
+        input: json!({
+            "handles": [handle],
+            "waitTimeout": 1
+        }),
+        child_handle: None,
+    })
+    .expect("start preexisting wait op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#2(waitAll)",
+        json!({
+            "all_completed": true,
+            "allCompleted": true,
+            "runs": [{
+                "run_id": "sar_replayed",
+                "runId": "sar_replayed",
+                "status": "completed",
+                "result_preview": "ok"
+            }]
+        }),
+    )
+    .expect("complete preexisting wait op");
+
+    let result = run_workflow_script(db.clone(), &run_id).expect("recover workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    assert_eq!(
+        result.output,
+        Some(json!({
+            "runId": "sar_replayed",
+            "allCompleted": true,
+            "firstStatus": "completed"
+        }))
+    );
+
+    let mut op_types_by_key: Vec<(&str, &str)> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| (op.op_key.as_str(), op.op_type.as_str()))
+        .collect();
+    op_types_by_key.sort_by(|left, right| left.0.cmp(right.0));
+    let op_types: Vec<&str> = op_types_by_key
+        .iter()
+        .map(|(_op_key, op_type)| *op_type)
+        .collect();
+    assert_eq!(
+        op_types,
+        vec![
+            "task.create",
+            "spawnAgent",
+            "waitAll",
+            "task.update",
+            "finish"
+        ]
+    );
 }
 
 #[test]

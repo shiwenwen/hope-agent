@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context as _, Result};
+use rquickjs::function::Opt;
 use rquickjs::prelude::{Func, MutFn};
 use rquickjs::{
     CatchResultExt, Context, Ctx, Exception, Function, Object, Runtime, Value as JsValue,
@@ -319,6 +320,34 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let spawn_agent_host = host.clone();
+    workflow.set(
+        "spawnAgent",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &spawn_agent_host,
+                    args,
+                    WorkflowRuntimeHost::spawn_agent,
+                )
+            },
+        )),
+    )?;
+
+    let wait_all_host = host.clone();
+    workflow.set(
+        "waitAll",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>,
+                  handles: JsValue<'js>,
+                  options: Opt<JsValue<'js>>|
+                  -> rquickjs::Result<JsValue<'js>> {
+                wait_all_host_call(&ctx, &wait_all_host, handles, options)
+            },
+        )),
+    )?;
+
     let read_host = host.clone();
     workflow.set(
         "read",
@@ -412,6 +441,27 @@ fn host_call<'js>(
         .try_borrow_mut()
         .map_err(|_| Exception::throw_message(ctx, "workflow host API called recursively"))?
         .call(args, f)
+        .map_err(|err| js_error(ctx, err))?;
+    json_to_js(ctx.clone(), output)
+}
+
+fn wait_all_host_call<'js>(
+    ctx: &Ctx<'js>,
+    host: &Rc<RefCell<WorkflowRuntimeHost>>,
+    handles: JsValue<'js>,
+    options: Opt<JsValue<'js>>,
+) -> rquickjs::Result<JsValue<'js>> {
+    let handles = js_to_json(ctx, handles)?;
+    let options = options
+        .0
+        .filter(|value| !value.is_undefined() && !value.is_null())
+        .map(|value| js_to_json(ctx, value))
+        .transpose()?;
+    let args = wait_all_args_from_values(handles, options).map_err(|err| js_error(ctx, err))?;
+    let output = host
+        .try_borrow_mut()
+        .map_err(|_| Exception::throw_message(ctx, "workflow host API called recursively"))?
+        .call(args, WorkflowRuntimeHost::wait_all)
         .map_err(|err| js_error(ctx, err))?;
     json_to_js(ctx.clone(), output)
 }
@@ -605,6 +655,47 @@ impl WorkflowRuntimeHost {
         });
         self.execute_op(&op_type, effect_class, input, |host| {
             host.dispatch_tool(&name, &tool_args).map(Value::String)
+        })
+    }
+
+    fn spawn_agent(&mut self, args: Value) -> Result<Value> {
+        let tool_args = spawn_agent_tool_args(&args)?;
+        let label = optional_string(&args, "label");
+        let task = optional_string(&args, "task");
+        let input = json!({
+            "args": tool_args.clone(),
+            "label": label,
+        });
+        self.execute_op(
+            "spawnAgent",
+            WorkflowEffectClass::NonIdempotent,
+            input,
+            |host| {
+                let output = host.dispatch_tool(tools::TOOL_SUBAGENT, &tool_args)?;
+                let parsed = parse_tool_json_output(&output, "workflow.spawnAgent")?;
+                let run_id = parsed
+                    .get("run_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .ok_or_else(|| anyhow!("workflow.spawnAgent subagent output missing run_id"))?;
+                Ok(subagent_handle(
+                    &run_id,
+                    label.as_deref(),
+                    task.as_deref(),
+                    &parsed,
+                ))
+            },
+        )
+    }
+
+    fn wait_all(&mut self, args: Value) -> Result<Value> {
+        let tool_args = wait_all_tool_args(&args)?;
+        let input = compact_input(args);
+        self.execute_op("waitAll", WorkflowEffectClass::Pure, input, |host| {
+            let output = host.dispatch_tool(tools::TOOL_SUBAGENT, &tool_args)?;
+            let mut parsed = parse_tool_json_output(&output, "workflow.waitAll")?;
+            normalize_wait_all_response(&mut parsed);
+            Ok(parsed)
         })
     }
 
@@ -813,6 +904,157 @@ fn task_handle(task: &Task, label: Option<&str>) -> Value {
     })
 }
 
+pub(crate) fn spawn_agent_tool_args(args: &Value) -> Result<Value> {
+    let task = required_string(args, "task")?;
+    let mut map = serde_json::Map::new();
+    map.insert("action".to_string(), Value::String("spawn".to_string()));
+    map.insert("task".to_string(), Value::String(task));
+    if let Some(agent_id) =
+        optional_string(args, "agent_id").or_else(|| optional_string(args, "agent"))
+    {
+        map.insert("agent_id".to_string(), Value::String(agent_id));
+    }
+    if let Some(label) = optional_string(args, "label") {
+        map.insert("label".to_string(), Value::String(label));
+    }
+    if let Some(model) = optional_string(args, "model") {
+        map.insert("model".to_string(), Value::String(model));
+    }
+    if let Some(timeout_secs) = optional_u64_any(args, &["timeout_secs", "timeoutSecs", "timeout"])
+    {
+        map.insert(
+            "timeout_secs".to_string(),
+            Value::Number(timeout_secs.into()),
+        );
+    }
+    if let Some(files) = args.get("files") {
+        if !files.is_array() {
+            return Err(anyhow!("workflow.spawnAgent files must be an array"));
+        }
+        map.insert("files".to_string(), files.clone());
+    }
+    Ok(Value::Object(map))
+}
+
+fn subagent_handle(run_id: &str, label: Option<&str>, task: Option<&str>, raw: &Value) -> Value {
+    json!({
+        "kind": "subagent",
+        "runId": run_id,
+        "run_id": run_id,
+        "status": raw.get("status").and_then(Value::as_str).unwrap_or("spawned"),
+        "label": label,
+        "task": task,
+        "message": raw.get("message").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn parse_tool_json_output(output: &str, context: &str) -> Result<Value> {
+    serde_json::from_str(output).with_context(|| format!("{context} returned non-JSON output"))
+}
+
+fn wait_all_args_from_values(handles: Value, options: Option<Value>) -> Result<Value> {
+    let mut map = match handles {
+        Value::Object(map)
+            if map.contains_key("handles")
+                || map.contains_key("runIds")
+                || map.contains_key("run_ids") =>
+        {
+            map
+        }
+        value => {
+            let mut map = serde_json::Map::new();
+            map.insert("handles".to_string(), value);
+            map
+        }
+    };
+
+    if let Some(options) = options {
+        let Value::Object(options) = options else {
+            return Err(anyhow!("workflow.waitAll options must be an object"));
+        };
+        for (key, value) in options {
+            map.insert(key, value);
+        }
+    }
+
+    Ok(Value::Object(map))
+}
+
+pub(crate) fn wait_all_tool_args(args: &Value) -> Result<Value> {
+    let handles = args
+        .get("handles")
+        .or_else(|| args.get("runIds"))
+        .or_else(|| args.get("run_ids"))
+        .ok_or_else(|| anyhow!("workflow.waitAll requires handles or runIds"))?;
+    let run_ids = extract_subagent_run_ids(handles)?;
+    if run_ids.is_empty() {
+        return Err(anyhow!("workflow.waitAll requires at least one handle"));
+    }
+
+    let mut map = serde_json::Map::new();
+    map.insert("action".to_string(), Value::String("wait_all".to_string()));
+    map.insert("run_ids".to_string(), json!(run_ids));
+    if let Some(wait_timeout) = optional_u64_any(args, &["wait_timeout", "waitTimeout", "timeout"])
+    {
+        map.insert(
+            "wait_timeout".to_string(),
+            Value::Number(wait_timeout.into()),
+        );
+    }
+    Ok(Value::Object(map))
+}
+
+fn extract_subagent_run_ids(value: &Value) -> Result<Vec<String>> {
+    match value {
+        Value::String(run_id) => Ok(vec![run_id.clone()]),
+        Value::Array(items) => {
+            let mut run_ids = Vec::with_capacity(items.len());
+            for item in items {
+                run_ids.extend(extract_subagent_run_ids(item)?);
+            }
+            Ok(run_ids)
+        }
+        Value::Object(map) => {
+            if let Some(run_id) = map
+                .get("runId")
+                .or_else(|| map.get("run_id"))
+                .and_then(Value::as_str)
+            {
+                return Ok(vec![run_id.to_string()]);
+            }
+            if let Some(nested) = map
+                .get("handles")
+                .or_else(|| map.get("runIds"))
+                .or_else(|| map.get("run_ids"))
+            {
+                return extract_subagent_run_ids(nested);
+            }
+            Err(anyhow!("workflow.waitAll handle object must include runId"))
+        }
+        _ => Err(anyhow!(
+            "workflow.waitAll handles must be run IDs or subagent handles"
+        )),
+    }
+}
+
+fn normalize_wait_all_response(value: &mut Value) {
+    if let Value::Object(map) = value {
+        if let Some(all_completed) = map.get("all_completed").cloned() {
+            map.entry("allCompleted".to_string())
+                .or_insert(all_completed);
+        }
+        if let Some(Value::Array(runs)) = map.get_mut("runs") {
+            for run in runs {
+                if let Value::Object(run) = run {
+                    if let Some(run_id) = run.get("run_id").cloned() {
+                        run.entry("runId".to_string()).or_insert(run_id);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct ValidationCommand {
     command: String,
@@ -992,6 +1234,11 @@ fn optional_string(args: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn optional_u64_any(args: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| args.get(*key).and_then(Value::as_u64))
 }
 
 fn compact_input(value: Value) -> Value {
