@@ -9,6 +9,8 @@
 //!   because some providers reject those at the root (we preserve them
 //!   in nested positions).
 
+use std::collections::{HashMap, HashSet};
+
 use rmcp::model;
 use serde_json::{json, Value};
 
@@ -46,11 +48,59 @@ pub fn sanitize_tool_name(raw: &str) -> String {
 
 /// Join the namespaced tool identifier the LLM sees.
 pub fn namespaced_tool_name(server_name: &str, original_tool_name: &str) -> String {
-    format!(
-        "mcp__{}__{}",
-        server_name,
-        sanitize_tool_name(original_tool_name)
-    )
+    namespaced_tool_name_from_sanitized(server_name, &sanitize_tool_name(original_tool_name))
+}
+
+fn namespaced_tool_name_from_sanitized(server_name: &str, sanitized_tool_name: &str) -> String {
+    format!("mcp__{}__{}", server_name, sanitized_tool_name)
+}
+
+/// Assign collision-safe namespaced tool identifiers for a server catalog.
+///
+/// Sanitization alone can collapse distinct MCP tool names (`foo-bar` and
+/// `foo.bar` both become `foo_bar`). The LLM-visible names must remain unique,
+/// so later collisions get `_2`, `_3`, ... suffixes while staying inside the
+/// provider 64-character tool-name ceiling.
+pub fn assign_namespaced_tool_names<'a, I>(server_name: &str, originals: I) -> Vec<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut next_ordinal_by_base: HashMap<String, usize> = HashMap::new();
+    let mut used: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+
+    for original in originals {
+        let base = sanitize_tool_name(original);
+        let mut ordinal = next_ordinal_by_base
+            .get(&base)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(1);
+        loop {
+            let tool_part = suffixed_tool_name(&base, ordinal);
+            let namespaced = namespaced_tool_name_from_sanitized(server_name, &tool_part);
+            if used.insert(namespaced.clone()) {
+                next_ordinal_by_base.insert(base.clone(), ordinal);
+                out.push(namespaced);
+                break;
+            }
+            ordinal = ordinal.saturating_add(1);
+        }
+    }
+
+    out
+}
+
+fn suffixed_tool_name(base: &str, ordinal: usize) -> String {
+    if ordinal <= 1 {
+        return base.to_string();
+    }
+    let suffix = format!("_{ordinal}");
+    let keep = TOOL_NAME_CAP.saturating_sub(suffix.len());
+    let mut out = String::with_capacity(TOOL_NAME_CAP);
+    out.push_str(&base[..base.len().min(keep)]);
+    out.push_str(&suffix);
+    out
 }
 
 /// The `prefix_bytes` / `suffix_bytes` constants let callers decide
@@ -228,7 +278,19 @@ fn merge_object_union(variants: &[Value]) -> (serde_json::Map<String, Value>, Ve
 /// per-agent `capabilities.mcp_enabled` flag gates injection.
 pub fn rmcp_tool_to_definition(cfg: &McpServerConfig, tool: &model::Tool) -> ToolDefinition {
     let orig = tool.name.to_string();
-    let name = namespaced_tool_name(&cfg.name, &orig);
+    rmcp_tool_to_definition_with_name(cfg, tool, namespaced_tool_name(&cfg.name, &orig))
+}
+
+/// Build a [`ToolDefinition`] using a pre-assigned namespaced name.
+///
+/// Catalog refresh paths use this after running collision resolution across the
+/// whole server catalog; the single-tool helper above remains for tests and
+/// call sites that do not need cross-tool uniqueness.
+pub fn rmcp_tool_to_definition_with_name(
+    cfg: &McpServerConfig,
+    tool: &model::Tool,
+    name: String,
+) -> ToolDefinition {
     let description_owned: String = tool
         .description
         .as_ref()
@@ -326,6 +388,19 @@ mod tests {
             n,
             n.len()
         );
+    }
+
+    #[test]
+    fn assigned_names_are_collision_safe_and_bounded() {
+        let long = "a".repeat(100);
+        let names =
+            assign_namespaced_tool_names("srv", ["foo-bar", "foo.bar", "foo_bar", long.as_str()]);
+        assert_eq!(names[0], "mcp__srv__foo_bar");
+        assert_eq!(names[1], "mcp__srv__foo_bar_2");
+        assert_eq!(names[2], "mcp__srv__foo_bar_3");
+        assert!(names[3].len() <= 64);
+        let unique: std::collections::HashSet<_> = names.iter().collect();
+        assert_eq!(unique.len(), names.len());
     }
 
     #[test]

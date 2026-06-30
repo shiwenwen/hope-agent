@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{cached_config, mutate_config};
 
-use super::catalog::namespaced_tool_name;
 use super::client;
 use super::config::{
     McpGlobalSettings, McpOAuthConfig, McpServerConfig, McpTransportSpec, McpTrustLevel,
@@ -25,6 +24,8 @@ use super::config::{
 use super::credentials;
 use super::oauth;
 use super::registry::{McpManager, ServerStatusSnapshot};
+
+const REDACTED: &str = "<redacted>";
 
 // ── Serializable DTOs ────────────────────────────────────────────
 
@@ -83,7 +84,6 @@ impl McpServerSummary {
 /// bake the redaction here so that "add field" stays the single mental
 /// model for schema evolution.
 fn redact_for_response(mut cfg: McpServerConfig) -> McpServerConfig {
-    const REDACTED: &str = "<redacted>";
     if let Some(oauth) = cfg.oauth.as_mut() {
         if oauth.client_secret.is_some() {
             oauth.client_secret = Some(REDACTED.into());
@@ -192,12 +192,11 @@ impl McpServerDraft {
     /// Bake the draft into a persisted [`McpServerConfig`]. `now_secs` is
     /// injected so the test matrix can freeze time.
     pub fn into_config(self, now_secs: i64, existing: Option<&McpServerConfig>) -> McpServerConfig {
-        let id = self
-            .id
-            .or_else(|| existing.map(|e| e.id.clone()))
+        let id = existing
+            .map(|e| e.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().as_hyphenated().to_string());
         let created_at = existing.map(|e| e.created_at).unwrap_or(now_secs);
-        McpServerConfig {
+        let mut cfg = McpServerConfig {
             id,
             name: self.name,
             enabled: self.enabled,
@@ -221,6 +220,35 @@ impl McpServerDraft {
             created_at,
             updated_at: now_secs,
             trust_acknowledged_at: self.trust_acknowledged_at,
+        };
+        if let Some(existing) = existing {
+            preserve_existing_sensitive_fields(&mut cfg, existing);
+        }
+        cfg
+    }
+}
+
+fn preserve_existing_sensitive_fields(cfg: &mut McpServerConfig, existing: &McpServerConfig) {
+    preserve_redacted_map_values(&mut cfg.env, &existing.env);
+    preserve_redacted_map_values(&mut cfg.headers, &existing.headers);
+
+    match (&mut cfg.oauth, &existing.oauth) {
+        (Some(new), Some(old)) if new.client_secret.as_deref() == Some(REDACTED) => {
+            new.client_secret = old.client_secret.clone();
+        }
+        _ => {}
+    }
+}
+
+fn preserve_redacted_map_values(
+    current: &mut BTreeMap<String, String>,
+    existing: &BTreeMap<String, String>,
+) {
+    for (key, value) in current.iter_mut() {
+        if value == REDACTED {
+            if let Some(old) = existing.get(key) {
+                *value = old.clone();
+            }
         }
     }
 }
@@ -242,13 +270,7 @@ async fn snapshots_by_id() -> std::collections::HashMap<String, ServerStatusSnap
 }
 
 async fn reconcile_from_cache() -> Result<()> {
-    let Some(mgr) = McpManager::global() else {
-        return Ok(());
-    };
-    let cfg = cached_config();
-    mgr.reconcile(cfg.mcp_global.clone(), cfg.mcp_servers.clone())
-        .await
-        .map_err(|e| anyhow!("{e}"))
+    super::reconcile_from_config_cache().await
 }
 
 // ── CRUD commands ────────────────────────────────────────────────
@@ -329,6 +351,12 @@ pub async fn update_server(id: &str, draft: McpServerDraft) -> Result<McpServerS
 
     let new_cfg = draft.into_config(now, Some(&existing));
     new_cfg.validate().map_err(|e| anyhow!("{e}"))?;
+    if new_cfg.name != existing.name {
+        return Err(anyhow!(
+            "MCP server names are immutable; remove and re-add '{}' to rename it",
+            existing.name
+        ));
+    }
 
     let saved = new_cfg.clone();
     mutate_config(("mcp.update", "settings_panel"), |store| {
@@ -402,7 +430,8 @@ pub async fn reorder_servers(new_order: Vec<String>) -> Result<()> {
             store.mcp_servers.push(cfg);
         }
         Ok(())
-    })
+    })?;
+    reconcile_from_cache().await
 }
 
 // ── Connection + diagnostics ─────────────────────────────────────
@@ -536,9 +565,14 @@ pub async fn list_server_tools(id: &str) -> Result<Vec<McpToolSummary>> {
         _ => Vec::new(),
     };
     let cfg_name = handle.config.read().await.name.clone();
+    let namespaced_names = super::catalog::assign_namespaced_tool_names(
+        &cfg_name,
+        tools.iter().map(|t| t.name.as_ref()),
+    );
     Ok(tools
         .iter()
-        .map(|t| {
+        .zip(namespaced_names)
+        .map(|(t, namespaced_name)| {
             let name = t.name.to_string();
             let description = t
                 .description
@@ -546,7 +580,7 @@ pub async fn list_server_tools(id: &str) -> Result<Vec<McpToolSummary>> {
                 .map(|d| d.to_string())
                 .filter(|s| !s.is_empty());
             McpToolSummary {
-                namespaced_name: namespaced_tool_name(&cfg_name, &name),
+                namespaced_name,
                 name,
                 description,
             }
@@ -801,7 +835,7 @@ mod tests {
     #[test]
     fn draft_preserves_id_on_update() {
         let draft = McpServerDraft {
-            id: None,
+            id: Some("ignored-draft-id".into()),
             name: "foo".into(),
             enabled: true,
             transport: McpTransportSpec::Stdio {
@@ -860,5 +894,101 @@ mod tests {
         assert_eq!(cfg.id, "keep-me");
         assert_eq!(cfg.created_at, 100);
         assert_eq!(cfg.updated_at, 200);
+    }
+
+    #[test]
+    fn draft_preserves_redacted_sensitive_values_on_update() {
+        let mut existing = McpServerConfig {
+            id: "keep-me".into(),
+            name: "foo".into(),
+            enabled: true,
+            transport: McpTransportSpec::StreamableHttp {
+                url: "https://example.com/mcp".into(),
+            },
+            env: [("API_KEY".into(), "old-env-secret".into())]
+                .into_iter()
+                .collect(),
+            headers: [("Authorization".into(), "Bearer old-token".into())]
+                .into_iter()
+                .collect(),
+            oauth: Some(McpOAuthConfig {
+                client_id: Some("client".into()),
+                client_secret: Some("old-client-secret".into()),
+                authorization_endpoint: Some("https://example.com/auth".into()),
+                token_endpoint: Some("https://example.com/token".into()),
+                scopes: vec!["read".into()],
+                extra_params: Default::default(),
+            }),
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            connect_timeout_secs: 30,
+            call_timeout_secs: 120,
+            health_check_interval_secs: 60,
+            max_concurrent_calls: 4,
+            auto_approve: false,
+            trust_level: McpTrustLevel::Untrusted,
+            eager: false,
+            deferred_tools: false,
+            project_paths: vec![],
+            description: None,
+            icon: None,
+            created_at: 100,
+            updated_at: 100,
+            trust_acknowledged_at: None,
+        };
+
+        let draft = McpServerDraft {
+            id: None,
+            name: "foo".into(),
+            enabled: true,
+            transport: existing.transport.clone(),
+            env: [("API_KEY".into(), REDACTED.into())].into_iter().collect(),
+            headers: [("Authorization".into(), REDACTED.into())]
+                .into_iter()
+                .collect(),
+            oauth: None,
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            connect_timeout_secs: None,
+            call_timeout_secs: None,
+            health_check_interval_secs: None,
+            max_concurrent_calls: None,
+            auto_approve: false,
+            trust_level: McpTrustLevel::Untrusted,
+            eager: false,
+            deferred_tools: false,
+            project_paths: vec![],
+            description: None,
+            icon: None,
+            trust_acknowledged_at: None,
+        };
+
+        let cfg = draft.into_config(200, Some(&existing));
+        assert_eq!(cfg.env["API_KEY"], "old-env-secret");
+        assert_eq!(cfg.headers["Authorization"], "Bearer old-token");
+        assert!(cfg.oauth.is_none());
+
+        existing.oauth.as_mut().unwrap().client_secret = Some("rotated".into());
+        let mut draft_with_oauth = existing.clone();
+        draft_with_oauth.oauth.as_mut().unwrap().client_secret = Some(REDACTED.into());
+        preserve_existing_sensitive_fields(&mut draft_with_oauth, &existing);
+        assert_eq!(
+            draft_with_oauth
+                .oauth
+                .as_ref()
+                .and_then(|o| o.client_secret.as_deref()),
+            Some("rotated")
+        );
+
+        let mut draft_clearing_secret = existing.clone();
+        draft_clearing_secret.oauth.as_mut().unwrap().client_secret = None;
+        preserve_existing_sensitive_fields(&mut draft_clearing_secret, &existing);
+        assert_eq!(
+            draft_clearing_secret
+                .oauth
+                .as_ref()
+                .and_then(|o| o.client_secret.as_deref()),
+            None
+        );
     }
 }

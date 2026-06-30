@@ -1232,12 +1232,7 @@ async fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) -
             // decision via cached_config(); no in-memory cache to invalidate.
         }
         "mcp_global" => {
-            if let Some(manager) = crate::mcp::McpManager::global() {
-                manager
-                    .reconcile(store.mcp_global.clone(), store.mcp_servers.clone())
-                    .await
-                    .map_err(|e| anyhow::anyhow!("{e}"))?;
-            }
+            crate::mcp::reconcile_from_config_cache().await?;
             crate::app_info!(
                 "settings",
                 "hot_reload",

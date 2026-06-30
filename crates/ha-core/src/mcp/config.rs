@@ -79,7 +79,7 @@ pub enum McpTrustLevel {
 // ── OAuth ────────────────────────────────────────────────────────
 
 /// Per-server OAuth 2.1 + PKCE configuration. Only populated for networked
-/// transports where the server advertises OAuth; stdio transports ignore it.
+/// transports where the server advertises OAuth; stdio transports reject it.
 /// The discovered endpoints (`.well-known/oauth-authorization-server`) may
 /// override any `None` fields at connect time.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -267,6 +267,12 @@ impl McpServerConfig {
         if self.auto_approve && matches!(self.trust_level, McpTrustLevel::Untrusted) {
             return Err(McpError::Config(format!(
                 "server '{}': auto_approve requires trust_level=trusted",
+                self.name
+            )));
+        }
+        if self.oauth.is_some() && !self.transport.is_networked() {
+            return Err(McpError::Config(format!(
+                "server '{}': OAuth is only supported on networked transports",
                 self.name
             )));
         }
@@ -510,6 +516,48 @@ mod tests {
             trust_acknowledged_at: None,
         };
         assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_stdio_oauth() {
+        let cfg = McpServerConfig {
+            id: "id-1".into(),
+            name: "foo".into(),
+            enabled: true,
+            transport: McpTransportSpec::Stdio {
+                command: "true".into(),
+                args: vec![],
+                cwd: None,
+            },
+            env: Default::default(),
+            headers: Default::default(),
+            oauth: Some(McpOAuthConfig {
+                client_id: Some("client".into()),
+                client_secret: None,
+                authorization_endpoint: None,
+                token_endpoint: None,
+                scopes: vec![],
+                extra_params: Default::default(),
+            }),
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            connect_timeout_secs: 30,
+            call_timeout_secs: 120,
+            health_check_interval_secs: 60,
+            max_concurrent_calls: 4,
+            auto_approve: false,
+            trust_level: McpTrustLevel::Untrusted,
+            eager: false,
+            deferred_tools: false,
+            project_paths: vec![],
+            description: None,
+            icon: None,
+            created_at: 0,
+            updated_at: 0,
+            trust_acknowledged_at: None,
+        };
+
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

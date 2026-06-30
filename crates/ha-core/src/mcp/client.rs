@@ -27,40 +27,70 @@ use super::transport::{build_transport_for, ConnectedClient};
 /// round under the configured `connect_timeout_secs`.
 pub async fn ensure_connected(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     // Fast path: already good.
-    {
-        let state = handle.state.lock().await;
-        if matches!(*state, ServerState::Ready { .. }) {
-            return Ok(());
-        }
-        if matches!(*state, ServerState::Disabled) {
-            let cfg = handle.config.read().await;
-            return Err(McpError::NotReady {
-                server: cfg.name.clone(),
-                reason: "server is disabled in config".into(),
-            });
-        }
-        if let ServerState::Failed { retry_at, reason } = &*state {
-            let now = chrono::Utc::now().timestamp();
-            if now < *retry_at {
-                let cfg = handle.config.read().await;
-                return Err(McpError::NotReady {
-                    server: cfg.name.clone(),
-                    reason: format!(
-                        "in backoff after failure ({reason}); retry_at in {}s",
-                        *retry_at - now
-                    ),
-                });
-            }
-        }
+    if !connect_needed_or_error(&handle).await? {
+        return Ok(());
     }
-    connect_now(manager, handle).await
+
+    let _connect_guard = handle.connect_lock.lock().await;
+    // Another caller may have completed the handshake while we were waiting
+    // for the lock. Re-check before doing any work.
+    if !connect_needed_or_error(&handle).await? {
+        return Ok(());
+    }
+    connect_now_inner(manager, handle.clone()).await
 }
 
 /// Force a (re)connect regardless of current state. Used by the user's
 /// "Reconnect" button, by the watchdog after a timer tick, and by Phase 3
 /// CRUD paths that need immediate visibility after a config change.
 pub async fn connect_now(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
+    let _connect_guard = handle.connect_lock.lock().await;
+    connect_now_inner(manager, handle.clone()).await
+}
+
+async fn connect_needed_or_error(handle: &ServerHandle) -> McpResult<bool> {
+    if handle.is_retired() {
+        let cfg = handle.config.read().await;
+        return Err(McpError::NotReady {
+            server: cfg.name.clone(),
+            reason: "server config was replaced or removed".into(),
+        });
+    }
+    let state = handle.state.lock().await;
+    if matches!(*state, ServerState::Ready { .. }) {
+        return Ok(false);
+    }
+    if matches!(*state, ServerState::Disabled) {
+        let cfg = handle.config.read().await;
+        return Err(McpError::NotReady {
+            server: cfg.name.clone(),
+            reason: "server is disabled in config".into(),
+        });
+    }
+    if let ServerState::Failed { retry_at, reason } = &*state {
+        let now = chrono::Utc::now().timestamp();
+        if now < *retry_at {
+            let cfg = handle.config.read().await;
+            return Err(McpError::NotReady {
+                server: cfg.name.clone(),
+                reason: format!(
+                    "in backoff after failure ({reason}); retry_at in {}s",
+                    *retry_at - now
+                ),
+            });
+        }
+    }
+    Ok(true)
+}
+
+async fn connect_now_inner(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     let cfg = handle.config.read().await.clone();
+    if handle.is_retired() {
+        return Err(McpError::NotReady {
+            server: cfg.name,
+            reason: "server config was replaced or removed".into(),
+        });
+    }
     if !cfg.enabled {
         set_state(&handle, ServerState::Disabled).await;
         return Err(McpError::NotReady {
@@ -76,6 +106,13 @@ pub async fn connect_now(manager: &McpManager, handle: Arc<ServerHandle>) -> Mcp
     let result = timeout(connect_timeout, do_connect(&cfg, &handle)).await;
     match result {
         Ok(Ok(())) => {
+            if handle.is_retired() {
+                disconnect(&handle).await.ok();
+                return Err(McpError::NotReady {
+                    server: cfg.name,
+                    reason: "server config was replaced or removed".into(),
+                });
+            }
             handle
                 .consecutive_failures
                 .store(0, std::sync::atomic::Ordering::Relaxed);
@@ -137,6 +174,12 @@ const TOOLS_PER_SERVER_CAP: usize = 512;
 
 pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     let cfg = handle.config.read().await.clone();
+    if handle.is_retired() {
+        return Err(McpError::NotReady {
+            server: cfg.name,
+            reason: "server config was replaced or removed".into(),
+        });
+    }
     let peer = handle.peer().await?;
 
     let mut tools = peer
@@ -163,6 +206,13 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
     let tool_count = tools.len();
     let resource_count = resources.len();
     let prompt_count = prompts.len();
+
+    if handle.is_retired() {
+        return Err(McpError::NotReady {
+            server: cfg.name,
+            reason: "server config was replaced or removed".into(),
+        });
+    }
 
     rebuild_tool_index_for(manager, &cfg, &tools).await;
 
@@ -222,12 +272,15 @@ async fn rebuild_tool_index_for(
     {
         let mut idx = manager.tool_index.write().await;
         idx.retain(|_, e| e.server_id != cfg.id);
-        for tool in tools {
+        let namespaced_names = super::catalog::assign_namespaced_tool_names(
+            &cfg.name,
+            tools.iter().map(|t| t.name.as_ref()),
+        );
+        for (tool, namespaced) in tools.iter().zip(namespaced_names) {
             let orig = tool.name.to_string();
             if !super::catalog::tool_allowed_by_server_config(cfg, &orig) {
                 continue;
             }
-            let namespaced = super::catalog::namespaced_tool_name(&cfg.name, &orig);
             idx.insert(
                 namespaced,
                 ToolIndexEntry {
@@ -246,8 +299,14 @@ async fn rebuild_tool_index_for(
     //    schema list, or vice versa.
     let defs_for_server: Vec<crate::tools::ToolDefinition> = tools
         .iter()
-        .filter(|tool| super::catalog::tool_allowed_by_server_config(cfg, tool.name.as_ref()))
-        .map(|t| super::catalog::rmcp_tool_to_definition(cfg, t))
+        .zip(super::catalog::assign_namespaced_tool_names(
+            &cfg.name,
+            tools.iter().map(|t| t.name.as_ref()),
+        ))
+        .filter(|(tool, _)| super::catalog::tool_allowed_by_server_config(cfg, tool.name.as_ref()))
+        .map(|(t, namespaced)| {
+            super::catalog::rmcp_tool_to_definition_with_name(cfg, t, namespaced)
+        })
         .collect();
 
     // Merge: keep other servers' defs, replace this server's. Use the

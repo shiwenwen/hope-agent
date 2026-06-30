@@ -9,7 +9,7 @@
 //! See `docs/architecture/mcp.md` for the full state machine.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use arc_swap::ArcSwap;
@@ -117,6 +117,14 @@ pub struct ServerHandle {
     /// None until the handshake completes. The rmcp `RunningService`
     /// holds the spawned service loop + cancellation token.
     pub client: Mutex<Option<RunningService<RoleClient, ()>>>,
+    /// Serializes connection attempts for this server. Without this,
+    /// concurrent first-use tool calls can all observe `Idle` / `Connecting`
+    /// and spawn duplicate subprocesses or handshakes.
+    pub connect_lock: Mutex<()>,
+    /// Set when this handle has been removed or replaced by a config
+    /// reconcile. In-flight work may still hold an Arc, but it must not
+    /// reconnect or publish catalogs back into the global manager.
+    retired: AtomicBool,
     /// Per-server in-flight cap. Initialized from
     /// `config.max_concurrent_calls` at construction time; callers take a
     /// permit around each `call_tool`.
@@ -139,7 +147,17 @@ impl ServerHandle {
             config: RwLock::new(config),
             state: Mutex::new(ServerState::Idle),
             client: Mutex::new(None),
+            connect_lock: Mutex::new(()),
+            retired: AtomicBool::new(false),
         }
+    }
+
+    pub fn retire(&self) {
+        self.retired.store(true, Ordering::Release);
+    }
+
+    pub fn is_retired(&self) -> bool {
+        self.retired.load(Ordering::Acquire)
     }
 
     /// Clone the rmcp `Peer<RoleClient>` handle used for RPCs
@@ -216,6 +234,10 @@ pub struct McpManager {
     pub(crate) cached_tool_defs: ArcSwap<Vec<ToolDefinition>>,
     /// Global cross-server cap; enforced on top of per-server semaphore.
     pub(crate) global_semaphore: Arc<Semaphore>,
+    /// Actual semaphore capacity after live growth. We do not shrink a tokio
+    /// semaphore in place, so this tracks the real high-water capacity rather
+    /// than the latest configured value.
+    pub(crate) global_capacity: AtomicU32,
     pub(crate) global_settings: RwLock<McpGlobalSettings>,
 }
 
@@ -247,6 +269,7 @@ impl McpManager {
                 tool_index: RwLock::new(HashMap::new()),
                 cached_tool_defs: ArcSwap::from_pointee(Vec::new()),
                 global_semaphore: Arc::new(Semaphore::new(permits)),
+                global_capacity: AtomicU32::new(global.max_concurrent_calls.max(1)),
                 global_settings: RwLock::new(global),
             }
         })
@@ -343,8 +366,8 @@ impl McpManager {
     /// Existing transport state is kept for still-effective servers; removed
     /// servers are disconnected after the registry lock is released.
     ///
-    /// TODO(phase2+): detect transport-critical field diffs (command,
-    /// args, url, env) and force a disconnect + reconnect round.
+    /// Transport / credential / trust / concurrency edits replace the live
+    /// handle so old connections and semaphores cannot linger after save.
     pub async fn reconcile(
         &self,
         new_settings: McpGlobalSettings,
@@ -353,6 +376,14 @@ impl McpManager {
         // Update global settings first — the semaphore is only grown,
         // never shrunk live (shrinking would starve in-flight calls).
         {
+            let actual_permits = self.global_capacity.load(Ordering::Acquire).max(1) as usize;
+            let new_permits = new_settings.max_concurrent_calls.max(1) as usize;
+            if new_permits > actual_permits {
+                self.global_semaphore
+                    .add_permits(new_permits - actual_permits);
+                self.global_capacity
+                    .store(new_settings.max_concurrent_calls.max(1), Ordering::Release);
+            }
             let mut g = self.global_settings.write().await;
             *g = new_settings.clone();
         }
@@ -365,6 +396,7 @@ impl McpManager {
             for cfg in new_servers {
                 if !server_effectively_enabled(&new_settings, &cfg) {
                     if let Some(handle) = servers.remove(&cfg.id) {
+                        handle.retire();
                         removed.push(handle);
                     }
                     continue;
@@ -377,17 +409,27 @@ impl McpManager {
                         cfg.name
                     );
                     if let Some(handle) = servers.remove(&cfg.id) {
+                        handle.retire();
                         removed.push(handle);
                     }
                     continue;
                 }
 
                 active_ids.insert(cfg.id.clone());
-                if let Some(existing) = servers.get(&cfg.id) {
-                    // Replace the config; state/client stay. Ready catalogs
-                    // below are immediately re-indexed against this new config
-                    // so allow/deny edits do not leave the runtime empty.
-                    *existing.config.write().await = cfg;
+                if let Some(existing) = servers.get(&cfg.id).cloned() {
+                    let old_cfg = existing.config.read().await.clone();
+                    if connection_rebuild_required(&old_cfg, &cfg) {
+                        let fresh = Arc::new(ServerHandle::new(cfg.clone()));
+                        servers.insert(cfg.id.clone(), fresh);
+                        existing.retire();
+                        removed.push(existing);
+                    } else {
+                        // Replace the config; state/client stay. Ready catalogs
+                        // below are immediately re-indexed against this new config
+                        // so allow/deny/deferred edits do not leave stale runtime
+                        // visibility.
+                        *existing.config.write().await = cfg;
+                    }
                 } else {
                     servers.insert(cfg.id.clone(), Arc::new(ServerHandle::new(cfg)));
                 }
@@ -400,6 +442,7 @@ impl McpManager {
                 .collect();
             for id in stale_ids {
                 if let Some(handle) = servers.remove(&id) {
+                    handle.retire();
                     removed.push(handle);
                 }
             }
@@ -431,22 +474,27 @@ impl McpManager {
                 }
             };
 
-            for tool in tools {
+            let namespaced_names = super::catalog::assign_namespaced_tool_names(
+                &cfg.name,
+                tools.iter().map(|t| t.name.as_ref()),
+            );
+            for (tool, namespaced) in tools.iter().zip(namespaced_names) {
                 let original = tool.name.to_string();
                 if !super::catalog::tool_allowed_by_server_config(&cfg, &original) {
                     continue;
                 }
 
-                let namespaced = super::catalog::namespaced_tool_name(&cfg.name, &original);
                 next_index.insert(
-                    namespaced,
+                    namespaced.clone(),
                     ToolIndexEntry {
                         server_id: cfg.id.clone(),
                         server_name: cfg.name.clone(),
                         original_tool_name: original,
                     },
                 );
-                next_defs.push(super::catalog::rmcp_tool_to_definition(&cfg, &tool));
+                next_defs.push(super::catalog::rmcp_tool_to_definition_with_name(
+                    &cfg, &tool, namespaced,
+                ));
             }
         }
 
@@ -458,6 +506,15 @@ impl McpManager {
 
 fn server_effectively_enabled(global: &McpGlobalSettings, cfg: &McpServerConfig) -> bool {
     global.enabled && cfg.enabled && !global.denied_servers.contains(&cfg.name)
+}
+
+fn connection_rebuild_required(old: &McpServerConfig, new: &McpServerConfig) -> bool {
+    old.transport != new.transport
+        || old.env != new.env
+        || old.headers != new.headers
+        || old.oauth != new.oauth
+        || old.trust_level != new.trust_level
+        || old.max_concurrent_calls.max(1) != new.max_concurrent_calls.max(1)
 }
 
 #[cfg(test)]
@@ -516,6 +573,7 @@ mod tests {
             tool_index: RwLock::new(HashMap::new()),
             cached_tool_defs: ArcSwap::from_pointee(Vec::new()),
             global_semaphore: Arc::new(Semaphore::new(global.max_concurrent_calls.max(1) as usize)),
+            global_capacity: AtomicU32::new(global.max_concurrent_calls.max(1)),
             global_settings: RwLock::new(global),
         }
     }
@@ -600,6 +658,126 @@ mod tests {
         assert_eq!(cached_tool_names(&manager), vec!["mcp__alpha__read"]);
         assert!(manager.lookup_tool("mcp__alpha__read").await.is_some());
         assert!(manager.lookup_tool("mcp__alpha__write").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn ready_catalog_uses_collision_safe_tool_names() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        seed_ready_catalog(
+            &manager,
+            "id-alpha",
+            vec![sample_tool("foo-bar"), sample_tool("foo.bar")],
+        )
+        .await;
+
+        assert_eq!(
+            cached_tool_names(&manager),
+            vec!["mcp__alpha__foo_bar", "mcp__alpha__foo_bar_2"]
+        );
+        assert_eq!(
+            manager
+                .lookup_tool("mcp__alpha__foo_bar")
+                .await
+                .unwrap()
+                .original_tool_name,
+            "foo-bar"
+        );
+        assert_eq!(
+            manager
+                .lookup_tool("mcp__alpha__foo_bar_2")
+                .await
+                .unwrap()
+                .original_tool_name,
+            "foo.bar"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconcile_rebuilds_handle_for_connection_critical_edits() {
+        let mut cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        seed_ready_catalog(&manager, "id-alpha", vec![sample_tool("read")]).await;
+        let old_handle = manager.get_by_id("id-alpha").await.unwrap();
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_some());
+
+        cfg.env.insert("TOKEN".into(), "new-token".into());
+        manager
+            .reconcile(McpGlobalSettings::default(), vec![cfg.clone()])
+            .await
+            .unwrap();
+
+        let handle = manager.get_by_id("id-alpha").await.unwrap();
+        assert!(old_handle.is_retired());
+        assert_eq!(handle.snapshot().await.state, "idle");
+        assert_eq!(handle.config.read().await.env["TOKEN"], "new-token");
+        assert!(manager.mcp_tool_definitions().is_empty());
+        assert!(manager.lookup_tool("mcp__alpha__read").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn reconcile_does_not_wait_for_retired_connect_lock() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        let old_handle = manager.get_by_id("id-alpha").await.unwrap();
+        let _connect_guard = old_handle.connect_lock.lock().await;
+
+        tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            manager.reconcile(McpGlobalSettings::default(), vec![]),
+        )
+        .await
+        .expect("reconcile should not wait for a retired handle's connect lock")
+        .unwrap();
+
+        assert!(old_handle.is_retired());
+        assert!(manager.get_by_id("id-alpha").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn global_semaphore_does_not_grow_after_shrink_then_partial_raise() {
+        let cfg = sample_stdio_cfg("id-alpha", "alpha");
+        let manager = test_manager(vec![cfg.clone()]);
+        assert_eq!(manager.global_semaphore.available_permits(), 8);
+
+        manager
+            .reconcile(
+                McpGlobalSettings {
+                    max_concurrent_calls: 4,
+                    ..Default::default()
+                },
+                vec![cfg.clone()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(manager.global_capacity.load(Ordering::Acquire), 8);
+        assert_eq!(manager.global_semaphore.available_permits(), 8);
+
+        manager
+            .reconcile(
+                McpGlobalSettings {
+                    max_concurrent_calls: 6,
+                    ..Default::default()
+                },
+                vec![cfg.clone()],
+            )
+            .await
+            .unwrap();
+        assert_eq!(manager.global_capacity.load(Ordering::Acquire), 8);
+        assert_eq!(manager.global_semaphore.available_permits(), 8);
+
+        manager
+            .reconcile(
+                McpGlobalSettings {
+                    max_concurrent_calls: 10,
+                    ..Default::default()
+                },
+                vec![cfg],
+            )
+            .await
+            .unwrap();
+        assert_eq!(manager.global_capacity.load(Ordering::Acquire), 10);
+        assert_eq!(manager.global_semaphore.available_permits(), 10);
     }
 
     #[tokio::test]

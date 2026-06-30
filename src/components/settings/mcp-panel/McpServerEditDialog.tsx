@@ -43,6 +43,7 @@ import {
 import {
   addServer,
   updateServer,
+  type McpOAuthConfig,
   type McpServerDraft,
   type McpServerSummary,
   type McpTransportKind,
@@ -122,7 +123,26 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
   }
 }
 
-function formToDraft(form: FormState): McpServerDraft {
+function preservedOauth(
+  form: FormState,
+  initial: McpServerSummary | null,
+): McpOAuthConfig | null {
+  if (!initial?.oauth || form.kind === "stdio") return null
+  const original = initial.transport
+  if (
+    original.kind === "stdio" ||
+    original.kind !== form.kind ||
+    original.url !== form.url.trim()
+  ) {
+    return null
+  }
+  return initial.oauth
+}
+
+function formToDraft(
+  form: FormState,
+  initial: McpServerSummary | null,
+): McpServerDraft {
   // stdio has its own payload shape; http / sse / ws all carry just a
   // url, so one branch covers the three URL-only kinds.
   const transport: McpServerDraft["transport"] =
@@ -138,18 +158,34 @@ function formToDraft(form: FormState): McpServerDraft {
         }
       : { kind: form.kind, url: form.url.trim() }
 
-  const env = Object.fromEntries(
-    form.env.filter(([k]) => k.trim().length > 0).map(([k, v]) => [k.trim(), v]),
-  )
-  const headers = Object.fromEntries(
-    form.headers.filter(([k]) => k.trim().length > 0).map(([k, v]) => [k.trim(), v]),
-  )
+  const env =
+    form.kind === "stdio"
+      ? Object.fromEntries(
+          form.env
+            .filter(([k]) => k.trim().length > 0)
+            .map(([k, v]) => [k.trim(), v]),
+        )
+      : {}
+  const headers =
+    form.kind === "stdio"
+      ? {}
+      : Object.fromEntries(
+          form.headers
+            .filter(([k]) => k.trim().length > 0)
+            .map(([k, v]) => [k.trim(), v]),
+        )
 
   const splitList = (s: string) =>
     s
       .split(/\r?\n/)
       .map((x) => x.trim())
       .filter(Boolean)
+  const numberOr = (value: string, fallback: number, min: number) => {
+    const trimmed = value.trim()
+    if (trimmed.length === 0) return fallback
+    const n = Number(trimmed)
+    return Number.isFinite(n) ? Math.max(min, Math.floor(n)) : fallback
+  }
 
   return {
     name: form.name.trim(),
@@ -158,18 +194,16 @@ function formToDraft(form: FormState): McpServerDraft {
     env,
     headers,
     description: form.description.trim() || null,
-    connectTimeoutSecs: Number(form.connectTimeoutSecs) || 30,
-    callTimeoutSecs: Number.isFinite(Number(form.callTimeoutSecs))
-      ? Math.max(0, Math.floor(Number(form.callTimeoutSecs)))
-      : 0,
-    maxConcurrentCalls: Number(form.maxConcurrentCalls) || 4,
+    connectTimeoutSecs: numberOr(form.connectTimeoutSecs, 30, 1),
+    callTimeoutSecs: numberOr(form.callTimeoutSecs, 0, 0),
+    maxConcurrentCalls: numberOr(form.maxConcurrentCalls, 4, 1),
     trustLevel: form.trustLevel,
     autoApprove: form.autoApprove,
     eager: form.eager,
     deferredTools: form.deferredTools,
     deniedTools: splitList(form.deniedTools),
     allowedTools: splitList(form.allowedTools),
-    oauth: null,
+    oauth: preservedOauth(form, initial),
     projectPaths: [],
     icon: null,
   } as McpServerDraft
@@ -224,7 +258,7 @@ export default function McpServerEditDialog({
       toast.error(t("settings.mcp.autoApproveNeedsTrust"))
       return
     }
-    const draft = formToDraft(form)
+    const draft = formToDraft(form, initial)
     setSaving(true)
     try {
       if (isEditing && initial) {
@@ -553,6 +587,7 @@ function KvEditor({
   valuePlaceholder?: string
   hint?: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
@@ -582,6 +617,7 @@ function KvEditor({
             <Button
               variant="ghost"
               size="sm"
+              aria-label={t("common.delete")}
               onClick={() => {
                 const next = entries.filter((_, i) => i !== idx)
                 onChange(next)
@@ -599,7 +635,7 @@ function KvEditor({
           className="gap-1.5 h-7"
         >
           <Plus className="h-3 w-3" />
-          {entries.length === 0 ? "Add" : "Add more"}
+          {t("common.add")}
         </Button>
       </div>
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -626,6 +662,7 @@ function TimeoutInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         min={min}
+        step={1}
         className="h-9"
       />
     </div>

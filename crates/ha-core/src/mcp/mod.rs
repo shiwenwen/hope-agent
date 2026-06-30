@@ -40,6 +40,31 @@ pub use credentials::McpCredentials;
 pub use errors::{McpError, McpResult};
 pub use registry::{McpManager, ServerHandle, ServerState, ServerStatusSnapshot, ToolIndexEntry};
 
+/// Hot-sync the MCP runtime from the current cached app config.
+///
+/// This handles both steady-state edits (`McpManager` already exists) and
+/// the important cold-enable case where the app started with
+/// `mcpGlobal.enabled=false` and the user turns MCP on later without a
+/// restart.
+pub(crate) async fn reconcile_from_config_cache() -> anyhow::Result<()> {
+    let cfg = crate::config::cached_config();
+    if let Some(mgr) = McpManager::global() {
+        mgr.reconcile(cfg.mcp_global.clone(), cfg.mcp_servers.clone())
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        return Ok(());
+    }
+
+    if cfg.mcp_global.enabled {
+        McpManager::init_global(cfg.mcp_global.clone(), cfg.mcp_servers.clone());
+        if crate::runtime_lock::is_primary() {
+            watchdog::spawn_watchdog_loop();
+        }
+        events::emit_servers_changed();
+    }
+    Ok(())
+}
+
 /// Look up a server by id or name, returning an `anyhow`-flavored
 /// error so tool handlers can propagate it directly. Wrapper over
 /// [`McpManager::locate`] that also turns "manager not initialized"

@@ -1590,9 +1590,17 @@ impl AssistantAgent {
         // appended section. Suppressed entirely when no MCP server has
         // reached `Ready` — keeps the prompt shape stable for users who
         // don't use MCP.
-        if let Some(snippet) = crate::mcp::catalog::system_prompt_snippet() {
-            prompt.push_str("\n\n");
-            prompt.push_str(&snippet);
+        let mcp_scope_allows_prompt = self
+            .tool_scope
+            .map(|scope| {
+                scope.allows(tools::TOOL_MCP_RESOURCE) || scope.allows(tools::TOOL_MCP_PROMPT)
+            })
+            .unwrap_or(true);
+        if caps.mcp_enabled && app_config.mcp_global.enabled && mcp_scope_allows_prompt {
+            if let Some(snippet) = crate::mcp::catalog::system_prompt_snippet() {
+                prompt.push_str("\n\n");
+                prompt.push_str(&snippet);
+            }
         }
         // Attached knowledge spaces (D7). Appended last, like the MCP snippet:
         // present only when at least one KB is reachable, so non-KB sessions keep

@@ -392,6 +392,7 @@ function ServerRow({
   const isFailed = state === "failed"
   const isReady = state === "ready"
   const isNeedsAuth = state === "needsAuth"
+  const actionDisabled = busy || !server.enabled
   // `server.oauth` is only ever set on networked transports (backend +
   // edit dialog reject it on stdio), so a simple presence check is
   // sufficient here.
@@ -442,7 +443,7 @@ function ServerRow({
             variant="ghost"
             size="sm"
             onClick={onTest}
-            disabled={busy}
+            disabled={actionDisabled}
             className="h-7 px-2 gap-1"
           >
             {busy ? (
@@ -457,7 +458,7 @@ function ServerRow({
               variant="ghost"
               size="sm"
               onClick={onReconnect}
-              disabled={busy}
+              disabled={actionDisabled}
               className="h-7 px-2 gap-1"
             >
               <RefreshCw className="h-3 w-3" />
@@ -469,7 +470,7 @@ function ServerRow({
               variant="outline"
               size="sm"
               onClick={onAuthorize}
-              disabled={busy}
+              disabled={actionDisabled}
               className="h-7 px-2 gap-1"
             >
               {busy ? (
@@ -485,7 +486,7 @@ function ServerRow({
               variant="ghost"
               size="sm"
               onClick={onSignOut}
-              disabled={busy}
+              disabled={actionDisabled}
               className="h-7 px-2 gap-1"
             >
               <LogOut className="h-3 w-3" />
@@ -504,6 +505,7 @@ function ServerRow({
             variant="ghost"
             size="sm"
             onClick={onDelete}
+            aria-label={t("common.delete")}
             className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
           >
             <Trash2 className="h-3.5 w-3.5" />
