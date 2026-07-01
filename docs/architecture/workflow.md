@@ -333,9 +333,11 @@ EventBus：
 Goal 集成：
 
 - `create_workflow_run` 可接收 `goalId`；省略时自动绑定当前 open Goal。
+- 创建 run 前检查绑定 Goal 的 token/time/turn budget；已耗尽则拒绝新 run。
 - 创建 run 时写 `goal_links(relation='execution_run' | 'repair_run')`。
 - run 进入 `completed` / `failed` / `blocked` 后 best-effort 触发 Goal final audit。
 - run 进入任一终态都会写 workflow terminal relation，供 Goal 证据链展示。
+- `workflow.validate` op 写 `validation_passed` / `validation_failed` evidence；`workflow.diff` op 写 `diff_snapshot` 和 `file_changed` evidence。
 
 ## 13. GUI
 

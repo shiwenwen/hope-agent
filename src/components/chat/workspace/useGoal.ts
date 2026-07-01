@@ -51,10 +51,63 @@ export interface GoalLink {
   createdAt: string
 }
 
+export type GoalCriterionStatus = "satisfied" | "missing" | "blocked"
+
+export interface GoalCriterionAudit {
+  id: string
+  text: string
+  status: GoalCriterionStatus
+  evidenceIds: string[]
+  reason?: string | null
+}
+
+export interface GoalEvidenceItem {
+  id: string
+  sourceType: string
+  sourceId: string
+  relation: string
+  title: string
+  summary?: string | null
+  metadata: unknown
+  createdAt: string
+}
+
+export interface GoalTimelineItem {
+  id: string
+  kind: string
+  title: string
+  summary?: string | null
+  status?: string | null
+  sourceType?: string | null
+  sourceId?: string | null
+  metadata: unknown
+  createdAt: string
+}
+
+export interface GoalBudgetSnapshot {
+  tokenLimit?: number | null
+  timeLimitSecs?: number | null
+  turnLimit?: number | null
+  tokensUsed: number
+  elapsedSecs: number
+  turnsUsed: number
+  tokenRatio?: number | null
+  timeRatio?: number | null
+  turnRatio?: number | null
+  warning: boolean
+  exhausted: boolean
+  warnings: string[]
+  exceeded: string[]
+}
+
 export interface GoalSnapshot {
   goal: Goal
   links: GoalLink[]
   events: GoalEvent[]
+  criteria?: GoalCriterionAudit[]
+  evidence?: GoalEvidenceItem[]
+  timeline?: GoalTimelineItem[]
+  budget?: GoalBudgetSnapshot
   workflowRuns: WorkflowRun[]
   tasks: Task[]
 }

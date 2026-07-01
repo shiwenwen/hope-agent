@@ -48,7 +48,7 @@ Goal 数据落在 `sessions.db`，跟随 session 级联删除。
 | `completion_criteria` | 用户写下的完成标准，多行文本。 |
 | `state` | `active` / `paused` / `evaluating` / `completed` / `failed` / `cancelled` / `blocked`。 |
 | `mode_snapshot` | 创建 Goal 时的 session `execution_mode` 快照。 |
-| `budget_token_limit` / `budget_time_limit_secs` / `budget_turn_limit` | 可选预算字段，第一版只持久化与展示，不做硬扣减。 |
+| `budget_token_limit` / `budget_time_limit_secs` / `budget_turn_limit` | 可选预算字段；`0`/空表示不设限，正数参与预算观测、告警和新 workflow hard stop。 |
 | `final_summary` | 最近一次 final audit 摘要。 |
 | `final_evidence_json` | 最近一次 audit 的结构化结果。 |
 | `blocked_reason` | `blocked` 原因。 |
@@ -76,10 +76,19 @@ UNIQUE(session_id) WHERE state IN ('active','paused','evaluating','blocked')
 | 字段 | 说明 |
 | --- | --- |
 | `goal_id` | 所属 Goal。 |
-| `target_type` | 当前实现主要是 `workflow_run`；预留 `task` / `message` / `artifact` / `file` / `validation`。 |
+| `target_type` | `workflow_run` / `validation` / `diff` / `file`；预留 `task` / `artifact` / `review` / `diagnostic`。 |
 | `target_id` | 被关联对象 id。 |
-| `relation` | `execution_run`、`repair_run`、`workflow_completed`、`workflow_failed`、`workflow_blocked` 等。 |
-| `metadata_json` | 关联时的状态、kind、origin、blocked reason 等摘要。 |
+| `relation` | `execution_run`、`repair_run`、`workflow_completed`、`workflow_failed`、`workflow_blocked`、`validation_passed`、`validation_failed`、`diff_snapshot`、`file_changed` 等。 |
+| `metadata_json` | 关联时的状态、kind、origin、blocked reason、op key、summary、changed files、line delta 等摘要。 |
+
+`GoalSnapshot` 额外派生 GUI 友好字段，不单独落表：
+
+| 字段 | 说明 |
+| --- | --- |
+| `criteria` | 从 completion criteria 拆出的逐条审计状态：`satisfied` / `missing` / `blocked`，并带 evidence ids。 |
+| `evidence` | 从 `goal_links` + completed tasks 汇总出的结构化证据列表。 |
+| `timeline` | goal events、workflow runs、关键 evidence 的合并时间线，供 Workspace 展开详情使用。 |
+| `budget` | token/time/turn 使用量、ratio、warning/exhausted 状态和 exceeded kinds。 |
 
 ## 4. 状态机
 
@@ -119,40 +128,51 @@ stateDiagram-v2
 - 创建 run 后写 `goal_links(relation='execution_run' | 'repair_run')`。
 - run 进入终态后写 `workflow_completed` / `workflow_failed` / `workflow_cancelled` / `workflow_blocked` link。
 - run 进入 `completed` / `failed` / `blocked` 后 best-effort 触发 `evaluate_goal`。
+- `workflow.validate` op 结束后写 `validation_passed` / `validation_failed` evidence。
+- `workflow.diff` op 结束后写 `diff_snapshot`，并为最多 50 个 changed file 写 `file_changed` evidence。
+- 创建新 workflow 前会检查绑定 Goal 的 budget；若 token/time/turn 任一正数上限已耗尽，拒绝创建新 run，并写一次 `budget_warning(level='exhausted')`。
 
 这保证 Goal 不依赖聊天文本反扫，而是通过 durable workflow snapshot、task 和 validation evidence 做审计。
 
-## 6. Final Audit
+## 6. Evaluator v2 与 Final Audit
 
-第一版 evaluator 是保守规则引擎，输入为：
+Evaluator v2 是确定性规则门禁，输入为：
 
 - Goal objective。
 - completion criteria。
 - linked workflow runs。
 - session tasks。
-- workflow validation ops。
+- `goal_links` 中的 workflow / validation / diff / file evidence。
 - workflow blocked/failed/cancelled 状态。
+- budget snapshot。
 
 输出写入 `final_evidence_json`：
 
 | 字段 | 说明 |
 | --- | --- |
-| `status` | `completed` 或 `blocked`。第一版不写 `partial`，避免 UI 和状态机语义漂移。 |
+| `status` | `completed` 或 `blocked`。不写 `partial`，避免 UI 和状态机语义漂移。 |
 | `summary` | 审计摘要。 |
-| `blockedReason` | `goal_evidence_incomplete` 或 `goal_blocked_by_evidence`。 |
+| `blockedReason` | `goal_evidence_incomplete` / `goal_blocked_by_evidence` / `goal_budget_exhausted`。 |
 | `achieved` | 已达成项。 |
 | `missing` | 缺少证据或未完成项。 |
 | `blockers` | 明确阻塞项。 |
-| `evidence` | workflow / validation 证据。 |
+| `criteriaStatus` | 逐条 completion criteria 的状态、原因和 evidence ids。 |
+| `evidence` | workflow / validation / diff / file / task 证据。 |
+| `nextEvidenceNeeded` | 下一步需要补的证据，如 final verification、repair workflow、criterion evidence、budget 扩容。 |
+| `budget` | 本次 audit 使用的预算快照。 |
+| `ruleGate` | 规则门禁结果、hard blocker evidence ids、strong evidence ids、LLM auditor 跳过原因。 |
 | `remainingRisk` | 剩余风险说明。 |
 
 判定原则：
 
-- 没有 workflow/task evidence → `blocked`。
-- linked workflow 失败、取消或阻塞 → `blocked`。
-- validation `ok=false` 或 op failed → `blocked`。
-- completion criteria 没有支撑证据 → `blocked`。
-- 无 blocker、无 missing 且有 evidence → `completed`。
+- 没有 workflow/task/evidence → `blocked`。
+- `validation_failed` 只能被更新的 `validation_passed` 覆盖；workflow failed/blocked/cancelled 只能被更新的 `workflow_completed` 或 `validation_passed` 覆盖。
+- diff/file 只能作为实现证据，不能单独完成 Goal；必须至少有 `workflow_completed`、`validation_passed` 或 `task_completed` 这类 strong evidence。
+- completion criteria 没有 strong supporting evidence → `blocked`。
+- budget exhausted → `blocked`，且新 workflow create hard stop。
+- 无 blocker、无 missing 且有 strong evidence → `completed`。
+
+可选 LLM auditor 当前不启用；`ruleGate.llmAuditor.status='skipped'`，后续只能在 hard blocker 通过后补 rationale，不能覆盖规则结果。
 
 ## 7. Owner API 与事件
 
@@ -176,6 +196,7 @@ EventBus：
 | `goal:updated` | Goal 状态或 audit 更新。 |
 | `goal:event` | Goal event append。 |
 | `goal:link_updated` | Goal link upsert。 |
+| `goal:event(kind='budget_warning')` | 预算接近上限或耗尽时写入，payload 含 `kind` / `level` / `budget`。 |
 
 前端 `useGoal` 监听 Goal 与 Workflow 事件，并做 250ms debounce refresh。
 
@@ -201,19 +222,19 @@ Workspace / Workflow Control Center 内有 Goal strip：
 
 - 无 active Goal：可直接创建 objective + completion criteria。
 - 有 active Goal：展示目标摘要、状态、workflow/task/evidence 指标。
+- 点击 active Goal strip 可展开 Goal detail，查看 criteria 覆盖、预算、下一步证据、结构化 evidence、timeline、workflow/task 摘要。
 - audit 后展示 final summary、blocked reason、missing/blocker/achieved 摘要。
 - 操作按钮：评估、暂停/恢复、清除。
 - 新建 workflow 默认绑定当前 active Goal；repair draft 会提示“同一 Goal 下的修复 run”。
 
 ## 9. 非目标
 
-当前 Goal 第一版不包含：
+当前 Goal 控制面仍不包含：
 
 - 真正 `/loop` 的定时、重复、轮询调度。
 - agent 工具面直接修改 Goal。
 - LLM side-query evaluator。
 - 独立 Goal detail 全屏页面。
-- budget 的硬扣减与自动停止。
-- Worktree / LSP / review engine 证据接入。
+- artifact / Worktree / LSP / review engine 证据接入。
 
 这些后续仍在 `docs/roadmap/` 跟踪；实现稳定后再沉淀到对应 architecture 文档。

@@ -998,14 +998,15 @@ stop reason if any
 
 ### Phase 2.8：Goal-driven Workflow
 
-状态：核心闭环已随 `/goal` 第一版部分落地，细粒度 evidence 和独立 timeline 后续增强。详细方案见 [Agent 控制平面路线图](agent-control-plane-roadmap.md)。
+状态：核心已完成。Goal 绑定 workflow、validation/diff/file evidence link、GUI Goal detail、Evaluator v2、Budget v2 已落地；artifact/review/diagnostic evidence 后续增强。详细方案见 [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)。
 
 目标：
 
 - 让 workflow run 归属 goal。
 - 失败 run 生成 repair run 时继承 goal。
-- Workflow completion、validation、task evidence 回写 goal；diff/file artifact 细粒度 evidence 后续补。
-- Goal evaluator 基于 workflow snapshot 收口，而不是重新猜测聊天历史。
+- Workflow completion、validation、task evidence 回写 goal；validation / diff / file 第一层细粒度 evidence 已落地，artifact/review/diagnostic 后续补。
+- Goal evaluator 基于 workflow/evidence/budget snapshot 收口，而不是重新猜测聊天历史。
+- Goal budget 展示 token/time/turn 使用，接近上限写 warning event，耗尽后阻止新 workflow。
 
 验收：
 

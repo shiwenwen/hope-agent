@@ -150,7 +150,7 @@ Goal 应保存：
 - task 状态。
 - 必要时的轻量 evaluator。
 
-当前第一版 evaluator 是保守规则引擎：无证据、workflow failed/blocked/cancelled、validation failed、criteria 缺少证据都会进入 `blocked`；无 blocker、无 missing 且有 evidence 时才进入 `completed`。LLM evaluator 和细粒度 diff/file evidence 属于后续增强。
+当前 evaluator 已升级为 deterministic rule gate：无证据、workflow failed/blocked/cancelled 且无后续修复、validation failed 且无后续 passing validation、criteria 缺少 strong evidence、budget exhausted 都会进入 `blocked`；无 blocker、无 missing 且有 workflow completed / validation passed / task completed 这类 strong evidence 时才进入 `completed`。LLM evaluator 仍是后续可选增强，只能补 rationale，不能覆盖 hard blocker。
 
 ## 7. 真正 `/loop` 的位置
 

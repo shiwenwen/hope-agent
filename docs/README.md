@@ -16,6 +16,7 @@
 | [Coding Eval Phase 0 完成报告](roadmap/coding-eval-phase0-report.md) | Phase 0 完成审计：5 个校准试跑、schema 修订、失败分类补充与 Phase 1 决策 |
 | [ToolDefinition v2 RFC](roadmap/tool-definition-v2.md) | Phase 1 工具元数据、tool_search v2、deferred 默认策略和 prompt render debug 设计 |
 | [ToolDefinition v2 迁移 Checklist](roadmap/tool-definition-v2-checklist.md) | Phase 1 工具覆盖、默认 deferred 清单和验收状态 |
+| [Goal-driven Workflow v2 路线图](roadmap/goal-driven-workflow-v2.md) | Goal-driven Workflow 增强路线：Evidence v2、Goal detail、Evaluator v2、budget v2、Loop/Worktree/LSP/Review 接入 |
 
 
 ---

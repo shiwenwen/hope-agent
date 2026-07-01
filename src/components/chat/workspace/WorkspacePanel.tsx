@@ -129,7 +129,17 @@ import {
   type WorkflowRunsState,
   type WorkflowScriptPreview,
 } from "./useWorkflowRuns"
-import { useGoal, type Goal, type GoalSnapshot, type GoalState } from "./useGoal"
+import {
+  useGoal,
+  type Goal,
+  type GoalBudgetSnapshot,
+  type GoalCriterionAudit,
+  type GoalCriterionStatus,
+  type GoalEvidenceItem,
+  type GoalSnapshot,
+  type GoalState,
+  type GoalTimelineItem,
+} from "./useGoal"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import {
@@ -3615,6 +3625,65 @@ function goalIsTerminal(state: GoalState): boolean {
   return state === "completed" || state === "failed" || state === "cancelled"
 }
 
+function goalCriterionStatusLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  status: GoalCriterionStatus,
+): string {
+  switch (status) {
+    case "satisfied":
+      return t("workspace.goal.criterionSatisfied", "已满足")
+    case "missing":
+      return t("workspace.goal.criterionMissing", "缺证据")
+    case "blocked":
+      return t("workspace.goal.criterionBlocked", "被阻塞")
+  }
+}
+
+function goalCriterionStatusTone(status: GoalCriterionStatus): StatusTone {
+  switch (status) {
+    case "satisfied":
+      return "good"
+    case "missing":
+      return "warn"
+    case "blocked":
+      return "danger"
+  }
+}
+
+function goalEvidenceTone(relation: string): StatusTone {
+  if (relation.includes("failed") || relation.includes("blocked") || relation.includes("cancelled")) {
+    return "danger"
+  }
+  if (relation.includes("passed") || relation.includes("completed")) {
+    return "good"
+  }
+  if (relation.includes("diff") || relation.includes("file") || relation.includes("artifact")) {
+    return "info"
+  }
+  return "muted"
+}
+
+function goalBudgetTone(budget: GoalBudgetSnapshot): StatusTone {
+  if (budget.exhausted) return "danger"
+  if (budget.warning) return "warn"
+  return "info"
+}
+
+function goalBudgetRatioText(ratio?: number | null): string {
+  if (typeof ratio !== "number" || !Number.isFinite(ratio)) return "-"
+  return `${Math.round(ratio * 100)}%`
+}
+
+function formatDurationCompact(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s"
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  const minutes = seconds / 60
+  if (minutes < 60) return `${Math.round(minutes)}m`
+  const hours = minutes / 60
+  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)}h`
+  return `${Math.round(hours / 24)}d`
+}
+
 function GoalControlStrip({
   snapshot,
   loading,
@@ -3653,9 +3722,13 @@ function GoalControlStrip({
   onEvaluate: () => void
 }) {
   const { t } = useTranslation()
+  const [detailOpen, setDetailOpen] = useState(false)
   const goal = snapshot?.goal ?? null
   const audit = asRecord(goal?.finalEvidence)
-  const evidence = recordArrayField(audit, "evidence")
+  const auditEvidence = recordArrayField(audit, "evidence")
+  const criteriaAudit = snapshot?.criteria ?? []
+  const evidenceItems = snapshot?.evidence ?? []
+  const timelineItems = snapshot?.timeline ?? []
   const achieved = arrayField(audit, "achieved").filter(
     (item): item is string => typeof item === "string" && item.trim().length > 0,
   )
@@ -3668,6 +3741,7 @@ function GoalControlStrip({
   const workflowCount = snapshot?.workflowRuns.length ?? 0
   const taskCount = snapshot?.tasks.length ?? 0
   const taskDone = snapshot?.tasks.filter((task) => task.status === "completed").length ?? 0
+  const evidenceCount = evidenceItems.length || auditEvidence.length
   const isBusy = saving || Boolean(actionKey)
   const canCreate = !disabled && !saving && objective.trim().length > 0
 
@@ -3677,9 +3751,13 @@ function GoalControlStrip({
         type="button"
         className="flex w-full min-w-0 items-center gap-2 px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary/45 disabled:opacity-60"
         disabled={disabled && !goal}
-        aria-expanded={goal ? true : createOpen}
+        aria-expanded={goal ? detailOpen : createOpen}
         onClick={() => {
-          if (!goal) onCreateOpenChange(!createOpen)
+          if (goal) {
+            setDetailOpen((open) => !open)
+          } else {
+            onCreateOpenChange(!createOpen)
+          }
         }}
       >
         <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -3698,14 +3776,12 @@ function GoalControlStrip({
         ) : (
           <StatusPill label={t("workspace.goal.noActive", "未设置")} tone="muted" />
         )}
-        {!goal ? (
-          <ChevronRight
-            className={cn(
-              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
-              createOpen && "rotate-90",
-            )}
-          />
-        ) : null}
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
+            (goal ? detailOpen : createOpen) && "rotate-90",
+          )}
+        />
       </button>
 
       {error ? (
@@ -3791,7 +3867,7 @@ function GoalControlStrip({
             />
             <WorkflowMetric
               label={t("workspace.goal.metricEvidence", "Evidence")}
-              value={evidence.length.toString()}
+              value={evidenceCount.toString()}
             />
           </div>
 
@@ -3852,6 +3928,14 @@ function GoalControlStrip({
                 : null}
             </div>
           ) : null}
+
+          <GoalDetailSection
+            open={detailOpen}
+            snapshot={snapshot!}
+            criteria={criteriaAudit}
+            evidence={evidenceItems}
+            timeline={timelineItems}
+          />
 
           <div className="grid grid-cols-3 gap-1.5">
             <Button
@@ -3920,6 +4004,292 @@ function GoalControlStrip({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function GoalDetailSection({
+  open,
+  snapshot,
+  criteria,
+  evidence,
+  timeline,
+}: {
+  open: boolean
+  snapshot: GoalSnapshot
+  criteria: GoalCriterionAudit[]
+  evidence: GoalEvidenceItem[]
+  timeline: GoalTimelineItem[]
+}) {
+  const { t } = useTranslation()
+  const runs = snapshot.workflowRuns
+  const tasks = snapshot.tasks
+  const latestTimeline = timeline.slice(-8).reverse()
+  const latestEvidence = evidence.slice(-8).reverse()
+  const audit = asRecord(snapshot.goal.finalEvidence)
+  const nextEvidence = recordArrayField(audit, "nextEvidenceNeeded").slice(0, 6)
+  const budget = snapshot.budget
+
+  return (
+    <AnimatedCollapse open={open}>
+      <div className="space-y-2 rounded-md border border-border/55 bg-background/45 p-2">
+        {budget ? <GoalBudgetCard budget={budget} /> : null}
+
+        <GoalDetailBlock title={t("workspace.goal.detailCriteria", "标准")} count={criteria.length}>
+          {criteria.length > 0 ? (
+            <div className="space-y-1">
+              {criteria.map((criterion) => (
+                <IconTip key={criterion.id} label={criterion.reason ?? criterion.text}>
+                  <div className="min-w-0 rounded-md bg-secondary/30 px-2 py-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/90">
+                        {criterion.text}
+                      </span>
+                      <StatusPill
+                        label={goalCriterionStatusLabel(t, criterion.status)}
+                        tone={goalCriterionStatusTone(criterion.status)}
+                      />
+                    </div>
+                    {criterion.evidenceIds.length > 0 ? (
+                      <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                        {criterion.evidenceIds.slice(0, 3).join(" · ")}
+                      </div>
+                    ) : null}
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md bg-secondary/25 px-2 py-1.5 text-[11px] text-muted-foreground">
+              {t("workspace.goal.detailNoCriteria", "没有拆分出的完成标准")}
+            </div>
+          )}
+        </GoalDetailBlock>
+
+        {nextEvidence.length > 0 ? (
+          <GoalDetailBlock
+            title={t("workspace.goal.detailNextEvidence", "下一步证据")}
+            count={nextEvidence.length}
+          >
+            <div className="space-y-1">
+              {nextEvidence.map((item, index) => {
+                const kind = stringField(item, "kind") ?? `item-${index + 1}`
+                const reason = stringField(item, "reason") ?? compactJson(item, kind)
+                return (
+                  <IconTip key={`${kind}:${index}`} label={compactJson(item, reason)}>
+                    <div className="min-w-0 rounded-md bg-amber-500/10 px-2 py-1.5 text-amber-700 dark:text-amber-300">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                          {kind}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-[10px] opacity-85">{reason}</div>
+                    </div>
+                  </IconTip>
+                )
+              })}
+            </div>
+          </GoalDetailBlock>
+        ) : null}
+
+        <GoalDetailBlock
+          title={t("workspace.goal.detailEvidence", "证据")}
+          count={evidence.length}
+        >
+          {latestEvidence.length > 0 ? (
+            <div className="space-y-1">
+              {latestEvidence.map((item) => (
+                <IconTip key={item.id} label={compactJson(item.metadata, item.id)}>
+                  <div className="min-w-0 rounded-md bg-secondary/30 px-2 py-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/90">
+                        {item.title}
+                      </span>
+                      <StatusPill label={item.relation} tone={goalEvidenceTone(item.relation)} />
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="truncate">{item.sourceType}</span>
+                      <span className="text-muted-foreground/45">·</span>
+                      <span className="min-w-0 flex-1 truncate font-mono">{item.sourceId}</span>
+                      <span className="shrink-0">{formatMessageTime(item.createdAt)}</span>
+                    </div>
+                    {item.summary ? (
+                      <div className="mt-1 truncate text-[10px] text-muted-foreground/85">
+                        {item.summary}
+                      </div>
+                    ) : null}
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md bg-secondary/25 px-2 py-1.5 text-[11px] text-muted-foreground">
+              {t("workspace.goal.detailNoEvidence", "还没有 workflow / validation / diff 证据")}
+            </div>
+          )}
+        </GoalDetailBlock>
+
+        <GoalDetailBlock title={t("workspace.goal.detailTimeline", "时间线")} count={timeline.length}>
+          {latestTimeline.length > 0 ? (
+            <div className="space-y-1">
+              {latestTimeline.map((item) => (
+                <IconTip key={item.id} label={compactJson(item.metadata, item.title)}>
+                  <div className="min-w-0 rounded-md bg-secondary/25 px-2 py-1.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/90">
+                        {item.title}
+                      </span>
+                      {item.status ? (
+                        <StatusPill label={item.status} tone={goalEvidenceTone(item.status)} />
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="shrink-0">{formatMessageTime(item.createdAt)}</span>
+                      <span className="text-muted-foreground/45">·</span>
+                      <span className="truncate">{item.kind}</span>
+                      {item.summary ? (
+                        <>
+                          <span className="text-muted-foreground/45">·</span>
+                          <span className="min-w-0 flex-1 truncate">{item.summary}</span>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md bg-secondary/25 px-2 py-1.5 text-[11px] text-muted-foreground">
+              {t("workspace.goal.detailNoTimeline", "暂无时间线事件")}
+            </div>
+          )}
+        </GoalDetailBlock>
+
+        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+          <GoalLinkedSummary
+            title={t("workspace.goal.detailWorkflows", "Workflows")}
+            value={`${runs.filter((run) => run.state === "completed").length}/${runs.length}`}
+            detail={
+              runs[0]
+                ? `${runs[0].kind} · ${workflowRunStateLabel(t, runs[0].state)}`
+                : t("workspace.goal.detailNoWorkflow", "暂无 workflow")
+            }
+          />
+          <GoalLinkedSummary
+            title={t("workspace.goal.detailTasks", "Tasks")}
+            value={`${tasks.filter((task) => task.status === "completed").length}/${tasks.length}`}
+            detail={tasks[0]?.content ?? t("workspace.goal.detailNoTask", "暂无 task")}
+          />
+        </div>
+      </div>
+    </AnimatedCollapse>
+  )
+}
+
+function GoalBudgetCard({ budget }: { budget: GoalBudgetSnapshot }) {
+  const { t } = useTranslation()
+  const tone = goalBudgetTone(budget)
+  const statusLabel = budget.exhausted
+    ? t("workspace.goal.budgetExhausted", "预算耗尽")
+    : budget.warning
+      ? t("workspace.goal.budgetWarning", "接近上限")
+      : t("workspace.goal.budgetOk", "预算正常")
+
+  return (
+    <div className={cn("space-y-1 rounded-md border px-2 py-1.5", STATUS_TONE_CLASS[tone])}>
+      <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium">
+        <Gauge className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t("workspace.goal.detailBudget", "预算")}</span>
+        <span className="shrink-0">{statusLabel}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1 text-[10px]">
+        <GoalBudgetMetric
+          label={t("workspace.goal.budgetTokens", "Tokens")}
+          value={
+            budget.tokenLimit
+              ? `${compactCount(budget.tokensUsed)}/${compactCount(budget.tokenLimit)}`
+              : compactCount(budget.tokensUsed)
+          }
+          ratio={goalBudgetRatioText(budget.tokenRatio)}
+        />
+        <GoalBudgetMetric
+          label={t("workspace.goal.budgetTime", "Time")}
+          value={
+            budget.timeLimitSecs
+              ? `${formatDurationCompact(budget.elapsedSecs)}/${formatDurationCompact(budget.timeLimitSecs)}`
+              : formatDurationCompact(budget.elapsedSecs)
+          }
+          ratio={goalBudgetRatioText(budget.timeRatio)}
+        />
+        <GoalBudgetMetric
+          label={t("workspace.goal.budgetTurns", "Turns")}
+          value={
+            budget.turnLimit
+              ? `${compactCount(budget.turnsUsed)}/${compactCount(budget.turnLimit)}`
+              : compactCount(budget.turnsUsed)
+          }
+          ratio={goalBudgetRatioText(budget.turnRatio)}
+        />
+      </div>
+    </div>
+  )
+}
+
+function GoalBudgetMetric({
+  label,
+  value,
+  ratio,
+}: {
+  label: string
+  value: string
+  ratio: string
+}) {
+  return (
+    <div className="min-w-0 rounded-md bg-background/45 px-1.5 py-1 text-center">
+      <div className="truncate font-medium">{value}</div>
+      <div className="truncate opacity-75">{label}</div>
+      <div className="truncate font-mono opacity-65">{ratio}</div>
+    </div>
+  )
+}
+
+function GoalDetailBlock({
+  title,
+  count,
+  children,
+}: {
+  title: string
+  count: number
+  children: ReactNode
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        <span className="shrink-0 font-mono">{count}</span>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function GoalLinkedSummary({
+  title,
+  value,
+  detail,
+}: {
+  title: string
+  value: string
+  detail: string
+}) {
+  return (
+    <div className="min-w-0 rounded-md bg-secondary/30 px-2 py-1.5">
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <span className="truncate text-muted-foreground">{title}</span>
+        <span className="shrink-0 font-mono text-foreground/85">{value}</span>
+      </div>
+      <div className="mt-1 truncate text-muted-foreground/75">{detail}</div>
     </div>
   )
 }

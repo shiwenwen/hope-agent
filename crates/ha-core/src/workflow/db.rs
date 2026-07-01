@@ -112,94 +112,99 @@ impl SessionDB {
         let id = format!("wfr_{}", uuid::Uuid::new_v4().simple());
         let script_hash = blake3_hex(input.script_source.as_bytes());
         let budget_json = stable_json(&input.budget)?;
-        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        let incognito: Option<i64> = conn
-            .query_row(
-                "SELECT incognito FROM sessions WHERE id = ?1",
-                params![input.session_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-        let incognito =
-            incognito.ok_or_else(|| anyhow!("Session not found: {}", input.session_id))?;
-        if incognito != 0 {
-            return Err(anyhow!(
-                "Cannot create durable workflow run for incognito session {}",
-                input.session_id
-            ));
-        }
-        if let Some(parent_run_id) = input.parent_run_id.as_deref() {
-            let parent_session_id: Option<String> = conn
+        let goal_id = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let incognito: Option<i64> = conn
                 .query_row(
-                    "SELECT session_id FROM workflow_runs WHERE id = ?1",
-                    params![parent_run_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            let parent_session_id = parent_session_id
-                .ok_or_else(|| anyhow!("parent workflow run not found: {parent_run_id}"))?;
-            if parent_session_id != input.session_id {
-                return Err(anyhow!(
-                    "parent workflow run {} belongs to session {}; expected {}",
-                    parent_run_id,
-                    parent_session_id,
-                    input.session_id
-                ));
-            }
-        }
-        let goal_id = match input.goal_id {
-            Some(goal_id) => {
-                let goal_session_id: Option<String> = conn
-                    .query_row(
-                        "SELECT session_id FROM goals WHERE id = ?1",
-                        params![goal_id],
-                        |row| row.get(0),
-                    )
-                    .optional()?;
-                let goal_session_id =
-                    goal_session_id.ok_or_else(|| anyhow!("goal not found: {goal_id}"))?;
-                if goal_session_id != input.session_id {
-                    return Err(anyhow!(
-                        "goal {} belongs to session {}; expected {}",
-                        goal_id,
-                        goal_session_id,
-                        input.session_id
-                    ));
-                }
-                Some(goal_id)
-            }
-            None => conn
-                .query_row(
-                    "SELECT id FROM goals
-                     WHERE session_id = ?1 AND state IN ('active','paused','evaluating','blocked')
-                     ORDER BY updated_at DESC
-                     LIMIT 1",
+                    "SELECT incognito FROM sessions WHERE id = ?1",
                     params![input.session_id],
                     |row| row.get(0),
                 )
-                .optional()?,
+                .optional()?;
+            let incognito =
+                incognito.ok_or_else(|| anyhow!("Session not found: {}", input.session_id))?;
+            if incognito != 0 {
+                return Err(anyhow!(
+                    "Cannot create durable workflow run for incognito session {}",
+                    input.session_id
+                ));
+            }
+            if let Some(parent_run_id) = input.parent_run_id.as_deref() {
+                let parent_session_id: Option<String> = conn
+                    .query_row(
+                        "SELECT session_id FROM workflow_runs WHERE id = ?1",
+                        params![parent_run_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                let parent_session_id = parent_session_id
+                    .ok_or_else(|| anyhow!("parent workflow run not found: {parent_run_id}"))?;
+                if parent_session_id != input.session_id {
+                    return Err(anyhow!(
+                        "parent workflow run {} belongs to session {}; expected {}",
+                        parent_run_id,
+                        parent_session_id,
+                        input.session_id
+                    ));
+                }
+            }
+            match input.goal_id.as_deref() {
+                Some(goal_id) => {
+                    let goal_session_id: Option<String> = conn
+                        .query_row(
+                            "SELECT session_id FROM goals WHERE id = ?1",
+                            params![goal_id],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    let goal_session_id =
+                        goal_session_id.ok_or_else(|| anyhow!("goal not found: {goal_id}"))?;
+                    if goal_session_id != input.session_id {
+                        return Err(anyhow!(
+                            "goal {} belongs to session {}; expected {}",
+                            goal_id, goal_session_id, input.session_id
+                        ));
+                    }
+                    Some(goal_id.to_string())
+                }
+                None => conn
+                    .query_row(
+                        "SELECT id FROM goals
+                         WHERE session_id = ?1 AND state IN ('active','paused','evaluating','blocked')
+                         ORDER BY updated_at DESC
+                         LIMIT 1",
+                        params![input.session_id],
+                        |row| row.get(0),
+                    )
+                    .optional()?,
+            }
         };
-        conn.execute(
-            "INSERT INTO workflow_runs (
-                id, session_id, kind, state, execution_mode, script_hash, script_source,
-                budget_json, cursor_seq, parent_run_id, origin, goal_id, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?12)",
-            params![
-                id,
-                input.session_id,
-                input.kind,
-                WorkflowRunState::Draft.as_str(),
-                input.execution_mode,
-                script_hash,
-                input.script_source,
-                budget_json,
-                input.parent_run_id,
-                input.origin,
-                goal_id,
-                now
-            ],
-        )?;
-        drop(conn);
+        if let Some(goal_id) = goal_id.as_deref() {
+            self.ensure_goal_budget_allows_new_workflow(goal_id)?;
+        }
+        {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "INSERT INTO workflow_runs (
+                    id, session_id, kind, state, execution_mode, script_hash, script_source,
+                    budget_json, cursor_seq, parent_run_id, origin, goal_id, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?12)",
+                params![
+                    id,
+                    input.session_id,
+                    input.kind,
+                    WorkflowRunState::Draft.as_str(),
+                    input.execution_mode,
+                    script_hash,
+                    input.script_source,
+                    budget_json,
+                    input.parent_run_id,
+                    input.origin,
+                    goal_id,
+                    now
+                ],
+            )?;
+        }
 
         let run = self
             .get_workflow_run(&id)?
@@ -603,6 +608,11 @@ impl SessionDB {
             },
             json!({ "opKey": op_key, "state": state }),
         )?;
+        if op.state.is_terminal() {
+            if let Some(run) = self.get_workflow_run(run_id)? {
+                let _ = self.link_goal_evidence_for_workflow_op(&run, &op);
+            }
+        }
         events::emit_op_changed("workflow:op_updated", &op);
         Ok(op)
     }

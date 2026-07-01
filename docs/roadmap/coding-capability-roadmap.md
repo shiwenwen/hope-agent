@@ -456,7 +456,7 @@ StopPolicy
 
 ### Phase 2.8：Goal-driven Workflow
 
-状态：核心闭环已随 Phase 2.7 落地，增强项继续排后续。详细方案见 [Agent 控制平面路线图](agent-control-plane-roadmap.md)。
+状态：核心已完成。Goal durable store、Workflow 绑定、validation/diff/file evidence link、GUI Goal detail、Evaluator v2、Budget v2 已落地；`/loop`、worktree、LSP、review engine 接入继续排后续。详细方案见 [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)。
 
 目标：让 Workflow 成为 Goal 的执行手段，而不是独立漂浮的 run。
 
@@ -464,15 +464,18 @@ StopPolicy
 
 - `workflow_runs` 增加可选 `goal_id`。
 - Workflow create / repair draft 继承当前 goal。
-- Workflow completion / validation / task evidence 进入 Goal audit；diff/file artifact 细粒度 link 留后续增强。
-- Goal strip 展示 linked run/task/evidence 指标；独立 detail timeline 留后续增强。
-- Goal evaluator 读取 workflow snapshot，而不是重扫散落消息。
+- Workflow completion / validation / task evidence 进入 Goal audit。
+- `workflow.validate` 写 `validation_passed/failed` evidence；`workflow.diff` 写 `diff_snapshot` 和最多 50 个 `file_changed` evidence。
+- Goal strip 展示 linked run/task/evidence 指标；点击可展开 detail，查看 criteria、evidence、timeline、workflow/task 摘要。
+- Goal evaluator 读取 workflow/evidence/budget snapshot，而不是重扫散落消息；failed validation 不会被 workflow completed 覆盖。
+- Goal budget 展示 token/time/turn 使用，接近上限写 warning event，耗尽后阻止新 workflow。
 
 产物：
 
 - goal-workflow link 数据结构。
 - linked run 指标与后续 timeline 设计。
-- final audit。
+- deterministic final audit + next evidence needed。
+- budget hard stop。
 
 ### Phase 2.9：真正 `/loop`
 
@@ -578,7 +581,7 @@ StopPolicy
 1. 已落 `/goal` 第一版：objective、completion criteria、state、budget 字段、evidence、final audit。
 2. 已在 GUI 中展示 active goal，不要求用户记 slash 命令才能掌控长期任务。
 3. 已让 workflow run 可选绑定 goal，repair run 不丢 goal 归属。
-4. 已让 workflow completion / validation / task evidence 回写 goal audit；diff/file artifact 细粒度 link 后续补。
+4. 已让 workflow completion / validation / task evidence 回写 goal audit；validation / diff / file evidence 第一层结构化 link 已落地，artifact/review/diagnostic 接入后续补。
 5. 已做第一版 goal evaluator，能输出 completed / blocked + reason。
 6. 后续更新 Phase 0 coding eval：新增 goal-driven 长任务场景，验证 goal evidence 与 final audit。
 7. 后续设计真正 `/loop`，但实现放在 Goal-driven Workflow 稳定之后。
@@ -636,7 +639,7 @@ StopPolicy
 1. [Agent 控制平面路线图](agent-control-plane-roadmap.md)：`/goal`、`/workflow`、`/mode`、真 `/loop`、`/worktree` 的总顺序。
 2. [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md)：产品语言与命名红线。
 3. [Goal 控制平面](../architecture/goal.md)：Goal store、owner API、GUI、evaluator、evidence link。
-4. 后续 `docs/roadmap/goal-driven-workflow-v2.md`：细粒度 diff/file artifact evidence、独立 Goal detail timeline、LLM evaluator。
+4. [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)：已落地 Goal detail、validation/diff/file evidence、Evaluator v2、Budget v2；继续跟踪 artifact/review/diagnostic evidence、可选 LLM auditor 和后续系统接入。
 5. `docs/roadmap/loop-schedules.md`：真正 `/loop` 的调度、预算、审批和 trace。
 6. `docs/roadmap/managed-worktree.md`：隔离工作区、handoff、UI、hooks。
 7. `docs/roadmap/lsp.md`：LSP manager、tools、diagnostics pipeline。
