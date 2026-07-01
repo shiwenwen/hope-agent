@@ -2154,6 +2154,31 @@ function formatLoopDuration(secs: number): string {
   return `${secs}s`
 }
 
+function parseLoopDurationSecs(input: string): number | null {
+  const trimmed = input.trim().toLowerCase()
+  const match = trimmed.match(/^(\d+)\s*(s|sec|secs|m|min|mins|h|hr|hrs|d|day|days)?$/)
+  if (!match) return null
+  const value = Number(match[1])
+  if (!Number.isFinite(value) || value <= 0) return null
+  const unit = match[2] ?? "s"
+  const multiplier =
+    unit === "d" || unit === "day" || unit === "days"
+      ? 86_400
+      : unit === "h" || unit === "hr" || unit === "hrs"
+        ? 3600
+        : unit === "m" || unit === "min" || unit === "mins"
+          ? 60
+          : 1
+  return value * multiplier
+}
+
+function parseOptionalPositiveInt(input: string): number | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const value = Number(trimmed)
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+
 function LoopSchedulesSection({
   sessionId,
   incognito,
@@ -2168,7 +2193,18 @@ function LoopSchedulesSection({
     incognito,
     turnActive,
   })
+  const goalState = useGoal(sessionId, { incognito })
   const [actionId, setActionId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createSaving, setCreateSaving] = useState(false)
+  const [draftKind, setDraftKind] = useState<"interval" | "condition">("interval")
+  const [draftInterval, setDraftInterval] = useState("10m")
+  const [draftCondition, setDraftCondition] = useState("")
+  const [draftPrompt, setDraftPrompt] = useState("")
+  const [draftMaxRuns, setDraftMaxRuns] = useState("")
+  const [draftMaxRuntime, setDraftMaxRuntime] = useState("")
+  const [draftTokens, setDraftTokens] = useState("")
+  const activeGoal = goalState.snapshot?.goal ?? null
 
   const runAction = useCallback(
     async (loop: LoopSchedule, action: "pause" | "resume" | "stop") => {
@@ -2186,6 +2222,87 @@ function LoopSchedulesSection({
     [refresh],
   )
 
+  const createLoop = useCallback(async () => {
+    if (!sessionId) {
+      toast.error(t("workspace.loop.sessionRequired", "先选择一个会话"))
+      return
+    }
+    const intervalSecs = parseLoopDurationSecs(draftInterval)
+    if (!intervalSecs) {
+      toast.error(t("workspace.loop.intervalInvalid", "请输入有效间隔，例如 10m"))
+      return
+    }
+    const condition = draftCondition.trim()
+    if (draftKind === "condition" && !condition) {
+      toast.error(t("workspace.loop.conditionRequired", "请输入停止条件"))
+      return
+    }
+    const prompt = draftPrompt.trim()
+    if (draftKind === "interval" && !prompt && !activeGoal) {
+      toast.error(t("workspace.loop.promptOrGoalRequired", "请输入 prompt，或先创建一个 active goal"))
+      return
+    }
+    const maxRuntimeSecs = draftMaxRuntime.trim() ? parseLoopDurationSecs(draftMaxRuntime) : null
+    if (draftMaxRuntime.trim() && !maxRuntimeSecs) {
+      toast.error(t("workspace.loop.maxRuntimeInvalid", "请输入有效最长运行时间，例如 2h"))
+      return
+    }
+    const maxRuns = parseOptionalPositiveInt(draftMaxRuns)
+    if (draftMaxRuns.trim() && !maxRuns) {
+      toast.error(t("workspace.loop.maxRunsInvalid", "最大次数必须是正整数"))
+      return
+    }
+    const tokenBudget = parseOptionalPositiveInt(draftTokens)
+    if (draftTokens.trim() && !tokenBudget) {
+      toast.error(t("workspace.loop.tokensInvalid", "Token 预算必须是正整数"))
+      return
+    }
+    const defaultConditionPrompt = t(
+      "workspace.loop.defaultConditionPrompt",
+      "Continue until this condition is true: {{condition}}. Check the condition first, stop when it is satisfied, otherwise take the next useful step.",
+      { condition },
+    )
+    setCreateSaving(true)
+    try {
+      await getTransport().call("create_loop_schedule", {
+        sessionId,
+        prompt: draftKind === "condition" && !prompt ? defaultConditionPrompt : prompt,
+        triggerKind: draftKind,
+        triggerSpec:
+          draftKind === "condition"
+            ? { condition, intervalSecs }
+            : { intervalSecs },
+        maxRuns,
+        maxRuntimeSecs,
+        tokenBudget,
+      })
+      toast.success(t("workspace.loop.created", "Loop 已创建"))
+      setDraftPrompt("")
+      setDraftCondition("")
+      setCreateOpen(false)
+      refresh()
+    } catch (e) {
+      logger.error("ui", "LoopSchedulesSection::create", "Loop create failed", e)
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setCreateSaving(false)
+    }
+  }, [
+    activeGoal,
+    draftCondition,
+    draftInterval,
+    draftKind,
+    draftMaxRuns,
+    draftMaxRuntime,
+    draftPrompt,
+    draftTokens,
+    refresh,
+    sessionId,
+    t,
+  ])
+
+  const canCreate = Boolean(sessionId) && !incognito
+
   return (
     <WorkspaceSection
       title={t("workspace.loop.title", "Loop")}
@@ -2201,6 +2318,112 @@ function LoopSchedulesSection({
       }
       defaultExpanded={activeCount > 0 || schedules.length > 0}
     >
+      <div className="mb-2 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 text-[11px] text-muted-foreground">
+            {activeGoal
+              ? t("workspace.loop.boundGoal", "绑定当前 Goal")
+              : t("workspace.loop.promptMode", "按 prompt 重复触发")}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 px-2 text-[11px]"
+            disabled={!canCreate}
+            onClick={() => setCreateOpen((v) => !v)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {createOpen ? t("workspace.loop.closeCreate", "收起") : t("workspace.loop.new", "新建")}
+          </Button>
+        </div>
+        {createOpen ? (
+          <div className="space-y-2 rounded-md border border-border/70 bg-background/70 p-2">
+            <div className="grid grid-cols-2 gap-1 rounded-md bg-secondary/40 p-1">
+              {(["interval", "condition"] as const).map((kind) => (
+                <Button
+                  key={kind}
+                  type="button"
+                  variant={draftKind === kind ? "secondary" : "ghost"}
+                  size="sm"
+                  className="h-7 text-[11px]"
+                  onClick={() => setDraftKind(kind)}
+                >
+                  {kind === "interval"
+                    ? t("workspace.loop.kindInterval", "Every")
+                    : t("workspace.loop.kindCondition", "Until")}
+                </Button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                value={draftInterval}
+                onChange={(e) => setDraftInterval(e.target.value)}
+                placeholder="10m"
+                className="h-8 text-xs"
+                aria-label={t("workspace.loop.interval", "间隔")}
+              />
+              <Input
+                value={draftMaxRuns}
+                onChange={(e) => setDraftMaxRuns(e.target.value)}
+                placeholder={t("workspace.loop.maxRunsPlaceholder", "max runs")}
+                className="h-8 text-xs"
+                aria-label={t("workspace.loop.maxRunsLabel", "最大次数")}
+              />
+            </div>
+            {draftKind === "condition" ? (
+              <Input
+                value={draftCondition}
+                onChange={(e) => setDraftCondition(e.target.value)}
+                placeholder={t("workspace.loop.conditionPlaceholder", "CI is green")}
+                className="h-8 text-xs"
+                aria-label={t("workspace.loop.condition", "停止条件")}
+              />
+            ) : null}
+            <Textarea
+              value={draftPrompt}
+              onChange={(e) => setDraftPrompt(e.target.value)}
+              placeholder={
+                draftKind === "condition"
+                  ? t("workspace.loop.promptOptionalPlaceholder", "每次触发要做什么；留空则只检查条件并推进下一步")
+                  : activeGoal
+                    ? t("workspace.loop.promptGoalPlaceholder", "留空则继续当前 active goal")
+                    : t("workspace.loop.promptPlaceholder", "check CI and continue fixing if failing")
+              }
+              className="min-h-[64px] resize-none text-xs"
+              aria-label={t("workspace.loop.prompt", "Prompt")}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                value={draftMaxRuntime}
+                onChange={(e) => setDraftMaxRuntime(e.target.value)}
+                placeholder={t("workspace.loop.maxRuntimePlaceholder", "max runtime")}
+                className="h-8 text-xs"
+                aria-label={t("workspace.loop.maxRuntimeLabel", "最长运行时间")}
+              />
+              <Input
+                value={draftTokens}
+                onChange={(e) => setDraftTokens(e.target.value)}
+                placeholder={t("workspace.loop.tokensPlaceholder", "tokens")}
+                className="h-8 text-xs"
+                aria-label={t("workspace.loop.tokensLabel", "Token 预算")}
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[11px]"
+                disabled={createSaving}
+                onClick={() => void createLoop()}
+              >
+                {createSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Radio className="h-3.5 w-3.5" />}
+                {t("workspace.loop.create", "创建 Loop")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </div>
       {loading && schedules.length === 0 ? (
         <div className="flex items-center justify-center py-4 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />

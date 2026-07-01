@@ -131,7 +131,7 @@ Owner API：
 | `resume_loop_schedule` | `POST /api/loops/{loopId}/resume` |
 | `stop_loop_schedule` | `POST /api/loops/{loopId}/stop` |
 
-GUI：Workspace 面板新增 Loop 区块，展示本会话 loop 数量、状态、触发摘要、prompt、运行次数、最大运行时长、blocked reason，并提供 pause / resume / stop。
+GUI：Workspace 面板新增 Loop 区块，支持创建 `every` / `until` loop，填写 interval、condition、prompt、max runs、max runtime、token budget；同时展示本会话 loop 数量、状态、触发摘要、prompt、运行次数、最大运行时长、blocked reason，并提供 pause / resume / stop。
 
 ## 安全与可靠性
 

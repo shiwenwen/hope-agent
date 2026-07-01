@@ -337,6 +337,7 @@ loop_runs
 - 已落地：支持绑定当前 open Goal 或明确 recurring prompt。
 - 已落地：`max_runs` / `max_runtime_secs` / token budget hard stop；Goal 绑定时触发前复用 Goal budget hard stop。
 - 已落地：用户停止 loop 后会暂停底层 Cron job，不再唤醒。
+- 已落地：Workspace GUI 可创建 `every` / `until` loop，并提供 pause / resume / stop。
 - 已落地：Loop 不绕过 `/mode`、permission、hooks、incognito、Project/KB access，实际 turn 在原会话里执行。
 
 后续增强：
