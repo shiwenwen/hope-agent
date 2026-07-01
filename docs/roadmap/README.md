@@ -12,7 +12,8 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [Coding 能力强化总纲](coding-capability-roadmap.md) | 面向 coding-first 的总体路线：调研线索、能力模型、动态 workflow / loop、阶段计划与验收指标 |
+| [Agent 控制平面路线图](agent-control-plane-roadmap.md) | 新主线：通用 Agent 控制平面先稳住，再以 coding-first 落地，随后进入 worktree / LSP / review 等 coding-specific 能力 |
+| [Coding 能力强化总纲](coding-capability-roadmap.md) | 面向 coding-first 的总体路线：调研线索、能力模型、动态 workflow、execution mode、阶段计划与验收指标；后续顺序以控制平面路线图为准 |
 | [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md) | 统一 `/goal`、`/mode`、`/workflow`、`/task`、`/worktree`、未来真正 `/loop` 的产品语义和实现边界 |
 | [Coding Eval 体系方案](coding-eval.md) | Phase 0 评测体系：任务 schema、trace、指标、失败分类、人工试跑流程 |
 | [Coding Eval 首批 Gold Tasks](coding-eval-tasks.md) | 首批 20 个 coding eval 任务草案，用于人工试跑和指标校准 |

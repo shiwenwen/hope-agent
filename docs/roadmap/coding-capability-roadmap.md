@@ -1,12 +1,13 @@
-# Hope Agent Coding 能力强化总纲
+# Hope Agent 控制平面与 Coding 能力强化总纲
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-06-29
+> 更新时间：2026-07-01
 
 ## 目录
 
 - [文档定位](#文档定位)
+- [2026-07-01 路线调整](#2026-07-01-路线调整)
 - [背景](#背景)
 - [北极星目标](#北极星目标)
 - [参考资料与调研线索](#参考资料与调研线索)
@@ -21,7 +22,7 @@
 
 ## 文档定位
 
-本文是 Hope Agent 下一阶段 Coding 能力建设的总纲，用来沉淀背景、目标、调研线索、参考资料和整体路线。它不是某个具体子系统的最终设计，也不直接定义数据库 schema、API 细节或 UI 交互。
+本文是 Hope Agent 下一阶段 Agent 控制平面与 Coding 能力建设的总纲，用来沉淀背景、目标、调研线索、参考资料和整体路线。它不是某个具体子系统的最终设计，也不直接定义数据库 schema、API 细节或 UI 交互。
 
 后续每个大项应先拆成 `docs/roadmap/` 下的方案或 RFC，例如 `workflow`、`ToolDefinition v2`、`managed worktree`、`LSP`、`review engine`、`coding eval`。实现完成并成为稳定技术事实后，再沉淀到 `docs/architecture/` 的最终架构文档。本文只负责回答：
 
@@ -30,6 +31,26 @@
 3. Hope 当前有什么优势和缺口。
 4. 应该按什么顺序补齐。
 5. 哪些边界不能碰。
+
+## 2026-07-01 路线调整
+
+Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务可以通过 `workflow.js` 执行、审批、暂停、恢复、取消、查看 trace，并在 Workspace / Workflow Control Center 中被用户掌控。基于这个事实，后续路线不再继续把所有能力都塞进“Coding Mode”一条线里，而是调整为：
+
+```text
+通用 Agent 控制平面
+  -> coding-first 产品化落地
+  -> coding-specific 深水能力
+```
+
+新的优先级以 [Agent 控制平面路线图](agent-control-plane-roadmap.md) 为准：
+
+1. **Phase 2.6：语义收口**，已完成。`/loop off|guarded|deep|autonomous` 收口为 `/mode off|guarded|deep|autonomous`。
+2. **Phase 2.7：`/goal` MVP**，下一步。补一等目标对象：objective、completion criteria、budget、evidence、status、final audit。
+3. **Phase 2.8：Goal-driven Workflow**。Goal 派生 workflow run，失败后生成 repair run，workflow evidence 回写 goal，最终 evaluator 收口。
+4. **Phase 2.9：真正 `/loop`**。只做定时、重复、轮询或条件触发，复用 cron / wakeup / automation。
+5. **Phase 3：coding-specific 能力**。再做 managed worktree、LSP、review engine、diagnostics、智能验证选择等。
+
+这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，未来 `/loop` 负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
 ## 背景
 
@@ -397,7 +418,85 @@ StopPolicy
 - workflow trace viewer。
 - execution policy 配置。
 
-### Phase 3：Managed Worktree 隔离与交接
+### Phase 2.6：控制平面语义收口
+
+状态：已完成。详见 [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md)。
+
+目标：把 Phase 2 中临时承载执行强度的 `/loop` 语义收口为 `/mode`，避免后续真正的 scheduled loop 与 execution mode 混淆。
+
+任务：
+
+- 删除旧 `/loop off|guarded|deep|autonomous` 执行强度入口。
+- 统一用户文案为 Execution Mode / 执行模式。
+- 统一代码、DB、API 为 `execution_mode` / `executionMode`。
+- 明确 `/loop` 只保留给定时、重复触发、轮询或条件继续。
+- 因能力尚未发布，不保留旧 alias、旧 route、旧字段兼容层。
+
+### Phase 2.7：`/goal` MVP
+
+状态：下一步。详细方案见 [Agent 控制平面路线图](agent-control-plane-roadmap.md#5-phase-27goal-mvp下一步)。
+
+目标：补一等 Goal 对象，让长期任务有 objective、completion criteria、budget、evidence、status 和 final audit。
+
+任务：
+
+- 新增 goal durable store。
+- 新增 `/goal <objective and completion criteria>` / `/goal status|pause|resume|clear`。
+- GUI 增加 active goal strip / detail。
+- Goal 记录 linked workflow runs、tasks、validation evidence。
+- Goal evaluator 输出 completed / partial / blocked，并给出 reason。
+- 无痕会话不持久化 goal。
+
+产物：
+
+- Goal MVP RFC / 实现。
+- Goal owner API。
+- Goal UI detail / strip。
+- Goal evaluator 第一版。
+
+### Phase 2.8：Goal-driven Workflow
+
+状态：待 Phase 2.7 后启动。详细方案见 [Agent 控制平面路线图](agent-control-plane-roadmap.md#6-phase-28goal-driven-workflow)。
+
+目标：让 Workflow 成为 Goal 的执行手段，而不是独立漂浮的 run。
+
+任务：
+
+- `workflow_runs` 增加可选 `goal_id`。
+- Workflow create / repair draft 继承当前 goal。
+- Workflow completion / validation / diff / task evidence 自动 link 到 goal。
+- Goal detail 展示 linked run timeline。
+- Goal evaluator 读取 workflow snapshot，而不是重扫散落消息。
+
+产物：
+
+- goal-workflow link 数据结构。
+- linked run timeline。
+- final audit。
+
+### Phase 2.9：真正 `/loop`
+
+状态：待 Goal 和 Goal-driven Workflow 稳定后启动。详细方案见 [Agent 控制平面路线图](agent-control-plane-roadmap.md#7-phase-29真正-loop)。
+
+目标：`/loop` 只表示按时间、事件或条件重复触发，不再表示执行强度。
+
+任务：
+
+- 复用 cron / wakeup / automation / async jobs，不另起调度系统。
+- 支持绑定 Goal 或明确 recurring prompt。
+- 每个 loop 有最大次数、最大运行时长、token/成本预算。
+- 每次触发都有 trace 和可审计结果。
+- 支持 status / pause / resume / stop。
+
+产物：
+
+- Loop schedule store。
+- `/loop every|until|status|pause|resume|stop`。
+- Loop run trace。
+
+### Phase 3：Coding-specific 能力起点：Managed Worktree 隔离与交接
+
+状态：从“Phase 2 后立即启动”后移到 `/goal`、Goal-driven Workflow、真 `/loop` 之后。worktree 是 coding-specific 能力，应挂在 Goal / Workflow 控制平面下面，而不是作为独立任务系统。
 
 目标：并行写代码不污染用户当前工作区。
 
@@ -474,15 +573,15 @@ StopPolicy
 
 ## 30 天首个里程碑
 
-优先做投入小、收益大的基础设施：
+2026-07-01 之后的首个里程碑不再是 ToolDefinition / workflow runtime foundation，它们已经进入 Phase 1 / Phase 2 已完成范围。新的 30 天目标是把控制平面补到可承载长任务：
 
-1. 建 `coding eval harness`，先放 20 个 gold tasks。
-2. 写 `ToolDefinition v2` RFC，迁移 5-8 个核心工具。
-3. 升级 `tool_search`：alias、search_hint、BM25、`select:`。
-4. 做 `/review --local` MVP：uncommitted diff、candidate finding、verifier 三态。
-5. 给 Plan Mode 加 plan quality gate。
-6. 修订内置 `code-review` skill，使其遵守项目 AGENTS 的验证策略。
-7. 设计 `WorkflowRun` trace schema，但先不急着做复杂 UI。
+1. 落 `/goal` MVP：objective、completion criteria、state、budget、evidence、final audit。
+2. 在 GUI 中展示 active goal，不要求用户记 slash 命令才能掌控长期任务。
+3. 让 workflow run 可选绑定 goal，repair run 不丢 goal 归属。
+4. Workflow completion / validation / task / diff evidence 自动回写 goal。
+5. 做第一版 goal evaluator，能输出 completed / partial / blocked + reason。
+6. 更新 Phase 0 coding eval：新增 goal-driven 长任务场景，验证 goal evidence 与 final audit。
+7. 设计真正 `/loop`，但实现放在 Goal-driven Workflow 稳定之后。
 
 ## 验收指标
 
@@ -534,11 +633,11 @@ StopPolicy
 
 建议后续按优先级在 `docs/roadmap/` 下拆文；实现完成后再转入 `docs/architecture/`：
 
-1. [docs/roadmap/coding-eval.md](coding-eval.md)：评测集、指标、trace、报告格式。
-2. `docs/roadmap/tool-definition-v2.md`：工具元数据、迁移策略、兼容层。
-3. `docs/roadmap/tool-search-v2.md`：搜索排序、schema 返回、deferred 策略。
-4. `docs/roadmap/coding-mode.md`：任务分类、profile、Plan quality gate、Skill policy。
-5. `docs/roadmap/workflow.md`：WorkflowRun、节点、边、execution policy、trace。
+1. [Agent 控制平面路线图](agent-control-plane-roadmap.md)：`/goal`、`/workflow`、`/mode`、真 `/loop`、`/worktree` 的总顺序。
+2. [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md)：产品语言与命名红线。
+3. `docs/roadmap/goal-mvp.md`：Goal store、owner API、GUI、evaluator、evidence link。
+4. `docs/roadmap/goal-driven-workflow.md`：goal_id、repair run、workflow evidence、final audit。
+5. `docs/roadmap/loop-schedules.md`：真正 `/loop` 的调度、预算、审批和 trace。
 6. `docs/roadmap/managed-worktree.md`：隔离工作区、handoff、UI、hooks。
 7. `docs/roadmap/lsp.md`：LSP manager、tools、diagnostics pipeline。
 8. `docs/roadmap/review-engine.md`：diff scan、candidate、verifier、inline finding。

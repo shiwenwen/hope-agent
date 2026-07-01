@@ -2,9 +2,11 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 状态：Draft RFC
+> 状态：Phase 2 方案已完成第一版产品化；后续转入 Agent 控制平面路线。
 >
 > 更新时间：2026-07-01
+>
+> 路线调整：Phase 2 已完成 Workflow + Execution Mode 第一版产品化；后续顺序以 [Agent 控制平面路线图](agent-control-plane-roadmap.md) 为准，先做 `/goal`，再做 Goal-driven Workflow，然后才是真正 `/loop` 与 Phase 3 coding-specific 能力。
 
 ## 0. 设计修订说明（2026-06-30 Review 收口）
 
@@ -963,20 +965,70 @@ stop reason if any
 - subagent 状态清楚展示（Agents tab 展示 spawnAgent op、runId/status/label/task；background job 投影仍保留）。
 - 预算耗尽清楚展示（run list / Overview 展示 `输出预算` spent/limit，`budget_usage` 关键事件说明 exhausted 与 reason，runtime 达上限转 blocked）。
 
-### Phase 2.7：Guarded repair loop
+### Phase 2.6b：语义收口
 
-实现：
+状态：2026-07-01 已完成。详见 [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md)。
 
-- validation feedback -> repair prompt。
-- no-progress 检测。
-- diff snapshot。
-- stop reason。
+本阶段把原先容易混淆的“loop mode”彻底收口为 `/mode` execution mode：
+
+- `/mode off|guarded|deep|autonomous` 是会话级执行策略。
+- `/workflow` 是一次具体、可观察、可恢复的执行编排。
+- `/goal` 后续成为长期任务的顶层完成标准。
+- `/loop` 后续只用于定时、重复触发或条件轮询。
+
+同时明确：guarded repair stop guard 已在 Phase 2.5 / 2.6 范围内落地，不再作为下一阶段主线。
+
+### Phase 2.7：`/goal` MVP
+
+状态：下一步。详细方案见 [Agent 控制平面路线图 §5](agent-control-plane-roadmap.md#5-phase-27goal-mvp下一步)。
+
+目标：
+
+- 新增一等 Goal 对象，承载 objective、completion criteria、budget、evidence、status、final audit。
+- `/goal` 不替代 `/workflow`；它决定“最终要达成什么”，workflow 决定“这次怎么执行”。
+- GUI 显示 active goal，用户不必打开 workflow 历史才能知道长期任务是否完成。
 
 验收：
 
-- 连续两轮无有效 diff 会停并 ask_user。
-- 验证失败原因不变会停。
-- guarded 最多 1-2 次 repair。
+- `/goal <objective and completion criteria>` 能创建 active goal。
+- `/goal status|pause|resume|clear` 可用。
+- Goal 能 link workflow run、task、validation evidence。
+- Workflow 完成后可触发 goal evaluate。
+- Goal final audit 能解释达成项、未达成项、验证证据和剩余风险。
+
+### Phase 2.8：Goal-driven Workflow
+
+状态：待 `/goal` MVP 后启动。详细方案见 [Agent 控制平面路线图 §6](agent-control-plane-roadmap.md#6-phase-28goal-driven-workflow)。
+
+目标：
+
+- 让 workflow run 归属 goal。
+- 失败 run 生成 repair run 时继承 goal。
+- Workflow trace、validation、task、diff evidence 回写 goal。
+- Goal evaluator 基于 workflow snapshot 收口，而不是重新猜测聊天历史。
+
+验收：
+
+- `workflow_runs` 可选绑定 goal。
+- Goal detail 能展示 linked run timeline。
+- Repair run 不丢 parent goal。
+- App 重启后 goal / workflow / task / evidence 关系仍可恢复。
+
+### Phase 2.9：真正 `/loop`
+
+状态：待 Goal-driven Workflow 稳定后启动。详细方案见 [Agent 控制平面路线图 §7](agent-control-plane-roadmap.md#7-phase-29真正-loop)。
+
+目标：
+
+- `/loop` 只表示重复触发，不表示执行强度。
+- 复用 cron / wakeup / automation / async jobs，不新建平行调度器。
+- 每个 loop 必须有预算、最大次数、审批策略、trace 和 stop 控制。
+
+验收：
+
+- `/loop status` 能解释下一次触发、剩余预算和最近结果。
+- `/loop stop` 后不会再唤醒。
+- 无人值守审批不可用时 fail-closed 或按显式 policy proceed。
 
 ## 15. MVP 示例场景
 
@@ -1099,7 +1151,7 @@ Phase 2 完成时，应满足：
 
 ## 20. 下一步
 
-推荐立即做：
+本方案内的 Phase 2 主任务已经完成，后续不再继续在本文内追加新的顶层阶段。下一步进入 [Agent 控制平面路线图](agent-control-plane-roadmap.md)：
 
 1. ~~写 `docs/roadmap/coding-skills-detox.md`~~ → 已产出 [Coding Skills Detox 审计](coding-skills-detox.md)。
 2. ~~写 `docs/roadmap/workflow-script-runtime.md`~~ → 已产出 [Script-first Workflow Runtime 设计](workflow-script-runtime.md)。
@@ -1109,3 +1161,6 @@ Phase 2 完成时，应满足：
 6. ~~进入 embedded runtime 代码实现~~ → 已落 QuickJS runtime foundation 与同步首批 host API。
 7. ~~接剩余 async host bridge 的真实工具路径证据~~ → 已补 `workflow.spawnAgent` 经真实 subagent tool 的 E2E 单测，并补 mock-provider 回复型 fan-out E2E（两个子 Agent 真实跑过 `run_chat_engine` + OpenAI Chat adapter 后由 `waitAll` 汇总）。
 8. ~~补 Workflow Panel / `/workflow trace` / `/mode` 前端控制面~~ → 已接 Workspace Panel + `/workflow` slash + 持久化 `/mode` policy，并补 Trace / Validation / Agents tabs。
+9. **下一阶段：`/goal` MVP** → 目标、完成标准、预算、证据、状态、final audit。
+10. **随后：Goal-driven Workflow** → workflow run 归属 goal，repair run 继承 goal，workflow evidence 回写 goal。
+11. **再后：真正 `/loop`** → 定时、重复、轮询或条件触发，复用 cron / wakeup / automation。

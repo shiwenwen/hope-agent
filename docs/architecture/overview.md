@@ -148,7 +148,10 @@ graph LR
     ChatEngine --> ProjectCtx["Project / Working Dir"]
     ChatEngine --> Awareness["Behavior Awareness"]
     ChatEngine --> PlanMode["Plan Mode (5 态 FSM)"]
+    ChatEngine --> Workflow["Workflow<br/>(durable script runs)"]
     PlanMode --> Subagent["Subagent (spawn + inject)"]
+    Workflow --> Subagent
+    Workflow --> AsyncJobs["Async Jobs"]
     Subagent --> Team["Agent Team"]
 
     Channel["Channel"] --> ChatEngine
@@ -195,7 +198,7 @@ graph LR
 
 | 数据库 | 路径 | 用途 |
 |--------|------|------|
-| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Subagent/ACP/Team 运行记录 |
+| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、WorkflowRun/Op/Event、Subagent/ACP/Team 运行记录 |
 | memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
 | knowledge/index.db | `~/.hope-agent/knowledge/index.db` | 知识空间 chunk 索引（FTS5 + vec0），可重建缓存；笔记 `.md` 真相在 `knowledge/{id}/notes/` 或外部 vault，registry 在 sessions.db |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
@@ -245,6 +248,7 @@ graph LR
 | 模块 | 文档 |
 |------|------|
 | Plan 5 态状态机 | [Plan Mode](plan-mode.md) |
+| Durable Workflow / Execution Mode | [Workflow 与 Execution Mode](workflow.md) |
 | Ask User 结构化问答 | [Ask User](ask-user.md) |
 | 技能发现 & 隔离 | [技能系统](skill-system.md) |
 | 子 Agent 系统 | [Subagent](subagent.md) |

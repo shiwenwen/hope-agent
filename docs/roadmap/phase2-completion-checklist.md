@@ -125,6 +125,7 @@ Phase 2 的 GUI 面向长任务，而不是只给 `/workflow` 命令做一个旁
 - 外部真实 provider 不进普通单测。它依赖 provider key、模型可用性、网络和费用，应该作为体验抽检，而不是 CI gate。
 - 自动测试证明 workflow runtime 与既有子系统的接线：permission、async jobs、subagent queue、child chat engine、provider adapter、task、session DB、Workspace snapshot。
 - 若要声明“模型体验对齐 Claude Code workflow 能力”，建议额外完成一次外部真实 provider smoke，并保存 run snapshot / trace / final 作为体验记录；这不再是实现完成的唯一证据。
+- Phase 2 完成后，路线不直接进入 worktree / LSP / review engine。新的后续顺序见 [Agent 控制平面路线图](agent-control-plane-roadmap.md)：`/goal` MVP → Goal-driven Workflow → 真正 `/loop` → coding-specific 能力。
 
 ## 2026-07-01 复核记录
 

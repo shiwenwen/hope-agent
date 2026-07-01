@@ -96,6 +96,7 @@ Phase 2 的产品级定义不是"能跑一个命令"，而是：
 | 并发中途硬预算 | 当前 output token budget 在 `waitAll` 汇总后阻断后续 LLM op，不实时取消已经并发启动的子 Agent。 | Phase 3 可做 running child budget watchdog；Phase 2 第一版不把它作为阻塞。 |
 | 截图级视觉证据 | 自动测试和浏览器 DOM/layout smoke 已覆盖行为、场景切换和水平溢出；仍未保存截图 artifact。 | 截图 artifact 可作为后续体验复核材料；生产构建已确认不包含 smoke 入口。 |
 | architecture 沉淀 | 目前 workflow 仍在迭代，不应过早写入 `docs/architecture/`。 | Phase 2 稳定后再迁移成 `docs/architecture/workflow.md`，roadmap 保留设计历史。 |
+| 顶层 Goal 缺失 | Workflow 已能执行和恢复，但还没有一等对象保存最终目标、完成标准、证据和 final audit。 | 下一阶段转入 [Agent 控制平面路线图](agent-control-plane-roadmap.md)：先做 `/goal` MVP，再做 Goal-driven Workflow。 |
 
 ## 7. 完成判定
 
@@ -106,3 +107,5 @@ Phase 2 第一版产品级可以声明完成：
 - 长任务稳定性覆盖 pause / resume / cancel / replay / child attach / budget / repair stop guard。
 - GUI、Tauri、HTTP、runtime 和测试证据闭合。
 - 仍保留外部真实 provider smoke 和截图验收作为体验增强，不把它们包装成已经自动证明的内容。
+
+Phase 2 完成后不直接进入 worktree / LSP / review engine。下一步是 `/goal`，让已完成的 workflow 能力挂到长期任务目标、完成标准和证据链上。
