@@ -2,7 +2,7 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，worktree、LSP、review engine 仍是后续系统接入边界。最终架构见 [Goal 控制平面](../architecture/goal.md)。
+> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定；LSP、review engine 仍是后续系统接入边界。最终架构见 [Goal 控制平面](../architecture/goal.md)。
 >
 > 更新时间：2026-07-01
 
@@ -25,14 +25,14 @@ V2 的目标不是重做 Goal，而是把 **Goal <-> Workflow <-> Evidence <-> U
 2. Workflow 不只把 run 状态写回 Goal，还能把 diff / file / artifact / validation 级 evidence 结构化挂到 Goal。
 3. Evaluator 从“保守规则”升级为“规则引擎 + 可选 LLM 审计”，但不能让模型自说自话决定完成。
 4. Goal budget 从“持久化字段”升级为可观察、可扣减、可停止的运行约束。
-5. `/loop`、worktree、LSP、review engine 都能把结果作为 Goal evidence 接入，而不是各做各的总结；其中 `/loop` 第一版已落地。
+5. `/loop`、worktree、LSP、review engine 都能把结果作为 Goal evidence 接入，而不是各做各的总结；其中 `/loop` 第一版已落地，Managed Worktree 已完成 workflow 运行绑定。
 
 ## 非目标
 
 - 不把 Goal 变成执行 runtime；具体执行仍由 Workflow / Loop / tools 承担。
 - 不让 agent 工具面直接修改 durable Goal；第一阶段仍走 owner 平面。
 - 不绕过 permission / hooks / sandbox / incognito / KB access。
-- 不在 V2 内一次性实现 worktree、LSP、review engine；只定义 evidence 接入边界。
+- 不在 V2 内一次性实现 LSP、review engine；worktree control plane 已在 Phase 3.1 单独完成，Goal detail 的更丰富展示仍按 evidence 边界继续增强。
 - 不让 LLM evaluator 覆盖 hard blocker；规则引擎先 fail closed。
 
 ## 1. Evidence v2
@@ -283,7 +283,7 @@ Goal budget 不只保存字段，还要能解释：
 ### Milestone D：Post-2.8 Integrations
 
 - `/loop` run evidence（已落地第一版）。
-- worktree evidence。
+- workflow worktree 绑定（已落地第一版）；Goal detail 的 worktree 展示和 handoff 状态仍可继续增强。
 - LSP diagnostics evidence。
 - review finding evidence。
 

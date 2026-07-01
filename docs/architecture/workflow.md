@@ -29,6 +29,7 @@ workflow.js
 | 预检 | `crates/ha-core/src/workflow/preview.rs` | Script Gate + permission preview + create/run 可行性判定。 |
 | runtime | `crates/ha-core/src/workflow/runtime.rs` | QuickJS runtime、host API、durable replay、budget、repair guard、恢复 runner。 |
 | Execution Mode | `crates/ha-core/src/execution_mode.rs` | `off` / `guarded` / `deep` / `autonomous` 解析与 prompt 动态段。 |
+| Managed Worktree | `crates/ha-core/src/worktree.rs` | 可选隔离执行目录，run 绑定 `worktree_id` 后 runtime 自动 restore 并切换 cwd。 |
 | Tauri owner API | `src-tauri/src/commands/workflow.rs`、`execution_mode.rs` | 桌面 owner 平面命令。 |
 | HTTP owner API | `crates/ha-server/src/routes/workflow.rs`、`execution_mode.rs` | Server/Web owner 平面端点。 |
 | GUI | `src/components/chat/workspace/WorkspacePanel.tsx`、`useWorkflowRuns.ts` | Workflow Control Center、run 详情、审批/恢复/取消、Execution Mode 控件。 |
@@ -63,6 +64,7 @@ Workflow 数据落在 `sessions.db`，跟随会话级联删除。
 | `parent_run_id` | 修复 run 来源，外键到 `workflow_runs(id)`，删除父 run 时置空。 |
 | `origin` | run 来源，例如 `repair`。 |
 | `goal_id` | 可选 Goal 归属；不显式传时自动绑定当前 session 的 open Goal。 |
+| `worktree_id` | 可选 Managed Worktree 归属；绑定后本 run 的工具、读取、校验、diff 默认在 worktree 路径执行。 |
 | `created_at` / `updated_at` / `completed_at` | 时间戳。 |
 
 ### `workflow_ops`
@@ -195,6 +197,13 @@ run_workflow_script_async(db, run_id)
   -> spawn_blocking QuickJS runtime
   -> workflow.finish -> Completed
 ```
+
+Worktree 绑定：
+
+- `create_workflow_run` 可接收 `worktreeId`，创建时校验 worktree 属于同一 session 且处于 `active` / `handoff`。
+- runtime 构造 `WorkflowSessionContext` 时，如果 run 绑定 `worktree_id`，会先读取 managed worktree；路径缺失或状态归档时自动 `restore_managed_worktree`。
+- restore 失败或 worktree 不可用时，run 转 `blocked(worktree_unavailable)`，不能静默回退到父会话 working dir。
+- 绑定成功后写 `run_worktree_attached` trace event，`workflow.fileSearch` / `read` / `grep` / `tool` / `validate` / `diff` 默认 cwd 都是 worktree path。
 
 Primary-only 启动：
 
@@ -346,6 +355,8 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 当前实现：
 
 - 标题栏 `Coding` 入口与 active / waiting / failed badge。
+- Workflow 创建区提供“运行位置”：当前目录、新隔离工作树、已有 managed worktree。默认当前目录，用户显式选择后才创建或绑定 worktree。
+- Run 列表会标记已绑定 `worktreeId` 的 workflow，便于用户区分普通运行和隔离运行。
 - Goal strip：创建 active Goal、展示目标摘要/状态/证据指标、手动 audit、暂停/恢复/清除。
 - Execution Mode 常驻控制。
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。
@@ -391,7 +402,6 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 当前已实现 workflow 不包含：
 
 - `/loop` 的定时/重复/轮询调度，详见 [Loop 控制平面](loop.md)。
-- Managed worktree。
 - LSP diagnostics。
 - 独立 review engine。
 - Workflow marketplace 或外部 npm workflow ecosystem。

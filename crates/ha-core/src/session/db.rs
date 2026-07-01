@@ -359,6 +359,7 @@ impl SessionDB {
 
         Self::ensure_chat_turns_table(&conn)?;
         crate::goal::ensure_tables(&conn)?;
+        crate::worktree::ensure_tables(&conn)?;
         crate::workflow::ensure_tables(&conn)?;
         crate::loop_control::ensure_tables(&conn)?;
 

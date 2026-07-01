@@ -97,6 +97,15 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `workflow:op_updated` | `workflow_ops` started/completed/failed | `WorkflowOp` 快照 |
 | `workflow:event` | `append_workflow_event` | `WorkflowEvent`；大 payload 已在落库前截断到 preview |
 
+### Managed Worktree
+
+| 事件名 | 触发点 | Payload 关键字段 |
+|---|---|---|
+| `worktree:created` | `worktree::create_managed_worktree` | `ManagedWorktree` 快照 |
+| `worktree:archived` | `worktree::archive_managed_worktree` | `ManagedWorktree` 快照，含 dirty snapshot |
+| `worktree:restored` | `worktree::restore_managed_worktree` | `ManagedWorktree` 快照 |
+| `worktree:handoff` | `worktree::handoff_managed_worktree` | `ManagedWorktree` 快照；session working dir 已切换 |
+
 ### Goal
 
 | 事件名 | 触发点 | Payload 关键字段 |
@@ -370,6 +379,19 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 
 `get_execution_mode` / `set_execution_mode` 是会话级执行模式入口，对应 `/mode off|guarded|deep|autonomous` 与 Workspace/Workflow 面板中的 Execution Mode 控件，写 `sessions.execution_mode`。该值会进入下一轮 system prompt 的动态段，控制长任务的观察、计划、验证、修复和停止策略；它不是 `/loop`，也不负责定时、重复触发或条件轮询。
 
+### Managed Worktrees
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `list_managed_worktrees` | `GET /api/sessions/{sessionId}/worktrees` | ✅ |
+| `create_managed_worktree` | `POST /api/sessions/{sessionId}/worktrees` | ✅ |
+| `get_managed_worktree` | `GET /api/worktrees/{worktreeId}` | ✅ |
+| `archive_managed_worktree` | `POST /api/worktrees/{worktreeId}/archive` | ✅ |
+| `restore_managed_worktree` | `POST /api/worktrees/{worktreeId}/restore` | ✅ |
+| `handoff_managed_worktree` | `POST /api/worktrees/{worktreeId}/handoff` | ✅ |
+
+Managed Worktree owner API 管理 session-scoped durable git worktree。`create_managed_worktree` 拒绝 incognito session，默认在 `~/.hope-agent/worktrees/<repo-slug>/<wt-id>` 创建 detached worktree，并支持 `WorktreeCreate` hook 接管创建；`archive` 会记录 dirty snapshot，clean worktree 才 best-effort remove；`restore` 可重建已清理路径；`handoff` 会把父 session `working_dir` 切到 worktree。完整契约见 [Managed Worktree 控制平面](worktree.md)。
+
 ### Workflow Runs
 
 | Tauri Command | HTTP | 状态 |
@@ -384,7 +406,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `approve_workflow_run` | `POST /api/workflow-runs/{runId}/approve` | ✅ |
 | `cancel_workflow_run` | `POST /api/workflow-runs/{runId}/cancel` | ✅ |
 
-Workflow owner API 管理 durable `workflow_runs`。`preview_workflow_script` 不落库，只返回 Script Gate + permission preview；`create_workflow_run` 会强制复用同一 preflight，Gate 不通过或 permission preview 有确定 deny 时拒绝创建。`run_workflow_run` / `approve_workflow_run` / `resume_workflow_run` 只改变 owner 管理状态并异步 kick primary runtime；`cancel_workflow_run` 会先转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children。完整技术契约见 [Workflow 与 Execution Mode](workflow.md)。
+Workflow owner API 管理 durable `workflow_runs`。`preview_workflow_script` 不落库，只返回 Script Gate + permission preview；`create_workflow_run` 会强制复用同一 preflight，Gate 不通过或 permission preview 有确定 deny 时拒绝创建，并可选接收 `worktreeId` 绑定 managed worktree。`run_workflow_run` / `approve_workflow_run` / `resume_workflow_run` 只改变 owner 管理状态并异步 kick primary runtime；`cancel_workflow_run` 会先转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children。完整技术契约见 [Workflow 与 Execution Mode](workflow.md)。
 
 ### Goals
 

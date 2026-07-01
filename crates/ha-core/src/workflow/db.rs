@@ -29,6 +29,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             parent_run_id TEXT,
             origin TEXT,
             goal_id TEXT,
+            worktree_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             completed_at TEXT,
@@ -95,6 +96,12 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     {
         conn.execute_batch("ALTER TABLE workflow_runs ADD COLUMN goal_id TEXT;")?;
     }
+    if conn
+        .prepare("SELECT worktree_id FROM workflow_runs LIMIT 1")
+        .is_err()
+    {
+        conn.execute_batch("ALTER TABLE workflow_runs ADD COLUMN worktree_id TEXT;")?;
+    }
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent
             ON workflow_runs(parent_run_id);",
@@ -102,6 +109,10 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_workflow_runs_goal
             ON workflow_runs(goal_id, updated_at DESC);",
+    )?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_workflow_runs_worktree
+            ON workflow_runs(worktree_id);",
     )?;
     Ok(())
 }
@@ -179,6 +190,33 @@ impl SessionDB {
                     .optional()?,
             }
         };
+        if let Some(worktree_id) = input.worktree_id.as_deref() {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let row: Option<(String, String)> = conn
+                .query_row(
+                    "SELECT session_id, state FROM managed_worktrees WHERE id = ?1",
+                    params![worktree_id],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            let (worktree_session_id, state) =
+                row.ok_or_else(|| anyhow!("managed worktree not found: {worktree_id}"))?;
+            if worktree_session_id != input.session_id {
+                return Err(anyhow!(
+                    "managed worktree {} belongs to session {}; expected {}",
+                    worktree_id,
+                    worktree_session_id,
+                    input.session_id
+                ));
+            }
+            if state != "active" && state != "handoff" {
+                return Err(anyhow!(
+                    "managed worktree {} is {}; expected active or handoff",
+                    worktree_id,
+                    state
+                ));
+            }
+        }
         if let Some(goal_id) = goal_id.as_deref() {
             self.ensure_goal_budget_allows_new_workflow(goal_id)?;
         }
@@ -187,8 +225,9 @@ impl SessionDB {
             conn.execute(
                 "INSERT INTO workflow_runs (
                     id, session_id, kind, state, execution_mode, script_hash, script_source,
-                    budget_json, cursor_seq, parent_run_id, origin, goal_id, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?12)",
+                    budget_json, cursor_seq, parent_run_id, origin, goal_id, worktree_id,
+                    created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, ?12, ?13, ?13)",
                 params![
                     id,
                     input.session_id,
@@ -201,6 +240,7 @@ impl SessionDB {
                     input.parent_run_id,
                     input.origin,
                     goal_id,
+                    input.worktree_id,
                     now
                 ],
             )?;
@@ -219,6 +259,7 @@ impl SessionDB {
                 "parentRunId": run.parent_run_id,
                 "origin": run.origin,
                 "goalId": run.goal_id,
+                "worktreeId": run.worktree_id,
             }),
         )?;
         if let Some(parent_run_id) = run.parent_run_id.as_deref() {
@@ -246,6 +287,7 @@ impl SessionDB {
                     "state": run.state,
                     "parentRunId": run.parent_run_id,
                     "origin": run.origin,
+                    "worktreeId": run.worktree_id,
                 }),
             );
         }
@@ -260,7 +302,8 @@ impl SessionDB {
         conn.query_row(
             "SELECT id, session_id, kind, state, execution_mode, script_hash, script_source,
                     budget_json, cursor_seq, primary_owner, blocked_reason,
-                    parent_run_id, origin, goal_id, created_at, updated_at, completed_at
+                    parent_run_id, origin, goal_id, worktree_id,
+                    created_at, updated_at, completed_at
              FROM workflow_runs WHERE id = ?1",
             params![run_id],
             row_to_run,
@@ -279,7 +322,8 @@ impl SessionDB {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, kind, state, execution_mode, script_hash, script_source,
                     budget_json, cursor_seq, primary_owner, blocked_reason,
-                    parent_run_id, origin, goal_id, created_at, updated_at, completed_at
+                    parent_run_id, origin, goal_id, worktree_id,
+                    created_at, updated_at, completed_at
              FROM workflow_runs
              WHERE session_id = ?1
              ORDER BY updated_at DESC, created_at DESC
@@ -373,6 +417,7 @@ impl SessionDB {
                         "blockedReason": run.blocked_reason,
                         "completedAt": run.completed_at,
                         "reason": reason,
+                        "worktreeId": run.worktree_id,
                     }),
                 );
                 if matches!(
@@ -452,7 +497,8 @@ impl SessionDB {
         let mut stmt = conn.prepare(
             "SELECT id, session_id, kind, state, execution_mode, script_hash, script_source,
                     budget_json, cursor_seq, primary_owner, blocked_reason,
-                    parent_run_id, origin, goal_id, created_at, updated_at, completed_at
+                    parent_run_id, origin, goal_id, worktree_id,
+                    created_at, updated_at, completed_at
              FROM workflow_runs
              WHERE state = 'running' AND (primary_owner IS NULL OR primary_owner = '')
              ORDER BY updated_at ASC",
@@ -794,9 +840,10 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRun> {
         parent_run_id: row.get(11)?,
         origin: row.get(12)?,
         goal_id: row.get(13)?,
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
-        completed_at: row.get(16)?,
+        worktree_id: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        completed_at: row.get(17)?,
     })
 }
 

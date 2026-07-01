@@ -37,6 +37,13 @@ fn is_hook_spawn(label: Option<&str>) -> bool {
     label == Some(HOOK_SPAWN_LABEL)
 }
 
+fn append_extra_system_context(existing: Option<String>, addition: String) -> Option<String> {
+    Some(match existing {
+        Some(current) if !current.trim().is_empty() => format!("{current}\n\n{addition}"),
+        _ => addition,
+    })
+}
+
 /// Spawn a sub-agent asynchronously. Returns the run_id immediately.
 pub async fn spawn_subagent(
     params: SpawnParams,
@@ -53,7 +60,7 @@ pub async fn spawn_subagent(
 /// `child_handle` before the side effect is launched, so recovery can reattach to
 /// or safely retry the same child instead of creating an untracked duplicate.
 pub(crate) async fn spawn_subagent_with_run_id(
-    params: SpawnParams,
+    mut params: SpawnParams,
     session_db: Arc<SessionDB>,
     cancel_registry: Arc<SubagentCancelRegistry>,
     run_id: String,
@@ -105,6 +112,74 @@ pub(crate) async fn spawn_subagent_with_run_id(
     // Set a descriptive title for the sub-agent session
     let task_preview = truncate_str(&params.task, 50);
     let _ = session_db.update_session_title(&child_session_id, &task_preview);
+
+    let mut assigned_child_working_dir = false;
+    if params.isolate_worktree {
+        match session_db
+            .create_managed_worktree(crate::worktree::CreateManagedWorktreeInput {
+                session_id: params.parent_session_id.clone(),
+                source_working_dir: None,
+                label: params.label.clone().or_else(|| Some(task_preview.clone())),
+                purpose: crate::worktree::ManagedWorktreePurpose::Subagent,
+                workflow_run_id: None,
+                child_session_id: Some(child_session_id.clone()),
+                base_ref: None,
+            })
+            .await
+        {
+            Ok(worktree) => {
+                match session_db
+                    .update_session_working_dir(&child_session_id, Some(worktree.path.clone()))
+                {
+                    Ok(_) => {
+                        assigned_child_working_dir = true;
+                        params.extra_system_context = append_extra_system_context(
+                            params.extra_system_context.take(),
+                            format!(
+                                "## Managed Worktree\nThis sub-agent has an isolated managed git worktree at `{}`. Treat this as the default workspace for file reads, edits, commands, and evidence gathering. The parent session tracks it as `{}` for handoff, restore, and cleanup.",
+                                worktree.path, worktree.id
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        crate::app_warn!(
+                            "subagent",
+                            "worktree",
+                            "created worktree {} but failed to assign child session cwd: {}",
+                            worktree.id,
+                            e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                crate::app_warn!(
+                    "subagent",
+                    "worktree",
+                    "failed to create isolated worktree for run {}: {}",
+                    run_id,
+                    e
+                );
+            }
+        }
+    }
+    if !assigned_child_working_dir {
+        if let Some(parent_cwd) =
+            crate::session::effective_session_working_dir(Some(&params.parent_session_id))
+        {
+            if let Err(e) =
+                session_db.update_session_working_dir(&child_session_id, Some(parent_cwd))
+            {
+                crate::app_warn!(
+                    "subagent",
+                    "worktree",
+                    "failed to inherit parent working dir for child session {}: {}",
+                    child_session_id,
+                    e
+                );
+            }
+        }
+    }
 
     // 5. Insert run record
     let now = chrono::Utc::now().to_rfc3339();
@@ -807,6 +882,7 @@ mod structural_limit_tests {
             timeout_secs: None,
             model_override: None,
             label: None,
+            isolate_worktree: false,
             attachments: Vec::new(),
             plan_agent_mode: None,
             plan_mode_allow_paths: Vec::new(),
@@ -905,6 +981,7 @@ mod structural_limit_tests {
                 timeout_secs: None,
                 model_override: None,
                 label: None,
+                isolate_worktree: false,
                 attachments: Vec::new(),
                 plan_agent_mode: None,
                 plan_mode_allow_paths: Vec::new(),

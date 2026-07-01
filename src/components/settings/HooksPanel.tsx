@@ -31,9 +31,8 @@ interface HooksSettings {
   hooks: HooksMap
 }
 
-// The 24 events that actually fire (the 4 protocol-reserved ones —
-// TeammateIdle / InstructionsLoaded / WorktreeCreate / WorktreeRemove — are
-// omitted because Hope Agent never dispatches them).
+// The 26 events that actually fire. Protocol-reserved TeammateIdle and
+// InstructionsLoaded are omitted because Hope Agent never dispatches them.
 const FIREABLE_EVENTS: string[] = [
   "SessionStart",
   "SessionEnd",
@@ -57,6 +56,8 @@ const FIREABLE_EVENTS: string[] = [
   "ConfigChange",
   "CwdChanged",
   "FileChanged",
+  "WorktreeCreate",
+  "WorktreeRemove",
   "Elicitation",
   "ElicitationResult",
 ]
@@ -66,7 +67,7 @@ const HANDLER_TYPES: HandlerType[] = ["command", "http", "mcp_tool", "prompt", "
 // Blocking events are awaited inline before the turn proceeds, so a slow
 // handler (LLM side-query / sub-agent) stalls every fire. PreToolUse is the
 // worst (once per tool call). Warn when these combine.
-const BLOCKING_EVENTS = new Set(["PreToolUse", "UserPromptSubmit", "PreCompact"])
+const BLOCKING_EVENTS = new Set(["PreToolUse", "UserPromptSubmit", "PreCompact", "WorktreeCreate"])
 const SLOW_HANDLERS = new Set<HandlerType>(["prompt", "agent"])
 
 type FieldKind = "text" | "textarea" | "number" | "switch" | "csv" | "json" | "shell"

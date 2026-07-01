@@ -1783,6 +1783,7 @@ mod tests {
             parent_run_id: None,
             origin: None,
             goal_id,
+            worktree_id: None,
         })
         .expect("create workflow")
     }
@@ -2144,6 +2145,7 @@ mod tests {
                 parent_run_id: None,
                 origin: None,
                 goal_id: None,
+                worktree_id: None,
             })
             .expect_err("exhausted goal budget should reject new workflow");
         assert!(err.to_string().contains("budget exhausted"));

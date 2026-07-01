@@ -83,6 +83,14 @@ stateDiagram-v2
 | `skip_parent_injection` | `bool` | 是否跳过自动结果注入 |
 | `extra_system_context` | `Option<String>` | 额外系统上下文（如 `PLAN_MODE_SYSTEM_PROMPT`） |
 | `skill_allowed_tools` | `Vec<String>` | Skill fork 模式继承的工具白名单 |
+| `isolate_worktree` | `bool` | 是否为 child session 尝试创建 Managed Worktree 隔离执行目录 |
+
+`isolate_worktree` 的默认产品语义：
+
+- 用户可见的 `subagent` / `batch_spawn` 工具默认 `true`，让并行实现和长任务探索默认不污染父工作区。
+- 内部 plan / team / hook / skill fork helper 默认 `false`，避免只读分析或短生命周期 helper 大量制造 worktree。
+- 创建成功后 child session `working_dir` 指向 worktree path，并注入额外 system context 告知子 Agent 当前隔离路径和 worktree id。
+- 创建失败时记录告警并继承父会话有效 working dir，避免因环境不支持 git worktree 而使整个父回合失败。需要强隔离保证的上层应显式检查 managed worktree 状态。
 
 ### SubagentEvent（前端事件）
 

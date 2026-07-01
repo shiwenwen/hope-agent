@@ -17,7 +17,7 @@ Goal        = 我要最终达成什么、完成标准是什么（已实现第一
 Mode        = 这次会话/目标用多主动、多深的策略推进（已实现为 /mode）
 Workflow    = 一次具体、可观察、可恢复的执行编排（已实现）
 Task        = 用户可见进度事实（已有，workflow 内已接入）
-Worktree    = 代码改动落在哪个隔离环境（后续 Phase 3，编码场景特有）
+Worktree    = 代码改动落在哪个隔离环境（已实现 Phase 3.1，编码场景特有）
 Loop        = 定时/重复触发或条件轮询（已实现第一版）
 ```
 
@@ -59,7 +59,7 @@ Loop        = 定时/重复触发或条件轮询（已实现第一版）
 | Workflow | 已实现 | `/workflow` + Workflow Control Center | `workflow_runs.execution_mode`、`workflow_ops`、`workflow_events` | 一次具体 run，保存创建时的 execution mode 快照。 |
 | Task | 已有并接入 workflow | Workflow UI / `workflow.task.*` | session task store + workflow host API | 用户可见进度事实，不靠 label 定位，按 create 返回 handle 更新。 |
 | Loop | 已实现第一版 | `/loop` + Workspace Loop 区块 | `loop_schedules` / `loop_runs`，HTTP `/api/sessions/{id}/loops` / `/api/loops/{id}` | 只用于真正重复触发、轮询或定时继续；完整实现见 [Loop 控制平面](../architecture/loop.md)。 |
-| Worktree | 未实现 | 后续 `/worktree` / GUI | 后续 managed worktree registry | 代码改动隔离环境，偏 coding-specific。 |
+| Worktree | 已实现 Phase 3.1 | Workspace 环境面板 + Workflow 创建运行位置 | `managed_worktrees`，HTTP `/api/sessions/{id}/worktrees` / `/api/worktrees/{id}` | 代码改动隔离环境，偏 coding-specific；完整实现见 [Managed Worktree 控制平面](../architecture/worktree.md)。 |
 
 ## 3.1 调整后的实施顺序
 
@@ -70,10 +70,11 @@ Phase 2.6  语义收口（已完成）
 Phase 2.7  /goal 第一版（已完成）
 Phase 2.8  Goal-driven Workflow 核心闭环（已完成）
 Phase 2.9  真正 /loop 第一版（已完成）
-Phase 3    Worktree / LSP / Review 等 coding-specific 能力
+Phase 3.1  Managed Worktree 隔离与交接（已完成）
+Phase 3.2+ LSP / Review 等 coding-specific 能力
 ```
 
-这意味着 worktree、LSP、review engine 暂不作为下一步顶层优先级。它们仍然重要，但应挂在 Goal / Workflow 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。
+这意味着 LSP、review engine 暂不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。
 
 ## 4. `/mode` 的准确语义
 

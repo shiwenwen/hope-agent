@@ -810,6 +810,12 @@ pub fn run() {
             commands::loop_control::pause_loop_schedule,
             commands::loop_control::resume_loop_schedule,
             commands::loop_control::stop_loop_schedule,
+            // Managed worktrees (Phase 3 durable isolation / handoff)
+            commands::worktree::list_managed_worktrees,
+            commands::worktree::create_managed_worktree,
+            commands::worktree::archive_managed_worktree,
+            commands::worktree::restore_managed_worktree,
+            commands::worktree::handoff_managed_worktree,
             // Workflow runs (Phase 2 durable coding workflows)
             commands::workflow::list_workflow_runs,
             commands::workflow::get_workflow_run,

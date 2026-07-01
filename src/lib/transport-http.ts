@@ -381,6 +381,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   resume_loop_schedule:            { method: "POST",   path: "/api/loops/{loopId}/resume" },
   stop_loop_schedule:              { method: "POST",   path: "/api/loops/{loopId}/stop" },
 
+  // -- Managed worktrees --
+  list_managed_worktrees:          { method: "GET",    path: "/api/sessions/{sessionId}/worktrees" },
+  create_managed_worktree:         { method: "POST",   path: "/api/sessions/{sessionId}/worktrees" },
+  get_managed_worktree:            { method: "GET",    path: "/api/worktrees/{worktreeId}" },
+  archive_managed_worktree:        { method: "POST",   path: "/api/worktrees/{worktreeId}/archive" },
+  restore_managed_worktree:        { method: "POST",   path: "/api/worktrees/{worktreeId}/restore" },
+  handoff_managed_worktree:        { method: "POST",   path: "/api/worktrees/{worktreeId}/handoff" },
+
   // -- Workflow runs --
   list_workflow_runs:              { method: "GET",    path: "/api/sessions/{sessionId}/workflow-runs" },
   preview_workflow_script:         { method: "POST",   path: "/api/sessions/{sessionId}/workflow-runs/preview" },

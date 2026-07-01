@@ -37,6 +37,7 @@ fn create_run(db: &SessionDB) -> (String, String) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     (session.id, run.id)
@@ -54,6 +55,7 @@ fn create_run_with_script(db: &SessionDB, script_source: &str) -> (String, Strin
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     (session.id, run.id)
@@ -286,6 +288,7 @@ fn workflow_run_rejects_incognito_sessions() {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect_err("incognito must be rejected");
     assert!(err.to_string().contains("incognito"));
@@ -346,6 +349,7 @@ export default async function main(workflow) {
             parent_run_id: Some(parent_run_id.clone()),
             origin: Some("repair".to_string()),
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create child workflow run");
 
@@ -1195,6 +1199,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     assert_eq!(run.session_id, session.id);
@@ -1284,6 +1289,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     assert_eq!(run.session_id, session.id);
@@ -1372,6 +1378,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
 
@@ -1472,6 +1479,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
@@ -1560,6 +1568,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
 
@@ -1635,6 +1644,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
@@ -1704,6 +1714,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
@@ -1756,6 +1767,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
@@ -2283,6 +2295,7 @@ export default async function main(workflow) {
                 parent_run_id: None,
                 origin: None,
                 goal_id: None,
+                worktree_id: None,
             })
             .expect("create workflow run");
         db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
@@ -2427,6 +2440,7 @@ export default async function main(workflow) {{
                 parent_run_id: None,
                 origin: None,
                 goal_id: None,
+                worktree_id: None,
             })
             .expect("create workflow run");
         db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
@@ -2578,6 +2592,7 @@ export default async function main(workflow) {
             parent_run_id: None,
             origin: None,
             goal_id: None,
+            worktree_id: None,
         })
         .expect("create workflow run");
     db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))

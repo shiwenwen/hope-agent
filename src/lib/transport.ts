@@ -561,6 +561,42 @@ export interface WorktreeInfo {
   isCurrent: boolean;
 }
 
+export type ManagedWorktreeState = "active" | "archived" | "handoff";
+export type ManagedWorktreePurpose = "manual" | "workflow" | "subagent";
+
+export interface ManagedWorktreeDirtySnapshot {
+  clean: boolean;
+  stagedFiles: number;
+  unstagedFiles: number;
+  untrackedFiles: number;
+  conflictedFiles: number;
+  changedFiles: number;
+}
+
+export interface ManagedWorktree {
+  id: string;
+  sessionId: string;
+  childSessionId?: string | null;
+  workflowRunId?: string | null;
+  purpose: ManagedWorktreePurpose;
+  state: ManagedWorktreeState;
+  label?: string | null;
+  repoRoot: string;
+  sourceWorkingDir: string;
+  path: string;
+  baseRef?: string | null;
+  baseBranch?: string | null;
+  baseSha?: string | null;
+  gitBranch?: string | null;
+  dirtySnapshot?: ManagedWorktreeDirtySnapshot | null;
+  pathExists: boolean;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+  restoredAt?: string | null;
+  handedOffAt?: string | null;
+}
+
 export interface GitInfo {
   branch: string | null;
   worktrees: WorktreeInfo[];

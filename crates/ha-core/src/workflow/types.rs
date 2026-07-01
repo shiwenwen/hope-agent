@@ -176,6 +176,8 @@ pub struct WorkflowRun {
     pub origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -231,6 +233,8 @@ pub struct CreateWorkflowRunInput {
     pub origin: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree_id: Option<String>,
 }
 
 fn default_execution_mode() -> String {

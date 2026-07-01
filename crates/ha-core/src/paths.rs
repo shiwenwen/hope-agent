@@ -138,6 +138,14 @@ pub fn session_dir(session_id: &str) -> Result<PathBuf> {
     Ok(sessions_root()?.join(session_id))
 }
 
+// ── Managed Worktrees ─────────────────────────────────────────────
+
+/// Root for Hope Agent managed git worktrees:
+/// `~/.hope-agent/worktrees/{repo-slug}/{worktree-id}/`.
+pub fn worktrees_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("worktrees"))
+}
+
 // ── Hooks ───────────────────────────────────────────────────────────
 
 /// Hooks working directory: ~/.hope-agent/hooks/ (overflow files, env files).

@@ -1352,6 +1352,28 @@ fn build_router_with_cors(
             "/plan/resolve-mention",
             post(routes::plan::resolve_plan_mention),
         )
+        // Managed worktrees (Phase 3 durable isolation / handoff)
+        .route(
+            "/sessions/{sid}/worktrees",
+            get(routes::worktree::list_managed_worktrees)
+                .post(routes::worktree::create_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}",
+            get(routes::worktree::get_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}/archive",
+            post(routes::worktree::archive_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}/restore",
+            post(routes::worktree::restore_managed_worktree),
+        )
+        .route(
+            "/worktrees/{id}/handoff",
+            post(routes::worktree::handoff_managed_worktree),
+        )
         // Workflow runs (Phase 2 durable coding workflows)
         .route(
             "/sessions/{sid}/workflow-runs",

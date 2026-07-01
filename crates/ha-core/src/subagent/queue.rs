@@ -257,6 +257,7 @@ mod tests {
             timeout_secs: None,
             model_override: None,
             label: None,
+            isolate_worktree: false,
             attachments: Vec::new(),
             plan_agent_mode: None,
             plan_mode_allow_paths: Vec::new(),

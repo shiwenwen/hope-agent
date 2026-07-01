@@ -77,7 +77,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/background-jobs"
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
-import type { WorkspaceGitSnapshot } from "@/lib/transport"
+import type { ManagedWorktree, WorkspaceGitSnapshot } from "@/lib/transport"
 import {
   computeContextUsage,
   contextUsageBarClass,
@@ -117,6 +117,7 @@ import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
 import { useSessionKnowledge } from "./useSessionKnowledge"
+import { useManagedWorktrees } from "./useManagedWorktrees"
 import {
   useWorkflowRuns,
   type WorkflowEvent,
@@ -852,6 +853,14 @@ function EnvironmentSection({
   const git = env.snapshot?.git ?? null
   const currentWorktree = git?.worktrees.find((w) => w.isCurrent) ?? null
   const syncLabel = git ? gitSyncLabel(t, git) : null
+  const managedWorktreesState = useManagedWorktrees(sessionId, {
+    incognito: sessionMeta?.incognito,
+    turnActive,
+  })
+  const managedWorktrees = managedWorktreesState.worktrees
+  const activeManagedWorktree =
+    managedWorktrees.find((wt) => wt.state !== "archived" && wt.path === workingDir) ?? null
+  const [worktreeActionKey, setWorktreeActionKey] = useState<string | null>(null)
   const canOpenGitDiff = !!sessionId && !!git && !git.status.clean && !!onOpenDiff
   const handleOpenGitDiff = useCallback(async () => {
     if (!sessionId || !onOpenDiff || gitDiffLoading) return
@@ -870,6 +879,54 @@ function EnvironmentSection({
       setGitDiffLoading(false)
     }
   }, [gitDiffLoading, onOpenDiff, sessionId, t])
+  const createManagedWorktree = useCallback(async () => {
+    if (!sessionId || !workingDir || worktreeActionKey) return
+    setWorktreeActionKey("create")
+    try {
+      await getTransport().call<ManagedWorktree>("create_managed_worktree", {
+        sessionId,
+        sourceWorkingDir: workingDir,
+        label: t("workspace.worktree.manualLabel", "Manual worktree"),
+        purpose: "manual",
+      })
+      managedWorktreesState.refresh()
+      toast.success(t("workspace.worktree.created", "已创建隔离工作树"))
+    } catch (e) {
+      logger.error("ui", "EnvironmentSection::createManagedWorktree", "Create failed", e)
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setWorktreeActionKey(null)
+    }
+  }, [managedWorktreesState, sessionId, t, workingDir, worktreeActionKey])
+  const runManagedWorktreeAction = useCallback(
+    async (worktree: ManagedWorktree, action: "archive" | "restore" | "handoff") => {
+      if (worktreeActionKey) return
+      const command =
+        action === "archive"
+          ? "archive_managed_worktree"
+          : action === "restore"
+            ? "restore_managed_worktree"
+            : "handoff_managed_worktree"
+      setWorktreeActionKey(`${action}:${worktree.id}`)
+      try {
+        await getTransport().call<ManagedWorktree>(command, { worktreeId: worktree.id })
+        managedWorktreesState.refresh()
+        toast.success(
+          action === "archive"
+            ? t("workspace.worktree.archived", "已归档工作树")
+            : action === "restore"
+              ? t("workspace.worktree.restored", "已恢复工作树")
+              : t("workspace.worktree.handoffDone", "已交接到当前会话"),
+        )
+      } catch (e) {
+        logger.error("ui", "EnvironmentSection::managedWorktreeAction", `${action} failed`, e)
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setWorktreeActionKey(null)
+      }
+    },
+    [managedWorktreesState, t, worktreeActionKey],
+  )
 
   const sessionSource = sessionMeta?.channelInfo
     ? {
@@ -1006,6 +1063,16 @@ function EnvironmentSection({
                 title={currentWorktree?.path ?? git.root}
               />
             ) : null}
+            <ManagedWorktreesMiniPanel
+              worktrees={managedWorktrees}
+              activeWorktree={activeManagedWorktree}
+              loading={managedWorktreesState.loading}
+              error={managedWorktreesState.error}
+              actionKey={worktreeActionKey}
+              canCreate={Boolean(sessionId && workingDir && git)}
+              onCreate={() => void createManagedWorktree()}
+              onAction={(worktree, action) => void runManagedWorktreeAction(worktree, action)}
+            />
             <EnvRow
               icon={git.status.clean ? CheckCircle2 : GitCompare}
               label={t("workspace.environment.changes", "变更")}
@@ -1081,6 +1148,205 @@ function EnvironmentSection({
       </div>
     </WorkspaceSection>
   )
+}
+
+function ManagedWorktreesMiniPanel({
+  worktrees,
+  activeWorktree,
+  loading,
+  error,
+  actionKey,
+  canCreate,
+  onCreate,
+  onAction,
+}: {
+  worktrees: ManagedWorktree[]
+  activeWorktree?: ManagedWorktree | null
+  loading?: boolean
+  error?: string | null
+  actionKey?: string | null
+  canCreate?: boolean
+  onCreate: () => void
+  onAction: (worktree: ManagedWorktree, action: "archive" | "restore" | "handoff") => void
+}) {
+  const { t } = useTranslation()
+  const visible = worktrees.slice(0, 4)
+  const createBusy = actionKey === "create"
+  return (
+    <div className="rounded-md border border-border/55 bg-secondary/15">
+      <div className="flex min-w-0 items-center gap-2 px-2 py-1.5">
+        <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/85">
+          {t("workspace.worktree.managed", "Managed worktrees")}
+        </span>
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+        <IconTip label={t("workspace.worktree.create", "创建隔离工作树")}>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6"
+            disabled={!canCreate || Boolean(actionKey)}
+            onClick={onCreate}
+          >
+            {createBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+          </Button>
+        </IconTip>
+      </div>
+      {error ? (
+        <div className="border-t border-border/60 px-2 py-1.5 text-[10px] text-destructive">
+          {truncateMiddle(error, 120)}
+        </div>
+      ) : visible.length === 0 ? (
+        <div className="border-t border-border/60 px-2 py-1.5 text-[10px] text-muted-foreground">
+          {t("workspace.worktree.empty", "暂无 managed worktree")}
+        </div>
+      ) : (
+        <div className="space-y-1 border-t border-border/60 p-1.5">
+          {visible.map((worktree) => {
+            const isActive = activeWorktree?.id === worktree.id
+            const busyPrefix = actionKey?.endsWith(`:${worktree.id}`) ? actionKey.split(":")[0] : null
+            return (
+              <div
+                key={worktree.id}
+                className={cn(
+                  "flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-[10px]",
+                  isActive ? "bg-primary/10" : "bg-background/35",
+                )}
+                title={worktree.path}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="min-w-0 truncate font-medium text-foreground/85">
+                      {worktree.label || basename(worktree.path)}
+                    </span>
+                    <StatusPill
+                      label={managedWorktreeStateLabel(t, worktree.state)}
+                      tone={managedWorktreeStateTone(worktree.state)}
+                    />
+                  </div>
+                  <div className="mt-0.5 flex min-w-0 gap-1.5 text-muted-foreground">
+                    <span className="truncate">
+                      {managedWorktreePurposeLabel(t, worktree.purpose)}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground/45">·</span>
+                    <span className="truncate">{worktreeDirtySummary(t, worktree)}</span>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {worktree.state === "archived" || !worktree.pathExists ? (
+                    <IconTip label={t("workspace.worktree.restore", "恢复")}>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6"
+                        disabled={Boolean(actionKey)}
+                        onClick={() => onAction(worktree, "restore")}
+                      >
+                        {busyPrefix === "restore" ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Play className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </IconTip>
+                  ) : (
+                    <>
+                      <IconTip label={t("workspace.worktree.handoff", "交接到当前会话")}>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6"
+                          disabled={Boolean(actionKey) || isActive}
+                          onClick={() => onAction(worktree, "handoff")}
+                        >
+                          {busyPrefix === "handoff" ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <GitPullRequest className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </IconTip>
+                      <IconTip label={t("workspace.worktree.archive", "归档")}>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                          disabled={Boolean(actionKey)}
+                          onClick={() => onAction(worktree, "archive")}
+                        >
+                          {busyPrefix === "archive" ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <X className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          {worktrees.length > visible.length ? (
+            <div className="px-1.5 pb-0.5 text-[10px] text-muted-foreground">
+              {t("workspace.worktree.more", "另有 {{count}} 个", {
+                count: worktrees.length - visible.length,
+              })}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function managedWorktreeStateLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  state: ManagedWorktree["state"],
+): string {
+  switch (state) {
+    case "active":
+      return t("workspace.worktree.stateActive", "Active")
+    case "archived":
+      return t("workspace.worktree.stateArchived", "Archived")
+    case "handoff":
+      return t("workspace.worktree.stateHandoff", "Handoff")
+  }
+}
+
+function managedWorktreeStateTone(state: ManagedWorktree["state"]): StatusTone {
+  if (state === "active") return "good"
+  if (state === "handoff") return "info"
+  return "muted"
+}
+
+function managedWorktreePurposeLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  purpose: ManagedWorktree["purpose"],
+): string {
+  switch (purpose) {
+    case "workflow":
+      return t("workspace.worktree.purposeWorkflow", "Workflow")
+    case "subagent":
+      return t("workspace.worktree.purposeSubagent", "Subagent")
+    case "manual":
+      return t("workspace.worktree.purposeManual", "Manual")
+  }
+}
+
+function worktreeDirtySummary(
+  t: ReturnType<typeof useTranslation>["t"],
+  worktree: ManagedWorktree,
+): string {
+  const dirty = worktree.dirtySnapshot
+  if (!worktree.pathExists) return t("workspace.worktree.pathMissing", "路径已清理")
+  if (!dirty) return worktree.baseBranch || worktree.baseRef || worktree.baseSha?.slice(0, 8) || "-"
+  if (dirty.clean) return t("workspace.worktree.clean", "无本地变更")
+  return t("workspace.worktree.changed", "{{count}} 个变更", { count: dirty.changedFiles })
 }
 
 /**
@@ -2547,6 +2813,7 @@ function WorkflowRunsSection({
     disabled: Boolean(workflowRunsState),
   })
   const { runs, activeCount, loading, error, refresh } = workflowRunsState ?? ownedWorkflowRuns
+  const managedWorktreesState = useManagedWorktrees(sessionId, { incognito, turnActive })
   const goalState = useGoal(sessionId, { incognito })
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<WorkflowRunSnapshot | null>(null)
@@ -2564,6 +2831,7 @@ function WorkflowRunsSection({
   const [draftKind, setDraftKind] = useState(WORKFLOW_KIND_DEFAULT)
   const [draftMode, setDraftMode] = useState<ExecutionMode>("guarded")
   const [draftRunImmediately, setDraftRunImmediately] = useState(false)
+  const [draftWorktreeMode, setDraftWorktreeMode] = useState("session")
   const [draftObjective, setDraftObjective] = useState("")
   const [draftScript, setDraftScript] = useState(WORKFLOW_SCRIPT_TEMPLATE)
   const [draftOrigin, setDraftOrigin] = useState<WorkflowDraftOrigin | null>(null)
@@ -2584,6 +2852,18 @@ function WorkflowRunsSection({
   const visibleRuns = showAllRuns ? runs : runs.slice(0, WORKFLOW_RUN_PREVIEW)
   const canMaterializeSession = Boolean(sessionId || onEnsureSession)
   const activeGoal = goalState.snapshot?.goal ?? null
+  const draftWorktrees = managedWorktreesState.worktrees.filter(
+    (worktree) => worktree.state !== "archived" && worktree.pathExists,
+  )
+  const normalizedDraftWorktreeMode =
+    draftWorktreeMode === "new" && !workingDir ? "session" : draftWorktreeMode
+
+  useEffect(() => {
+    if (draftWorktreeMode === "new" || draftWorktreeMode === "session") return
+    if (!draftWorktrees.some((worktree) => worktree.id === draftWorktreeMode)) {
+      setDraftWorktreeMode(workingDir ? "new" : "session")
+    }
+  }, [draftWorktreeMode, draftWorktrees, workingDir])
 
   const ensureWorkflowSession = useCallback(async () => {
     if (sessionId) return sessionId
@@ -2919,9 +3199,26 @@ ${repairPrompt}`
     const targetSessionId = await ensureWorkflowSession()
     if (!targetSessionId) return
     setCreateSaving(true)
-    const runImmediatelyForCreate = Boolean(workingDir) && draftRunImmediately
     try {
-      const run = await getTransport().call<WorkflowRun>("create_workflow_run", {
+      let worktreeId: string | undefined
+      if (normalizedDraftWorktreeMode === "new") {
+        if (!workingDir) {
+          toast.error(t("workspace.workflow.worktreeNeedsWorkspace", "先设置工作目录再创建隔离工作树"))
+          return
+        }
+        const worktree = await getTransport().call<ManagedWorktree>("create_managed_worktree", {
+          sessionId: targetSessionId,
+          sourceWorkingDir: workingDir,
+          label: draftKind.trim() || WORKFLOW_KIND_DEFAULT,
+          purpose: "workflow",
+        })
+        worktreeId = worktree.id
+        managedWorktreesState.refresh()
+      } else if (normalizedDraftWorktreeMode !== "session") {
+        worktreeId = normalizedDraftWorktreeMode
+      }
+      const runImmediatelyForCreate = Boolean(workingDir || worktreeId) && draftRunImmediately
+      const createArgs: Record<string, unknown> = {
         sessionId: targetSessionId,
         kind: draftKind.trim() || WORKFLOW_KIND_DEFAULT,
         executionMode: draftMode,
@@ -2931,7 +3228,9 @@ ${repairPrompt}`
         origin: draftOrigin?.type === "repair" ? "repair" : undefined,
         goalId: activeGoal?.id ?? undefined,
         runImmediately: runImmediatelyForCreate,
-      })
+      }
+      if (worktreeId) createArgs.worktreeId = worktreeId
+      const run = await getTransport().call<WorkflowRun>("create_workflow_run", createArgs)
       setSelectedRunId(run.id)
       loadSnapshot(run.id)
       refresh()
@@ -2966,6 +3265,8 @@ ${repairPrompt}`
     activeGoal?.id,
     incognito,
     loadSnapshot,
+    managedWorktreesState,
+    normalizedDraftWorktreeMode,
     refresh,
     t,
     workingDir,
@@ -3161,6 +3462,9 @@ ${repairPrompt}`
               draftOrigin={draftOrigin}
               linkedGoal={activeGoal}
               runImmediately={draftRunImmediately}
+              worktrees={draftWorktrees}
+              worktreeMode={normalizedDraftWorktreeMode}
+              worktreeLoading={managedWorktreesState.loading}
               onOpenChange={setCreateOpen}
               onKindChange={setDraftKind}
               onModeChange={(mode) => {
@@ -3177,6 +3481,7 @@ ${repairPrompt}`
               }}
               onClearDraftOrigin={() => setDraftOrigin(null)}
               onRunImmediatelyChange={setDraftRunImmediately}
+              onWorktreeModeChange={setDraftWorktreeMode}
               onGenerateGoalDraft={generateGoalDrivenDraft}
               onPreview={() => void previewWorkflowDraft()}
               onSubmit={() => void createWorkflow()}
@@ -3218,6 +3523,14 @@ ${repairPrompt}`
                             {run.kind}
                             <span className="px-1 text-muted-foreground/50">·</span>
                             {run.executionMode}
+                            {run.worktreeId ? (
+                              <>
+                                <span className="px-1 text-muted-foreground/50">·</span>
+                                <span className="text-muted-foreground">
+                                  {t("workspace.workflow.worktreeBadge", "worktree")}
+                                </span>
+                              </>
+                            ) : null}
                             {rowBudget ? (
                               <>
                                 <span className="px-1 text-muted-foreground/50">·</span>
@@ -3468,6 +3781,9 @@ function WorkflowCreateComposer({
   draftOrigin,
   linkedGoal,
   runImmediately,
+  worktrees,
+  worktreeMode,
+  worktreeLoading,
   onOpenChange,
   onKindChange,
   onModeChange,
@@ -3475,6 +3791,7 @@ function WorkflowCreateComposer({
   onScriptChange,
   onClearDraftOrigin,
   onRunImmediatelyChange,
+  onWorktreeModeChange,
   onGenerateGoalDraft,
   onPreview,
   onSubmit,
@@ -3494,6 +3811,9 @@ function WorkflowCreateComposer({
   draftOrigin?: WorkflowDraftOrigin | null
   linkedGoal?: Goal | null
   runImmediately: boolean
+  worktrees: ManagedWorktree[]
+  worktreeMode: string
+  worktreeLoading?: boolean
   onOpenChange: (open: boolean) => void
   onKindChange: (kind: string) => void
   onModeChange: (mode: ExecutionMode) => void
@@ -3501,13 +3821,15 @@ function WorkflowCreateComposer({
   onScriptChange: (script: string) => void
   onClearDraftOrigin: () => void
   onRunImmediatelyChange: (checked: boolean) => void
+  onWorktreeModeChange: (mode: string) => void
   onGenerateGoalDraft: () => void
   onPreview: () => void
   onSubmit: () => void
 }) {
   const { t } = useTranslation()
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const effectiveRunImmediately = workspaceReady && runImmediately
+  const worktreeBacked = worktreeMode !== "session"
+  const effectiveRunImmediately = Boolean(workspaceReady || worktreeBacked) && runImmediately
   const canPreview = !disabled && !saving && !previewLoading && script.trim().length > 0
   const canSubmit =
     !disabled &&
@@ -3673,6 +3995,81 @@ function WorkflowCreateComposer({
             </div>
           </div>
 
+          <div className="space-y-1">
+            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {t("workspace.workflow.worktreeTarget", "运行位置")}
+              </span>
+              {worktreeLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            </div>
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                className={cn(
+                  "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
+                  worktreeMode === "session"
+                    ? "border-primary/55 bg-primary/10 text-foreground"
+                    : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
+                )}
+                disabled={saving || previewLoading}
+                aria-pressed={worktreeMode === "session"}
+                onClick={() => onWorktreeModeChange("session")}
+              >
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">
+                  {t("workspace.workflow.worktreeSession", "当前目录")}
+                </span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
+                  worktreeMode === "new"
+                    ? "border-primary/55 bg-primary/10 text-foreground"
+                    : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
+                )}
+                disabled={saving || previewLoading || !workspaceReady}
+                aria-pressed={worktreeMode === "new"}
+                onClick={() => onWorktreeModeChange("new")}
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">
+                  {t("workspace.workflow.worktreeNew", "新隔离工作树")}
+                </span>
+              </button>
+            </div>
+            {worktrees.length > 0 ? (
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                {worktrees.slice(0, 4).map((worktree) => (
+                  <button
+                    key={worktree.id}
+                    type="button"
+                    className={cn(
+                      "flex min-h-8 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors disabled:opacity-60",
+                      worktreeMode === worktree.id
+                        ? "border-primary/55 bg-primary/10 text-foreground"
+                        : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
+                    )}
+                    disabled={saving || previewLoading}
+                    aria-pressed={worktreeMode === worktree.id}
+                    title={worktree.path}
+                    onClick={() => onWorktreeModeChange(worktree.id)}
+                  >
+                    <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {worktree.label || basename(worktree.path)}
+                    </span>
+                    <StatusPill
+                      label={managedWorktreeStateLabel(t, worktree.state)}
+                      tone={managedWorktreeStateTone(worktree.state)}
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
           <div className="overflow-hidden rounded-md border border-border/55 bg-secondary/15">
             <button
               type="button"
@@ -3721,7 +4118,7 @@ function WorkflowCreateComposer({
             </label>
             <Switch
               checked={effectiveRunImmediately}
-              disabled={saving || previewLoading || !workspaceReady}
+              disabled={saving || previewLoading || (!workspaceReady && !worktreeBacked)}
               onCheckedChange={onRunImmediatelyChange}
             />
           </div>

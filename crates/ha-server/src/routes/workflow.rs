@@ -28,6 +28,7 @@ pub struct CreateWorkflowRunBody {
     pub parent_run_id: Option<String>,
     pub origin: Option<String>,
     pub goal_id: Option<String>,
+    pub worktree_id: Option<String>,
     pub run_immediately: Option<bool>,
 }
 
@@ -79,6 +80,7 @@ pub async fn create_workflow_run(
             parent_run_id: body.parent_run_id,
             origin: body.origin,
             goal_id: body.goal_id,
+            worktree_id: body.worktree_id,
         })
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     if body.run_immediately.unwrap_or(false) {

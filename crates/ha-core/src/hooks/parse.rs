@@ -102,6 +102,7 @@ fn contribution_from_output(out: HookOutput, event: HookEvent) -> HookContributi
         updated_input: hso.updated_input,
         updated_mcp_output: None,
         retry: false,
+        worktree_path: hso.worktree_path,
     }
 }
 

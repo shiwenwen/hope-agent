@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, Context as _, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use rquickjs::function::Opt;
 use rquickjs::prelude::{Func, MutFn};
 use rquickjs::{
@@ -410,11 +410,21 @@ pub async fn run_workflow_script_async(
         }
     }
 
+    let session_context = match workflow_session_context_for_run(&db, &run) {
+        Ok(context) => context,
+        Err(err) => {
+            let _ = db.transition_workflow_run(
+                run_id,
+                WorkflowRunState::Blocked,
+                Some("worktree_unavailable"),
+            );
+            return Err(err.context("workflow worktree unavailable"));
+        }
+    };
     if run.state != WorkflowRunState::Running {
         db.transition_workflow_run(run_id, WorkflowRunState::Running, Some("runtime_start"))?;
     }
 
-    let session_context = workflow_session_context(&db, &run.session_id);
     let tokio_handle = TokioHandle::current();
     let db_for_script = db.clone();
     let run_for_script = run.clone();
@@ -2740,6 +2750,45 @@ pub(crate) fn workflow_session_context(db: &SessionDB, session_id: &str) -> Work
             }
         }
     }
+}
+
+fn workflow_session_context_for_run(
+    db: &SessionDB,
+    run: &super::types::WorkflowRun,
+) -> Result<WorkflowSessionContext> {
+    let mut context = workflow_session_context(db, &run.session_id);
+    let Some(worktree_id) = run.worktree_id.as_deref() else {
+        return Ok(context);
+    };
+    let worktree = db
+        .get_managed_worktree(worktree_id)?
+        .ok_or_else(|| anyhow!("managed worktree not found: {worktree_id}"))?;
+    if worktree.session_id != run.session_id {
+        bail!(
+            "managed worktree {} belongs to session {}; expected {}",
+            worktree_id,
+            worktree.session_id,
+            run.session_id
+        );
+    }
+    let worktree = if worktree.state == crate::worktree::ManagedWorktreeState::Archived
+        || !worktree.path_exists
+    {
+        db.restore_managed_worktree(worktree_id)?
+    } else {
+        worktree
+    };
+    context.working_dir = Some(worktree.path.clone());
+    let _ = db.append_workflow_event(
+        &run.id,
+        "run_worktree_attached",
+        json!({
+            "worktreeId": worktree.id,
+            "path": worktree.path,
+            "state": worktree.state,
+        }),
+    );
+    Ok(context)
 }
 
 fn workflow_root_for_project(project_id: &str) -> Option<String> {

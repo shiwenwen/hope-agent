@@ -178,7 +178,7 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - 缺少 `workflow` 状态机，把 Plan、Task、Subagent、Validation、Review、Repair 串起来。
 - ToolDefinition 元数据不够表达工具风险、展示、输入校验、语义分类和并发能力。
 - `tool_search` 仍偏基础关键词匹配，缺少 search hint、alias、BM25、多来源 schema 组装。
-- 缺少 managed worktree 创建、恢复、归档、交接。
+- Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
 - 缺少 LSP 语义代码工具和被动 diagnostics 注入。
 - 缺少独立 `/review` engine 和 verifier 三态确认。
 - 缺少 coding eval harness 和系统级 improvement loop。
@@ -456,7 +456,7 @@ StopPolicy
 
 ### Phase 2.8：Goal-driven Workflow
 
-状态：核心已完成。Goal durable store、Workflow 绑定、validation/diff/file evidence link、GUI Goal detail、Evaluator v2、Budget v2 已落地；`/loop`、worktree、LSP、review engine 接入继续排后续。详细方案见 [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)。
+状态：核心已完成。Goal durable store、Workflow 绑定、validation/diff/file evidence link、GUI Goal detail、Evaluator v2、Budget v2 已落地；`/loop` 已接入 Goal evidence，Managed Worktree 已落地为 Phase 3.1；LSP、review engine 接入继续排后续。详细方案见 [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)。
 
 目标：让 Workflow 成为 Goal 的执行手段，而不是独立漂浮的 run。
 
@@ -505,28 +505,32 @@ StopPolicy
 - 成本预算接入 provider cost ledger。
 - Loop trigger 直接生成/运行 Goal-driven Workflow draft。
 
-### Phase 3：Coding-specific 能力起点：Managed Worktree 隔离与交接
+### Phase 3.1：Coding-specific 能力起点：Managed Worktree 隔离与交接
 
-状态：从“Phase 2 后立即启动”后移到 `/goal`、Goal-driven Workflow、真 `/loop` 之后。worktree 是 coding-specific 能力，应挂在 Goal / Workflow 控制平面下面，而不是作为独立任务系统。
+状态：已完成。worktree 已作为 Goal / Workflow / Subagent 下的 coding-specific 隔离执行面落地，而不是独立任务系统。
 
-目标：并行写代码不污染用户当前工作区。
+目标：并行写代码不污染用户当前工作区，并让长任务可隔离、可恢复、可交接。
 
-任务：
+已完成：
 
-- 实现 worktree manager：create、list、archive、restore、handoff。
-- 支持 `.worktreeinclude`，复制必要 ignored setup。
-- 记录 base branch、dirty state、diff snapshot。
-- background subagent 或 parallel implementation 默认进入 worktree。
-- 激活 `WorktreeCreate` / `WorktreeRemove` hooks。
-- UI 提供 Local / Worktree 切换、diff、restore、handoff。
+- `ha-core::worktree` managed worktree manager：create、list、archive、restore、handoff。
+- `managed_worktrees` durable store：记录 session、purpose、base ref/sha、path、state、dirty snapshot。
+- `.worktreeinclude`：复制必要 git-ignored setup，跳过 symlink。
+- Workflow 绑定 `worktree_id`：运行时自动 restore，默认 cwd 切到 worktree，不可用时 fail closed/block。
+- 用户可见 subagent / batch spawn 默认尝试进入隔离 worktree；内部 helper 默认不制造 worktree。
+- `WorktreeCreate` / `WorktreeRemove` hooks 激活，支持企业自定义创建/清理链路。
+- Tauri + HTTP owner API 对齐。
+- Workspace GUI 环境面板支持创建、恢复、归档、交接；Workflow 创建区支持当前目录、新隔离工作树、已有 worktree 三种运行位置。
+- 架构文档已转入 [Managed Worktree 控制平面](../architecture/worktree.md)。
 
-产物：
+后续增强：
 
-- `managed-worktree` 架构文档。
-- worktree owner API。
-- worktree UI panel。
+- Worktree detail 页面：完整 diff、dirty file list、base ref、子任务/Workflow 归属和清理建议。
+- 清理策略：最近 N 个、pinned/in-progress/handoff 跳过、可配置保留窗口。
+- 更强 `.worktreeinclude`：支持显式 glob 预览、冲突处理和复制审计。
+- Review / LSP / diagnostics evidence 进入 worktree 维度。
 
-### Phase 4：LSP 与语义代码智能
+### Phase 3.2：LSP 与语义代码智能
 
 目标：让 Hope 不只会 grep，还能理解符号、引用和诊断。
 
@@ -649,7 +653,7 @@ StopPolicy
 3. [Goal 控制平面](../architecture/goal.md)：Goal store、owner API、GUI、evaluator、evidence link。
 4. [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)：已落地 Goal detail、validation/diff/file evidence、Evaluator v2、Budget v2；继续跟踪 artifact/review/diagnostic evidence、可选 LLM auditor 和后续系统接入。
 5. [Loop 控制平面](../architecture/loop.md)：真正 `/loop` 的调度、预算、审批和 trace。
-6. `docs/roadmap/managed-worktree.md`：隔离工作区、handoff、UI、hooks。
+6. [Managed Worktree 控制平面](../architecture/worktree.md)：已完成的隔离工作区、handoff、UI、hooks 架构。
 7. `docs/roadmap/lsp.md`：LSP manager、tools、diagnostics pipeline。
 8. `docs/roadmap/review-engine.md`：diff scan、candidate、verifier、inline finding。
 9. `docs/roadmap/coding-improvement-loop.md`：retro、eval candidate、skill/guidance distillation。
