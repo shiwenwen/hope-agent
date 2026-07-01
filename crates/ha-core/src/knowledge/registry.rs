@@ -11,8 +11,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::types::{
-    CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KnowledgeBase, KnowledgeBaseMeta,
-    UpdateKnowledgeBaseInput,
+    CompileProposal, CompileProposalAction, CompileProposalKind, CompileProposalStatus, CompileRun,
+    CompileRunStatus, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KnowledgeBase,
+    KnowledgeBaseMeta, KnowledgeSource, KnowledgeSourceChunk, KnowledgeSourceKind,
+    KnowledgeSourceStatus, NewCompileProposal, SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use crate::session::SessionDB;
 
@@ -52,6 +54,15 @@ impl KnowledgeRegistry {
             );
             CREATE INDEX IF NOT EXISTS idx_knowledge_bases_archived
                 ON knowledge_bases(archived, updated_at DESC);
+
+            -- Knowledge Compiler Phase 3: per-KB schema profile truth source.
+            -- The default profile is inserted on create and lazily backfilled for
+            -- existing KBs when read.
+            CREATE TABLE IF NOT EXISTS knowledge_schema_profiles (
+                kb_id        TEXT PRIMARY KEY REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                profile_json TEXT NOT NULL,
+                updated_at   INTEGER NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS session_knowledge_bases (
                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -123,7 +134,94 @@ impl KnowledgeRegistry {
             CREATE INDEX IF NOT EXISTS idx_kb_chat_threads_kb
                 ON knowledge_chat_threads(kb_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_kb_chat_threads_note
-                ON knowledge_chat_threads(kb_id, anchor_note_path);",
+                ON knowledge_chat_threads(kb_id, anchor_note_path);
+
+            -- Knowledge Compiler Phase 1: raw-source inbox. Source metadata is
+            -- truth-source state (sessions.db); the stored snapshot file lives
+            -- under ~/.hope-agent/knowledge/{kb}/sources/. Raw source chunks are
+            -- deliberately separate from note_chunk so compiled-note search is
+            -- never polluted by uncompiled source material.
+            CREATE TABLE IF NOT EXISTS knowledge_sources (
+                id                  TEXT PRIMARY KEY,
+                kb_id               TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                kind                TEXT NOT NULL,
+                title               TEXT NOT NULL,
+                origin_uri          TEXT,
+                stored_path         TEXT NOT NULL,
+                content_hash        TEXT NOT NULL,
+                extracted_text_hash TEXT,
+                status              TEXT NOT NULL DEFAULT 'ready',
+                compiled_at         INTEGER,
+                created_at          INTEGER NOT NULL,
+                updated_at          INTEGER NOT NULL,
+                size                INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_sources_kb
+                ON knowledge_sources(kb_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_sources_hash
+                ON knowledge_sources(kb_id, content_hash);
+
+            CREATE TABLE IF NOT EXISTS knowledge_source_chunks (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id    TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+                chunk_index  INTEGER NOT NULL,
+                body         TEXT NOT NULL,
+                start_offset INTEGER NOT NULL,
+                end_offset   INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                UNIQUE(source_id, chunk_index)
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_source_chunks_source
+                ON knowledge_source_chunks(source_id, chunk_index);
+
+            -- Knowledge Compiler Phase 2: owner-reviewed compile runs and
+            -- proposals. Runs are truth-source state. Proposals are durable
+            -- Review Diff drafts; applying one is the only path that mutates
+            -- real notes.
+            CREATE TABLE IF NOT EXISTS knowledge_compile_runs (
+                id              TEXT PRIMARY KEY,
+                kb_id           TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                status          TEXT NOT NULL,
+                source_ids_json TEXT NOT NULL,
+                strategy        TEXT NOT NULL,
+                model_label     TEXT,
+                fingerprint     TEXT NOT NULL,
+                error           TEXT,
+                summary         TEXT,
+                proposal_count  INTEGER NOT NULL DEFAULT 0,
+                created_at      INTEGER NOT NULL,
+                started_at      INTEGER,
+                finished_at     INTEGER,
+                updated_at      INTEGER NOT NULL,
+                UNIQUE(kb_id, fingerprint)
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_compile_runs_kb
+                ON knowledge_compile_runs(kb_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_compile_runs_status
+                ON knowledge_compile_runs(kb_id, status, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS knowledge_compile_proposals (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id          TEXT NOT NULL REFERENCES knowledge_compile_runs(id) ON DELETE CASCADE,
+                kb_id           TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                kind            TEXT NOT NULL,
+                status          TEXT NOT NULL DEFAULT 'draft',
+                title           TEXT NOT NULL,
+                detail          TEXT NOT NULL,
+                action_json     TEXT NOT NULL,
+                fingerprint     TEXT NOT NULL,
+                source_ids_json TEXT NOT NULL,
+                before_text     TEXT,
+                after_text      TEXT,
+                created_at      INTEGER NOT NULL,
+                decided_at      INTEGER,
+                error           TEXT,
+                UNIQUE(kb_id, fingerprint)
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_compile_proposals_run
+                ON knowledge_compile_proposals(run_id, status, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_compile_proposals_kb
+                ON knowledge_compile_proposals(kb_id, status, created_at DESC);",
         )?;
 
         // Additive column for branch DBs created before WS7 (external-writable
@@ -182,6 +280,12 @@ impl KnowledgeRegistry {
                 (id, name, emoji, root_dir, allow_external_writes, archived, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
             params![id, name, emoji, root_dir, now, now],
+        )?;
+        let profile_json = serde_json::to_string(&SchemaProfile::default_for(&id, now))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO knowledge_schema_profiles (kb_id, profile_json, updated_at)
+             VALUES (?1, ?2, ?3)",
+            params![id, profile_json, now],
         )?;
 
         Ok(KnowledgeBase {
@@ -298,6 +402,22 @@ impl KnowledgeRegistry {
         )?;
         tx.execute(
             "DELETE FROM project_knowledge_bases WHERE kb_id = ?1",
+            params![id],
+        )?;
+        tx.execute(
+            "DELETE FROM knowledge_sources WHERE kb_id = ?1",
+            params![id],
+        )?;
+        tx.execute(
+            "DELETE FROM knowledge_compile_runs WHERE kb_id = ?1",
+            params![id],
+        )?;
+        tx.execute(
+            "DELETE FROM knowledge_compile_proposals WHERE kb_id = ?1",
+            params![id],
+        )?;
+        tx.execute(
+            "DELETE FROM knowledge_schema_profiles WHERE kb_id = ?1",
             params![id],
         )?;
         tx.execute("DELETE FROM knowledge_bases WHERE id = ?1", params![id])?;
@@ -623,6 +743,554 @@ impl KnowledgeRegistry {
         Ok(n)
     }
 
+    // ── Schema profiles (Knowledge Compiler Phase 3) ─────────────
+
+    pub fn get_schema_profile(&self, kb_id: &str) -> Result<Option<SchemaProfile>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let row: Option<(String, i64)> = conn
+            .query_row(
+                "SELECT profile_json, updated_at
+                 FROM knowledge_schema_profiles WHERE kb_id = ?1",
+                params![kb_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let Some((json, updated_at)) = row else {
+            return Ok(None);
+        };
+        let mut profile = serde_json::from_str::<SchemaProfile>(&json)
+            .unwrap_or_else(|_| SchemaProfile::default_for(kb_id, updated_at));
+        profile.kb_id = kb_id.to_string();
+        profile.updated_at = updated_at;
+        Ok(Some(profile))
+    }
+
+    pub fn upsert_schema_profile(&self, profile: &SchemaProfile) -> Result<()> {
+        let json = serde_json::to_string(profile)?;
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO knowledge_schema_profiles (kb_id, profile_json, updated_at)
+             VALUES (?1, ?2, ?3)",
+            params![profile.kb_id, json, profile.updated_at],
+        )?;
+        Ok(())
+    }
+
+    // ── Raw source inbox (Knowledge Compiler Phase 1) ─────────────
+
+    pub fn insert_source(
+        &self,
+        source: &KnowledgeSource,
+        chunks: &[KnowledgeSourceChunk],
+    ) -> Result<()> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "INSERT INTO knowledge_sources
+                (id, kb_id, kind, title, origin_uri, stored_path, content_hash,
+                 extracted_text_hash, status, compiled_at, created_at, updated_at, size)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                source.id,
+                source.kb_id,
+                source.kind.as_str(),
+                source.title,
+                source.origin_uri,
+                source.stored_path,
+                source.content_hash,
+                source.extracted_text_hash,
+                source.status.as_str(),
+                source.compiled_at,
+                source.created_at,
+                source.updated_at,
+                source.size,
+            ],
+        )?;
+        for chunk in chunks {
+            tx.execute(
+                "INSERT INTO knowledge_source_chunks
+                    (source_id, chunk_index, body, start_offset, end_offset, content_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    source.id,
+                    chunk.chunk_index,
+                    chunk.body,
+                    chunk.start_offset,
+                    chunk.end_offset,
+                    chunk.content_hash,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn list_sources(&self, kb_id: &str) -> Result<Vec<KnowledgeSource>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
+                    s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.created_at, s.updated_at, s.size,
+                    COUNT(c.id) AS chunk_count
+             FROM knowledge_sources s
+             LEFT JOIN knowledge_source_chunks c ON c.source_id = s.id
+             WHERE s.kb_id = ?1
+             GROUP BY s.id
+             ORDER BY s.created_at DESC, s.id DESC",
+        )?;
+        let rows = stmt.query_map(params![kb_id], row_to_source)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn get_source(&self, kb_id: &str, source_id: &str) -> Result<Option<KnowledgeSource>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
+                    s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.created_at, s.updated_at, s.size,
+                    COUNT(c.id) AS chunk_count
+             FROM knowledge_sources s
+             LEFT JOIN knowledge_source_chunks c ON c.source_id = s.id
+             WHERE s.kb_id = ?1 AND s.id = ?2
+             GROUP BY s.id",
+            params![kb_id, source_id],
+            row_to_source,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    pub fn delete_source(&self, kb_id: &str, source_id: &str) -> Result<Option<String>> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        let stored_path: Option<String> = tx
+            .query_row(
+                "SELECT stored_path FROM knowledge_sources WHERE kb_id = ?1 AND id = ?2",
+                params![kb_id, source_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if stored_path.is_some() {
+            tx.execute(
+                "DELETE FROM knowledge_sources WHERE kb_id = ?1 AND id = ?2",
+                params![kb_id, source_id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(stored_path)
+    }
+
+    pub fn replace_source_chunks(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+        content_hash: &str,
+        extracted_text_hash: Option<&str>,
+        size: i64,
+        chunks: &[KnowledgeSourceChunk],
+    ) -> Result<Option<KnowledgeSource>> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let affected = tx.execute(
+            "UPDATE knowledge_sources
+             SET content_hash = ?3,
+                 extracted_text_hash = ?4,
+                 status = 'ready',
+                 updated_at = ?5,
+                 size = ?6
+             WHERE kb_id = ?1 AND id = ?2",
+            params![
+                kb_id,
+                source_id,
+                content_hash,
+                extracted_text_hash,
+                now,
+                size,
+            ],
+        )?;
+        if affected == 0 {
+            tx.commit()?;
+            return Ok(None);
+        }
+        tx.execute(
+            "DELETE FROM knowledge_source_chunks WHERE source_id = ?1",
+            params![source_id],
+        )?;
+        for chunk in chunks {
+            tx.execute(
+                "INSERT INTO knowledge_source_chunks
+                    (source_id, chunk_index, body, start_offset, end_offset, content_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    source_id,
+                    chunk.chunk_index,
+                    chunk.body,
+                    chunk.start_offset,
+                    chunk.end_offset,
+                    chunk.content_hash,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        drop(conn);
+        self.get_source(kb_id, source_id)
+    }
+
+    pub fn mark_sources_compiled(&self, kb_id: &str, source_ids: &[String]) -> Result<()> {
+        if source_ids.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        for source_id in source_ids {
+            conn.execute(
+                "UPDATE knowledge_sources SET compiled_at = ?3, updated_at = ?3
+                 WHERE kb_id = ?1 AND id = ?2",
+                params![kb_id, source_id, now],
+            )?;
+        }
+        Ok(())
+    }
+
+    // ── Knowledge Compiler runs/proposals (Phase 2) ─────────────
+
+    pub fn begin_compile_run(
+        &self,
+        kb_id: &str,
+        source_ids: &[String],
+        strategy: &str,
+        fingerprint: &str,
+    ) -> Result<(CompileRun, bool)> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        let existing: Option<CompileRun> = tx
+            .query_row(
+                "SELECT id, kb_id, status, source_ids_json, strategy, model_label,
+                        fingerprint, error, summary, proposal_count, created_at,
+                        started_at, finished_at, updated_at
+                 FROM knowledge_compile_runs
+                 WHERE kb_id = ?1 AND fingerprint = ?2",
+                params![kb_id, fingerprint],
+                row_to_compile_run,
+            )
+            .optional()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let source_ids_json = serde_json::to_string(source_ids)?;
+        if let Some(run) = existing {
+            if matches!(
+                run.status,
+                CompileRunStatus::Running | CompileRunStatus::Completed
+            ) {
+                tx.commit()?;
+                return Ok((run, false));
+            }
+            tx.execute(
+                "DELETE FROM knowledge_compile_proposals WHERE run_id = ?1",
+                params![run.id],
+            )?;
+            tx.execute(
+                "UPDATE knowledge_compile_runs
+                 SET status='running', source_ids_json=?2, strategy=?3,
+                     model_label=NULL, error=NULL, summary=NULL, proposal_count=0,
+                     started_at=?4, finished_at=NULL, updated_at=?4
+                 WHERE id=?1",
+                params![run.id, source_ids_json, strategy, now],
+            )?;
+            tx.commit()?;
+            drop(conn);
+            return self
+                .get_compile_run(&run.id)?
+                .map(|r| (r, true))
+                .ok_or_else(|| anyhow::anyhow!("compile run vanished after reset"));
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        tx.execute(
+            "INSERT INTO knowledge_compile_runs
+                (id, kb_id, status, source_ids_json, strategy, fingerprint,
+                 proposal_count, created_at, started_at, updated_at)
+             VALUES (?1, ?2, 'running', ?3, ?4, ?5, 0, ?6, ?6, ?6)",
+            params![id, kb_id, source_ids_json, strategy, fingerprint, now],
+        )?;
+        tx.commit()?;
+        drop(conn);
+        self.get_compile_run(&id)?
+            .map(|r| (r, true))
+            .ok_or_else(|| anyhow::anyhow!("compile run vanished after insert"))
+    }
+
+    pub fn get_compile_run(&self, run_id: &str) -> Result<Option<CompileRun>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT id, kb_id, status, source_ids_json, strategy, model_label,
+                    fingerprint, error, summary, proposal_count, created_at,
+                    started_at, finished_at, updated_at
+             FROM knowledge_compile_runs WHERE id = ?1",
+            params![run_id],
+            row_to_compile_run,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    pub fn list_compile_runs(&self, kb_id: &str) -> Result<Vec<CompileRun>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, kb_id, status, source_ids_json, strategy, model_label,
+                    fingerprint, error, summary, proposal_count, created_at,
+                    started_at, finished_at, updated_at
+             FROM knowledge_compile_runs
+             WHERE kb_id = ?1
+             ORDER BY created_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map(params![kb_id], row_to_compile_run)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn finish_compile_run(
+        &self,
+        run_id: &str,
+        status: CompileRunStatus,
+        summary: Option<&str>,
+        error: Option<&str>,
+        proposal_count: u32,
+        model_label: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_compile_runs
+             SET status=?2, summary=?3, error=?4, proposal_count=?5,
+                 model_label=COALESCE(?6, model_label),
+                 finished_at=?7, updated_at=?7
+             WHERE id=?1",
+            params![
+                run_id,
+                status.as_str(),
+                summary,
+                error,
+                proposal_count,
+                model_label,
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn cancel_compile_run(&self, run_id: &str) -> Result<Option<CompileRun>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_compile_runs
+             SET status='cancelled', error=NULL, finished_at=?2, updated_at=?2
+             WHERE id=?1 AND status='running'",
+            params![run_id, now],
+        )?;
+        drop(conn);
+        self.get_compile_run(run_id)
+    }
+
+    pub fn insert_compile_proposals(
+        &self,
+        run_id: &str,
+        kb_id: &str,
+        proposals: &[NewCompileProposal],
+    ) -> Result<usize> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut inserted = 0usize;
+        for p in proposals {
+            tx.execute(
+                "DELETE FROM knowledge_compile_proposals
+                 WHERE kb_id=?1 AND fingerprint=?2 AND status='failed'",
+                params![kb_id, p.fingerprint],
+            )?;
+            let action_json = serde_json::to_string(&p.action)?;
+            let source_ids_json = serde_json::to_string(&p.source_ids)?;
+            let affected = tx.execute(
+                "INSERT OR IGNORE INTO knowledge_compile_proposals
+                    (run_id, kb_id, kind, status, title, detail, action_json,
+                     fingerprint, source_ids_json, before_text, after_text, created_at)
+                 VALUES (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    run_id,
+                    kb_id,
+                    p.kind.as_str(),
+                    p.title,
+                    p.detail,
+                    action_json,
+                    p.fingerprint,
+                    source_ids_json,
+                    p.before_text,
+                    p.after_text,
+                    now,
+                ],
+            )?;
+            inserted += affected;
+        }
+        tx.commit()?;
+        Ok(inserted)
+    }
+
+    pub fn list_compile_proposals(
+        &self,
+        kb_id: &str,
+        run_id: Option<&str>,
+        status: Option<CompileProposalStatus>,
+    ) -> Result<Vec<CompileProposal>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let base = "SELECT id, run_id, kb_id, kind, status, title, detail,
+                          action_json, fingerprint, source_ids_json, created_at,
+                          decided_at, error, before_text, after_text
+                   FROM knowledge_compile_proposals";
+        let mut out = Vec::new();
+        match (run_id, status) {
+            (Some(run), Some(st)) => {
+                let mut stmt = conn.prepare(&format!(
+                    "{base} WHERE kb_id=?1 AND run_id=?2 AND status=?3 ORDER BY created_at DESC, id DESC"
+                ))?;
+                let rows =
+                    stmt.query_map(params![kb_id, run, st.as_str()], row_to_compile_proposal)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+            (Some(run), None) => {
+                let mut stmt = conn.prepare(&format!(
+                    "{base} WHERE kb_id=?1 AND run_id=?2 ORDER BY created_at DESC, id DESC"
+                ))?;
+                let rows = stmt.query_map(params![kb_id, run], row_to_compile_proposal)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+            (None, Some(st)) => {
+                let mut stmt = conn.prepare(&format!(
+                    "{base} WHERE kb_id=?1 AND status=?2 ORDER BY created_at DESC, id DESC"
+                ))?;
+                let rows = stmt.query_map(params![kb_id, st.as_str()], row_to_compile_proposal)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+            (None, None) => {
+                let mut stmt = conn.prepare(&format!(
+                    "{base} WHERE kb_id=?1 ORDER BY created_at DESC, id DESC"
+                ))?;
+                let rows = stmt.query_map(params![kb_id], row_to_compile_proposal)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_compile_proposal(&self, id: i64) -> Result<Option<CompileProposal>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT id, run_id, kb_id, kind, status, title, detail,
+                    action_json, fingerprint, source_ids_json, created_at,
+                    decided_at, error, before_text, after_text
+             FROM knowledge_compile_proposals WHERE id = ?1",
+            params![id],
+            row_to_compile_proposal,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    pub fn set_compile_proposal_status(
+        &self,
+        id: i64,
+        status: CompileProposalStatus,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_compile_proposals
+             SET status=?2,
+                 decided_at=CASE WHEN ?2 = 'draft' THEN NULL ELSE ?3 END,
+                 error=?4
+             WHERE id=?1",
+            params![id, status.as_str(), now, error],
+        )?;
+        Ok(())
+    }
+
     // ── Graph layout (Batch J) ─────────────────────────────────
 
     /// Read all pinned node positions for a KB.
@@ -886,6 +1554,78 @@ fn row_to_kb(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeBase> {
     })
 }
 
+fn row_to_compile_run(row: &rusqlite::Row) -> rusqlite::Result<CompileRun> {
+    let status_s: String = row.get(2)?;
+    let source_ids_s: String = row.get(3)?;
+    let source_ids = serde_json::from_str::<Vec<String>>(&source_ids_s).unwrap_or_default();
+    Ok(CompileRun {
+        id: row.get(0)?,
+        kb_id: row.get(1)?,
+        status: CompileRunStatus::from_str_lenient(&status_s),
+        source_ids,
+        strategy: row.get(4)?,
+        model_label: row.get::<_, Option<String>>(5).unwrap_or(None),
+        fingerprint: row.get(6)?,
+        error: row.get::<_, Option<String>>(7).unwrap_or(None),
+        summary: row.get::<_, Option<String>>(8).unwrap_or(None),
+        proposal_count: row.get::<_, i64>(9).unwrap_or(0).max(0) as u32,
+        created_at: row.get(10)?,
+        started_at: row.get::<_, Option<i64>>(11).unwrap_or(None),
+        finished_at: row.get::<_, Option<i64>>(12).unwrap_or(None),
+        updated_at: row.get(13)?,
+    })
+}
+
+fn row_to_compile_proposal(row: &rusqlite::Row) -> rusqlite::Result<CompileProposal> {
+    let kind_s: String = row.get(3)?;
+    let status_s: String = row.get(4)?;
+    let action_s: String = row.get(7)?;
+    let source_ids_s: String = row.get(9)?;
+    let action = serde_json::from_str::<CompileProposalAction>(&action_s).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, Box::new(e))
+    })?;
+    let source_ids = serde_json::from_str::<Vec<String>>(&source_ids_s).unwrap_or_default();
+    Ok(CompileProposal {
+        id: row.get(0)?,
+        run_id: row.get(1)?,
+        kb_id: row.get(2)?,
+        kind: CompileProposalKind::from_str_lenient(&kind_s),
+        status: CompileProposalStatus::from_str_lenient(&status_s),
+        title: row.get(5)?,
+        detail: row.get(6)?,
+        action,
+        fingerprint: row.get(8)?,
+        source_ids,
+        created_at: row.get(10)?,
+        decided_at: row.get::<_, Option<i64>>(11).unwrap_or(None),
+        error: row.get::<_, Option<String>>(12).unwrap_or(None),
+        before_text: row.get::<_, Option<String>>(13).unwrap_or(None),
+        after_text: row.get::<_, Option<String>>(14).unwrap_or(None),
+    })
+}
+
+fn row_to_source(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeSource> {
+    let kind_s: String = row.get(2)?;
+    let status_s: String = row.get(8)?;
+    let chunk_count: i64 = row.get(13).unwrap_or(0);
+    Ok(KnowledgeSource {
+        id: row.get(0)?,
+        kb_id: row.get(1)?,
+        kind: KnowledgeSourceKind::from_str_lenient(&kind_s),
+        title: row.get(3)?,
+        origin_uri: row.get::<_, Option<String>>(4).unwrap_or(None),
+        stored_path: row.get(5)?,
+        content_hash: row.get(6)?,
+        extracted_text_hash: row.get::<_, Option<String>>(7).unwrap_or(None),
+        status: KnowledgeSourceStatus::from_str_lenient(&status_s),
+        compiled_at: row.get::<_, Option<i64>>(9).unwrap_or(None),
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        size: row.get::<_, i64>(12).unwrap_or(0),
+        chunk_count: chunk_count.max(0) as u32,
+    })
+}
+
 fn normalize_optional(value: Option<&str>) -> Option<&str> {
     match value {
         Some(v) if !v.trim().is_empty() => Some(v),
@@ -1064,6 +1804,183 @@ mod tests {
             .unwrap();
         assert!(!kb.is_external());
         assert!(!kb.is_read_only_root());
+    }
+
+    #[test]
+    fn source_registry_roundtrip_and_delete() {
+        let (_d, reg) = registry();
+        let kb = reg
+            .create(CreateKnowledgeBaseInput {
+                name: "Sources".into(),
+                emoji: None,
+                root_dir: None,
+            })
+            .unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let source = KnowledgeSource {
+            id: "src-1".into(),
+            kb_id: kb.id.clone(),
+            kind: KnowledgeSourceKind::Markdown,
+            title: "Article".into(),
+            origin_uri: Some("https://example.com/a".into()),
+            stored_path: "src-1.md".into(),
+            content_hash: "hash".into(),
+            extracted_text_hash: Some("text-hash".into()),
+            status: KnowledgeSourceStatus::Ready,
+            compiled_at: None,
+            created_at: now,
+            updated_at: now,
+            size: 42,
+            chunk_count: 0,
+        };
+        let chunks = vec![
+            KnowledgeSourceChunk {
+                id: 0,
+                source_id: source.id.clone(),
+                chunk_index: 0,
+                body: "first".into(),
+                start_offset: 0,
+                end_offset: 5,
+                content_hash: "c1".into(),
+            },
+            KnowledgeSourceChunk {
+                id: 0,
+                source_id: source.id.clone(),
+                chunk_index: 1,
+                body: "second".into(),
+                start_offset: 5,
+                end_offset: 11,
+                content_hash: "c2".into(),
+            },
+        ];
+
+        reg.insert_source(&source, &chunks).unwrap();
+        let listed = reg.list_sources(&kb.id).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].title, "Article");
+        assert_eq!(listed[0].chunk_count, 2);
+
+        let fetched = reg.get_source(&kb.id, &source.id).unwrap().unwrap();
+        assert_eq!(fetched.origin_uri.as_deref(), Some("https://example.com/a"));
+        assert_eq!(fetched.size, 42);
+        assert_eq!(fetched.chunk_count, 2);
+
+        let rebuilt = reg
+            .replace_source_chunks(
+                &kb.id,
+                &source.id,
+                "new-hash",
+                Some("new-text-hash"),
+                5,
+                &[KnowledgeSourceChunk {
+                    id: 0,
+                    source_id: source.id.clone(),
+                    chunk_index: 0,
+                    body: "new".into(),
+                    start_offset: 0,
+                    end_offset: 3,
+                    content_hash: "c3".into(),
+                }],
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(rebuilt.content_hash, "new-hash");
+        assert_eq!(rebuilt.chunk_count, 1);
+        assert_eq!(rebuilt.size, 5);
+
+        let stored_path = reg.delete_source(&kb.id, &source.id).unwrap();
+        assert_eq!(stored_path.as_deref(), Some("src-1.md"));
+        assert!(reg.get_source(&kb.id, &source.id).unwrap().is_none());
+        assert!(reg.list_sources(&kb.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn compile_run_and_proposal_lifecycle_is_durable_and_deduped() {
+        let (_d, reg) = registry();
+        let kb = reg
+            .create(CreateKnowledgeBaseInput {
+                name: "Compile".into(),
+                emoji: None,
+                root_dir: None,
+            })
+            .unwrap();
+        let source_ids = vec!["src-1".to_string()];
+        let (run, should_execute) = reg
+            .begin_compile_run(&kb.id, &source_ids, "source_summary_v1", "run-fp")
+            .unwrap();
+        assert!(should_execute);
+        assert_eq!(run.status, CompileRunStatus::Running);
+        assert_eq!(run.source_ids, source_ids);
+
+        let (duplicate, should_execute_duplicate) = reg
+            .begin_compile_run(&kb.id, &source_ids, "source_summary_v1", "run-fp")
+            .unwrap();
+        assert!(!should_execute_duplicate);
+        assert_eq!(duplicate.id, run.id);
+
+        let proposal = NewCompileProposal {
+            kind: CompileProposalKind::CreateNote,
+            title: "Compile Article".into(),
+            detail: "src-1 -> Source Summaries/Article.md".into(),
+            action: CompileProposalAction::CreateNote {
+                path: "Source Summaries/Article.md".into(),
+                content: "# Article\n".into(),
+                overwrite: false,
+            },
+            fingerprint: "proposal-fp".into(),
+            source_ids: source_ids.clone(),
+            before_text: Some(String::new()),
+            after_text: Some("# Article\n".into()),
+        };
+        assert_eq!(
+            reg.insert_compile_proposals(&run.id, &kb.id, &[proposal.clone()])
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            reg.insert_compile_proposals(&run.id, &kb.id, &[proposal])
+                .unwrap(),
+            0
+        );
+
+        let drafts = reg
+            .list_compile_proposals(&kb.id, Some(&run.id), Some(CompileProposalStatus::Draft))
+            .unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].source_ids, source_ids);
+        assert_eq!(drafts[0].before_text.as_deref(), Some(""));
+        assert_eq!(drafts[0].after_text.as_deref(), Some("# Article\n"));
+        match &drafts[0].action {
+            CompileProposalAction::CreateNote { path, content, .. } => {
+                assert_eq!(path, "Source Summaries/Article.md");
+                assert_eq!(content, "# Article\n");
+            }
+            other => panic!("unexpected proposal action: {other:?}"),
+        }
+
+        reg.finish_compile_run(
+            &run.id,
+            CompileRunStatus::Completed,
+            Some("Generated 1 review proposal."),
+            None,
+            1,
+            Some("provider/model"),
+        )
+        .unwrap();
+        let completed = reg.get_compile_run(&run.id).unwrap().unwrap();
+        assert_eq!(completed.status, CompileRunStatus::Completed);
+        assert_eq!(completed.proposal_count, 1);
+        assert_eq!(completed.model_label.as_deref(), Some("provider/model"));
+        assert_eq!(
+            completed.summary.as_deref(),
+            Some("Generated 1 review proposal.")
+        );
+
+        reg.set_compile_proposal_status(drafts[0].id, CompileProposalStatus::Applied, None)
+            .unwrap();
+        let applied = reg.get_compile_proposal(drafts[0].id).unwrap().unwrap();
+        assert_eq!(applied.status, CompileProposalStatus::Applied);
+        assert!(applied.decided_at.is_some());
     }
 
     #[test]

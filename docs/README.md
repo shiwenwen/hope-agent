@@ -4,6 +4,15 @@
 
 ---
 
+## 规划文档
+
+| 文档 | 说明 |
+| --- | --- |
+| [Plan 文档索引](plan/README.md) | 尚未固化进架构文档的产品与工程迭代方案 |
+| [知识空间强化迭代路线](plan/knowledge-space-compiler-roadmap.md) | 基于 Karpathy LLM Wiki / Farzapedia / GBrain 启发，将知识空间升级为「来源 -> 编译 -> 可审计活知识库」的路线图 |
+
+---
+
 ## 系统架构
 
 

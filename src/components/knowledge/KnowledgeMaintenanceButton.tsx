@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  AlertTriangle,
   Stethoscope,
   Unlink2,
   CircleOff,
@@ -16,7 +17,13 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { BrokenLink, MaintenanceProposal, MaintenanceReport, Note } from "@/types/knowledge"
+import type {
+  BrokenLink,
+  MaintenanceProposal,
+  MaintenanceReport,
+  Note,
+  SchemaIssue,
+} from "@/types/knowledge"
 
 interface Props {
   /** The active knowledge space; the panel is empty/disabled when null. */
@@ -43,6 +50,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
   const [broken, setBroken] = useState<BrokenLink[]>([])
   const [orphans, setOrphans] = useState<Note[]>([])
   const [proposals, setProposals] = useState<MaintenanceProposal[]>([])
+  const [schemaIssues, setSchemaIssues] = useState<SchemaIssue[]>([])
   const [running, setRunning] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -53,17 +61,27 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
   const refresh = useCallback(async () => {
     if (!kbId) return
     try {
-      const b = await getTransport().call<BrokenLink[]>("kb_broken_links_cmd", { kbId })
-      const o = await getTransport().call<Note[]>("kb_orphans_cmd", { kbId })
-      const p = await getTransport().call<MaintenanceProposal[]>("kb_maintenance_list_cmd", {
-        kbId,
-        status: "draft",
-      })
+      const [b, o, p] = await Promise.all([
+        getTransport().call<BrokenLink[]>("kb_broken_links_cmd", { kbId }),
+        getTransport().call<Note[]>("kb_orphans_cmd", { kbId }),
+        getTransport().call<MaintenanceProposal[]>("kb_maintenance_list_cmd", {
+          kbId,
+          status: "draft",
+        }),
+      ])
       setBroken(b)
       setOrphans(o)
       setProposals(p)
     } catch (e) {
-      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "load failed", e)
+      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "core load failed", e)
+    }
+
+    try {
+      const s = await getTransport().call<SchemaIssue[]>("kb_schema_issues_cmd", { kbId })
+      setSchemaIssues(s)
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "schema load failed", e)
+      setSchemaIssues([])
     }
   }, [kbId])
 
@@ -156,8 +174,9 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
     }
   }, [open])
 
-  const issueCount = broken.length + orphans.length + proposals.length
-  const hasBadge = kbId != null && (broken.length > 0 || proposals.length > 0)
+  const issueCount = broken.length + orphans.length + proposals.length + schemaIssues.length
+  const hasBadge =
+    kbId != null && (broken.length > 0 || proposals.length > 0 || schemaIssues.length > 0)
 
   const jump = useCallback(
     (path: string, line?: number) => {
@@ -297,6 +316,32 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                           </IconTip>
                         </div>
                       </div>
+                    ))}
+                  </Section>
+                )}
+                {schemaIssues.length > 0 && (
+                  <Section
+                    icon={<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
+                    label={t("knowledge.maintenance.schemaIssues", "Schema issues")}
+                    count={schemaIssues.length}
+                  >
+                    {schemaIssues.map((issue, i) => (
+                      <button
+                        key={`${issue.relPath}:${issue.kind}:${i}`}
+                        type="button"
+                        onClick={() => jump(issue.relPath)}
+                        className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                      >
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="rounded bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300">
+                            {issue.kind}
+                          </span>
+                          <span className="truncate text-xs">{stem(issue.relPath)}</span>
+                        </span>
+                        <span className="line-clamp-2 text-[11px] text-muted-foreground">
+                          {issue.detail}
+                        </span>
+                      </button>
                     ))}
                   </Section>
                 )}

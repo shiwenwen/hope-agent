@@ -514,6 +514,17 @@ pub fn knowledge_kb_notes_dir(kb_id: &str) -> Result<PathBuf> {
         .join("notes"))
 }
 
+/// Per-KB raw-source directory: ~/.hope-agent/knowledge/{kb_id}/sources/
+///
+/// Raw sources are Hope-managed even for external/bound vaults. This keeps the
+/// "raw inbox" writable without mutating a user's external notes folder and
+/// preserves D11's default read-only posture for bound vaults.
+pub fn knowledge_kb_sources_dir(kb_id: &str) -> Result<PathBuf> {
+    Ok(knowledge_dir()?
+        .join(sanitize_path_segment(kb_id))
+        .join("sources"))
+}
+
 // ── Plans ───────────────────────────────────────────────────────
 
 /// Plans directory: uses custom `plansDirectory` config if set,

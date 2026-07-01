@@ -6,6 +6,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Inbox,
   FileText,
   Folder,
   FolderOpen,
@@ -85,6 +86,8 @@ import KnowledgeEmbeddingBadge from "./KnowledgeEmbeddingBadge"
 import KnowledgeGraphView from "./KnowledgeGraphView"
 import KnowledgeJobsButton from "./KnowledgeJobsButton"
 import KnowledgeMaintenanceButton from "./KnowledgeMaintenanceButton"
+import KnowledgeSourcesPanel from "./KnowledgeSourcesPanel"
+import NoteSourceReferences from "./NoteSourceReferences"
 import NoteEditor, { type NoteEditorHandle } from "./NoteEditor"
 import {
   KnowledgeChatPanel,
@@ -208,6 +211,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   // Whole-KB graph view (WS1) — a per-KB toggle, orthogonal to the per-note
   // source/split/preview mode.
   const [graphMode, setGraphMode] = useState(false)
+  const [leftMode, setLeftMode] = useState<"notes" | "sources">("notes")
   // Bumped on knowledge:changed to bust the `![[ ]]` transclusion embed cache.
   const [embedCacheKey, setEmbedCacheKey] = useState(0)
 
@@ -1980,76 +1984,110 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             ))}
           </div>
 
-          <div className="flex items-center justify-between border-b border-t border-border-soft/60 px-2 py-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {t("knowledge.notes", "Notes")}
-            </span>
-            <div className="flex items-center gap-1">
-              <IconTip
-                label={
-                  reindexActive
-                    ? `${t("knowledge.reindexing", "Reindexing…")}${reindexProgress}`
-                    : t("knowledge.reindex", "Reindex")
-                }
-                side="bottom"
-              >
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={reindex}
-                  disabled={reindexActive}
-                >
-                  <RefreshCw className={cn("h-3 w-3", reindexActive && "animate-spin")} />
-                </Button>
-              </IconTip>
-              {!readOnly && activeKbId && (
-                <>
-                  <IconTip label={t("knowledge.newFolder", "New folder")} side="bottom">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => {
-                        setNewFolderParent("")
-                        setNewFolderValue("")
-                        setNewFolderOpen(true)
-                      }}
-                    >
-                      <FolderPlus className="h-3 w-3" />
-                    </Button>
-                  </IconTip>
-                  <IconTip label={t("knowledge.newNote", "New note")} side="bottom">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => guardNavigation(() => startDraft())}
-                    >
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                  </IconTip>
-                </>
+          <div className="grid grid-cols-2 border-b border-t border-border-soft/60 p-1">
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
+                leftMode === "notes"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
               )}
-            </div>
+              onClick={() => setLeftMode("notes")}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              {t("knowledge.notes", "Notes")}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "flex h-7 items-center justify-center gap-1.5 rounded-md text-xs transition-colors",
+                leftMode === "sources"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setLeftMode("sources")}
+            >
+              <Inbox className="h-3.5 w-3.5" />
+              {t("knowledge.sources.title", "Sources")}
+            </button>
           </div>
-          <div
-            className={cn(
-              "flex-1 overflow-auto py-0.5",
-              dragOver === "" && dragItem && "bg-primary/5",
-            )}
-            onDragOver={(e) => {
-              if (!dragItemRef.current || readOnly) return
-              e.preventDefault()
-              setDragOver("")
-            }}
-            onDrop={(e) => {
-              e.preventDefault()
-              handleDropOn("")
-            }}
-          >
-            {renderNodes(noteTree, 0)}
-          </div>
+          {leftMode === "notes" ? (
+            <>
+              <div className="flex items-center justify-between border-b border-border-soft/60 px-2 py-1.5">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {t("knowledge.notes", "Notes")}
+                </span>
+                <div className="flex items-center gap-1">
+                  <IconTip
+                    label={
+                      reindexActive
+                        ? `${t("knowledge.reindexing", "Reindexing…")}${reindexProgress}`
+                        : t("knowledge.reindex", "Reindex")
+                    }
+                    side="bottom"
+                  >
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={reindex}
+                      disabled={reindexActive}
+                    >
+                      <RefreshCw className={cn("h-3 w-3", reindexActive && "animate-spin")} />
+                    </Button>
+                  </IconTip>
+                  {!readOnly && activeKbId && (
+                    <>
+                      <IconTip label={t("knowledge.newFolder", "New folder")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => {
+                            setNewFolderParent("")
+                            setNewFolderValue("")
+                            setNewFolderOpen(true)
+                          }}
+                        >
+                          <FolderPlus className="h-3 w-3" />
+                        </Button>
+                      </IconTip>
+                      <IconTip label={t("knowledge.newNote", "New note")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => guardNavigation(() => startDraft())}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </Button>
+                      </IconTip>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div
+                className={cn(
+                  "flex-1 overflow-auto py-0.5",
+                  dragOver === "" && dragItem && "bg-primary/5",
+                )}
+                onDragOver={(e) => {
+                  if (!dragItemRef.current || readOnly) return
+                  e.preventDefault()
+                  setDragOver("")
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  handleDropOn("")
+                }}
+              >
+                {renderNodes(noteTree, 0)}
+              </div>
+            </>
+          ) : (
+            <KnowledgeSourcesPanel kbId={activeKbId} />
+          )}
             </div>
           </div>
           <div
@@ -2415,6 +2453,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
             </>
           ) : noteData ? (
             <div className="flex-1 overflow-auto p-3 text-xs">
+              <NoteSourceReferences
+                kbId={noteData.kbId || openKbId}
+                notePath={openPath}
+                contentHash={noteData.contentHash}
+              />
+
               <BacklinksSection
                 title={t("knowledge.backlinks", "Backlinks")}
                 count={noteData.backlinks.length}

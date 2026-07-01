@@ -8,9 +8,12 @@
 use crate::commands::CmdError;
 use ha_core::filesystem::{self, ExtractedContent, FileTextContent, WorkspaceScope};
 use ha_core::knowledge::{
-    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
-    KbAttachment, KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note,
-    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    self, service, Backlink, BrokenLink, CompileProposal, CompileProposalStatus, CompileRun,
+    CompileStartInput, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KbAttachment,
+    KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, KnowledgeSource,
+    KnowledgeSourceImportInput, KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit,
+    NoteSourceRef, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
+    UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -99,6 +102,112 @@ pub async fn reindex_dir_cmd(kb_id: String, path: String) -> Result<(), CmdError
         .await
         .map_err(|e| CmdError::msg(format!("reindex dir task failed: {e}")))??;
     Ok(())
+}
+
+// ── Raw source inbox (Knowledge Compiler Phase 1) ────────────────
+
+#[tauri::command]
+pub async fn kb_source_import_cmd(
+    kb_id: String,
+    input: KnowledgeSourceImportInput,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_import(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_list_cmd(kb_id: String) -> Result<Vec<KnowledgeSource>, CmdError> {
+    service::source_list(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_read_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSourceReadResult, CmdError> {
+    service::source_read(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_reextract_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_reextract(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_delete_cmd(kb_id: String, source_id: String) -> Result<bool, CmdError> {
+    service::source_delete(&kb_id, &source_id).map_err(Into::into)
+}
+
+// ── Knowledge Compiler (Phase 2) ─────────────────────────────────
+
+#[tauri::command]
+pub async fn kb_compile_start_cmd(
+    kb_id: String,
+    input: CompileStartInput,
+) -> Result<CompileRun, CmdError> {
+    service::compile_start(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_status_cmd(run_id: String) -> Result<CompileRun, CmdError> {
+    service::compile_status(&run_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_runs_list_cmd(kb_id: String) -> Result<Vec<CompileRun>, CmdError> {
+    service::compile_runs_list(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_proposals_list_cmd(
+    kb_id: String,
+    run_id: Option<String>,
+    status: Option<CompileProposalStatus>,
+) -> Result<Vec<CompileProposal>, CmdError> {
+    service::compile_proposals_list(&kb_id, run_id.as_deref(), status).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_proposal_approve_cmd(id: i64) -> Result<CompileProposal, CmdError> {
+    service::compile_proposal_approve(id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_proposal_reject_cmd(id: i64) -> Result<bool, CmdError> {
+    service::compile_proposal_reject(id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_run_cancel_cmd(run_id: String) -> Result<CompileRun, CmdError> {
+    service::compile_run_cancel(&run_id).map_err(Into::into)
+}
+
+// ── Schema profile + evidence refs (Phase 3) ─────────────────────
+
+#[tauri::command]
+pub async fn kb_schema_profile_cmd(kb_id: String) -> Result<SchemaProfile, CmdError> {
+    service::schema_profile(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_schema_issues_cmd(kb_id: String) -> Result<Vec<SchemaIssue>, CmdError> {
+    service::schema_issues(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_note_source_refs_cmd(
+    kb_id: String,
+    path: String,
+) -> Result<Vec<NoteSourceRef>, CmdError> {
+    service::note_source_refs(&kb_id, &path).map_err(Into::into)
 }
 
 // ── Access bindings ─────────────────────────────────────────────

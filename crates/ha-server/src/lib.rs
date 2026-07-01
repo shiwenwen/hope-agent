@@ -269,6 +269,54 @@ fn build_router_with_cors(
             post(routes::knowledge::reindex_dir),
         )
         .route(
+            "/knowledge/{kb_id}/sources",
+            get(routes::knowledge::kb_source_list).post(routes::knowledge::kb_source_import),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}",
+            get(routes::knowledge::kb_source_read).delete(routes::knowledge::kb_source_delete),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/reextract",
+            post(routes::knowledge::kb_source_reextract),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-runs",
+            get(routes::knowledge::kb_compile_runs_list).post(routes::knowledge::kb_compile_start),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-runs/{run_id}",
+            get(routes::knowledge::kb_compile_status),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-runs/{run_id}/cancel",
+            post(routes::knowledge::kb_compile_run_cancel),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-proposals",
+            get(routes::knowledge::kb_compile_proposals_list),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-proposals/{id}/approve",
+            post(routes::knowledge::kb_compile_proposal_approve),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-proposals/{id}/reject",
+            post(routes::knowledge::kb_compile_proposal_reject),
+        )
+        .route(
+            "/knowledge/{kb_id}/schema-profile",
+            get(routes::knowledge::kb_schema_profile),
+        )
+        .route(
+            "/knowledge/{kb_id}/schema-issues",
+            get(routes::knowledge::kb_schema_issues),
+        )
+        .route(
+            "/knowledge/{kb_id}/note/source-refs",
+            get(routes::knowledge::kb_note_source_refs),
+        )
+        .route(
             "/knowledge/{kb_id}/dirs",
             get(routes::knowledge::kb_list_dirs),
         )

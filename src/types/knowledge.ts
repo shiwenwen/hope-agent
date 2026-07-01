@@ -72,6 +72,142 @@ export interface ReferenceableNote {
   title: string
 }
 
+export type KnowledgeSourceKind = "markdown" | "text" | "url_snapshot"
+export type KnowledgeSourceStatus = "ready" | "failed"
+
+export interface KnowledgeSourceImportInput {
+  kind?: KnowledgeSourceKind | null
+  title?: string | null
+  fileName?: string | null
+  content?: string | null
+  url?: string | null
+}
+
+export interface KnowledgeSource {
+  id: string
+  kbId: string
+  kind: KnowledgeSourceKind
+  title: string
+  originUri?: string | null
+  storedPath: string
+  contentHash: string
+  extractedTextHash?: string | null
+  status: KnowledgeSourceStatus
+  compiledAt?: number | null
+  createdAt: number
+  updatedAt: number
+  size: number
+  chunkCount: number
+}
+
+export interface KnowledgeSourceReadResult extends KnowledgeSource {
+  content: string
+}
+
+export interface SchemaPageTypeSpec {
+  key: string
+  label: string
+  requiredSections: string[]
+  requiredFrontmatter: string[]
+}
+
+export interface SchemaProfile {
+  kbId: string
+  pageTypes: SchemaPageTypeSpec[]
+  defaultPageType: string
+  requiredSections: string[]
+  updatedAt: number
+}
+
+export type SchemaIssueKind =
+  | "missing_evidence"
+  | "stale_source"
+  | "schema_violation"
+  | "conflicting_claim"
+  | "unfiled_open_question"
+
+export interface SchemaIssue {
+  kbId: string
+  relPath: string
+  title: string
+  kind: SchemaIssueKind
+  detail: string
+  sourceIds?: string[]
+}
+
+export interface NoteSourceRef {
+  sourceId: string
+  title?: string | null
+  originUri?: string | null
+  missing: boolean
+  stale: boolean
+  sourceUpdatedAt?: number | null
+  noteLastCompiledAt?: number | null
+  citedIn?: string[]
+}
+
+export type CompileRunStatus = "running" | "completed" | "failed" | "cancelled"
+export type CompileProposalStatus = "draft" | "applied" | "rejected" | "failed"
+export type CompileProposalKind =
+  | "create_note"
+  | "patch_note"
+  | "set_frontmatter"
+  | "append_link"
+  | "create_moc"
+
+export interface CompileStartInput {
+  sourceIds: string[]
+  strategy?: string | null
+}
+
+export interface CompileRun {
+  id: string
+  kbId: string
+  status: CompileRunStatus
+  sourceIds: string[]
+  strategy: string
+  modelLabel?: string | null
+  fingerprint: string
+  error?: string | null
+  summary?: string | null
+  proposalCount: number
+  createdAt: number
+  startedAt?: number | null
+  finishedAt?: number | null
+  updatedAt: number
+}
+
+export type CompileProposalAction =
+  | { op: "create_note"; path: string; content: string; overwrite?: boolean }
+  | {
+      op: "patch_note"
+      path: string
+      old: string
+      new: string
+      expected_file_hash?: string | null
+    }
+  | { op: "set_frontmatter"; path: string; props: Record<string, unknown> }
+  | { op: "append_link"; from_path: string; to_ref: string }
+  | { op: "create_moc"; path: string; content: string; overwrite?: boolean }
+
+export interface CompileProposal {
+  id: number
+  runId: string
+  kbId: string
+  kind: CompileProposalKind
+  status: CompileProposalStatus
+  title: string
+  detail: string
+  action: CompileProposalAction
+  fingerprint: string
+  sourceIds: string[]
+  createdAt: number
+  decidedAt?: number | null
+  error?: string | null
+  beforeText?: string | null
+  afterText?: string | null
+}
+
 export interface Note {
   id: number
   kbId: string

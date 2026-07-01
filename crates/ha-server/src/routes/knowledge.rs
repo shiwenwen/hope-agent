@@ -21,9 +21,12 @@ use ha_core::filesystem::{
     self, ExtractedContent, FileTextContent, FilesystemError, WorkspaceScope,
 };
 use ha_core::knowledge::{
-    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
-    KbAttachment, KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note,
-    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    self, service, Backlink, BrokenLink, CompileProposal, CompileProposalStatus, CompileRun,
+    CompileStartInput, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KbAttachment,
+    KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, KnowledgeSource,
+    KnowledgeSourceImportInput, KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit,
+    NoteSourceRef, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
+    UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -189,6 +192,28 @@ pub struct KbFileQuery {
     pub download: Option<u8>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct KbSourceImportBody {
+    pub input: KnowledgeSourceImportInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbCompileStartBody {
+    pub input: CompileStartInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbCompileProposalQuery {
+    pub run_id: Option<String>,
+    pub status: Option<CompileProposalStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbNoteSourceRefsQuery {
+    pub path: String,
+}
+
 // ── Registry CRUD ───────────────────────────────────────────────
 
 /// `GET /api/knowledge`
@@ -282,6 +307,141 @@ pub async fn reindex_dir(
         .await
         .map_err(|e| AppError::internal(format!("reindex dir task failed: {e}")))??;
     Ok(Json(true))
+}
+
+// ── Raw source inbox (Knowledge Compiler Phase 1) ────────────────
+
+/// `POST /api/knowledge/{kb_id}/sources`
+pub async fn kb_source_import(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbSourceImportBody>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(service::source_import(&kb_id, body.input).await?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources`
+pub async fn kb_source_list(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<KnowledgeSource>>, AppError> {
+    Ok(Json(service::source_list(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}`
+pub async fn kb_source_read(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSourceReadResult>, AppError> {
+    Ok(Json(service::source_read(&kb_id, &source_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/{source_id}/reextract`
+pub async fn kb_source_reextract(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(service::source_reextract(&kb_id, &source_id)?))
+}
+
+/// `DELETE /api/knowledge/{kb_id}/sources/{source_id}`
+pub async fn kb_source_delete(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<bool>, AppError> {
+    Ok(Json(service::source_delete(&kb_id, &source_id)?))
+}
+
+// ── Knowledge Compiler (Phase 2) ─────────────────────────────────
+
+/// `POST /api/knowledge/{kb_id}/compile-runs`
+pub async fn kb_compile_start(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbCompileStartBody>,
+) -> Result<Json<CompileRun>, AppError> {
+    Ok(Json(service::compile_start(&kb_id, body.input).await?))
+}
+
+/// `GET /api/knowledge/{kb_id}/compile-runs`
+pub async fn kb_compile_runs_list(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<CompileRun>>, AppError> {
+    Ok(Json(service::compile_runs_list(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/compile-runs/{run_id}`
+pub async fn kb_compile_status(
+    Path((kb_id, run_id)): Path<(String, String)>,
+) -> Result<Json<CompileRun>, AppError> {
+    let run = service::compile_status(&run_id)?;
+    if run.kb_id != kb_id {
+        return Err(anyhow::anyhow!("compile run not found in knowledge base").into());
+    }
+    Ok(Json(run))
+}
+
+/// `POST /api/knowledge/{kb_id}/compile-runs/{run_id}/cancel`
+pub async fn kb_compile_run_cancel(
+    Path((kb_id, run_id)): Path<(String, String)>,
+) -> Result<Json<CompileRun>, AppError> {
+    let run = service::compile_status(&run_id)?;
+    if run.kb_id != kb_id {
+        return Err(anyhow::anyhow!("compile run not found in knowledge base").into());
+    }
+    Ok(Json(service::compile_run_cancel(&run_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/compile-proposals`
+pub async fn kb_compile_proposals_list(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbCompileProposalQuery>,
+) -> Result<Json<Vec<CompileProposal>>, AppError> {
+    Ok(Json(service::compile_proposals_list(
+        &kb_id,
+        q.run_id.as_deref(),
+        q.status,
+    )?))
+}
+
+/// `POST /api/knowledge/{kb_id}/compile-proposals/{id}/approve`
+pub async fn kb_compile_proposal_approve(
+    Path((kb_id, id)): Path<(String, i64)>,
+) -> Result<Json<CompileProposal>, AppError> {
+    ensure_compile_proposal_in_kb(&kb_id, id)?;
+    Ok(Json(service::compile_proposal_approve(id).await?))
+}
+
+/// `POST /api/knowledge/{kb_id}/compile-proposals/{id}/reject`
+pub async fn kb_compile_proposal_reject(
+    Path((kb_id, id)): Path<(String, i64)>,
+) -> Result<Json<bool>, AppError> {
+    ensure_compile_proposal_in_kb(&kb_id, id)?;
+    Ok(Json(service::compile_proposal_reject(id)?))
+}
+
+fn ensure_compile_proposal_in_kb(kb_id: &str, id: i64) -> Result<(), AppError> {
+    let found = service::compile_proposals_list(kb_id, None, None)?
+        .into_iter()
+        .any(|proposal| proposal.id == id);
+    if !found {
+        return Err(anyhow::anyhow!("compile proposal not found in knowledge base").into());
+    }
+    Ok(())
+}
+
+/// `GET /api/knowledge/{kb_id}/schema-profile`
+pub async fn kb_schema_profile(Path(kb_id): Path<String>) -> Result<Json<SchemaProfile>, AppError> {
+    Ok(Json(service::schema_profile(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/schema-issues`
+pub async fn kb_schema_issues(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<SchemaIssue>>, AppError> {
+    Ok(Json(service::schema_issues(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/note/source-refs?path=...`
+pub async fn kb_note_source_refs(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbNoteSourceRefsQuery>,
+) -> Result<Json<Vec<NoteSourceRef>>, AppError> {
+    Ok(Json(service::note_source_refs(&kb_id, &q.path)?))
 }
 
 // ── Access bindings ─────────────────────────────────────────────

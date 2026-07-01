@@ -16,6 +16,15 @@
 
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_SCHEMA_SECTIONS: [&str; 6] = [
+    "For Agent",
+    "Compiled Truth",
+    "Timeline",
+    "Evidence",
+    "Open Questions",
+    "Related",
+];
+
 // ── KnowledgeBase (truth source, sessions.db) ────────────────────
 
 /// A knowledge base = a notes container with a single storage root.
@@ -179,6 +188,437 @@ pub struct ReferenceableNote {
     pub rel_path: String,
     /// frontmatter title > first H1 > file stem (primary display).
     pub title: String,
+}
+
+// ── Raw sources (Knowledge Compiler Phase 1, sessions.db truth source) ─────
+
+/// A raw-source type in the Knowledge Compiler inbox. Raw sources are distinct
+/// from compiled notes: sources are immutable-ish input snapshots, while notes
+/// remain the editable `.md` wiki layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceKind {
+    Markdown,
+    Text,
+    UrlSnapshot,
+}
+
+impl KnowledgeSourceKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceKind::Markdown => "markdown",
+            KnowledgeSourceKind::Text => "text",
+            KnowledgeSourceKind::UrlSnapshot => "url_snapshot",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceKind {
+        match s {
+            "markdown" => KnowledgeSourceKind::Markdown,
+            "url_snapshot" | "urlSnapshot" | "url" => KnowledgeSourceKind::UrlSnapshot,
+            _ => KnowledgeSourceKind::Text,
+        }
+    }
+}
+
+/// Lifecycle status for a raw source. Phase 1 creates only `Ready` rows on
+/// successful import; the explicit enum keeps later extraction/retry states
+/// forward-compatible without changing the wire shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceStatus {
+    Ready,
+    Failed,
+}
+
+impl KnowledgeSourceStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceStatus::Ready => "ready",
+            KnowledgeSourceStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceStatus {
+        match s {
+            "failed" => KnowledgeSourceStatus::Failed,
+            _ => KnowledgeSourceStatus::Ready,
+        }
+    }
+}
+
+/// Import request for Phase 1 raw sources. Exactly one of `content` or `url`
+/// must be supplied. File imports are intentionally text-over-JSON so desktop
+/// and HTTP/server mode behave the same and no endpoint reads arbitrary host
+/// paths.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportInput {
+    #[serde(default)]
+    pub kind: Option<KnowledgeSourceKind>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+/// Raw source metadata for inbox lists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSource {
+    pub id: String,
+    pub kb_id: String,
+    pub kind: KnowledgeSourceKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub stored_path: String,
+    pub content_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extracted_text_hash: Option<String>,
+    pub status: KnowledgeSourceStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiled_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub chunk_count: u32,
+}
+
+/// Source read response: metadata + stored snapshot text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceReadResult {
+    #[serde(flatten)]
+    pub source: KnowledgeSource,
+    pub content: String,
+}
+
+/// Separate chunk rows for raw sources. They never share `note_chunk`, keeping
+/// source snapshots out of compiled-note ranking and prompt surfaces.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceChunk {
+    pub id: i64,
+    pub source_id: String,
+    pub chunk_index: i64,
+    pub body: String,
+    pub start_offset: u32,
+    pub end_offset: u32,
+    pub content_hash: String,
+}
+
+// ── Schema Profile + Evidence (Knowledge Compiler Phase 3) ───────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaProfile {
+    pub kb_id: String,
+    pub page_types: Vec<SchemaPageTypeSpec>,
+    pub default_page_type: String,
+    pub required_sections: Vec<String>,
+    pub updated_at: i64,
+}
+
+impl SchemaProfile {
+    pub fn default_for(kb_id: &str, updated_at: i64) -> Self {
+        Self {
+            kb_id: kb_id.to_string(),
+            page_types: vec![
+                SchemaPageTypeSpec::new("source_summary", "Source Summary"),
+                SchemaPageTypeSpec::new("concept", "Concept"),
+                SchemaPageTypeSpec::new("person", "Person"),
+                SchemaPageTypeSpec::new("project", "Project"),
+                SchemaPageTypeSpec::new("decision", "Decision"),
+                SchemaPageTypeSpec::new("timeline", "Timeline"),
+                SchemaPageTypeSpec::new("moc", "Map of Content"),
+            ],
+            default_page_type: "source_summary".to_string(),
+            required_sections: DEFAULT_SCHEMA_SECTIONS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaPageTypeSpec {
+    pub key: String,
+    pub label: String,
+    pub required_sections: Vec<String>,
+    pub required_frontmatter: Vec<String>,
+}
+
+impl SchemaPageTypeSpec {
+    pub fn new(key: &str, label: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            label: label.to_string(),
+            required_sections: DEFAULT_SCHEMA_SECTIONS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            required_frontmatter: vec![
+                "type".to_string(),
+                "sources".to_string(),
+                "last_compiled".to_string(),
+                "confidence".to_string(),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SchemaIssueKind {
+    MissingEvidence,
+    StaleSource,
+    SchemaViolation,
+    ConflictingClaim,
+    UnfiledOpenQuestion,
+}
+
+impl SchemaIssueKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SchemaIssueKind::MissingEvidence => "missing_evidence",
+            SchemaIssueKind::StaleSource => "stale_source",
+            SchemaIssueKind::SchemaViolation => "schema_violation",
+            SchemaIssueKind::ConflictingClaim => "conflicting_claim",
+            SchemaIssueKind::UnfiledOpenQuestion => "unfiled_open_question",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaIssue {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub title: String,
+    pub kind: SchemaIssueKind,
+    pub detail: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSourceRef {
+    pub source_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub missing: bool,
+    pub stale: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_updated_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_last_compiled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cited_in: Vec<String>,
+}
+
+// ── Knowledge Compiler Phase 2 ──────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompileRunStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl CompileRunStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompileRunStatus::Running => "running",
+            CompileRunStatus::Completed => "completed",
+            CompileRunStatus::Failed => "failed",
+            CompileRunStatus::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> CompileRunStatus {
+        match s {
+            "completed" => CompileRunStatus::Completed,
+            "failed" => CompileRunStatus::Failed,
+            "cancelled" => CompileRunStatus::Cancelled,
+            _ => CompileRunStatus::Running,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompileProposalStatus {
+    Draft,
+    Applied,
+    Rejected,
+    Failed,
+}
+
+impl CompileProposalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompileProposalStatus::Draft => "draft",
+            CompileProposalStatus::Applied => "applied",
+            CompileProposalStatus::Rejected => "rejected",
+            CompileProposalStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> CompileProposalStatus {
+        match s {
+            "applied" => CompileProposalStatus::Applied,
+            "rejected" => CompileProposalStatus::Rejected,
+            "failed" => CompileProposalStatus::Failed,
+            _ => CompileProposalStatus::Draft,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompileProposalKind {
+    CreateNote,
+    PatchNote,
+    SetFrontmatter,
+    AppendLink,
+    CreateMoc,
+}
+
+impl CompileProposalKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompileProposalKind::CreateNote => "create_note",
+            CompileProposalKind::PatchNote => "patch_note",
+            CompileProposalKind::SetFrontmatter => "set_frontmatter",
+            CompileProposalKind::AppendLink => "append_link",
+            CompileProposalKind::CreateMoc => "create_moc",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> CompileProposalKind {
+        match s {
+            "patch_note" => CompileProposalKind::PatchNote,
+            "set_frontmatter" => CompileProposalKind::SetFrontmatter,
+            "append_link" => CompileProposalKind::AppendLink,
+            "create_moc" => CompileProposalKind::CreateMoc,
+            _ => CompileProposalKind::CreateNote,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum CompileProposalAction {
+    CreateNote {
+        path: String,
+        content: String,
+        #[serde(default)]
+        overwrite: bool,
+    },
+    PatchNote {
+        path: String,
+        old: String,
+        new: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_file_hash: Option<String>,
+    },
+    SetFrontmatter {
+        path: String,
+        props: serde_json::Map<String, serde_json::Value>,
+    },
+    AppendLink {
+        from_path: String,
+        to_ref: String,
+    },
+    CreateMoc {
+        path: String,
+        content: String,
+        #[serde(default)]
+        overwrite: bool,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileStartInput {
+    pub source_ids: Vec<String>,
+    #[serde(default)]
+    pub strategy: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileRun {
+    pub id: String,
+    pub kb_id: String,
+    pub status: CompileRunStatus,
+    pub source_ids: Vec<String>,
+    pub strategy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_label: Option<String>,
+    pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub proposal_count: u32,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewCompileProposal {
+    pub kind: CompileProposalKind,
+    pub title: String,
+    pub detail: String,
+    pub action: CompileProposalAction,
+    pub fingerprint: String,
+    pub source_ids: Vec<String>,
+    pub before_text: Option<String>,
+    pub after_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileProposal {
+    pub id: i64,
+    pub run_id: String,
+    pub kb_id: String,
+    pub kind: CompileProposalKind,
+    pub status: CompileProposalStatus,
+    pub title: String,
+    pub detail: String,
+    pub action: CompileProposalAction,
+    pub fingerprint: String,
+    pub source_ids: Vec<String>,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_text: Option<String>,
 }
 
 // ── Note (index cache rows, index.db) ────────────────────────────

@@ -11,8 +11,10 @@ use anyhow::{anyhow, bail, Result};
 
 use super::index;
 use super::types::{
-    Backlink, CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
-    Note, NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome,
+    Backlink, CompileProposal, CompileProposalStatus, CompileRun, CompileStartInput,
+    CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
+    KnowledgeSource, KnowledgeSourceImportInput, KnowledgeSourceReadResult, Note, NoteReadResult,
+    NoteSearchHit, NoteSourceRef, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
 };
 use crate::filesystem::{self, WorkspaceScope};
 use crate::session::{SessionKind, SessionMeta};
@@ -39,6 +41,85 @@ pub fn list_kb_meta(include_archived: bool) -> Result<Vec<KnowledgeBaseMeta>> {
 /// List a KB's indexed notes (metadata), ordered by path.
 pub fn list_notes(kb_id: &str) -> Result<Vec<Note>> {
     index_db()?.list_notes(kb_id)
+}
+
+// ── Raw source inbox (Knowledge Compiler Phase 1) ─────────────────
+
+/// Owner import: add a raw source snapshot to a KB. The source is Hope-managed
+/// and never mutates the notes root, including external/bound vaults.
+pub async fn source_import(
+    kb_id: &str,
+    input: KnowledgeSourceImportInput,
+) -> Result<KnowledgeSource> {
+    super::source::import_source(kb_id, input).await
+}
+
+/// Owner list: raw sources in newest-first order.
+pub fn source_list(kb_id: &str) -> Result<Vec<KnowledgeSource>> {
+    super::source::list_sources(kb_id)
+}
+
+/// Owner read: source metadata + stored snapshot text.
+pub fn source_read(kb_id: &str, source_id: &str) -> Result<KnowledgeSourceReadResult> {
+    super::source::read_source(kb_id, source_id)
+}
+
+/// Owner re-extract: rebuild source chunks + hashes from the stored snapshot.
+pub fn source_reextract(kb_id: &str, source_id: &str) -> Result<KnowledgeSource> {
+    super::source::reextract_source(kb_id, source_id)
+}
+
+/// Owner delete: removes registry row, chunks and stored snapshot file.
+pub fn source_delete(kb_id: &str, source_id: &str) -> Result<bool> {
+    super::source::delete_source(kb_id, source_id)
+}
+
+// ── Knowledge Compiler (Phase 2) ─────────────────────────────────
+
+pub async fn compile_start(kb_id: &str, input: CompileStartInput) -> Result<CompileRun> {
+    super::compile::start_compile_run(kb_id, input).await
+}
+
+pub fn compile_status(run_id: &str) -> Result<CompileRun> {
+    super::compile::get_run(run_id)
+}
+
+pub fn compile_runs_list(kb_id: &str) -> Result<Vec<CompileRun>> {
+    super::compile::list_runs(kb_id)
+}
+
+pub fn compile_proposals_list(
+    kb_id: &str,
+    run_id: Option<&str>,
+    status: Option<CompileProposalStatus>,
+) -> Result<Vec<CompileProposal>> {
+    super::compile::list_proposals(kb_id, run_id, status)
+}
+
+pub async fn compile_proposal_approve(id: i64) -> Result<CompileProposal> {
+    super::compile::approve_proposal(id).await
+}
+
+pub fn compile_proposal_reject(id: i64) -> Result<bool> {
+    super::compile::reject_proposal(id)
+}
+
+pub fn compile_run_cancel(run_id: &str) -> Result<CompileRun> {
+    super::compile::cancel_run(run_id)
+}
+
+// ── Schema profile + evidence refs (Knowledge Compiler Phase 3) ───
+
+pub fn schema_profile(kb_id: &str) -> Result<SchemaProfile> {
+    super::schema::profile(kb_id)
+}
+
+pub fn schema_issues(kb_id: &str) -> Result<Vec<SchemaIssue>> {
+    super::schema::schema_issues(kb_id)
+}
+
+pub fn note_source_refs(kb_id: &str, rel_path: &str) -> Result<Vec<NoteSourceRef>> {
+    super::schema::note_source_refs(kb_id, rel_path)
 }
 
 // ── Knowledge-space sidebar chat threads ────────────────────────────

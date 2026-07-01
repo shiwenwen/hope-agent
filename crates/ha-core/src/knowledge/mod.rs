@@ -12,6 +12,7 @@
 
 pub mod access;
 pub mod chunker;
+pub mod compile;
 pub mod db;
 pub mod embedding;
 pub mod graph;
@@ -23,8 +24,10 @@ pub mod reembed;
 pub mod registry;
 pub mod rename;
 pub mod resolver;
+pub mod schema;
 pub mod search;
 pub mod service;
+pub mod source;
 pub mod types;
 pub mod watcher;
 
@@ -106,17 +109,23 @@ pub fn delete_kb_cascade(kb_id: &str) -> Result<bool> {
         }
     }
 
-    // Step 3: internal notes dir on disk (never touch an external bound root).
-    if !kb.is_external() {
-        if let Ok(dir) = crate::paths::knowledge_dir().map(|d| d.join(sanitize(kb_id))) {
-            if dir.exists() {
-                // Containment guard: refuse to rm a path that escapes the
-                // knowledge root (defense in depth; kb_id is a server UUID).
-                if let (Ok(canon), Ok(root)) = (dir.canonicalize(), crate::paths::knowledge_dir()) {
-                    let canon_root = root.canonicalize().unwrap_or(root);
-                    if canon.starts_with(&canon_root) {
-                        let _ = std::fs::remove_dir_all(&canon);
-                    }
+    // Step 3: managed on-disk directories. Internal KBs own the whole
+    // `knowledge/{id}` tree (notes + sources). External vaults must never have
+    // their bound root deleted, but their Hope-managed raw-source inbox still
+    // lives under `knowledge/{id}/sources` and should be cleaned up.
+    if let Ok(dir) = crate::paths::knowledge_dir().map(|d| d.join(sanitize(kb_id))) {
+        let target = if kb.is_external() {
+            dir.join("sources")
+        } else {
+            dir
+        };
+        if target.exists() {
+            // Containment guard: refuse to rm a path that escapes the knowledge
+            // root (defense in depth; kb_id is a server UUID).
+            if let (Ok(canon), Ok(root)) = (target.canonicalize(), crate::paths::knowledge_dir()) {
+                let canon_root = root.canonicalize().unwrap_or(root);
+                if canon.starts_with(&canon_root) {
+                    let _ = std::fs::remove_dir_all(&canon);
                 }
             }
         }

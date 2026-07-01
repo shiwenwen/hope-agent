@@ -1,6 +1,6 @@
 # Knowledge Base（知识空间）
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-06-07
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-01
 
 本文是知识空间子系统的**单一真相源**：定位、设计取舍、数据模型、鉴权、工具面、检索、前端、自主维护与安全红线。实现细节引用代码路径而非复制，以代码为准。对外功能名「知识空间 / Knowledge Space」，代码内部保持中性——模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge`（D5）。
 
@@ -10,7 +10,7 @@
 
 三条产品原则贯穿全系统：
 
-- **真实 `.md` 是唯一真相源**：笔记就是磁盘上的标准 Markdown 文件，永不锁定、永不破坏性转写；SQLite 索引只是可重建缓存，删了能从 `.md` 全量重建。用户可随时用 Obsidian / Logseq 打开同一文件夹，零锁定。
+- **真实 `.md` 是唯一真相源**：笔记就是磁盘上的标准 Markdown 文件，永不锁定、永不破坏性转写；SQLite 索引只是可重建缓存，删了能从 `.md` 全量重建。用户可随时用 Obsidian / Logseq 打开同一文件夹，零锁定。Raw Source（资料舱）是独立输入层，存 Hope 管理目录，不混入 notes root。
 - **AI 原生，不是事后插件**：别人手动织链，这里 agent 既能读知识库又能写知识库（CRUD / 链接 / 图谱 / 检索 / 自主维护），区别于 Obsidian / Logseq「AI 是插件」的形态。
 - **默认 deny + 显式 attach**：知识库不像记忆那样全局可见——工作 vault / 私人 vault / IM 会话彼此隔离，访问唯一经 `effective_kb_access`（D10）。
 
@@ -59,10 +59,13 @@ flowchart LR
 | D12 | 检索粒度 | **chunk 级**：`note` 只存文件级元数据，正文检索下沉到 `note_chunk`（FTS + vec 都建 chunk 上，命中再聚合回 note） | 整篇一个 embedding 在长文 / 纪要上失效（超上限 + 定位不到段）；`content_hash` 支持按 chunk 增量重嵌 |
 | D13 | 编辑器选型 | **CodeMirror 6 强 source editor** + 实时预览；**不引入 Tiptap / Milkdown WYSIWYG**，以 CM6 live-preview 模式逼近所见即所得 | 核心是「真实 `.md` + wikilink + 字符 offset + AI patch + diff + 互通」，要源文档稳定可控；ProseMirror 往返序列化破坏这些契约 |
 | D14 | 坐标系契约 | 持久 offset = **Unicode 码点偏移**（索引内部）；跨端定位主字段 = `line`（1-based）+ `col`（0-based 码点列，tab=1），相对**原始完整文件**；`note_patch` **不用坐标**走 `old/new` 文本匹配 | 三套坐标（UTF-8 字节 / 码点 / UTF-16）+ CRLF + tab 全是错位源，必须钉死；LLM 产不准坐标且坐标随上文漂移 |
+| D15 | Raw Source / 编译输入层 | 资料舱 source 是 Hope 管理的原始输入快照，metadata + source chunk 落 `sessions.db`，文件落 `~/.hope-agent/knowledge/{kb}/sources/`；**不写外部 vault、不混进 note_chunk、不进入 agent prompt** | Karpathy LLM Wiki 的 raw/wiki 分层需要先把「原始资料」和「编译后的笔记」物理分开；Phase 1 只做导入/查看/删除，编译进入 Review Diff 是后续阶段 |
+| D16 | Knowledge Compile Review | Compile run/proposal 是 owner-plane 审阅队列：run + proposal 落 `sessions.db`，fingerprint 幂等；LLM 只产 proposal，**approve 前不写 `.md`**；apply 统一走 `service::note_save` / 当前磁盘 BLAKE3 stale guard / 外部 root 写 opt-in | 把 Karpathy LLM Wiki 的「raw -> wiki」落到产品里时，必须先有人审 diff；既避免 LLM 静默污染笔记，也让崩溃重启后待审变更不丢 |
+| D17 | Schema Profile / Evidence | 每个 KB 有 `knowledge_schema_profiles` 默认 profile（页面类型 + 必需章节）；compiled note 必含默认章节与 `source_id` evidence；owner UI 可从 note source refs 打开 raw source；维护面板列 schema/evidence lint issues | 编译层要给 agent 读的是稳定 schema，而不是任意 Markdown；source refs 是审计与跳转的最小证据链，lint 让不完整知识显性化 |
 
 ## 两类存储（D9）
 
-- **真相源**：`KnowledgeRegistry`（[`knowledge/registry.rs`](../../crates/ha-core/src/knowledge/registry.rs)）—— `knowledge_bases` + `session_knowledge_bases` + `project_knowledge_bases` + `kb_maintenance_proposals` + `kb_graph_layout`（图谱布局，按 `rel_path` 键）落 `sessions.db`，包 `Arc<SessionDB>` 复用连接（仿 `ProjectDB` / `ChannelDB`），均 `ON DELETE CASCADE` 随 KB 删。
+- **真相源**：`KnowledgeRegistry`（[`knowledge/registry.rs`](../../crates/ha-core/src/knowledge/registry.rs)）—— `knowledge_bases` + `knowledge_schema_profiles` + `session_knowledge_bases` + `project_knowledge_bases` + `knowledge_sources` / `knowledge_source_chunks` + `knowledge_compile_runs` / `knowledge_compile_proposals` + `kb_maintenance_proposals` + `kb_graph_layout`（图谱布局，按 `rel_path` 键）落 `sessions.db`，包 `Arc<SessionDB>` 复用连接（仿 `ProjectDB` / `ChannelDB`），均 `ON DELETE CASCADE` 随 KB 删。
 - **可重建缓存**：`IndexDb`（[`knowledge/db.rs`](../../crates/ha-core/src/knowledge/db.rs)）—— `note` / `note_chunk` / `note_link` / `note_tag` + FTS5（`note_chunk_fts`）+ sqlite-vec（`note_vec`）落 `~/.hope-agent/knowledge/index.db`。删了能从 `.md` 文件全量重建（连 `rel_path` 都是缓存）。连接模型仿 memory backend：1 写连接 + 4 读连接池 + WAL + sqlite-vec auto-extension。
 
 笔记 = 真实 `.md` 文件（唯一真相源）。内部 KB（`root_dir=NULL`）落 `~/.hope-agent/knowledge/{id}/notes/`（lazy ensure），可写；外部绑定 vault（`root_dir` 非空）**默认只读**，KB 级 `allow_external_writes` opt-in（owner GUI）后解锁编辑器 / AI 写入（D11）。`resolve_kb_dir` 返回 `KbRoot{dir, is_external, read_only}`——`read_only = is_external && !allow_external_writes`，`WorkspaceScope::for_knowledge` 取 `read_only`；写冲突沿用 stale-write guard（比磁盘 raw BLAKE3，冲突中止）。**后台自主维护 `scheduler.rs` 按 `is_external` 跳过所有外部 root，无视 opt-in**——只 GUI / agent 按需写外部。
@@ -81,14 +84,18 @@ flowchart LR
 
 **`NoteLink`（双链边）**：`src_note_id` / `target_ref`（`[[ ]]` 原文目标）/ `target_note_id`（`NULL`=悬空链接）/ `link_type`（`wiki` / `embed` / `md`）/ `anchor`（heading slug 或 `^block-id`）/ `alias` / `raw_text` / `src_start|end_line|col`（链接在源文件位置，反链精确跳转）/ `src_heading_path`。**反向链接** = `WHERE target_note_id = ?`，一个索引即可，无需独立表。
 
+**`KnowledgeSource`（真相源，`sessions.db`，D15）**：`id` / `kb_id` / `kind(markdown|text|url_snapshot)` / `title` / `origin_uri` / `stored_path` / `content_hash` / `extracted_text_hash` / `status` / `compiled_at` / `created_at` / `updated_at` / `size`。Raw 文件不落外部 vault，统一存在 `~/.hope-agent/knowledge/{kb_id}/sources/{uuid}.md|txt`。文件名永远由后端 UUID 生成，不信任用户传入路径。
+
+**`KnowledgeSourceChunk`（source 独立 chunk 索引，`sessions.db`，D15）**：`source_id` / `chunk_index` / `body` / `start_offset` / `end_offset` / `content_hash`。只服务资料舱与后续编译器输入，不参与 `note_search` / `knowledge_recall` 的笔记排序，也不混入 `note_chunk`。
+
 **坐标系契约（D14）**：三套坐标不可混——Rust UTF-8 字节 / Unicode 码点 / JS·CM6 UTF-16。持久 offset = 码点偏移（索引内部）；跨端定位走 `line`（1-based）+ `col`（0-based 码点列，tab 记 1 码点不展开），按 `\n` 分行、`\r\n` 视作单个行终止符、**不改写原文件换行**。`note_chunk` 与 `note_link` 的坐标都相对**原始完整文件**（含 frontmatter / CRLF），不是相对剥离后的 `body`。CM6 内部 UTF-16，跳转 / 命中定位一律走 line/col，前端做 UTF-16↔码点转换。
 
 ## 模块地图（`crates/ha-core/src/knowledge/`）
 
 | 文件 | 职责 |
 |---|---|
-| `types.rs` | `KnowledgeBase` / `Note` / `NoteChunk` / `NoteLink` / `KbAccess` / 搜索结果 / 图谱布局类型 |
-| `registry.rs` | KB CRUD + 访问绑定（真相源）+ `resolve_kb_dir`（内部 lazy ensure / 外部只读标记）+ 维护提案表 + 图谱布局表 |
+| `types.rs` | `KnowledgeBase` / `Note` / `NoteChunk` / `NoteLink` / `KbAccess` / 搜索结果 / 图谱布局 / Raw Source / Schema Profile + Evidence / Compile Run + Proposal 类型 |
+| `registry.rs` | KB CRUD + 访问绑定（真相源）+ `resolve_kb_dir`（内部 lazy ensure / 外部只读标记）+ Schema Profile 表 + Raw Source 表 + Compile run/proposal 表 + 维护提案表 + 图谱布局表 |
 | `db.rs` | index.db 后端：note/chunk/link/tag 写入（单事务重索引）+ FTS/vec 查询 + 反链 + 重解析 + `list_broken_links` / `list_orphan_notes`（维护面板）+ `all_resolved_links`（图谱边）+ `block_backlinks`（块级反链：`note_link.anchor = '^id' COLLATE NOCASE`） |
 | `parser.rs` | pulldown-cmark 扫 heading / code + **叶块 span**（paragraph / item / heading），正则扫 `[[ ]]` / `#tag` + **Obsidian `^block-id` 块锚**（跳过 code），D14 坐标（`PosMap` 码点 offset + line / col，相对原始全文）+ 手写 frontmatter→JSON。`ParsedBlock{block_id,start,end,text}`：行尾 `^id`（`[A-Za-z0-9-]+`）附到所在叶块（独占行的 `^id` 附到上一块），`text` 剥锚，首个 id 胜出，**不落表**（transclusion 重解析、块反链查 `note_link.anchor`），`line_block_anchor` 供写工具复用 |
 | `chunker.rs` | 按 heading 分段 + 大小封顶（D12），产出 chunk（D14 坐标 + BLAKE3 content_hash + overlap）。参数 `ChunkConfig{max_chars, overlap_chars}`（默认 1500 / 80，`clamped()` 钳 `[200,8000]` / `[0,max/2]`） |
@@ -100,6 +107,9 @@ flowchart LR
 | `search.rs` | chunk 级 FTS + vec → RRF → MMR → 聚合回 note；`similar_notes` 向量 KNN。算法复用 memory，独立 store（D7） |
 | `graph.rs` | 链接图谱构建（纯变换）：`build_kb_graph`（节点=笔记+度数，边=去重 resolved 链接，丢自环）/ `ego_subgraph`（N 跳无向邻域）/ `cap_nodes`（按度数截断标 `truncated`）；owner 图与 `note_graph` 工具共用 |
 | `service.rs` | owner 平面操作（GUI / HTTP）：list / read / save / delete / rename / backlinks / search / broken_links / orphans / graph / note_read_ref / ai_rewrite / 维护配置，不经 `effective_kb_access`。`note_rename` / `rename_dir` 委托 `rename::*`（移动文件 + 改写入站 `[[ ]]`，返回 `RenameOutcome{newRel, filesChanged, linksRewritten}`）；外部 root 只读拒写。`note_read_ref` 经 resolver 解析 `[[ ]]` ref 再读，按 ref 的 `#anchor` 切片（`slice_by_anchor`：`^id`→块文本、heading→该标题到下一同 / 更高级标题段，未命中降级整篇） |
+| `source.rs` | Raw Source / 资料舱（D15）：文本 / Markdown / URL 快照导入，SSRF-gated URL fetch，HTML→Markdown 可读快照，Hope 管理目录写盘，source chunk 切分，list/read/delete owner 面 |
+| `compile.rs` | Knowledge Compiler（D16）：读取 source + 相关笔记，side_query 生成结构化 Markdown，转成 `CreateNote` / `PatchNote` / `SetFrontmatter` / `AppendLink` / `CreateMoc` proposal；approve 才 apply，写盘仍走 `service::note_save` 与 stale-write guard |
+| `schema.rs` | Schema Profile / Evidence（D17）：默认 profile backfill、笔记 `sources` / `source_id` 解析、source ref 跳转数据、`missing_evidence` / `stale_source` / `schema_violation` / `conflicting_claim` / `unfiled_open_question` lint issues |
 | `inject.rs` | 读取桥①：用户消息 `[[note]]` 确定性注入（`untrusted_external_data` 信封，受 `effective_kb_access` 约束，#7） |
 | `embedding.rs` / `reembed.rs` | 知识空间独立 embedding selector + 后台重嵌 job（见「检索与索引」） |
 | `maintenance/` | Layer 2 自主维护（见「自主维护」） |
@@ -289,6 +299,8 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 **重建索引 UI**：三处入口——① 笔记树工具栏 🔄（重建当前空间，内联 spin + `N/M`）；② 三层右键「重建索引」：空间（`reindex_kb_cmd` → 进度 job）/ 文件夹（`reindex_dir_cmd` 同步 + toast）/ 笔记（`reindex_note_cmd` 同步 + toast）；③ header 右上「重建任务」图标（[`KnowledgeJobsButton.tsx`](../../src/components/knowledge/KnowledgeJobsButton.tsx)，悬浮面板列所有 `knowledge_reembed` 任务，scoped 到 knowledge kind，逐任务取消 / 重试 / 清除）。索引是 app 侧可重建缓存，故三层重建即使在只读外部 vault 上也可用（不受 `readOnly` 闸门约束）。
 
+**资料舱（Raw Source，D15）+ 编译审阅（D16）+ Evidence（D17）**：左栏「Notes / Sources」切换，Sources 面板由 [`KnowledgeSourcesPanel`](../../src/components/knowledge/KnowledgeSourcesPanel.tsx) 承载：导入 URL 快照、粘贴文本、选择 `.md/.txt` 文件（前端读文本后走 JSON 提交，后端不读任意主机路径）、列表展示标题 / 大小 / chunk 数 / 导入时间 / 编译状态 / URL 标记、只读查看、手动 re-extract（从已保存快照重建 chunk / hash）、删除确认、多选编译。编译 Review Diff 由 [`KnowledgeCompilePanel`](../../src/components/knowledge/KnowledgeCompilePanel.tsx) 承载：列 `knowledge_compile_runs` 状态、轮询 running run、列 proposal、复用 `UnifiedDiffView` 展示 before/after、逐条 approve / reject。右侧 Links 面板的 [`NoteSourceReferences`](../../src/components/knowledge/NoteSourceReferences.tsx) 通过 `kb_note_source_refs_cmd` 解析当前笔记 frontmatter / Evidence 的 `source_id`，显示来源卡片、stale/missing 状态，点击打开 raw source 快照。owner 命令 `kb_source_import/list/read/reextract/delete_cmd` + `kb_compile_start/status/runs_list/proposals_list/proposal_approve/proposal_reject/run_cancel_cmd` + `kb_schema_profile/schema_issues/note_source_refs_cmd`，HTTP 对齐 `/api/knowledge/{kb}/sources...`、`/compile-runs...`、`/compile-proposals...`、`/schema-profile`、`/schema-issues`、`/note/source-refs`。**不暴露 agent 工具**；source 不注入 prompt，compile proposal approve 前不写笔记。
+
 **维护面板**：标题栏听诊器图标（[`KnowledgeMaintenanceButton`](../../src/components/knowledge/KnowledgeMaintenanceButton.tsx)，悬浮面板）列当前空间的**失效链接**（点击跳源笔记到链接行 + 显示悬空 `[[target]]`）+ **孤岛笔记** + **维护提案审阅队列**（每条 ✓应用 / ✗忽略 + 一键全忽略 + Scan）；有失效链接时图标脉冲；听 `knowledge:changed` 刷新。rename / 移动后若改写了入站链接，toast 提示「已更新 N 处引用」。
 
 **KB 绑定 UI（D10）**：会话级走聊天输入区 `KnowledgePicker`（popover，`list_session_kbs_cmd` + `attach/detach_session_kb_cmd`）；**项目级**走 `ProjectDialog` 编辑态的 [`ProjectKnowledgeSection`](../../src/components/chat/project/ProjectKnowledgeSection.tsx)（`list_project_kbs_cmd` + `attach/detach_project_kb_cmd`，每 KB 开关 + 读写切换，外部 vault 钳 read）。两者都是 owner 平面命令；`effective_kb_access` 取 `max(session, project)`。
@@ -323,6 +335,9 @@ AGENTS.md 只列这些为单行红线，细节在此。
 - **`index.db` 含明文 chunk 片段**（敏感度等同 `.md`，随数据目录权限走），**绝不存 API Key / Token / 凭据**。
 - **注入即非可信**：`[[note]]` 注入与被动召回套 `<untrusted_external_data>` 信封 + 来源 + 截断，永不提升为 system 指令。
 - **两鉴权平面物理隔离**：owner 平面（HTTP / Tauri）不经 `effective_kb_access` 看全部 KB；agent 平面（`note_*`）必过 `effective_kb_access`。KB 文件预览端点纯 owner、无 session 参数 / 无 fallback。
+- **Raw Source 隔离**：资料舱 source 是 owner-plane 输入快照，不注入 system prompt、不进入 `note_search` / `knowledge_recall`、不写外部 vault；URL 导入必须过 `security::ssrf::check_url`，重定向 host 也走同步拦截，最终 URL 再复检。
+- **Compile Review 隔离**：编译运行在 owner 平面，agent 无 `source_*` / `compile_*` 工具；LLM 输出只落 proposal，approve 前不写 `.md`。approve 时仍走 `WorkspaceScope::for_knowledge`、外部 root read-only cap、当前磁盘 raw BLAKE3 stale-write guard；失败 proposal 标 `failed` 并保留错误供用户复核。
+- **Schema / Evidence 只读**：`schema.rs` 只读 note/source registry 生成 profile、source refs、lint issues；不注入 prompt、不 gate agent 执行、不绕过 `note_save` 写入链。
 
 ## 关联文档
 
