@@ -179,8 +179,8 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - ToolDefinition 元数据不够表达工具风险、展示、输入校验、语义分类和并发能力。
 - `tool_search` 仍偏基础关键词匹配，缺少 search hint、alias、BM25、多来源 schema 组装。
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
-- 缺少 LSP 语义代码工具和被动 diagnostics 注入。
-- 缺少独立 `/review` engine 和 verifier 三态确认。
+- LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置、doctor 和 IDE context envelope。
+- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；后续缺口是 LLM reviewer、profiles、Workflow review host API 和 focused re-review。
 - 缺少 coding eval harness 和系统级 improvement loop。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
@@ -553,28 +553,52 @@ StopPolicy
 - 项目级 `.hope/lsp.json` 或插件贡献 LSP server 配置。
 - LSP client restart/backoff 与 doctor。
 - diagnostics 进入 Goal evidence / Workflow validation summary 的强类型链路。
-- Review Engine 把 diagnostics 作为 candidate finding 证据。
 - ACP IDE context envelope：open files、selection、visible diagnostics、active editor URI。
 
-### Phase 5：Review 与 Verification Engine
+### Phase 3.3：Review Engine
+
+状态：已完成。最终架构见 [Review Engine 控制平面](../architecture/review-engine.md)。
 
 目标：把 review 从“提示词建议”升级为独立系统。
 
+已完成：
+
+- `ha-core::review` durable store：`review_runs` / `review_findings` / `review_events`。
+- `/review` 能力：默认审查 uncommitted local diff，支持 status 和 finding 状态更新。
+- Diff scan 复用 `load_session_git_diff`，按 session workspace scope 读取，不允许 HTTP 任意路径。
+- Candidate findings：LSP diagnostics、conflict marker、possible secret、debug output、no test update、truncated diff。
+- Verifier 三态：`confirmed`、`plausible`、`refuted`。
+- Inline finding：file + start/end line + title/body/category/severity/verdict/status。
+- Tauri + HTTP owner API：list/get/run/update finding status。
+- Workspace GUI “代码审查”区块：运行审查、P0-P3 统计、finding 卡片、已修复/忽略/误报操作。
+- Goal evidence：`review_passed` / `review_completed` / `review_finding`；P0/P1 open finding 阻止 Goal completed。
+
+后续增强：
+
+- LLM reviewer 和独立 verifier agent。
+- Review profiles：correctness、security、concurrency、frontend、accessibility、tests。
+- Workflow host API：`workflow.review()`。
+- Auto-fix 后 focused re-review。
+
+### Phase 5：Review 与 Verification Engine 后续增强
+
+目标：在 Phase 3.3 本地 Review Engine 的基础上，把 review 和 verification 组合成更强的闭环。
+
 任务：
 
-- 新增 `/review` 能力，支持 uncommitted diff、base branch、commit range。
-- Diff scan 读取 hunk 和 enclosing function。
-- 生成 candidate findings。
-- 去重后交给 verifier agent，输出 `CONFIRMED`、`PLAUSIBLE`、`REFUTED`。
+- 支持 base branch、commit range 和远程 PR review。
+- Diff scan 增强到 enclosing function / symbol context。
+- LLM reviewer 生成更高召回 candidate findings。
+- 去重后交给独立 verifier agent，输出 `CONFIRMED`、`PLAUSIBLE`、`REFUTED`。
 - 支持 review profiles：correctness、security、concurrency、frontend、accessibility、tests。
 - 支持 inline finding、可选 auto-fix、fix 后 re-review。
 - Verification executor 根据 AGENTS、任务类型、改动文件选择最小相关检查。
 
 产物：
 
-- `review-engine` 架构文档。
-- `/review --local` MVP。
 - verifier prompt 与 result schema。
+- `workflow.review()` host API。
+- focused re-review 与 review catch-rate eval。
 
 ### Phase 6：Learning Loop 与技能沉淀
 
@@ -601,7 +625,7 @@ StopPolicy
 1. 已落 `/goal` 第一版：objective、completion criteria、state、budget 字段、evidence、final audit。
 2. 已在 GUI 中展示 active goal，不要求用户记 slash 命令才能掌控长期任务。
 3. 已让 workflow run 可选绑定 goal，repair run 不丢 goal 归属。
-4. 已让 workflow completion / validation / task evidence 回写 goal audit；validation / diff / file evidence 第一层结构化 link 已落地，artifact/review/diagnostic 接入后续补。
+4. 已让 workflow completion / validation / task evidence 回写 goal audit；validation / diff / file evidence 第一层结构化 link 已落地，Review Engine evidence 已落地，artifact/diagnostic 接入后续补。
 5. 已做第一版 goal evaluator，能输出 completed / blocked + reason。
 6. 后续更新 Phase 0 coding eval：新增 goal-driven 长任务场景，验证 goal evidence 与 final audit。
 7. `/loop` 第一版已落地；后续增强放到 Phase 3+ 或独立 RFC。
@@ -659,11 +683,11 @@ StopPolicy
 1. [Agent 控制平面路线图](agent-control-plane-roadmap.md)：`/goal`、`/workflow`、`/mode`、真 `/loop`、`/worktree` 的总顺序。
 2. [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md)：产品语言与命名红线。
 3. [Goal 控制平面](../architecture/goal.md)：Goal store、owner API、GUI、evaluator、evidence link。
-4. [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)：已落地 Goal detail、validation/diff/file evidence、Evaluator v2、Budget v2；继续跟踪 artifact/review/diagnostic evidence、可选 LLM auditor 和后续系统接入。
+4. [Goal-driven Workflow v2 路线图](goal-driven-workflow-v2.md)：已落地 Goal detail、validation/diff/file/review evidence、Evaluator v2、Budget v2；继续跟踪 artifact/diagnostic evidence、可选 LLM auditor 和后续系统接入。
 5. [Loop 控制平面](../architecture/loop.md)：真正 `/loop` 的调度、预算、审批和 trace。
 6. [Managed Worktree 控制平面](../architecture/worktree.md)：已完成的隔离工作区、handoff、UI、hooks 架构。
 7. `docs/roadmap/lsp.md`：LSP manager、tools、diagnostics pipeline。
-8. `docs/roadmap/review-engine.md`：diff scan、candidate、verifier、inline finding。
+8. [Review Engine 控制平面](../architecture/review-engine.md)：diff scan、candidate、verifier、inline finding 与 Goal evidence。
 9. `docs/roadmap/coding-improvement-loop.md`：retro、eval candidate、skill/guidance distillation。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。

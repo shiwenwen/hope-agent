@@ -232,6 +232,7 @@ impl SlashCommandDef {
             "recap" => "Generate a deep analysis recap report",
             "context" => "Show context window breakdown",
             "workflow" => "Inspect and control workflow runs",
+            "review" => "Review local code changes",
             "goal" => "Set and audit the session goal",
             "loop" => "Schedule recurring triggers for a goal or prompt",
             "mode" => "Set the persistent execution mode",

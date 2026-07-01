@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-01
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；本文继续记录 Review 等后续推进顺序。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；本文继续记录智能验证等后续推进顺序。
 
 ## 1. 路线调整结论
 
@@ -233,7 +233,8 @@ Goal
 - 已落地：Goal strip 可展开 detail，展示 criteria、evidence、timeline、workflow/task 摘要。
 - 已落地：Goal evaluator 读取 workflow/evidence/budget snapshot，而不是重新扫散落消息；failed validation / budget exhausted 是 hard blocker。
 - 已落地：Goal budget 展示 token/time/turn 使用，接近上限写 warning event，耗尽后阻止新 workflow。
-- 后续增强：artifact / review / diagnostic evidence 接入。
+- 已落地：Review Engine 写 `review_passed` / `review_completed` / `review_finding` evidence。
+- 后续增强：artifact / diagnostic 强类型 evidence 接入。
 - 后续增强：独立 Goal detail 全屏页面。
 - 后续增强：`/workflow` status 显示归属目标。
 
@@ -377,12 +378,24 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - Workflow validation summary 汇总 diagnostics。
 - ACP IDE context envelope。
 
-### Phase 3.3 Review Engine
+### Phase 3.3 Review Engine（已完成）
 
-- `/review` 独立入口。
-- candidate findings + verifier 三态。
-- inline comments。
-- review evidence 可回写 goal。
+- `ha-core::review` durable store：`review_runs` / `review_findings` / `review_events`。
+- `/review` 独立入口：run / status / resolved / dismissed / false_positive / open。
+- deterministic candidate findings + verifier 三态：`confirmed` / `plausible` / `refuted`。
+- LSP diagnostics 已作为 candidate finding 证据接入。
+- inline finding 包含 file + start/end line，Workspace GUI 可定位展示。
+- review evidence 已回写 Goal：`review_passed` / `review_completed` / `review_finding`。
+- Workspace GUI “代码审查”区块支持运行、刷新、查看 P0-P3、标记已修复/忽略/误报。
+- Tauri + HTTP owner API 对齐。
+- 最终架构见 [Review Engine 控制平面](../architecture/review-engine.md)。
+
+后续增强：
+
+- LLM reviewer / verifier agent。
+- review profiles：correctness / security / concurrency / frontend / accessibility / tests。
+- Workflow host API：`workflow.review()`。
+- 修复后 focused re-review。
 
 ### Phase 3.4 智能验证选择
 

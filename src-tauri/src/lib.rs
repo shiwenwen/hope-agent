@@ -813,6 +813,11 @@ pub fn run() {
             // LSP diagnostics and semantic navigation (Phase 3.2)
             commands::lsp::get_lsp_status,
             commands::lsp::get_lsp_diagnostics,
+            // Review Engine (Phase 3.3 durable local code review)
+            commands::review::list_review_runs,
+            commands::review::get_review_run,
+            commands::review::run_code_review,
+            commands::review::update_review_finding_status,
             // Managed worktrees (Phase 3 durable isolation / handoff)
             commands::worktree::list_managed_worktrees,
             commands::worktree::create_managed_worktree,

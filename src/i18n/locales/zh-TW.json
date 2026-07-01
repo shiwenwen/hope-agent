@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "為目標或提示詞設定重複觸發"
     },
+    "review": {
+      "description": "審查本機程式碼改動"
+    },
     "mode": {
       "description": "設定執行模式"
     },

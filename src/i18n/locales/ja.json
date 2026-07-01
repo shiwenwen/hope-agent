@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "目標またはプロンプトの反復トリガーを設定"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

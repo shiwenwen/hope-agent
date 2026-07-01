@@ -2,7 +2,7 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定；LSP / Diagnostics 已在 Phase 3.2 落地为语义诊断控制面，强类型 Goal evidence 接入仍属后续增强；review engine 仍是后续系统接入边界。最终架构见 [Goal 控制平面](../architecture/goal.md)。
+> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定；LSP / Diagnostics 已在 Phase 3.2 落地为语义诊断控制面，强类型 diagnostic evidence 仍属后续增强；Review Engine 已在 Phase 3.3 接入 Goal evidence。最终架构见 [Goal 控制平面](../architecture/goal.md) 与 [Review Engine 控制平面](../architecture/review-engine.md)。
 >
 > 更新时间：2026-07-01
 
@@ -96,7 +96,7 @@ goal_evidence
 | `diff_snapshot` | `workflow.diff` | 已落地：包含 changed files、行数统计、截断标记。 |
 | `file_changed` | `workflow.diff` changes | 已落地：关联具体文件路径、action、line delta、language；每个 diff op 最多 50 个文件。 |
 | `artifact_created` | canvas / report / generated file | 关联产物 id 或路径。 |
-| `review_finding` | 后续 review engine | 关联 finding severity、status、file/line。 |
+| `review_finding` | Phase 3.3 Review Engine | 关联 finding severity、status、file/line；P0/P1 open finding 阻止 completed。 |
 | `diagnostic_result` | 后续 LSP diagnostics | 关联 symbol/file/range 和 diagnostic severity。 |
 
 ## 2. Goal Detail UI

@@ -1441,8 +1441,15 @@ fn review_finding_is_blocking(item: &GoalEvidenceItem) -> bool {
     let status = metadata_string(&item.metadata, "status")
         .unwrap_or_else(|| "open".to_string())
         .to_lowercase();
+    let verdict = metadata_string(&item.metadata, "verdict")
+        .unwrap_or_default()
+        .to_lowercase();
     matches!(severity.as_str(), "p0" | "p1" | "critical" | "high")
-        && !matches!(status.as_str(), "resolved" | "closed" | "fixed")
+        && verdict != "refuted"
+        && !matches!(
+            status.as_str(),
+            "resolved" | "closed" | "fixed" | "dismissed" | "false_positive" | "false-positive"
+        )
 }
 
 fn dedup_json_items(items: &mut Vec<Value>) {
@@ -1558,6 +1565,8 @@ fn is_goal_evidence_relation(relation: &str) -> bool {
             | "diff_snapshot"
             | "file_changed"
             | "artifact_created"
+            | "review_passed"
+            | "review_completed"
             | "review_finding"
             | "diagnostic_result"
     )
@@ -1571,6 +1580,7 @@ fn goal_evidence_is_positive(item: &GoalEvidenceItem) -> bool {
             | "diff_snapshot"
             | "file_changed"
             | "artifact_created"
+            | "review_passed"
             | "diagnostic_result"
             | "task_completed"
     )
@@ -1604,6 +1614,8 @@ fn goal_link_title(link: &GoalLink) -> String {
         }
         "file_changed" => format!("File changed: {}", link.target_id),
         "artifact_created" => "Artifact created".to_string(),
+        "review_passed" => "Review passed".to_string(),
+        "review_completed" => "Review completed".to_string(),
         "review_finding" => "Review finding".to_string(),
         "diagnostic_result" => "Diagnostic result".to_string(),
         other => other.replace('_', " "),
@@ -1806,6 +1818,35 @@ mod tests {
             })
             .expect_err("incognito goal must be rejected");
         assert!(err.to_string().contains("incognito"));
+    }
+
+    #[test]
+    fn review_finding_blocks_goal_only_when_open_and_actionable() {
+        let mut item = GoalEvidenceItem {
+            id: "review:revf_1".to_string(),
+            source_type: "review".to_string(),
+            source_id: "revf_1".to_string(),
+            relation: "review_finding".to_string(),
+            title: "Review finding".to_string(),
+            summary: None,
+            metadata: json!({
+                "severity": "p1",
+                "status": "open",
+                "verdict": "confirmed",
+            }),
+            created_at: "2026-07-01T00:00:00Z".to_string(),
+        };
+        assert!(review_finding_is_blocking(&item));
+
+        item.metadata["status"] = json!("dismissed");
+        assert!(!review_finding_is_blocking(&item));
+
+        item.metadata["status"] = json!("false_positive");
+        assert!(!review_finding_is_blocking(&item));
+
+        item.metadata["status"] = json!("open");
+        item.metadata["verdict"] = json!("refuted");
+        assert!(!review_finding_is_blocking(&item));
     }
 
     #[test]

@@ -385,6 +385,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_lsp_status:                  { method: "GET",    path: "/api/sessions/{sessionId}/lsp/status" },
   get_lsp_diagnostics:             { method: "GET",    path: "/api/sessions/{sessionId}/lsp/diagnostics" },
 
+  // -- Review Engine --
+  list_review_runs:                { method: "GET",    path: "/api/sessions/{sessionId}/review-runs" },
+  run_code_review:                 { method: "POST",   path: "/api/sessions/{sessionId}/review-runs" },
+  get_review_run:                  { method: "GET",    path: "/api/review-runs/{runId}" },
+  update_review_finding_status:    { method: "POST",   path: "/api/review-findings/{findingId}/status" },
+
   // -- Managed worktrees --
   list_managed_worktrees:          { method: "GET",    path: "/api/sessions/{sessionId}/worktrees" },
   create_managed_worktree:         { method: "POST",   path: "/api/sessions/{sessionId}/worktrees" },

@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "Bir hedef veya istem için yinelenen tetikleyiciler planla"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

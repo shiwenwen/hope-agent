@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "为目标或提示词设置重复触发"
     },
+    "review": {
+      "description": "审查本地代码改动"
+    },
     "mode": {
       "description": "设置执行模式"
     },

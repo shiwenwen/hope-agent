@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "목표 또는 프롬프트의 반복 트리거 예약"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

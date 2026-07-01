@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "Настроить повторяющиеся срабатывания для цели или запроса"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

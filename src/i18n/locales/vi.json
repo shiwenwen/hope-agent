@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "Lên lịch kích hoạt lặp lại cho mục tiêu hoặc lời nhắc"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

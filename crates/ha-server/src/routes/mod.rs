@@ -42,6 +42,7 @@ pub mod project_fs;
 pub mod projects;
 pub mod providers;
 pub mod recap;
+pub mod review;
 pub mod runtime_tasks;
 pub mod searxng;
 pub mod server_status;

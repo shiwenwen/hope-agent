@@ -75,6 +75,7 @@ pub mod process_registry;
 pub mod project;
 pub mod provider;
 pub mod recap;
+pub mod review;
 pub mod runtime_lock;
 pub mod runtime_tasks;
 pub mod sandbox;

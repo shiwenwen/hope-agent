@@ -326,6 +326,23 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_raw: None,
         },
         SlashCommandDef {
+            name: "review".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.review.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[run|status|resolved|dismissed|false_positive|open]".into()),
+            arg_options: Some(vec![
+                "run".into(),
+                "status".into(),
+                "resolved".into(),
+                "dismissed".into(),
+                "false_positive".into(),
+                "open".into(),
+            ]),
+            description_raw: None,
+        },
+        SlashCommandDef {
             name: "goal".into(),
             category: CommandCategory::Utility,
             description_key: "slashCommands.goal.description".into(),

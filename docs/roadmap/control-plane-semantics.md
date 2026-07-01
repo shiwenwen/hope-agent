@@ -73,10 +73,11 @@ Phase 2.8  Goal-driven Workflow 核心闭环（已完成）
 Phase 2.9  真正 /loop 第一版（已完成）
 Phase 3.1  Managed Worktree 隔离与交接（已完成）
 Phase 3.2  LSP / Diagnostics（已完成）
-Phase 3.3+ Review 等 coding-specific 能力
+Phase 3.3  Review Engine（已完成）
+Phase 3.4+ 智能验证选择等 coding-specific 能力
 ```
 
-这意味着 LSP、review engine 不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。LSP / Diagnostics 已按这个原则落地为 Workspace 与工具层能力，后续 review engine 继续沿用同一挂载方式。
+这意味着 LSP、review engine 不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。LSP / Diagnostics 已按这个原则落地为 Workspace 与工具层能力；Review Engine 也已按同一原则落地为 durable review run/finding，并把 P0/P1 open finding 写回 Goal evidence。
 
 ## 4. `/mode` 的准确语义
 

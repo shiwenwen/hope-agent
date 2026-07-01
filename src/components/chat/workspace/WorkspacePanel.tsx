@@ -78,7 +78,16 @@ import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/background-jobs"
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
-import type { LspDiagnostic, ManagedWorktree, WorkspaceGitSnapshot } from "@/lib/transport"
+import type {
+  LspDiagnostic,
+  ManagedWorktree,
+  ReviewFinding,
+  ReviewFindingStatus,
+  ReviewRunSnapshot,
+  ReviewSeverity,
+  ReviewVerdict,
+  WorkspaceGitSnapshot,
+} from "@/lib/transport"
 import {
   computeContextUsage,
   contextUsageBarClass,
@@ -120,6 +129,7 @@ import { useScrollPagedRender } from "./useScrollPagedRender"
 import { useSessionKnowledge } from "./useSessionKnowledge"
 import { useManagedWorktrees } from "./useManagedWorktrees"
 import { useLspDiagnostics } from "./useLspDiagnostics"
+import { useReviewRuns } from "./useReviewRuns"
 import {
   useWorkflowRuns,
   type WorkflowEvent,
@@ -1650,6 +1660,298 @@ function LspDiagnosticsSection({
                   {server.id}
                 </span>
               ))}
+          </div>
+        ) : null}
+      </div>
+    </WorkspaceSection>
+  )
+}
+
+function reviewSeverityTone(severity: ReviewSeverity): StatusTone {
+  switch (severity) {
+    case "p0":
+    case "p1":
+      return "danger"
+    case "p2":
+      return "warn"
+    case "p3":
+      return "muted"
+  }
+}
+
+function reviewVerdictTone(verdict: ReviewVerdict): StatusTone {
+  switch (verdict) {
+    case "confirmed":
+      return "danger"
+    case "plausible":
+      return "warn"
+    case "refuted":
+      return "muted"
+  }
+}
+
+function reviewStatusLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  status: ReviewFindingStatus,
+): string {
+  switch (status) {
+    case "open":
+      return t("workspace.review.statusOpen", "待处理")
+    case "resolved":
+      return t("workspace.review.statusResolved", "已修复")
+    case "dismissed":
+      return t("workspace.review.statusDismissed", "已忽略")
+    case "false_positive":
+      return t("workspace.review.statusFalsePositive", "误报")
+  }
+}
+
+function reviewLineLabel(finding: ReviewFinding): string {
+  if (!finding.startLine) return basename(finding.file)
+  if (finding.endLine && finding.endLine > finding.startLine) {
+    return `${basename(finding.file)}:${finding.startLine}-${finding.endLine}`
+  }
+  return `${basename(finding.file)}:${finding.startLine}`
+}
+
+function reviewStatsNumber(snapshot: ReviewRunSnapshot | null, key: string): number {
+  const value = snapshot?.run.stats?.[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
+function ReviewSection({
+  sessionId,
+  incognito,
+  turnActive,
+  workingDir,
+}: {
+  sessionId?: string | null
+  incognito?: boolean
+  turnActive?: boolean
+  workingDir?: string | null
+}) {
+  const { t } = useTranslation()
+  const {
+    runs,
+    snapshot,
+    loading,
+    running,
+    error,
+    refresh,
+    runReview,
+    updateFindingStatus,
+  } = useReviewRuns(sessionId, { incognito, turnActive })
+  const findings = snapshot?.findings ?? []
+  const openFindings = findings.filter((finding) => finding.status === "open")
+  const visibleFindings = openFindings.slice(0, 6)
+  const closedCount = findings.length - openFindings.length
+  const latest = snapshot?.run ?? runs[0]
+  const p0 = reviewStatsNumber(snapshot, "p0")
+  const p1 = reviewStatsNumber(snapshot, "p1")
+  const p2 = reviewStatsNumber(snapshot, "p2")
+  const p3 = reviewStatsNumber(snapshot, "p3")
+  const disabled = !sessionId || incognito || !workingDir || running || loading || latest?.state === "running"
+
+  const blockingCount = openFindings.filter(
+    (finding) => finding.severity === "p0" || finding.severity === "p1",
+  ).length
+  const meta =
+    running || latest?.state === "running" ? (
+      <StatusPill label={t("workspace.review.running", "审查中")} tone="info" loading />
+    ) : latest?.state === "failed" ? (
+      <StatusPill label={t("workspace.review.failed", "失败")} tone="danger" />
+    ) : blockingCount > 0 ? (
+      <StatusPill
+        label={t("workspace.review.blocking", "{{count}} 阻塞", { count: blockingCount })}
+        tone="danger"
+      />
+    ) : openFindings.length > 0 ? (
+      <StatusPill
+        label={t("workspace.review.findings", "{{count}} 问题", { count: openFindings.length })}
+        tone="warn"
+      />
+    ) : latest?.state === "completed" ? (
+      <StatusPill label={t("workspace.review.clean", "已通过")} tone="good" />
+    ) : (
+      <StatusPill label={t("workspace.review.idle", "待审查")} tone="muted" />
+    )
+
+  const handleRunReview = async () => {
+    const next = await runReview()
+    if (next) {
+      toast.success(
+        next.findings.length > 0
+          ? t("workspace.review.runDoneFindings", "审查完成，发现 {{count}} 条", {
+              count: next.findings.length,
+            })
+          : t("workspace.review.runDoneClean", "审查完成，未发现问题"),
+      )
+    }
+  }
+
+  const handleFindingStatus = async (findingId: string, status: ReviewFindingStatus) => {
+    const updated = await updateFindingStatus(findingId, status)
+    if (updated) {
+      toast.success(
+        t("workspace.review.statusUpdated", "已标记为 {{status}}", {
+          status: reviewStatusLabel(t, updated.status),
+        }),
+      )
+    }
+  }
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.review.title", "代码审查")}
+      count={openFindings.length}
+      icon={GitPullRequest}
+      meta={meta}
+      defaultExpanded={openFindings.length > 0 || !!error}
+    >
+      <div className="space-y-2">
+        <div className="grid grid-cols-4 gap-1.5">
+          {[
+            ["P0", p0, "danger" as StatusTone],
+            ["P1", p1, "danger" as StatusTone],
+            ["P2", p2, "warn" as StatusTone],
+            ["P3", p3, "muted" as StatusTone],
+          ].map(([label, count, tone]) => (
+            <div
+              key={label as string}
+              className={cn(
+                "rounded-md border px-2 py-1.5",
+                STATUS_TONE_CLASS[tone as StatusTone],
+              )}
+            >
+              <div className="text-[10px]">{label as string}</div>
+              <div className="text-xs font-semibold tabular-nums">{count as number}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={handleRunReview}
+            disabled={disabled}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-border/60 bg-secondary/35 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary/55 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {running ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Search className="h-3.5 w-3.5" />
+            )}
+            <span className="truncate">{t("workspace.review.run", "审查未提交改动")}</span>
+          </button>
+          <IconTip label={t("workspace.review.refresh", "刷新审查结果")}>
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={loading || running}
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-secondary/25 text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:opacity-55"
+            >
+              {loading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
+            </button>
+          </IconTip>
+        </div>
+
+        {!workingDir ? (
+          <EmptyHint>{t("workspace.review.noWorkspace", "选择工作目录后可审查本地改动")}</EmptyHint>
+        ) : incognito ? (
+          <EmptyHint>{t("workspace.review.incognito", "无痕会话不持久化审查结果")}</EmptyHint>
+        ) : error ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        ) : latest ? (
+          <div className="rounded-md border border-border/50 bg-secondary/25 px-2.5 py-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <GitCommitHorizontal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+                {latest.summary || t("workspace.review.summaryPending", "审查结果待生成")}
+              </span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                {latest.id.slice(0, 10)}
+              </span>
+            </div>
+            {closedCount > 0 ? (
+              <div className="mt-1 pl-5 text-[10px] text-muted-foreground/65">
+                {t("workspace.review.closedCount", "{{count}} 条已处理", { count: closedCount })}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <EmptyHint>{t("workspace.review.empty", "还没有审查记录")}</EmptyHint>
+        )}
+
+        {visibleFindings.length > 0 ? (
+          <div className="space-y-1">
+            {visibleFindings.map((finding) => (
+              <IconTip key={finding.id} label={finding.file}>
+                <div className="rounded-md border border-border/50 bg-secondary/25 px-2.5 py-1.5">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+                      {finding.title}
+                    </span>
+                    <StatusPill
+                      label={finding.severity.toUpperCase()}
+                      tone={reviewSeverityTone(finding.severity)}
+                    />
+                    <StatusPill
+                      label={finding.verdict}
+                      tone={reviewVerdictTone(finding.verdict)}
+                    />
+                  </div>
+                  <div className="mt-1 line-clamp-2 pl-5 text-[11px] leading-snug text-muted-foreground">
+                    {finding.body}
+                  </div>
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-5">
+                    <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/70">
+                      {reviewLineLabel(finding)} · {finding.category}
+                    </span>
+                    <IconTip label={t("workspace.review.markResolved", "标记已修复")}>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-emerald-600"
+                        onClick={() => handleFindingStatus(finding.id, "resolved")}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                    <IconTip label={t("workspace.review.markDismissed", "忽略")}>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                        onClick={() => handleFindingStatus(finding.id, "dismissed")}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                    <IconTip label={t("workspace.review.markFalsePositive", "标记误报")}>
+                      <button
+                        type="button"
+                        className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-amber-600"
+                        onClick={() => handleFindingStatus(finding.id, "false_positive")}
+                      >
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                  </div>
+                </div>
+              </IconTip>
+            ))}
+            {openFindings.length > visibleFindings.length ? (
+              <div className="px-2 pt-0.5 text-center text-[11px] text-muted-foreground/60">
+                {t("workspace.review.more", "还有 {{count}} 条", {
+                  count: openFindings.length - visibleFindings.length,
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -6592,6 +6894,13 @@ export default function WorkspacePanel({
         />
 
         <LspDiagnosticsSection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
+
+        <ReviewSection
+          sessionId={sessionId}
+          incognito={incognito}
+          turnActive={turnActive}
+          workingDir={effectiveWorkingDir}
+        />
 
         {/* 进度 — 复用 TaskProgressPanel(自带「任务 · N/M」折叠头)。 */}
         {taskSnapshot && taskSnapshot.total > 0 ? (

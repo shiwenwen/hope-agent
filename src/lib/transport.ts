@@ -641,6 +641,60 @@ export interface LspStatusSnapshot {
   servers: LspServerInfo[];
 }
 
+export type ReviewRunState = "running" | "completed" | "failed" | "cancelled";
+export type ReviewSeverity = "p0" | "p1" | "p2" | "p3";
+export type ReviewVerdict = "confirmed" | "plausible" | "refuted";
+export type ReviewFindingStatus = "open" | "resolved" | "dismissed" | "false_positive";
+
+export interface ReviewRun {
+  id: string;
+  sessionId: string;
+  scope: string;
+  state: ReviewRunState;
+  baseRef?: string | null;
+  goalId?: string | null;
+  summary: string;
+  stats: Record<string, unknown>;
+  error?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+}
+
+export interface ReviewFinding {
+  id: string;
+  runId: string;
+  sessionId: string;
+  file: string;
+  startLine?: number | null;
+  endLine?: number | null;
+  title: string;
+  body: string;
+  category: string;
+  severity: ReviewSeverity;
+  verdict: ReviewVerdict;
+  status: ReviewFindingStatus;
+  evidence: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string | null;
+}
+
+export interface ReviewEvent {
+  id: number;
+  runId: string;
+  seq: number;
+  kind: string;
+  payload: unknown;
+  createdAt: string;
+}
+
+export interface ReviewRunSnapshot {
+  run: ReviewRun;
+  findings: ReviewFinding[];
+  events: ReviewEvent[];
+}
+
 export interface GitInfo {
   branch: string | null;
   worktrees: WorktreeInfo[];

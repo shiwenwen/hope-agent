@@ -8,6 +8,7 @@ pub mod model;
 pub mod plan;
 pub mod project;
 pub mod recap;
+pub mod review;
 pub mod session;
 pub mod team;
 pub mod utility;
@@ -125,6 +126,7 @@ pub async fn dispatch(
         "prompts" => Ok(utility::handle_prompts()),
         "context" => context::handle_context(session_id, agent_id, args).await,
         "workflow" => workflow::handle_workflow(session_db()?, session_id, args),
+        "review" => review::handle_review(session_db()?, session_id, args).await,
         "loop" => {
             let sid = session_id.ok_or_else(|| "No active session for /loop".to_string())?;
             let cron_db = crate::require_cron_db().map_err(|e| e.to_string())?;

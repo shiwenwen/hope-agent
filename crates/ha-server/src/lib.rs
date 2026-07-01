@@ -1383,6 +1383,16 @@ fn build_router_with_cors(
             "/sessions/{sid}/lsp/diagnostics",
             get(routes::lsp::get_lsp_diagnostics),
         )
+        // Review Engine (Phase 3.3 durable local code review)
+        .route(
+            "/sessions/{sid}/review-runs",
+            get(routes::review::list_review_runs).post(routes::review::run_code_review),
+        )
+        .route("/review-runs/{id}", get(routes::review::get_review_run))
+        .route(
+            "/review-findings/{id}/status",
+            post(routes::review::update_review_finding_status),
+        )
         // Workflow runs (Phase 2 durable coding workflows)
         .route(
             "/sessions/{sid}/workflow-runs",

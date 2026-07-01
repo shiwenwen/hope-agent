@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "Agende disparos recorrentes para uma meta ou prompt"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

@@ -36,6 +36,7 @@ pub mod project;
 pub mod project_fs;
 pub mod provider;
 pub mod recap;
+pub mod review;
 pub mod runtime_tasks;
 pub mod session;
 pub mod skills;

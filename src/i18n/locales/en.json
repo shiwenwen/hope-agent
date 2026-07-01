@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "Schedule recurring triggers for a goal or prompt"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },

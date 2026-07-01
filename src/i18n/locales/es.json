@@ -4980,6 +4980,9 @@
     "loop": {
       "description": "Programa activadores recurrentes para un objetivo o prompt"
     },
+    "review": {
+      "description": "Review local code changes"
+    },
     "mode": {
       "description": "Set execution mode"
     },
