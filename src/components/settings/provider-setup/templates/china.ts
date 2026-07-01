@@ -13,6 +13,16 @@ export const chinaTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
+        id: "kimi-k2.7-code",
+        name: "Kimi K2.7 Code",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 262144,
+        reasoning: true,
+        costInput: 0.95,
+        costOutput: 4.0,
+      },
+      {
         id: "kimi-k2.6",
         name: "Kimi K2.6",
         inputTypes: ["text", "image"],
@@ -190,6 +200,16 @@ export const chinaTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
+        id: "glm-5.2",
+        name: "GLM-5.2",
+        inputTypes: ["text"],
+        contextWindow: 1000000,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
         id: "glm-5.1",
         name: "GLM-5.1",
         inputTypes: ["text"],
@@ -333,6 +353,16 @@ export const chinaTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
+        id: "MiniMax-M3",
+        name: "MiniMax M3",
+        inputTypes: ["text", "image"],
+        contextWindow: 1000000,
+        maxTokens: 131072,
+        reasoning: true,
+        costInput: 0.6,
+        costOutput: 2.4,
+      },
+      {
         id: "MiniMax-M2.7",
         name: "MiniMax M2.7",
         inputTypes: ["text", "image"],
@@ -349,8 +379,8 @@ export const chinaTemplates: ProviderTemplate[] = [
         contextWindow: 204800,
         maxTokens: 131072,
         reasoning: true,
-        costInput: 0.3,
-        costOutput: 1.2,
+        costInput: 0.6,
+        costOutput: 2.4,
       },
       {
         id: "MiniMax-VL-01",
@@ -386,7 +416,7 @@ export const chinaTemplates: ProviderTemplate[] = [
     requiresApiKey: true,
     models: [
       {
-        id: "kimi-code",
+        id: "kimi-for-coding",
         name: "Kimi Code",
         inputTypes: ["text", "image"],
         contextWindow: 262144,
@@ -396,8 +426,18 @@ export const chinaTemplates: ProviderTemplate[] = [
         costOutput: 0,
       },
       {
+        id: "kimi-code",
+        name: "Kimi Code (legacy kimi-code)",
+        inputTypes: ["text", "image"],
+        contextWindow: 262144,
+        maxTokens: 32768,
+        reasoning: true,
+        costInput: 0,
+        costOutput: 0,
+      },
+      {
         id: "k2p5",
-        name: "Kimi Code (legacy)",
+        name: "Kimi Code (legacy k2p5)",
         inputTypes: ["text", "image"],
         contextWindow: 262144,
         maxTokens: 32768,
