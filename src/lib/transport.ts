@@ -597,6 +597,50 @@ export interface ManagedWorktree {
   handedOffAt?: string | null;
 }
 
+export interface LspRange {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+export interface LspDiagnostic {
+  uri: string;
+  path?: string | null;
+  range: LspRange;
+  severity: "error" | "warning" | "information" | "hint" | "unknown";
+  code?: string | null;
+  source?: string | null;
+  message: string;
+}
+
+export interface LspDiagnosticsSnapshot {
+  sessionId: string;
+  workspaceRoot?: string | null;
+  diagnostics: LspDiagnostic[];
+  files: number;
+  errors: number;
+  warnings: number;
+}
+
+export interface LspServerInfo {
+  id: string;
+  command: string;
+  args: string[];
+  available: boolean;
+  extensions: string[];
+  workspaceRoot?: string | null;
+  active: boolean;
+  openDocuments: number;
+  diagnosticFiles: number;
+}
+
+export interface LspStatusSnapshot {
+  sessionId: string;
+  workspaceRoot?: string | null;
+  servers: LspServerInfo[];
+}
+
 export interface GitInfo {
   branch: string | null;
   worktrees: WorktreeInfo[];

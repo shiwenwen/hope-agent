@@ -24,6 +24,7 @@ pub mod local_model_alerts;
 pub mod local_model_jobs;
 pub mod logging;
 pub mod loop_control;
+pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod misc;

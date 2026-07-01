@@ -1711,6 +1711,19 @@ impl AssistantAgent {
                 prompt.push_str(&suffix);
             }
         }
+        if !self.session_is_incognito() {
+            let working_dir =
+                crate::session::effective_session_working_dir(self.session_id.as_deref());
+            if let Some(suffix) = crate::lsp::diagnostics_prompt_suffix(
+                self.session_id.as_deref(),
+                working_dir.as_deref(),
+            ) {
+                if !suffix.is_empty() {
+                    prompt.push_str("\n\n");
+                    prompt.push_str(&suffix);
+                }
+            }
+        }
         prompt
     }
 

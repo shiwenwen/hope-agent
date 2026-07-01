@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-01
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；本文继续记录 LSP / Review 等后续推进顺序。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；本文继续记录 Review 等后续推进顺序。
 
 ## 1. 路线调整结论
 
@@ -38,7 +38,8 @@ Phase 2.7  /goal 第一版：目标、完成标准、预算字段、证据、状
 Phase 2.8  Goal-driven Workflow：goal 派生 workflow run，失败后 repair run，最终 evaluator / budget 收口（核心已完成）
 Phase 2.9  真正 /loop：定时、重复、轮询、条件触发，复用 cron / wakeup / automation（第一版已完成）
 Phase 3.1  Managed Worktree 隔离与交接（已完成）
-Phase 3.2+ Coding-specific 深水能力：LSP、review engine、diagnostics、智能验证
+Phase 3.2  LSP / Diagnostics（已完成）
+Phase 3.3+ Coding-specific 深水能力：review engine、智能验证
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -360,11 +361,21 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - GUI 显示当前改动落在哪个 worktree。
 - 最终架构见 [Managed Worktree 控制平面](../architecture/worktree.md)。
 
-### Phase 3.2 LSP / Diagnostics
+### Phase 3.2 LSP / Diagnostics（已完成）
 
-- definition / references / hover / symbols / diagnostics。
-- 编辑后同步 diagnostics。
-- Goal evaluator 可把 diagnostics 作为 evidence。
+- `ha-core::lsp` LSP manager + 进程内 client cache。
+- `lsp` 工具支持 definition / references / hover / symbols / implementation / call hierarchy / diagnostics。
+- 文件编辑工具成功写入后同步 diagnostics。
+- diagnostics 被动注入下一轮动态 prompt 后缀。
+- Workspace GUI 展示语义诊断状态、错误/警告和最近诊断。
+- Tauri / HTTP owner API 对齐。
+- 最终架构见 [LSP 与语义代码智能](../architecture/lsp.md)。
+
+后续增强：
+
+- Goal evaluator 的强类型 diagnostics evidence。
+- Workflow validation summary 汇总 diagnostics。
+- ACP IDE context envelope。
 
 ### Phase 3.3 Review Engine
 

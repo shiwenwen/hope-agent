@@ -42,6 +42,7 @@ import {
   Play,
   Plus,
   Radio,
+  RefreshCw,
   Search,
   Server,
   Shield,
@@ -77,7 +78,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
 import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/background-jobs"
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
-import type { ManagedWorktree, WorkspaceGitSnapshot } from "@/lib/transport"
+import type { LspDiagnostic, ManagedWorktree, WorkspaceGitSnapshot } from "@/lib/transport"
 import {
   computeContextUsage,
   contextUsageBarClass,
@@ -118,6 +119,7 @@ import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
 import { useSessionKnowledge } from "./useSessionKnowledge"
 import { useManagedWorktrees } from "./useManagedWorktrees"
+import { useLspDiagnostics } from "./useLspDiagnostics"
 import {
   useWorkflowRuns,
   type WorkflowEvent,
@@ -1454,6 +1456,203 @@ function KnowledgeSection({
       ) : (
         <EmptyHint>{t("workspace.emptyKnowledge", "未挂载知识空间")}</EmptyHint>
       )}
+    </WorkspaceSection>
+  )
+}
+
+function lspSeverityTone(severity: LspDiagnostic["severity"]): StatusTone {
+  switch (severity) {
+    case "error":
+      return "danger"
+    case "warning":
+      return "warn"
+    case "information":
+      return "info"
+    case "hint":
+    case "unknown":
+      return "muted"
+  }
+}
+
+function lspSeverityRank(severity: LspDiagnostic["severity"]): number {
+  switch (severity) {
+    case "error":
+      return 0
+    case "warning":
+      return 1
+    case "information":
+      return 2
+    case "hint":
+      return 3
+    case "unknown":
+      return 4
+  }
+}
+
+function LspDiagnosticsSection({
+  sessionId,
+  incognito,
+  turnActive,
+}: {
+  sessionId?: string | null
+  incognito?: boolean
+  turnActive?: boolean
+}) {
+  const { t } = useTranslation()
+  const { status, snapshot, loading, error, refresh } = useLspDiagnostics(sessionId, {
+    incognito,
+    turnActive,
+  })
+  const diagnostics = useMemo(
+    () =>
+      [...(snapshot?.diagnostics ?? [])].sort((a, b) => {
+        const severity = lspSeverityRank(a.severity) - lspSeverityRank(b.severity)
+        if (severity !== 0) return severity
+        const file = (a.path ?? a.uri).localeCompare(b.path ?? b.uri)
+        if (file !== 0) return file
+        return a.range.startLine - b.range.startLine
+      }),
+    [snapshot?.diagnostics],
+  )
+  const visibleDiagnostics = diagnostics.slice(0, 6)
+  const activeServers = status?.servers.filter((server) => server.active).length ?? 0
+  const availableServers = status?.servers.filter((server) => server.available).length ?? 0
+  const count = diagnostics.length
+  const meta =
+    loading && !snapshot ? (
+      <StatusPill label={t("workspace.lsp.loading", "读取中")} tone="info" loading />
+    ) : snapshot && snapshot.errors > 0 ? (
+      <StatusPill
+        label={t("workspace.lsp.errors", "{{count}} 错误", { count: snapshot.errors })}
+        tone="danger"
+      />
+    ) : snapshot && snapshot.warnings > 0 ? (
+      <StatusPill
+        label={t("workspace.lsp.warnings", "{{count}} 警告", { count: snapshot.warnings })}
+        tone="warn"
+      />
+    ) : activeServers > 0 ? (
+      <StatusPill label={t("workspace.lsp.ready", "已连接")} tone="good" />
+    ) : (
+      <StatusPill label={t("workspace.lsp.idle", "待启动")} tone="muted" />
+    )
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.lsp.title", "语义诊断")}
+      count={count}
+      icon={CircleAlert}
+      meta={meta}
+      defaultExpanded={count > 0 || !!error}
+    >
+      <div className="space-y-2">
+        <div className="grid grid-cols-3 gap-1.5">
+          <div className="rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5">
+            <div className="text-[10px] text-muted-foreground">{t("workspace.lsp.servers", "服务")}</div>
+            <div className="text-xs font-medium tabular-nums text-foreground">
+              {activeServers}/{availableServers}
+            </div>
+          </div>
+          <div className="rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5">
+            <div className="text-[10px] text-muted-foreground">{t("workspace.lsp.files", "文件")}</div>
+            <div className="text-xs font-medium tabular-nums text-foreground">
+              {snapshot?.files ?? 0}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={refresh}
+            className="inline-flex items-center justify-center gap-1 rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            {t("workspace.lsp.refresh", "刷新")}
+          </button>
+        </div>
+
+        {status?.workspaceRoot ? (
+          <IconTip label={status.workspaceRoot}>
+            <div className="flex items-center gap-2 rounded-md px-2 py-1 text-[11px] text-muted-foreground">
+              <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{basename(status.workspaceRoot)}</span>
+            </div>
+          </IconTip>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
+            {error}
+          </div>
+        ) : null}
+
+        {visibleDiagnostics.length > 0 ? (
+          <div className="space-y-1">
+            {visibleDiagnostics.map((diagnostic, index) => {
+              const path = diagnostic.path ?? diagnostic.uri
+              const source = diagnostic.source ?? "lsp"
+              return (
+                <IconTip
+                  key={`${diagnostic.uri}:${diagnostic.range.startLine}:${diagnostic.range.startColumn}:${index}`}
+                  label={path}
+                >
+                  <div className="rounded-md border border-border/50 bg-secondary/25 px-2.5 py-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+                        {basename(path)}
+                      </span>
+                      <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                        {diagnostic.range.startLine}:{diagnostic.range.startColumn}
+                      </span>
+                      <StatusPill
+                        label={diagnostic.severity}
+                        tone={lspSeverityTone(diagnostic.severity)}
+                      />
+                    </div>
+                    <div className="mt-1 line-clamp-2 pl-5 text-[11px] leading-snug text-muted-foreground">
+                      {diagnostic.message}
+                    </div>
+                    <div className="mt-1 pl-5 text-[10px] text-muted-foreground/65">{source}</div>
+                  </div>
+                </IconTip>
+              )
+            })}
+            {diagnostics.length > visibleDiagnostics.length ? (
+              <div className="px-2 pt-0.5 text-center text-[11px] text-muted-foreground/60">
+                {t("workspace.lsp.more", "还有 {{count}} 条", {
+                  count: diagnostics.length - visibleDiagnostics.length,
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : error ? null : (
+          <EmptyHint>
+            {activeServers > 0
+              ? t("workspace.lsp.emptyClean", "暂无诊断")
+              : t("workspace.lsp.emptyIdle", "编辑或查询文件后启动")}
+          </EmptyHint>
+        )}
+
+        {status && activeServers === 0 && availableServers > 0 ? (
+          <div className="flex flex-wrap gap-1 px-1">
+            {status.servers
+              .filter((server) => server.available)
+              .slice(0, 5)
+              .map((server) => (
+                <span
+                  key={server.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/30 px-2 py-0.5 text-[10px] text-muted-foreground"
+                >
+                  <Server className="h-2.5 w-2.5" />
+                  {server.id}
+                </span>
+              ))}
+          </div>
+        ) : null}
+      </div>
     </WorkspaceSection>
   )
 }
@@ -6391,6 +6590,8 @@ export default function WorkspacePanel({
           turnActive={turnActive}
           onOpenDiff={onOpenDiff}
         />
+
+        <LspDiagnosticsSection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
 
         {/* 进度 — 复用 TaskProgressPanel(自带「任务 · N/M」折叠头)。 */}
         {taskSnapshot && taskSnapshot.total > 0 ? (

@@ -1374,6 +1374,15 @@ fn build_router_with_cors(
             "/worktrees/{id}/handoff",
             post(routes::worktree::handoff_managed_worktree),
         )
+        // LSP diagnostics and semantic navigation snapshots (Phase 3.2)
+        .route(
+            "/sessions/{sid}/lsp/status",
+            get(routes::lsp::get_lsp_status),
+        )
+        .route(
+            "/sessions/{sid}/lsp/diagnostics",
+            get(routes::lsp::get_lsp_diagnostics),
+        )
         // Workflow runs (Phase 2 durable coding workflows)
         .route(
             "/sessions/{sid}/workflow-runs",

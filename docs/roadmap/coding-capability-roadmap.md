@@ -532,21 +532,29 @@ StopPolicy
 
 ### Phase 3.2：LSP 与语义代码智能
 
+状态：已完成。最终架构见 [LSP 与语义代码智能](../architecture/lsp.md)。
+
 目标：让 Hope 不只会 grep，还能理解符号、引用和诊断。
 
-任务：
+已完成：
 
-- 新增 LSP manager。
-- 支持 `definition`、`references`、`hover`、`document_symbols`、`workspace_symbols`、`implementation`、`call_hierarchy`、`diagnostics`。
-- 编辑后同步 `didChange` / `didSave`。
-- diagnostics 被动注入下一轮。
-- ACP/IDE 场景注入 open files、selection、diagnostics、symbols。
+- `ha-core::lsp` LSP manager：按 `(workspace_root, server_id)` 缓存 stdio language server。
+- 默认支持 Rust / TypeScript / Python / Go / C/C++ 的常见 language server。
+- Agent 工具 `lsp`：`definition`、`references`、`hover`、`document_symbols`、`workspace_symbols`、`implementation`、`call_hierarchy`、`diagnostics`、`sync_file`、`status`。
+- `write` / `edit` / `apply_patch` 成功写入后有界同步 `didOpen` / `didChange` / `didSave`，失败不影响写入结果。
+- diagnostics cache + `# LSP Diagnostics` 动态 prompt 后缀，最多注入 12 条，不进入静态 prompt prefix。
+- Tauri + HTTP owner API：`get_lsp_status` / `get_lsp_diagnostics`，HTTP `/api/sessions/{sid}/lsp/status` / `/api/sessions/{sid}/lsp/diagnostics`。
+- EventBus `lsp:diagnostics`。
+- Workspace GUI “语义诊断”区块：server 状态、错误/警告计数、最近诊断、手动刷新。
+- ACP/IDE 边界已明确：open files / selection 属于动态 turn context；symbols/navigation 走 `lsp` 工具；diagnostics 走 passive cache + prompt suffix + GUI。
 
-产物：
+后续增强：
 
-- `lsp` 架构文档。
-- LSP tools。
-- diagnostics attachment pipeline。
+- 项目级 `.hope/lsp.json` 或插件贡献 LSP server 配置。
+- LSP client restart/backoff 与 doctor。
+- diagnostics 进入 Goal evidence / Workflow validation summary 的强类型链路。
+- Review Engine 把 diagnostics 作为 candidate finding 证据。
+- ACP IDE context envelope：open files、selection、visible diagnostics、active editor URI。
 
 ### Phase 5：Review 与 Verification Engine
 

@@ -810,9 +810,13 @@ pub fn run() {
             commands::loop_control::pause_loop_schedule,
             commands::loop_control::resume_loop_schedule,
             commands::loop_control::stop_loop_schedule,
+            // LSP diagnostics and semantic navigation (Phase 3.2)
+            commands::lsp::get_lsp_status,
+            commands::lsp::get_lsp_diagnostics,
             // Managed worktrees (Phase 3 durable isolation / handoff)
             commands::worktree::list_managed_worktrees,
             commands::worktree::create_managed_worktree,
+            commands::worktree::get_managed_worktree,
             commands::worktree::archive_managed_worktree,
             commands::worktree::restore_managed_worktree,
             commands::worktree::handoff_managed_worktree,

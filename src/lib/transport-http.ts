@@ -381,6 +381,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   resume_loop_schedule:            { method: "POST",   path: "/api/loops/{loopId}/resume" },
   stop_loop_schedule:              { method: "POST",   path: "/api/loops/{loopId}/stop" },
 
+  // -- LSP diagnostics --
+  get_lsp_status:                  { method: "GET",    path: "/api/sessions/{sessionId}/lsp/status" },
+  get_lsp_diagnostics:             { method: "GET",    path: "/api/sessions/{sessionId}/lsp/diagnostics" },
+
   // -- Managed worktrees --
   list_managed_worktrees:          { method: "GET",    path: "/api/sessions/{sessionId}/worktrees" },
   create_managed_worktree:         { method: "POST",   path: "/api/sessions/{sessionId}/worktrees" },

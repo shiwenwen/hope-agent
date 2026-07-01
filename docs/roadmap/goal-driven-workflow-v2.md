@@ -2,7 +2,7 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定；LSP、review engine 仍是后续系统接入边界。最终架构见 [Goal 控制平面](../architecture/goal.md)。
+> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定；LSP / Diagnostics 已在 Phase 3.2 落地为语义诊断控制面，强类型 Goal evidence 接入仍属后续增强；review engine 仍是后续系统接入边界。最终架构见 [Goal 控制平面](../architecture/goal.md)。
 >
 > 更新时间：2026-07-01
 

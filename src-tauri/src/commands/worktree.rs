@@ -46,6 +46,17 @@ pub async fn create_managed_worktree(
 }
 
 #[tauri::command]
+pub async fn get_managed_worktree(
+    worktree_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<Option<ManagedWorktree>, CmdError> {
+    app_state
+        .session_db
+        .get_managed_worktree(&worktree_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn archive_managed_worktree(
     worktree_id: String,
     app_state: tauri::State<'_, crate::AppState>,

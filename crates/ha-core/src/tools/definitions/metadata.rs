@@ -327,6 +327,19 @@ impl ToolMetadata {
                 render.result_kind = ToolResultKind::SearchResults;
                 render.primary_resource = Some("pattern".to_string());
             }
+            crate::tools::TOOL_LSP => {
+                push_all(
+                    &mut aliases,
+                    &[
+                        "language server",
+                        "semantic code search",
+                        "definition references diagnostics hover symbols",
+                    ],
+                );
+                push_unique(&mut effects, ToolEffect::ReadFileSystem);
+                render.result_kind = ToolResultKind::Json;
+                render.primary_resource = Some("path".to_string());
+            }
             crate::tools::TOOL_WEB_FETCH => {
                 push_all(&mut aliases, &["fetch url", "read webpage", "web page"]);
                 push_unique(&mut effects, ToolEffect::NetworkAccess);

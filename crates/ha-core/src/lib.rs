@@ -56,6 +56,7 @@ pub mod local_embedding;
 pub mod local_llm;
 pub mod local_model_jobs;
 pub mod loop_control;
+pub mod lsp;
 pub mod mac_control;
 
 pub mod mcp;

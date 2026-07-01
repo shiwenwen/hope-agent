@@ -60,6 +60,7 @@ Loop        = 定时/重复触发或条件轮询（已实现第一版）
 | Task | 已有并接入 workflow | Workflow UI / `workflow.task.*` | session task store + workflow host API | 用户可见进度事实，不靠 label 定位，按 create 返回 handle 更新。 |
 | Loop | 已实现第一版 | `/loop` + Workspace Loop 区块 | `loop_schedules` / `loop_runs`，HTTP `/api/sessions/{id}/loops` / `/api/loops/{id}` | 只用于真正重复触发、轮询或定时继续；完整实现见 [Loop 控制平面](../architecture/loop.md)。 |
 | Worktree | 已实现 Phase 3.1 | Workspace 环境面板 + Workflow 创建运行位置 | `managed_worktrees`，HTTP `/api/sessions/{id}/worktrees` / `/api/worktrees/{id}` | 代码改动隔离环境，偏 coding-specific；完整实现见 [Managed Worktree 控制平面](../architecture/worktree.md)。 |
+| LSP | 已实现 Phase 3.2 | Workspace 语义诊断区块 + `lsp` 工具 | `ha-core::lsp`，HTTP `/api/sessions/{id}/lsp/status` / `/api/sessions/{id}/lsp/diagnostics` | 语义导航和 diagnostics，偏 coding-specific；完整实现见 [LSP 与语义代码智能](../architecture/lsp.md)。 |
 
 ## 3.1 调整后的实施顺序
 
@@ -71,10 +72,11 @@ Phase 2.7  /goal 第一版（已完成）
 Phase 2.8  Goal-driven Workflow 核心闭环（已完成）
 Phase 2.9  真正 /loop 第一版（已完成）
 Phase 3.1  Managed Worktree 隔离与交接（已完成）
-Phase 3.2+ LSP / Review 等 coding-specific 能力
+Phase 3.2  LSP / Diagnostics（已完成）
+Phase 3.3+ Review 等 coding-specific 能力
 ```
 
-这意味着 LSP、review engine 暂不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。
+这意味着 LSP、review engine 不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。LSP / Diagnostics 已按这个原则落地为 Workspace 与工具层能力，后续 review engine 继续沿用同一挂载方式。
 
 ## 4. `/mode` 的准确语义
 
