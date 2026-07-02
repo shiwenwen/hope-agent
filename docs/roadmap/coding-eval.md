@@ -290,13 +290,16 @@ Phase 3.7 已先落地一层确定性控制面 eval。它不替代 20 个人工 
 cargo test -p ha-core --test coding_eval --locked
 ```
 
-20 个 gold tasks 全量自动化、mock tool-call 基线、release gate、外部模型基线 runner 与 Benchmark Run Center 后，仍需继续考虑更高层自动化：
+20 个 gold tasks 全量自动化、mock tool-call 基线、release gate、外部模型基线 runner 与 Benchmark Run Center 后，P6 继续把 eval 产品化为真实 benchmark：
 
 - 自动采集 tool trace。
 - 受控自动验证命令执行。
 - 自动 outcome 初判 + 人工确认。
-- 更大规模真实任务 benchmark 与跨模型对标报告。
-- 失败转 improvement backlog。
+- Phase 6.2 Benchmark Campaign Runner：显式 provider/model matrix、预算、长任务状态、可取消/重试/恢复的外部模型 campaign。
+- Phase 6.3 Cross-model Comparison & Leaderboard：同 pack / 同 task version / 同 window 的跨模型对标、sample-size warning、成本/延迟/失败模式下钻。
+- Phase 6.4 Real Task Corpus Expansion：多项目、多语言、多难度、多任务类型 task pack，支持版本、来源、校准记录和 privacy / license note。
+- Phase 6.5 Benchmark Report Export：从 campaign / comparison / release gate 生成 Markdown / JSON / HTML snapshot，链接回 run / diff / review / verification / goal evidence。
+- Phase 6.6 Continuous Benchmark Gate & Improvement Backlog：发布前/策略变更后 benchmark policy、持续 gate、失败 case 转 improvement backlog。
 
 后续自动化必须复用现有 Goal / Workflow / Review / Verification / Context Retrieval 记录，不再造一套旁路 trace。
 
@@ -321,3 +324,8 @@ Phase 0 完成的最低标准：
 - [x] Phase 5.9：落地外部模型基线 runner，显式 provider/model 才能运行并记录 `external_model` pack history。
 - [x] Phase 5.10：落地 Learning Generalization Gate，以 promoted proposal + pack history + strategy effect history 证明学习不是单项目偶然有效。
 - [x] Phase 6.1：落地 Benchmark Run Center v1，在 Dashboard 展示 benchmark readiness、baseline buckets、recent runs，并可显式触发 deterministic Gold Pack。
+- [ ] Phase 6.2：落地 Benchmark Campaign Runner，让外部模型 benchmark 成为可恢复、可取消、可审计的长任务。
+- [ ] Phase 6.3：落地 Cross-model Comparison & Leaderboard，在同 pack / 同 task version 下可信对标 provider/model。
+- [ ] Phase 6.4：落地 Real Task Corpus Expansion，扩展真实任务集并管理 task pack version / source / calibration。
+- [ ] Phase 6.5：落地 Benchmark Report Export，生成可复盘、可分享、可归档的 benchmark snapshot。
+- [ ] Phase 6.6：落地 Continuous Benchmark Gate & Improvement Backlog，把 benchmark 变成持续质量守门和改进输入。

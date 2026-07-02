@@ -51,7 +51,8 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context、Trend Report / Improvement Loop 已完成。
 6. **Phase 4：Learning Loop / Skill & Guidance 沉淀**。Phase 4.1 Proposal-to-Action、Phase 4.2 Draft Promotion + Workflow Retro、Phase 4.3 Dashboard 全局学习视图、Phase 4.4 Transcript Distillation + Failure Feedback 已完成：改进 proposal 可预览、应用成 eval / workflow / guidance / skill 草稿产物，并可显式晋升为正式 fixture / project guidance / active skill；Dashboard 可看全局 / 项目级 workflow、eval、review、verification、proposal、retro 趋势；Workspace 可显式从 transcript / workflow / failure feedback 提炼更高质量候选。
 7. **Phase 5：任务级评测与策略效果评估**。Phase 5.1 Task-level Eval Runner、Phase 5.2 Agent Execution Runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 Strategy Effect Evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 Strategy Effect 趋势持久化 / Dashboard、Phase 5.8 Release Gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate 已完成：可以从 task prompt 触发真实 chat engine execution，或用 deterministic fixture patch 做无模型回归，再调用真实 Review / Smart Verification / Context Retrieval / Goal evaluator，并按任务 schema 判分和记录 eval run；20 个 active gold tasks 已可批量 materialize / run，pack / strategy report history 已进入 Dashboard 质量趋势，mock Responses provider 可驱动真实 `write` 工具产出 candidate diff，策略改动前后的 pack report 已可确定性对比，release gate 可把持久化 history 转成发布质量结论，外部模型基线可显式传 provider/model 在 Gold Pack 上运行，learning generalization gate 可验证 promoted guidance / workflow / skill 是否具备跨项目证据。
-8. **Phase 6：真实能力 Benchmark 与产品化增强**。Phase 6.1 Benchmark Run Center v1 已完成：Dashboard Learning Tab 可读取 durable pack history，展示 benchmark readiness、baseline buckets、recent runs、failed case summary、Release Gate 与 Generalization Gate，并可显式启动安全 deterministic Gold Pack run；真实外部模型 benchmark 仍通过显式 owner API 运行并只在 Dashboard 展示历史结果。
+8. **Phase 6：真实能力 Benchmark 与产品化增强**。Phase 6.1 Benchmark Run Center v1 已完成；后续 P6.2-P6.6 依次补 Benchmark Campaign Runner、Cross-model Comparison、Real Task Corpus Expansion、Benchmark Report Export、Continuous Benchmark Gate，把现有 eval / learning history 升级成可运行、可对标、可复盘、可持续守门的真实能力 benchmark 产品面。
+9. **Phase 7：通用场景层与 Domain Workflow**。P6 完成后转入通用场景层，把 Goal / Mode / Workflow / Loop / Evidence / Review / Verification / Learning Loop 复用到 Research、Writing、Data Analysis、Meeting Prep、Knowledge Curation、Inbox、Project Ops 等非编程长任务；详细路线见 [通用场景层与 Domain Workflow 路线图](general-domain-workflows.md)。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -184,7 +185,7 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
 - LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置和 doctor。
 - 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness；Phase 3.8 已补齐 Workflow review/verify host API 与 Goal-aware eval；Phase 3.9 已补齐 bounded repair loop 自动化、受控 block 停机和 repair-loop eval；Phase 3.10 已补齐 LLM reviewer、review profiles、IDE/ACP 当前文件信号、symbol-context evidence 和 profile/IDE eval；Phase 3.11/4.1/4.2/4.3/4.4 已补齐趋势报告、proposal queue、proposal-to-action、retro、promotion、Dashboard 全局学习视图、transcript distillation 和 failure feedback。
-- 已有第一层 coding eval harness、Phase 5.1 task-level scorer、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 策略效果趋势持久化 / Dashboard、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center；后续转入更大规模真实任务 benchmark、跨模型对标和报告导出增强。
+- 已有第一层 coding eval harness、Phase 5.1 task-level scorer、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 策略效果趋势持久化 / Dashboard、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center；后续 P6 转入外部模型 campaign、跨模型对标、真实任务集扩容、报告导出和持续 benchmark gate。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
 ## 能力模型
@@ -1020,6 +1021,161 @@ StopPolicy
 - 不替代更大规模真实任务 benchmark；它是第一版产品化 run center 和 readiness 面板。
 - 不新增第二套 benchmark history 表；事实源仍是 `coding_eval_pack_runs`。
 
+### Phase 6.2：Benchmark Campaign Runner（待做）
+
+目标：把“单次 Gold Pack run”升级为可恢复、可取消、可审计的 benchmark campaign，让用户能显式选择任务包、provider / model 矩阵、预算和运行策略，然后稳定跑完整批外部模型 benchmark。
+
+要做：
+
+- 新增 `BenchmarkCampaign` owner-plane 概念：campaign id、名称、scope、task pack、provider/model matrix、run mode、预算、状态、created_by、created_at。
+- 新增 durable campaign run history：每个 model × task pack run 的状态、attempt、started_at、finished_at、cost estimate、token usage、latency、error、关联 `coding_eval_pack_runs`。
+- Dashboard Benchmark Center 增加 Campaign 列表与 Run Detail：排队中、运行中、已完成、失败、取消、部分完成都可见。
+- 支持显式启动外部模型 campaign：用户必须选择 provider/model，确认可能产生费用，配置最大任务数、最大并发、最大预算、超时和失败策略。
+- 长任务执行走既有 background job / async job 体系：支持暂停视图、取消、重试失败项、重启后恢复可见状态。
+- Campaign 运行完成后自动刷新 Benchmark Center、Release Gate 与 Generalization Gate；失败项保留可复跑入口。
+- API / Transport：`create_benchmark_campaign`、`list_benchmark_campaigns`、`get_benchmark_campaign`、`cancel_benchmark_campaign`、`retry_benchmark_campaign_failed_items`。
+
+验收：
+
+- 一个 campaign 可以跑 `N models × M tasks`，每个子 run 都有独立状态和可追溯 report。
+- 关闭应用 / server 重启后，已完成结果不丢；运行中项至少能标记 interrupted，并可由用户显式 retry。
+- 用户能在 GUI 中看懂：跑了哪些模型、跑到哪里、花了多少、失败在哪里、下一步能做什么。
+- 默认仍不访问外部模型；只有用户显式创建 external campaign 才会产生 provider 调用。
+
+明确不包含：
+
+- 不自动选择“最佳模型”，只收集和展示 campaign evidence。
+- 不把一次 campaign 结果直接写成 promoted learning；学习沉淀仍走 proposal / review / promotion 链路。
+
+### Phase 6.3：Cross-model Comparison & Leaderboard（待做）
+
+目标：把 campaign history 变成可信的跨模型对标视图，回答“哪个模型在这些任务上更强、更稳、更便宜、更容易失败”，同时避免用不同任务集 / 不同版本 / 不同预算做伪比较。
+
+要做：
+
+- 新增 comparison report：按 task pack、window、provider、model、model version、baseline kind、execution mode 聚合 pass rate、case score、failure mode、tool-call rate、latency、token/cost、retry count。
+- Dashboard 增加模型对比表和趋势图：同一 pack / 同一 window 下才默认并排；不同 pack 或不同 task version 明确标记不可直接比较。
+- 支持 baseline 选择：deterministic fixture、mock tool-call、external model、Hope 当前策略、候选策略。
+- 加入 confidence / sample-size 标识：样本不足、任务覆盖不足、失败集中在单一任务类型时显示 warning。
+- 支持按 task type / difficulty / file type / failure category 下钻，定位模型差异来自上下文、工具调用、验证、代码修改还是遵循约束。
+- API / Transport：`compare_benchmark_models`、`get_benchmark_leaderboard`。
+
+验收：
+
+- 同一任务包上至少两个 external model campaign 可以形成可读 comparison report。
+- UI 不会把不同 pack、不同 task revision 或不同 run mode 的结果混成一个排行榜。
+- 每个榜单数字都能点回原始 campaign、pack run、case report 和失败 summary。
+
+明确不包含：
+
+- 不声明 Hope 全局“超过某模型”；只能说明在某个 task pack、window、配置和样本量下的结果。
+- 不用单次 deterministic run 冒充外部模型能力。
+
+### Phase 6.4：Real Task Corpus Expansion（待做）
+
+目标：扩大 benchmark 任务池，把 20 个内部 gold tasks 扩展为多项目、多语言、多难度、多任务类型的真实任务 corpus，避免系统只对少量固定 fixture 过拟合。
+
+要做：
+
+- 设计 task pack manifest：task id、版本、来源、repo template、难度、语言/框架、任务类型、成功标准、验证命令、允许/禁止改动、人工校准记录。
+- 支持从本地真实 repo / 外部 fixture repo 导入任务；导入必须走显式 owner action，并记录来源、license / privacy note、redaction 状态。
+- 支持 task versioning：任务提示、fixture、expected diff、scorer schema 改动后产生新版本，不覆盖历史结果。
+- 增加任务分类覆盖：bugfix、feature、refactor、test repair、i18n、docs/design、multi-file change、tool-call heavy、review-seeded、verification-heavy、context-heavy。
+- 增加 corpus health report：任务数量、active/draft、最近校准、失败分布、难度分布、过期任务、重复任务、容易被 fixture-gaming 的任务。
+- 把 corpus 管理接入 Dashboard / owner API：list/import/activate/archive/validate task pack。
+
+验收：
+
+- 至少能管理多个 task pack：核心小包、回归包、真实项目包、外部模型对标包。
+- 每个 active task 都有明确版本、成功标准、验证策略和来源说明。
+- 任务导入不会默认读取/上传用户私有代码；外部来源必须显式确认。
+
+明确不包含：
+
+- 不自动抓取任意 GitHub issue 或用户私有项目生成 benchmark。
+- 不为了增加数量降低任务质量；draft task 不进入 release gate 或 leaderboard。
+
+### Phase 6.5：Benchmark Report Export（待做）
+
+目标：把 benchmark 结果从 Dashboard 状态升级为可复盘、可分享、可归档的报告，让用户和 reviewer 能看懂“这次 benchmark 证明了什么、没证明什么、下一步要修哪里”。
+
+要做：
+
+- 新增 benchmark report artifact：执行摘要、scope、task pack、model matrix、关键指标、失败分类、代表 case、成本/耗时、风险和结论。
+- 支持导出 Markdown / JSON / HTML snapshot；报告内所有图表和数字引用稳定 run id，不依赖当前 live DB 状态变化。
+- 报告内链接回 campaign、pack run、case report、diff summary、review findings、verification evidence、workflow / goal evidence。
+- 支持 comparison report 和 release report 两种模板：前者用于模型对标，后者用于发布前质量审计。
+- Dashboard 增加 report history：生成、查看、复制路径、重新生成、标记为 release evidence。
+
+验收：
+
+- 用户可以从一次 campaign 或一个 comparison 一键生成可读报告。
+- 报告能解释失败原因，而不是只给 pass rate。
+- 报告可以作为后续 PR / release / improvement proposal 的 evidence。
+
+明确不包含：
+
+- 不把报告当成不可变法律审计文件；它是产品内 benchmark snapshot。
+- 不自动公开或上传报告；导出和分享由用户显式触发。
+
+### Phase 6.6：Continuous Benchmark Gate & Improvement Backlog（待做）
+
+目标：把 benchmark 从“手动跑一次”升级为持续质量守门和改进输入：发布前、重要策略改动后、模型切换后都能有明确 gate，并把失败转成可处理 backlog。
+
+要做：
+
+- 支持 scheduled / trigger-based benchmark policy：手动、发布前、策略变更后、task pack 更新后、指定周期；外部模型 policy 默认关闭。
+- 扩展 Release Gate：可选择要求最近 campaign、指定模型 baseline、指定 task pack、最小样本量、最大成本、最大 regression。
+- 把失败 case 转入 improvement backlog：保留 task id、model、失败分类、相关 transcript / diff / review / verification evidence，进入现有 proposal / retro / failure feedback 链路。
+- Dashboard 增加 continuous gate 状态：最近一次通过时间、当前阻塞原因、过期 benchmark、待处理失败、推荐下一步。
+- 增加 retention / cleanup 策略：保留 summary 和报告，按配置清理大体积 raw trace / diff artifact，避免 benchmark history 无限膨胀。
+- 增加运行可靠性指标：campaign 成功率、interrupted 数、重试成功率、provider error rate、审批等待、预算耗尽。
+
+验收：
+
+- 发布前可以用一条 gate 明确回答：是否有足够新鲜、足够覆盖、没有 regression 的 benchmark evidence。
+- benchmark 失败不会只停在红色数字，而能转成具体可处理的 improvement item。
+- 长期运行不会因为外部模型费用、队列堆积、raw artifact 膨胀而破坏体验和性能。
+
+明确不包含：
+
+- 不默认开启无人值守外部模型 benchmark；涉及费用和网络的 policy 必须显式 opt-in。
+- 不允许为了通过 gate 自动修改任务、降低阈值或隐藏失败历史。
+
+### Phase 6 红线
+
+- 外部模型调用必须显式：provider / model / 预算 / 并发 / 超时 / 费用风险都要在 owner-plane 可见。
+- Benchmark history 必须可追溯：任何 leaderboard / report / gate 数字都能回到原始 run、task version 和 evidence。
+- 不做伪对标：不同 task pack、不同 task version、不同 execution mode、样本不足时必须明确标记。
+- 长任务稳定性优先：campaign 必须可观察、可取消、可恢复或可明确 interrupted。
+- 不 benchmark-gaming：task 修改、阈值调整、失败归档都要留下审计痕迹。
+- 不把 benchmark 结论自动变成产品策略；进入生产策略前仍走 proposal、review、promotion 和 release gate。
+
+## P6 后：通用场景层
+
+P6 的意义是把 coding 能力的 eval / benchmark / gate / backlog 做实，证明 Hope 的长任务控制面可以被严格评测、持续守门和产品化展示。完成 P6 后，主线应转入通用场景层，而不是继续只加 coding-only 深水能力。
+
+通用场景层要复用已完成的通用底座：
+
+- Goal：目标、完成标准、预算、证据和最终审计。
+- Mode：推进强度。
+- Workflow：一次具体执行、审批、恢复、暂停、取消和 trace。
+- Loop：定时、重复、轮询或条件触发。
+- Task：用户可见进度事实。
+- Evidence / Review / Verification / Learning Loop：证据、复核、最小验证和持续改进。
+
+首批领域：
+
+- Research / 调研。
+- Writing / 报告写作。
+- Data Analysis / 数据分析。
+- Meeting Prep / 会议准备。
+- Knowledge Curation / 知识整理。
+- Inbox / Comms / 邮件沟通。
+- Project Ops / 项目运营。
+
+这部分不在本文展开，详细规划见 [通用场景层与 Domain Workflow 路线图](general-domain-workflows.md)。核心原则是：模型仍可自由决策和动态编排，但 domain workflow 要守住关键证据、验证、用户确认、隐私权限和完成审计，提升非编程长任务的稳定下限。
+
 ## 30 天首个里程碑
 
 2026-07-01 之后的首个里程碑不再是 ToolDefinition / workflow runtime foundation，它们已经进入 Phase 1 / Phase 2 已完成范围。新的 30 天目标是把控制平面补到可承载长任务：
@@ -1095,5 +1251,6 @@ StopPolicy
 10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐与行动入口、file search v2、LSP symbols、diff/artifact/review/verification/goal/task/workflow 聚合、focused review / verification。
 11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall、控制面回归、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center。
 12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列、proposal-to-action、workflow retro、draft promotion、Dashboard 全局学习视图、Transcript Distillation、Failure Feedback、pack / strategy history Dashboard、release gate、external model baseline、learning generalization gate 与 Benchmark Run Center。
+13. [通用场景层与 Domain Workflow 路线图](general-domain-workflows.md)：P6 后续主线，把 Goal / Mode / Workflow / Loop / Evidence / Review / Verification / Learning Loop 泛化到调研、写作、数据分析、会议准备、知识整理、邮件沟通和项目运营。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。
