@@ -1,11 +1,10 @@
 //! Deterministic coding control-plane eval harness.
 //!
-//! Phase 3.7 turns the coding control plane into something we can regress-test
-//! instead of merely describing. Fixtures create temporary git repositories,
-//! seed real session / goal / task / workflow state, then drive the production
-//! Context Retrieval, Review, and Smart Verification APIs. No LLM and no
-//! project validation command execution are involved, so this layer is stable
-//! enough for default CI.
+//! Fixtures create temporary git repositories, seed real session / goal / task /
+//! workflow state, then drive production Context Retrieval, Review, Smart
+//! Verification, and task-level eval scoring APIs. No LLM is involved; project
+//! validation commands only run when a fixture explicitly opts into workflow
+//! validation.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,7 +12,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::agent_loader::DEFAULT_AGENT_ID;
@@ -37,6 +36,8 @@ pub struct CodingEvalFixture {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default)]
+    pub task: Option<CodingTaskEvalSpec>,
     pub repo: RepoFixture,
     #[serde(default)]
     pub setup: FixtureSetup,
@@ -60,6 +61,36 @@ pub struct RepoFixture {
 pub struct FileFixture {
     pub path: String,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskEvalSpec {
+    pub id: String,
+    #[serde(default)]
+    pub task_type: String,
+    pub title: String,
+    #[serde(default)]
+    pub source: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub execution_mode: String,
+    #[serde(default)]
+    pub expected_behavior: Vec<String>,
+    #[serde(default)]
+    pub forbidden_behavior: Vec<String>,
+    #[serde(default)]
+    pub likely_files: Vec<String>,
+    #[serde(default)]
+    pub expected_artifacts: Vec<String>,
+    #[serde(default)]
+    pub requires_seeded_state: bool,
+    #[serde(default)]
+    pub allowed_validation: Vec<String>,
+    #[serde(default)]
+    pub success_criteria: Vec<String>,
+    #[serde(default)]
+    pub failure_notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -124,6 +155,8 @@ pub struct WorkflowOpFixture {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FixtureRuns {
+    #[serde(default)]
+    pub task: Option<TaskLevelEvalRun>,
     #[serde(default)]
     pub workflow: Option<WorkflowScriptEvalRun>,
     #[serde(default)]
@@ -198,9 +231,29 @@ pub struct ImprovementEvalRun {
     pub seed_eval_runs: Vec<RecordCodingEvalRunInput>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLevelEvalRun {
+    #[serde(default = "default_true")]
+    pub record_eval_run: bool,
+    #[serde(default = "default_true")]
+    pub evaluate_goal: bool,
+}
+
+impl Default for TaskLevelEvalRun {
+    fn default() -> Self {
+        Self {
+            record_eval_run: true,
+            evaluate_goal: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FixtureChecks {
+    #[serde(default)]
+    pub task: Option<TaskLevelCheck>,
     #[serde(default)]
     pub workflow: Option<WorkflowCheck>,
     #[serde(default)]
@@ -341,26 +394,71 @@ pub struct ImprovementCheck {
     pub expected_promotion_target_contains: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLevelCheck {
+    #[serde(default)]
+    pub expected_outcome: Option<String>,
+    #[serde(default)]
+    pub min_score: Option<f64>,
+    #[serde(default)]
+    pub expected_changed_files: Vec<String>,
+    #[serde(default)]
+    pub forbidden_changed_files: Vec<String>,
+    #[serde(default)]
+    pub required_diff_contains: Vec<String>,
+    #[serde(default)]
+    pub forbidden_diff_contains: Vec<String>,
+    #[serde(default)]
+    pub expected_validation_commands: Vec<String>,
+    #[serde(default)]
+    pub forbidden_validation_commands: Vec<String>,
+    #[serde(default)]
+    pub max_changed_files: Option<usize>,
+    #[serde(default)]
+    pub require_review: Option<bool>,
+    #[serde(default)]
+    pub require_verification: Option<bool>,
+    #[serde(default)]
+    pub require_context: Option<bool>,
+    #[serde(default)]
+    pub require_goal_evaluation: Option<bool>,
+    #[serde(default)]
+    pub required_context: Vec<CandidateExpectation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct CheckOutcome {
     pub name: String,
     pub passed: bool,
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct EvalMetrics {
     pub context_precision: Option<f64>,
     pub critical_context_recall: Option<f64>,
     pub review_findings: Option<usize>,
     pub verification_commands: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_outcome: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_score: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_failure_category: Option<String>,
+    #[serde(default)]
+    pub task_changed_files: Vec<String>,
+    #[serde(default)]
+    pub task_constraint_violations: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct FixtureReport {
     pub name: String,
     pub metrics: EvalMetrics,
     pub outcomes: Vec<CheckOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<CodingTaskEvalReport>,
 }
 
 impl FixtureReport {
@@ -378,6 +476,7 @@ impl FixtureReport {
 
 struct EvalRunArtifacts {
     repo_root: PathBuf,
+    task: Option<CodingTaskEvalReport>,
     workflow: Option<workflow::WorkflowRuntimeResult>,
     review: Option<review::ReviewRunSnapshot>,
     verification: Option<verification::VerificationRunSnapshot>,
@@ -387,6 +486,83 @@ struct EvalRunArtifacts {
     improvement_apply: Option<ApplyCodingImprovementProposalResult>,
     improvement_promotion: Option<PromoteCodingImprovementProposalResult>,
     goal_evidence_relations: Vec<String>,
+    goal_state: Option<String>,
+    goal_evaluated: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskEvalReport {
+    pub task_id: String,
+    pub task_type: String,
+    pub title: String,
+    pub outcome: String,
+    pub score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_category: Option<String>,
+    pub diff: CodingTaskDiffSummary,
+    pub validation: CodingTaskValidationSummary,
+    pub review: CodingTaskReviewSummary,
+    pub context: CodingTaskContextSummary,
+    pub goal: CodingTaskGoalSummary,
+    pub checks: Vec<CodingTaskEvalCheckResult>,
+    pub metrics: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskDiffSummary {
+    pub changed_files: Vec<String>,
+    pub files_changed: usize,
+    pub insertions: usize,
+    pub deletions: usize,
+    pub diff_bytes: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskValidationSummary {
+    pub commands: Vec<String>,
+    pub command_count: usize,
+    pub allowed_command_count: usize,
+    pub disallowed_commands: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskReviewSummary {
+    pub requested: bool,
+    pub findings: usize,
+    pub blocking_findings: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskContextSummary {
+    pub requested: bool,
+    pub candidates: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_context_recall: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskGoalSummary {
+    pub requested: bool,
+    pub evaluated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    pub evidence_relations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTaskEvalCheckResult {
+    pub name: String,
+    pub passed: bool,
+    pub detail: String,
+    pub category: String,
+    pub severity: String,
 }
 
 pub fn fixtures_dir() -> PathBuf {
@@ -439,6 +615,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
 
     let mut artifacts = EvalRunArtifacts {
         repo_root,
+        task: None,
         workflow: None,
         review: None,
         verification: None,
@@ -448,6 +625,8 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
         improvement_apply: None,
         improvement_promotion: None,
         goal_evidence_relations: Vec::new(),
+        goal_state: None,
+        goal_evaluated: false,
     };
 
     if let Some(run) = &fixture.runs.workflow {
@@ -528,6 +707,27 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
         );
     }
 
+    if fixture.task.is_some() || fixture.runs.task.is_some() || fixture.checks.task.is_some() {
+        let run = fixture.runs.task.clone().unwrap_or_default();
+        if run.evaluate_goal {
+            if let Some(goal_id) = goal_id.as_deref() {
+                artifacts.goal_evaluated = true;
+                let should_evaluate = db
+                    .goal_snapshot(goal_id, 20)?
+                    .is_some_and(|snapshot| !snapshot.goal.state.is_terminal());
+                if should_evaluate {
+                    let _ = db.evaluate_goal(goal_id)?;
+                }
+            }
+        }
+        refresh_goal_artifacts(&db, goal_id.as_deref(), &mut artifacts)?;
+        let task_report = build_task_eval_report(fixture, &artifacts)?;
+        if run.record_eval_run {
+            record_task_eval_run(&db, &session.id, &task_report)?;
+        }
+        artifacts.task = Some(task_report);
+    }
+
     if let Some(run) = &fixture.runs.improvement {
         for seed in &run.seed_eval_runs {
             let mut input = seed.clone();
@@ -598,16 +798,519 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
     }
 
     if let Some(goal_id) = goal_id.as_deref() {
-        if let Some(snapshot) = db.goal_snapshot(goal_id, 200)? {
-            artifacts.goal_evidence_relations = snapshot
-                .evidence
-                .iter()
-                .map(|item| item.relation.clone())
-                .collect();
-        }
+        refresh_goal_artifacts(&db, Some(goal_id), &mut artifacts)?;
     }
 
     Ok(check_fixture(fixture, &artifacts))
+}
+
+fn refresh_goal_artifacts(
+    db: &SessionDB,
+    goal_id: Option<&str>,
+    artifacts: &mut EvalRunArtifacts,
+) -> Result<()> {
+    let Some(goal_id) = goal_id else {
+        return Ok(());
+    };
+    if let Some(snapshot) = db.goal_snapshot(goal_id, 200)? {
+        artifacts.goal_state = Some(snapshot.goal.state.as_str().to_string());
+        artifacts.goal_evidence_relations = snapshot
+            .evidence
+            .iter()
+            .map(|item| item.relation.clone())
+            .collect();
+    }
+    Ok(())
+}
+
+fn build_task_eval_report(
+    fixture: &CodingEvalFixture,
+    artifacts: &EvalRunArtifacts,
+) -> Result<CodingTaskEvalReport> {
+    let task = fixture
+        .task
+        .as_ref()
+        .ok_or_else(|| anyhow!("task-level eval requested but fixture.task is missing"))?;
+    let check = fixture.checks.task.as_ref();
+    let diff = read_task_diff_summary(&artifacts.repo_root)?;
+    let validation = task_validation_summary(task, artifacts);
+    let review = task_review_summary(artifacts);
+    let context = task_context_summary(artifacts, check);
+    let goal = CodingTaskGoalSummary {
+        requested: artifacts.goal_state.is_some() || !artifacts.goal_evidence_relations.is_empty(),
+        evaluated: artifacts.goal_evaluated,
+        state: artifacts.goal_state.clone(),
+        evidence_relations: artifacts.goal_evidence_relations.clone(),
+    };
+    let diff_text = run_git(&artifacts.repo_root, &["diff", "--"])?;
+    let mut checks = Vec::new();
+    push_task_spec_checks(task, &diff, &validation, &mut checks);
+    if let Some(check) = check {
+        push_task_fixture_checks(
+            check,
+            &diff,
+            &diff_text,
+            &validation,
+            &review,
+            &context,
+            &goal,
+            artifacts,
+            &mut checks,
+        );
+    }
+    let passed = checks.iter().filter(|check| check.passed).count();
+    let total = checks.len();
+    let score = if total == 0 {
+        0.0
+    } else {
+        (passed as f64 / total as f64 * 1000.0).round() / 1000.0
+    };
+    let failure_category = checks
+        .iter()
+        .find(|check| !check.passed)
+        .map(|check| check.category.clone());
+    let outcome = derive_task_outcome(&checks, score).to_string();
+    Ok(CodingTaskEvalReport {
+        task_id: task.id.clone(),
+        task_type: if task.task_type.is_empty() {
+            "coding".to_string()
+        } else {
+            task.task_type.clone()
+        },
+        title: task.title.clone(),
+        outcome,
+        score,
+        failure_category,
+        diff,
+        validation,
+        review,
+        context,
+        goal,
+        checks,
+        metrics: json!({
+            "fixture": fixture.name,
+            "taskId": task.id,
+            "taskType": task.task_type,
+            "source": task.source,
+            "executionMode": task.execution_mode,
+        }),
+    })
+}
+
+fn record_task_eval_run(
+    db: &SessionDB,
+    session_id: &str,
+    report: &CodingTaskEvalReport,
+) -> Result<()> {
+    db.record_coding_eval_run(RecordCodingEvalRunInput {
+        session_id: Some(session_id.to_string()),
+        project_id: None,
+        suite: "task_level_coding_eval".to_string(),
+        name: report.task_id.clone(),
+        status: task_outcome_to_eval_status(&report.outcome).to_string(),
+        metrics: serde_json::to_value(report)?,
+        source_type: Some("coding_task_eval".to_string()),
+        source_id: Some(report.task_id.clone()),
+    })?;
+    Ok(())
+}
+
+fn read_task_diff_summary(repo_root: &Path) -> Result<CodingTaskDiffSummary> {
+    let changed_raw = run_git(repo_root, &["diff", "--name-only"])?;
+    let changed_files = changed_raw
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    let numstat_raw = run_git(repo_root, &["diff", "--numstat"])?;
+    let mut insertions = 0usize;
+    let mut deletions = 0usize;
+    for line in numstat_raw.lines() {
+        let mut parts = line.split('\t');
+        insertions += parts
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0);
+        deletions += parts
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0);
+    }
+    let diff = run_git(repo_root, &["diff", "--"])?;
+    Ok(CodingTaskDiffSummary {
+        files_changed: changed_files.len(),
+        changed_files,
+        insertions,
+        deletions,
+        diff_bytes: diff.len(),
+    })
+}
+
+fn task_validation_summary(
+    task: &CodingTaskEvalSpec,
+    artifacts: &EvalRunArtifacts,
+) -> CodingTaskValidationSummary {
+    let commands = artifacts
+        .verification
+        .as_ref()
+        .map(|snapshot| {
+            snapshot
+                .steps
+                .iter()
+                .map(|step| step.command.clone())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let disallowed_commands = if task.allowed_validation.is_empty() {
+        Vec::new()
+    } else {
+        commands
+            .iter()
+            .filter(|command| {
+                !task
+                    .allowed_validation
+                    .iter()
+                    .any(|allowed| allowed == *command)
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    CodingTaskValidationSummary {
+        allowed_command_count: commands.len().saturating_sub(disallowed_commands.len()),
+        command_count: commands.len(),
+        commands,
+        disallowed_commands,
+    }
+}
+
+fn task_review_summary(artifacts: &EvalRunArtifacts) -> CodingTaskReviewSummary {
+    let Some(snapshot) = artifacts.review.as_ref() else {
+        return CodingTaskReviewSummary::default();
+    };
+    let blocking_findings = snapshot
+        .findings
+        .iter()
+        .filter(|finding| finding.severity.is_blocking() && finding.status.as_str() == "open")
+        .count();
+    CodingTaskReviewSummary {
+        requested: true,
+        findings: snapshot.findings.len(),
+        blocking_findings,
+    }
+}
+
+fn task_context_summary(
+    artifacts: &EvalRunArtifacts,
+    check: Option<&TaskLevelCheck>,
+) -> CodingTaskContextSummary {
+    let Some(snapshot) = artifacts.context.as_ref() else {
+        return CodingTaskContextSummary::default();
+    };
+    let required = check
+        .map(|check| check.required_context.as_slice())
+        .unwrap_or(&[]);
+    let matched = required
+        .iter()
+        .filter(|expected| {
+            snapshot
+                .candidates
+                .iter()
+                .any(|candidate| candidate_matches(candidate, expected))
+        })
+        .count();
+    CodingTaskContextSummary {
+        requested: true,
+        candidates: snapshot.candidates.len(),
+        required_context_recall: if required.is_empty() {
+            None
+        } else {
+            Some((matched as f64 / required.len() as f64 * 1000.0).round() / 1000.0)
+        },
+    }
+}
+
+fn push_task_spec_checks(
+    task: &CodingTaskEvalSpec,
+    diff: &CodingTaskDiffSummary,
+    validation: &CodingTaskValidationSummary,
+    checks: &mut Vec<CodingTaskEvalCheckResult>,
+) {
+    if task
+        .expected_artifacts
+        .iter()
+        .any(|artifact| artifact == "diff")
+    {
+        push_task_check(
+            checks,
+            "artifact.diff",
+            diff.files_changed > 0,
+            format!("{} changed file(s)", diff.files_changed),
+            "implementation_bug",
+            "critical",
+        );
+    }
+    if task
+        .expected_artifacts
+        .iter()
+        .any(|artifact| artifact == "validation")
+    {
+        push_task_check(
+            checks,
+            "artifact.validation",
+            validation.command_count > 0,
+            format!("{} validation command(s)", validation.command_count),
+            "validation_gap",
+            "high",
+        );
+    }
+    if !task.allowed_validation.is_empty() && validation.command_count > 0 {
+        push_task_check(
+            checks,
+            "validation.allowed",
+            validation.disallowed_commands.is_empty(),
+            format!("disallowed={:?}", validation.disallowed_commands),
+            "validation_gap",
+            "high",
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_task_fixture_checks(
+    check: &TaskLevelCheck,
+    diff: &CodingTaskDiffSummary,
+    diff_text: &str,
+    validation: &CodingTaskValidationSummary,
+    review: &CodingTaskReviewSummary,
+    context: &CodingTaskContextSummary,
+    goal: &CodingTaskGoalSummary,
+    artifacts: &EvalRunArtifacts,
+    checks: &mut Vec<CodingTaskEvalCheckResult>,
+) {
+    for suffix in &check.expected_changed_files {
+        let found = diff
+            .changed_files
+            .iter()
+            .any(|path| path_matches_suffix(path, suffix));
+        push_task_check(
+            checks,
+            format!("diff.changed_file.{suffix}"),
+            found,
+            format!("changedFiles={:?}", diff.changed_files),
+            "implementation_bug",
+            "critical",
+        );
+    }
+    for suffix in &check.forbidden_changed_files {
+        let found = diff
+            .changed_files
+            .iter()
+            .any(|path| path_matches_suffix(path, suffix));
+        push_task_check(
+            checks,
+            format!("diff.forbidden_file.{suffix}"),
+            !found,
+            format!("changedFiles={:?}", diff.changed_files),
+            "scope_creep",
+            "critical",
+        );
+    }
+    for needle in &check.required_diff_contains {
+        let found = diff_text.contains(needle);
+        push_task_check(
+            checks,
+            format!("diff.contains.{}", compact_label(needle)),
+            found,
+            if found {
+                "matched".to_string()
+            } else {
+                "required diff fragment missing".to_string()
+            },
+            "implementation_bug",
+            "critical",
+        );
+    }
+    for needle in &check.forbidden_diff_contains {
+        let found = diff_text.contains(needle);
+        push_task_check(
+            checks,
+            format!("diff.forbidden.{}", compact_label(needle)),
+            !found,
+            if found {
+                "forbidden diff fragment present".to_string()
+            } else {
+                "not present".to_string()
+            },
+            "scope_creep",
+            "critical",
+        );
+    }
+    for expected in &check.expected_validation_commands {
+        let found = validation
+            .commands
+            .iter()
+            .any(|command| command == expected);
+        push_task_check(
+            checks,
+            format!("validation.command.{expected}"),
+            found,
+            format!("commands={:?}", validation.commands),
+            "validation_gap",
+            "high",
+        );
+    }
+    for forbidden in &check.forbidden_validation_commands {
+        let found = validation
+            .commands
+            .iter()
+            .any(|command| command == forbidden);
+        push_task_check(
+            checks,
+            format!("validation.forbidden_command.{forbidden}"),
+            !found,
+            format!("commands={:?}", validation.commands),
+            "validation_gap",
+            "high",
+        );
+    }
+    if let Some(max) = check.max_changed_files {
+        push_task_check(
+            checks,
+            "diff.max_changed_files",
+            diff.files_changed <= max,
+            format!("{} changed file(s), max {max}", diff.files_changed),
+            "scope_creep",
+            "high",
+        );
+    }
+    if let Some(require) = check.require_review {
+        push_task_check(
+            checks,
+            "review.requested",
+            review.requested == require,
+            format!("review.requested={}, expected={require}", review.requested),
+            "review_gap",
+            "medium",
+        );
+    }
+    if let Some(require) = check.require_verification {
+        let requested = validation.command_count > 0;
+        push_task_check(
+            checks,
+            "verification.requested",
+            requested == require,
+            format!("verification.requested={requested}, expected={require}"),
+            "validation_gap",
+            "high",
+        );
+    }
+    if let Some(require) = check.require_context {
+        push_task_check(
+            checks,
+            "context.requested",
+            context.requested == require,
+            format!(
+                "context.requested={}, expected={require}",
+                context.requested
+            ),
+            "context_miss",
+            "medium",
+        );
+    }
+    if let Some(require) = check.require_goal_evaluation {
+        push_task_check(
+            checks,
+            "goal.evaluated",
+            goal.evaluated == require,
+            format!(
+                "goal.evaluated={}, state={:?}, expectedEvaluation={require}",
+                goal.evaluated, goal.state
+            ),
+            "reporting_issue",
+            "medium",
+        );
+    }
+    for expected in &check.required_context {
+        let found = artifacts.context.as_ref().is_some_and(|snapshot| {
+            snapshot
+                .candidates
+                .iter()
+                .any(|candidate| candidate_matches(candidate, expected))
+        });
+        push_task_check(
+            checks,
+            format!("context.required.{}", expected.label()),
+            found,
+            if found {
+                "matched".to_string()
+            } else {
+                artifacts
+                    .context
+                    .as_ref()
+                    .map(|snapshot| summarize_candidates(&snapshot.candidates))
+                    .unwrap_or_else(|| "context not requested".to_string())
+            },
+            "context_miss",
+            "medium",
+        );
+    }
+}
+
+fn push_task_check(
+    checks: &mut Vec<CodingTaskEvalCheckResult>,
+    name: impl Into<String>,
+    passed: bool,
+    detail: impl Into<String>,
+    category: impl Into<String>,
+    severity: impl Into<String>,
+) {
+    checks.push(CodingTaskEvalCheckResult {
+        name: name.into(),
+        passed,
+        detail: detail.into(),
+        category: category.into(),
+        severity: severity.into(),
+    });
+}
+
+fn derive_task_outcome(checks: &[CodingTaskEvalCheckResult], score: f64) -> &'static str {
+    if checks.is_empty() {
+        return "blocked";
+    }
+    if checks
+        .iter()
+        .any(|check| !check.passed && check.severity == "critical")
+    {
+        "fail"
+    } else if score >= 1.0 {
+        "pass"
+    } else if score >= 0.75 {
+        "partial"
+    } else {
+        "fail"
+    }
+}
+
+fn task_outcome_to_eval_status(outcome: &str) -> &'static str {
+    match outcome {
+        "pass" => "passed",
+        "blocked" => "blocked",
+        _ => "failed",
+    }
+}
+
+fn compact_label(value: &str) -> String {
+    let mut out = sanitize_name(value);
+    if out.len() > 32 {
+        out.truncate(32);
+        out = out.trim_matches('-').to_string();
+    }
+    if out.is_empty() {
+        "fragment".to_string()
+    } else {
+        out
+    }
 }
 
 fn check_fixture(fixture: &CodingEvalFixture, artifacts: &EvalRunArtifacts) -> FixtureReport {
@@ -615,7 +1318,11 @@ fn check_fixture(fixture: &CodingEvalFixture, artifacts: &EvalRunArtifacts) -> F
         name: fixture.name.clone(),
         metrics: EvalMetrics::default(),
         outcomes: Vec::new(),
+        task: artifacts.task.clone(),
     };
+    if artifacts.task.is_some() || fixture.checks.task.is_some() {
+        check_task(&mut report, artifacts, fixture.checks.task.as_ref());
+    }
     if let Some(check) = &fixture.checks.workflow {
         check_workflow(&mut report, artifacts, check);
     }
@@ -750,6 +1457,59 @@ fn check_workflow(report: &mut FixtureReport, artifacts: &EvalRunArtifacts, chec
                 format!("relations={:?}", artifacts.goal_evidence_relations)
             },
         );
+    }
+}
+
+fn check_task(
+    report: &mut FixtureReport,
+    artifacts: &EvalRunArtifacts,
+    check: Option<&TaskLevelCheck>,
+) {
+    let Some(task) = artifacts.task.as_ref() else {
+        push_check(
+            report,
+            "task.report",
+            false,
+            "task-level eval was not produced",
+        );
+        return;
+    };
+    report.metrics.task_outcome = Some(task.outcome.clone());
+    report.metrics.task_score = Some(task.score);
+    report.metrics.task_failure_category = task.failure_category.clone();
+    report.metrics.task_changed_files = task.diff.changed_files.clone();
+    report.metrics.task_constraint_violations = task
+        .checks
+        .iter()
+        .filter(|check| {
+            !check.passed && matches!(check.category.as_str(), "scope_creep" | "policy_violation")
+        })
+        .count();
+    for item in &task.checks {
+        push_check(
+            report,
+            format!("task.{}", item.name),
+            item.passed,
+            format!("{} [{}:{}]", item.detail, item.category, item.severity),
+        );
+    }
+    if let Some(check) = check {
+        if let Some(expected) = check.expected_outcome.as_deref() {
+            push_check(
+                report,
+                "task.expected_outcome",
+                task.outcome == expected,
+                format!("outcome={}, expected={expected}", task.outcome),
+            );
+        }
+        if let Some(min) = check.min_score {
+            push_check(
+                report,
+                "task.min_score",
+                task.score + f64::EPSILON >= min,
+                format!("{:.3} >= {min:.3}", task.score),
+            );
+        }
     }
 }
 
@@ -1676,4 +2436,8 @@ fn default_workflow_script() -> String {
 
 fn default_effect_class() -> String {
     "idempotent".to_string()
+}
+
+fn default_true() -> bool {
+    true
 }

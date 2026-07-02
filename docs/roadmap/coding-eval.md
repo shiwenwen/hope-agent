@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-02
 >
-> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测与 Phase 5.1 task-level eval runner 已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 目录
 
@@ -276,7 +276,8 @@ Phase 3.7 已先落地一层确定性控制面 eval。它不替代 20 个人工 
 - 真实 session / goal / task / workflow seed。
 - 生产 `run_review_for_session`、`plan_verification_for_session`、`context_retrieval_for_session`。
 - `context_precision` / `critical_context_recall` / review finding / verification command 断言。
-- 不调用 LLM，不执行真实验证命令，不访问网络。
+- Phase 5.1 新增 task-level runner：按任务 schema 检查候选 diff、必须/禁止改动、验证命令、review/context/goal 证据，并写入 `coding_eval_runs`。
+- 不调用 LLM，不驱动真实 Agent 自动做题；真实验证命令只在 fixture 显式 `workflow.validate()` 时执行。
 
 已实现入口见 [Coding Eval 控制面评测](../architecture/coding-eval.md)；当前回归命令：
 
@@ -287,9 +288,9 @@ cargo test -p ha-core --test coding_eval --locked
 在 20 个人工任务定义稳定后，仍需继续考虑更高层自动化：
 
 - fixture repo 或临时 worktree 自动准备。
+- 真实 Agent execution runner：从 task prompt 开始执行，再把候选结果交给 Phase 5.1 scorer。
 - 自动采集 tool trace。
-- 自动 diff summary。
-- 自动验证命令执行。
+- 受控自动验证命令执行。
 - 自动 outcome 初判 + 人工确认。
 - coding eval dashboard。
 - 失败转 improvement backlog。
@@ -306,3 +307,4 @@ Phase 0 完成的最低标准：
 - [x] 根据试跑结果修订 task schema 和失败分类。
 - [x] 决定 Phase 1 优先做 `ToolDefinition v2 + tool_search v2 MVP`。
 - [x] Phase 3.7：落地确定性控制面 eval harness，并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+- [x] Phase 5.1：落地 task-level eval runner，把候选 diff 判分、Goal/Review/Verification/Context evidence 和 eval-run 记录接入同一 harness。

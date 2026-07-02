@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-02
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 1. 路线调整结论
 
@@ -52,6 +52,7 @@ Phase 4.1  Proposal-to-Action Learning Loop（已完成）
 Phase 4.2  Draft Promotion + Workflow Retro Loop（已完成）
 Phase 4.3  Dashboard 全局学习视图（已完成）
 Phase 4.4  Transcript Distillation + Failure Feedback（已完成）
+Phase 5.1  Task-level Eval Runner（已完成）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -77,7 +78,7 @@ Phase 4.4  Transcript Distillation + Failure Feedback（已完成）
 | Loop | 通用 | 已实现第一版 | 是否按时间、事件或条件重复触发。 |
 | Worktree | coding-specific | 已实现 Phase 3.1 | 代码改动落在哪个隔离环境。 |
 | Context Retrieval | 通用 owner-plane，当前 coding-first | 已实现 Phase 3.6 | 当前任务下一步最该看哪些上下文，以及能否直接进入 focused review / verification。 |
-| Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 3.7 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄。 |
+| Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 5.1 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄，候选 diff 是否满足任务级成功标准。 |
 | Coding Improvement | coding-first 改进回路，报告形态可复用于通用控制面 | 已实现 Phase 3.11 | 最近任务为什么完成/阻塞，下一步应补 eval、workflow、guidance 还是 skill。 |
 | Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.4 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物，把已应用草稿显式晋升为正式 eval fixture / project guidance / active skill，并支持用户显式从 transcript / workflow / failure feedback 提炼更高质量候选。 |
 
@@ -544,6 +545,18 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - Tauri / HTTP / Transport 已接通：`POST /api/sessions/{sid}/coding-improvement/distill`。
 - 单元测试覆盖 transcript message、tool error、review+verify+diff workflow op、failed eval feedback、proposal 插入和重复触发去重。
 - 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
+
+## 8.2 Phase 5：任务级评测与策略效果评估
+
+### Phase 5.1 Task-level Eval Runner（已完成）
+
+- `coding_eval.rs` 新增 `fixture.task` / `runs.task` / `checks.task`，把人工 gold task 的任务定义、候选 diff、验证命令、review/context/goal evidence 接入同一套 deterministic harness。
+- Runner 输出 `CodingTaskEvalReport`：outcome、score、failure category、diff summary、validation summary、review summary、context recall、goal evidence 和逐项 check。
+- 默认把任务级结果写入 `coding_eval_runs(suite='task_level_coding_eval', source_type='coding_task_eval')`，让 Improvement Loop / Dashboard 可以继续消费。
+- Tauri / HTTP / Transport 已接通：`run_coding_task_eval_fixture` / `POST /api/coding-eval/task-fixtures/run`。
+- `task_level_eval_runner` fixture 覆盖 docs-only 候选 diff、cheap validation、context recall、Goal evaluation、eval run 记录和 Improvement Loop 消费。
+- 该阶段仍不调用 LLM、不驱动真实 Agent 从 prompt 开始做题；下一步是 Agent Execution Runner，把真实执行产物交给 Phase 5.1 scorer。
+- 最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 9. 体验与性能红线
 

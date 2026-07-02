@@ -1135,6 +1135,126 @@ export interface CodingDistilledCandidate {
   fingerprint: string;
 }
 
+export interface CodingEvalFixture {
+  name: string;
+  description?: string;
+  task?: CodingTaskEvalSpec | null;
+  repo: CodingEvalRepoFixture;
+  setup?: Record<string, unknown>;
+  runs?: Record<string, unknown>;
+  checks?: Record<string, unknown>;
+}
+
+export interface CodingTaskEvalSpec {
+  id: string;
+  taskType?: string;
+  title: string;
+  source?: string;
+  prompt: string;
+  executionMode?: string;
+  expectedBehavior?: string[];
+  forbiddenBehavior?: string[];
+  likelyFiles?: string[];
+  expectedArtifacts?: string[];
+  requiresSeededState?: boolean;
+  allowedValidation?: string[];
+  successCriteria?: string[];
+  failureNotes?: string[];
+}
+
+export interface CodingEvalRepoFixture {
+  files?: CodingEvalFileFixture[];
+  changes?: CodingEvalFileFixture[];
+}
+
+export interface CodingEvalFileFixture {
+  path: string;
+  text: string;
+}
+
+export interface CodingEvalFixtureReport {
+  name: string;
+  metrics: CodingEvalMetrics;
+  outcomes: CodingEvalCheckOutcome[];
+  task?: CodingTaskEvalReport | null;
+}
+
+export interface CodingEvalCheckOutcome {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface CodingEvalMetrics {
+  contextPrecision?: number | null;
+  criticalContextRecall?: number | null;
+  reviewFindings?: number | null;
+  verificationCommands: string[];
+  taskOutcome?: string | null;
+  taskScore?: number | null;
+  taskFailureCategory?: string | null;
+  taskChangedFiles: string[];
+  taskConstraintViolations: number;
+}
+
+export interface CodingTaskEvalReport {
+  taskId: string;
+  taskType: string;
+  title: string;
+  outcome: string;
+  score: number;
+  failureCategory?: string | null;
+  diff: CodingTaskDiffSummary;
+  validation: CodingTaskValidationSummary;
+  review: CodingTaskReviewSummary;
+  context: CodingTaskContextSummary;
+  goal: CodingTaskGoalSummary;
+  checks: CodingTaskEvalCheckResult[];
+  metrics: Record<string, unknown>;
+}
+
+export interface CodingTaskDiffSummary {
+  changedFiles: string[];
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  diffBytes: number;
+}
+
+export interface CodingTaskValidationSummary {
+  commands: string[];
+  commandCount: number;
+  allowedCommandCount: number;
+  disallowedCommands: string[];
+}
+
+export interface CodingTaskReviewSummary {
+  requested: boolean;
+  findings: number;
+  blockingFindings: number;
+}
+
+export interface CodingTaskContextSummary {
+  requested: boolean;
+  candidates: number;
+  requiredContextRecall?: number | null;
+}
+
+export interface CodingTaskGoalSummary {
+  requested: boolean;
+  evaluated: boolean;
+  state?: string | null;
+  evidenceRelations: string[];
+}
+
+export interface CodingTaskEvalCheckResult {
+  name: string;
+  passed: boolean;
+  detail: string;
+  category: string;
+  severity: string;
+}
+
 export interface RecordCodingEvalRunInput {
   sessionId?: string | null;
   projectId?: string | null;

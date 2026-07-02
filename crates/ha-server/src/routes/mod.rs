@@ -10,6 +10,7 @@ pub mod browser;
 pub mod canvas;
 pub mod channel;
 pub mod chat;
+pub mod coding_eval;
 pub mod coding_improvement;
 pub mod config;
 pub mod context_retrieval;

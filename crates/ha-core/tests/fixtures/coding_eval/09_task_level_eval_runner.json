@@ -1,0 +1,145 @@
+{
+  "name": "task_level_eval_runner",
+  "description": "Task-level eval runner should score a candidate coding task result from diff, review, verification, context, goal audit, and eval-run recording.",
+  "task": {
+    "id": "CE-DOC-001",
+    "taskType": "doc_only",
+    "title": "Update task eval notes",
+    "source": "synthetic",
+    "prompt": "Update docs/notes.md with a short note that the task-level eval runner is active.",
+    "executionMode": "doc_only",
+    "expectedBehavior": [
+      "Change only docs/notes.md",
+      "Keep validation to the cheap diff sanity check"
+    ],
+    "forbiddenBehavior": [
+      "Do not edit source code",
+      "Do not run broad test suites"
+    ],
+    "likelyFiles": [
+      "docs/notes.md"
+    ],
+    "expectedArtifacts": [
+      "diff",
+      "validation"
+    ],
+    "requiresSeededState": false,
+    "allowedValidation": [
+      "git diff --check"
+    ],
+    "successCriteria": [
+      "docs/notes.md contains the task-level eval note",
+      "Verification plan selects git diff --check"
+    ]
+  },
+  "repo": {
+    "files": [
+      {
+        "path": "docs/notes.md",
+        "text": "# Notes\n\nInitial\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "docs/notes.md",
+        "text": "# Notes\n\nInitial\n\nTask eval runner updated documentation.\n"
+      }
+    ]
+  },
+  "setup": {
+    "goal": {
+      "objective": "Update task eval notes",
+      "completionCriteria": "The docs-only change is present and cheap validation is selected."
+    },
+    "tasks": [
+      {
+        "content": "Update docs/notes.md with the task eval note",
+        "activeForm": "Updating docs/notes.md",
+        "status": "completed"
+      }
+    ]
+  },
+  "runs": {
+    "review": {},
+    "verification": {},
+    "context": {
+      "query": "task eval notes",
+      "limit": 12
+    },
+    "task": {
+      "recordEvalRun": true,
+      "evaluateGoal": true
+    },
+    "improvement": {
+      "windowDays": 30
+    }
+  },
+  "checks": {
+    "review": {
+      "maxFindings": 0,
+      "expectFocused": false
+    },
+    "verification": {
+      "expectedCommands": [
+        "git diff --check"
+      ],
+      "expectFocused": false
+    },
+    "context": {
+      "minCriticalRecall": 1.0,
+      "minPrecision": 0.25,
+      "maxCandidates": 12,
+      "expectActionPaths": [
+        "docs/notes.md"
+      ],
+      "critical": [
+        {
+          "kind": "file",
+          "pathSuffix": "docs/notes.md"
+        },
+        {
+          "kind": "verification_step",
+          "titleContains": "Check diff whitespace"
+        }
+      ]
+    },
+    "task": {
+      "expectedOutcome": "pass",
+      "minScore": 1.0,
+      "expectedChangedFiles": [
+        "docs/notes.md"
+      ],
+      "forbiddenChangedFiles": [
+        "src/lib.rs"
+      ],
+      "requiredDiffContains": [
+        "Task eval runner updated documentation."
+      ],
+      "forbiddenDiffContains": [
+        "println!"
+      ],
+      "expectedValidationCommands": [
+        "git diff --check"
+      ],
+      "forbiddenValidationCommands": [
+        "cargo test --workspace"
+      ],
+      "maxChangedFiles": 1,
+      "requireReview": true,
+      "requireVerification": true,
+      "requireContext": true,
+      "requireGoalEvaluation": true,
+      "requiredContext": [
+        {
+          "kind": "file",
+          "pathSuffix": "docs/notes.md"
+        }
+      ]
+    },
+    "improvement": {
+      "expectedScope": "session",
+      "minEvalRuns": 1,
+      "expectEvalSuccessRate": 1.0
+    }
+  }
+}

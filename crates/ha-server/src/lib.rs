@@ -1409,6 +1409,11 @@ fn build_router_with_cors(
             "/review-findings/{id}/status",
             post(routes::review::update_review_finding_status),
         )
+        // Coding Eval task-level runner (Phase 5.1)
+        .route(
+            "/coding-eval/task-fixtures/run",
+            post(routes::coding_eval::run_coding_task_eval_fixture),
+        )
         // Coding trend report, improvement proposals, distillation, and promotion loop (Phase 3.11-4.4)
         .route(
             "/sessions/{sid}/coding-trend",

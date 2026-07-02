@@ -50,6 +50,7 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 4. **Phase 2.9：真正 `/loop`**。只做定时、重复、轮询或条件触发，复用 cron / wakeup / automation。
 5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context、Trend Report / Improvement Loop 已完成。
 6. **Phase 4：Learning Loop / Skill & Guidance 沉淀**。Phase 4.1 Proposal-to-Action、Phase 4.2 Draft Promotion + Workflow Retro、Phase 4.3 Dashboard 全局学习视图、Phase 4.4 Transcript Distillation + Failure Feedback 已完成：改进 proposal 可预览、应用成 eval / workflow / guidance / skill 草稿产物，并可显式晋升为正式 fixture / project guidance / active skill；Dashboard 可看全局 / 项目级 workflow、eval、review、verification、proposal、retro 趋势；Workspace 可显式从 transcript / workflow / failure feedback 提炼更高质量候选。
+7. **Phase 5：任务级评测与策略效果评估**。Phase 5.1 Task-level Eval Runner 已完成：可以用 fixture 准备候选 diff，调用真实 Review / Smart Verification / Context Retrieval / Goal evaluator，并按任务 schema 判分和记录 eval run；后续继续补真实 Agent execution runner、gold task 自动化扩张和策略效果对比。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -182,7 +183,7 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
 - LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置和 doctor。
 - 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness；Phase 3.8 已补齐 Workflow review/verify host API 与 Goal-aware eval；Phase 3.9 已补齐 bounded repair loop 自动化、受控 block 停机和 repair-loop eval；Phase 3.10 已补齐 LLM reviewer、review profiles、IDE/ACP 当前文件信号、symbol-context evidence 和 profile/IDE eval；Phase 3.11/4.1/4.2/4.3/4.4 已补齐趋势报告、proposal queue、proposal-to-action、retro、promotion、Dashboard 全局学习视图、transcript distillation 和 failure feedback。
-- 已有第一层 coding eval harness；仍缺完整任务级自动执行器、跨项目学习泛化和策略效果评估。
+- 已有第一层 coding eval harness 与 Phase 5.1 task-level scorer；仍缺真实 Agent 端到端执行器、跨项目学习泛化和策略效果评估。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
 ## 能力模型
@@ -643,7 +644,7 @@ StopPolicy
 
 状态：已完成。最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)，人工 gold task 体系继续见 [Coding Eval 体系方案](coding-eval.md)。
 
-目标：把 Review、Smart Verification、Context Retrieval、Goal、Task、Workflow 的协同质量纳入可自动回归的 deterministic harness，先守住控制面底座，再继续做 Workflow review/verify、repair loop 和完整任务级 eval。
+目标：把 Review、Smart Verification、Context Retrieval、Goal、Task、Workflow 的协同质量纳入可自动回归的 deterministic harness，先守住控制面底座，再继续做 Workflow review/verify、repair loop、task-level scorer 和真实 Agent execution eval。
 
 已完成：
 
@@ -651,13 +652,13 @@ StopPolicy
 - 集成测试 `cargo test -p ha-core --test coding_eval --locked`，加载 `crates/ha-core/tests/fixtures/coding_eval/*.json` 并聚合失败报告。
 - 三组首批 fixture：Rust 控制面召回、docs-only sanity、focused scope 不扫无关文件。
 - 断言 review finding、verification command、focused stats、context action path、`context_precision` 与 `critical_context_recall`。
-- 不调用 LLM、不执行真实验证命令、不访问网络，适合默认 CI 做稳定回归。
+- 不调用 LLM、不默认执行真实验证命令、不访问网络，适合默认 CI 做稳定回归；fixture 显式 `workflow.validate()` 时才执行受控验证命令。
 
 后续增强：
 
 - 增加 LSP diagnostics、Goal final audit / repair blocked fixture。
 - 输出可选 JSON/HTML eval 报告和趋势 dashboard。
-- 将人工 gold task 的 task-level 成功率与确定性控制面指标串联成 improvement loop。
+- Phase 5.1 已把候选 diff 的 task-level 成功率与确定性控制面指标串联成 improvement loop；后续补真实 Agent execution runner。
 
 ### Phase 3.8：Workflow Review/Verify Host API 与 Goal-aware Eval
 
@@ -762,9 +763,9 @@ StopPolicy
 
 ### 后续池：Learning Loop 与技能沉淀
 
-状态：Phase 4.4 Transcript Distillation + Failure Feedback 已完成；更高质量的跨项目通用化、自动评测集扩张和策略效果评估仍属后续增强。
+状态：Phase 4.4 Transcript Distillation + Failure Feedback 已完成；Phase 5.1 已先补 task-level eval runner；更高质量的跨项目通用化、自动评测集扩张和策略效果评估仍属后续增强。
 
-目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，Phase 4.2 已补上 terminal workflow retro 与人工显式 promotion，Phase 4.3 已补上全局 / 项目级学习 Dashboard，Phase 4.4 已补上显式 transcript/workflow/failure feedback 蒸馏，后续继续增强跨项目泛化和策略效果评估。
+目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，Phase 4.2 已补上 terminal workflow retro 与人工显式 promotion，Phase 4.3 已补上全局 / 项目级学习 Dashboard，Phase 4.4 已补上显式 transcript/workflow/failure feedback 蒸馏，Phase 5.1 已补上候选 diff 的任务级判分，后续继续增强真实任务自动执行、跨项目泛化和策略效果评估。
 
 已落地：
 
@@ -784,18 +785,47 @@ StopPolicy
 - Workspace 质量趋势区块新增「提炼候选」动作；蒸馏候选仍走同一 proposal 队列和 preview/apply/promotion 安全链路。
 - `improvement_proposal_to_action` fixture 覆盖 proposal-to-action 回归。
 - `improvement_retro_and_promotion` fixture 覆盖 retro 与 promotion 回归。
+- `task_level_eval_runner` fixture 覆盖任务级 scorer：changed files、required / forbidden diff、验证命令、review/context/goal 证据和 eval run 记录。
 - `dashboard::coding_improvement` 单元测试覆盖项目 rollup 与 incognito 排除。
 
 后续任务：
 
+- 真实 Agent execution runner：在隔离 worktree 内从 task prompt 开始执行，再把候选结果交给 Phase 5.1 scorer。
+- Gold task pack 自动化：把 Phase 0 的 20 个任务逐步转为可准备、可回放、可判分的 fixture。
 - 成功 transcript 可抽取更高质量 workflow skill 草稿。
 - 常见 failure mode 反哺工具描述、workflow policy、project guidance。
 - Dashboard 继续补 review catch rate、slow tools、cache invalidators、approval stalls 等更细诊断。
 
 产物：
 
-- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；后续补更强 distillation 设计与 failure feedback 反哺设计。
+- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；后续补更强 distillation 设计、failure feedback 反哺设计与策略效果评估设计。
+- [Coding Eval 控制面评测](../architecture/coding-eval.md) 已记录 Phase 5.1 task-level eval runner。
 - eval / workflow / guidance / skill draft generator。
+
+### Phase 5.1：Task-level Eval Runner（已完成）
+
+目标：把“候选代码改动是否真的完成任务”从人工记录推进到可回归的确定性 runner，为后续真实 Agent execution benchmark 打底。
+
+已落地：
+
+- `fixture.task` 任务级 schema：任务 id、类型、提示词、期望/禁止行为、预期产物、允许验证和成功标准。
+- `runs.task` 执行开关：默认刷新 Goal evaluator，并把结果记录到 `coding_eval_runs(suite='task_level_coding_eval')`。
+- `checks.task` 判分断言：期望 outcome / 最低分、必须/禁止改动文件、必须/禁止 diff 片段、必须/禁止验证命令、最大改动文件数、review / verification / context / goal 要求、必召回上下文。
+- 输出 `CodingTaskEvalReport`：`pass` / `partial` / `fail` / `blocked`、score、failure category、diff summary、validation summary、review summary、context recall、goal evidence 和逐项 checks。
+- Owner API 已接通 Tauri / HTTP / Transport：`run_coding_task_eval_fixture` / `POST /api/coding-eval/task-fixtures/run`。
+- `task_level_eval_runner` fixture 覆盖 docs-only 候选 diff、cheap validation、context recall、Goal evaluation、eval run 记录和 Improvement Loop 消费。
+
+明确不包含：
+
+- 不调用 LLM。
+- 不让真实 Agent 从 prompt 开始自动执行任务。
+- 不默认执行项目验证命令；只有 fixture 显式 workflow validation 时才执行。
+
+下一步：
+
+- Phase 5.2：真实 Agent Execution Runner，在 managed worktree / temp repo 中驱动 Agent 完成 task prompt，再复用 Phase 5.1 scorer。
+- Phase 5.3：Gold Task Pack 自动化，把首批 20 个任务逐步转成可回放 fixture。
+- Phase 5.4：策略效果评估，对比 workflow policy、skill/guidance、tool contract 改动前后的通过率、验证质量和 scope creep。
 
 ## 30 天首个里程碑
 
@@ -806,7 +836,7 @@ StopPolicy
 3. 已让 workflow run 可选绑定 goal，repair run 不丢 goal 归属。
 4. 已让 workflow completion / validation / task evidence 回写 goal audit；validation / diff / file evidence 第一层结构化 link 已落地，Review Engine evidence 与 Smart Verification evidence 已落地，artifact/diagnostic 接入后续补。
 5. 已做第一版 goal evaluator，能输出 completed / blocked + reason。
-6. 已更新 Phase 3.7 coding eval：新增确定性控制面 fixture，验证 review / verification / context / goal / task / workflow 协同；后续再新增 goal-driven 长任务和 final audit 场景。
+6. 已更新 Coding Eval：Phase 3.7 验证 review / verification / context / goal / task / workflow 协同，Phase 5.1 增加 task-level scorer；后续再新增真实 Agent execution 场景。
 7. `/loop` 第一版已落地；后续增强放到 Phase 3+ 或独立 RFC。
 
 ## 验收指标
@@ -870,7 +900,7 @@ StopPolicy
 8. [Review Engine 控制平面](../architecture/review-engine.md)：diff scan、candidate、verifier、inline finding 与 Goal evidence。
 9. [Smart Verification 控制平面](../architecture/verification-engine.md)：最小验证选择、后台低风险执行、Goal validation evidence 与 Workspace 验证区块。
 10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐与行动入口、file search v2、LSP symbols、diff/artifact/review/verification/goal/task/workflow 聚合、focused review / verification。
-11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall 与控制面回归。
+11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall、控制面回归与 Phase 5.1 task-level eval runner。
 12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列、proposal-to-action、workflow retro、draft promotion、Dashboard 全局学习视图、Transcript Distillation 与 Failure Feedback；后续继续设计跨项目学习泛化、自动评测集扩张和策略效果评估。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。
