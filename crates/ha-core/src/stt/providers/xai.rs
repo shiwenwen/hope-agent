@@ -115,15 +115,16 @@ async fn build_multipart_form(
         .mime_str(&mime_type)
         .map_err(|e| SttError::UnsupportedAudio(format!("MIME {mime_type:?} rejected: {e}")))?;
 
-    let mut form = reqwest::multipart::Form::new()
-        .part("file", part)
-        .text("model", model.id.clone());
-
+    // xAI's STT docs require the `file` part to be appended AFTER all other
+    // multipart fields, so build `model` / `language` first and add the
+    // audio part last.
+    let mut form = reqwest::multipart::Form::new().text("model", model.id.clone());
     if let Some(lang) = &options.language {
         if !lang.is_empty() {
             form = form.text("language", lang.clone());
         }
     }
+    form = form.part("file", part);
 
     Ok(form)
 }
