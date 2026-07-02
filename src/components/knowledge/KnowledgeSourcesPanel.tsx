@@ -52,6 +52,14 @@ interface KnowledgeSourcesPanelProps {
 
 type ImportMode = "url" | "text" | "file"
 
+interface SourceFileDraft {
+  file: File
+  kind: KnowledgeSourceKind
+}
+
+const SOURCE_FILE_ACCEPT =
+  ".md,.markdown,.txt,.pdf,.docx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
 export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -63,7 +71,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
   const [text, setText] = useState("")
-  const [fileName, setFileName] = useState("")
+  const [fileDrafts, setFileDrafts] = useState<SourceFileDraft[]>([])
   const [selected, setSelected] = useState<KnowledgeSourceReadResult | null>(null)
   const [reading, setReading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeSource | null>(null)
@@ -112,14 +120,15 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const canImport = useMemo(() => {
     if (!kbId || importing) return false
     if (mode === "url") return url.trim().length > 0
+    if (mode === "file") return fileDrafts.length > 0
     return text.trim().length > 0
-  }, [importing, kbId, mode, text, url])
+  }, [fileDrafts.length, importing, kbId, mode, text, url])
 
   function resetImport() {
     setTitle("")
     setUrl("")
     setText("")
-    setFileName("")
+    setFileDrafts([])
     setMode("url")
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
@@ -127,20 +136,55 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   async function importSource() {
     if (!kbId || !canImport) return
     setImporting(true)
-    const input: KnowledgeSourceImportInput =
-      mode === "url"
-        ? { url: url.trim(), title: title.trim() || null, kind: "url_snapshot" }
-        : {
-            content: text,
-            title: title.trim() || null,
-            fileName: fileName || null,
-            kind: mode === "file" ? inferKind(fileName) : "text",
-          }
     try {
-      await getTransport().call<KnowledgeSource>("kb_source_import_cmd", { kbId, input })
-      toast.success(t("knowledge.sources.imported", "Source imported"))
-      setImportOpen(false)
-      resetImport()
+      if (mode === "file") {
+        const failed: SourceFileDraft[] = []
+        let imported = 0
+        const singleTitle = fileDrafts.length === 1 ? title.trim() || null : null
+        for (const draft of fileDrafts) {
+          try {
+            const input = await inputForFileDraft(draft, singleTitle)
+            await getTransport().call<KnowledgeSource>("kb_source_import_cmd", { kbId, input })
+            imported += 1
+          } catch (e) {
+            logger.warn("knowledge", "KnowledgeSourcesPanel::import", "source file import failed", e)
+            failed.push(draft)
+          }
+        }
+        if (imported > 0) {
+          toast.success(
+            t("knowledge.sources.importedCount", {
+              defaultValue: "Imported {{count}} sources",
+              count: imported,
+            }),
+          )
+        }
+        if (failed.length > 0) {
+          setFileDrafts(failed)
+          toast.error(
+            t("knowledge.sources.importFailedCount", {
+              defaultValue: "Couldn't import {{count}} sources",
+              count: failed.length,
+            }),
+          )
+        } else {
+          setImportOpen(false)
+          resetImport()
+        }
+      } else {
+        const input: KnowledgeSourceImportInput =
+          mode === "url"
+            ? { url: url.trim(), title: title.trim() || null, kind: "url_snapshot" }
+            : {
+                content: text,
+                title: title.trim() || null,
+                kind: "text",
+              }
+        await getTransport().call<KnowledgeSource>("kb_source_import_cmd", { kbId, input })
+        toast.success(t("knowledge.sources.imported", "Source imported"))
+        setImportOpen(false)
+        resetImport()
+      }
       await reload()
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::import", "source import failed", e)
@@ -216,18 +260,14 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     setCompileOpen(true)
   }
 
-  async function onPickFile(file: File | null) {
-    if (!file) return
-    try {
-      const content = await file.text()
-      setMode("file")
-      setFileName(file.name)
-      setTitle((v) => v || stripExt(file.name))
-      setText(content)
-    } catch (e) {
-      logger.warn("knowledge", "KnowledgeSourcesPanel::file", "file read failed", e)
-      toast.error(t("knowledge.sources.fileReadFailed", "Couldn't read file"))
-    }
+  function onPickFiles(files: FileList | null) {
+    const picked = Array.from(files ?? [])
+    if (picked.length === 0) return
+    if (fileInputRef.current) fileInputRef.current.value = ""
+    const drafts = picked.map((file) => ({ file, kind: inferKind(file.name) }))
+    setMode("file")
+    setFileDrafts(drafts)
+    setTitle((v) => (picked.length === 1 ? v || stripExt(picked[0].name) : v))
   }
 
   const selectedIdsInOrder = sources
@@ -333,6 +373,8 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                     </span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
                       <span>{formatBytes(source.size)}</span>
+                      <span>·</span>
+                      <span>{sourceKindLabel(source.kind)}</span>
                       <span>·</span>
                       <span>{source.chunkCount}</span>
                       <span>·</span>
@@ -440,9 +482,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept=".md,.markdown,.txt,text/markdown,text/plain"
+                  multiple
+                  accept={SOURCE_FILE_ACCEPT}
                   className="hidden"
-                  onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => onPickFiles(e.target.files)}
                 />
                 <Button
                   type="button"
@@ -451,14 +494,24 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <Upload className="h-3.5 w-3.5" />
-                  {t("knowledge.sources.chooseFile", "Choose file")}
+                  {t("knowledge.sources.chooseFile", "Choose files")}
                 </Button>
-                {fileName ? (
-                  <div className="rounded-md border border-border-soft/60 px-3 py-2 text-xs">
-                    <div className="truncate font-medium">{fileName}</div>
-                    <div className="mt-1 text-muted-foreground">
-                      {formatBytes(new Blob([text]).size)}
-                    </div>
+                {fileDrafts.length > 0 ? (
+                  <div className="max-h-48 overflow-auto rounded-md border border-border-soft/60 text-xs">
+                    {fileDrafts.map((draft) => (
+                      <div
+                        key={`${draft.file.name}-${draft.file.lastModified}-${draft.file.size}`}
+                        className="flex min-w-0 items-center gap-2 border-b border-border-soft/40 px-3 py-2 last:border-b-0"
+                      >
+                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">{draft.file.name}</div>
+                          <div className="mt-0.5 text-muted-foreground">
+                            {sourceKindLabel(draft.kind)} · {formatBytes(draft.file.size)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </TabsContent>
@@ -517,7 +570,75 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
 
 function inferKind(fileName: string): KnowledgeSourceKind {
   const lower = fileName.toLowerCase()
-  return lower.endsWith(".md") || lower.endsWith(".markdown") ? "markdown" : "text"
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "markdown"
+  if (lower.endsWith(".pdf")) return "pdf"
+  if (lower.endsWith(".docx")) return "docx"
+  return "text"
+}
+
+async function inputForFileDraft(
+  draft: SourceFileDraft,
+  title: string | null,
+): Promise<KnowledgeSourceImportInput> {
+  const mimeType = draft.file.type || defaultMimeType(draft.kind)
+  if (draft.kind === "pdf" || draft.kind === "docx") {
+    return {
+      kind: draft.kind,
+      title,
+      fileName: draft.file.name,
+      mimeType,
+      dataBase64: await fileToBase64(draft.file),
+    }
+  }
+  return {
+    kind: draft.kind,
+    title,
+    fileName: draft.file.name,
+    mimeType,
+    content: await draft.file.text(),
+  }
+}
+
+function defaultMimeType(kind: KnowledgeSourceKind): string {
+  switch (kind) {
+    case "markdown":
+      return "text/markdown"
+    case "pdf":
+      return "application/pdf"
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    case "url_snapshot":
+      return "text/markdown"
+    case "text":
+    default:
+      return "text/plain"
+  }
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const chunks: string[] = []
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + chunkSize)))
+  }
+  return btoa(chunks.join(""))
+}
+
+function sourceKindLabel(kind: KnowledgeSourceKind): string {
+  switch (kind) {
+    case "markdown":
+      return "Markdown"
+    case "pdf":
+      return "PDF"
+    case "docx":
+      return "DOCX"
+    case "url_snapshot":
+      return "URL"
+    case "text":
+    default:
+      return "Text"
+  }
 }
 
 function stripExt(fileName: string): string {

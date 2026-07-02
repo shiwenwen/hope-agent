@@ -6,8 +6,10 @@
 //! `note_chunk`, so raw material never pollutes compiled-note retrieval.
 
 use anyhow::{anyhow, bail, Result};
+use base64::{engine::general_purpose, Engine as _};
 use futures_util::StreamExt;
 use serde_json::Value;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
@@ -17,6 +19,10 @@ use super::types::{
 };
 
 const MAX_DIRECT_SOURCE_BYTES: usize = 5 * 1024 * 1024;
+/// Decoded bytes accepted for uploaded PDF/DOCX source imports. HTTP routes
+/// add a larger JSON body cap for base64 expansion, but this is the real
+/// product limit.
+pub const MAX_BINARY_SOURCE_BYTES: usize = 24 * 1024 * 1024;
 const MAX_URL_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const SOURCE_CHUNK_CHARS: usize = 4_000;
 const USER_AGENT: &str =
@@ -26,7 +32,8 @@ fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
     crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
 }
 
-/// Import one raw source into a KB. Exactly one of `content` or `url` is used.
+/// Import one raw source into a KB. Exactly one of `content`, `dataBase64`, or
+/// `url` is used.
 pub async fn import_source(
     kb_id: &str,
     input: KnowledgeSourceImportInput,
@@ -48,6 +55,13 @@ pub async fn import_source(
             file_name,
             content,
         } => import_text_snapshot(kb_id, kind, title, file_name, content)?,
+        NormalizedImport::File {
+            kind,
+            title,
+            file_name,
+            mime_type,
+            bytes,
+        } => import_file_snapshot(kb_id, kind, title, file_name, mime_type, bytes)?,
     };
 
     emit(kb_id, "source_import");
@@ -122,9 +136,58 @@ fn import_text_snapshot(
     let title = choose_title(title, file_name.as_deref(), None);
     let ext = match kind {
         KnowledgeSourceKind::Markdown => "md",
+        KnowledgeSourceKind::Pdf | KnowledgeSourceKind::Docx => "md",
         KnowledgeSourceKind::Text | KnowledgeSourceKind::UrlSnapshot => "txt",
     };
     persist_source(kb_id, kind, title, None, ext, content)
+}
+
+fn import_file_snapshot(
+    kb_id: &str,
+    kind: KnowledgeSourceKind,
+    title: Option<String>,
+    file_name: Option<String>,
+    mime_type: Option<String>,
+    bytes: Vec<u8>,
+) -> Result<KnowledgeSource> {
+    if bytes.len() > MAX_BINARY_SOURCE_BYTES {
+        bail!(
+            "source file is too large ({} bytes, max {})",
+            bytes.len(),
+            MAX_BINARY_SOURCE_BYTES
+        );
+    }
+
+    let title = choose_title(title, file_name.as_deref(), None);
+    match kind {
+        KnowledgeSourceKind::Markdown | KnowledgeSourceKind::Text => {
+            let content = String::from_utf8_lossy(&bytes).to_string();
+            import_text_snapshot(kb_id, kind, Some(title), file_name, content)
+        }
+        KnowledgeSourceKind::Pdf | KnowledgeSourceKind::Docx => {
+            let file_name = file_name.unwrap_or_else(|| default_file_name(kind).to_string());
+            let mime = mime_type.unwrap_or_else(|| default_mime_type(kind).to_string());
+            let extracted = extract_uploaded_document(kind, &file_name, &mime, &bytes)?;
+            let imported_at = chrono::Utc::now().to_rfc3339();
+            let mut snapshot = format!(
+                "# {title}\n\nSource: {file_name}\nImported: {imported_at}\nSource-Type: {}\nContent-Type: {mime}\nOriginal-Bytes: {}\n\n---\n\n",
+                kind.as_str(),
+                bytes.len()
+            );
+            snapshot.push_str(extracted.trim());
+            snapshot.push('\n');
+
+            persist_source(
+                kb_id,
+                kind,
+                title,
+                Some(format!("local-file:{file_name}")),
+                "md",
+                snapshot,
+            )
+        }
+        KnowledgeSourceKind::UrlSnapshot => bail!("url_snapshot source imports require url"),
+    }
 }
 
 enum NormalizedImport {
@@ -138,31 +201,119 @@ enum NormalizedImport {
         file_name: Option<String>,
         content: String,
     },
+    File {
+        kind: KnowledgeSourceKind,
+        title: Option<String>,
+        file_name: Option<String>,
+        mime_type: Option<String>,
+        bytes: Vec<u8>,
+    },
 }
 
 fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<NormalizedImport> {
     let url = normalize_optional_owned(input.url);
     let content = normalize_content_owned(input.content);
-    match (url, content) {
-        (Some(url), None) => Ok(NormalizedImport::Url {
+    let data_base64 = normalize_optional_owned(input.data_base64);
+    let supplied = url.is_some() as u8 + content.is_some() as u8 + data_base64.is_some() as u8;
+    if supplied != 1 {
+        bail!("source import accepts exactly one of content, dataBase64, or url");
+    }
+
+    if let Some(url) = url {
+        return Ok(NormalizedImport::Url {
             url,
             title: input.title,
-        }),
-        (None, Some(content)) => {
-            let kind = input.kind.unwrap_or_else(|| infer_kind(&input.file_name));
-            if matches!(kind, KnowledgeSourceKind::UrlSnapshot) {
-                bail!("url_snapshot source imports require url");
-            }
-            Ok(NormalizedImport::Content {
-                kind,
-                title: input.title,
-                file_name: input.file_name,
-                content,
-            })
-        }
-        (Some(_), Some(_)) => bail!("source import accepts either content or url, not both"),
-        (None, None) => bail!("source import requires content or url"),
+        });
     }
+
+    if let Some(content) = content {
+        let kind = input.kind.unwrap_or_else(|| infer_kind(&input.file_name));
+        if matches!(kind, KnowledgeSourceKind::UrlSnapshot) {
+            bail!("url_snapshot source imports require url");
+        }
+        if matches!(kind, KnowledgeSourceKind::Pdf | KnowledgeSourceKind::Docx) {
+            bail!("pdf/docx source imports require dataBase64");
+        }
+        return Ok(NormalizedImport::Content {
+            kind,
+            title: input.title,
+            file_name: input.file_name,
+            content,
+        });
+    }
+
+    let data_base64 = data_base64.expect("checked exactly one import payload");
+    let kind = input.kind.unwrap_or_else(|| infer_kind(&input.file_name));
+    if matches!(kind, KnowledgeSourceKind::UrlSnapshot) {
+        bail!("url_snapshot source imports require url");
+    }
+    let bytes = decode_base64_source(&data_base64)?;
+    Ok(NormalizedImport::File {
+        kind,
+        title: input.title,
+        file_name: input.file_name,
+        mime_type: normalize_optional_owned(input.mime_type),
+        bytes,
+    })
+}
+
+fn decode_base64_source(raw: &str) -> Result<Vec<u8>> {
+    let encoded = raw
+        .trim()
+        .split_once(',')
+        .filter(|(prefix, _)| prefix.trim_start().starts_with("data:"))
+        .map(|(_, payload)| payload)
+        .unwrap_or_else(|| raw.trim());
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| anyhow!("invalid source file base64: {e}"))?;
+    if bytes.is_empty() {
+        bail!("source file is empty");
+    }
+    if bytes.len() > MAX_BINARY_SOURCE_BYTES {
+        bail!(
+            "source file is too large ({} bytes, max {})",
+            bytes.len(),
+            MAX_BINARY_SOURCE_BYTES
+        );
+    }
+    Ok(bytes)
+}
+
+fn extract_uploaded_document(
+    kind: KnowledgeSourceKind,
+    file_name: &str,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<String> {
+    let suffix = match kind {
+        KnowledgeSourceKind::Pdf => ".pdf",
+        KnowledgeSourceKind::Docx => ".docx",
+        _ => bail!("only PDF and DOCX source files require extraction"),
+    };
+    let mut tmp = tempfile::Builder::new()
+        .prefix("ha_kb_source_")
+        .suffix(suffix)
+        .tempfile()?;
+    tmp.write_all(bytes)?;
+    tmp.flush()?;
+
+    let path = tmp.path().to_string_lossy().to_string();
+    let extracted = crate::file_extract::extract(&path, file_name, mime_type);
+    let Some(text) = extracted.text else {
+        bail!("source file has no extractable text");
+    };
+    if let Some(msg) = text
+        .strip_prefix("[Error extracting content:")
+        .and_then(|s| s.strip_suffix(']'))
+    {
+        bail!("source file extraction failed: {}", msg.trim());
+    }
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        bail!("source file has no extractable text");
+    }
+    Ok(text)
 }
 
 async fn import_url_snapshot(
@@ -384,12 +535,36 @@ fn infer_kind(file_name: &Option<String>) -> KnowledgeSourceKind {
     let Some(name) = file_name.as_deref() else {
         return KnowledgeSourceKind::Text;
     };
-    if name.to_ascii_lowercase().ends_with(".md")
-        || name.to_ascii_lowercase().ends_with(".markdown")
-    {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".md") || lower.ends_with(".markdown") {
         KnowledgeSourceKind::Markdown
+    } else if lower.ends_with(".pdf") {
+        KnowledgeSourceKind::Pdf
+    } else if lower.ends_with(".docx") {
+        KnowledgeSourceKind::Docx
     } else {
         KnowledgeSourceKind::Text
+    }
+}
+
+fn default_file_name(kind: KnowledgeSourceKind) -> &'static str {
+    match kind {
+        KnowledgeSourceKind::Pdf => "source.pdf",
+        KnowledgeSourceKind::Docx => "source.docx",
+        KnowledgeSourceKind::Markdown => "source.md",
+        KnowledgeSourceKind::UrlSnapshot => "source.md",
+        KnowledgeSourceKind::Text => "source.txt",
+    }
+}
+
+fn default_mime_type(kind: KnowledgeSourceKind) -> &'static str {
+    match kind {
+        KnowledgeSourceKind::Pdf => "application/pdf",
+        KnowledgeSourceKind::Docx => {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }
+        KnowledgeSourceKind::Markdown | KnowledgeSourceKind::UrlSnapshot => "text/markdown",
+        KnowledgeSourceKind::Text => "text/plain",
     }
 }
 
@@ -498,13 +673,16 @@ fn emit(kb_id: &str, op: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose, Engine as _};
 
     fn input() -> KnowledgeSourceImportInput {
         KnowledgeSourceImportInput {
             kind: None,
             title: None,
             file_name: None,
+            mime_type: None,
             content: None,
+            data_base64: None,
             url: None,
         }
     }
@@ -541,5 +719,56 @@ mod tests {
         req.content = Some("body".to_string());
 
         assert!(normalize_import_input(req).is_err());
+    }
+
+    #[test]
+    fn normalize_import_rejects_pdf_content_without_file_bytes() {
+        let mut req = input();
+        req.kind = Some(KnowledgeSourceKind::Pdf);
+        req.file_name = Some("paper.pdf".to_string());
+        req.content = Some("plain text pretending to be extracted pdf".to_string());
+
+        assert!(normalize_import_input(req).is_err());
+    }
+
+    #[test]
+    fn normalize_import_accepts_uploaded_pdf_bytes() {
+        let mut req = input();
+        req.file_name = Some("paper.pdf".to_string());
+        req.mime_type = Some("application/pdf".to_string());
+        req.data_base64 = Some(general_purpose::STANDARD.encode(b"%PDF"));
+
+        let NormalizedImport::File {
+            kind,
+            file_name,
+            mime_type,
+            bytes,
+            ..
+        } = normalize_import_input(req).expect("valid file import")
+        else {
+            panic!("expected file import");
+        };
+
+        assert_eq!(kind, KnowledgeSourceKind::Pdf);
+        assert_eq!(file_name.as_deref(), Some("paper.pdf"));
+        assert_eq!(mime_type.as_deref(), Some("application/pdf"));
+        assert_eq!(bytes, b"%PDF");
+    }
+
+    #[test]
+    fn decode_base64_source_accepts_data_url_prefix() {
+        let encoded = format!(
+            "data:application/pdf;base64,{}",
+            general_purpose::STANDARD.encode(b"hello")
+        );
+        assert_eq!(decode_base64_source(&encoded).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn infer_kind_detects_docx() {
+        assert_eq!(
+            infer_kind(&Some("Brief.DOCX".to_string())),
+            KnowledgeSourceKind::Docx
+        );
     }
 }

@@ -72,14 +72,16 @@ export interface ReferenceableNote {
   title: string
 }
 
-export type KnowledgeSourceKind = "markdown" | "text" | "url_snapshot"
+export type KnowledgeSourceKind = "markdown" | "text" | "pdf" | "docx" | "url_snapshot"
 export type KnowledgeSourceStatus = "ready" | "failed"
 
 export interface KnowledgeSourceImportInput {
   kind?: KnowledgeSourceKind | null
   title?: string | null
   fileName?: string | null
+  mimeType?: string | null
   content?: string | null
+  dataBase64?: string | null
   url?: string | null
 }
 

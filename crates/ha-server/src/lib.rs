@@ -276,7 +276,11 @@ fn build_router_with_cors(
         )
         .route(
             "/knowledge/{kb_id}/sources",
-            get(routes::knowledge::kb_source_list).post(routes::knowledge::kb_source_import),
+            get(routes::knowledge::kb_source_list)
+                .post(routes::knowledge::kb_source_import)
+                .layer(DefaultBodyLimit::max(
+                    (ha_core::knowledge::source::MAX_BINARY_SOURCE_BYTES * 4 / 3) + 2 * 1024 * 1024,
+                )),
         )
         .route(
             "/knowledge/{kb_id}/sources/{source_id}",

@@ -200,6 +200,8 @@ pub struct ReferenceableNote {
 pub enum KnowledgeSourceKind {
     Markdown,
     Text,
+    Pdf,
+    Docx,
     UrlSnapshot,
 }
 
@@ -208,6 +210,8 @@ impl KnowledgeSourceKind {
         match self {
             KnowledgeSourceKind::Markdown => "markdown",
             KnowledgeSourceKind::Text => "text",
+            KnowledgeSourceKind::Pdf => "pdf",
+            KnowledgeSourceKind::Docx => "docx",
             KnowledgeSourceKind::UrlSnapshot => "url_snapshot",
         }
     }
@@ -215,6 +219,8 @@ impl KnowledgeSourceKind {
     pub fn from_str_lenient(s: &str) -> KnowledgeSourceKind {
         match s {
             "markdown" => KnowledgeSourceKind::Markdown,
+            "pdf" => KnowledgeSourceKind::Pdf,
+            "docx" => KnowledgeSourceKind::Docx,
             "url_snapshot" | "urlSnapshot" | "url" => KnowledgeSourceKind::UrlSnapshot,
             _ => KnowledgeSourceKind::Text,
         }
@@ -261,7 +267,11 @@ pub struct KnowledgeSourceImportInput {
     #[serde(default)]
     pub file_name: Option<String>,
     #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub data_base64: Option<String>,
     #[serde(default)]
     pub url: Option<String>,
 }
