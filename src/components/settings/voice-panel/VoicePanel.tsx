@@ -147,6 +147,8 @@ const KIND_EXTRA_SCHEMA: Record<SttProviderKind, ExtraField[]> = {
   "openai-transcriptions": [],
   "openai-compatible": [],
   "openai-chat-completions-asr": [],
+  "elevenlabs-stt": [],
+  "xai-stt": [],
   "deepgram-ws": [],
   "assemblyai-ws": [],
   "azure-ws": [

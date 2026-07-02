@@ -49,13 +49,15 @@ pub struct SttConfig {
 
 ## Provider 抽象（`SttProviderKind`）
 
-8 个 wire 协议变体，`engine` 按 kind 分发到对应 `providers/*` 实现：
+10 个 wire 协议变体，`engine` 按 kind 分发到对应 `providers/*` 实现：
 
 | 变体 | 协议 | 流式 | Batch | 典型 |
 |---|---|---|---|---|
 | `OpenaiTranscriptions` | HTTP multipart `/v1/audio/transcriptions` | ✗ | ✓ | OpenAI Whisper |
-| `OpenaiCompatible` | HTTP multipart | 视上游 | ✓ | Groq / 四个本地后端 / StepFun / SiliconFlow |
+| `OpenaiCompatible` | HTTP multipart | 视上游 | ✓ | Groq / Mistral Voxtral / DeepInfra / 四个本地后端 / StepFun / SiliconFlow |
 | `OpenaiChatCompletionsAsr` | HTTP JSON（chat/completions + input_audio） | ✗ | ✓ | DashScope Qwen3-ASR / gpt-4o-audio |
+| `ElevenlabsStt` | HTTP multipart `/v1/speech-to-text`（`model_id` + `xi-api-key`） | ✗ | ✓ | ElevenLabs Scribe v2 |
+| `XaiStt` | HTTP multipart `/v1/stt`（`model` + Bearer） | ✗ | ✓ | xAI Grok STT |
 | `DeepgramWs` | WebSocket 二进制 | ✓ | ✗ | Deepgram realtime |
 | `AssemblyaiWs` | WebSocket 二进制 | ✓ | ✗ | AssemblyAI realtime |
 | `AzureWs` | WebSocket（USP 协议） | ✓ | ✗ | Azure Speech |
@@ -165,6 +167,6 @@ STT 归「**强制留 GUI 的例外**」同类（凭据安全）：
 | [`crates/ha-core/src/stt/local.rs`](../../crates/ha-core/src/stt/local.rs) | 4 本地后端 catalog + probe + upsert |
 | [`crates/ha-core/src/stt/session.rs`](../../crates/ha-core/src/stt/session.rs) | `SttSessionManager` + `stt:*` 事件 + idle GC |
 | [`crates/ha-core/src/stt/crud.rs`](../../crates/ha-core/src/stt/crud.rs) | 唯一写入口 + `check_batch_capable` |
-| [`crates/ha-core/src/stt/providers/`](../../crates/ha-core/src/stt/providers/) | 8 协议实现 + 共享 batch / WS helper |
+| [`crates/ha-core/src/stt/providers/`](../../crates/ha-core/src/stt/providers/) | 10 协议实现 + 共享 batch / WS helper |
 | [`src-tauri/src/commands/stt.rs`](../../src-tauri/src/commands/stt.rs) | 20 Tauri 命令（unmasked） |
 | [`crates/ha-server/src/routes/stt.rs`](../../crates/ha-server/src/routes/stt.rs) | 17 HTTP 路由（masked） |

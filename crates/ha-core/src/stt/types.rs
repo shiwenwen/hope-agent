@@ -50,6 +50,14 @@ pub enum SttProviderKind {
     VolcengineWs,
     /// iFlytek IAT WebSocket with hmac-sha256 signed URL.
     XunfeiWs,
+    /// ElevenLabs Scribe batch transcription (`POST /v1/speech-to-text`,
+    /// multipart with a `model_id` field and `xi-api-key` auth header — not
+    /// OpenAI-shaped, so it needs its own batch provider).
+    ElevenlabsStt,
+    /// xAI Grok STT batch transcription (`POST /v1/stt`, multipart with a
+    /// `model` field and Bearer auth — a custom REST wire, not OpenAI's
+    /// `/v1/audio/transcriptions`).
+    XaiStt,
 }
 
 impl SttProviderKind {
@@ -63,6 +71,8 @@ impl SttProviderKind {
             SttProviderKind::AzureWs => "wss://westus.stt.speech.microsoft.com",
             SttProviderKind::VolcengineWs => "wss://openspeech.bytedance.com",
             SttProviderKind::XunfeiWs => "wss://iat-api.xfyun.cn",
+            SttProviderKind::ElevenlabsStt => "https://api.elevenlabs.io",
+            SttProviderKind::XaiStt => "https://api.x.ai",
         }
     }
 
@@ -74,7 +84,10 @@ impl SttProviderKind {
     pub fn supports_streaming(&self) -> bool {
         !matches!(
             self,
-            SttProviderKind::OpenaiTranscriptions | SttProviderKind::OpenaiChatCompletionsAsr
+            SttProviderKind::OpenaiTranscriptions
+                | SttProviderKind::OpenaiChatCompletionsAsr
+                | SttProviderKind::ElevenlabsStt
+                | SttProviderKind::XaiStt
         )
     }
 
@@ -85,7 +98,10 @@ impl SttProviderKind {
     pub fn uses_multipart_upload(&self) -> bool {
         matches!(
             self,
-            SttProviderKind::OpenaiTranscriptions | SttProviderKind::OpenaiCompatible
+            SttProviderKind::OpenaiTranscriptions
+                | SttProviderKind::OpenaiCompatible
+                | SttProviderKind::ElevenlabsStt
+                | SttProviderKind::XaiStt
         )
     }
 
@@ -100,6 +116,8 @@ impl SttProviderKind {
             SttProviderKind::OpenaiTranscriptions
                 | SttProviderKind::OpenaiCompatible
                 | SttProviderKind::OpenaiChatCompletionsAsr
+                | SttProviderKind::ElevenlabsStt
+                | SttProviderKind::XaiStt
         )
     }
 
@@ -113,6 +131,8 @@ impl SttProviderKind {
             SttProviderKind::AzureWs => "Azure Speech",
             SttProviderKind::VolcengineWs => "Volcengine",
             SttProviderKind::XunfeiWs => "iFlytek IAT",
+            SttProviderKind::ElevenlabsStt => "ElevenLabs Scribe",
+            SttProviderKind::XaiStt => "xAI Grok STT",
         }
     }
 }

@@ -27,8 +27,10 @@ pub mod assemblyai;
 pub mod azure;
 pub mod chat_completions_asr;
 pub mod deepgram;
+pub mod elevenlabs;
 pub mod openai;
 pub mod volcengine;
+pub mod xai;
 pub mod xunfei;
 
 /// WS frame caps shared across every WS provider, matching the
