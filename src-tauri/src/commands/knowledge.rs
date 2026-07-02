@@ -14,7 +14,8 @@ use ha_core::knowledge::{
     KnowledgeAgentExpandResult, KnowledgeAgentReadInput, KnowledgeAgentReadResult,
     KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
     KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
-    KnowledgeBrowserSourceImportInput, KnowledgeGraph, KnowledgeSource, KnowledgeSourceAssetKind,
+    KnowledgeBrowserSourceImportInput, KnowledgeEvidenceClaim, KnowledgeEvidenceCoverage,
+    KnowledgeEvidenceRebuildResult, KnowledgeGraph, KnowledgeSource, KnowledgeSourceAssetKind,
     KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
     KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
     KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
@@ -331,6 +332,28 @@ pub async fn kb_note_source_refs_cmd(
     path: String,
 ) -> Result<Vec<NoteSourceRef>, CmdError> {
     service::note_source_refs(&kb_id, &path).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_evidence_coverage_cmd(
+    kb_id: String,
+) -> Result<KnowledgeEvidenceCoverage, CmdError> {
+    service::evidence_coverage(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_evidence_source_claims_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<Vec<KnowledgeEvidenceClaim>, CmdError> {
+    service::evidence_source_claims(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_evidence_rebuild_cmd(
+    kb_id: String,
+) -> Result<KnowledgeEvidenceRebuildResult, CmdError> {
+    service::evidence_rebuild(&kb_id).map_err(Into::into)
 }
 
 // ── Phase 6 external-agent API ──────────────────────────────────

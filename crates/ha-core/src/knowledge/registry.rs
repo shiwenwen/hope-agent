@@ -45,6 +45,46 @@ pub struct SourceAssetPruneCandidate {
     pub bytes: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct EvidenceRefIndexInput {
+    pub source_id: String,
+    pub cited_in: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvidenceClaimIndexInput {
+    pub claim_index: u32,
+    pub section: String,
+    pub claim_text: String,
+    pub source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvidenceRefIndexRow {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub note_title: String,
+    pub note_type: Option<String>,
+    pub source_id: String,
+    pub cited_in: Vec<String>,
+    pub note_last_compiled_at: Option<i64>,
+    pub claim_count: u32,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct EvidenceClaimIndexRow {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub note_title: String,
+    pub source_id: String,
+    pub claim_index: u32,
+    pub section: String,
+    pub claim_text: String,
+    pub note_last_compiled_at: Option<i64>,
+    pub updated_at: i64,
+}
+
 impl KnowledgeRegistry {
     pub fn new(session_db: Arc<SessionDB>) -> Self {
         Self { session_db }
@@ -85,6 +125,42 @@ impl KnowledgeRegistry {
                 profile_json TEXT NOT NULL,
                 updated_at   INTEGER NOT NULL
             );
+
+            -- Derived Evidence index (D17+): rebuildable rows parsed from note
+            -- frontmatter / Evidence sections. Stored in sessions.db so source
+            -- reverse lookups can join the source truth table without touching
+            -- the note index cache.
+            CREATE TABLE IF NOT EXISTS knowledge_evidence_refs (
+                kb_id                 TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                rel_path              TEXT NOT NULL,
+                note_title            TEXT NOT NULL,
+                note_type             TEXT,
+                source_id             TEXT NOT NULL,
+                cited_in_json         TEXT NOT NULL,
+                note_last_compiled_at INTEGER,
+                claim_count           INTEGER NOT NULL DEFAULT 0,
+                updated_at            INTEGER NOT NULL,
+                PRIMARY KEY (kb_id, rel_path, source_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_refs_source
+                ON knowledge_evidence_refs(kb_id, source_id);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_refs_note
+                ON knowledge_evidence_refs(kb_id, rel_path);
+
+            CREATE TABLE IF NOT EXISTS knowledge_evidence_claims (
+                kb_id                 TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                rel_path              TEXT NOT NULL,
+                note_title            TEXT NOT NULL,
+                source_id             TEXT NOT NULL,
+                claim_index           INTEGER NOT NULL,
+                section               TEXT NOT NULL,
+                claim_text            TEXT NOT NULL,
+                note_last_compiled_at INTEGER,
+                updated_at            INTEGER NOT NULL,
+                PRIMARY KEY (kb_id, rel_path, source_id, claim_index)
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_claims_source
+                ON knowledge_evidence_claims(kb_id, source_id, rel_path);
 
             CREATE TABLE IF NOT EXISTS session_knowledge_bases (
                 session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -923,6 +999,182 @@ impl KnowledgeRegistry {
             params![profile.kb_id, json, profile.updated_at],
         )?;
         Ok(())
+    }
+
+    pub fn replace_note_evidence_index(
+        &self,
+        kb_id: &str,
+        rel_path: &str,
+        note_title: &str,
+        note_type: Option<&str>,
+        note_last_compiled_at: Option<i64>,
+        refs: &[EvidenceRefIndexInput],
+        claims: &[EvidenceClaimIndexInput],
+    ) -> Result<(usize, usize)> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM knowledge_evidence_claims WHERE kb_id = ?1 AND rel_path = ?2",
+            params![kb_id, rel_path],
+        )?;
+        tx.execute(
+            "DELETE FROM knowledge_evidence_refs WHERE kb_id = ?1 AND rel_path = ?2",
+            params![kb_id, rel_path],
+        )?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut inserted_claim_rows = 0usize;
+        for r in refs {
+            let cited_in_json = serde_json::to_string(&r.cited_in)?;
+            let claim_count = claims
+                .iter()
+                .filter(|claim| claim.source_ids.iter().any(|id| id == &r.source_id))
+                .count();
+            tx.execute(
+                "INSERT INTO knowledge_evidence_refs
+                    (kb_id, rel_path, note_title, note_type, source_id, cited_in_json,
+                     note_last_compiled_at, claim_count, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    kb_id,
+                    rel_path,
+                    note_title,
+                    note_type,
+                    r.source_id,
+                    cited_in_json,
+                    note_last_compiled_at,
+                    claim_count as i64,
+                    now,
+                ],
+            )?;
+            for claim in claims
+                .iter()
+                .filter(|claim| claim.source_ids.iter().any(|id| id == &r.source_id))
+            {
+                tx.execute(
+                    "INSERT INTO knowledge_evidence_claims
+                        (kb_id, rel_path, note_title, source_id, claim_index, section,
+                         claim_text, note_last_compiled_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        kb_id,
+                        rel_path,
+                        note_title,
+                        r.source_id,
+                        claim.claim_index as i64,
+                        claim.section,
+                        claim.claim_text,
+                        note_last_compiled_at,
+                        now,
+                    ],
+                )?;
+                inserted_claim_rows = inserted_claim_rows.saturating_add(1);
+            }
+        }
+        tx.commit()?;
+        Ok((refs.len(), inserted_claim_rows))
+    }
+
+    pub fn delete_note_evidence_index(&self, kb_id: &str, rel_path: &str) -> Result<()> {
+        let mut conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            "DELETE FROM knowledge_evidence_claims WHERE kb_id = ?1 AND rel_path = ?2",
+            params![kb_id, rel_path],
+        )?;
+        tx.execute(
+            "DELETE FROM knowledge_evidence_refs WHERE kb_id = ?1 AND rel_path = ?2",
+            params![kb_id, rel_path],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn evidence_refs_for_note(
+        &self,
+        kb_id: &str,
+        rel_path: &str,
+    ) -> Result<Vec<EvidenceRefIndexRow>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT kb_id, rel_path, note_title, note_type, source_id, cited_in_json,
+                    note_last_compiled_at, claim_count, updated_at
+             FROM knowledge_evidence_refs
+             WHERE kb_id = ?1 AND rel_path = ?2
+             ORDER BY source_id ASC",
+        )?;
+        let rows = stmt.query_map(params![kb_id, rel_path], row_to_evidence_ref)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn evidence_refs_for_kb(&self, kb_id: &str) -> Result<Vec<EvidenceRefIndexRow>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT kb_id, rel_path, note_title, note_type, source_id, cited_in_json,
+                    note_last_compiled_at, claim_count, updated_at
+             FROM knowledge_evidence_refs
+             WHERE kb_id = ?1
+             ORDER BY rel_path ASC, source_id ASC",
+        )?;
+        let rows = stmt.query_map(params![kb_id], row_to_evidence_ref)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn evidence_claims_for_kb(&self, kb_id: &str) -> Result<Vec<EvidenceClaimIndexRow>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT kb_id, rel_path, note_title, source_id, claim_index, section,
+                    claim_text, note_last_compiled_at, updated_at
+             FROM knowledge_evidence_claims
+             WHERE kb_id = ?1
+             ORDER BY rel_path ASC, claim_index ASC, source_id ASC",
+        )?;
+        let rows = stmt.query_map(params![kb_id], row_to_evidence_claim)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn evidence_claims_for_source(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<EvidenceClaimIndexRow>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT kb_id, rel_path, note_title, source_id, claim_index, section,
+                    claim_text, note_last_compiled_at, updated_at
+             FROM knowledge_evidence_claims
+             WHERE kb_id = ?1 AND source_id = ?2
+             ORDER BY rel_path ASC, claim_index ASC",
+        )?;
+        let rows = stmt.query_map(params![kb_id, source_id], row_to_evidence_claim)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     // ── Raw source inbox (Knowledge Compiler Phase 1) ─────────────
@@ -2301,6 +2553,36 @@ fn row_to_kb(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeBase> {
         updated_at: row.get(6)?,
         allow_external_writes: row.get::<_, i64>(7).unwrap_or(0) != 0,
         external_raw_sync,
+    })
+}
+
+fn row_to_evidence_ref(row: &rusqlite::Row) -> rusqlite::Result<EvidenceRefIndexRow> {
+    let cited_in_json: String = row.get(5)?;
+    let cited_in = serde_json::from_str::<Vec<String>>(&cited_in_json).unwrap_or_default();
+    Ok(EvidenceRefIndexRow {
+        kb_id: row.get(0)?,
+        rel_path: row.get(1)?,
+        note_title: row.get(2)?,
+        note_type: row.get::<_, Option<String>>(3).unwrap_or(None),
+        source_id: row.get(4)?,
+        cited_in,
+        note_last_compiled_at: row.get::<_, Option<i64>>(6).unwrap_or(None),
+        claim_count: row.get::<_, i64>(7).unwrap_or(0).max(0) as u32,
+        updated_at: row.get(8)?,
+    })
+}
+
+fn row_to_evidence_claim(row: &rusqlite::Row) -> rusqlite::Result<EvidenceClaimIndexRow> {
+    Ok(EvidenceClaimIndexRow {
+        kb_id: row.get(0)?,
+        rel_path: row.get(1)?,
+        note_title: row.get(2)?,
+        source_id: row.get(3)?,
+        claim_index: row.get::<_, i64>(4).unwrap_or(0).max(0) as u32,
+        section: row.get(5)?,
+        claim_text: row.get(6)?,
+        note_last_compiled_at: row.get::<_, Option<i64>>(7).unwrap_or(None),
+        updated_at: row.get(8)?,
     })
 }
 

@@ -385,6 +385,18 @@ fn build_router_with_cors(
             get(routes::knowledge::kb_note_source_refs),
         )
         .route(
+            "/knowledge/{kb_id}/evidence/coverage",
+            get(routes::knowledge::kb_evidence_coverage),
+        )
+        .route(
+            "/knowledge/{kb_id}/evidence/sources/{source_id}/claims",
+            get(routes::knowledge::kb_evidence_source_claims),
+        )
+        .route(
+            "/knowledge/{kb_id}/evidence/rebuild",
+            post(routes::knowledge::kb_evidence_rebuild),
+        )
+        .route(
             "/knowledge/agent/search",
             post(routes::knowledge::knowledge_agent_search),
         )

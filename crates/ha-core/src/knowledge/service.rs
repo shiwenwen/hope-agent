@@ -13,7 +13,8 @@ use super::index;
 use super::types::{
     Backlink, CompileProposal, CompileProposalStatus, CompileRun, CompileStartInput,
     CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
-    KnowledgeBrowserSourceImportInput, KnowledgeSource, KnowledgeSourceAssetKind,
+    KnowledgeBrowserSourceImportInput, KnowledgeEvidenceClaim, KnowledgeEvidenceCoverage,
+    KnowledgeEvidenceRebuildResult, KnowledgeSource, KnowledgeSourceAssetKind,
     KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
     KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
     KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
@@ -227,6 +228,18 @@ pub fn schema_issues(kb_id: &str) -> Result<Vec<SchemaIssue>> {
 
 pub fn note_source_refs(kb_id: &str, rel_path: &str) -> Result<Vec<NoteSourceRef>> {
     super::schema::note_source_refs(kb_id, rel_path)
+}
+
+pub fn evidence_coverage(kb_id: &str) -> Result<KnowledgeEvidenceCoverage> {
+    super::schema::evidence_coverage(kb_id)
+}
+
+pub fn evidence_source_claims(kb_id: &str, source_id: &str) -> Result<Vec<KnowledgeEvidenceClaim>> {
+    super::schema::evidence_source_claims(kb_id, source_id)
+}
+
+pub fn evidence_rebuild(kb_id: &str) -> Result<KnowledgeEvidenceRebuildResult> {
+    super::schema::rebuild_evidence_index(kb_id)
 }
 
 // ── Knowledge-space sidebar chat threads ────────────────────────────

@@ -27,7 +27,8 @@ use ha_core::knowledge::{
     KnowledgeAgentExpandResult, KnowledgeAgentReadInput, KnowledgeAgentReadResult,
     KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
     KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
-    KnowledgeBrowserSourceImportInput, KnowledgeGraph, KnowledgeSource, KnowledgeSourceAssetKind,
+    KnowledgeBrowserSourceImportInput, KnowledgeEvidenceClaim, KnowledgeEvidenceCoverage,
+    KnowledgeEvidenceRebuildResult, KnowledgeGraph, KnowledgeSource, KnowledgeSourceAssetKind,
     KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
     KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
     KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
@@ -670,6 +671,27 @@ pub async fn kb_note_source_refs(
     Query(q): Query<KbNoteSourceRefsQuery>,
 ) -> Result<Json<Vec<NoteSourceRef>>, AppError> {
     Ok(Json(service::note_source_refs(&kb_id, &q.path)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/evidence/coverage`
+pub async fn kb_evidence_coverage(
+    Path(kb_id): Path<String>,
+) -> Result<Json<KnowledgeEvidenceCoverage>, AppError> {
+    Ok(Json(service::evidence_coverage(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/evidence/sources/{source_id}/claims`
+pub async fn kb_evidence_source_claims(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<Vec<KnowledgeEvidenceClaim>>, AppError> {
+    Ok(Json(service::evidence_source_claims(&kb_id, &source_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/evidence/rebuild`
+pub async fn kb_evidence_rebuild(
+    Path(kb_id): Path<String>,
+) -> Result<Json<KnowledgeEvidenceRebuildResult>, AppError> {
+    Ok(Json(service::evidence_rebuild(&kb_id)?))
 }
 
 // ── Phase 6 external-agent API ─────────────────────────────────

@@ -56,6 +56,7 @@ import { cn } from "@/lib/utils"
 import type {
   KnowledgeBrowserCaptureMode,
   KnowledgeBrowserSourceImportInput,
+  KnowledgeEvidenceClaim,
   KnowledgeSource,
   KnowledgeSourceDiff,
   KnowledgeSourceImportBatchInput,
@@ -89,6 +90,7 @@ const SOURCE_FILE_ACCEPT =
 export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sourceReadTokenRef = useRef(0)
   const [sources, setSources] = useState<KnowledgeSource[]>([])
   const [importRuns, setImportRuns] = useState<KnowledgeSourceImportRun[]>([])
   const [runDetail, setRunDetail] = useState<KnowledgeSourceImportRunDetail | null>(null)
@@ -107,7 +109,9 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [fileDrafts, setFileDrafts] = useState<SourceFileDraft[]>([])
   const [browserMode, setBrowserMode] = useState<KnowledgeBrowserCaptureMode>("auto")
   const [selected, setSelected] = useState<KnowledgeSourceReadResult | null>(null)
+  const [sourceClaims, setSourceClaims] = useState<KnowledgeEvidenceClaim[]>([])
   const [reading, setReading] = useState(false)
+  const [claimsLoading, setClaimsLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeSource | null>(null)
   const [refreshingSourceId, setRefreshingSourceId] = useState<string | null>(null)
   const [versionHistory, setVersionHistory] = useState<KnowledgeSourceVersionHistory | null>(null)
@@ -341,18 +345,39 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
 
   async function openSource(source: KnowledgeSource) {
     if (!kbId) return
+    const token = sourceReadTokenRef.current + 1
+    sourceReadTokenRef.current = token
+    setSelected(null)
+    setSourceClaims([])
     setReading(true)
+    setClaimsLoading(true)
+    void getTransport()
+      .call<KnowledgeEvidenceClaim[]>("kb_evidence_source_claims_cmd", {
+        kbId,
+        sourceId: source.id,
+      })
+      .then((claims) => {
+        if (sourceReadTokenRef.current === token) setSourceClaims(claims)
+      })
+      .catch((e) => {
+        logger.warn("knowledge", "KnowledgeSourcesPanel::read", "source claims failed", e)
+      })
+      .finally(() => {
+        if (sourceReadTokenRef.current === token) setClaimsLoading(false)
+      })
     try {
       const data = await getTransport().call<KnowledgeSourceReadResult>("kb_source_read_cmd", {
         kbId,
         sourceId: source.id,
       })
-      setSelected(data)
+      if (sourceReadTokenRef.current === token) {
+        setSelected(data)
+      }
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::read", "source read failed", e)
       toast.error(t("knowledge.sources.readFailed", "Couldn't open source"))
     } finally {
-      setReading(false)
+      if (sourceReadTokenRef.current === token) setReading(false)
     }
   }
 
@@ -878,7 +903,17 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+      <Dialog
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open) {
+            sourceReadTokenRef.current += 1
+            setSelected(null)
+            setSourceClaims([])
+            setClaimsLoading(false)
+          }
+        }}
+      >
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle className="truncate">{selected?.title}</DialogTitle>
@@ -896,7 +931,8 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
               <span className="font-mono text-foreground/80">{selected.externalRawPath}</span>
             </div>
           ) : null}
-          <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-md border border-border-soft/60 bg-muted/30 p-3 text-xs leading-relaxed">
+          <SourceClaimsSummary claims={sourceClaims} loading={claimsLoading} />
+          <pre className="max-h-[54vh] overflow-auto whitespace-pre-wrap rounded-md border border-border-soft/60 bg-muted/30 p-3 text-xs leading-relaxed">
             {reading ? t("knowledge.sources.loading", "Loading…") : selected?.content}
           </pre>
         </DialogContent>
@@ -1437,6 +1473,83 @@ function SourceAssetSummary({ source }: { source: KnowledgeSource }) {
           </IconTip>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function SourceClaimsSummary({
+  claims,
+  loading,
+}: {
+  claims: KnowledgeEvidenceClaim[]
+  loading: boolean
+}) {
+  const { t } = useTranslation()
+  const visibleClaims = claims.slice(0, 24)
+
+  return (
+    <div className="rounded-md border border-border-soft/60 bg-muted/20 p-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 font-medium">
+          <FileText className="h-3.5 w-3.5 text-primary" />
+          <span>{t("knowledge.sources.compiledClaims", "Compiled claims using this source")}</span>
+          {claims.length > 0 ? (
+            <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+              {claims.length}
+            </span>
+          ) : null}
+        </div>
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+      </div>
+      {loading ? (
+        <div className="mt-2 text-[11px] text-muted-foreground">
+          {t("knowledge.sources.loadingClaims", "Loading evidence index...")}
+        </div>
+      ) : claims.length === 0 ? (
+        <div className="mt-2 text-[11px] text-muted-foreground">
+          {t(
+            "knowledge.sources.noCompiledClaims",
+            "No compiled note claim cites this source yet.",
+          )}
+        </div>
+      ) : (
+        <div className="mt-2 max-h-40 space-y-1 overflow-auto">
+          {visibleClaims.map((claim) => (
+            <div
+              key={`${claim.relPath}:${claim.sourceId}:${claim.claimIndex}`}
+              className="rounded bg-background/70 px-2 py-1.5"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate font-medium">{claim.noteTitle}</span>
+                <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                  {claim.relPath}
+                </span>
+                {claim.stale ? (
+                  <span className="shrink-0 rounded bg-amber-500/10 px-1 text-[10px] text-amber-700 dark:text-amber-300">
+                    {t("knowledge.sources.staleSource", "Source changed after compile")}
+                  </span>
+                ) : null}
+                {claim.missing ? (
+                  <span className="shrink-0 rounded bg-destructive/10 px-1 text-[10px] text-destructive">
+                    {t("knowledge.sources.missingSource", "Missing source")}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">
+                {claim.claimText}
+              </div>
+            </div>
+          ))}
+          {claims.length > visibleClaims.length ? (
+            <div className="px-2 py-1 text-[10px] text-muted-foreground">
+              {t("knowledge.sources.moreClaims", {
+                defaultValue: "+{{count}} more claims",
+                count: claims.length - visibleClaims.length,
+              })}
+            </div>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }

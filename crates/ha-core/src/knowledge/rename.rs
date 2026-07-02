@@ -99,6 +99,15 @@ pub fn rename_note(
 
     // Drop the old index row + index the new path (batch-resolve once at the end).
     db.delete_note(kb_id, &canon_from)?;
+    if let Err(e) = super::schema::delete_note_evidence_index(kb_id, &canon_from) {
+        crate::app_warn!(
+            "knowledge",
+            "rename",
+            "delete evidence index {} failed: {}",
+            canon_from,
+            e
+        );
+    }
     index::reindex_note_no_resolve(kb_id, &root, &new_rel)?;
 
     let moves = vec![Move::new(&canon_from, &new_rel)];

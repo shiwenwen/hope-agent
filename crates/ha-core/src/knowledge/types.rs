@@ -954,6 +954,57 @@ pub struct NoteSourceRef {
     pub cited_in: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEvidenceClaim {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub note_title: String,
+    pub source_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub claim_index: u32,
+    pub section: String,
+    pub claim_text: String,
+    pub missing: bool,
+    pub stale: bool,
+    #[serde(default)]
+    pub superseded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_updated_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_last_compiled_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEvidenceCoverage {
+    pub kb_id: String,
+    pub compiled_note_count: u32,
+    pub notes_with_evidence: u32,
+    pub notes_missing_evidence: u32,
+    pub source_ref_count: u32,
+    pub stale_ref_count: u32,
+    pub missing_ref_count: u32,
+    pub claim_count: u32,
+    pub claims_with_evidence: u32,
+    pub coverage_score: f32,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEvidenceRebuildResult {
+    pub kb_id: String,
+    pub scanned_count: u32,
+    pub indexed_ref_count: u32,
+    pub indexed_claim_count: u32,
+}
+
 // ── Phase 6 external-agent API ──────────────────────────────────
 
 /// Stable item discriminator for external agents. `compiled_note` means the

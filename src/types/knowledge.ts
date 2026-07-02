@@ -339,6 +339,45 @@ export interface NoteSourceRef {
   citedIn?: string[]
 }
 
+export interface KnowledgeEvidenceClaim {
+  kbId: string
+  relPath: string
+  noteTitle: string
+  sourceId: string
+  sourceTitle?: string | null
+  originUri?: string | null
+  claimIndex: number
+  section: string
+  claimText: string
+  missing: boolean
+  stale: boolean
+  superseded: boolean
+  latestSourceId?: string | null
+  sourceUpdatedAt?: number | null
+  noteLastCompiledAt?: number | null
+}
+
+export interface KnowledgeEvidenceCoverage {
+  kbId: string
+  compiledNoteCount: number
+  notesWithEvidence: number
+  notesMissingEvidence: number
+  sourceRefCount: number
+  staleRefCount: number
+  missingRefCount: number
+  claimCount: number
+  claimsWithEvidence: number
+  coverageScore: number
+  updatedAt: number
+}
+
+export interface KnowledgeEvidenceRebuildResult {
+  kbId: string
+  scannedCount: number
+  indexedRefCount: number
+  indexedClaimCount: number
+}
+
 export type KnowledgeAgentItemKind = "note" | "compiled_note" | "source"
 
 export interface KnowledgeAgentSearchInput {

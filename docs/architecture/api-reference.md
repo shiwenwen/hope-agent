@@ -303,6 +303,9 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `kb_source_import_retry_failed_cmd` | `POST /api/knowledge/{kbId}/sources/import-runs/{runId}/retry-failed` | ✅ (重试 failed item，校验 run 属于目标 KB，复用原 input_json) |
 | `kb_source_similarity_groups_cmd` | `GET /api/knowledge/{kbId}/sources/similar` | ✅ (确定性 shingle/Jaccard 相似 source 分组，用于资料去重治理) |
 | `kb_source_sync_external_raw_cmd` | `POST /api/knowledge/{kbId}/sources/sync-external-raw` | ✅ (把已有 source/version 文本快照镜像到外部 vault 的 `raw/` 或 `sources/`；仅外部 KB + 外部写 opt-in + `externalRawSync` 开启时可用，返回 synced/failed 计数) |
+| `kb_evidence_coverage_cmd` | `GET /api/knowledge/{kbId}/evidence/coverage` | ✅ (Evidence 派生索引覆盖率：compiled note 数、claim-level evidence 命中数、missing/stale refs，用于维护面板) |
+| `kb_evidence_source_claims_cmd` | `GET /api/knowledge/{kbId}/evidence/sources/{sourceId}/claims` | ✅ (按 raw source 反查引用它的 compiled claims，实时 hydrate missing/stale/superseded 状态) |
+| `kb_evidence_rebuild_cmd` | `POST /api/knowledge/{kbId}/evidence/rebuild` | ✅ (从 `.md` 全量重建 `knowledge_evidence_refs` / `knowledge_evidence_claims` 派生索引，返回扫描 note/ref/claim 数) |
 | `kb_note_read_ref_cmd` | `GET /api/knowledge/{kbId}/note/resolve?reference=` | ✅ (WS2 transclusion：按 `[[ ]]` ref 经 resolver 取目标 `NoteReadResult`，broken 返回 `null`；Batch G 起按 ref 的 `#anchor` 切片——`^id`→块、heading→标题段，未命中降级整篇) |
 | `kb_search_cmd` | `GET /api/knowledge/search?query=&kbId=&limit=` | ✅ (FTS+向量混合) |
 | `knowledge_agent_search_cmd` | `POST /api/knowledge/agent/search` | ✅ (`knowledge.search`；body 可为 `{input}` 或裸 input；notes-first，返回 `truncated`；read token 允许；`includeSources=true` 时 raw source 单独返回且必须传 `kbId`) |

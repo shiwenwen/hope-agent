@@ -8,7 +8,11 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+use super::registry::{
+    EvidenceClaimIndexInput, EvidenceClaimIndexRow, EvidenceRefIndexInput, EvidenceRefIndexRow,
+};
 use super::types::{
+    KnowledgeEvidenceClaim, KnowledgeEvidenceCoverage, KnowledgeEvidenceRebuildResult,
     NoteSourceRef, SchemaIssue, SchemaIssueKind, SchemaProfile, DEFAULT_SCHEMA_SECTIONS,
 };
 use super::{service, KnowledgeRegistry};
@@ -34,8 +38,166 @@ pub fn profile(kb_id: &str) -> Result<SchemaProfile> {
 }
 
 pub fn note_source_refs(kb_id: &str, rel_path: &str) -> Result<Vec<NoteSourceRef>> {
+    let indexed = registry()?.evidence_refs_for_note(kb_id, rel_path)?;
+    if !indexed.is_empty() {
+        return note_source_refs_from_index_rows(kb_id, indexed);
+    }
     let note = service::note_read(kb_id, rel_path)?;
+    let _ = replace_note_evidence_index(kb_id, rel_path, &note.title, &note.content);
     note_source_refs_from_content(kb_id, &note.content)
+}
+
+pub fn replace_note_evidence_index(
+    kb_id: &str,
+    rel_path: &str,
+    note_title: &str,
+    content: &str,
+) -> Result<(usize, usize)> {
+    let snapshot = inspect_note(content);
+    let refs = snapshot
+        .source_refs
+        .iter()
+        .map(|(source_id, cited_in)| EvidenceRefIndexInput {
+            source_id: source_id.clone(),
+            cited_in: cited_in.clone(),
+        })
+        .collect::<Vec<_>>();
+    registry()?.replace_note_evidence_index(
+        kb_id,
+        rel_path,
+        note_title,
+        snapshot.frontmatter.get("type").map(String::as_str),
+        snapshot.last_compiled_at,
+        &refs,
+        &snapshot.claims,
+    )
+}
+
+pub fn delete_note_evidence_index(kb_id: &str, rel_path: &str) -> Result<()> {
+    registry()?.delete_note_evidence_index(kb_id, rel_path)
+}
+
+pub fn rebuild_evidence_index(kb_id: &str) -> Result<KnowledgeEvidenceRebuildResult> {
+    let notes = service::list_notes(kb_id)?;
+    let mut scanned = 0u32;
+    let mut indexed_ref_count = 0u32;
+    let mut indexed_claim_count = 0u32;
+    for note in notes {
+        let read = match service::note_read(kb_id, &note.rel_path) {
+            Ok(read) => read,
+            Err(e) => {
+                crate::app_warn!(
+                    "knowledge",
+                    "schema",
+                    "skip evidence rebuild for {}: {}",
+                    note.rel_path,
+                    e
+                );
+                continue;
+            }
+        };
+        scanned = scanned.saturating_add(1);
+        let (refs, claims) =
+            replace_note_evidence_index(kb_id, &note.rel_path, &note.title, &read.content)?;
+        indexed_ref_count = indexed_ref_count.saturating_add(refs as u32);
+        indexed_claim_count = indexed_claim_count.saturating_add(claims as u32);
+    }
+    Ok(KnowledgeEvidenceRebuildResult {
+        kb_id: kb_id.to_string(),
+        scanned_count: scanned,
+        indexed_ref_count,
+        indexed_claim_count,
+    })
+}
+
+pub fn evidence_source_claims(kb_id: &str, source_id: &str) -> Result<Vec<KnowledgeEvidenceClaim>> {
+    let rows = registry()?.evidence_claims_for_source(kb_id, source_id)?;
+    rows.into_iter()
+        .map(|row| evidence_claim_from_row(kb_id, row))
+        .collect()
+}
+
+pub fn evidence_coverage(kb_id: &str) -> Result<KnowledgeEvidenceCoverage> {
+    let notes = service::list_notes(kb_id)?;
+    let refs = registry()?.evidence_refs_for_kb(kb_id)?;
+    let indexed_claims = registry()?.evidence_claims_for_kb(kb_id)?;
+    let mut refs_by_note: HashMap<String, Vec<EvidenceRefIndexRow>> = HashMap::new();
+    for r in refs {
+        refs_by_note.entry(r.rel_path.clone()).or_default().push(r);
+    }
+    let mut claim_indexes_by_note: HashMap<String, HashSet<u32>> = HashMap::new();
+    for claim in indexed_claims {
+        claim_indexes_by_note
+            .entry(claim.rel_path)
+            .or_default()
+            .insert(claim.claim_index);
+    }
+
+    let mut compiled_note_count = 0u32;
+    let mut notes_with_evidence = 0u32;
+    let mut claim_count = 0u32;
+    let mut claims_with_evidence = 0u32;
+    let mut source_ref_count = 0u32;
+    let mut stale_ref_count = 0u32;
+    let mut missing_ref_count = 0u32;
+    let mut latest_updated_at = 0i64;
+
+    for note in notes {
+        let is_candidate = indexed_schema_marker(note.frontmatter_json.as_deref());
+        if !is_candidate {
+            continue;
+        }
+        compiled_note_count = compiled_note_count.saturating_add(1);
+        let read = service::note_read(kb_id, &note.rel_path).ok();
+        let note_claim_count = read
+            .as_ref()
+            .map(|read| extract_claims(&read.content).len() as u32)
+            .unwrap_or(0);
+        claim_count = claim_count.saturating_add(note_claim_count);
+        let note_claims_with_evidence = claim_indexes_by_note
+            .get(&note.rel_path)
+            .map(|claims| claims.len() as u32)
+            .unwrap_or(0);
+        claims_with_evidence = claims_with_evidence.saturating_add(note_claims_with_evidence);
+        if let Some(rows) = refs_by_note.get(&note.rel_path) {
+            if !rows.is_empty() {
+                notes_with_evidence = notes_with_evidence.saturating_add(1);
+            }
+            for r in rows {
+                latest_updated_at = latest_updated_at.max(r.updated_at);
+                source_ref_count = source_ref_count.saturating_add(1);
+                for hydrated in note_source_refs_from_index_rows(kb_id, vec![r.clone()])? {
+                    if hydrated.missing {
+                        missing_ref_count = missing_ref_count.saturating_add(1);
+                    }
+                    if hydrated.stale {
+                        stale_ref_count = stale_ref_count.saturating_add(1);
+                    }
+                }
+            }
+        }
+    }
+    let notes_missing_evidence = compiled_note_count.saturating_sub(notes_with_evidence);
+    let coverage_score = if claim_count > 0 {
+        claims_with_evidence as f32 / claim_count as f32
+    } else if compiled_note_count > 0 {
+        notes_with_evidence as f32 / compiled_note_count as f32
+    } else {
+        1.0
+    };
+    Ok(KnowledgeEvidenceCoverage {
+        kb_id: kb_id.to_string(),
+        compiled_note_count,
+        notes_with_evidence,
+        notes_missing_evidence,
+        source_ref_count,
+        stale_ref_count,
+        missing_ref_count,
+        claim_count,
+        claims_with_evidence,
+        coverage_score,
+        updated_at: latest_updated_at,
+    })
 }
 
 pub fn schema_issues(kb_id: &str) -> Result<Vec<SchemaIssue>> {
@@ -173,45 +335,104 @@ fn note_source_refs_from_content(kb_id: &str, content: &str) -> Result<Vec<NoteS
     let snapshot = inspect_note(content);
     let mut out = Vec::new();
     for (source_id, cited_in) in snapshot.source_refs {
-        let source = registry()?.get_source(kb_id, &source_id)?;
-        let (title, origin_uri, source_updated_at, missing, superseded, latest_source_id) =
-            match source {
-                Some(s) => {
-                    let latest = registry()?.current_source_for(kb_id, &s.id)?;
-                    let latest_source_id = latest
-                        .as_ref()
-                        .map(|latest| latest.id.clone())
-                        .filter(|latest_id| latest_id != &s.id);
-                    (
-                        Some(s.title),
-                        s.origin_uri,
-                        Some(s.updated_at),
-                        false,
-                        s.superseded_by_source_id.is_some() || latest_source_id.is_some(),
-                        latest_source_id,
-                    )
-                }
-                None => (None, None, None, true, false, None),
-            };
-        let changed_after_compile = source_updated_at
-            .zip(snapshot.last_compiled_at)
-            .map(|(source_updated, last_compiled)| source_updated > last_compiled)
-            .unwrap_or(false);
-        let stale = superseded || changed_after_compile;
-        out.push(NoteSourceRef {
+        out.push(hydrate_source_ref(
+            kb_id,
             source_id,
-            title,
-            origin_uri,
-            missing,
-            stale,
-            superseded,
-            latest_source_id,
-            source_updated_at,
-            note_last_compiled_at: snapshot.last_compiled_at,
             cited_in,
-        });
+            snapshot.last_compiled_at,
+        )?);
     }
     Ok(out)
+}
+
+fn note_source_refs_from_index_rows(
+    kb_id: &str,
+    rows: Vec<EvidenceRefIndexRow>,
+) -> Result<Vec<NoteSourceRef>> {
+    rows.into_iter()
+        .map(|row| {
+            hydrate_source_ref(
+                kb_id,
+                row.source_id,
+                row.cited_in,
+                row.note_last_compiled_at,
+            )
+        })
+        .collect()
+}
+
+fn hydrate_source_ref(
+    kb_id: &str,
+    source_id: String,
+    cited_in: Vec<String>,
+    note_last_compiled_at: Option<i64>,
+) -> Result<NoteSourceRef> {
+    let source = registry()?.get_source(kb_id, &source_id)?;
+    let (title, origin_uri, source_updated_at, missing, superseded, latest_source_id) = match source
+    {
+        Some(s) => {
+            let latest = registry()?.current_source_for(kb_id, &s.id)?;
+            let latest_source_id = latest
+                .as_ref()
+                .map(|latest| latest.id.clone())
+                .filter(|latest_id| latest_id != &s.id);
+            (
+                Some(s.title),
+                s.origin_uri,
+                Some(s.updated_at),
+                false,
+                s.superseded_by_source_id.is_some() || latest_source_id.is_some(),
+                latest_source_id,
+            )
+        }
+        None => (None, None, None, true, false, None),
+    };
+    let changed_after_compile = source_updated_at
+        .zip(note_last_compiled_at)
+        .map(|(source_updated, last_compiled)| source_updated > last_compiled)
+        .unwrap_or(false);
+    let stale = superseded || changed_after_compile;
+    Ok(NoteSourceRef {
+        source_id,
+        title,
+        origin_uri,
+        missing,
+        stale,
+        superseded,
+        latest_source_id,
+        source_updated_at,
+        note_last_compiled_at,
+        cited_in,
+    })
+}
+
+fn evidence_claim_from_row(
+    kb_id: &str,
+    row: EvidenceClaimIndexRow,
+) -> Result<KnowledgeEvidenceClaim> {
+    let ref_state = hydrate_source_ref(
+        kb_id,
+        row.source_id.clone(),
+        vec![row.section.clone()],
+        row.note_last_compiled_at,
+    )?;
+    Ok(KnowledgeEvidenceClaim {
+        kb_id: row.kb_id,
+        rel_path: row.rel_path,
+        note_title: row.note_title,
+        source_id: row.source_id,
+        source_title: ref_state.title,
+        origin_uri: ref_state.origin_uri,
+        claim_index: row.claim_index,
+        section: row.section,
+        claim_text: row.claim_text,
+        missing: ref_state.missing,
+        stale: ref_state.stale,
+        superseded: ref_state.superseded,
+        latest_source_id: ref_state.latest_source_id,
+        source_updated_at: ref_state.source_updated_at,
+        note_last_compiled_at: row.note_last_compiled_at,
+    })
 }
 
 fn is_schema_lint_candidate(snapshot: &NoteSchemaSnapshot) -> bool {
@@ -247,6 +468,7 @@ struct NoteSchemaSnapshot {
     frontmatter: HashMap<String, String>,
     sections: HashSet<String>,
     source_refs: Vec<(String, Vec<String>)>,
+    claims: Vec<EvidenceClaimIndexInput>,
     last_compiled_at: Option<i64>,
 }
 
@@ -257,10 +479,12 @@ fn inspect_note(content: &str) -> NoteSchemaSnapshot {
         .and_then(|v| parse_rfc3339_ms(v));
     let sections = section_titles(content);
     let source_refs = extract_source_refs(content);
+    let claims = extract_claims(content);
     NoteSchemaSnapshot {
         frontmatter,
         sections,
         source_refs,
+        claims,
         last_compiled_at,
     }
 }
@@ -382,8 +606,111 @@ fn extract_source_refs(content: &str) -> Vec<(String, Vec<String>)> {
         if let Some(id) = parse_source_line(trimmed) {
             push_source_ref(&mut refs, &mut index, id, &current_section);
         }
+        for id in source_ids_in_text(trimmed) {
+            push_source_ref(&mut refs, &mut index, id, &current_section);
+        }
     }
     refs
+}
+
+fn extract_claims(content: &str) -> Vec<EvidenceClaimIndexInput> {
+    let Some(body) = section_body(content, "Compiled Truth") else {
+        return Vec::new();
+    };
+    let mut claims = Vec::new();
+    for line in body.lines() {
+        if claims.len() >= 100 {
+            break;
+        }
+        let text = normalize_claim_line(line);
+        if text.is_empty() || is_placeholder_claim(&text) {
+            continue;
+        }
+        claims.push(EvidenceClaimIndexInput {
+            claim_index: claims.len() as u32,
+            section: "Compiled Truth".to_string(),
+            claim_text: crate::truncate_utf8(&text, 500).to_string(),
+            source_ids: source_ids_in_text(&text),
+        });
+    }
+    claims
+}
+
+fn normalize_claim_line(line: &str) -> String {
+    let trimmed = line.trim();
+    if trimmed.is_empty()
+        || trimmed.starts_with('#')
+        || trimmed.starts_with("```")
+        || trimmed.starts_with('|')
+    {
+        return String::new();
+    }
+    let without_bullet = trimmed
+        .trim_start_matches("- ")
+        .trim_start_matches("* ")
+        .trim_start_matches("+ ")
+        .trim();
+    let without_number = without_bullet
+        .split_once(". ")
+        .and_then(|(prefix, rest)| {
+            if prefix.chars().all(|ch| ch.is_ascii_digit()) {
+                Some(rest.trim())
+            } else {
+                None
+            }
+        })
+        .unwrap_or(without_bullet);
+    without_number.trim().to_string()
+}
+
+fn is_placeholder_claim(text: &str) -> bool {
+    matches!(
+        text,
+        "暂无"
+            | "无"
+            | "None"
+            | "none"
+            | "N/A"
+            | "n/a"
+            | "No stable claims extracted."
+            | "未从资料中稳定抽取事实。"
+            | "需要人工复核并补充更细粒度的结构化事实。"
+    )
+}
+
+fn source_ids_in_text(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+    while let Some(pos) = text[offset..].find("source_id") {
+        let key_start = offset + pos;
+        let after_key = key_start + "source_id".len();
+        let after = text[after_key..].trim_start();
+        let Some(rest) = after.strip_prefix(':').or_else(|| after.strip_prefix('=')) else {
+            offset = after_key;
+            continue;
+        };
+        if let Some(id) = take_source_id_value(rest) {
+            if !out.iter().any(|existing| existing == &id) {
+                out.push(id);
+            }
+        }
+        offset = after_key;
+    }
+    out
+}
+
+fn take_source_id_value(value: &str) -> Option<String> {
+    let trimmed = value
+        .trim_start()
+        .trim_start_matches(['`', '"', '\'', '[', '(', '{'])
+        .trim_start();
+    let raw = trimmed
+        .chars()
+        .take_while(|ch| {
+            !ch.is_whitespace() && !matches!(ch, ',' | ']' | ')' | '}' | '`' | '"' | '\'' | ';')
+        })
+        .collect::<String>();
+    clean_source_id(&raw)
 }
 
 fn parse_source_line(trimmed: &str) -> Option<String> {
@@ -497,13 +824,19 @@ confidence: medium
 ## Evidence
 
 - source_id: `src-b`
+
+## Compiled Truth
+
+- Alpha claim. [source_id: src-c]
 "#;
         let refs = extract_source_refs(doc);
-        assert_eq!(refs.len(), 2);
+        assert_eq!(refs.len(), 3);
         assert_eq!(refs[0].0, "src-a");
         assert_eq!(refs[0].1, vec!["frontmatter"]);
         assert_eq!(refs[1].0, "src-b");
         assert_eq!(refs[1].1, vec!["Evidence"]);
+        assert_eq!(refs[2].0, "src-c");
+        assert_eq!(refs[2].1, vec!["Compiled Truth"]);
         let snapshot = inspect_note(doc);
         assert_eq!(
             snapshot.frontmatter.get("type").map(String::as_str),
@@ -537,6 +870,28 @@ last_compiled: "2026-07-01T00:00:00Z"
 "#,
         );
         assert!(is_schema_lint_candidate(&compiled));
+    }
+
+    #[test]
+    fn extracts_claims_with_claim_level_source_ids() {
+        let doc = r#"## Compiled Truth
+
+- Durable claim A. [source_id: src-a]
+2. Durable claim B. [source_id: `src-b`] [source_id: src-c]
+| table | ignored |
+### ignored heading
+- 需要人工复核并补充更细粒度的结构化事实。
+
+## Evidence
+
+- source_id: src-a
+"#;
+        let claims = extract_claims(doc);
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].claim_index, 0);
+        assert_eq!(claims[0].source_ids, vec!["src-a"]);
+        assert_eq!(claims[1].claim_index, 1);
+        assert_eq!(claims[1].source_ids, vec!["src-b", "src-c"]);
     }
 
     #[test]

@@ -99,6 +99,15 @@ pub fn reindex_note_no_resolve(kb_id: &str, root: &Path, rel_path: &str) -> Resu
 pub fn remove_note(kb_id: &str, rel_path: &str) -> Result<()> {
     let db = get_index_db().ok_or_else(|| anyhow::anyhow!("knowledge index not initialized"))?;
     db.delete_note(kb_id, rel_path)?;
+    if let Err(e) = super::schema::delete_note_evidence_index(kb_id, rel_path) {
+        crate::app_warn!(
+            "knowledge",
+            "index",
+            "delete evidence index {} failed: {}",
+            rel_path,
+            e
+        );
+    }
     db.reresolve_kb_links(kb_id)?;
     Ok(())
 }
@@ -172,6 +181,15 @@ pub fn reindex_kb(kb_id: &str, full: bool) -> Result<ReindexReport> {
     for (rel, _, _) in &existing {
         if !disk_set.contains(rel.as_str()) {
             if db.delete_note(kb_id, rel).unwrap_or(false) {
+                if let Err(e) = super::schema::delete_note_evidence_index(kb_id, rel) {
+                    crate::app_warn!(
+                        "knowledge",
+                        "index",
+                        "delete evidence index {} failed: {}",
+                        rel,
+                        e
+                    );
+                }
                 report.removed += 1;
             }
         }
@@ -259,7 +277,7 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
     let input = NoteIndexInput {
         kb_id: kb_id.to_string(),
         rel_path: rel_path.to_string(),
-        title,
+        title: title.clone(),
         frontmatter_json: parsed.frontmatter_json,
         mtime,
         size,
@@ -271,6 +289,15 @@ fn reindex_one(db: &IndexDb, kb_id: &str, root: &Path, rel_path: &str) -> Result
         tags: parsed.tags,
     };
     db.replace_note_index(input)?;
+    if let Err(e) = super::schema::replace_note_evidence_index(kb_id, rel_path, &title, &content) {
+        crate::app_warn!(
+            "knowledge",
+            "index",
+            "evidence index {} failed: {}",
+            rel_path,
+            e
+        );
+    }
     Ok(())
 }
 
