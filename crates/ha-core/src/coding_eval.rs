@@ -68,6 +68,22 @@ pub struct GoldTaskPackRunInput {
     pub include_unautomated: bool,
     #[serde(default)]
     pub max_tasks: Option<usize>,
+    #[serde(default)]
+    pub execution_mode: Option<String>,
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
+    #[serde(default)]
+    pub model_chain: Vec<ActiveModel>,
+    #[serde(default)]
+    pub compact_config: Option<CompactConfig>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub extra_system_context: Option<String>,
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
+    #[serde(default)]
+    pub auto_approve_tools: bool,
     #[serde(default = "default_true")]
     pub record_eval_runs: bool,
     #[serde(default = "default_true")]
@@ -94,6 +110,14 @@ impl Default for GoldTaskPackRunInput {
             task_types: Vec::new(),
             include_unautomated: false,
             max_tasks: None,
+            execution_mode: None,
+            providers: Vec::new(),
+            model_chain: Vec::new(),
+            compact_config: None,
+            reasoning_effort: None,
+            extra_system_context: None,
+            denied_tools: Vec::new(),
+            auto_approve_tools: false,
             record_eval_runs: true,
             record_pack_run: true,
             evaluate_goal: true,
@@ -929,6 +953,9 @@ pub async fn run_gold_task_pack(
     db: Arc<SessionDB>,
     input: GoldTaskPackRunInput,
 ) -> Result<GoldTaskPackReport> {
+    let execution_mode = gold_task_pack_execution_mode(&input)?;
+    validate_gold_task_pack_run_input(&input, &execution_mode)?;
+    let baseline_kind = effective_gold_task_pack_baseline_kind(&input, &execution_mode);
     let selected = select_gold_task_cases(&gold_task_cases(), &input);
     let mut cases = Vec::new();
     let mut automated_cases = 0usize;
@@ -952,7 +979,7 @@ pub async fn run_gold_task_pack(
         };
 
         automated_cases += 1;
-        let fixture = materialize_gold_task_fixture(&case, automation, &input);
+        let fixture = materialize_gold_task_fixture(&case, automation, &input, &execution_mode);
         let fixture_name = fixture.name.clone();
         match evaluate(db.clone(), &fixture).await {
             Ok(report) => {
@@ -1009,7 +1036,7 @@ pub async fn run_gold_task_pack(
             session_id: input.session_id,
             project_id: input.project_id,
             label: input.label,
-            baseline_kind: input.baseline_kind,
+            baseline_kind,
             source_type: input
                 .source_type
                 .or_else(|| Some("gold_task_pack".to_string())),
@@ -3578,10 +3605,90 @@ fn select_gold_task_cases(
     selected
 }
 
+fn gold_task_pack_execution_mode(input: &GoldTaskPackRunInput) -> Result<String> {
+    let explicit = input
+        .execution_mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mode = explicit.map(ToOwned::to_owned).unwrap_or_else(|| {
+        if !input.providers.is_empty()
+            || !input.model_chain.is_empty()
+            || matches!(
+                normalized_gold_task_pack_baseline_kind(input.baseline_kind.as_deref()).as_deref(),
+                Some("external_model" | "mock_provider")
+            )
+        {
+            "agent".to_string()
+        } else {
+            "fixture_patch".to_string()
+        }
+    });
+    match mode.as_str() {
+        "agent" | "fixture_patch" => Ok(mode),
+        other => bail!(
+            "unsupported gold task pack executionMode {other:?}; expected agent or fixture_patch"
+        ),
+    }
+}
+
+fn validate_gold_task_pack_run_input(
+    input: &GoldTaskPackRunInput,
+    execution_mode: &str,
+) -> Result<()> {
+    let baseline_kind = normalized_gold_task_pack_baseline_kind(input.baseline_kind.as_deref());
+    match execution_mode {
+        "agent" => {
+            if input.providers.is_empty() || input.model_chain.is_empty() {
+                bail!("gold task pack executionMode=agent requires providers and modelChain");
+            }
+            if matches!(baseline_kind.as_deref(), Some("deterministic_mock")) {
+                bail!(
+                    "gold task pack executionMode=agent cannot be recorded as deterministic_mock"
+                );
+            }
+        }
+        "fixture_patch" => {
+            if matches!(
+                baseline_kind.as_deref(),
+                Some("external_model" | "mock_provider")
+            ) {
+                bail!(
+                    "gold task pack baselineKind={} requires executionMode=agent",
+                    baseline_kind.unwrap_or_default()
+                );
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn effective_gold_task_pack_baseline_kind(
+    input: &GoldTaskPackRunInput,
+    execution_mode: &str,
+) -> Option<String> {
+    normalized_gold_task_pack_baseline_kind(input.baseline_kind.as_deref())
+        .or_else(|| (execution_mode == "agent").then(|| "external_model".to_string()))
+}
+
+fn normalized_gold_task_pack_baseline_kind(value: Option<&str>) -> Option<String> {
+    let normalized = value?.trim().to_ascii_lowercase().replace([' ', '-'], "_");
+    let kind = match normalized.as_str() {
+        "" => return None,
+        "deterministic" | "fixture" | "fixture_patch" | "mock" => "deterministic_mock",
+        "mock_provider" | "provider_mock" => "mock_provider",
+        "external" | "external_provider" | "real_model" | "model" => "external_model",
+        other => other,
+    };
+    Some(kind.to_string())
+}
+
 fn materialize_gold_task_fixture(
     case: &GoldTaskCase,
     automation: GoldTaskAutomation,
     input: &GoldTaskPackRunInput,
+    execution_mode: &str,
 ) -> CodingEvalFixture {
     let candidate_path = automation.baseline_path.clone();
     let fixture_name = automation.fixture_name.clone();
@@ -3636,11 +3743,53 @@ fn materialize_gold_task_fixture(
         text: automation.candidate_text,
     });
 
+    let execution_run = if execution_mode == "agent" {
+        AgentExecutionEvalRun {
+            mode: "agent".to_string(),
+            prompt: Some(case.prompt.clone()),
+            display_text: Some(format!("Gold task {}: {}", case.id, case.title)),
+            providers: input.providers.clone(),
+            model_chain: input.model_chain.clone(),
+            compact_config: input.compact_config.clone(),
+            reasoning_effort: input.reasoning_effort.clone(),
+            extra_system_context: input.extra_system_context.clone(),
+            denied_tools: input.denied_tools.clone(),
+            auto_approve_tools: input.auto_approve_tools,
+            ..Default::default()
+        }
+    } else {
+        AgentExecutionEvalRun {
+            mode: "fixture_patch".to_string(),
+            ..Default::default()
+        }
+    };
+    let execution_check = if execution_mode == "agent" {
+        AgentExecutionCheck {
+            expected_mode: Some("agent".to_string()),
+            expected_status: Some("completed".to_string()),
+            expected_changed_files: expected_changed_files.clone(),
+            forbidden_changed_files: forbidden_files.clone(),
+            min_tool_calls: Some(1),
+            require_turn: Some(true),
+            ..Default::default()
+        }
+    } else {
+        AgentExecutionCheck {
+            expected_mode: Some("fixture_patch".to_string()),
+            expected_status: Some("completed".to_string()),
+            expected_changed_files: expected_changed_files.clone(),
+            forbidden_changed_files: forbidden_files.clone(),
+            require_turn: Some(false),
+            response_contains: vec!["fixture patch applied".to_string()],
+            ..Default::default()
+        }
+    };
+
     CodingEvalFixture {
         name: fixture_name,
         description: format!(
-            "Gold task {} materialized from {} for deterministic replay.",
-            case.id, GOLD_TASK_SOURCE_DOC
+            "Gold task {} materialized from {} for {} replay.",
+            case.id, GOLD_TASK_SOURCE_DOC, execution_mode
         ),
         task: Some(CodingTaskEvalSpec {
             id: case.id.clone(),
@@ -3648,7 +3797,7 @@ fn materialize_gold_task_fixture(
             title: case.title.clone(),
             source: case.source.clone(),
             prompt: case.prompt.clone(),
-            execution_mode: case.execution_mode.clone(),
+            execution_mode: execution_mode.to_string(),
             expected_behavior: case.expected_behavior.clone(),
             forbidden_behavior: case.forbidden_behavior.clone(),
             likely_files: case.likely_files.clone(),
@@ -3672,10 +3821,7 @@ fn materialize_gold_task_fixture(
             workflow: None,
         },
         runs: FixtureRuns {
-            execution: Some(AgentExecutionEvalRun {
-                mode: "fixture_patch".to_string(),
-                ..Default::default()
-            }),
+            execution: Some(execution_run),
             review: Some(ReviewEvalRun::default()),
             verification: Some(VerificationEvalRun::default()),
             context: Some(ContextEvalRun {
@@ -3690,15 +3836,7 @@ fn materialize_gold_task_fixture(
             ..Default::default()
         },
         checks: FixtureChecks {
-            execution: Some(AgentExecutionCheck {
-                expected_mode: Some("fixture_patch".to_string()),
-                expected_status: Some("completed".to_string()),
-                expected_changed_files: expected_changed_files.clone(),
-                forbidden_changed_files: forbidden_files.clone(),
-                require_turn: Some(false),
-                response_contains: vec!["fixture patch applied".to_string()],
-                ..Default::default()
-            }),
+            execution: Some(execution_check),
             review: Some(ReviewCheck {
                 max_findings: automation.max_review_findings,
                 expect_focused: Some(false),
@@ -5262,6 +5400,124 @@ mod tests {
             .expect("strategy history count");
         assert_eq!(pack_runs, 1);
         assert_eq!(strategy_runs, 1);
+    }
+
+    #[tokio::test]
+    async fn gold_task_pack_external_model_requires_agent_execution() {
+        let (_dir, db) = temp_session_db();
+        let err = run_gold_task_pack(
+            db.clone(),
+            GoldTaskPackRunInput {
+                ids: vec!["CE-TEST-004".to_string()],
+                execution_mode: Some("fixture_patch".to_string()),
+                baseline_kind: Some("external_model".to_string()),
+                record_pack_run: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("external_model cannot use fixture_patch");
+        assert!(err
+            .to_string()
+            .contains("baselineKind=external_model requires executionMode=agent"));
+
+        let err = run_gold_task_pack(
+            db,
+            GoldTaskPackRunInput {
+                ids: vec!["CE-TEST-004".to_string()],
+                execution_mode: Some("agent".to_string()),
+                record_pack_run: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("agent execution requires provider config");
+        assert!(err
+            .to_string()
+            .contains("executionMode=agent requires providers and modelChain"));
+    }
+
+    #[tokio::test]
+    async fn gold_task_pack_external_model_runs_agent_execution_and_records_history() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(responses_sse_tool_call(
+                        "write",
+                        json!({
+                            "path": "crates/ha-core/src/tools/tool_search.rs",
+                            "content": "pub fn parse_select_query(query: &str) -> Vec<String> {\n    query\n        .strip_prefix(\"select:\")\n        .map(|rest| {\n            rest.split(',')\n                .map(|name| name.trim().to_ascii_lowercase())\n                .filter(|name| !name.is_empty())\n                .collect()\n        })\n        .unwrap_or_default()\n}\n",
+                        }),
+                    )),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(responses_sse_text("Updated tool_search select parsing.")),
+            )
+            .with_priority(2)
+            .mount(&server)
+            .await;
+
+        let provider =
+            mock_responses_provider(server.uri(), "external-baseline-provider", "baseline-model");
+        let (_dir, db) = temp_session_db();
+        let report = run_gold_task_pack(
+            db.clone(),
+            GoldTaskPackRunInput {
+                ids: vec!["CE-BUG-001".to_string()],
+                execution_mode: Some("agent".to_string()),
+                providers: vec![provider],
+                model_chain: vec![ActiveModel {
+                    provider_id: "external-baseline-provider".to_string(),
+                    model_id: "baseline-model".to_string(),
+                }],
+                auto_approve_tools: true,
+                baseline_kind: Some("external_model".to_string()),
+                label: Some("external smoke".to_string()),
+                record_eval_runs: false,
+                record_pack_run: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("run external model baseline");
+
+        assert!(
+            report.passed,
+            "external baseline failed: {:?}",
+            report.cases
+        );
+        assert_eq!(report.selected_cases, 1);
+        assert!(report.pack_run_id.is_some());
+        let case_report = report.cases[0].report.as_ref().expect("case report");
+        let execution = case_report.execution.as_ref().expect("execution report");
+        assert_eq!(execution.mode, "agent");
+        assert_eq!(execution.status, "completed");
+        assert!(execution.tool_calls.iter().any(|tool| tool == "write"));
+        assert!(case_report
+            .metrics
+            .execution_tool_calls
+            .contains(&"write".to_string()));
+
+        let conn = db.conn.lock().expect("lock db");
+        let external_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM coding_eval_pack_runs WHERE baseline_kind = 'external_model'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("external pack history count");
+        assert_eq!(external_runs, 1);
     }
 
     #[tokio::test]

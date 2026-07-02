@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-03
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地，Agent Execution Runner 已作为 Phase 5.2 落地，Gold Task Pack v1 已作为 Phase 5.3 落地，Strategy Effect Evaluator 已作为 Phase 5.4 落地，Gold Task Pack 全量自动化已作为 Phase 5.5 落地，Mock Tool-call 基线与执行指标已作为 Phase 5.6 落地，Strategy Effect 趋势持久化 / Dashboard 已作为 Phase 5.7 落地，Release Gate 已作为 Phase 5.8 落地，沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md) 与 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地，Agent Execution Runner 已作为 Phase 5.2 落地，Gold Task Pack v1 已作为 Phase 5.3 落地，Strategy Effect Evaluator 已作为 Phase 5.4 落地，Gold Task Pack 全量自动化已作为 Phase 5.5 落地，Mock Tool-call 基线与执行指标已作为 Phase 5.6 落地，Strategy Effect 趋势持久化 / Dashboard 已作为 Phase 5.7 落地，Release Gate 已作为 Phase 5.8 落地，外部模型基线 runner 已作为 Phase 5.9 落地，沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md) 与 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
 
 ## 1. 路线调整结论
 
@@ -60,6 +60,7 @@ Phase 5.5  Gold Task Pack 全量自动化（已完成）
 Phase 5.6  Mock Tool-call 基线与执行指标（已完成）
 Phase 5.7  Strategy Effect 趋势持久化 / Dashboard（已完成）
 Phase 5.8  Release Gate（已完成）
+Phase 5.9  外部模型基线 runner（已完成）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -85,7 +86,7 @@ Phase 5.8  Release Gate（已完成）
 | Loop | 通用 | 已实现第一版 | 是否按时间、事件或条件重复触发。 |
 | Worktree | coding-specific | 已实现 Phase 3.1 | 代码改动落在哪个隔离环境。 |
 | Context Retrieval | 通用 owner-plane，当前 coding-first | 已实现 Phase 3.6 | 当前任务下一步最该看哪些上下文，以及能否直接进入 focused review / verification。 |
-| Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 5.8 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄，Agent 是否能从 prompt 生成候选结果，候选 diff 是否满足任务级成功标准；20 个 active gold tasks 是否可批量回放；mock tool-call 是否真实调用写文件工具；策略改动前后是否真的改善质量；持久化历史是否满足发布质量门禁。 |
+| Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 5.9 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄，Agent 是否能从 prompt 生成候选结果，候选 diff 是否满足任务级成功标准；20 个 active gold tasks 是否可批量回放；mock tool-call 是否真实调用写文件工具；策略改动前后是否真的改善质量；持久化历史是否满足发布质量门禁；真实 provider 是否能在受控 Gold Pack 中从 prompt 产出可评分候选 diff。 |
 | Coding Improvement | coding-first 改进回路，报告形态可复用于通用控制面 | 已实现 Phase 3.11 | 最近任务为什么完成/阻塞，下一步应补 eval、workflow、guidance 还是 skill。 |
 | Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.4 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物，把已应用草稿显式晋升为正式 eval fixture / project guidance / active skill，并支持用户显式从 transcript / workflow / failure feedback 提炼更高质量候选。 |
 
@@ -624,6 +625,12 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 默认阈值保守：至少 1 次 pack run、pack pass rate 100%、strategy regression / mixed / missing tool-call / validation delta / scope creep delta 均不得超过 0。
 - `requireExternalModelPack=true` 时必须存在 `baselineKind="external_model"` 的 pack run；deterministic / mock provider 结果不会被冒充为真实模型基线。
 - targeted tests 覆盖干净历史通过、策略/工具调用回归失败、要求外部真实模型但证据不足三种发布门禁状态。
+
+### Phase 5.9 外部模型基线 runner（已完成）
+
+- `run_coding_eval_gold_task_pack` 支持 `executionMode="agent"`、`providers`、`modelChain`、`autoApproveTools`，从 gold task prompt 真实调用 chat engine，让模型通过工具产出 candidate diff。
+- `baselineKind="external_model"` 必须走 agent execution 且必须显式传 provider/model；`agent` 也不能记录为 `deterministic_mock`。
+- targeted tests 使用本地 mock Responses provider 覆盖完整 agent pack runner、真实 `write` tool-call、pack history 记录为 `external_model`，不访问外网。
 
 ## 9. 体验与性能红线
 

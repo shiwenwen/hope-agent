@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 5.8 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、Release Gate、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+> 状态：Phase 5.9 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、External Model Baseline、Release Gate、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
 
 ## 目标
 
@@ -26,7 +26,7 @@ Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审
 | 表 | 说明 |
 | --- | --- |
 | `coding_eval_runs` | 记录 deterministic eval 或外部评测运行结果，字段包括 `session_id`、`project_id`、`suite`、`name`、`status`、`metrics_json`、`source_type`、`source_id`、`created_at`。 |
-| `coding_eval_pack_runs` | Phase 5.7 新增。记录 `GoldTaskPackReport` history，字段包括 `pack_id`、`source_doc`、`label`、`baseline_kind`、pack pass/fail/skipped/checks 汇总、`report_json`、`source_type`、`source_id`、`created_at`。`baseline_kind` 用来区分 `deterministic_mock` / `mock_provider` / `external_model`，避免把 fixture / mock 基线冒充真实模型能力。 |
+| `coding_eval_pack_runs` | Phase 5.7 新增。记录 `GoldTaskPackReport` history，字段包括 `pack_id`、`source_doc`、`label`、`baseline_kind`、pack pass/fail/skipped/checks 汇总、`report_json`、`source_type`、`source_id`、`created_at`。`baseline_kind` 用来区分 `deterministic_mock` / `mock_provider` / `external_model`，避免把 fixture / mock 基线冒充真实模型能力。Phase 5.9 后 `external_model` pack run 必须来自 `executionMode="agent"` + 显式 provider/modelChain。 |
 | `coding_strategy_effect_runs` | Phase 5.7 新增。记录 `StrategyEffectReport` history，字段包括 `strategy_type`、baseline/candidate label、可选 pack run 关联、`verdict`、共同 case 数、pass rate / task score / context recall / validation / scope creep / execution failure delta、`report_json`、`source_type`、`source_id`、`created_at`。 |
 | `coding_workflow_retros` | workflow 终态 retro，字段包括 `workflow_run_id`、`run_state`、`summary`、`signals_json`、`recommendations_json`、`project_id`、`created_at`、`updated_at`。`workflow_run_id` 唯一，重复终态回写走 upsert。 |
 | `coding_improvement_proposals` | 改进候选草案队列，字段包括 `kind`、`status`、`source_type`、`source_id`、`title`、`body`、`payload_json`、`fingerprint`、`decided_at`、`apply_result_json`、`applied_at`、`promotion_result_json`、`promoted_at`。 |
@@ -336,6 +336,8 @@ Phase 5.4 为 pack report 增加策略效果评估：两份 `GoldTaskPackReport`
 Phase 5.6 为 agent execution runner 增加稳定 mock tool-call 基线与 `toolCalls` 指标。mock Responses provider 会驱动真实 `write` 工具修改临时 repo，再由 task scorer 判断候选 diff 是否完成任务；`FixtureReport.metrics.execution_tool_calls` 与 task report metrics 让 Improvement Loop 可以区分“模型调用了错误工具 / 没有调用工具”和“工具调用成功但 diff 质量不达标”。Phase 5.7 Dashboard 会把 agent 模式下缺失 tool call 的 run 聚合为 `missing_tool_call` failure mode。
 
 Phase 5.8 为持久化 pack / strategy history 增加 release gate。核心单测覆盖：干净 pack + strategy history 通过；strategy regression / validation / scope creep / missing tool-call 触发失败；要求外部真实模型但只有 deterministic / mock history 时返回 `insufficient_data`。
+
+Phase 5.9 为 Gold Task Pack 增加外部模型基线 runner。`run_coding_eval_gold_task_pack` 可显式传 `executionMode="agent"`、`providers`、`modelChain` 和 `autoApproveTools`；runner 从 gold task prompt 创建真实 chat turn，要求模型通过工具产生 candidate diff，再由同一 scorer 判分。`baselineKind="external_model"` 不能配 `fixture_patch`，`agent` 也不能记录为 `deterministic_mock`，因此 Dashboard / Release Gate 中的 external pack run 不再只是标签。
 
 ## 红线
 

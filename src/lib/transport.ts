@@ -1143,6 +1143,14 @@ export interface CodingEvalGoldTaskPackRunInput {
   taskTypes?: string[];
   includeUnautomated?: boolean;
   maxTasks?: number | null;
+  executionMode?: "agent" | "fixture_patch" | string | null;
+  providers?: Record<string, unknown>[];
+  modelChain?: CodingEvalActiveModel[];
+  compactConfig?: Record<string, unknown> | null;
+  reasoningEffort?: string | null;
+  extraSystemContext?: string | null;
+  deniedTools?: string[];
+  autoApproveTools?: boolean;
   recordEvalRuns?: boolean;
   recordPackRun?: boolean;
   evaluateGoal?: boolean;
