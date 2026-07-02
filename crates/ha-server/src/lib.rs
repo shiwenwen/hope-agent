@@ -1472,6 +1472,10 @@ fn build_router_with_cors(
             "/coding-improvement/generalization/evaluate",
             post(routes::coding_improvement::evaluate_coding_learning_generalization),
         )
+        .route(
+            "/coding-benchmark/center",
+            post(routes::coding_improvement::get_coding_benchmark_center),
+        )
         // Smart verification selector (Phase 3.4)
         .route(
             "/sessions/{sid}/verification-runs",

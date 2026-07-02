@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-03
 >
-> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化 / Dashboard、Phase 5.8 Release Gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate 已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化 / Dashboard、Phase 5.8 Release Gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center 已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 目录
 
@@ -281,7 +281,7 @@ Phase 3.7 已先落地一层确定性控制面 eval。它不替代 20 个人工 
 - Phase 5.3 新增 Gold Task Pack v1，Phase 5.5 扩展到 20 个 active gold tasks 全量自动化：均可批量 materialize / run，默认走 `fixture_patch`，不访问外部模型。
 - Phase 5.4 新增 strategy effect evaluator：比较 baseline / candidate 两份 pack report 的 pass rate、task score、context recall、validation violations、scope creep 和 execution failures。
 - Phase 5.6 新增 mock tool-call 基线：本地 mock Responses SSE 驱动真实 `write` 工具修改临时 repo，记录 `toolCalls`，并由同一 task scorer 判定 diff。
-- Phase 5.7 新增 pack / strategy effect history 与 Dashboard 聚合；Phase 5.8 新增 release gate，把持久化历史转成发布质量门禁；Phase 5.9 新增外部模型基线 runner，显式 provider/model 才能记录 external model pack run；Phase 5.10 新增 Learning Generalization Gate，检查 promoted learning 是否在多个项目、pack history 与 strategy effect 中稳定成立。
+- Phase 5.7 新增 pack / strategy effect history 与 Dashboard 聚合；Phase 5.8 新增 release gate，把持久化历史转成发布质量门禁；Phase 5.9 新增外部模型基线 runner，显式 provider/model 才能记录 external model pack run；Phase 5.10 新增 Learning Generalization Gate，检查 promoted learning 是否在多个项目、pack history 与 strategy effect 中稳定成立；Phase 6.1 新增 Benchmark Run Center，把 pack history、baseline buckets、recent runs、Release Gate 与 Generalization Gate 产品化到 Dashboard。
 - 不默认执行真实验证命令；真实验证命令只在 fixture 显式 `workflow.validate()` 时执行。
 
 已实现入口见 [Coding Eval 控制面评测](../architecture/coding-eval.md)；当前回归命令：
@@ -290,12 +290,12 @@ Phase 3.7 已先落地一层确定性控制面 eval。它不替代 20 个人工 
 cargo test -p ha-core --test coding_eval --locked
 ```
 
-20 个 gold tasks 全量自动化、mock tool-call 基线、release gate 与外部模型基线 runner 后，仍需继续考虑更高层自动化：
+20 个 gold tasks 全量自动化、mock tool-call 基线、release gate、外部模型基线 runner 与 Benchmark Run Center 后，仍需继续考虑更高层自动化：
 
 - 自动采集 tool trace。
 - 受控自动验证命令执行。
 - 自动 outcome 初判 + 人工确认。
-- coding eval dashboard。
+- 更大规模真实任务 benchmark 与跨模型对标报告。
 - 失败转 improvement backlog。
 
 后续自动化必须复用现有 Goal / Workflow / Review / Verification / Context Retrieval 记录，不再造一套旁路 trace。
@@ -320,3 +320,4 @@ Phase 0 完成的最低标准：
 - [x] Phase 5.8：落地 release gate，按持久化 history 输出 passed / failed / insufficient_data。
 - [x] Phase 5.9：落地外部模型基线 runner，显式 provider/model 才能运行并记录 `external_model` pack history。
 - [x] Phase 5.10：落地 Learning Generalization Gate，以 promoted proposal + pack history + strategy effect history 证明学习不是单项目偶然有效。
+- [x] Phase 6.1：落地 Benchmark Run Center v1，在 Dashboard 展示 benchmark readiness、baseline buckets、recent runs，并可显式触发 deterministic Gold Pack。

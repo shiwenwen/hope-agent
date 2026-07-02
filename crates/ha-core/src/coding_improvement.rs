@@ -10,8 +10,9 @@
 //! 4.2 adds terminal workflow retros and explicit draft promotion into formal
 //! eval fixtures, project guidance includes, or active managed skills. Phase
 //! 4.4 adds deterministic transcript distillation and failure feedback
-//! proposals. Generation, distillation, apply, and promotion all remain
-//! explicit owner-plane actions.
+//! proposals. Phase 6.1 adds a read-only Benchmark Run Center on top of the
+//! durable pack history. Generation, distillation, apply, promotion, and
+//! benchmark execution all remain explicit owner-plane actions.
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -47,6 +48,8 @@ const DEFAULT_GENERALIZATION_MAX_REGRESSED_PROJECTS: usize = 0;
 const DEFAULT_GENERALIZATION_MAX_MIXED_PROJECTS: usize = 0;
 const DEFAULT_GENERALIZATION_MAX_VALIDATION_VIOLATION_DELTA_PER_PROJECT: isize = 0;
 const DEFAULT_GENERALIZATION_MAX_SCOPE_CREEP_DELTA_PER_PROJECT: isize = 0;
+const DEFAULT_BENCHMARK_CENTER_LIMIT: usize = 12;
+const MAX_BENCHMARK_CENTER_LIMIT: usize = 50;
 const MAX_SCOPE_SESSIONS: usize = 200;
 const MAX_CONTENT_PREVIEW_BYTES: usize = 12 * 1024;
 const MAX_DISTILLATION_SESSIONS: usize = 12;
@@ -847,6 +850,144 @@ pub struct CodingLearningGeneralizationReport {
     pub checks: Vec<CodingLearningGeneralizationCheck>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingBenchmarkCenterInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub require_external_model_baseline: bool,
+    #[serde(default)]
+    pub require_learning_generalization: bool,
+}
+
+impl Default for CodingBenchmarkCenterInput {
+    fn default() -> Self {
+        Self {
+            session_id: None,
+            project_id: None,
+            window_days: None,
+            limit: None,
+            require_external_model_baseline: false,
+            require_learning_generalization: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingBenchmarkCenterSummary {
+    pub total_runs: usize,
+    pub passed_runs: usize,
+    pub failed_runs: usize,
+    pub skipped_runs: usize,
+    pub deterministic_runs: usize,
+    pub external_model_runs: usize,
+    pub selected_cases: usize,
+    pub automated_cases: usize,
+    pub passed_cases: usize,
+    pub failed_cases: usize,
+    pub skipped_cases: usize,
+    pub total_checks: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub best_case_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_run_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_run_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingBenchmarkRunItem {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub pack_id: String,
+    pub source_doc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub baseline_kind: String,
+    pub status: String,
+    pub selected_cases: usize,
+    pub automated_cases: usize,
+    pub skipped_cases: usize,
+    pub passed_cases: usize,
+    pub failed_cases: usize,
+    pub total_checks: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub created_at: String,
+    pub failed_cases_summary: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingBenchmarkBaselineBucket {
+    pub baseline_kind: String,
+    pub runs: usize,
+    pub passed_runs: usize,
+    pub failed_runs: usize,
+    pub skipped_runs: usize,
+    pub passed_cases: usize,
+    pub failed_cases: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub case_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_run_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingBenchmarkCenterCheck {
+    pub name: String,
+    pub status: String,
+    pub severity: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingBenchmarkCenterReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub window_days: u32,
+    pub since: String,
+    pub summary: CodingBenchmarkCenterSummary,
+    pub baselines: Vec<CodingBenchmarkBaselineBucket>,
+    pub runs: Vec<CodingBenchmarkRunItem>,
+    pub checks: Vec<CodingBenchmarkCenterCheck>,
+    pub release_gate: CodingEvalReleaseGateReport,
+    pub generalization_gate: CodingLearningGeneralizationReport,
+}
+
 struct ReportScope {
     session_id: String,
     project_id: Option<String>,
@@ -872,6 +1013,15 @@ struct LearningGeneralizationScope {
     source_type: Option<String>,
     source_id: Option<String>,
     proposal_kinds: Vec<String>,
+}
+
+struct BenchmarkCenterScope {
+    session_id: Option<String>,
+    project_id: Option<String>,
+    scope: String,
+    window_days: u32,
+    since: String,
+    limit: usize,
 }
 
 #[derive(Default)]
@@ -1991,6 +2141,136 @@ impl SessionDB {
         })
     }
 
+    pub fn get_coding_benchmark_center(
+        &self,
+        input: CodingBenchmarkCenterInput,
+    ) -> Result<CodingBenchmarkCenterReport> {
+        let scope = self.resolve_coding_benchmark_center_scope(&input)?;
+        let summary = self.coding_benchmark_center_summary(&scope)?;
+        let mut baselines = self.coding_benchmark_center_baselines(&scope)?;
+        let runs = self.coding_benchmark_center_runs(&scope)?;
+        let release_gate = self.evaluate_coding_eval_release_gate(CodingEvalReleaseGateInput {
+            session_id: scope.session_id.clone(),
+            project_id: scope.project_id.clone(),
+            window_days: Some(scope.window_days),
+            require_external_model_pack: input.require_external_model_baseline,
+            ..Default::default()
+        })?;
+        let generalization_gate =
+            self.evaluate_coding_learning_generalization(CodingLearningGeneralizationInput {
+                session_id: scope.session_id.clone(),
+                project_id: scope.project_id.clone(),
+                window_days: Some(scope.window_days),
+                require_external_model_pack: input.require_external_model_baseline,
+                ..Default::default()
+            })?;
+
+        baselines.sort_by(|a, b| {
+            b.runs
+                .cmp(&a.runs)
+                .then_with(|| a.baseline_kind.cmp(&b.baseline_kind))
+        });
+
+        let mut checks = Vec::new();
+        push_benchmark_check(
+            &mut checks,
+            "benchmark_history",
+            if summary.total_runs == 0 {
+                "insufficient_data"
+            } else {
+                "passed"
+            },
+            "required",
+            "at least 1 recorded benchmark run",
+            format!("{} run(s)", summary.total_runs),
+            "Benchmark Run Center is backed by durable Gold Task Pack history.",
+        );
+        push_benchmark_check(
+            &mut checks,
+            "latest_pack_run",
+            match summary.latest_run_status.as_deref() {
+                Some("passed") => "passed",
+                Some("failed") => "failed",
+                Some(_) => "insufficient_data",
+                None => "insufficient_data",
+            },
+            "required",
+            "latest recorded pack run passed",
+            summary
+                .latest_run_status
+                .clone()
+                .unwrap_or_else(|| "none".to_string()),
+            "The newest benchmark run is the first signal users see in the run center.",
+        );
+        push_benchmark_check(
+            &mut checks,
+            "release_gate",
+            release_gate.status.clone(),
+            "required",
+            "release gate passed",
+            release_gate.status.clone(),
+            "Release Gate combines pack quality, strategy regressions, and missing tool-call evidence.",
+        );
+        push_benchmark_check(
+            &mut checks,
+            "external_model_baseline",
+            if summary.external_model_runs > 0 {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            if input.require_external_model_baseline {
+                "required"
+            } else {
+                "advisory"
+            },
+            "at least 1 external_model pack run",
+            format!("{} run(s)", summary.external_model_runs),
+            "External baselines are never inferred from deterministic or mock runs.",
+        );
+        push_benchmark_check(
+            &mut checks,
+            "learning_generalization",
+            generalization_gate.status.clone(),
+            if input.require_learning_generalization {
+                "required"
+            } else {
+                "advisory"
+            },
+            "learning generalization gate passed",
+            generalization_gate.status.clone(),
+            "Cross-project promoted learning evidence is kept visible next to benchmark results.",
+        );
+
+        let has_failed = checks.iter().any(|check| check.status == "failed");
+        let has_required_insufficient = checks
+            .iter()
+            .any(|check| check.severity == "required" && check.status == "insufficient_data");
+        let status = if has_failed {
+            "failed"
+        } else if has_required_insufficient {
+            "insufficient_data"
+        } else {
+            "passed"
+        };
+
+        Ok(CodingBenchmarkCenterReport {
+            generated_at: now_rfc3339(),
+            status: status.to_string(),
+            scope: scope.scope,
+            session_id: scope.session_id,
+            project_id: scope.project_id,
+            window_days: scope.window_days,
+            since: scope.since,
+            summary,
+            baselines,
+            runs,
+            checks,
+            release_gate,
+            generalization_gate,
+        })
+    }
+
     fn resolve_durable_coding_record_scope(
         &self,
         session_id: Option<String>,
@@ -2142,6 +2422,249 @@ impl SessionDB {
             source_id,
             proposal_kinds,
         })
+    }
+
+    fn resolve_coding_benchmark_center_scope(
+        &self,
+        input: &CodingBenchmarkCenterInput,
+    ) -> Result<BenchmarkCenterScope> {
+        let window_days = input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS);
+        let since = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::days(window_days as i64))
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let session_id = input
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let explicit_project_id = input
+            .project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let session_project_id = if let Some(session_id) = session_id.as_deref() {
+            let meta = self
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+            if meta.incognito {
+                bail!("Cannot build coding benchmark center for incognito session {session_id}");
+            }
+            meta.project_id
+        } else {
+            None
+        };
+        let project_id = explicit_project_id.or(session_project_id);
+        let scope = if project_id.is_some() {
+            "project"
+        } else if session_id.is_some() {
+            "session"
+        } else {
+            "global"
+        }
+        .to_string();
+        let limit = input
+            .limit
+            .unwrap_or(DEFAULT_BENCHMARK_CENTER_LIMIT)
+            .clamp(1, MAX_BENCHMARK_CENTER_LIMIT);
+
+        Ok(BenchmarkCenterScope {
+            session_id,
+            project_id,
+            scope,
+            window_days,
+            since,
+            limit,
+        })
+    }
+
+    fn coding_benchmark_center_summary(
+        &self,
+        scope: &BenchmarkCenterScope,
+    ) -> Result<CodingBenchmarkCenterSummary> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let (where_sql, params) = benchmark_center_filter(scope, "cepr", "cepr.created_at");
+        let mut summary = conn.query_row(
+            &format!(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(CASE WHEN cepr.status = 'passed' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN cepr.status = 'failed' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN cepr.status = 'skipped' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN cepr.baseline_kind = 'external_model' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(CASE WHEN cepr.baseline_kind <> 'external_model' THEN 1 ELSE 0 END), 0),
+                        COALESCE(SUM(cepr.selected_cases), 0),
+                        COALESCE(SUM(cepr.automated_cases), 0),
+                        COALESCE(SUM(cepr.passed_cases), 0),
+                        COALESCE(SUM(cepr.failed_cases), 0),
+                        COALESCE(SUM(cepr.skipped_cases), 0),
+                        COALESCE(SUM(cepr.total_checks), 0),
+                        MAX(CASE
+                            WHEN (cepr.passed_cases + cepr.failed_cases) > 0
+                            THEN CAST(cepr.passed_cases AS REAL) / CAST(cepr.passed_cases + cepr.failed_cases AS REAL)
+                            ELSE NULL
+                        END)
+                 FROM coding_eval_pack_runs cepr
+                 LEFT JOIN sessions s ON s.id = cepr.session_id
+                 {}",
+                where_sql
+            ),
+            params_from_iter(params.iter()),
+            |row| {
+                Ok(CodingBenchmarkCenterSummary {
+                    total_runs: nonnegative_usize(row.get::<_, i64>(0)?),
+                    passed_runs: nonnegative_usize(row.get::<_, i64>(1)?),
+                    failed_runs: nonnegative_usize(row.get::<_, i64>(2)?),
+                    skipped_runs: nonnegative_usize(row.get::<_, i64>(3)?),
+                    external_model_runs: nonnegative_usize(row.get::<_, i64>(4)?),
+                    deterministic_runs: nonnegative_usize(row.get::<_, i64>(5)?),
+                    selected_cases: nonnegative_usize(row.get::<_, i64>(6)?),
+                    automated_cases: nonnegative_usize(row.get::<_, i64>(7)?),
+                    passed_cases: nonnegative_usize(row.get::<_, i64>(8)?),
+                    failed_cases: nonnegative_usize(row.get::<_, i64>(9)?),
+                    skipped_cases: nonnegative_usize(row.get::<_, i64>(10)?),
+                    total_checks: nonnegative_usize(row.get::<_, i64>(11)?),
+                    best_case_pass_rate: row
+                        .get::<_, Option<f64>>(12)?
+                        .map(|value| (value * 1000.0).round() / 1000.0),
+                    ..CodingBenchmarkCenterSummary::default()
+                })
+            },
+        )?;
+        summary.run_pass_rate = ratio(
+            summary.passed_runs,
+            summary.passed_runs + summary.failed_runs,
+        );
+        summary.case_pass_rate = ratio(
+            summary.passed_cases,
+            summary.passed_cases + summary.failed_cases,
+        );
+
+        let latest = conn
+            .query_row(
+                &format!(
+                    "SELECT cepr.id, cepr.status, cepr.created_at
+                     FROM coding_eval_pack_runs cepr
+                     LEFT JOIN sessions s ON s.id = cepr.session_id
+                     {}
+                     ORDER BY cepr.created_at DESC, cepr.id DESC
+                     LIMIT 1",
+                    where_sql
+                ),
+                params_from_iter(params.iter()),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((id, status, created_at)) = latest {
+            summary.latest_run_id = Some(id);
+            summary.latest_run_status = Some(status);
+            summary.latest_run_at = Some(created_at);
+        }
+
+        Ok(summary)
+    }
+
+    fn coding_benchmark_center_baselines(
+        &self,
+        scope: &BenchmarkCenterScope,
+    ) -> Result<Vec<CodingBenchmarkBaselineBucket>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let (where_sql, params) = benchmark_center_filter(scope, "cepr", "cepr.created_at");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT cepr.baseline_kind,
+                    COUNT(*),
+                    COALESCE(SUM(CASE WHEN cepr.status = 'passed' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN cepr.status = 'failed' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN cepr.status = 'skipped' THEN 1 ELSE 0 END), 0),
+                    COALESCE(SUM(cepr.passed_cases), 0),
+                    COALESCE(SUM(cepr.failed_cases), 0),
+                    MAX(cepr.created_at)
+             FROM coding_eval_pack_runs cepr
+             LEFT JOIN sessions s ON s.id = cepr.session_id
+             {}
+             GROUP BY cepr.baseline_kind",
+            where_sql
+        ))?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            let runs = nonnegative_usize(row.get::<_, i64>(1)?);
+            let passed_runs = nonnegative_usize(row.get::<_, i64>(2)?);
+            let failed_runs = nonnegative_usize(row.get::<_, i64>(3)?);
+            let passed_cases = nonnegative_usize(row.get::<_, i64>(5)?);
+            let failed_cases = nonnegative_usize(row.get::<_, i64>(6)?);
+            Ok(CodingBenchmarkBaselineBucket {
+                baseline_kind: row.get(0)?,
+                runs,
+                passed_runs,
+                failed_runs,
+                skipped_runs: nonnegative_usize(row.get::<_, i64>(4)?),
+                passed_cases,
+                failed_cases,
+                run_pass_rate: ratio(passed_runs, passed_runs + failed_runs),
+                case_pass_rate: ratio(passed_cases, passed_cases + failed_cases),
+                latest_run_at: row.get(7)?,
+            })
+        })?;
+        collect_rows(rows)
+    }
+
+    fn coding_benchmark_center_runs(
+        &self,
+        scope: &BenchmarkCenterScope,
+    ) -> Result<Vec<CodingBenchmarkRunItem>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let (where_sql, mut params) = benchmark_center_filter(scope, "cepr", "cepr.created_at");
+        params.push(scope.limit.to_string());
+        let mut stmt = conn.prepare(&format!(
+            "SELECT cepr.id, cepr.session_id, COALESCE(cepr.project_id, s.project_id),
+                    cepr.pack_id, cepr.source_doc, cepr.label, cepr.baseline_kind,
+                    cepr.status, cepr.selected_cases, cepr.automated_cases,
+                    cepr.skipped_cases, cepr.passed_cases, cepr.failed_cases,
+                    cepr.total_checks, cepr.report_json, cepr.source_type,
+                    cepr.source_id, cepr.created_at
+             FROM coding_eval_pack_runs cepr
+             LEFT JOIN sessions s ON s.id = cepr.session_id
+             {}
+             ORDER BY cepr.created_at DESC, cepr.id DESC
+             LIMIT ?",
+            where_sql
+        ))?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            let passed_cases = nonnegative_usize(row.get::<_, i64>(11)?);
+            let failed_cases = nonnegative_usize(row.get::<_, i64>(12)?);
+            let report_json: String = row.get(14)?;
+            Ok(CodingBenchmarkRunItem {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                project_id: row.get(2)?,
+                pack_id: row.get(3)?,
+                source_doc: row.get(4)?,
+                label: row.get(5)?,
+                baseline_kind: row.get(6)?,
+                status: row.get(7)?,
+                selected_cases: nonnegative_usize(row.get::<_, i64>(8)?),
+                automated_cases: nonnegative_usize(row.get::<_, i64>(9)?),
+                skipped_cases: nonnegative_usize(row.get::<_, i64>(10)?),
+                passed_cases,
+                failed_cases,
+                total_checks: nonnegative_usize(row.get::<_, i64>(13)?),
+                case_pass_rate: ratio(passed_cases, passed_cases + failed_cases),
+                source_type: row.get(15)?,
+                source_id: row.get(16)?,
+                created_at: row.get(17)?,
+                failed_cases_summary: benchmark_failed_cases_summary(&report_json),
+            })
+        })?;
+        collect_rows(rows)
     }
 
     fn coding_eval_release_gate_summary(
@@ -4764,8 +5287,51 @@ fn push_generalization_check(
     });
 }
 
+fn push_benchmark_check(
+    checks: &mut Vec<CodingBenchmarkCenterCheck>,
+    name: &str,
+    status: impl Into<String>,
+    severity: &str,
+    expected: impl Into<String>,
+    actual: impl Into<String>,
+    detail: impl Into<String>,
+) {
+    checks.push(CodingBenchmarkCenterCheck {
+        name: name.to_string(),
+        status: status.into(),
+        severity: severity.to_string(),
+        expected: expected.into(),
+        actual: actual.into(),
+        detail: detail.into(),
+    });
+}
+
 fn release_gate_filter(
     scope: &ReleaseGateScope,
+    fact_alias: &str,
+    time_expr: &str,
+) -> (String, Vec<String>) {
+    let mut clauses = vec![
+        format!("{time_expr} >= ?"),
+        format!(
+            "({fact_alias}.session_id IS NULL OR (s.is_cron = 0 AND s.parent_session_id IS NULL AND s.incognito = 0))"
+        ),
+    ];
+    let mut params = vec![scope.since.clone()];
+    if let Some(project_id) = scope.project_id.as_ref() {
+        clauses.push(format!(
+            "COALESCE({fact_alias}.project_id, s.project_id) = ?"
+        ));
+        params.push(project_id.clone());
+    } else if let Some(session_id) = scope.session_id.as_ref() {
+        clauses.push(format!("{fact_alias}.session_id = ?"));
+        params.push(session_id.clone());
+    }
+    (format!("WHERE {}", clauses.join(" AND ")), params)
+}
+
+fn benchmark_center_filter(
+    scope: &BenchmarkCenterScope,
     fact_alias: &str,
     time_expr: &str,
 ) -> (String, Vec<String>) {
@@ -4837,6 +5403,27 @@ fn learning_generalization_filter(
     }
 
     (format!("WHERE {}", clauses.join(" AND ")), params)
+}
+
+fn benchmark_failed_cases_summary(report_json: &str) -> Vec<String> {
+    serde_json::from_str::<GoldTaskPackReport>(report_json)
+        .map(|report| {
+            report
+                .cases
+                .into_iter()
+                .filter(|case_report| case_report.status != "passed")
+                .take(4)
+                .map(|case_report| {
+                    let title = case_report.case.title.trim();
+                    if title.is_empty() {
+                        case_report.case.id
+                    } else {
+                        format!("{}: {}", case_report.case.id, title)
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn project_status_rank(status: &str) -> usize {
@@ -5721,6 +6308,125 @@ mod tests {
         }));
         assert!(report.checks.iter().any(|check| {
             check.name == "strategy_regression_projects" && check.status == "failed"
+        }));
+    }
+
+    #[test]
+    fn benchmark_center_passes_clean_deterministic_history() {
+        let (_dir, db) = test_db();
+        let project_id = "project-benchmark-clean";
+        let session = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some(project_id),
+                None,
+            )
+            .unwrap();
+        insert_generalization_pack(
+            &db,
+            &session.id,
+            project_id,
+            "cepr_benchmark_clean",
+            "passed",
+        );
+
+        let report = db
+            .get_coding_benchmark_center(CodingBenchmarkCenterInput {
+                session_id: Some(session.id),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "passed");
+        assert_eq!(report.scope, "project");
+        assert_eq!(report.summary.total_runs, 1);
+        assert_eq!(report.summary.passed_runs, 1);
+        assert_eq!(report.summary.run_pass_rate, Some(1.0));
+        assert_eq!(report.summary.case_pass_rate, Some(1.0));
+        assert_eq!(report.summary.latest_run_status.as_deref(), Some("passed"));
+        assert_eq!(report.release_gate.status, "passed");
+        assert_eq!(report.runs.len(), 1);
+        assert!(report
+            .baselines
+            .iter()
+            .any(|baseline| baseline.baseline_kind == "deterministic_mock" && baseline.runs == 1));
+        assert!(report.checks.iter().any(|check| {
+            check.name == "external_model_baseline"
+                && check.status == "insufficient_data"
+                && check.severity == "advisory"
+        }));
+    }
+
+    #[test]
+    fn benchmark_center_fails_latest_failed_pack_run() {
+        let (_dir, db) = test_db();
+        let project_id = "project-benchmark-failed";
+        let session = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some(project_id),
+                None,
+            )
+            .unwrap();
+        insert_generalization_pack(
+            &db,
+            &session.id,
+            project_id,
+            "cepr_benchmark_failed",
+            "failed",
+        );
+
+        let report = db
+            .get_coding_benchmark_center(CodingBenchmarkCenterInput {
+                session_id: Some(session.id),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "failed");
+        assert_eq!(report.summary.failed_runs, 1);
+        assert_eq!(report.summary.latest_run_status.as_deref(), Some("failed"));
+        assert_eq!(report.release_gate.status, "failed");
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| check.name == "latest_pack_run" && check.status == "failed"));
+    }
+
+    #[test]
+    fn benchmark_center_requires_external_model_when_configured() {
+        let (_dir, db) = test_db();
+        let project_id = "project-benchmark-external-required";
+        let session = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some(project_id),
+                None,
+            )
+            .unwrap();
+        insert_generalization_pack(
+            &db,
+            &session.id,
+            project_id,
+            "cepr_benchmark_external_required",
+            "passed",
+        );
+
+        let report = db
+            .get_coding_benchmark_center(CodingBenchmarkCenterInput {
+                session_id: Some(session.id),
+                require_external_model_baseline: true,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "insufficient_data");
+        assert_eq!(report.summary.external_model_runs, 0);
+        assert_eq!(report.release_gate.status, "insufficient_data");
+        assert!(report.checks.iter().any(|check| {
+            check.name == "external_model_baseline"
+                && check.status == "insufficient_data"
+                && check.severity == "required"
         }));
     }
 

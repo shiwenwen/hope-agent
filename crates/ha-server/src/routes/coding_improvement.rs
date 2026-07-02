@@ -1,12 +1,12 @@
 use axum::extract::{Path, Query};
 use axum::Json;
 use ha_core::coding_improvement::{
-    ApplyCodingImprovementProposalResult, CodingEvalReleaseGateInput, CodingEvalReleaseGateReport,
-    CodingEvalRunRecord, CodingImprovementActionPlan, CodingImprovementPromotionPlan,
-    CodingImprovementProposal, CodingLearningGeneralizationInput,
-    CodingLearningGeneralizationReport, CodingTrendReport, DistillCodingImprovementResult,
-    GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
-    RecordCodingEvalRunInput,
+    ApplyCodingImprovementProposalResult, CodingBenchmarkCenterInput, CodingBenchmarkCenterReport,
+    CodingEvalReleaseGateInput, CodingEvalReleaseGateReport, CodingEvalRunRecord,
+    CodingImprovementActionPlan, CodingImprovementPromotionPlan, CodingImprovementProposal,
+    CodingLearningGeneralizationInput, CodingLearningGeneralizationReport, CodingTrendReport,
+    DistillCodingImprovementResult, GenerateCodingImprovementProposalsResult,
+    PromoteCodingImprovementProposalResult, RecordCodingEvalRunInput,
 };
 use serde::Deserialize;
 
@@ -47,6 +47,12 @@ pub struct ReleaseGateBody {
 #[serde(rename_all = "camelCase")]
 pub struct LearningGeneralizationBody {
     pub input: CodingLearningGeneralizationInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BenchmarkCenterBody {
+    pub input: CodingBenchmarkCenterInput,
 }
 
 pub async fn get_coding_trend_report(
@@ -155,6 +161,15 @@ pub async fn evaluate_coding_learning_generalization(
 ) -> Result<Json<CodingLearningGeneralizationReport>, AppError> {
     session_db()?
         .evaluate_coding_learning_generalization(body.input)
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+pub async fn get_coding_benchmark_center(
+    Json(body): Json<BenchmarkCenterBody>,
+) -> Result<Json<CodingBenchmarkCenterReport>, AppError> {
+    session_db()?
+        .get_coding_benchmark_center(body.input)
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))
 }

@@ -51,6 +51,7 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context、Trend Report / Improvement Loop 已完成。
 6. **Phase 4：Learning Loop / Skill & Guidance 沉淀**。Phase 4.1 Proposal-to-Action、Phase 4.2 Draft Promotion + Workflow Retro、Phase 4.3 Dashboard 全局学习视图、Phase 4.4 Transcript Distillation + Failure Feedback 已完成：改进 proposal 可预览、应用成 eval / workflow / guidance / skill 草稿产物，并可显式晋升为正式 fixture / project guidance / active skill；Dashboard 可看全局 / 项目级 workflow、eval、review、verification、proposal、retro 趋势；Workspace 可显式从 transcript / workflow / failure feedback 提炼更高质量候选。
 7. **Phase 5：任务级评测与策略效果评估**。Phase 5.1 Task-level Eval Runner、Phase 5.2 Agent Execution Runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 Strategy Effect Evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 Strategy Effect 趋势持久化 / Dashboard、Phase 5.8 Release Gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate 已完成：可以从 task prompt 触发真实 chat engine execution，或用 deterministic fixture patch 做无模型回归，再调用真实 Review / Smart Verification / Context Retrieval / Goal evaluator，并按任务 schema 判分和记录 eval run；20 个 active gold tasks 已可批量 materialize / run，pack / strategy report history 已进入 Dashboard 质量趋势，mock Responses provider 可驱动真实 `write` 工具产出 candidate diff，策略改动前后的 pack report 已可确定性对比，release gate 可把持久化 history 转成发布质量结论，外部模型基线可显式传 provider/model 在 Gold Pack 上运行，learning generalization gate 可验证 promoted guidance / workflow / skill 是否具备跨项目证据。
+8. **Phase 6：真实能力 Benchmark 与产品化增强**。Phase 6.1 Benchmark Run Center v1 已完成：Dashboard Learning Tab 可读取 durable pack history，展示 benchmark readiness、baseline buckets、recent runs、failed case summary、Release Gate 与 Generalization Gate，并可显式启动安全 deterministic Gold Pack run；真实外部模型 benchmark 仍通过显式 owner API 运行并只在 Dashboard 展示历史结果。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -183,7 +184,7 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
 - LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置和 doctor。
 - 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness；Phase 3.8 已补齐 Workflow review/verify host API 与 Goal-aware eval；Phase 3.9 已补齐 bounded repair loop 自动化、受控 block 停机和 repair-loop eval；Phase 3.10 已补齐 LLM reviewer、review profiles、IDE/ACP 当前文件信号、symbol-context evidence 和 profile/IDE eval；Phase 3.11/4.1/4.2/4.3/4.4 已补齐趋势报告、proposal queue、proposal-to-action、retro、promotion、Dashboard 全局学习视图、transcript distillation 和 failure feedback。
-- 已有第一层 coding eval harness、Phase 5.1 task-level scorer、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 策略效果趋势持久化 / Dashboard、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate；Phase 5 规划能力已闭环，后续转入更高层 benchmark / 产品化增强。
+- 已有第一层 coding eval harness、Phase 5.1 task-level scorer、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 策略效果趋势持久化 / Dashboard、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center；后续转入更大规模真实任务 benchmark、跨模型对标和报告导出增强。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
 ## 能力模型
@@ -763,9 +764,9 @@ StopPolicy
 
 ### 后续池：Learning Loop 与技能沉淀
 
-状态：Phase 4.4 Transcript Distillation + Failure Feedback 已完成；Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化 / Dashboard、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate 已完成。
+状态：Phase 4.4 Transcript Distillation + Failure Feedback 已完成；Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化 / Dashboard、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center 已完成。
 
-目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，Phase 4.2 已补上 terminal workflow retro 与人工显式 promotion，Phase 4.3 已补上全局 / 项目级学习 Dashboard，Phase 4.4 已补上显式 transcript/workflow/failure feedback 蒸馏，Phase 5.1 已补上候选 diff 的任务级判分，Phase 5.2 已补上从 task prompt 到候选结果的 agent execution 阶段，Phase 5.3 已补上 active gold task pack 的批量回放入口，Phase 5.4 已补上策略效果对比，Phase 5.5 已补上 20 个 gold tasks 全量自动化，Phase 5.6 已补上 mock tool-call 写文件基线，Phase 5.7 已补上策略效果趋势持久化与 Dashboard，Phase 5.8 已补上 release gate，Phase 5.9 已补上外部模型基线 runner，Phase 5.10 已补上跨项目学习泛化门禁。
+目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，Phase 4.2 已补上 terminal workflow retro 与人工显式 promotion，Phase 4.3 已补上全局 / 项目级学习 Dashboard，Phase 4.4 已补上显式 transcript/workflow/failure feedback 蒸馏，Phase 5.1 已补上候选 diff 的任务级判分，Phase 5.2 已补上从 task prompt 到候选结果的 agent execution 阶段，Phase 5.3 已补上 active gold task pack 的批量回放入口，Phase 5.4 已补上策略效果对比，Phase 5.5 已补上 20 个 gold tasks 全量自动化，Phase 5.6 已补上 mock tool-call 写文件基线，Phase 5.7 已补上策略效果趋势持久化与 Dashboard，Phase 5.8 已补上 release gate，Phase 5.9 已补上外部模型基线 runner，Phase 5.10 已补上跨项目学习泛化门禁，Phase 6.1 已补上 Benchmark Run Center v1。
 
 已落地：
 
@@ -802,8 +803,8 @@ StopPolicy
 
 产物：
 
-- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；已记录 distillation、failure feedback、release gate、external model baseline 与 learning generalization gate。
-- [Coding Eval 控制面评测](../architecture/coding-eval.md) 已记录 Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate。
+- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；已记录 distillation、failure feedback、release gate、external model baseline、learning generalization gate 与 Benchmark Run Center。
+- [Coding Eval 控制面评测](../architecture/coding-eval.md) 已记录 Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center。
 - eval / workflow / guidance / skill draft generator。
 
 ### Phase 5.1：Task-level Eval Runner（已完成）
@@ -827,7 +828,7 @@ StopPolicy
 
 后续已完成：
 
-- Phase 5.7 已补齐策略效果趋势持久化与 Dashboard；Phase 5.8 已补 release gate；Phase 5.9 已补外部模型基线 runner；Phase 5.10 已补跨项目学习泛化门禁。
+- Phase 5.7 已补齐策略效果趋势持久化与 Dashboard；Phase 5.8 已补 release gate；Phase 5.9 已补外部模型基线 runner；Phase 5.10 已补跨项目学习泛化门禁；Phase 6.1 已补 Benchmark Run Center v1。
 
 ### Phase 5.2：Agent Execution Runner（已完成）
 
@@ -1000,6 +1001,25 @@ StopPolicy
 - 不训练、不自动生成新策略、不自动 promotion；只评估既有 promoted learning 与持久化质量历史。
 - 不把无项目归属、单项目样本、草稿 proposal 或 fixture 标签当成跨项目泛化证明。
 
+### Phase 6.1：Benchmark Run Center v1（已完成）
+
+目标：把 Phase 5 已经形成的 Gold Pack、外部模型基线、Release Gate 与 Learning Generalization Gate 从“可调用 API”产品化为用户能直接观察和触发的 Benchmark Center。
+
+已落地：
+
+- `get_coding_benchmark_center` owner API 与 `POST /api/coding-benchmark/center` HTTP endpoint。
+- `CodingBenchmarkCenterReport` 三态输出：summary、baseline buckets、recent runs、failed case summary、checks、嵌入 Release Gate 与 Generalization Gate。
+- Dashboard Learning Tab 新增 Benchmark Center 卡片，展示 run/case pass rate、external model run 数、baseline buckets、recent runs、未通过 checks。
+- Dashboard Run 按钮显式触发 deterministic Gold Pack：`executionMode="fixture_patch"`、`baselineKind="deterministic_mock"`、`sourceType="benchmark_center"`、`sourceId="phase6.1"`。
+- 真实外部模型 benchmark 保持显式 API 调用，不在 Dashboard 默认触发；Center 只读取并展示持久化 `external_model` history。
+- targeted tests 覆盖 clean deterministic history 通过、latest failed pack run 失败、要求 external model baseline 但证据不足三态路径。
+
+明确不包含：
+
+- 不默认访问外部模型、不默认消耗 API 费用。
+- 不替代更大规模真实任务 benchmark；它是第一版产品化 run center 和 readiness 面板。
+- 不新增第二套 benchmark history 表；事实源仍是 `coding_eval_pack_runs`。
+
 ## 30 天首个里程碑
 
 2026-07-01 之后的首个里程碑不再是 ToolDefinition / workflow runtime foundation，它们已经进入 Phase 1 / Phase 2 已完成范围。新的 30 天目标是把控制平面补到可承载长任务：
@@ -1009,7 +1029,7 @@ StopPolicy
 3. 已让 workflow run 可选绑定 goal，repair run 不丢 goal 归属。
 4. 已让 workflow completion / validation / task evidence 回写 goal audit；validation / diff / file evidence 第一层结构化 link 已落地，Review Engine evidence 与 Smart Verification evidence 已落地，artifact/diagnostic 接入后续补。
 5. 已做第一版 goal evaluator，能输出 completed / blocked + reason。
-6. 已更新 Coding Eval：Phase 3.7 验证 review / verification / context / goal / task / workflow 协同，Phase 5.1 增加 task-level scorer，Phase 5.2 增加 agent execution runner，Phase 5.3 增加 Gold Task Pack v1 批量回放入口，Phase 5.4 增加 strategy effect evaluator，Phase 5.5 增加 20 个 gold tasks 全量自动化，Phase 5.6 增加 mock tool-call 写文件基线与 `toolCalls` 指标，Phase 5.7 增加 pack / strategy history Dashboard，Phase 5.8 增加 release gate，Phase 5.9 增加外部模型基线 runner，Phase 5.10 增加跨项目学习泛化门禁。
+6. 已更新 Coding Eval：Phase 3.7 验证 review / verification / context / goal / task / workflow 协同，Phase 5.1 增加 task-level scorer，Phase 5.2 增加 agent execution runner，Phase 5.3 增加 Gold Task Pack v1 批量回放入口，Phase 5.4 增加 strategy effect evaluator，Phase 5.5 增加 20 个 gold tasks 全量自动化，Phase 5.6 增加 mock tool-call 写文件基线与 `toolCalls` 指标，Phase 5.7 增加 pack / strategy history Dashboard，Phase 5.8 增加 release gate，Phase 5.9 增加外部模型基线 runner，Phase 5.10 增加跨项目学习泛化门禁，Phase 6.1 增加 Benchmark Run Center。
 7. `/loop` 第一版已落地；后续增强放到 Phase 3+ 或独立 RFC。
 
 ## 验收指标
@@ -1073,7 +1093,7 @@ StopPolicy
 8. [Review Engine 控制平面](../architecture/review-engine.md)：diff scan、candidate、verifier、inline finding 与 Goal evidence。
 9. [Smart Verification 控制平面](../architecture/verification-engine.md)：最小验证选择、后台低风险执行、Goal validation evidence 与 Workspace 验证区块。
 10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐与行动入口、file search v2、LSP symbols、diff/artifact/review/verification/goal/task/workflow 聚合、focused review / verification。
-11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall、控制面回归、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner 与 Phase 5.10 Learning Generalization Gate。
-12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列、proposal-to-action、workflow retro、draft promotion、Dashboard 全局学习视图、Transcript Distillation、Failure Feedback、pack / strategy history Dashboard、release gate、external model baseline 与 learning generalization gate。
+11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall、控制面回归、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化、Phase 5.8 release gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center。
+12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列、proposal-to-action、workflow retro、draft promotion、Dashboard 全局学习视图、Transcript Distillation、Failure Feedback、pack / strategy history Dashboard、release gate、external model baseline、learning generalization gate 与 Benchmark Run Center。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。

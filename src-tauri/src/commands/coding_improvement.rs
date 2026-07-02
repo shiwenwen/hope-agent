@@ -1,11 +1,11 @@
 use crate::commands::CmdError;
 use ha_core::coding_improvement::{
-    ApplyCodingImprovementProposalResult, CodingEvalReleaseGateInput, CodingEvalReleaseGateReport,
-    CodingEvalRunRecord, CodingImprovementActionPlan, CodingImprovementPromotionPlan,
-    CodingImprovementProposal, CodingLearningGeneralizationInput,
-    CodingLearningGeneralizationReport, CodingTrendReport, DistillCodingImprovementResult,
-    GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
-    RecordCodingEvalRunInput,
+    ApplyCodingImprovementProposalResult, CodingBenchmarkCenterInput, CodingBenchmarkCenterReport,
+    CodingEvalReleaseGateInput, CodingEvalReleaseGateReport, CodingEvalRunRecord,
+    CodingImprovementActionPlan, CodingImprovementPromotionPlan, CodingImprovementProposal,
+    CodingLearningGeneralizationInput, CodingLearningGeneralizationReport, CodingTrendReport,
+    DistillCodingImprovementResult, GenerateCodingImprovementProposalsResult,
+    PromoteCodingImprovementProposalResult, RecordCodingEvalRunInput,
 };
 
 #[tauri::command]
@@ -141,5 +141,16 @@ pub async fn evaluate_coding_learning_generalization(
     app_state
         .session_db
         .evaluate_coding_learning_generalization(input)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_coding_benchmark_center(
+    input: CodingBenchmarkCenterInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<CodingBenchmarkCenterReport, CmdError> {
+    app_state
+        .session_db
+        .get_coding_benchmark_center(input)
         .map_err(Into::into)
 }

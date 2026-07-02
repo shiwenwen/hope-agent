@@ -1471,6 +1471,96 @@ export interface CodingLearningGeneralizationReport {
   checks: CodingLearningGeneralizationCheck[];
 }
 
+export interface CodingBenchmarkCenterInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  windowDays?: number | null;
+  limit?: number | null;
+  requireExternalModelBaseline?: boolean;
+  requireLearningGeneralization?: boolean;
+}
+
+export interface CodingBenchmarkCenterSummary {
+  totalRuns: number;
+  passedRuns: number;
+  failedRuns: number;
+  skippedRuns: number;
+  deterministicRuns: number;
+  externalModelRuns: number;
+  selectedCases: number;
+  automatedCases: number;
+  passedCases: number;
+  failedCases: number;
+  skippedCases: number;
+  totalChecks: number;
+  runPassRate?: number | null;
+  casePassRate?: number | null;
+  bestCasePassRate?: number | null;
+  latestRunId?: string | null;
+  latestRunStatus?: string | null;
+  latestRunAt?: string | null;
+}
+
+export interface CodingBenchmarkRunItem {
+  id: string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  packId: string;
+  sourceDoc: string;
+  label?: string | null;
+  baselineKind: string;
+  status: "passed" | "failed" | "skipped" | string;
+  selectedCases: number;
+  automatedCases: number;
+  skippedCases: number;
+  passedCases: number;
+  failedCases: number;
+  totalChecks: number;
+  casePassRate?: number | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  createdAt: string;
+  failedCasesSummary: string[];
+}
+
+export interface CodingBenchmarkBaselineBucket {
+  baselineKind: string;
+  runs: number;
+  passedRuns: number;
+  failedRuns: number;
+  skippedRuns: number;
+  passedCases: number;
+  failedCases: number;
+  runPassRate?: number | null;
+  casePassRate?: number | null;
+  latestRunAt?: string | null;
+}
+
+export interface CodingBenchmarkCenterCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: "required" | "advisory" | string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface CodingBenchmarkCenterReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  windowDays: number;
+  since: string;
+  summary: CodingBenchmarkCenterSummary;
+  baselines: CodingBenchmarkBaselineBucket[];
+  runs: CodingBenchmarkRunItem[];
+  checks: CodingBenchmarkCenterCheck[];
+  releaseGate: CodingEvalReleaseGateReport;
+  generalizationGate: CodingLearningGeneralizationReport;
+}
+
 export interface CodingEvalFixture {
   name: string;
   description?: string;

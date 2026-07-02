@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 5.10 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、External Model Baseline、Release Gate、Learning Generalization Gate、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+> 状态：Phase 6.1 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、External Model Baseline、Release Gate、Learning Generalization Gate、Benchmark Run Center、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
 
 ## 目标
 
@@ -19,6 +19,7 @@ Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审
 - Dashboard Learning Tab 提供全局 / 项目级 Coding Improvement 聚合：workflow completion、eval success、pack pass rate、strategy verdict、tool-call failure mode、validation / scope creep delta、review blocker、verification failure、proposal status、retro recommendation、top failure mode 与最近 retro。
 - Release Gate 把持久化 pack / strategy / tool-call history 变成可配置的发布质量阈值，输出 `passed` / `failed` / `insufficient_data` 三态结论。
 - Learning Generalization Gate 读取多个项目的 promoted learning、Gold Pack history 与 Strategy Effect history，判断 guidance / workflow / skill 学习成果是否跨项目成立，而不是只优化单项目 fixture。
+- Benchmark Run Center 聚合 Gold Pack history、baseline kind、最近 run、Release Gate 与 Learning Generalization Gate，让用户在 Dashboard 里看到当前 coding benchmark 是否可发布、是否有外部模型基线、最近失败 case 是什么，并能显式启动安全 deterministic Gold Pack run。
 
 ## 数据模型
 
@@ -234,8 +235,10 @@ Phase 4.3 新增只读全局聚合 API：
 | --- | --- | --- |
 | `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | 按 DashboardFilter 聚合 Coding Improvement 全局 / 项目信号。 |
 | `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | 根据持久化 pack / strategy / tool-call history 计算发布质量门禁。 |
+| `evaluate_coding_learning_generalization` | `POST /api/coding-improvement/generalization/evaluate` | 根据 promoted learning、pack history 与 strategy history 计算跨项目泛化门禁。 |
+| `get_coding_benchmark_center` | `POST /api/coding-benchmark/center` | 聚合 benchmark history、baseline buckets、recent runs、Release Gate 与 Generalization Gate。 |
 
-输入为 `{ filter, limit? }`，其中 `filter` 使用 Dashboard 既有时间 / agent / provider / model 过滤。返回 `CodingImprovementDashboard`：
+`dashboard_coding_improvement` 输入为 `{ filter, limit? }`，其中 `filter` 使用 Dashboard 既有时间 / agent / provider / model 过滤。gate / benchmark API 输入为 `{ input: ... }`，按各自 scope/window/threshold 字段解析。`dashboard_coding_improvement` 返回 `CodingImprovementDashboard`：
 
 | 区块 | 内容 |
 | --- | --- |
@@ -340,6 +343,34 @@ Phase 5.10 新增 `SessionDB::evaluate_coding_learning_generalization(input)`，
 
 scope 规则沿用 Release Gate 的 durable 数据边界：无痕、cron、subagent session 不参与；无 scope 时按全局跨项目聚合；传 `projectId` 时可把同一 evaluator 退化为单项目学习质量门禁；传 `sessionId` 且 session 绑定 project 时按项目 scope 解析。
 
+## Benchmark Run Center
+
+Phase 6.1 新增 `SessionDB::get_coding_benchmark_center(input)`，并通过 Tauri command 与 HTTP owner API `POST /api/coding-benchmark/center` 暴露。它是只读聚合器，不直接跑模型、不执行项目命令、不写 DB；Dashboard 的 Run 按钮显式调用既有 `run_coding_eval_gold_task_pack`，并固定为 `executionMode="fixture_patch"` + `baselineKind="deterministic_mock"`，因此不会默认访问外部模型或产生网络费用。
+
+输入：
+
+- `sessionId` / `projectId`：可选 scope。传入 session 且 session 绑定 project 时按 project 聚合。
+- `windowDays`：默认 30，钳制到 `[1, 180]`。
+- `limit`：recent runs 返回数量，默认 12，钳制到 `[1, 50]`。
+- `requireExternalModelBaseline`：为 `true` 时，外部模型基线从 advisory 变成 required，并同步传给 Release / Generalization gate。
+- `requireLearningGeneralization`：为 `true` 时，Learning Generalization Gate 从 advisory 变成 required。
+
+输出 `CodingBenchmarkCenterReport`：
+
+- `summary`：run 数、pass/fail/skipped、deterministic / external model run 数、case pass rate、latest run、best case pass rate。
+- `baselines[]`：按 `baselineKind` 聚合 run pass rate、case pass rate、latest run。
+- `runs[]`：最近 pack runs，包含 label、baseline kind、状态、case 计数、失败 case 摘要。
+- `checks[]`：`benchmark_history`、`latest_pack_run`、`release_gate`、`external_model_baseline`、`learning_generalization`。
+- `releaseGate` / `generalizationGate`：嵌入完整三态 gate 报告，供 GUI 展示和后续脚本复用。
+
+整体状态计算：
+
+- 任一 check `failed` -> `failed`。
+- required check `insufficient_data` -> `insufficient_data`。
+- 只有 advisory check `insufficient_data` 不阻断整体通过，例如没有外部模型基线时 deterministic center 仍可用于本地回归。
+
+Dashboard Learning Tab 的 Benchmark Center 卡片展示整体状态、run/case pass rate、external model run 数、baseline buckets、recent runs、失败 case 摘要和未通过 checks；Run 按钮触发全量 deterministic Gold Pack 并刷新 center。真实外部模型 benchmark 仍必须通过显式 `run_coding_eval_gold_task_pack(executionMode="agent", baselineKind="external_model", providers, modelChain)` 调用，不在 Dashboard 默认触发。
+
 ## Eval
 
 `coding_eval.rs` 的 fixture harness 增加 `runs.improvement` 和 `checks.improvement`：
@@ -376,6 +407,8 @@ Phase 5.9 为 Gold Task Pack 增加外部模型基线 runner。`run_coding_eval_
 
 Phase 5.10 为 Learning Loop 增加跨项目泛化门禁。核心单测覆盖：两个项目均有 promoted guidance、pack history 与 improved strategy effect 时通过；任一项目出现 regressed strategy effect / validation delta / scope creep delta 时整体失败。它证明的是“学习成果在多个项目的 durable evidence 下没有退化”，而不是训练或自动发布新策略。
 
+Phase 6.1 为 Dashboard 增加 Benchmark Run Center。核心单测覆盖：干净 deterministic pack history 通过；latest pack run failed 时 center 与 release gate 失败；配置要求 external model baseline 但只有 deterministic history 时返回 `insufficient_data`。前端 typecheck 覆盖 Tauri / HTTP transport 类型、Dashboard 状态和 Run 按钮调用形态。
+
 ## 红线
 
 - 不依赖 LLM：report、proposal generation 和 transcript distillation 全部规则式。
@@ -387,5 +420,6 @@ Phase 5.10 为 Learning Loop 增加跨项目泛化门禁。核心单测覆盖：
 - incognito fail-closed：无痕会话不读取/写入 durable improvement 数据。
 - 蒸馏不越权：`distill_coding_improvement_proposals` 只读 durable transcript / workflow / eval / review / verification facts，只写 draft proposal，不 apply、不 promotion。
 - 泛化不伪证：Learning Generalization Gate 只消费 promoted learning 与跨项目质量历史；草稿、单项目样本、fixture-only 标签或无项目归属记录都不能证明跨项目泛化。
+- Benchmark 不伪证：Benchmark Run Center 只展示 `coding_eval_pack_runs` 的 durable history；deterministic / mock / external model 由 `baselineKind` 明确区分，Dashboard 默认 Run 不冒充真实外部模型能力。
 - 不混淆 scope：Workspace 用 session/project scope；Dashboard 用 `dashboard_coding_improvement` 全局 / 项目级只读 scope，禁止用任意 session 伪装全局趋势。
 - 不绕过现有控制面：trend report 只消费 Goal / Workflow / Review / Verification / Eval 的持久化事实，不重写它们的语义。

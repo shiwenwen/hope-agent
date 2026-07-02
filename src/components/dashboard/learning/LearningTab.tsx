@@ -7,6 +7,7 @@ import {
   GitBranch,
   Layers3,
   Loader2,
+  Play,
   RefreshCw,
   ShieldAlert,
   Sparkles,
@@ -15,7 +16,9 @@ import type { LucideIcon } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
+  CodingBenchmarkCenterReport,
   CodingEvalReleaseGateReport,
+  CodingEvalGoldTaskPackReport,
   CodingLearningGeneralizationReport,
 } from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter } from "../types"
@@ -76,14 +79,18 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [topSkills, setTopSkills] = useState<SkillUsage[]>([])
   const [recall, setRecall] = useState<RecallStats | null>(null)
   const [coding, setCoding] = useState<CodingImprovementDashboard | null>(null)
+  const [benchmark, setBenchmark] = useState<CodingBenchmarkCenterReport | null>(null)
   const [releaseGate, setReleaseGate] = useState<CodingEvalReleaseGateReport | null>(null)
   const [generalization, setGeneralization] =
     useState<CodingLearningGeneralizationReport | null>(null)
+  const [benchmarkRunning, setBenchmarkRunning] = useState(false)
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
+    setBenchmarkError(null)
     try {
-      const [ov, tl, ts, rs, ci, rg, gen] = await Promise.all([
+      const [ov, tl, ts, rs, ci, bc, rg, gen] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
           windowDays,
         }),
@@ -100,6 +107,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
         getTransport().call<CodingImprovementDashboard>("dashboard_coding_improvement", {
           filter,
           limit: 8,
+        }),
+        getTransport().call<CodingBenchmarkCenterReport>("get_coding_benchmark_center", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            limit: 12,
+          },
         }),
         getTransport().call<CodingEvalReleaseGateReport>("evaluate_coding_eval_release_gate", {
           input: {
@@ -120,6 +133,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setTopSkills(ts ?? [])
       setRecall(rs)
       setCoding(ci)
+      setBenchmark(bc)
       setReleaseGate(rg)
       setGeneralization(gen)
     } catch (e) {
@@ -128,6 +142,31 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setLoading(false)
     }
   }, [filter, windowDays])
+
+  const runBenchmark = useCallback(async () => {
+    setBenchmarkRunning(true)
+    setBenchmarkError(null)
+    try {
+      await getTransport().call<CodingEvalGoldTaskPackReport>("run_coding_eval_gold_task_pack", {
+        input: {
+          executionMode: "fixture_patch",
+          baselineKind: "deterministic_mock",
+          label: "Benchmark Center deterministic run",
+          sourceType: "benchmark_center",
+          sourceId: "phase6.1",
+          recordEvalRuns: true,
+          recordPackRun: true,
+          evaluateGoal: true,
+        },
+      })
+      await reload()
+    } catch (e) {
+      setBenchmarkError(e instanceof Error ? e.message : String(e))
+      logger.error("dashboard", "LearningTab::runBenchmark", "Failed to run benchmark pack", e)
+    } finally {
+      setBenchmarkRunning(false)
+    }
+  }, [reload])
 
   useEffect(() => {
     reload()
@@ -172,8 +211,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
 
       <CodingImprovementSection
         coding={coding}
+        benchmark={benchmark}
         releaseGate={releaseGate}
         generalization={generalization}
+        benchmarkRunning={benchmarkRunning}
+        benchmarkError={benchmarkError}
+        onRunBenchmark={runBenchmark}
       />
 
       {/* Overview cards */}
@@ -333,12 +376,20 @@ function OverviewCard({
 
 function CodingImprovementSection({
   coding,
+  benchmark,
   releaseGate,
   generalization,
+  benchmarkRunning,
+  benchmarkError,
+  onRunBenchmark,
 }: {
   coding: CodingImprovementDashboard | null
+  benchmark: CodingBenchmarkCenterReport | null
   releaseGate: CodingEvalReleaseGateReport | null
   generalization: CodingLearningGeneralizationReport | null
+  benchmarkRunning: boolean
+  benchmarkError: string | null
+  onRunBenchmark: () => void
 }) {
   const { t } = useTranslation()
   const overview = coding?.overview
@@ -449,6 +500,13 @@ function CodingImprovementSection({
           })}
         />
       </div>
+
+      <BenchmarkCenterPanel
+        report={benchmark}
+        running={benchmarkRunning}
+        error={benchmarkError}
+        onRun={onRunBenchmark}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <ReleaseGatePanel report={releaseGate} />
@@ -660,6 +718,149 @@ function CodingImprovementSection({
         </div>
       </div>
     </section>
+  )
+}
+
+function BenchmarkCenterPanel({
+  report,
+  running,
+  error,
+  onRun,
+}: {
+  report: CodingBenchmarkCenterReport | null
+  running: boolean
+  error: string | null
+  onRun: () => void
+}) {
+  const { t } = useTranslation()
+  const attentionChecks =
+    report?.checks.filter((check) => check.status !== "passed").slice(0, 4) ?? []
+  const recentRuns = report?.runs.slice(0, 4) ?? []
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.benchmarkCenter", {
+              defaultValue: "Benchmark center",
+            })}
+          </h4>
+          <span
+            className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+          >
+            {report?.status ?? "loading"}
+          </span>
+        </div>
+        <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRun} disabled={running}>
+          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+          <span className="text-xs">
+            {t("dashboard.learning.runBenchmark", { defaultValue: "Run" })}
+          </span>
+        </Button>
+      </div>
+      {report ? (
+        <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(0,1.15fr)_minmax(220px,0.85fr)] gap-3">
+          <div className="flex flex-wrap gap-1.5 content-start">
+            <MetricPill label="RN" value={report.summary.totalRuns} />
+            <MetricPill
+              label="PR"
+              value={formatPct(report.summary.runPassRate)}
+              tone={report.summary.failedRuns > 0 ? "warn" : "accent"}
+            />
+            <MetricPill
+              label="CS"
+              value={formatPct(report.summary.casePassRate)}
+              tone={report.summary.failedCases > 0 ? "warn" : "accent"}
+            />
+            <MetricPill
+              label="EM"
+              value={report.summary.externalModelRuns}
+              tone={report.summary.externalModelRuns > 0 ? "accent" : "muted"}
+            />
+          </div>
+          <div className="min-w-0 space-y-2">
+            {recentRuns.length ? (
+              recentRuns.map((run) => (
+                <div
+                  key={run.id}
+                  className="flex flex-wrap items-center gap-2 text-xs border-b border-border/20 pb-1.5 last:border-0 last:pb-0"
+                >
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] ${releaseGateTone(run.status)}`}>
+                    {run.status}
+                  </span>
+                  <span className="font-medium truncate max-w-48">
+                    {run.label ?? run.baselineKind}
+                  </span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {run.passedCases}/{run.passedCases + run.failedCases}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(run.createdAt).toLocaleDateString()}
+                  </span>
+                  {run.failedCasesSummary[0] && (
+                    <span className="text-[10px] text-muted-foreground truncate basis-full">
+                      {run.failedCasesSummary[0]}
+                    </span>
+                  )}
+                </div>
+              ))
+            ) : (
+              <EmptyLine
+                label={t("dashboard.learning.noBenchmarkRuns", {
+                  defaultValue: "No benchmark runs",
+                })}
+              />
+            )}
+          </div>
+          <div className="min-w-0 space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {report.baselines.slice(0, 3).map((baseline) => (
+                <MetricPill
+                  key={baseline.baselineKind}
+                  label={baseline.baselineKind === "external_model" ? "EX" : "DT"}
+                  value={`${baseline.passedRuns}/${baseline.runs}`}
+                  tone={baseline.failedRuns > 0 ? "warn" : "accent"}
+                />
+              ))}
+            </div>
+            {attentionChecks.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {attentionChecks.map((check) => (
+                  <span
+                    key={check.name}
+                    className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
+                    title={`${check.expected} · ${check.actual}`}
+                  >
+                    {check.name}: {check.actual}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">
+                {t("dashboard.learning.benchmarkClean", {
+                  defaultValue: "Benchmark checks passed",
+                })}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.benchmarkLoading", {
+            defaultValue: "Loading benchmark center",
+          })}
+        />
+      )}
+      {error && (
+        <p className="mt-2 text-[10px] text-destructive line-clamp-2" title={error}>
+          {t("dashboard.learning.benchmarkRunFailed", {
+            defaultValue: "Run failed: {{message}}",
+            message: error,
+          })}
+        </p>
+      )}
+    </div>
   )
 }
 

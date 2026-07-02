@@ -414,6 +414,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   record_coding_eval_run:          { method: "POST",   path: "/api/coding-improvement/eval-runs" },
   evaluate_coding_eval_release_gate: { method: "POST", path: "/api/coding-improvement/release-gate/evaluate" },
   evaluate_coding_learning_generalization: { method: "POST", path: "/api/coding-improvement/generalization/evaluate" },
+  get_coding_benchmark_center: { method: "POST", path: "/api/coding-benchmark/center" },
 
   // -- Managed worktrees --
   list_managed_worktrees:          { method: "GET",    path: "/api/sessions/{sessionId}/worktrees" },
