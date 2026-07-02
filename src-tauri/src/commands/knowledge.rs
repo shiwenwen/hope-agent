@@ -15,13 +15,13 @@ use ha_core::knowledge::{
     KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
     KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
     KnowledgeBrowserSourceImportInput, KnowledgeGraph, KnowledgeSource, KnowledgeSourceAssetKind,
-    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceImportBatchInput,
-    KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
-    KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult, KnowledgeSourceSimilarityGroup,
-    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
-    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
+    KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
+    KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
+    KnowledgeSourceReadResult, KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
+    KnowledgeSourceSimilarityGroup, KnowledgeSourceVersionHistory, Note, NoteReadResult,
+    NoteSearchHit, NoteSourceRef, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
+    SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -248,6 +248,13 @@ pub async fn kb_source_reextract_cmd(
 #[tauri::command]
 pub async fn kb_source_delete_cmd(kb_id: String, source_id: String) -> Result<bool, CmdError> {
     service::source_delete(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_sync_external_raw_cmd(
+    kb_id: String,
+) -> Result<KnowledgeSourceExternalRawSyncResult, CmdError> {
+    service::source_sync_external_raw(&kb_id).map_err(Into::into)
 }
 
 // ── Knowledge Compiler (Phase 2) ─────────────────────────────────

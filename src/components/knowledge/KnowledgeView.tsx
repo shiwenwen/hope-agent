@@ -58,6 +58,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
@@ -67,7 +74,9 @@ import { isTauriMode } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
+  KnowledgeExternalRawSyncMode,
   KnowledgeBaseMeta,
+  KnowledgeSourceExternalRawSyncResult,
   Note,
   NoteEditorMode,
   NoteReadResult,
@@ -462,6 +471,9 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
   const [editKbName, setEditKbName] = useState("")
   const [editKbEmoji, setEditKbEmoji] = useState("")
   const [editKbAllowExternal, setEditKbAllowExternal] = useState(false)
+  const [editKbExternalRawSync, setEditKbExternalRawSync] =
+    useState<KnowledgeExternalRawSyncMode>("disabled")
+  const [syncingExternalRaw, setSyncingExternalRaw] = useState(false)
   const [deleteKb, setDeleteKb] = useState<KnowledgeBaseMeta | null>(null)
 
   // Drag-to-move within the note tree.
@@ -1246,6 +1258,7 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     setEditKbName(kb.name)
     setEditKbEmoji(kb.emoji ?? "")
     setEditKbAllowExternal(kb.allowExternalWrites)
+    setEditKbExternalRawSync(kb.externalRawSync ?? "disabled")
   }, [])
 
   const saveEditKb = useCallback(async () => {
@@ -1264,7 +1277,12 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
         patch: {
           name,
           emoji: editKbEmoji.trim(),
-          ...(editKb.external ? { allowExternalWrites: editKbAllowExternal } : {}),
+          ...(editKb.external
+            ? {
+                allowExternalWrites: editKbAllowExternal,
+                externalRawSync: editKbAllowExternal ? editKbExternalRawSync : "disabled",
+              }
+            : {}),
         },
       })
       setEditKb(null)
@@ -1274,7 +1292,68 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
     } finally {
       setKbBusy(false)
     }
-  }, [tx, editKb, editKbName, editKbEmoji, editKbAllowExternal, kbBusy, loadKbs])
+  }, [
+    tx,
+    editKb,
+    editKbName,
+    editKbEmoji,
+    editKbAllowExternal,
+    editKbExternalRawSync,
+    kbBusy,
+    loadKbs,
+  ])
+
+  const syncEditKbExternalRaw = useCallback(async () => {
+    if (!editKb || !editKb.external || !editKbAllowExternal || editKbExternalRawSync === "disabled") return
+    const name = editKbName.trim()
+    if (!name || syncingExternalRaw) return
+    setSyncingExternalRaw(true)
+    try {
+      await tx.call("update_kb_cmd", {
+        id: editKb.id,
+        patch: {
+          name,
+          emoji: editKbEmoji.trim(),
+          allowExternalWrites: true,
+          externalRawSync: editKbExternalRawSync,
+        },
+      })
+      const result = await tx.call<KnowledgeSourceExternalRawSyncResult>(
+        "kb_source_sync_external_raw_cmd",
+        { kbId: editKb.id },
+      )
+      if (result.failedCount > 0) {
+        toast.warning(
+          t("knowledge.externalRawSyncPartial", "Synced {{synced}} snapshots; {{failed}} failed.", {
+            synced: result.syncedCount,
+            failed: result.failedCount,
+          }),
+        )
+      } else {
+        toast.success(
+          t("knowledge.externalRawSyncDone", "Synced {{count}} source snapshots", {
+            count: result.syncedCount,
+          }),
+        )
+      }
+      await loadKbs()
+    } catch (e) {
+      logger.error("knowledge", "KnowledgeView::syncEditKbExternalRaw", "external raw sync failed", e)
+      toast.error(t("knowledge.externalRawSyncFailed", "Couldn't sync source snapshots"))
+    } finally {
+      setSyncingExternalRaw(false)
+    }
+  }, [
+    tx,
+    editKb,
+    editKbName,
+    editKbEmoji,
+    editKbAllowExternal,
+    editKbExternalRawSync,
+    syncingExternalRaw,
+    loadKbs,
+    t,
+  ])
 
   const toggleArchiveKb = useCallback(
     async (kb: KnowledgeBaseMeta) => {
@@ -2887,23 +2966,90 @@ export default function KnowledgeView({ onBack, onOpenSettings }: KnowledgeViewP
               />
             </div>
             {editKb?.external && (
-              <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 p-3">
-                <div className="space-y-1">
-                  <div className="text-sm font-medium">
-                    {t("knowledge.allowExternalWrites", "Allow editing this vault")}
+              <div className="space-y-3 rounded-md border border-border/60 p-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium">
+                      {t("knowledge.allowExternalWrites", "Allow editing this vault")}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        "knowledge.allowExternalWritesHint",
+                        "External vaults are read-only by default. Enable to let editing and AI tools write to the bound folder. Background maintenance never writes external vaults.",
+                      )}
+                    </p>
                   </div>
+                  <Switch
+                    checked={editKbAllowExternal}
+                    onCheckedChange={(checked) => {
+                      setEditKbAllowExternal(checked)
+                      if (!checked) setEditKbExternalRawSync("disabled")
+                    }}
+                    className="mt-0.5 shrink-0"
+                  />
+                </div>
+                <div className="grid gap-3 border-t border-border/60 pt-3 sm:grid-cols-[1fr_180px]">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium">
+                      {t("knowledge.externalRawSync", "Source snapshot mirror")}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        "knowledge.externalRawSyncHint",
+                        "Copy Hope-managed source text snapshots into this vault. Original audio, video and image files are not mirrored.",
+                      )}
+                    </p>
+                  </div>
+                  <Select
+                    value={editKbAllowExternal ? editKbExternalRawSync : "disabled"}
+                    onValueChange={(value) =>
+                      setEditKbExternalRawSync(value as KnowledgeExternalRawSyncMode)
+                    }
+                    disabled={!editKbAllowExternal || kbBusy || syncingExternalRaw}
+                  >
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="disabled">
+                        {t("knowledge.externalRawSyncDisabled", "Off")}
+                      </SelectItem>
+                      <SelectItem value="raw">{t("knowledge.externalRawSyncRaw", "raw/")}</SelectItem>
+                      <SelectItem value="sources">
+                        {t("knowledge.externalRawSyncSources", "sources/")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
                   <p className="text-xs text-muted-foreground">
                     {t(
-                      "knowledge.allowExternalWritesHint",
-                      "External vaults are read-only by default. Enable to let editing and AI tools write to the bound folder. Background maintenance never writes external vaults.",
+                      "knowledge.externalRawSyncExistingHint",
+                      "Existing snapshots are synced only when you run it here; future imports sync automatically.",
                     )}
                   </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void syncEditKbExternalRaw()}
+                    disabled={
+                      !editKbAllowExternal ||
+                      editKbExternalRawSync === "disabled" ||
+                      kbBusy ||
+                      syncingExternalRaw ||
+                      !editKbName.trim()
+                    }
+                    className="shrink-0 gap-2"
+                  >
+                    {syncingExternalRaw ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {t("knowledge.externalRawSyncNow", "Sync now")}
+                  </Button>
                 </div>
-                <Switch
-                  checked={editKbAllowExternal}
-                  onCheckedChange={setEditKbAllowExternal}
-                  className="mt-0.5 shrink-0"
-                />
               </div>
             )}
             <DialogFooter>

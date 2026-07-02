@@ -13,11 +13,11 @@ use std::sync::Arc;
 use super::types::{
     CompileProposal, CompileProposalAction, CompileProposalKind, CompileProposalStatus, CompileRun,
     CompileRunStatus, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KnowledgeBase,
-    KnowledgeBaseMeta, KnowledgeSource, KnowledgeSourceAsset, KnowledgeSourceAssetKind,
-    KnowledgeSourceAssets, KnowledgeSourceChunk, KnowledgeSourceImportItem,
-    KnowledgeSourceImportItemStatus, KnowledgeSourceImportRun, KnowledgeSourceImportRunStatus,
-    KnowledgeSourceKind, KnowledgeSourceStatus, NewCompileProposal, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeBaseMeta, KnowledgeExternalRawSyncMode, KnowledgeSource, KnowledgeSourceAsset,
+    KnowledgeSourceAssetKind, KnowledgeSourceAssets, KnowledgeSourceChunk,
+    KnowledgeSourceImportItem, KnowledgeSourceImportItemStatus, KnowledgeSourceImportRun,
+    KnowledgeSourceImportRunStatus, KnowledgeSourceKind, KnowledgeSourceStatus, NewCompileProposal,
+    SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use crate::session::SessionDB;
 
@@ -34,6 +34,7 @@ pub struct StoredSourceImportItem {
 
 pub struct DeletedSourceFiles {
     pub stored_path: String,
+    pub external_raw_path: Option<String>,
     pub asset_paths: Vec<String>,
 }
 
@@ -68,6 +69,7 @@ impl KnowledgeRegistry {
                 emoji                TEXT,
                 root_dir             TEXT,
                 allow_external_writes INTEGER NOT NULL DEFAULT 0,
+                external_raw_sync    TEXT NOT NULL DEFAULT 'disabled',
                 archived             INTEGER NOT NULL DEFAULT 0,
                 created_at           INTEGER NOT NULL,
                 updated_at           INTEGER NOT NULL
@@ -168,6 +170,7 @@ impl KnowledgeRegistry {
                 title               TEXT NOT NULL,
                 origin_uri          TEXT,
                 stored_path         TEXT NOT NULL,
+                external_raw_path   TEXT,
                 content_hash        TEXT NOT NULL,
                 extracted_text_hash TEXT,
                 status              TEXT NOT NULL DEFAULT 'ready',
@@ -328,6 +331,15 @@ impl KnowledgeRegistry {
                  ADD COLUMN allow_external_writes INTEGER NOT NULL DEFAULT 0;",
             )?;
         }
+        let has_external_raw_sync = conn
+            .prepare("SELECT external_raw_sync FROM knowledge_bases LIMIT 1")
+            .is_ok();
+        if !has_external_raw_sync {
+            conn.execute_batch(
+                "ALTER TABLE knowledge_bases
+                 ADD COLUMN external_raw_sync TEXT NOT NULL DEFAULT 'disabled';",
+            )?;
+        }
 
         let has_source_version = conn
             .prepare("SELECT version_index FROM knowledge_sources LIMIT 1")
@@ -346,6 +358,15 @@ impl KnowledgeRegistry {
              CREATE INDEX IF NOT EXISTS idx_knowledge_sources_superseded
                 ON knowledge_sources(kb_id, superseded_by_source_id);",
         )?;
+        let has_source_external_raw_path = conn
+            .prepare("SELECT external_raw_path FROM knowledge_sources LIMIT 1")
+            .is_ok();
+        if !has_source_external_raw_path {
+            conn.execute_batch(
+                "ALTER TABLE knowledge_sources
+                 ADD COLUMN external_raw_path TEXT;",
+            )?;
+        }
 
         Ok(())
     }
@@ -387,8 +408,9 @@ impl KnowledgeRegistry {
 
         conn.execute(
             "INSERT INTO knowledge_bases
-                (id, name, emoji, root_dir, allow_external_writes, archived, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?6)",
+                (id, name, emoji, root_dir, allow_external_writes, external_raw_sync,
+                 archived, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 0, 'disabled', 0, ?5, ?6)",
             params![id, name, emoji, root_dir, now, now],
         )?;
         let profile_json = serde_json::to_string(&SchemaProfile::default_for(&id, now))?;
@@ -404,6 +426,7 @@ impl KnowledgeRegistry {
             emoji,
             root_dir,
             allow_external_writes: false,
+            external_raw_sync: KnowledgeExternalRawSyncMode::Disabled,
             archived: false,
             created_at: now,
             updated_at: now,
@@ -418,7 +441,8 @@ impl KnowledgeRegistry {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let row = conn
             .query_row(
-                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at, allow_external_writes
+                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at,
+                        allow_external_writes, external_raw_sync
                  FROM knowledge_bases WHERE id = ?1",
                 params![id],
                 row_to_kb,
@@ -467,6 +491,11 @@ impl KnowledgeRegistry {
             sets.push(format!("allow_external_writes = ?{}", idx));
             params_vec.push(Box::new(if allow { 1i64 } else { 0i64 }));
         }
+        if let Some(mode) = patch.external_raw_sync {
+            let idx = params_vec.len() + 1;
+            sets.push(format!("external_raw_sync = ?{}", idx));
+            params_vec.push(Box::new(mode.as_str().to_string()));
+        }
 
         let idx = params_vec.len() + 1;
         sets.push(format!("updated_at = ?{}", idx));
@@ -486,7 +515,8 @@ impl KnowledgeRegistry {
 
         let kb = conn
             .query_row(
-                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at, allow_external_writes
+                "SELECT id, name, emoji, root_dir, archived, created_at, updated_at,
+                        allow_external_writes, external_raw_sync
                  FROM knowledge_bases WHERE id = ?1",
                 params![id],
                 row_to_kb,
@@ -566,7 +596,8 @@ impl KnowledgeRegistry {
             "WHERE archived = 0"
         };
         let sql = format!(
-            "SELECT id, name, emoji, root_dir, archived, created_at, updated_at, allow_external_writes
+            "SELECT id, name, emoji, root_dir, archived, created_at, updated_at,
+                    allow_external_writes, external_raw_sync
              FROM knowledge_bases {} ORDER BY updated_at DESC",
             where_sql
         );
@@ -909,10 +940,11 @@ impl KnowledgeRegistry {
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO knowledge_sources
-                (id, kb_id, kind, title, origin_uri, stored_path, content_hash,
-                 extracted_text_hash, status, compiled_at, created_at, updated_at, size,
-                 version_of_source_id, version_index, superseded_by_source_id, superseded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                (id, kb_id, kind, title, origin_uri, stored_path, external_raw_path,
+                 content_hash, extracted_text_hash, status, compiled_at, created_at,
+                 updated_at, size, version_of_source_id, version_index,
+                 superseded_by_source_id, superseded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 source.id,
                 source.kb_id,
@@ -920,6 +952,7 @@ impl KnowledgeRegistry {
                 source.title,
                 source.origin_uri,
                 source.stored_path,
+                source.external_raw_path,
                 source.content_hash,
                 source.extracted_text_hash,
                 source.status.as_str(),
@@ -967,10 +1000,11 @@ impl KnowledgeRegistry {
         let tx = conn.transaction()?;
         tx.execute(
             "INSERT INTO knowledge_sources
-                (id, kb_id, kind, title, origin_uri, stored_path, content_hash,
-                 extracted_text_hash, status, compiled_at, created_at, updated_at, size,
-                 version_of_source_id, version_index, superseded_by_source_id, superseded_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, NULL, NULL)",
+                (id, kb_id, kind, title, origin_uri, stored_path, external_raw_path,
+                 content_hash, extracted_text_hash, status, compiled_at, created_at,
+                 updated_at, size, version_of_source_id, version_index,
+                 superseded_by_source_id, superseded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, NULL)",
             params![
                 source.id,
                 source.kb_id,
@@ -978,6 +1012,7 @@ impl KnowledgeRegistry {
                 source.title,
                 source.origin_uri,
                 source.stored_path,
+                source.external_raw_path,
                 source.content_hash,
                 source.extracted_text_hash,
                 source.status.as_str(),
@@ -1028,13 +1063,37 @@ impl KnowledgeRegistry {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
-                    s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.external_raw_path, s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
                     s.created_at, s.updated_at, s.size, s.version_of_source_id,
                     s.version_index, s.superseded_by_source_id, s.superseded_at,
                     COUNT(c.id) AS chunk_count
              FROM knowledge_sources s
              LEFT JOIN knowledge_source_chunks c ON c.source_id = s.id
              WHERE s.kb_id = ?1 AND s.superseded_by_source_id IS NULL
+             GROUP BY s.id
+             ORDER BY s.created_at DESC, s.id DESC",
+        )?;
+        let rows = stmt.query_map(params![kb_id], row_to_source)?;
+        let mut sources = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        hydrate_source_assets_locked(&conn, &mut sources)?;
+        Ok(sources)
+    }
+
+    pub fn list_all_sources(&self, kb_id: &str) -> Result<Vec<KnowledgeSource>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
+                    s.external_raw_path, s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.created_at, s.updated_at, s.size, s.version_of_source_id,
+                    s.version_index, s.superseded_by_source_id, s.superseded_at,
+                    COUNT(c.id) AS chunk_count
+             FROM knowledge_sources s
+             LEFT JOIN knowledge_source_chunks c ON c.source_id = s.id
+             WHERE s.kb_id = ?1
              GROUP BY s.id
              ORDER BY s.created_at DESC, s.id DESC",
         )?;
@@ -1053,7 +1112,7 @@ impl KnowledgeRegistry {
         let mut source = conn
             .query_row(
                 "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
-                    s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.external_raw_path, s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
                     s.created_at, s.updated_at, s.size, s.version_of_source_id,
                     s.version_index, s.superseded_by_source_id, s.superseded_at,
                     COUNT(c.id) AS chunk_count
@@ -1084,7 +1143,7 @@ impl KnowledgeRegistry {
         let mut source = conn
             .query_row(
                 "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
-                    s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.external_raw_path, s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
                     s.created_at, s.updated_at, s.size, s.version_of_source_id,
                     s.version_index, s.superseded_by_source_id, s.superseded_at,
                     COUNT(c.id) AS chunk_count
@@ -1120,7 +1179,7 @@ impl KnowledgeRegistry {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT s.id, s.kb_id, s.kind, s.title, s.origin_uri, s.stored_path,
-                    s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
+                    s.external_raw_path, s.content_hash, s.extracted_text_hash, s.status, s.compiled_at,
                     s.created_at, s.updated_at, s.size, s.version_of_source_id,
                     s.version_index, s.superseded_by_source_id, s.superseded_at,
                     COUNT(c.id) AS chunk_count
@@ -1180,15 +1239,21 @@ impl KnowledgeRegistry {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let tx = conn.transaction()?;
         let asset_paths = source_asset_stored_paths_tx(&tx, kb_id, source_id)?;
-        let row: Option<(String, Option<String>)> = tx
+        let row: Option<(String, Option<String>, Option<String>)> = tx
             .query_row(
-                "SELECT stored_path, superseded_by_source_id
+                "SELECT stored_path, external_raw_path, superseded_by_source_id
                  FROM knowledge_sources WHERE kb_id = ?1 AND id = ?2",
                 params![kb_id, source_id],
-                |r| Ok((r.get(0)?, r.get::<_, Option<String>>(1).unwrap_or(None))),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get::<_, Option<String>>(1).unwrap_or(None),
+                        r.get::<_, Option<String>>(2).unwrap_or(None),
+                    ))
+                },
             )
             .optional()?;
-        if let Some((_, next_source_id)) = &row {
+        if let Some((_, _, next_source_id)) = &row {
             let now = chrono::Utc::now().timestamp_millis();
             tx.execute(
                 "UPDATE knowledge_sources
@@ -1203,10 +1268,39 @@ impl KnowledgeRegistry {
             )?;
         }
         tx.commit()?;
-        Ok(row.map(|(stored_path, _)| DeletedSourceFiles {
-            stored_path,
-            asset_paths,
-        }))
+        Ok(
+            row.map(|(stored_path, external_raw_path, _)| DeletedSourceFiles {
+                stored_path,
+                external_raw_path,
+                asset_paths,
+            }),
+        )
+    }
+
+    pub fn set_source_external_raw_path(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+        external_raw_path: Option<&str>,
+    ) -> Result<Option<KnowledgeSource>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let affected = conn.execute(
+            "UPDATE knowledge_sources
+             SET external_raw_path = ?3, updated_at = ?4
+             WHERE kb_id = ?1 AND id = ?2",
+            params![kb_id, source_id, external_raw_path, now],
+        )?;
+        drop(conn);
+        if affected == 0 {
+            Ok(None)
+        } else {
+            self.get_source(kb_id, source_id)
+        }
     }
 
     pub fn source_asset(
@@ -2192,6 +2286,11 @@ fn row_to_proposal(
 }
 
 fn row_to_kb(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeBase> {
+    let external_raw_sync = row
+        .get::<_, Option<String>>(8)
+        .unwrap_or(None)
+        .map(|s| KnowledgeExternalRawSyncMode::from_str_lenient(&s))
+        .unwrap_or_default();
     Ok(KnowledgeBase {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -2201,6 +2300,7 @@ fn row_to_kb(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeBase> {
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
         allow_external_writes: row.get::<_, i64>(7).unwrap_or(0) != 0,
+        external_raw_sync,
     })
 }
 
@@ -2256,8 +2356,8 @@ fn row_to_compile_proposal(row: &rusqlite::Row) -> rusqlite::Result<CompilePropo
 
 fn row_to_source(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeSource> {
     let kind_s: String = row.get(2)?;
-    let status_s: String = row.get(8)?;
-    let chunk_count: i64 = row.get(17).unwrap_or(0);
+    let status_s: String = row.get(9)?;
+    let chunk_count: i64 = row.get(18).unwrap_or(0);
     Ok(KnowledgeSource {
         id: row.get(0)?,
         kb_id: row.get(1)?,
@@ -2265,18 +2365,19 @@ fn row_to_source(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeSource> {
         title: row.get(3)?,
         origin_uri: row.get::<_, Option<String>>(4).unwrap_or(None),
         stored_path: row.get(5)?,
-        content_hash: row.get(6)?,
-        extracted_text_hash: row.get::<_, Option<String>>(7).unwrap_or(None),
+        external_raw_path: row.get::<_, Option<String>>(6).unwrap_or(None),
+        content_hash: row.get(7)?,
+        extracted_text_hash: row.get::<_, Option<String>>(8).unwrap_or(None),
         status: KnowledgeSourceStatus::from_str_lenient(&status_s),
-        compiled_at: row.get::<_, Option<i64>>(9).unwrap_or(None),
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
-        size: row.get::<_, i64>(12).unwrap_or(0),
+        compiled_at: row.get::<_, Option<i64>>(10).unwrap_or(None),
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        size: row.get::<_, i64>(13).unwrap_or(0),
         chunk_count: chunk_count.max(0) as u32,
-        version_of_source_id: row.get::<_, Option<String>>(13).unwrap_or(None),
-        version_index: row.get::<_, i64>(14).unwrap_or(1).max(1) as u32,
-        superseded_by_source_id: row.get::<_, Option<String>>(15).unwrap_or(None),
-        superseded_at: row.get::<_, Option<i64>>(16).unwrap_or(None),
+        version_of_source_id: row.get::<_, Option<String>>(14).unwrap_or(None),
+        version_index: row.get::<_, i64>(15).unwrap_or(1).max(1) as u32,
+        superseded_by_source_id: row.get::<_, Option<String>>(16).unwrap_or(None),
+        superseded_at: row.get::<_, Option<i64>>(17).unwrap_or(None),
         assets: None,
     })
 }
@@ -2684,6 +2785,7 @@ mod tests {
             title: "Article".into(),
             origin_uri: Some("https://example.com/a".into()),
             stored_path: "src-1.md".into(),
+            external_raw_path: Some("raw/src-1.md".into()),
             content_hash: "hash".into(),
             extracted_text_hash: Some("text-hash".into()),
             status: KnowledgeSourceStatus::Ready,
@@ -2787,6 +2889,7 @@ mod tests {
 
         let deleted = reg.delete_source(&kb.id, &source.id).unwrap().unwrap();
         assert_eq!(deleted.stored_path, "src-1.md");
+        assert_eq!(deleted.external_raw_path.as_deref(), Some("raw/src-1.md"));
         assert_eq!(deleted.asset_paths, vec!["assets/src-1/original.mp3"]);
         assert!(reg.get_source(&kb.id, &source.id).unwrap().is_none());
         assert!(reg.list_sources(&kb.id).unwrap().is_empty());
@@ -2810,6 +2913,7 @@ mod tests {
             title: "Article".into(),
             origin_uri: Some("https://example.com/a".into()),
             stored_path: "src-1.md".into(),
+            external_raw_path: None,
             content_hash: "hash-1".into(),
             extracted_text_hash: Some("text-hash-1".into()),
             status: KnowledgeSourceStatus::Ready,
@@ -2833,6 +2937,7 @@ mod tests {
             title: "Article".into(),
             origin_uri: Some("https://example.com/a".into()),
             stored_path: "src-2.md".into(),
+            external_raw_path: None,
             content_hash: "hash-2".into(),
             extracted_text_hash: Some("text-hash-2".into()),
             status: KnowledgeSourceStatus::Ready,

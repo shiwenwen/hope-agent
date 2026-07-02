@@ -1719,6 +1719,7 @@ mod tests {
             title: "Example Source".to_string(),
             origin_uri: Some("https://example.com".to_string()),
             stored_path: format!("{id}.md"),
+            external_raw_path: None,
             content_hash: hash.to_string(),
             extracted_text_hash: Some(hash.to_string()),
             status: crate::knowledge::types::KnowledgeSourceStatus::Ready,

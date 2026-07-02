@@ -14,12 +14,13 @@ use super::types::{
     Backlink, CompileProposal, CompileProposalStatus, CompileRun, CompileStartInput,
     CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
     KnowledgeBrowserSourceImportInput, KnowledgeSource, KnowledgeSourceAssetKind,
-    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceImportBatchInput,
-    KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
-    KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult, KnowledgeSourceSimilarityGroup,
-    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
-    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
+    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
+    KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
+    KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
+    KnowledgeSourceReadResult, KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
+    KnowledgeSourceSimilarityGroup, KnowledgeSourceVersionHistory, Note, NoteReadResult,
+    NoteSearchHit, NoteSourceRef, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
+    SchemaProfile,
 };
 use crate::filesystem::{self, WorkspaceScope};
 use crate::session::{SessionKind, SessionMeta};
@@ -168,6 +169,12 @@ pub fn source_reextract(kb_id: &str, source_id: &str) -> Result<KnowledgeSource>
 /// Owner delete: removes registry row, chunks and stored snapshot file.
 pub fn source_delete(kb_id: &str, source_id: &str) -> Result<bool> {
     super::source::delete_source(kb_id, source_id)
+}
+
+/// Owner sync: mirror all existing source text snapshots into the configured
+/// external vault folder (`raw/` or `sources/`).
+pub fn source_sync_external_raw(kb_id: &str) -> Result<KnowledgeSourceExternalRawSyncResult> {
+    super::source::sync_external_raw_snapshots(kb_id)
 }
 
 // ── Knowledge Compiler (Phase 2) ─────────────────────────────────

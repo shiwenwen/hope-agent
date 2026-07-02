@@ -20,14 +20,14 @@ use crate::agent::Attachment;
 use crate::stt::{AudioPayload, Transcript};
 
 use super::types::{
-    KnowledgeBrowserCaptureMode, KnowledgeBrowserSourceImportInput, KnowledgeSource,
+    KnowledgeBase, KnowledgeBrowserCaptureMode, KnowledgeBrowserSourceImportInput, KnowledgeSource,
     KnowledgeSourceAsset, KnowledgeSourceAssetKind, KnowledgeSourceAssetLink,
     KnowledgeSourceAssets, KnowledgeSourceChunk, KnowledgeSourceDiff, KnowledgeSourceDiffLine,
-    KnowledgeSourceDiffLineKind, KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput,
-    KnowledgeSourceImportItemStatus, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportRunStatus, KnowledgeSourceImportSessionAttachmentInput,
-    KnowledgeSourceKind, KnowledgeSourceReadResult, KnowledgeSourceRefreshInput,
-    KnowledgeSourceRefreshResult, KnowledgeSourceSimilarityGroup,
+    KnowledgeSourceDiffLineKind, KnowledgeSourceExternalRawSyncResult,
+    KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportItemStatus,
+    KnowledgeSourceImportRunDetail, KnowledgeSourceImportRunStatus,
+    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceKind, KnowledgeSourceReadResult,
+    KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult, KnowledgeSourceSimilarityGroup,
     KnowledgeSourceSimilarityGroupKind, KnowledgeSourceStatus, KnowledgeSourceVersionHistory,
 };
 
@@ -501,7 +501,7 @@ pub fn source_import_run_detail(run_id: &str) -> Result<Option<KnowledgeSourceIm
 
 pub fn source_similarity_groups(kb_id: &str) -> Result<Vec<KnowledgeSourceSimilarityGroup>> {
     ensure_kb_exists(kb_id)?;
-    let sources = registry()?.list_sources(kb_id)?;
+    let sources = registry()?.list_all_sources(kb_id)?;
     build_source_similarity_groups(kb_id, sources)
 }
 
@@ -738,8 +738,68 @@ pub fn delete_source(kb_id: &str, source_id: &str) -> Result<bool> {
         std::fs::remove_file(&path)?;
     }
     remove_source_asset_files(kb_id, &deleted.asset_paths)?;
+    if let Some(rel_path) = deleted.external_raw_path.as_deref() {
+        remove_external_raw_file_if_allowed(kb_id, rel_path);
+    }
     emit(kb_id, "source_delete");
     Ok(true)
+}
+
+pub fn sync_external_raw_snapshots(kb_id: &str) -> Result<KnowledgeSourceExternalRawSyncResult> {
+    let kb = registry()?
+        .get(kb_id)?
+        .ok_or_else(|| anyhow!("knowledge base not found: {kb_id}"))?;
+    if kb.archived {
+        bail!("cannot sync external raw snapshots for archived knowledge base: {kb_id}");
+    }
+    let Some(folder) = kb.external_raw_sync.folder_name() else {
+        return Ok(KnowledgeSourceExternalRawSyncResult::default());
+    };
+    let root = external_raw_root(&kb)?;
+    let sources = registry()?.list_sources(kb_id)?;
+    let mut result = KnowledgeSourceExternalRawSyncResult::default();
+
+    for source in sources {
+        let sync_one = read_source_content(kb_id, &source)
+            .and_then(|content| {
+                write_external_raw_snapshot(
+                    &root,
+                    folder,
+                    &source.id,
+                    source_snapshot_ext(&source.stored_path),
+                    &content,
+                )
+            })
+            .and_then(|rel_path| {
+                if source
+                    .external_raw_path
+                    .as_deref()
+                    .is_some_and(|old| old != rel_path)
+                {
+                    if let Some(old) = source.external_raw_path.as_deref() {
+                        remove_external_raw_file_if_allowed(kb_id, old);
+                    }
+                }
+                registry()?.set_source_external_raw_path(kb_id, &source.id, Some(&rel_path))?;
+                Ok(rel_path)
+            });
+        match sync_one {
+            Ok(_) => {
+                result.synced_count = result.synced_count.saturating_add(1);
+            }
+            Err(e) => {
+                result.failed_count = result.failed_count.saturating_add(1);
+                result.errors.push(format!(
+                    "{}: {}",
+                    source.title,
+                    crate::truncate_utf8(&e.to_string(), 240)
+                ));
+            }
+        }
+    }
+
+    emit(kb_id, "source_external_raw_sync");
+    Ok(result)
 }
 
 fn read_source_content(kb_id: &str, source: &KnowledgeSource) -> Result<String> {
@@ -1735,9 +1795,39 @@ fn persist_source_draft(
         .map(stable_text_hash)
         .unwrap_or_else(|| super::blake3_hex(draft.content.as_bytes()));
     if dedupe {
-        if let Some(existing) =
+        if let Some(mut existing) =
             registry()?.find_source_by_extracted_text_hash(kb_id, &extracted_text_hash)?
         {
+            match read_source_content(kb_id, &existing) {
+                Ok(content) => {
+                    if let Some(rel_path) = try_mirror_source_snapshot_to_external(
+                        kb_id,
+                        &existing.id,
+                        source_snapshot_ext(&existing.stored_path),
+                        &content,
+                    ) {
+                        if existing.external_raw_path.as_deref() != Some(rel_path.as_str()) {
+                            if let Some(old) = existing.external_raw_path.as_deref() {
+                                remove_external_raw_file_if_allowed(kb_id, old);
+                            }
+                            if let Some(updated) = registry()?.set_source_external_raw_path(
+                                kb_id,
+                                &existing.id,
+                                Some(&rel_path),
+                            )? {
+                                existing = updated;
+                            }
+                        }
+                    }
+                }
+                Err(e) => crate::app_warn!(
+                    "knowledge",
+                    "source_external_raw_sync",
+                    "duplicate source external raw mirror skipped for {}: {}",
+                    existing.id,
+                    e
+                ),
+            }
             let duplicate_of_id = existing.id.clone();
             return Ok(ImportedSourceOutcome {
                 source: existing,
@@ -1755,6 +1845,8 @@ fn persist_source_draft(
         None => None,
     };
     crate::platform::write_atomic(&path, draft.content.as_bytes())?;
+    let external_raw_path =
+        try_mirror_source_snapshot_to_external(kb_id, &id, draft.ext, &draft.content);
     let mut written_asset_paths = Vec::new();
     if let Some(prepared) = prepared_assets.as_ref() {
         let mut failed = None;
@@ -1797,6 +1889,7 @@ fn persist_source_draft(
         title: draft.title,
         origin_uri: draft.origin_uri,
         stored_path,
+        external_raw_path,
         content_hash,
         extracted_text_hash: Some(extracted_text_hash),
         status: KnowledgeSourceStatus::Ready,
@@ -1840,6 +1933,9 @@ fn persist_source_draft(
                     cleanup_err
                 );
             }
+        }
+        if let Some(rel_path) = source.external_raw_path.as_deref() {
+            remove_external_raw_file_if_allowed(kb_id, rel_path);
         }
         return Err(e);
     }
@@ -2126,6 +2222,157 @@ fn build_chunks(source_id: &str, content: &str) -> Vec<KnowledgeSourceChunk> {
         start = end;
     }
     chunks
+}
+
+fn try_mirror_source_snapshot_to_external(
+    kb_id: &str,
+    source_id: &str,
+    ext: &str,
+    content: &str,
+) -> Option<String> {
+    match mirror_source_snapshot_to_external(kb_id, source_id, ext, content) {
+        Ok(path) => path,
+        Err(e) => {
+            crate::app_warn!(
+                "knowledge",
+                "source_external_raw_sync",
+                "external raw snapshot mirror skipped for {source_id}: {e}"
+            );
+            None
+        }
+    }
+}
+
+fn mirror_source_snapshot_to_external(
+    kb_id: &str,
+    source_id: &str,
+    ext: &str,
+    content: &str,
+) -> Result<Option<String>> {
+    let kb = registry()?
+        .get(kb_id)?
+        .ok_or_else(|| anyhow!("knowledge base not found: {kb_id}"))?;
+    let Some(folder) = kb.external_raw_sync.folder_name() else {
+        return Ok(None);
+    };
+    let root = external_raw_root(&kb)?;
+    write_external_raw_snapshot(&root, folder, source_id, ext, content).map(Some)
+}
+
+fn external_raw_root(kb: &KnowledgeBase) -> Result<PathBuf> {
+    if !kb.is_external() {
+        bail!("external raw sync requires an external knowledge base root");
+    }
+    if !kb.allow_external_writes {
+        bail!("external raw sync requires external writes opt-in");
+    }
+    let root_dir = kb
+        .root_dir
+        .as_deref()
+        .and_then(|v| normalize_optional(Some(v)))
+        .ok_or_else(|| anyhow!("external knowledge base root is empty"))?;
+    let root = PathBuf::from(root_dir)
+        .canonicalize()
+        .map_err(|e| anyhow!("cannot resolve external root '{root_dir}': {e}"))?;
+    if !root.is_dir() {
+        bail!("external root is not a directory: {}", root.display());
+    }
+    Ok(root)
+}
+
+fn write_external_raw_snapshot(
+    root: &Path,
+    folder: &str,
+    source_id: &str,
+    ext: &str,
+    content: &str,
+) -> Result<String> {
+    if !is_safe_path_segment(folder) {
+        bail!("invalid external raw sync folder");
+    }
+    if !is_safe_path_segment(source_id) {
+        bail!("invalid source id for external raw sync");
+    }
+    let ext = sanitize_ext(ext);
+    let rel_path = format!("{folder}/{source_id}.{ext}");
+    let target = external_raw_target_path(root, &rel_path)?;
+    crate::platform::write_atomic(&target, content.as_bytes())?;
+    Ok(rel_path)
+}
+
+fn source_snapshot_ext(stored_path: &str) -> &'static str {
+    Path::new(stored_path)
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(sanitize_ext)
+        .unwrap_or("txt")
+}
+
+fn external_raw_target_path(root: &Path, rel_path: &str) -> Result<PathBuf> {
+    let rel = Path::new(rel_path);
+    if rel.is_absolute()
+        || rel.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        bail!("invalid external raw path");
+    }
+    let target = root.join(rel);
+    let parent = target
+        .parent()
+        .ok_or_else(|| anyhow!("invalid external raw path"))?;
+    std::fs::create_dir_all(parent)?;
+    let parent = parent.canonicalize()?;
+    if !parent.starts_with(root) {
+        bail!("external raw path escapes knowledge base root");
+    }
+    Ok(target)
+}
+
+fn external_raw_existing_path(root: &Path, rel_path: &str) -> Result<PathBuf> {
+    let rel = Path::new(rel_path);
+    if rel.is_absolute()
+        || rel.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        bail!("invalid external raw path");
+    }
+    let target = root.join(rel);
+    if let Some(parent) = target.parent() {
+        let parent = parent.canonicalize()?;
+        if !parent.starts_with(root) {
+            bail!("external raw path escapes knowledge base root");
+        }
+    }
+    Ok(target)
+}
+
+fn remove_external_raw_file_if_allowed(kb_id: &str, rel_path: &str) {
+    let remove = || -> Result<()> {
+        let kb = registry()?
+            .get(kb_id)?
+            .ok_or_else(|| anyhow!("knowledge base not found: {kb_id}"))?;
+        let root = external_raw_root(&kb)?;
+        let path = external_raw_existing_path(&root, rel_path)?;
+        if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+        Ok(())
+    };
+    if let Err(e) = remove() {
+        crate::app_warn!(
+            "knowledge",
+            "source_external_raw_sync",
+            "remove external raw snapshot {rel_path} skipped: {e}"
+        );
+    }
 }
 
 fn source_dir(kb_id: &str) -> Result<PathBuf> {

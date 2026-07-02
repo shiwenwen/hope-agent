@@ -313,6 +313,10 @@ fn build_router_with_cors(
             get(routes::knowledge::kb_source_similarity_groups),
         )
         .route(
+            "/knowledge/{kb_id}/sources/sync-external-raw",
+            post(routes::knowledge::kb_source_sync_external_raw),
+        )
+        .route(
             "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}/link",
             get(routes::knowledge::kb_source_asset_link),
         )

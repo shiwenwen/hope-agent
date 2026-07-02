@@ -2,6 +2,7 @@
 // (camelCase) — see crates/ha-core/src/knowledge/types.rs.
 
 export type KbAccess = "read" | "write"
+export type KnowledgeExternalRawSyncMode = "disabled" | "raw" | "sources"
 
 export interface KnowledgeBase {
   id: string
@@ -12,6 +13,8 @@ export interface KnowledgeBase {
   rootDir?: string | null
   /** Opt-in to editing an external (bound) root (WS7). Ignored for internal KBs. */
   allowExternalWrites: boolean
+  /** Optional mirror of source text snapshots into an external vault folder. */
+  externalRawSync: KnowledgeExternalRawSyncMode
   archived: boolean
   createdAt: number
   updatedAt: number
@@ -164,6 +167,7 @@ export interface KnowledgeSource {
   title: string
   originUri?: string | null
   storedPath: string
+  externalRawPath?: string | null
   contentHash: string
   extractedTextHash?: string | null
   status: KnowledgeSourceStatus
@@ -217,6 +221,13 @@ export interface KnowledgeSourceRefreshResult {
   previousSource: KnowledgeSource
   changed: boolean
   diff?: KnowledgeSourceDiff | null
+}
+
+export interface KnowledgeSourceExternalRawSyncResult {
+  syncedCount: number
+  skippedCount: number
+  failedCount: number
+  errors: string[]
 }
 
 export interface KnowledgeSourceVersionHistory {
@@ -643,6 +654,8 @@ export interface UpdateKnowledgeBaseInput {
   archived?: boolean | null
   /** Unlock / re-lock writes to an external (bound) root (WS7). */
   allowExternalWrites?: boolean | null
+  /** Copy source text snapshots into an external vault folder (`raw/` or `sources/`). */
+  externalRawSync?: KnowledgeExternalRawSyncMode | null
 }
 
 /** Note editor view modes (design D13). `live` = source pane with syntax markers

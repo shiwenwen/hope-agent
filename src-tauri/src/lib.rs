@@ -627,6 +627,7 @@ pub fn run() {
             commands::knowledge::kb_source_diff_cmd,
             commands::knowledge::kb_source_reextract_cmd,
             commands::knowledge::kb_source_delete_cmd,
+            commands::knowledge::kb_source_sync_external_raw_cmd,
             commands::knowledge::kb_compile_start_cmd,
             commands::knowledge::kb_compile_status_cmd,
             commands::knowledge::kb_compile_runs_list_cmd,

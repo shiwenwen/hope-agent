@@ -669,6 +669,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                           <span>{t("knowledge.sources.mediaRetained", "Media retained")}</span>
                         </>
                       ) : null}
+                      {source.externalRawPath ? (
+                        <>
+                          <span>·</span>
+                          <span className="font-mono">{source.externalRawPath}</span>
+                        </>
+                      ) : null}
                     </span>
                   </span>
                 </button>
@@ -882,6 +888,13 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           </DialogHeader>
           {selected?.assets?.original || selected?.assets?.thumbnail ? (
             <SourceAssetSummary source={selected} />
+          ) : null}
+          {selected?.externalRawPath ? (
+            <div className="rounded-md border border-border-soft/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              <span>{t("knowledge.sources.externalRawPath", "External snapshot")}</span>
+              <span className="mx-1">·</span>
+              <span className="font-mono text-foreground/80">{selected.externalRawPath}</span>
+            </div>
           ) : null}
           <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap rounded-md border border-border-soft/60 bg-muted/30 p-3 text-xs leading-relaxed">
             {reading ? t("knowledge.sources.loading", "Loading…") : selected?.content}

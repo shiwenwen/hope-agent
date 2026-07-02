@@ -47,6 +47,11 @@ pub struct KnowledgeBase {
     /// background autonomous maintenance never writes external regardless.
     #[serde(default)]
     pub allow_external_writes: bool,
+    /// Optional mirror of Hope-managed source text snapshots into an external
+    /// vault (`raw/` or `sources/`). Only meaningful for external roots and only
+    /// honored when `allow_external_writes` is also true.
+    #[serde(default)]
+    pub external_raw_sync: KnowledgeExternalRawSyncMode,
     #[serde(default)]
     pub archived: bool,
     /// Unix milliseconds.
@@ -117,6 +122,46 @@ impl KbAccess {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeExternalRawSyncMode {
+    Disabled,
+    Raw,
+    Sources,
+}
+
+impl Default for KnowledgeExternalRawSyncMode {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+impl KnowledgeExternalRawSyncMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeExternalRawSyncMode::Disabled => "disabled",
+            KnowledgeExternalRawSyncMode::Raw => "raw",
+            KnowledgeExternalRawSyncMode::Sources => "sources",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> Self {
+        match s {
+            "raw" => Self::Raw,
+            "sources" => Self::Sources,
+            _ => Self::Disabled,
+        }
+    }
+
+    pub fn folder_name(&self) -> Option<&'static str> {
+        match self {
+            KnowledgeExternalRawSyncMode::Disabled => None,
+            KnowledgeExternalRawSyncMode::Raw => Some("raw"),
+            KnowledgeExternalRawSyncMode::Sources => Some("sources"),
+        }
+    }
+}
+
 // ── Input DTOs ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +192,10 @@ pub struct UpdateKnowledgeBaseInput {
     /// unchanged. Ignored for internal KBs.
     #[serde(default)]
     pub allow_external_writes: Option<bool>,
+    /// Enable / disable copying source text snapshots into an external vault
+    /// subdirectory (`raw/` or `sources/`). `None` = leave unchanged.
+    #[serde(default)]
+    pub external_raw_sync: Option<KnowledgeExternalRawSyncMode>,
 }
 
 // ── Access bindings (truth source, sessions.db) ──────────────────
@@ -503,6 +552,8 @@ pub struct KnowledgeSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub origin_uri: Option<String>,
     pub stored_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_raw_path: Option<String>,
     pub content_hash: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extracted_text_hash: Option<String>,
@@ -603,6 +654,19 @@ pub struct KnowledgeSourceRefreshResult {
     pub changed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diff: Option<KnowledgeSourceDiff>,
+}
+
+/// Result of mirroring existing internal source text snapshots into an external
+/// vault (`raw/` or `sources/`). This is owner-plane only and never includes
+/// original retained media.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceExternalRawSyncResult {
+    pub synced_count: u32,
+    pub skipped_count: u32,
+    pub failed_count: u32,
+    #[serde(default)]
+    pub errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -28,13 +28,13 @@ use ha_core::knowledge::{
     KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
     KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
     KnowledgeBrowserSourceImportInput, KnowledgeGraph, KnowledgeSource, KnowledgeSourceAssetKind,
-    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceImportBatchInput,
-    KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
-    KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult, KnowledgeSourceSimilarityGroup,
-    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
-    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
+    KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
+    KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
+    KnowledgeSourceReadResult, KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
+    KnowledgeSourceSimilarityGroup, KnowledgeSourceVersionHistory, Note, NoteReadResult,
+    NoteSearchHit, NoteSourceRef, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
+    SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -558,6 +558,13 @@ pub async fn kb_source_delete(
     Path((kb_id, source_id)): Path<(String, String)>,
 ) -> Result<Json<bool>, AppError> {
     Ok(Json(service::source_delete(&kb_id, &source_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/sync-external-raw`
+pub async fn kb_source_sync_external_raw(
+    Path(kb_id): Path<String>,
+) -> Result<Json<KnowledgeSourceExternalRawSyncResult>, AppError> {
+    Ok(Json(service::source_sync_external_raw(&kb_id)?))
 }
 
 // ── Knowledge Compiler (Phase 2) ─────────────────────────────────
