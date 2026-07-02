@@ -609,8 +609,13 @@ fn gather_goal_evidence(
     map: &mut HashMap<String, CandidateAccum>,
     stats: &mut ContextRetrievalStats,
 ) {
-    let Ok(Some(snapshot)) = db.active_goal_for_session(session_id) else {
-        return;
+    let snapshot = match db.active_goal_for_session(session_id) {
+        Ok(Some(snapshot)) => snapshot,
+        Ok(None) => match db.latest_goal_for_session(session_id) {
+            Ok(Some(snapshot)) => snapshot,
+            _ => return,
+        },
+        Err(_) => return,
     };
     stats.goal_evidence = snapshot.evidence.len();
     for (idx, item) in snapshot.evidence.iter().rev().take(24).enumerate() {

@@ -401,7 +401,6 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 
 - LLM reviewer / verifier agent。
 - review profiles：correctness / security / concurrency / frontend / accessibility / tests。
-- Workflow host API：`workflow.review()`。
 - 修复后 focused re-review。
 
 ### Phase 3.4 智能验证选择（已完成）
@@ -420,8 +419,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 历史 trace 成功率 / 耗时参与排序。
 - Test impact / owner map 级别的更细粒度选择。
 - 单条 gated step 用户批准后执行。
-- `workflow.verify()` host API。
-- 将验证选择质量纳入 eval。
+- 将验证执行质量与历史失败模式纳入更高层 eval。
 
 ### Phase 3.5 Context Retrieval v2 / 推荐上下文（已完成）
 
@@ -444,8 +442,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 后续增强：
 
 - 增加 document symbols fallback、IDE selection envelope 与 ACP 当前文件信号。
-- Workflow host API：`workflow.review()` / `workflow.verify()`，让 script runtime 复用同一 focused owner API。
-- context precision / critical context recall 已进入 Phase 3.7 控制面 eval；后续扩展到趋势 dashboard。
+- context precision / critical context recall 已进入 Phase 3.7/3.8 控制面 eval；后续扩展到趋势 dashboard。
 
 ### Phase 3.7 Coding Eval 控制面评测（已完成）
 
@@ -453,8 +450,17 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 首批 fixture 覆盖 Rust 控制面召回、docs-only sanity、focused scope 不扫无关文件。
 - 集成测试入口：`cargo test -p ha-core --test coding_eval --locked`。
 - 指标包含 `context_precision`、`critical_context_recall`、review finding 数量、verification command 列表。
-- 不调用 LLM、不执行真实验证命令，作为后续 LLM reviewer、Workflow review/verify API、repair loop 的底座质量闸。
+- 不调用 LLM、不执行真实验证命令，作为后续 LLM reviewer、repair loop 和趋势 dashboard 的底座质量闸。
 - 最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+
+### Phase 3.8 Workflow Review/Verify Host API 与 Goal-aware Eval（已完成）
+
+- `workflow.review({ focusPaths?, baseRef?, profiles?, scope? })` 已作为 idempotent durable host API 落地，复用 Review Engine，并继承当前 workflow run 的 Goal。
+- `workflow.verify({ focusPaths?, maxCommands?, scope? })` 已作为 idempotent durable host API 落地，复用 Smart Verification selector，只生成计划，不执行命令。
+- Script Gate / permission preview 识别这两个 API 为 permission-neutral coding control-plane API；runtime replay 复用已完成 op output。
+- Goal evidence 串联已完成：review evidence、verification `validation_completed`、workflow `workflow_completed` 能进入同一 Goal 证据链。
+- Coding Eval 新增 workflow-bound fixture，验证 workflow op、review run、verification plan、Goal evidence 和 Context Retrieval 召回协同。
+- 最终架构见 [Workflow 与 Execution Mode](../architecture/workflow.md)、[Review Engine 控制平面](../architecture/review-engine.md)、[Smart Verification 控制平面](../architecture/verification-engine.md)、[Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 9. 体验与性能红线
 

@@ -433,6 +433,25 @@ impl SessionDB {
         }
     }
 
+    pub fn latest_goal_for_session(&self, session_id: &str) -> Result<Option<GoalSnapshot>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let goal_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM goals
+                 WHERE session_id = ?1
+                 ORDER BY updated_at DESC
+                 LIMIT 1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        drop(conn);
+        match goal_id {
+            Some(id) => self.goal_snapshot(&id, 100),
+            None => Ok(None),
+        }
+    }
+
     pub fn active_goal_id_for_session(&self, session_id: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(

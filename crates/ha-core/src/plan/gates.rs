@@ -222,6 +222,8 @@ pub fn check_workflow_script_draft(script: &str, options: ScriptGateOptions) -> 
         "workflow.grep(",
         "workflow.spawnAgent(",
         "workflow.validate(",
+        "workflow.review(",
+        "workflow.verify(",
         "workflow.askUser(",
         "workflow.trace(",
         "workflow.diff(",
@@ -262,11 +264,11 @@ pub fn check_workflow_script_draft(script: &str, options: ScriptGateOptions) -> 
         ));
     }
 
-    if !compact.contains("workflow.validate(") {
+    if !compact.contains("workflow.validate(") && !compact.contains("workflow.verify(") {
         issues.push(GateIssue::warning(
             "missing_validate",
             "Script has no targeted validation step.",
-            "Add workflow.validate({ commands, reason, label }) unless this workflow is explicitly review-only.",
+            "Add workflow.validate({ commands, reason, label }) to execute checks, or workflow.verify({ focusPaths }) to create a Smart Verification plan.",
         ));
     }
 
@@ -476,6 +478,34 @@ export default async function main(workflow) {
 
         let report = check_workflow_script_draft(script, ScriptGateOptions::default());
         assert!(report.passed(), "{}", report.render_feedback("Script Gate"));
+    }
+
+    #[test]
+    fn script_gate_accepts_review_and_verify_host_apis() {
+        let script = r#"
+export default async function main(workflow) {
+  const budget = { max_runtime_secs: 300, max_ops: 20 };
+  const observe = await workflow.task.create({ title: "Observe", label: "observe" });
+  const review = await workflow.review({
+    focusPaths: ["crates/ha-core/src/workflow/runtime.rs"],
+    label: "focused-review"
+  });
+  const verification = await workflow.verify({
+    focusPaths: ["crates/ha-core/src/workflow/runtime.rs"],
+    maxCommands: 2,
+    label: "focused-verify"
+  });
+  await workflow.task.update({ task: observe, status: "completed" });
+  return workflow.finish({ summary: "done", review, verification, budget });
+}
+"#;
+
+        let report = check_workflow_script_draft(script, ScriptGateOptions::default());
+        assert!(report.passed(), "{}", report.render_feedback("Script Gate"));
+        assert!(!report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "missing_validate"));
     }
 
     #[test]

@@ -180,7 +180,7 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - `tool_search` 仍偏基础关键词匹配，缺少 search hint、alias、BM25、多来源 schema 组装。
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
 - LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置、doctor 和 IDE context envelope。
-- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness。后续缺口是 LLM reviewer、profiles、Workflow review/verify host API、IDE/ACP 当前文件信号和系统级 improvement loop。
+- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness；Phase 3.8 已补齐 Workflow review/verify host API 与 Goal-aware eval。后续缺口是 LLM reviewer、profiles、repair loop 自动化、IDE/ACP 当前文件信号和系统级 improvement loop。
 - 已有第一层 coding eval harness；仍缺完整任务级自动执行器、dashboard 和失败转 improvement backlog。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
@@ -577,7 +577,6 @@ StopPolicy
 
 - LLM reviewer 和独立 verifier agent。
 - Review profiles：correctness、security、concurrency、frontend、accessibility、tests。
-- Workflow host API：`workflow.review()`。
 - Auto-fix 后 focused re-review。
 
 ### Phase 3.4：Smart Verification / 智能验证选择
@@ -603,8 +602,7 @@ StopPolicy
 - 历史 trace 成功率、耗时和失败模式参与排序。
 - 更细的 test impact / owner map / symbol 级验证选择。
 - GUI 支持批准并运行单条 gated step。
-- Workflow host API：`workflow.verify()`。
-- 验证选择质量进入 coding eval。
+- 验证执行质量、历史失败模式和趋势质量进入更高层 eval。
 
 ### Phase 3.5：Context Retrieval v2 / 推荐上下文
 
@@ -638,8 +636,7 @@ StopPolicy
 后续增强：
 
 - document symbols fallback、IDE selection envelope、ACP 当前文件信号。
-- Workflow host API：`workflow.review()` / `workflow.verify()`。
-- context precision / critical context recall 已进入 Phase 3.7 控制面 eval，后续继续扩展到人工 gold task 与趋势 dashboard。
+- context precision / critical context recall 已进入 Phase 3.7/3.8 控制面 eval，后续继续扩展到人工 gold task 与趋势 dashboard。
 
 ### Phase 3.7：Coding Eval 控制面评测
 
@@ -657,9 +654,28 @@ StopPolicy
 
 后续增强：
 
-- 增加 LSP diagnostics、Workflow host API、Goal final audit / repair blocked fixture。
+- 增加 LSP diagnostics、Goal final audit / repair blocked fixture。
 - 输出可选 JSON/HTML eval 报告和趋势 dashboard。
 - 将人工 gold task 的 task-level 成功率与确定性控制面指标串联成 improvement loop。
+
+### Phase 3.8：Workflow Review/Verify Host API 与 Goal-aware Eval
+
+状态：已完成。最终架构见 [Workflow 与 Execution Mode](../architecture/workflow.md)、[Review Engine 控制平面](../architecture/review-engine.md)、[Smart Verification 控制平面](../architecture/verification-engine.md)、[Coding Eval 控制面评测](../architecture/coding-eval.md)。
+
+目标：让 workflow 不只会执行工具和验证命令，还能在脚本内发起 durable review 与 Smart Verification 计划，并把这些控制面证据稳定挂回 Goal / Context Retrieval。
+
+已完成：
+
+- `workflow.review({ focusPaths?, baseRef?, profiles?, scope? })` host API：idempotent durable op，复用 Review Engine，默认 local diff，继承 workflow `goal_id`。
+- `workflow.verify({ focusPaths?, maxCommands?, scope? })` host API：idempotent durable op，复用 Smart Verification selector，只生成计划，不执行命令。
+- Script Gate / permission preview 把 `workflow.review()` / `workflow.verify()` 归类为 permission-neutral coding control-plane API，静态调用可直接通过。
+- Goal evidence 串联：review 继续写 `review_passed` / `review_completed` / `review_finding`，verification plan 写 `validation_completed`，workflow completion 写 `workflow_completed`。
+- Coding Eval 新增 workflow-bound fixture，覆盖 workflow op、review run、verification plan、Goal evidence 与 Context Retrieval 召回。
+
+边界：
+
+- `workflow.verify()` 不代表验证通过；它只证明“验证计划已生成”。真正执行命令仍由 `workflow.validate()` 或 owner 面板运行 verification step。
+- review / verify 不新增平行数据模型；GUI 仍读取现有 Review / Verification / Goal / Context Retrieval 控制面。
 
 ### Phase 5：Review 与 Verification Engine 后续增强
 
@@ -674,12 +690,13 @@ StopPolicy
 - 支持 review profiles：correctness、security、concurrency、frontend、accessibility、tests。
 - 支持 inline finding、可选 auto-fix、fix 后 re-review。
 - Verification selector 加入历史 trace、test impact、owner map 和 symbol 级影响分析。
+- 把 focused review + focused verification + guarded repair 组合成可自动停机的修复闭环。
 
 产物：
 
 - verifier prompt 与 result schema。
-- `workflow.review()` / `workflow.verify()` host API。
 - focused re-review 与 review catch-rate eval。
+- repair loop policy、停止条件与失败恢复评测。
 
 ### Phase 6：Learning Loop 与技能沉淀
 

@@ -146,12 +146,13 @@ pub fn load_session_environment(
 /// HEAD. The shape intentionally mirrors the chat tool `file_changes`
 /// metadata so the frontend can render it through the same DiffPanel.
 pub fn load_session_git_diff(db: &SessionDB, session_id: &str) -> Result<WorkspaceGitDiff> {
-    db.get_session(session_id)?
+    let meta = db
+        .get_session(session_id)?
         .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
-
-    let scope = WorkspaceScope::for_session(session_id)
-        .map_err(|e| anyhow!("session has no workspace scope: {e}"))?;
-    load_git_diff_for_root(scope.root())
+    let working_dir = super::effective_working_dir_for_meta(&meta).ok_or_else(|| {
+        anyhow!("session has no workspace scope: session has no working directory")
+    })?;
+    load_git_diff_for_root(Path::new(&working_dir))
 }
 
 /// Build a text diff payload for an already-authorized workspace root.

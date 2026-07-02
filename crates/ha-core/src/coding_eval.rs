@@ -23,7 +23,7 @@ use crate::review::{self, RunReviewInput};
 use crate::session::{SessionDB, TaskStatus};
 use crate::verification::{self, PlanVerificationInput};
 use crate::workflow::{
-    CreateWorkflowRunInput, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowRunState,
+    self, CreateWorkflowRunInput, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowRunState,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -120,11 +120,25 @@ pub struct WorkflowOpFixture {
 #[serde(rename_all = "camelCase")]
 pub struct FixtureRuns {
     #[serde(default)]
+    pub workflow: Option<WorkflowScriptEvalRun>,
+    #[serde(default)]
     pub review: Option<ReviewEvalRun>,
     #[serde(default)]
     pub verification: Option<VerificationEvalRun>,
     #[serde(default)]
     pub context: Option<ContextEvalRun>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowScriptEvalRun {
+    pub script_source: String,
+    #[serde(default = "default_workflow_kind")]
+    pub kind: String,
+    #[serde(default = "default_execution_mode")]
+    pub execution_mode: String,
+    #[serde(default)]
+    pub budget: Value,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -156,11 +170,28 @@ pub struct ContextEvalRun {
 #[serde(rename_all = "camelCase")]
 pub struct FixtureChecks {
     #[serde(default)]
+    pub workflow: Option<WorkflowCheck>,
+    #[serde(default)]
     pub context: Option<ContextCheck>,
     #[serde(default)]
     pub review: Option<ReviewCheck>,
     #[serde(default)]
     pub verification: Option<VerificationCheck>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowCheck {
+    #[serde(default)]
+    pub expected_op_types: Vec<String>,
+    #[serde(default)]
+    pub expected_commands: Vec<String>,
+    #[serde(default)]
+    pub min_finding_count: Option<usize>,
+    #[serde(default)]
+    pub expect_review_ok: Option<bool>,
+    #[serde(default)]
+    pub expected_goal_relations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -262,9 +293,11 @@ impl FixtureReport {
 
 struct EvalRunArtifacts {
     repo_root: PathBuf,
+    workflow: Option<workflow::WorkflowRuntimeResult>,
     review: Option<review::ReviewRunSnapshot>,
     verification: Option<verification::VerificationRunSnapshot>,
     context: Option<context_retrieval::ContextRetrievalSnapshot>,
+    goal_evidence_relations: Vec<String>,
 }
 
 pub fn fixtures_dir() -> PathBuf {
@@ -317,10 +350,28 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
 
     let mut artifacts = EvalRunArtifacts {
         repo_root,
+        workflow: None,
         review: None,
         verification: None,
         context: None,
+        goal_evidence_relations: Vec::new(),
     };
+
+    if let Some(run) = &fixture.runs.workflow {
+        let workflow_run = db.create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: run.kind.clone(),
+            execution_mode: run.execution_mode.clone(),
+            script_source: run.script_source.clone(),
+            budget: run.budget.clone(),
+            parent_run_id: None,
+            origin: Some("eval".to_string()),
+            goal_id: goal_id.clone(),
+            worktree_id: None,
+        })?;
+        artifacts.workflow =
+            Some(workflow::run_workflow_script_async(db.clone(), &workflow_run.id).await?);
+    }
 
     if let Some(run) = &fixture.runs.review {
         artifacts.review = Some(
@@ -357,8 +408,8 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
     if let Some(run) = &fixture.runs.context {
         artifacts.context = Some(
             context_retrieval::context_retrieval_for_session(
-                db,
-                session.id,
+                db.clone(),
+                session.id.clone(),
                 context_retrieval::ContextRetrievalInput {
                     query: run.query.clone(),
                     limit: run.limit,
@@ -366,6 +417,16 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
             )
             .await?,
         );
+    }
+
+    if let Some(goal_id) = goal_id.as_deref() {
+        if let Some(snapshot) = db.goal_snapshot(goal_id, 200)? {
+            artifacts.goal_evidence_relations = snapshot
+                .evidence
+                .iter()
+                .map(|item| item.relation.clone())
+                .collect();
+        }
     }
 
     Ok(check_fixture(fixture, &artifacts))
@@ -377,6 +438,9 @@ fn check_fixture(fixture: &CodingEvalFixture, artifacts: &EvalRunArtifacts) -> F
         metrics: EvalMetrics::default(),
         outcomes: Vec::new(),
     };
+    if let Some(check) = &fixture.checks.workflow {
+        check_workflow(&mut report, artifacts, check);
+    }
     if let Some(check) = &fixture.checks.review {
         check_review(&mut report, artifacts, check);
     }
@@ -387,6 +451,110 @@ fn check_fixture(fixture: &CodingEvalFixture, artifacts: &EvalRunArtifacts) -> F
         check_context(&mut report, artifacts, check);
     }
     report
+}
+
+fn check_workflow(report: &mut FixtureReport, artifacts: &EvalRunArtifacts, check: &WorkflowCheck) {
+    let Some(result) = artifacts.workflow.as_ref() else {
+        push_check(
+            report,
+            "workflow.snapshot",
+            false,
+            "workflow run was not requested",
+        );
+        return;
+    };
+    push_check(
+        report,
+        "workflow.completed",
+        result.snapshot.run.state == WorkflowRunState::Completed,
+        format!("state={}", result.snapshot.run.state.as_str()),
+    );
+
+    if !check.expected_op_types.is_empty() {
+        let actual = result
+            .snapshot
+            .ops
+            .iter()
+            .map(|op| op.op_type.clone())
+            .collect::<Vec<_>>();
+        push_check(
+            report,
+            "workflow.op_types",
+            actual == check.expected_op_types,
+            format!("actual={actual:?}, expected={:?}", check.expected_op_types),
+        );
+    }
+
+    if let Some(expect) = check.expect_review_ok {
+        let actual = result
+            .output
+            .as_ref()
+            .and_then(|output| output.get("reviewOk"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        push_check(
+            report,
+            "workflow.review_ok",
+            actual == expect,
+            format!("reviewOk={actual}, expected={expect}"),
+        );
+    }
+
+    if let Some(min) = check.min_finding_count {
+        let actual = result
+            .output
+            .as_ref()
+            .and_then(|output| output.get("findingCount"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as usize;
+        push_check(
+            report,
+            "workflow.min_finding_count",
+            actual >= min,
+            format!("findingCount={actual}, min={min}"),
+        );
+    }
+
+    for expected in &check.expected_commands {
+        let found = result
+            .output
+            .as_ref()
+            .and_then(|output| output.get("commands"))
+            .and_then(Value::as_array)
+            .is_some_and(|commands| {
+                commands
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|command| command == expected)
+            });
+        push_check(
+            report,
+            format!("workflow.command.{expected}"),
+            found,
+            if found {
+                "matched".to_string()
+            } else {
+                format!("output={:?}", result.output)
+            },
+        );
+    }
+
+    for expected in &check.expected_goal_relations {
+        let found = artifacts
+            .goal_evidence_relations
+            .iter()
+            .any(|relation| relation == expected);
+        push_check(
+            report,
+            format!("workflow.goal_relation.{expected}"),
+            found,
+            if found {
+                "matched".to_string()
+            } else {
+                format!("relations={:?}", artifacts.goal_evidence_relations)
+            },
+        );
+    }
 }
 
 fn check_context(report: &mut FixtureReport, artifacts: &EvalRunArtifacts, check: &ContextCheck) {

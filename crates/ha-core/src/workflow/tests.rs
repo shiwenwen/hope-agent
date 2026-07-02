@@ -3,6 +3,8 @@ use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use crate::async_jobs::{BackgroundJob, JobKind, JobOrigin, JobStatus, JobsDB};
+use crate::channel::ChannelDB;
+use crate::goal::CreateGoalInput;
 use crate::permission::SessionMode;
 use crate::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 use crate::session::SessionDB;
@@ -1422,6 +1424,164 @@ export default async function main(workflow) {
         op_types,
         vec!["task.create", "diff", "task.update", "finish"]
     );
+}
+
+#[test]
+fn runtime_review_and_verify_create_durable_control_plane_runs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    ChannelDB::new(db.clone())
+        .migrate()
+        .expect("migrate channel db");
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(workspace.join("crates/ha-eval/src")).expect("create workspace");
+    git(&workspace, &["init"]);
+    git(
+        &workspace,
+        &["config", "user.email", "hope-agent@example.invalid"],
+    );
+    git(&workspace, &["config", "user.name", "Hope Agent Test"]);
+    git(&workspace, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(
+        workspace.join("crates/ha-eval/Cargo.toml"),
+        "[package]\nname = \"ha-eval\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(
+        workspace.join("crates/ha-eval/src/lib.rs"),
+        "pub fn answer() -> i32 {\n    41\n}\n",
+    )
+    .expect("write baseline");
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "initial"]);
+
+    std::fs::write(
+        workspace.join("crates/ha-eval/src/lib.rs"),
+        "pub fn answer() -> i32 {\n    println!(\"debug answer\");\n    42\n}\n",
+    )
+    .expect("modify source");
+
+    let session = db.create_session("ha-main").expect("create session");
+    db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+        .expect("set working dir");
+    let goal = db
+        .create_goal(CreateGoalInput {
+            session_id: session.id.clone(),
+            objective: "Ship answer fix".to_string(),
+            completion_criteria: "Review and verification plan are recorded.".to_string(),
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })
+        .expect("create goal");
+
+    let script = r#"
+export default async function main(workflow) {
+  const budget = { max_runtime_secs: 300, max_ops: 12 };
+  const task = await workflow.task.create({ title: "Review and verify" });
+  const review = await workflow.review({
+    focusPaths: ["crates/ha-eval/src/lib.rs"],
+    label: "focused-review"
+  });
+  const verification = await workflow.verify({
+    focusPaths: ["crates/ha-eval/src/lib.rs"],
+    maxCommands: 2,
+    label: "focused-verify"
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    reviewOk: review.ok,
+    findingCount: review.findingCount,
+    commandCount: verification.commandCount,
+    commands: verification.commands.map((command) => command.command),
+    reviewRunId: review.runId,
+    verificationRunId: verification.runId,
+    budget
+  });
+}
+"#;
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "coding.workflow".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10, "max_ops": 12 }),
+            parent_run_id: None,
+            origin: None,
+            goal_id: Some(goal.goal.id.clone()),
+            worktree_id: None,
+        })
+        .expect("create workflow run");
+
+    let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let output = result.output.as_ref().expect("workflow output");
+    assert_eq!(output.get("reviewOk"), Some(&json!(true)));
+    assert_eq!(
+        output
+            .get("commands")
+            .and_then(Value::as_array)
+            .and_then(|commands| commands.first())
+            .and_then(Value::as_str),
+        Some("cargo check -p ha-eval --locked"),
+        "workflow output: {}",
+        output
+    );
+    assert!(output
+        .get("findingCount")
+        .and_then(Value::as_u64)
+        .is_some_and(|count| count >= 2));
+
+    let op_types: Vec<&str> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| op.op_type.as_str())
+        .collect();
+    assert_eq!(
+        op_types,
+        vec!["task.create", "review", "verify", "task.update", "finish"]
+    );
+
+    let review_run_id = output
+        .get("reviewRunId")
+        .and_then(Value::as_str)
+        .expect("review run id");
+    let findings = db
+        .list_review_findings_for_run(review_run_id)
+        .expect("list review findings");
+    assert!(findings.iter().any(|finding| {
+        finding.title == "Debug output added in production code"
+            && finding.file.ends_with("crates/ha-eval/src/lib.rs")
+    }));
+
+    let verification_run_id = output
+        .get("verificationRunId")
+        .and_then(Value::as_str)
+        .expect("verification run id");
+    let verification = db
+        .verification_run_snapshot(verification_run_id, 20)
+        .expect("load verification snapshot")
+        .expect("verification run exists");
+    assert_eq!(verification.steps.len(), 1);
+    assert_eq!(
+        verification.steps[0].command,
+        "cargo check -p ha-eval --locked"
+    );
+
+    let goal_snapshot = db
+        .goal_snapshot(&goal.goal.id, 100)
+        .expect("goal snapshot")
+        .expect("goal exists");
+    let relations = goal_snapshot
+        .evidence
+        .iter()
+        .map(|item| item.relation.as_str())
+        .collect::<Vec<_>>();
+    assert!(relations.contains(&"review_passed"));
+    assert!(relations.contains(&"validation_completed"));
+    assert!(relations.contains(&"workflow_completed"));
 }
 
 #[test]

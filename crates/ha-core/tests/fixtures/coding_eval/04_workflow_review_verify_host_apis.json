@@ -1,0 +1,87 @@
+{
+  "name": "workflow_review_verify_host_apis",
+  "description": "A workflow.js run should be able to call workflow.review and workflow.verify, persist durable control-plane runs, and surface their evidence in context retrieval.",
+  "repo": {
+    "files": [
+      {
+        "path": "crates/ha-eval/Cargo.toml",
+        "text": "[package]\nname = \"ha-eval\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+      },
+      {
+        "path": "crates/ha-eval/src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    41\n}\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "crates/ha-eval/src/lib.rs",
+        "text": "pub fn answer() -> i32 {\n    println!(\"debug answer\");\n    42\n}\n"
+      }
+    ]
+  },
+  "setup": {
+    "goal": {
+      "objective": "Ship workflow-driven answer fix",
+      "completionCriteria": "Review and verification plan are recorded before final audit."
+    }
+  },
+  "runs": {
+    "workflow": {
+      "kind": "coding.workflow",
+      "executionMode": "guarded",
+      "budget": {
+        "max_script_secs": 10,
+        "max_ops": 12
+      },
+      "scriptSource": "export default async function main(workflow) {\n  const budget = { max_runtime_secs: 300, max_ops: 12 };\n  const task = await workflow.task.create({ title: \"Review and verify\" });\n  const review = await workflow.review({\n    focusPaths: [\"crates/ha-eval/src/lib.rs\"],\n    label: \"focused-review\"\n  });\n  const verification = await workflow.verify({\n    focusPaths: [\"crates/ha-eval/src/lib.rs\"],\n    maxCommands: 2,\n    label: \"focused-verify\"\n  });\n  await workflow.task.update({ task, status: \"completed\" });\n  await workflow.finish({\n    reviewOk: review.ok,\n    findingCount: review.findingCount,\n    commandCount: verification.commandCount,\n    commands: verification.commands.map((command) => command.command),\n    budget\n  });\n}\n"
+    },
+    "context": {
+      "query": "answer",
+      "limit": 24
+    }
+  },
+  "checks": {
+    "workflow": {
+      "expectedOpTypes": [
+        "task.create",
+        "review",
+        "verify",
+        "task.update",
+        "finish"
+      ],
+      "expectReviewOk": true,
+      "minFindingCount": 2,
+      "expectedCommands": [
+        "cargo check -p ha-eval --locked"
+      ],
+      "expectedGoalRelations": [
+        "review_passed",
+        "validation_completed",
+        "workflow_completed"
+      ]
+    },
+    "context": {
+      "minCriticalRecall": 1.0,
+      "minPrecision": 0.2,
+      "maxCandidates": 24,
+      "critical": [
+        {
+          "kind": "review_finding",
+          "titleContains": "Debug output"
+        },
+        {
+          "kind": "verification_step",
+          "titleContains": "Check Rust crate"
+        },
+        {
+          "kind": "goal_evidence",
+          "statusContains": "validation_completed"
+        },
+        {
+          "kind": "workflow_op",
+          "statusContains": "completed"
+        }
+      ]
+    }
+  }
+}

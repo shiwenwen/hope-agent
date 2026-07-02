@@ -666,6 +666,7 @@ impl SessionDB {
                 "stats": snapshot.run.stats,
             }),
         );
+        self.link_verification_goal_evidence(&snapshot)?;
         emit_verification_run("verification:updated", &snapshot.run);
         Ok(snapshot)
     }

@@ -16,9 +16,11 @@ use tokio::runtime::Handle as TokioHandle;
 
 use crate::async_jobs::{BackgroundJob, JobManager, JobOrigin, JobStatus};
 use crate::plan::check_workflow_script_draft;
+use crate::review::{self, ReviewFindingStatus, RunReviewInput};
 use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
 use crate::session::{SessionDB, Task, TaskStatus};
 use crate::tools::{self, ToolExecContext};
+use crate::verification::{self, PlanVerificationInput};
 
 use super::types::{
     UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowOpState, WorkflowRun, WorkflowRunSnapshot,
@@ -471,6 +473,7 @@ fn execute_script(
             db.clone(),
             run.id.clone(),
             run.session_id.clone(),
+            run.goal_id.clone(),
             run.execution_mode.clone(),
             session_context.clone(),
             tokio_handle.clone(),
@@ -659,6 +662,26 @@ fn build_workflow_object<'js>(
         Func::from(MutFn::from(
             move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
                 host_call(&ctx, &validate_host, args, WorkflowRuntimeHost::validate)
+            },
+        )),
+    )?;
+
+    let review_host = host.clone();
+    workflow.set(
+        "review",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &review_host, args, WorkflowRuntimeHost::review)
+            },
+        )),
+    )?;
+
+    let verify_host = host.clone();
+    workflow.set(
+        "verify",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &verify_host, args, WorkflowRuntimeHost::verify)
             },
         )),
     )?;
@@ -896,6 +919,7 @@ struct WorkflowRuntimeHost {
     db: Arc<SessionDB>,
     run_id: String,
     session_id: String,
+    goal_id: Option<String>,
     execution_mode: String,
     session_context: WorkflowSessionContext,
     tokio_handle: TokioHandle,
@@ -919,6 +943,7 @@ impl WorkflowRuntimeHost {
         db: Arc<SessionDB>,
         run_id: String,
         session_id: String,
+        goal_id: Option<String>,
         execution_mode: String,
         session_context: WorkflowSessionContext,
         tokio_handle: TokioHandle,
@@ -927,6 +952,7 @@ impl WorkflowRuntimeHost {
             db,
             run_id,
             session_id,
+            goal_id,
             execution_mode,
             session_context,
             tokio_handle,
@@ -1347,6 +1373,59 @@ impl WorkflowRuntimeHost {
             self.record_guarded_repair_validation(&executed.op_key, &executed.output)?;
         }
         Ok(executed.output)
+    }
+
+    fn review(&mut self, args: Value) -> Result<Value> {
+        let input = compact_input(args.clone());
+        self.execute_op("review", WorkflowEffectClass::Idempotent, input, |host| {
+            host.run_review(args)
+        })
+    }
+
+    fn run_review(&self, args: Value) -> Result<Value> {
+        let input = RunReviewInput {
+            scope: Some(optional_string(&args, "scope").unwrap_or_else(|| "local".to_string())),
+            base_ref: optional_string(&args, "baseRef")
+                .or_else(|| optional_string(&args, "base_ref")),
+            goal_id: workflow_goal_id_from_args(&args, self.goal_id.clone()),
+            profiles: string_array_arg(&args, "profiles")?,
+            focus_paths: focus_paths_from_args(&args)?,
+        };
+        let snapshot = self
+            .tokio_handle
+            .block_on(review::run_review_for_session(
+                self.db.clone(),
+                self.session_id.clone(),
+                input,
+            ))
+            .context("workflow.review failed")?;
+        Ok(workflow_review_output(snapshot))
+    }
+
+    fn verify(&mut self, args: Value) -> Result<Value> {
+        let input = compact_input(args.clone());
+        self.execute_op("verify", WorkflowEffectClass::Idempotent, input, |host| {
+            host.plan_verification(args)
+        })
+    }
+
+    fn plan_verification(&self, args: Value) -> Result<Value> {
+        let input = PlanVerificationInput {
+            scope: Some(optional_string(&args, "scope").unwrap_or_else(|| "local".to_string())),
+            goal_id: workflow_goal_id_from_args(&args, self.goal_id.clone()),
+            max_commands: optional_u64_any(&args, &["maxCommands", "max_commands"])
+                .map(|value| value as usize),
+            focus_paths: focus_paths_from_args(&args)?,
+        };
+        let snapshot = self
+            .tokio_handle
+            .block_on(verification::plan_verification_for_session(
+                self.db.clone(),
+                self.session_id.clone(),
+                input,
+            ))
+            .context("workflow.verify failed")?;
+        Ok(workflow_verify_output(snapshot))
     }
 
     fn recover_validate_child(
@@ -2327,6 +2406,112 @@ fn parse_ask_user_output(raw: String) -> Result<Value> {
         "status": status,
         "message": raw,
     }))
+}
+
+fn workflow_goal_id_from_args(args: &Value, default_goal_id: Option<String>) -> Option<String> {
+    optional_string(args, "goalId")
+        .or_else(|| optional_string(args, "goal_id"))
+        .or(default_goal_id)
+}
+
+fn focus_paths_from_args(args: &Value) -> Result<Vec<String>> {
+    let Some(raw) = args
+        .get("focusPaths")
+        .or_else(|| args.get("focus_paths"))
+        .or_else(|| args.get("files"))
+    else {
+        return Ok(Vec::new());
+    };
+    string_list_from_value(raw, "focusPaths")
+}
+
+fn string_array_arg(args: &Value, key: &str) -> Result<Vec<String>> {
+    let Some(raw) = args.get(key) else {
+        return Ok(Vec::new());
+    };
+    string_list_from_value(raw, key)
+}
+
+fn string_list_from_value(value: &Value, label: &str) -> Result<Vec<String>> {
+    let raw = match value {
+        Value::String(item) => vec![item.clone()],
+        Value::Array(items) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| anyhow!("workflow {label} entries must be strings"))
+            })
+            .collect::<Result<Vec<_>>>()?,
+        _ => {
+            return Err(anyhow!(
+                "workflow {label} must be a string or array of strings"
+            ))
+        }
+    };
+    Ok(raw
+        .into_iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect())
+}
+
+fn workflow_review_output(snapshot: review::ReviewRunSnapshot) -> Value {
+    let blocking = snapshot
+        .findings
+        .iter()
+        .filter(|finding| {
+            finding.status == ReviewFindingStatus::Open && finding.severity.is_blocking()
+        })
+        .count();
+    json!({
+        "kind": "review",
+        "ok": blocking == 0,
+        "runId": snapshot.run.id,
+        "state": snapshot.run.state,
+        "summary": snapshot.run.summary,
+        "findingCount": snapshot.findings.len(),
+        "blockingFindings": blocking,
+        "stats": snapshot.run.stats,
+        "findings": snapshot.findings.iter().map(|finding| {
+            json!({
+                "id": &finding.id,
+                "file": &finding.file,
+                "startLine": finding.start_line,
+                "endLine": finding.end_line,
+                "title": &finding.title,
+                "category": &finding.category,
+                "severity": finding.severity,
+                "verdict": finding.verdict,
+                "status": finding.status,
+            })
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn workflow_verify_output(snapshot: verification::VerificationRunSnapshot) -> Value {
+    json!({
+        "kind": "verification_plan",
+        "ok": snapshot.run.state == verification::VerificationRunState::Planned,
+        "runId": snapshot.run.id,
+        "state": snapshot.run.state,
+        "summary": snapshot.run.summary,
+        "commandCount": snapshot.steps.len(),
+        "stats": snapshot.run.stats,
+        "commands": snapshot.steps.iter().map(|step| {
+            json!({
+                "id": &step.id,
+                "command": &step.command,
+                "cwd": &step.cwd,
+                "title": &step.title,
+                "reason": &step.reason,
+                "category": &step.category,
+                "risk": step.risk,
+                "autoRun": step.auto_run,
+                "state": step.state,
+            })
+        }).collect::<Vec<_>>(),
+    })
 }
 
 #[derive(Debug, Clone)]

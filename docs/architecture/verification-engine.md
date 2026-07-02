@@ -194,6 +194,11 @@ Workspace 面板“验证”区块显示：
 
 - 基于历史 run 成功率和耗时做排序。
 - 根据 changed symbol / test ownership 做更细粒度 test impact。
-- `workflow.verify()` host API：workflow 可请求 selector 生成验证计划。
 - GUI 支持用户批准单条 gated step 后运行。
 - 与 Review Engine 组合成“修复后 focused review + focused verification”自动闭环，并复用现有 `focusPaths` 输入。
+
+已接入 Workflow：
+
+- `workflow.verify({ focusPaths?, maxCommands? })` 复用同一 Smart Verification selector，在 workflow 内创建 durable verification plan。
+- 该 host API 只规划不执行命令；需要实际跑命令时继续使用 `workflow.validate()` 或 owner 面板运行 verification step。
+- workflow 绑定 Goal 时，计划完成会写入 `validation_completed` evidence，表示验证路径已生成，不等同于 `validation_passed`。

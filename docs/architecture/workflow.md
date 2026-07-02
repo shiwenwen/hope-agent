@@ -226,6 +226,8 @@ Primary-only 启动：
 | `workflow.spawnAgent(args)` | non-idempotent | 走 `subagent` 工具，预分配 child run id。 |
 | `workflow.waitAll(handles, options?)` | pure | 走 `subagent` 工具等待子 Agent，汇总结果。 |
 | `workflow.validate({ commands, reason?, label? })` | non-idempotent | 预分配 async exec job，等待终态，返回结构化 validation 结果。 |
+| `workflow.review({ scope?, baseRef?, focusPaths?, profiles?, label? })` | idempotent | 运行 durable Review run，默认 `scope=local`，继承当前 workflow 的 `goal_id`，返回摘要、finding 数和 blocking finding 数。 |
+| `workflow.verify({ scope?, focusPaths?, maxCommands?, label? })` | idempotent | 创建 Smart Verification 计划，默认 `scope=local`，继承当前 workflow 的 `goal_id`；只规划不执行命令。 |
 | `workflow.askUser(args)` | non-idempotent | 复用 `ask_user_question`；无人值守 surface 先按 unattended 策略处理。 |
 | `workflow.diff({ label? })` | pure | 返回 session working dir 的 git diff snapshot。 |
 | `workflow.trace({ label?, payload? })` | pure | 写入 `workflow_events(type='trace')`。 |
@@ -238,6 +240,13 @@ Primary-only 启动：
 - op identity 由 runtime 执行位置派生：`main/op#N(api)`。
 - `workflow.map` 内部 op key 形如 `main/op#N(map)/item#i/op#M(api)`。
 - `label` 只用于展示，不参与 replay 身份。
+
+Review / Verify 语义：
+
+- `workflow.review()` 复用 Review Engine owner API，读取 session workspace 的 local diff，可用 `focusPaths` 收窄范围。它不改代码，不执行命令。
+- `workflow.verify()` 复用 Smart Verification selector，生成 durable verification run/steps，但不运行 step；真正执行命令仍由 `workflow.validate()` 或 owner 面板的 run verification 承担。
+- 两者都属于 permission-neutral coding control-plane host API：Script Gate 允许静态调用，permission preview 不要求额外审批；底层仍受 incognito、session workspace、HTTP path scope 等子系统红线约束。
+- run 绑定 `goal_id` 时，两者默认继承 goal：review 写 `review_passed` / `review_completed` / `review_finding` evidence；verify plan 写 `validation_completed` evidence，表示“验证计划已生成”，不冒充命令已通过。
 
 ## 9. Durable Replay
 
