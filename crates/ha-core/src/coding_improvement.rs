@@ -14,7 +14,7 @@
 //! explicit owner-plane actions.
 
 use anyhow::{anyhow, bail, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -31,6 +31,14 @@ use crate::workflow::{WorkflowOp, WorkflowRun, WorkflowRunState};
 
 const DEFAULT_WINDOW_DAYS: u32 = 30;
 const MAX_WINDOW_DAYS: u32 = 180;
+const DEFAULT_RELEASE_GATE_MIN_PACK_RUNS: usize = 1;
+const DEFAULT_RELEASE_GATE_MIN_STRATEGY_EFFECT_RUNS: usize = 0;
+const DEFAULT_RELEASE_GATE_MIN_PACK_PASS_RATE: f64 = 1.0;
+const DEFAULT_RELEASE_GATE_MAX_REGRESSED_STRATEGY_EFFECTS: usize = 0;
+const DEFAULT_RELEASE_GATE_MAX_MIXED_STRATEGY_EFFECTS: usize = 0;
+const DEFAULT_RELEASE_GATE_MAX_MISSING_TOOL_CALL_RUNS: usize = 0;
+const DEFAULT_RELEASE_GATE_MAX_VALIDATION_VIOLATION_DELTA: isize = 0;
+const DEFAULT_RELEASE_GATE_MAX_SCOPE_CREEP_DELTA: isize = 0;
 const MAX_SCOPE_SESSIONS: usize = 200;
 const MAX_CONTENT_PREVIEW_BYTES: usize = 12 * 1024;
 const MAX_DISTILLATION_SESSIONS: usize = 12;
@@ -571,10 +579,116 @@ pub struct CodingStrategyEffectRunRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingEvalReleaseGateInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_pack_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_strategy_effect_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_pack_pass_rate: Option<f64>,
+    #[serde(default)]
+    pub require_external_model_pack: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_regressed_strategy_effects: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mixed_strategy_effects: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_missing_tool_call_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_validation_violation_delta: Option<isize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_scope_creep_delta: Option<isize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingEvalReleaseGateThresholds {
+    pub min_pack_runs: usize,
+    pub min_strategy_effect_runs: usize,
+    pub min_pack_pass_rate: f64,
+    pub require_external_model_pack: bool,
+    pub max_regressed_strategy_effects: usize,
+    pub max_mixed_strategy_effects: usize,
+    pub max_missing_tool_call_runs: usize,
+    pub max_validation_violation_delta: isize,
+    pub max_scope_creep_delta: isize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingEvalReleaseGateSummary {
+    pub pack_runs: usize,
+    pub passed_pack_runs: usize,
+    pub failed_pack_runs: usize,
+    pub skipped_pack_runs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pack_pass_rate: Option<f64>,
+    pub deterministic_pack_runs: usize,
+    pub mock_provider_pack_runs: usize,
+    pub external_model_pack_runs: usize,
+    pub passed_cases: usize,
+    pub failed_cases: usize,
+    pub skipped_cases: usize,
+    pub total_checks: usize,
+    pub strategy_effect_runs: usize,
+    pub improved_strategy_effects: usize,
+    pub regressed_strategy_effects: usize,
+    pub mixed_strategy_effects: usize,
+    pub inconclusive_strategy_effects: usize,
+    pub validation_violation_delta: isize,
+    pub scope_creep_delta: isize,
+    pub execution_failure_delta: isize,
+    pub missing_tool_call_runs: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingEvalReleaseGateCheck {
+    pub name: String,
+    pub status: String,
+    pub severity: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingEvalReleaseGateReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub window_days: u32,
+    pub since: String,
+    pub thresholds: CodingEvalReleaseGateThresholds,
+    pub summary: CodingEvalReleaseGateSummary,
+    pub checks: Vec<CodingEvalReleaseGateCheck>,
+}
+
 struct ReportScope {
     session_id: String,
     project_id: Option<String>,
     session_ids: Vec<String>,
+    window_days: u32,
+    since: String,
+}
+
+struct ReleaseGateScope {
+    session_id: Option<String>,
+    project_id: Option<String>,
+    scope: String,
     window_days: u32,
     since: String,
 }
@@ -1180,6 +1294,192 @@ impl SessionDB {
             .ok_or_else(|| anyhow!("coding strategy effect run vanished after insert"))
     }
 
+    pub fn evaluate_coding_eval_release_gate(
+        &self,
+        input: CodingEvalReleaseGateInput,
+    ) -> Result<CodingEvalReleaseGateReport> {
+        let thresholds = release_gate_thresholds(&input);
+        let scope = self.resolve_coding_eval_release_gate_scope(&input)?;
+        let summary = self.coding_eval_release_gate_summary(&scope)?;
+        let mut checks = Vec::new();
+
+        push_gate_check(
+            &mut checks,
+            "pack_run_sample",
+            if summary.pack_runs < thresholds.min_pack_runs {
+                "insufficient_data"
+            } else {
+                "passed"
+            },
+            "required",
+            format!("at least {} pack run(s)", thresholds.min_pack_runs),
+            format!("{} pack run(s)", summary.pack_runs),
+            "Gold Task Pack history proves the gate is judging recent product behavior.",
+        );
+
+        if thresholds.require_external_model_pack {
+            push_gate_check(
+                &mut checks,
+                "external_model_baseline",
+                if summary.external_model_pack_runs == 0 {
+                    "insufficient_data"
+                } else {
+                    "passed"
+                },
+                "required",
+                "at least 1 external_model pack run",
+                format!("{} external_model pack run(s)", summary.external_model_pack_runs),
+                "External provider baselines stay separate from fixture and mock-provider baselines.",
+            );
+        }
+
+        push_gate_check(
+            &mut checks,
+            "strategy_effect_sample",
+            if summary.strategy_effect_runs < thresholds.min_strategy_effect_runs {
+                "insufficient_data"
+            } else {
+                "passed"
+            },
+            "required",
+            format!(
+                "at least {} strategy effect run(s)",
+                thresholds.min_strategy_effect_runs
+            ),
+            format!("{} strategy effect run(s)", summary.strategy_effect_runs),
+            "Strategy history is optional by default, but release profiles can require it.",
+        );
+
+        let pack_pass_rate_status = match summary.pack_pass_rate {
+            Some(rate) if rate + f64::EPSILON >= thresholds.min_pack_pass_rate => "passed",
+            Some(_) => "failed",
+            None if thresholds.min_pack_runs == 0 => "passed",
+            None => "insufficient_data",
+        };
+        push_gate_check(
+            &mut checks,
+            "pack_pass_rate",
+            pack_pass_rate_status,
+            "blocking",
+            format!("pack pass rate >= {:.3}", thresholds.min_pack_pass_rate),
+            summary
+                .pack_pass_rate
+                .map(|rate| format!("{rate:.3}"))
+                .unwrap_or_else(|| "no passed/failed pack runs".to_string()),
+            "Pack-level pass rate is the primary release quality signal.",
+        );
+
+        push_gate_check(
+            &mut checks,
+            "strategy_regressions",
+            if summary.regressed_strategy_effects > thresholds.max_regressed_strategy_effects {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "<= {} regressed strategy effect(s)",
+                thresholds.max_regressed_strategy_effects
+            ),
+            format!("{} regressed", summary.regressed_strategy_effects),
+            "A candidate strategy should not make the gold pack worse.",
+        );
+
+        push_gate_check(
+            &mut checks,
+            "mixed_strategy_effects",
+            if summary.mixed_strategy_effects > thresholds.max_mixed_strategy_effects {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "<= {} mixed strategy effect(s)",
+                thresholds.max_mixed_strategy_effects
+            ),
+            format!("{} mixed", summary.mixed_strategy_effects),
+            "Mixed strategy outcomes require explicit review before promotion.",
+        );
+
+        push_gate_check(
+            &mut checks,
+            "missing_tool_calls",
+            if summary.missing_tool_call_runs > thresholds.max_missing_tool_call_runs {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "<= {} agent eval run(s) with no tool calls",
+                thresholds.max_missing_tool_call_runs
+            ),
+            format!(
+                "{} missing tool-call run(s)",
+                summary.missing_tool_call_runs
+            ),
+            "Agent-mode evals must prove the model can drive the tool loop, not only emit text.",
+        );
+
+        push_gate_check(
+            &mut checks,
+            "validation_violation_delta",
+            if summary.validation_violation_delta > thresholds.max_validation_violation_delta {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "<= {} validation violation delta",
+                thresholds.max_validation_violation_delta
+            ),
+            summary.validation_violation_delta.to_string(),
+            "Strategy changes should not increase validation violations.",
+        );
+
+        push_gate_check(
+            &mut checks,
+            "scope_creep_delta",
+            if summary.scope_creep_delta > thresholds.max_scope_creep_delta {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!("<= {} scope creep delta", thresholds.max_scope_creep_delta),
+            summary.scope_creep_delta.to_string(),
+            "Strategy changes should not expand edits beyond the intended task scope.",
+        );
+
+        let has_failed = checks.iter().any(|check| check.status == "failed");
+        let has_insufficient_data = checks
+            .iter()
+            .any(|check| check.status == "insufficient_data");
+        let status = if has_failed {
+            "failed"
+        } else if has_insufficient_data {
+            "insufficient_data"
+        } else {
+            "passed"
+        };
+
+        Ok(CodingEvalReleaseGateReport {
+            generated_at: now_rfc3339(),
+            status: status.to_string(),
+            scope: scope.scope,
+            session_id: scope.session_id,
+            project_id: scope.project_id,
+            window_days: scope.window_days,
+            since: scope.since,
+            thresholds,
+            summary,
+            checks,
+        })
+    }
+
     fn resolve_durable_coding_record_scope(
         &self,
         session_id: Option<String>,
@@ -1207,6 +1507,182 @@ impl SessionDB {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
         Ok((session_id, project_id))
+    }
+
+    fn resolve_coding_eval_release_gate_scope(
+        &self,
+        input: &CodingEvalReleaseGateInput,
+    ) -> Result<ReleaseGateScope> {
+        let window_days = input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS);
+        let since = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::days(window_days as i64))
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let session_id = input
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let explicit_project_id = input
+            .project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let session_project_id = if let Some(session_id) = session_id.as_deref() {
+            let meta = self
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+            if meta.incognito {
+                bail!("Cannot evaluate coding release gate for incognito session {session_id}");
+            }
+            meta.project_id
+        } else {
+            None
+        };
+        let project_id = explicit_project_id.or(session_project_id);
+        let scope = if project_id.is_some() {
+            "project"
+        } else if session_id.is_some() {
+            "session"
+        } else {
+            "global"
+        }
+        .to_string();
+        Ok(ReleaseGateScope {
+            session_id,
+            project_id,
+            scope,
+            window_days,
+            since,
+        })
+    }
+
+    fn coding_eval_release_gate_summary(
+        &self,
+        scope: &ReleaseGateScope,
+    ) -> Result<CodingEvalReleaseGateSummary> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut summary = CodingEvalReleaseGateSummary::default();
+
+        let (pack_where, pack_params) = release_gate_filter(scope, "cepr", "cepr.created_at");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT cepr.status, cepr.baseline_kind, COUNT(*),
+                    COALESCE(SUM(cepr.passed_cases), 0),
+                    COALESCE(SUM(cepr.failed_cases), 0),
+                    COALESCE(SUM(cepr.skipped_cases), 0),
+                    COALESCE(SUM(cepr.total_checks), 0)
+             FROM coding_eval_pack_runs cepr
+             LEFT JOIN sessions s ON s.id = cepr.session_id
+             {}
+             GROUP BY cepr.status, cepr.baseline_kind",
+            pack_where
+        ))?;
+        let pack_rows = stmt.query_map(params_from_iter(pack_params.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                nonnegative_usize(row.get::<_, i64>(2)?),
+                nonnegative_usize(row.get::<_, i64>(3)?),
+                nonnegative_usize(row.get::<_, i64>(4)?),
+                nonnegative_usize(row.get::<_, i64>(5)?),
+                nonnegative_usize(row.get::<_, i64>(6)?),
+            ))
+        })?;
+        for row in pack_rows {
+            let (status, baseline_kind, count, passed_cases, failed_cases, skipped_cases, checks) =
+                row?;
+            summary.pack_runs += count;
+            summary.passed_cases += passed_cases;
+            summary.failed_cases += failed_cases;
+            summary.skipped_cases += skipped_cases;
+            summary.total_checks += checks;
+            match status.as_str() {
+                "passed" => summary.passed_pack_runs += count,
+                "failed" => summary.failed_pack_runs += count,
+                "skipped" => summary.skipped_pack_runs += count,
+                _ => {}
+            }
+            match baseline_kind.as_str() {
+                "external_model" => summary.external_model_pack_runs += count,
+                "mock_provider" => summary.mock_provider_pack_runs += count,
+                _ => summary.deterministic_pack_runs += count,
+            }
+        }
+        summary.pack_pass_rate = ratio(
+            summary.passed_pack_runs,
+            summary.passed_pack_runs + summary.failed_pack_runs,
+        );
+
+        let (strategy_where, strategy_params) =
+            release_gate_filter(scope, "cser", "cser.created_at");
+        let mut stmt = conn.prepare(&format!(
+            "SELECT cser.verdict, COUNT(*),
+                    COALESCE(SUM(cser.validation_violation_delta), 0),
+                    COALESCE(SUM(cser.scope_creep_delta), 0),
+                    COALESCE(SUM(cser.execution_failure_delta), 0)
+             FROM coding_strategy_effect_runs cser
+             LEFT JOIN sessions s ON s.id = cser.session_id
+             {}
+             GROUP BY cser.verdict",
+            strategy_where
+        ))?;
+        let strategy_rows = stmt.query_map(params_from_iter(strategy_params.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                nonnegative_usize(row.get::<_, i64>(1)?),
+                row.get::<_, i64>(2)? as isize,
+                row.get::<_, i64>(3)? as isize,
+                row.get::<_, i64>(4)? as isize,
+            ))
+        })?;
+        for row in strategy_rows {
+            let (verdict, count, validation_delta, scope_delta, execution_delta) = row?;
+            summary.strategy_effect_runs += count;
+            summary.validation_violation_delta += validation_delta;
+            summary.scope_creep_delta += scope_delta;
+            summary.execution_failure_delta += execution_delta;
+            match verdict.as_str() {
+                "improved" => summary.improved_strategy_effects += count,
+                "regressed" => summary.regressed_strategy_effects += count,
+                "mixed" => summary.mixed_strategy_effects += count,
+                _ => summary.inconclusive_strategy_effects += count,
+            }
+        }
+
+        let (eval_where, eval_params) = release_gate_filter(scope, "cer", "cer.created_at");
+        summary.missing_tool_call_runs = conn.query_row(
+            &format!(
+                "SELECT COUNT(*)
+                 FROM coding_eval_runs cer
+                 LEFT JOIN sessions s ON s.id = cer.session_id
+                 {}
+                   AND cer.source_type = 'coding_task_eval'
+                   AND COALESCE(
+                        CAST(json_extract(cer.metrics_json, '$.metrics.executionMode') AS TEXT),
+                        CAST(json_extract(cer.metrics_json, '$.metrics.execution_mode') AS TEXT),
+                        CAST(json_extract(cer.metrics_json, '$.executionMode') AS TEXT),
+                        CAST(json_extract(cer.metrics_json, '$.execution_mode') AS TEXT),
+                        ''
+                   ) = 'agent'
+                   AND COALESCE(
+                        json_array_length(json_extract(cer.metrics_json, '$.metrics.agentExecution.toolCalls')),
+                        json_array_length(json_extract(cer.metrics_json, '$.metrics.agent_execution.tool_calls')),
+                        json_array_length(json_extract(cer.metrics_json, '$.metrics.execution_tool_calls')),
+                        json_array_length(json_extract(cer.metrics_json, '$.execution_tool_calls')),
+                        0
+                   ) = 0",
+                eval_where
+            ),
+            params_from_iter(eval_params.iter()),
+            |row| Ok(nonnegative_usize(row.get::<_, i64>(0)?)),
+        )?;
+
+        Ok(summary)
     }
 
     fn resolve_coding_report_scope(
@@ -3467,12 +3943,90 @@ fn normalize_baseline_kind(value: Option<&str>) -> String {
     }
 }
 
+fn release_gate_thresholds(input: &CodingEvalReleaseGateInput) -> CodingEvalReleaseGateThresholds {
+    CodingEvalReleaseGateThresholds {
+        min_pack_runs: input
+            .min_pack_runs
+            .unwrap_or(DEFAULT_RELEASE_GATE_MIN_PACK_RUNS),
+        min_strategy_effect_runs: input
+            .min_strategy_effect_runs
+            .unwrap_or(DEFAULT_RELEASE_GATE_MIN_STRATEGY_EFFECT_RUNS),
+        min_pack_pass_rate: input
+            .min_pack_pass_rate
+            .unwrap_or(DEFAULT_RELEASE_GATE_MIN_PACK_PASS_RATE)
+            .clamp(0.0, 1.0),
+        require_external_model_pack: input.require_external_model_pack,
+        max_regressed_strategy_effects: input
+            .max_regressed_strategy_effects
+            .unwrap_or(DEFAULT_RELEASE_GATE_MAX_REGRESSED_STRATEGY_EFFECTS),
+        max_mixed_strategy_effects: input
+            .max_mixed_strategy_effects
+            .unwrap_or(DEFAULT_RELEASE_GATE_MAX_MIXED_STRATEGY_EFFECTS),
+        max_missing_tool_call_runs: input
+            .max_missing_tool_call_runs
+            .unwrap_or(DEFAULT_RELEASE_GATE_MAX_MISSING_TOOL_CALL_RUNS),
+        max_validation_violation_delta: input
+            .max_validation_violation_delta
+            .unwrap_or(DEFAULT_RELEASE_GATE_MAX_VALIDATION_VIOLATION_DELTA),
+        max_scope_creep_delta: input
+            .max_scope_creep_delta
+            .unwrap_or(DEFAULT_RELEASE_GATE_MAX_SCOPE_CREEP_DELTA),
+    }
+}
+
+fn push_gate_check(
+    checks: &mut Vec<CodingEvalReleaseGateCheck>,
+    name: &str,
+    status: &str,
+    severity: &str,
+    expected: impl Into<String>,
+    actual: impl Into<String>,
+    detail: impl Into<String>,
+) {
+    checks.push(CodingEvalReleaseGateCheck {
+        name: name.to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        expected: expected.into(),
+        actual: actual.into(),
+        detail: detail.into(),
+    });
+}
+
+fn release_gate_filter(
+    scope: &ReleaseGateScope,
+    fact_alias: &str,
+    time_expr: &str,
+) -> (String, Vec<String>) {
+    let mut clauses = vec![
+        format!("{time_expr} >= ?"),
+        format!(
+            "({fact_alias}.session_id IS NULL OR (s.is_cron = 0 AND s.parent_session_id IS NULL AND s.incognito = 0))"
+        ),
+    ];
+    let mut params = vec![scope.since.clone()];
+    if let Some(project_id) = scope.project_id.as_ref() {
+        clauses.push(format!(
+            "COALESCE({fact_alias}.project_id, s.project_id) = ?"
+        ));
+        params.push(project_id.clone());
+    } else if let Some(session_id) = scope.session_id.as_ref() {
+        clauses.push(format!("{fact_alias}.session_id = ?"));
+        params.push(session_id.clone());
+    }
+    (format!("WHERE {}", clauses.join(" AND ")), params)
+}
+
 fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
     if denominator == 0 {
         None
     } else {
         Some((numerator as f64 / denominator as f64 * 1000.0).round() / 1000.0)
     }
+}
+
+fn nonnegative_usize(value: i64) -> usize {
+    value.max(0) as usize
 }
 
 fn stable_json(value: &Value) -> Result<String> {
@@ -3879,6 +4433,202 @@ mod tests {
         assert_eq!(report.eval.passed, 1);
         assert_eq!(report.eval.failed, 1);
         assert_eq!(report.eval.success_rate, Some(0.5));
+    }
+
+    #[test]
+    fn release_gate_passes_clean_pack_and_strategy_history() {
+        let (_dir, db) = test_db();
+        let project_id = "proj-release-gate-pass";
+        let session = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some(project_id),
+                None,
+            )
+            .unwrap();
+        let now = now_rfc3339();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO coding_eval_pack_runs (
+                    id, session_id, project_id, pack_id, source_doc, label,
+                    baseline_kind, status, selected_cases, automated_cases,
+                    skipped_cases, passed_cases, failed_cases, total_checks,
+                    report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    'cepr_release_pass', ?1, ?2, 'phase5-gold-task-pack',
+                    'docs/roadmap/coding-eval.md', 'clean candidate',
+                    'deterministic_mock', 'passed', 2, 2, 0, 2, 0, 8,
+                    '{}', 'gold_task_pack', 'phase5-gold-task-pack', ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_strategy_effect_runs (
+                    id, session_id, project_id, strategy_type, baseline_label,
+                    candidate_label, baseline_pack_run_id, candidate_pack_run_id,
+                    verdict, compared_cases, pass_rate_delta, average_score_delta,
+                    context_recall_delta, validation_violation_delta, scope_creep_delta,
+                    execution_failure_delta, report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    'cser_release_pass', ?1, ?2, 'workflow_policy', 'before',
+                    'after', NULL, 'cepr_release_pass', 'improved', 2, 0.5, 0.25,
+                    0.1, 0, 0, 0, '{}', 'strategy_effect', 'workflow_policy', ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
+        }
+
+        let report = db
+            .evaluate_coding_eval_release_gate(CodingEvalReleaseGateInput {
+                session_id: Some(session.id.clone()),
+                min_strategy_effect_runs: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "passed");
+        assert_eq!(report.scope, "project");
+        assert_eq!(report.project_id.as_deref(), Some(project_id));
+        assert_eq!(report.summary.pack_runs, 1);
+        assert_eq!(report.summary.strategy_effect_runs, 1);
+        assert_eq!(report.summary.missing_tool_call_runs, 0);
+        assert!(report.checks.iter().all(|check| check.status == "passed"));
+    }
+
+    #[test]
+    fn release_gate_fails_on_strategy_regression_and_missing_tool_call() {
+        let (_dir, db) = test_db();
+        let project_id = "proj-release-gate-fail";
+        let session = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some(project_id),
+                None,
+            )
+            .unwrap();
+        let now = now_rfc3339();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO coding_eval_pack_runs (
+                    id, session_id, project_id, pack_id, source_doc, label,
+                    baseline_kind, status, selected_cases, automated_cases,
+                    skipped_cases, passed_cases, failed_cases, total_checks,
+                    report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    'cepr_release_regressed', ?1, ?2, 'phase5-gold-task-pack',
+                    'docs/roadmap/coding-eval.md', 'regressed candidate',
+                    'mock_provider', 'passed', 2, 2, 0, 2, 0, 8,
+                    '{}', 'gold_task_pack', 'phase5-gold-task-pack', ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_strategy_effect_runs (
+                    id, session_id, project_id, strategy_type, baseline_label,
+                    candidate_label, baseline_pack_run_id, candidate_pack_run_id,
+                    verdict, compared_cases, pass_rate_delta, average_score_delta,
+                    context_recall_delta, validation_violation_delta, scope_creep_delta,
+                    execution_failure_delta, report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    'cser_release_regressed', ?1, ?2, 'workflow_policy', 'before',
+                    'after', NULL, 'cepr_release_regressed', 'regressed', 2, -0.5,
+                    -0.25, -0.1, 1, 2, 1, '{}', 'strategy_effect',
+                    'workflow_policy', ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_eval_runs (
+                    id, session_id, project_id, suite, name, status,
+                    metrics_json, source_type, source_id, created_at
+                 ) VALUES (
+                    'cer_release_missing_tool', ?1, ?2, 'task_level_coding_eval',
+                    'agent tool calls', 'failed', ?3, 'coding_task_eval',
+                    'agent-tool-calls', ?4
+                 )",
+                params![
+                    session.id,
+                    project_id,
+                    json!({"metrics":{"executionMode":"agent","agentExecution":{"toolCalls":[]}}})
+                        .to_string(),
+                    now
+                ],
+            )
+            .unwrap();
+        }
+
+        let report = db
+            .evaluate_coding_eval_release_gate(CodingEvalReleaseGateInput {
+                session_id: Some(session.id),
+                min_strategy_effect_runs: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "failed");
+        assert_eq!(report.summary.regressed_strategy_effects, 1);
+        assert_eq!(report.summary.validation_violation_delta, 1);
+        assert_eq!(report.summary.scope_creep_delta, 2);
+        assert_eq!(report.summary.missing_tool_call_runs, 1);
+        for name in [
+            "strategy_regressions",
+            "missing_tool_calls",
+            "validation_violation_delta",
+            "scope_creep_delta",
+        ] {
+            assert!(report
+                .checks
+                .iter()
+                .any(|check| check.name == name && check.status == "failed"));
+        }
+    }
+
+    #[test]
+    fn release_gate_requires_external_model_when_configured() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let now = now_rfc3339();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO coding_eval_pack_runs (
+                    id, session_id, project_id, pack_id, source_doc, label,
+                    baseline_kind, status, selected_cases, automated_cases,
+                    skipped_cases, passed_cases, failed_cases, total_checks,
+                    report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    'cepr_release_deterministic_only', ?1, NULL,
+                    'phase5-gold-task-pack', 'docs/roadmap/coding-eval.md',
+                    'deterministic only', 'deterministic_mock', 'passed',
+                    1, 1, 0, 1, 0, 4, '{}', 'gold_task_pack',
+                    'phase5-gold-task-pack', ?2
+                 )",
+                params![session.id, now],
+            )
+            .unwrap();
+        }
+
+        let report = db
+            .evaluate_coding_eval_release_gate(CodingEvalReleaseGateInput {
+                session_id: Some(session.id),
+                require_external_model_pack: true,
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "insufficient_data");
+        assert_eq!(report.summary.external_model_pack_runs, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.name == "external_model_baseline" && check.status == "insufficient_data"
+        }));
     }
 
     #[test]

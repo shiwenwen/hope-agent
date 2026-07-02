@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 5.7 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+> 状态：Phase 5.8 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、Release Gate、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
 
 ## 目标
 
@@ -17,6 +17,7 @@ Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审
 - 用户可显式触发 transcript distillation：扫描真实 session transcript、tool error、workflow op shape 和 failure taxonomy，生成更高质量的 workflow / skill / guidance proposal。
 - 已应用草稿可显式 promotion：eval candidate 迁入正式 fixture 路径，workflow/guidance 写入项目 promoted docs 并由 AGENTS.md managed include 引入，skill draft 激活为 managed active skill。
 - Dashboard Learning Tab 提供全局 / 项目级 Coding Improvement 聚合：workflow completion、eval success、pack pass rate、strategy verdict、tool-call failure mode、validation / scope creep delta、review blocker、verification failure、proposal status、retro recommendation、top failure mode 与最近 retro。
+- Release Gate 把持久化 pack / strategy / tool-call history 变成可配置的发布质量阈值，输出 `passed` / `failed` / `insufficient_data` 三态结论。
 
 ## 数据模型
 
@@ -231,6 +232,7 @@ Phase 4.3 新增只读全局聚合 API：
 | Command | HTTP | 说明 |
 | --- | --- | --- |
 | `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | 按 DashboardFilter 聚合 Coding Improvement 全局 / 项目信号。 |
+| `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | 根据持久化 pack / strategy / tool-call history 计算发布质量门禁。 |
 
 输入为 `{ filter, limit? }`，其中 `filter` 使用 Dashboard 既有时间 / agent / provider / model 过滤。返回 `CodingImprovementDashboard`：
 
@@ -269,8 +271,39 @@ Dashboard Learning Tab 新增「Coding improvement」区块：
 - Improvement timeline 展示近日日级信号密度，包含 pack pass/fail、strategy verdict 与 validation/scope delta。
 - Latest strategy effects 展示最近策略对比 verdict 与关键 delta。
 - Latest retros 展示最近 terminal workflow retro 和首条 recommendation。
+- Release Gate 卡片展示当前窗口的 `passed` / `failed` / `insufficient_data`、pack pass rate、strategy regression、missing tool-call 和未通过 checks。
 
 Workspace 是当前 session/project 的可操作质量面板；Dashboard 是全局 / 项目级只读学习视图。两者不复用任意 session 伪装 scope，避免把 session-local report 误读成全局事实。
+
+## Release Gate
+
+Phase 5.8 新增 `SessionDB::evaluate_coding_eval_release_gate(input)`，并通过 Tauri command 与 HTTP owner API 暴露。它只读历史记录，不调用 LLM、不执行项目命令、不生成 proposal、不回写 DB。
+
+数据来源：
+
+- `coding_eval_pack_runs`：pack run 数、pack pass rate、case/check 汇总、`baseline_kind` 分布。
+- `coding_strategy_effect_runs`：strategy verdict 数量、validation / scope creep / execution failure delta。
+- `coding_eval_runs(source_type='coding_task_eval')`：agent 模式下 `toolCalls=[]` 的 task eval 次数。
+
+默认阈值偏保守：
+
+- `minPackRuns=1`
+- `minStrategyEffectRuns=0`
+- `minPackPassRate=1.0`
+- `requireExternalModelPack=false`
+- `maxRegressedStrategyEffects=0`
+- `maxMixedStrategyEffects=0`
+- `maxMissingToolCallRuns=0`
+- `maxValidationViolationDelta=0`
+- `maxScopeCreepDelta=0`
+
+返回 `CodingEvalReleaseGateReport`：
+
+- `status="passed"`：样本充足且所有阈值通过。
+- `status="failed"`：已有证据表明质量不达标，例如 pack pass rate 过低、strategy regressed、tool-call 缺失、validation / scope creep 增量超限。
+- `status="insufficient_data"`：缺少要求的 pack / strategy 样本，或显式要求外部真实模型基线但窗口内没有 `baseline_kind='external_model'`。
+
+scope 规则沿用 Dashboard 的 durable 数据边界：无痕、cron、subagent session 不进入发布质量判断；传入 session 且该 session 绑定 project 时自动按 project 聚合；无 scope 时可做全局 gate。Release gate 不把 deterministic / mock provider 结果冒充外部真实模型结果；需要真实 provider 基线时必须设置 `requireExternalModelPack=true` 并由 pack run 显式记录 `baselineKind="external_model"`。
 
 ## Eval
 
@@ -301,6 +334,8 @@ Phase 5.3 为同一 harness 增加 Gold Task Pack v1；Phase 5.5 已把首批 20
 Phase 5.4 为 pack report 增加策略效果评估：两份 `GoldTaskPackReport` 可通过纯函数 owner API 生成 `StrategyEffectReport`，按共同 case 比较 pass rate、task score、context recall、validation violations、scope creep 和 execution failures。Phase 5.7 保留纯函数无副作用语义，同时让 Tauri / HTTP owner API 在 `recordRun=true` 时写入 `coding_strategy_effect_runs`，把 review-time 质量闸升级为可审计趋势。
 
 Phase 5.6 为 agent execution runner 增加稳定 mock tool-call 基线与 `toolCalls` 指标。mock Responses provider 会驱动真实 `write` 工具修改临时 repo，再由 task scorer 判断候选 diff 是否完成任务；`FixtureReport.metrics.execution_tool_calls` 与 task report metrics 让 Improvement Loop 可以区分“模型调用了错误工具 / 没有调用工具”和“工具调用成功但 diff 质量不达标”。Phase 5.7 Dashboard 会把 agent 模式下缺失 tool call 的 run 聚合为 `missing_tool_call` failure mode。
+
+Phase 5.8 为持久化 pack / strategy history 增加 release gate。核心单测覆盖：干净 pack + strategy history 通过；strategy regression / validation / scope creep / missing tool-call 触发失败；要求外部真实模型但只有 deterministic / mock history 时返回 `insufficient_data`。
 
 ## 红线
 

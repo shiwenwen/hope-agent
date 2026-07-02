@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import type { CodingEvalReleaseGateReport } from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter } from "../types"
 
 interface LearningOverview {
@@ -50,9 +51,17 @@ interface RecallStats {
 }
 
 const WINDOW_OPTIONS = [7, 14, 30, 60, 90]
+const DAY_MS = 24 * 60 * 60 * 1000
 
 interface LearningTabProps {
   filter: DashboardFilter
+}
+
+function releaseGateWindowDays(filter: DashboardFilter, fallbackDays: number): number {
+  if (!filter.startDate) return fallbackDays
+  const start = Date.parse(filter.startDate)
+  if (!Number.isFinite(start)) return fallbackDays
+  return Math.max(1, Math.min(180, Math.ceil((Date.now() - start) / DAY_MS)))
 }
 
 export default function LearningTab({ filter }: LearningTabProps) {
@@ -64,11 +73,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [topSkills, setTopSkills] = useState<SkillUsage[]>([])
   const [recall, setRecall] = useState<RecallStats | null>(null)
   const [coding, setCoding] = useState<CodingImprovementDashboard | null>(null)
+  const [releaseGate, setReleaseGate] = useState<CodingEvalReleaseGateReport | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const [ov, tl, ts, rs, ci] = await Promise.all([
+      const [ov, tl, ts, rs, ci, rg] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
           windowDays,
         }),
@@ -86,12 +96,18 @@ export default function LearningTab({ filter }: LearningTabProps) {
           filter,
           limit: 8,
         }),
+        getTransport().call<CodingEvalReleaseGateReport>("evaluate_coding_eval_release_gate", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+          },
+        }),
       ])
       setOverview(ov)
       setTimeline(tl ?? [])
       setTopSkills(ts ?? [])
       setRecall(rs)
       setCoding(ci)
+      setReleaseGate(rg)
     } catch (e) {
       logger.error("dashboard", "LearningTab::load", "Failed to load learning data", e)
     } finally {
@@ -140,7 +156,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         </div>
       </div>
 
-      <CodingImprovementSection coding={coding} />
+      <CodingImprovementSection coding={coding} releaseGate={releaseGate} />
 
       {/* Overview cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -297,7 +313,13 @@ function OverviewCard({
   )
 }
 
-function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboard | null }) {
+function CodingImprovementSection({
+  coding,
+  releaseGate,
+}: {
+  coding: CodingImprovementDashboard | null
+  releaseGate: CodingEvalReleaseGateReport | null
+}) {
   const { t } = useTranslation()
   const overview = coding?.overview
   const recentTimeline = coding?.timeline.slice(-10).reverse() ?? []
@@ -407,6 +429,8 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
           })}
         />
       </div>
+
+      <ReleaseGatePanel report={releaseGate} />
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr] gap-3">
         <div className="border border-border/60 rounded-lg p-4 min-w-0">
@@ -616,6 +640,77 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
   )
 }
 
+function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | null }) {
+  const { t } = useTranslation()
+  const attentionChecks =
+    report?.checks.filter((check) => check.status !== "passed").slice(0, 4) ?? []
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t("dashboard.learning.releaseGate", { defaultValue: "Release gate" })}
+        </h4>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
+          {report?.status ?? "loading"}
+        </span>
+      </div>
+      {report ? (
+        <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(0,1fr)] gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            <MetricPill label="PK" value={formatPct(report.summary.packPassRate)} />
+            <MetricPill
+              label="ST"
+              value={report.summary.regressedStrategyEffects}
+              tone={report.summary.regressedStrategyEffects > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="TC"
+              value={report.summary.missingToolCallRuns}
+              tone={report.summary.missingToolCallRuns > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="EX"
+              value={report.summary.externalModelPackRuns}
+              tone={
+                report.thresholds.requireExternalModelPack &&
+                report.summary.externalModelPackRuns === 0
+                  ? "warn"
+                  : "muted"
+              }
+            />
+          </div>
+          {attentionChecks.length ? (
+            <div className="flex flex-wrap gap-1.5 min-w-0 xl:justify-end">
+              {attentionChecks.map((check) => (
+                <span
+                  key={check.name}
+                  className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
+                  title={`${check.expected} · ${check.actual}`}
+                >
+                  {check.name}: {check.actual}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground xl:text-right">
+              {t("dashboard.learning.releaseGateClean", { defaultValue: "All checks passed" })}
+            </span>
+          )}
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.releaseGateLoading", {
+            defaultValue: "Loading release gate",
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
 function InsightCard({
   icon: Icon,
   label,
@@ -729,6 +824,25 @@ function inverseDeltaTone(value: number): "muted" | "warn" | "accent" {
   if (value < 0) return "accent"
   if (value > 0) return "warn"
   return "muted"
+}
+
+function releaseGateTone(status?: string | null): string {
+  switch (status) {
+    case "passed":
+      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    case "failed":
+      return "bg-red-500/10 text-red-600 dark:text-red-400"
+    case "insufficient_data":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    default:
+      return "bg-secondary/40 text-muted-foreground"
+  }
+}
+
+function releaseGateCheckTone(status: string): string {
+  return status === "failed"
+    ? "bg-red-500/10 text-red-600 dark:text-red-400"
+    : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
 }
 
 function severityDot(severity: string): string {

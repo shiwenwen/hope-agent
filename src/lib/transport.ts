@@ -1286,6 +1286,79 @@ export interface CodingEvalStrategyCaseComparison {
   notes: string[];
 }
 
+export interface CodingEvalReleaseGateInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  windowDays?: number | null;
+  minPackRuns?: number | null;
+  minStrategyEffectRuns?: number | null;
+  minPackPassRate?: number | null;
+  requireExternalModelPack?: boolean;
+  maxRegressedStrategyEffects?: number | null;
+  maxMixedStrategyEffects?: number | null;
+  maxMissingToolCallRuns?: number | null;
+  maxValidationViolationDelta?: number | null;
+  maxScopeCreepDelta?: number | null;
+}
+
+export interface CodingEvalReleaseGateThresholds {
+  minPackRuns: number;
+  minStrategyEffectRuns: number;
+  minPackPassRate: number;
+  requireExternalModelPack: boolean;
+  maxRegressedStrategyEffects: number;
+  maxMixedStrategyEffects: number;
+  maxMissingToolCallRuns: number;
+  maxValidationViolationDelta: number;
+  maxScopeCreepDelta: number;
+}
+
+export interface CodingEvalReleaseGateSummary {
+  packRuns: number;
+  passedPackRuns: number;
+  failedPackRuns: number;
+  skippedPackRuns: number;
+  packPassRate?: number | null;
+  deterministicPackRuns: number;
+  mockProviderPackRuns: number;
+  externalModelPackRuns: number;
+  passedCases: number;
+  failedCases: number;
+  skippedCases: number;
+  totalChecks: number;
+  strategyEffectRuns: number;
+  improvedStrategyEffects: number;
+  regressedStrategyEffects: number;
+  mixedStrategyEffects: number;
+  inconclusiveStrategyEffects: number;
+  validationViolationDelta: number;
+  scopeCreepDelta: number;
+  executionFailureDelta: number;
+  missingToolCallRuns: number;
+}
+
+export interface CodingEvalReleaseGateCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface CodingEvalReleaseGateReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  windowDays: number;
+  since: string;
+  thresholds: CodingEvalReleaseGateThresholds;
+  summary: CodingEvalReleaseGateSummary;
+  checks: CodingEvalReleaseGateCheck[];
+}
+
 export interface CodingEvalFixture {
   name: string;
   description?: string;

@@ -846,6 +846,7 @@ pub fn run() {
             commands::coding_improvement::preview_coding_improvement_proposal_promotion,
             commands::coding_improvement::promote_coding_improvement_proposal,
             commands::coding_improvement::record_coding_eval_run,
+            commands::coding_improvement::evaluate_coding_eval_release_gate,
             // Managed worktrees (Phase 3 durable isolation / handoff)
             commands::worktree::list_managed_worktrees,
             commands::worktree::create_managed_worktree,

@@ -805,9 +805,12 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `dashboard_top_skills` | `POST /api/dashboard/learning/top-skills` | ✅ |
 | `dashboard_recall_stats` | `POST /api/dashboard/learning/recall-stats` | ✅ |
 | `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | ✅ |
+| `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | ✅ |
 | `dashboard_plan_stats` | `POST /api/dashboard/plan-stats` | ✅ |
 
 `dashboard_coding_improvement` 是只读全局学习聚合，按 DashboardFilter 返回 workflow / case eval / pack eval / strategy effect / tool-call failure / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、tool call failures、proposal status、latest strategy effects 和 latest retros；不生成 proposal、不 apply、不 promotion。
+
+`evaluate_coding_eval_release_gate` 接收 `{ "input": { "sessionId": "...", "projectId": "...", "windowDays": 30, "minPackRuns": 1, "minStrategyEffectRuns": 0, "minPackPassRate": 1.0, "requireExternalModelPack": false } }`，返回 `CodingEvalReleaseGateReport`。报告包含 `status = passed | failed | insufficient_data`、归一化 `thresholds`、pack / strategy / tool-call `summary` 和逐条 `checks`。它只读 `coding_eval_pack_runs`、`coding_strategy_effect_runs`、`coding_eval_runs`，不跑模型、不执行项目命令、不写 DB。
 
 ### Async / Deferred tools + Memory selection
 
