@@ -516,6 +516,100 @@ export type RecapProgress =
   | { phase: "done"; reportId: string }
   | { phase: "failed"; reportId: string; message: string }
 
+// ── Coding Improvement Learning Dashboard ──────────────────────
+
+export interface CodingImprovementDashboardOverview {
+  totalSessions: number
+  workflowRuns: number
+  completedWorkflows: number
+  blockedWorkflows: number
+  failedWorkflows: number
+  workflowCompletionRate: number | null
+  evalRuns: number
+  passedEvalRuns: number
+  failedEvalRuns: number
+  evalSuccessRate: number | null
+  openReviewBlockers: number
+  failedVerificationSteps: number
+  retros: number
+  retroRecommendations: number
+  proposals: number
+  draftProposals: number
+  appliedProposals: number
+  promotedProposals: number
+  promotionFailures: number
+  distillationCandidates: number
+}
+
+export interface CodingImprovementTimelinePoint {
+  date: string
+  completedWorkflows: number
+  blockedWorkflows: number
+  failedWorkflows: number
+  evalPassed: number
+  evalFailed: number
+  proposalsCreated: number
+  proposalsApplied: number
+  proposalsPromoted: number
+  retroRecommendations: number
+}
+
+export interface CodingImprovementProjectBucket {
+  projectId: string | null
+  projectName: string | null
+  sessions: number
+  workflowRuns: number
+  workflowCompletionRate: number | null
+  evalRuns: number
+  evalSuccessRate: number | null
+  openReviewBlockers: number
+  retroRecommendations: number
+  draftProposals: number
+  appliedProposals: number
+  promotedProposals: number
+  promotionFailures: number
+  distillationCandidates: number
+}
+
+export interface CodingImprovementFailureBucket {
+  category: string
+  label: string
+  severity: string
+  count: number
+}
+
+export interface CodingImprovementStatusBucket {
+  status: string
+  count: number
+}
+
+export interface CodingRetroRecommendation {
+  kind: string
+  title: string
+  rationale: string
+}
+
+export interface CodingImprovementRetroItem {
+  id: string
+  sessionId: string
+  projectId: string | null
+  workflowRunId: string
+  runState: string
+  summary: string
+  recommendations: CodingRetroRecommendation[]
+  updatedAt: string
+}
+
+export interface CodingImprovementDashboard {
+  generatedAt: string
+  overview: CodingImprovementDashboardOverview
+  timeline: CodingImprovementTimelinePoint[]
+  byProject: CodingImprovementProjectBucket[]
+  topFailures: CodingImprovementFailureBucket[]
+  proposalStatuses: CodingImprovementStatusBucket[]
+  latestRetros: CodingImprovementRetroItem[]
+}
+
 // ── Local Models Tab ────────────────────────────────────────────
 
 export interface DashboardLocalModelUsageRow {

@@ -764,6 +764,7 @@ pub fn run() {
             commands::dashboard::dashboard_learning_timeline,
             commands::dashboard::dashboard_top_skills,
             commands::dashboard::dashboard_recall_stats,
+            commands::dashboard::dashboard_coding_improvement,
             commands::dashboard::dashboard_plan_stats,
             commands::dashboard::dashboard_local_model_usage,
             // Recap (deep analysis reports)
@@ -829,10 +830,11 @@ pub fn run() {
             commands::verification::get_verification_run,
             commands::verification::plan_smart_verification,
             commands::verification::run_smart_verification,
-            // Coding quality trend, improvement proposals, and promotion loop (Phase 3.11-4.2)
+            // Coding quality trend, improvement proposals, distillation, and promotion loop (Phase 3.11-4.4)
             commands::coding_improvement::get_coding_trend_report,
             commands::coding_improvement::list_coding_improvement_proposals,
             commands::coding_improvement::generate_coding_improvement_proposals,
+            commands::coding_improvement::distill_coding_improvement_proposals,
             commands::coding_improvement::update_coding_improvement_proposal_status,
             commands::coding_improvement::preview_coding_improvement_proposal_action,
             commands::coding_improvement::apply_coding_improvement_proposal,

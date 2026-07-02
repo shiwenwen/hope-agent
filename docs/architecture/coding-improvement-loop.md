@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 4.2 已实现。本文是 `ha-core::coding_improvement`、Coding Trend Report、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、owner API 与 Workspace 质量趋势区块的单一技术事实源。
+> 状态：Phase 4.4 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
 
 ## 目标
 
@@ -14,7 +14,9 @@ Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审
 - 从失败 run 生成 eval candidate proposal，从成功 run 生成 workflow / guidance / skill proposal。
 - proposal 默认只生成草案；用户明确应用后，也只落 reviewable draft artifact 或 managed draft skill，不直接修改项目规则、AGENTS、用户记忆或生产 fixture。
 - workflow 进入终态时自动生成 lightweight retro；retro recommendation 也可进入 proposal queue。
+- 用户可显式触发 transcript distillation：扫描真实 session transcript、tool error、workflow op shape 和 failure taxonomy，生成更高质量的 workflow / skill / guidance proposal。
 - 已应用草稿可显式 promotion：eval candidate 迁入正式 fixture 路径，workflow/guidance 写入项目 promoted docs 并由 AGENTS.md managed include 引入，skill draft 激活为 managed active skill。
+- Dashboard Learning Tab 提供全局 / 项目级 Coding Improvement 聚合：workflow completion、eval success、review blocker、verification failure、proposal status、retro recommendation、top failure mode 与最近 retro。
 
 ## 数据模型
 
@@ -27,6 +29,37 @@ Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审
 | `coding_improvement_proposals` | 改进候选草案队列，字段包括 `kind`、`status`、`source_type`、`source_id`、`title`、`body`、`payload_json`、`fingerprint`、`decided_at`、`apply_result_json`、`applied_at`、`promotion_result_json`、`promoted_at`。 |
 
 `coding_improvement_proposals` 对 `(session_id, fingerprint)` 建唯一索引；重复生成同一候选只返回既有草案，不制造噪音。
+
+## Transcript Distillation
+
+Phase 4.4 新增显式 owner-plane action：`distill_coding_improvement_proposals(session_id, window_days)`。
+
+它和 `generate_coding_improvement_proposals()` 的区别：
+
+| Action | 输入信号 | 输出 |
+| --- | --- | --- |
+| `generate_coding_improvement_proposals` | 已聚合的 trend report / retro recommendation | 粗粒度 eval / workflow / guidance / skill 候选。 |
+| `distill_coding_improvement_proposals` | trend report + scope 内最近 transcript + tool result + workflow ops | 带 transcript/workflow/failure evidence 的 workflow template、skill candidate、failure guidance、tool guidance 候选。 |
+
+蒸馏过程仍然完全确定性：
+
+- 不调用 LLM，不执行项目命令，不写项目文件。
+- 读取 scope 内最多 12 个最近 session，每个 session 最多 80 条最新 message。
+- 统计 user/assistant/tool message、top tool、tool error、objective snippet、error snippet。
+- 扫描最近 workflow run 的 op shape，识别 review / verification / diff / tool op 组合。
+- 把 failure taxonomy 转成 `CodingFailureFeedback`：`rule`、`expectedSignals`、`examples`。
+- 只写 `coding_improvement_proposals(status='draft')`；重复候选靠 `(session_id, fingerprint)` 去重。
+
+返回 `DistillCodingImprovementResult`：
+
+| 字段 | 说明 |
+| --- | --- |
+| `inserted` | 本次新插入的 proposal 数。 |
+| `distillation.transcript` | transcript/window/tool/error 统计。 |
+| `distillation.workflowPatterns` | workflow run 的 review/verify/diff/tool op shape 摘要。 |
+| `distillation.failureFeedback` | 从 failure bucket 派生的规则和证据要求。 |
+| `distillation.candidates` | 本次尝试生成的候选摘要；可能因 fingerprint 已存在而未新插入。 |
+| `proposals` | 当前 scope 的完整 proposal 队列。 |
 
 ## Scope
 
@@ -92,6 +125,8 @@ Proposal 状态：
 - `promotion_failed`：晋升失败，`promotion_result_json.error` 保存失败原因，可通过 promotion API 重试。
 
 `update_coding_improvement_proposal_status` 只允许 `draft` / `rejected` 这类人工队列状态；`applied` / `promoting` / `promoted` / `promotion_failed` 不可被普通状态更新改写，promotion retry 只能走 promotion API；`failed` 只能由 apply 路径写入但可回到 `draft` 让用户修复环境后重试，避免把“采纳意向”伪装成“产物已落地”。
+
+Phase 4.4 的 transcript distillation 也写入同一张 proposal queue。它不会创建新状态机，也不会绕过 preview/apply/promotion；只是让 `payload_json` 包含 `distillation`、`workflowPattern`、`failureFeedback` 或 `toolFeedback`，从而让后续草稿产物带上更具体的证据。
 
 ## Workflow Retro
 
@@ -163,6 +198,7 @@ Tauri commands：
 | `get_coding_trend_report` | 读取当前 session/project scope 的 trend report。 |
 | `list_coding_improvement_proposals` | 读取 proposal 队列。 |
 | `generate_coding_improvement_proposals` | 基于当前 report 生成 draft-only proposals。 |
+| `distill_coding_improvement_proposals` | 显式蒸馏 transcript / workflow ops / failure feedback，并生成 draft-only proposals。 |
 | `update_coding_improvement_proposal_status` | 更新 proposal 状态。 |
 | `preview_coding_improvement_proposal_action` | 预览 proposal 将生成的 action plan。 |
 | `apply_coding_improvement_proposal` | 应用 proposal，生成 reviewable draft artifact 或 managed draft skill。 |
@@ -176,6 +212,7 @@ HTTP routes：
 | --- | --- |
 | `GET` | `/api/sessions/{sid}/coding-trend?windowDays=30` |
 | `GET` / `POST` | `/api/sessions/{sid}/coding-improvement/proposals` |
+| `POST` | `/api/sessions/{sid}/coding-improvement/distill` |
 | `POST` | `/api/coding-improvement/proposals/{id}/status` |
 | `GET` | `/api/coding-improvement/proposals/{id}/action-preview` |
 | `POST` | `/api/coding-improvement/proposals/{id}/apply` |
@@ -184,6 +221,27 @@ HTTP routes：
 | `POST` | `/api/coding-improvement/eval-runs` |
 
 前端 HTTP `COMMAND_MAP` 与 Tauri `generate_handler!` 均已注册，保持 Desktop / server 模式闭合。
+
+## Dashboard Learning API
+
+Phase 4.3 新增只读全局聚合 API：
+
+| Command | HTTP | 说明 |
+| --- | --- | --- |
+| `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | 按 DashboardFilter 聚合 Coding Improvement 全局 / 项目信号。 |
+
+输入为 `{ filter, limit? }`，其中 `filter` 使用 Dashboard 既有时间 / agent / provider / model 过滤。返回 `CodingImprovementDashboard`：
+
+| 区块 | 内容 |
+| --- | --- |
+| `overview` | session、workflow、eval、review blocker、verification failure、retro、proposal 和 distillation queue 汇总。 |
+| `timeline` | 按天聚合 completed/blocked/failed workflow、passed/failed eval、proposal created/applied/promoted、retro recommendation。 |
+| `byProject` | 按 `project_id` 汇总 workflow/eval 成功率、blocker、proposal 与 distillation candidates；项目名可用时从 `projects` 表补齐。 |
+| `topFailures` | 从 `eval_candidate` proposal payload 中读取稳定 failure category，展示 top failure mode。 |
+| `proposalStatuses` | proposal status 分布。 |
+| `latestRetros` | 最近 workflow retro summary 与 recommendation。 |
+
+该 API **只读** existing durable facts，不调用 `generate_coding_improvement_proposals`，不 apply，不 promotion，也不回写任何 learning event。无痕、cron、subagent session 按 Dashboard 通用规则排除；sessionless eval run 仅在未按 agent/provider/model 过滤时计入全局 eval 聚合。
 
 ## GUI
 
@@ -195,10 +253,19 @@ Workspace 面板新增「质量趋势」区块：
 - 展示当前 scope、session 数、workflow run 数、retro 数、top review category。
 - 展示最近 workflow retro summary 和 recommendation。
 - 展示 top failure bucket 与 proposal 草案。
+- 顶部操作包含「生成改进候选」和「提炼候选」：前者从 trend report 派生候选，后者显式扫描 transcript/workflow/failure feedback 生成更高质量候选。
 - proposal 行支持展开详情、预览 action plan、应用草稿产物、预览 promotion、执行 promotion、拒绝候选。
 - 详情态展示目标路径、目标是否已存在、内容预览、应用/晋升后的 artifact 或错误。
 
-Dashboard 当前仍是全局时间/agent/provider/model 聚合面，没有 session/project 过滤上下文；当前准确产品入口先落 Workspace。后续要做全局 Dashboard 版本时，应新增 project/global scope API，而不是在 Dashboard 里用任意 session 伪装全局趋势。
+Dashboard Learning Tab 新增「Coding improvement」区块：
+
+- 顶部展示 Workflow / Eval 成功率、Review blocker、Verification failure、Distillation queue、Retro recommendation。
+- Project signals 列出项目级完成率、eval 率、blocker 和可沉淀候选。
+- Failure modes 展示 top eval candidate failure taxonomy。
+- Improvement timeline 展示近日日级信号密度。
+- Latest retros 展示最近 terminal workflow retro 和首条 recommendation。
+
+Workspace 是当前 session/project 的可操作质量面板；Dashboard 是全局 / 项目级只读学习视图。两者不复用任意 session 伪装 scope，避免把 session-local report 误读成全局事实。
 
 ## Eval
 
@@ -216,14 +283,19 @@ Dashboard 当前仍是全局时间/agent/provider/model 聚合面，没有 sessi
 
 `improvement_retro_and_promotion` fixture 已覆盖 Phase 4.2：workflow terminal retro 写入 report，retro recommendation 进入候选池，`eval_candidate` 草稿晋升到正式 coding eval fixture 路径。
 
+Phase 4.3 为 `dashboard::coding_improvement` 增加 Rust 单元测试，覆盖项目级 rollup、proposal / retro / review / verification 信号合并，以及 incognito session 排除。该层仍是纯 SQLite 聚合，无 LLM、无项目命令执行、无写入副作用。
+
+Phase 4.4 为 `distill_coding_improvement_proposals` 增加 Rust 单元测试，覆盖真实 transcript message、tool error、review+verify+diff workflow op shape、failed eval feedback、proposal 插入与重复触发去重。该路径仍不调用 LLM、不执行项目命令、不直接写项目规则。
+
 ## 红线
 
-- 不依赖 LLM：report 和 proposal 生成全部规则式。
+- 不依赖 LLM：report、proposal generation 和 transcript distillation 全部规则式。
 - 不自动应用：生成 proposal 不改项目规则、skill、memory、fixture。
 - 应用也不直改生产规则：只生成草稿 artifact 或 managed draft skill，后续进入人工 review/promotion。
 - promotion 必须显式触发，且有 preview；不得从 proposal generation 或 apply 隐式执行。
 - fail-closed：目标文件已存在且内容不同、并发创建、AGENTS include 异常或 skill 激活失败都不能吞掉；apply/promotion 错误分别写入 `failed` / `promotion_failed`。
 - `applied` / `promoted` 不能被人工状态更新改回草案；promotion retry 走 promotion API。
 - incognito fail-closed：无痕会话不读取/写入 durable improvement 数据。
-- 不混淆 scope：Workspace 用 session/project scope；Dashboard 全局化必须另做正式 API。
+- 蒸馏不越权：`distill_coding_improvement_proposals` 只读 durable transcript / workflow / eval / review / verification facts，只写 draft proposal，不 apply、不 promotion。
+- 不混淆 scope：Workspace 用 session/project scope；Dashboard 用 `dashboard_coding_improvement` 全局 / 项目级只读 scope，禁止用任意 session 伪装全局趋势。
 - 不绕过现有控制面：trend report 只消费 Goal / Workflow / Review / Verification / Eval 的持久化事实，不重写它们的语义。

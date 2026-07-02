@@ -153,6 +153,16 @@ pub async fn dashboard_recall_stats(
 }
 
 #[tauri::command]
+pub async fn dashboard_coding_improvement(
+    filter: DashboardFilter,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<dashboard::CodingImprovementDashboard, CmdError> {
+    dashboard::query_coding_improvement_dashboard(&state.session_db, &filter, limit.unwrap_or(8))
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn dashboard_plan_stats(
     filter: DashboardFilter,
     _state: State<'_, AppState>,

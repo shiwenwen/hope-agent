@@ -14,6 +14,13 @@ pub struct FilterBody {
     pub filter: DashboardFilter,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct FilterLimitBody {
+    pub filter: DashboardFilter,
+    #[serde(default = "default_limit")]
+    pub limit: Option<usize>,
+}
+
 pub async fn overview(Json(body): Json<FilterBody>) -> Result<Json<OverviewStats>, AppError> {
     Ok(Json(query_overview(
         session_db()?,
@@ -173,6 +180,16 @@ pub async fn recall_stats(
     Ok(Json(dashboard::query_recall_stats(
         session_db()?,
         body.window_days,
+    )?))
+}
+
+pub async fn coding_improvement(
+    Json(body): Json<FilterLimitBody>,
+) -> Result<Json<dashboard::CodingImprovementDashboard>, AppError> {
+    Ok(Json(dashboard::query_coding_improvement_dashboard(
+        session_db()?,
+        &body.filter,
+        body.limit.unwrap_or(10),
     )?))
 }
 

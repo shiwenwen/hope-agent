@@ -4,6 +4,7 @@
 // SessionDB (sessions + messages + subagent_runs), LogDB (logs),
 // and CronDB (cron_jobs + cron_run_logs).
 
+mod coding_improvement;
 mod cost;
 mod detail_queries;
 mod filters;
@@ -14,6 +15,12 @@ mod plan_stats;
 mod queries;
 mod types;
 
+pub use coding_improvement::{
+    query_coding_improvement_dashboard, CodingImprovementDashboard,
+    CodingImprovementDashboardOverview, CodingImprovementFailureBucket,
+    CodingImprovementProjectBucket, CodingImprovementRetroItem, CodingImprovementStatusBucket,
+    CodingImprovementTimelinePoint,
+};
 pub use detail_queries::*;
 pub use insights::*;
 pub use learning::{

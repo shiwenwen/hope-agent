@@ -7,6 +7,7 @@ import type {
   CodingImprovementPromotionPlan,
   CodingImprovementProposal,
   CodingTrendReport,
+  DistillCodingImprovementResult,
   GenerateCodingImprovementProposalsResult,
   PromoteCodingImprovementProposalResult,
 } from "@/lib/transport"
@@ -15,6 +16,7 @@ export interface CodingTrendReportState {
   report: CodingTrendReport | null
   loading: boolean
   generating: boolean
+  distilling: boolean
   updatingProposalId: string | null
   previewingProposalId: string | null
   applyingProposalId: string | null
@@ -25,6 +27,7 @@ export interface CodingTrendReportState {
   error: string | null
   refresh: () => void
   generateProposals: () => Promise<GenerateCodingImprovementProposalsResult | null>
+  distillProposals: () => Promise<DistillCodingImprovementResult | null>
   updateProposalStatus: (
     proposalId: string,
     status: "rejected" | "draft",
@@ -52,6 +55,7 @@ export function useCodingTrendReport(
   const [report, setReport] = useState<CodingTrendReport | null>(null)
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [distilling, setDistilling] = useState(false)
   const [updatingProposalId, setUpdatingProposalId] = useState<string | null>(null)
   const [previewingProposalId, setPreviewingProposalId] = useState<string | null>(null)
   const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null)
@@ -176,6 +180,30 @@ export function useCodingTrendReport(
       return null
     } finally {
       setGenerating(false)
+    }
+  }, [disabled, fetchReport, incognito, sessionId])
+
+  const distillProposals = useCallback(async () => {
+    if (!sessionId || disabled || incognito) return null
+    setDistilling(true)
+    setError(null)
+    try {
+      const result = await getTransport().call<DistillCodingImprovementResult>(
+        "distill_coding_improvement_proposals",
+        {
+          sessionId,
+          windowDays: CODING_TREND_WINDOW_DAYS,
+        },
+      )
+      fetchReport()
+      return result
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error("ui", "useCodingTrendReport", "Failed to distill improvement proposals", e)
+      setError(message)
+      return null
+    } finally {
+      setDistilling(false)
     }
   }, [disabled, fetchReport, incognito, sessionId])
 
@@ -305,6 +333,7 @@ export function useCodingTrendReport(
     report,
     loading,
     generating,
+    distilling,
     updatingProposalId,
     previewingProposalId,
     applyingProposalId,
@@ -315,6 +344,7 @@ export function useCodingTrendReport(
     error,
     refresh: fetchReport,
     generateProposals,
+    distillProposals,
     updateProposalStatus,
     previewProposalAction,
     applyProposal,

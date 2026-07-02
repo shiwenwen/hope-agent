@@ -8,8 +8,10 @@
 //! proposal-to-action layer: every proposal can be previewed as a deterministic
 //! action plan, then explicitly applied into reviewable draft artifacts. Phase
 //! 4.2 adds terminal workflow retros and explicit draft promotion into formal
-//! eval fixtures, project guidance includes, or active managed skills. Neither
-//! apply nor promotion is implicit.
+//! eval fixtures, project guidance includes, or active managed skills. Phase
+//! 4.4 adds deterministic transcript distillation and failure feedback
+//! proposals. Generation, distillation, apply, and promotion all remain
+//! explicit owner-plane actions.
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -20,7 +22,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::review::{ReviewFindingStatus, ReviewSeverity};
-use crate::session::SessionDB;
+use crate::session::{MessageRole, SessionDB, SessionMessage};
 use crate::skills::SkillStatus;
 use crate::util::now_rfc3339;
 use crate::verification::VerificationStepState;
@@ -30,6 +32,10 @@ const DEFAULT_WINDOW_DAYS: u32 = 30;
 const MAX_WINDOW_DAYS: u32 = 180;
 const MAX_SCOPE_SESSIONS: usize = 200;
 const MAX_CONTENT_PREVIEW_BYTES: usize = 12 * 1024;
+const MAX_DISTILLATION_SESSIONS: usize = 12;
+const MAX_DISTILLATION_MESSAGES_PER_SESSION: u32 = 80;
+const MAX_DISTILLATION_SNIPPETS: usize = 6;
+const MAX_DISTILLATION_SNIPPET_BYTES: usize = 320;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -345,6 +351,93 @@ pub struct GenerateCodingImprovementProposalsResult {
     pub proposals: Vec<CodingImprovementProposal>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DistillCodingImprovementResult {
+    pub inserted: usize,
+    pub distillation: CodingImprovementDistillation,
+    pub proposals: Vec<CodingImprovementProposal>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingImprovementDistillation {
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub scope: String,
+    pub generated_at: String,
+    pub transcript: CodingTranscriptDistillation,
+    pub workflow_patterns: Vec<CodingWorkflowPatternDistillation>,
+    pub failure_feedback: Vec<CodingFailureFeedback>,
+    pub candidates: Vec<CodingDistilledCandidate>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingTranscriptDistillation {
+    pub sessions_scanned: usize,
+    pub messages_scanned: usize,
+    pub user_messages: usize,
+    pub assistant_messages: usize,
+    pub tool_calls: usize,
+    pub tool_errors: usize,
+    pub top_tools: Vec<CodingToolUsageDistillation>,
+    pub objective_snippets: Vec<String>,
+    pub error_snippets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingToolUsageDistillation {
+    pub tool_name: String,
+    pub calls: usize,
+    pub errors: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avg_duration_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingWorkflowPatternDistillation {
+    pub run_id: String,
+    pub session_id: String,
+    pub kind: String,
+    pub state: String,
+    pub execution_mode: String,
+    pub op_count: usize,
+    pub completed_ops: usize,
+    pub failed_ops: usize,
+    pub has_review: bool,
+    pub has_verification: bool,
+    pub has_diff: bool,
+    pub tool_ops: Vec<String>,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingFailureFeedback {
+    pub category: String,
+    pub label: String,
+    pub severity: String,
+    pub count: usize,
+    pub rule: String,
+    pub expected_signals: Vec<String>,
+    pub examples: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingDistilledCandidate {
+    pub kind: String,
+    pub source_type: String,
+    pub source_id: String,
+    pub title: String,
+    pub rationale: String,
+    pub fingerprint: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordCodingEvalRunInput {
@@ -533,6 +626,33 @@ impl SessionDB {
         let proposals = self.list_coding_improvement_proposals_for_scope(&scope)?;
         Ok(GenerateCodingImprovementProposalsResult {
             inserted,
+            proposals,
+        })
+    }
+
+    pub fn distill_coding_improvement_proposals(
+        &self,
+        session_id: &str,
+        window_days: Option<u32>,
+    ) -> Result<DistillCodingImprovementResult> {
+        let scope = self.resolve_coding_report_scope(session_id, window_days)?;
+        let report = self.build_coding_trend_report(&scope)?;
+        let mut distillation = self.build_coding_improvement_distillation(&scope, &report)?;
+        let candidates = build_distillation_proposal_candidates(&report, &distillation);
+        distillation.candidates = candidates
+            .iter()
+            .map(distilled_candidate_from_new_proposal)
+            .collect();
+        let mut inserted = 0usize;
+        for candidate in candidates {
+            if self.insert_coding_improvement_proposal(&scope, candidate)? {
+                inserted += 1;
+            }
+        }
+        let proposals = self.list_coding_improvement_proposals_for_scope(&scope)?;
+        Ok(DistillCodingImprovementResult {
+            inserted,
+            distillation,
             proposals,
         })
     }
@@ -1146,6 +1266,61 @@ impl SessionDB {
         })
     }
 
+    fn build_coding_improvement_distillation(
+        &self,
+        scope: &ReportScope,
+        report: &CodingTrendReport,
+    ) -> Result<CodingImprovementDistillation> {
+        let mut transcript = CodingTranscriptDistillation::default();
+        let mut tool_usage: BTreeMap<String, ToolUsageAccumulator> = BTreeMap::new();
+        let mut workflow_patterns = Vec::new();
+
+        for session_id in scope.session_ids.iter().take(MAX_DISTILLATION_SESSIONS) {
+            transcript.sessions_scanned += 1;
+            let (messages, _, _) = self
+                .load_session_messages_latest(session_id, MAX_DISTILLATION_MESSAGES_PER_SESSION)?;
+            absorb_messages_into_distillation(&messages, &mut transcript, &mut tool_usage);
+
+            for run in self.list_workflow_runs_for_session(session_id, 20)? {
+                if run.updated_at < scope.since {
+                    continue;
+                }
+                let ops = self.list_workflow_ops(&run.id).unwrap_or_default();
+                workflow_patterns.push(distill_workflow_pattern(&run, &ops));
+            }
+        }
+
+        transcript.top_tools = finalize_tool_usage(tool_usage);
+        workflow_patterns.sort_by(|a, b| {
+            b.has_review
+                .cmp(&a.has_review)
+                .then_with(|| b.has_verification.cmp(&a.has_verification))
+                .then_with(|| b.has_diff.cmp(&a.has_diff))
+                .then_with(|| b.completed_ops.cmp(&a.completed_ops))
+                .then_with(|| a.failed_ops.cmp(&b.failed_ops))
+                .then_with(|| a.run_id.cmp(&b.run_id))
+        });
+        workflow_patterns.truncate(8);
+
+        let failure_feedback = report
+            .failures
+            .iter()
+            .take(6)
+            .map(distill_failure_feedback)
+            .collect::<Vec<_>>();
+
+        Ok(CodingImprovementDistillation {
+            session_id: scope.session_id.clone(),
+            project_id: scope.project_id.clone(),
+            scope: report.scope.clone(),
+            generated_at: now_rfc3339(),
+            transcript,
+            workflow_patterns,
+            failure_feedback,
+            candidates: Vec::new(),
+        })
+    }
+
     fn list_goal_rows_for_session(&self, session_id: &str, since: &str) -> Result<Vec<GoalRow>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
@@ -1695,6 +1870,484 @@ fn build_proposal_candidates(report: &CodingTrendReport) -> Vec<NewProposal> {
     out
 }
 
+#[derive(Debug, Default)]
+struct ToolUsageAccumulator {
+    calls: usize,
+    errors: usize,
+    total_duration_ms: i64,
+    duration_count: usize,
+}
+
+fn absorb_messages_into_distillation(
+    messages: &[SessionMessage],
+    transcript: &mut CodingTranscriptDistillation,
+    tool_usage: &mut BTreeMap<String, ToolUsageAccumulator>,
+) {
+    for message in messages {
+        transcript.messages_scanned += 1;
+        match message.role {
+            MessageRole::User => {
+                transcript.user_messages += 1;
+                push_distillation_snippet(&mut transcript.objective_snippets, &message.content);
+            }
+            MessageRole::Assistant | MessageRole::TextBlock | MessageRole::ThinkingBlock => {
+                transcript.assistant_messages += 1;
+            }
+            MessageRole::Tool => {
+                if let Some(tool_name) =
+                    message.tool_name.as_deref().filter(|name| !name.is_empty())
+                {
+                    transcript.tool_calls += 1;
+                    let entry = tool_usage.entry(tool_name.to_string()).or_default();
+                    entry.calls += 1;
+                    if let Some(duration) =
+                        message.tool_duration_ms.filter(|duration| *duration >= 0)
+                    {
+                        entry.total_duration_ms += duration;
+                        entry.duration_count += 1;
+                    }
+                    if message.is_error.unwrap_or(false) {
+                        transcript.tool_errors += 1;
+                        entry.errors += 1;
+                        if let Some(result) = message.tool_result.as_deref() {
+                            push_distillation_snippet(&mut transcript.error_snippets, result);
+                        } else {
+                            push_distillation_snippet(
+                                &mut transcript.error_snippets,
+                                &message.content,
+                            );
+                        }
+                    }
+                }
+            }
+            MessageRole::Event => {}
+        }
+    }
+}
+
+fn push_distillation_snippet(out: &mut Vec<String>, value: &str) {
+    if out.len() >= MAX_DISTILLATION_SNIPPETS {
+        return;
+    }
+    let Some(snippet) = distillation_snippet(value) else {
+        return;
+    };
+    if !out.iter().any(|existing| existing == &snippet) {
+        out.push(snippet);
+    }
+}
+
+fn distillation_snippet(value: &str) -> Option<String> {
+    let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    if collapsed.len() <= MAX_DISTILLATION_SNIPPET_BYTES {
+        return Some(collapsed);
+    }
+    let mut end = MAX_DISTILLATION_SNIPPET_BYTES;
+    while !collapsed.is_char_boundary(end) {
+        end -= 1;
+    }
+    Some(format!("{}...", &collapsed[..end]))
+}
+
+fn finalize_tool_usage(
+    tool_usage: BTreeMap<String, ToolUsageAccumulator>,
+) -> Vec<CodingToolUsageDistillation> {
+    let mut tools = tool_usage
+        .into_iter()
+        .map(|(tool_name, usage)| CodingToolUsageDistillation {
+            tool_name,
+            calls: usage.calls,
+            errors: usage.errors,
+            avg_duration_ms: if usage.duration_count == 0 {
+                None
+            } else {
+                Some(
+                    (usage.total_duration_ms as f64 / usage.duration_count as f64 * 10.0).round()
+                        / 10.0,
+                )
+            },
+        })
+        .collect::<Vec<_>>();
+    tools.sort_by(|a, b| {
+        b.calls
+            .cmp(&a.calls)
+            .then_with(|| b.errors.cmp(&a.errors))
+            .then_with(|| a.tool_name.cmp(&b.tool_name))
+    });
+    tools.truncate(8);
+    tools
+}
+
+fn distill_workflow_pattern(
+    run: &WorkflowRun,
+    ops: &[WorkflowOp],
+) -> CodingWorkflowPatternDistillation {
+    let completed_ops = ops
+        .iter()
+        .filter(|op| op.state.as_str() == "completed")
+        .count();
+    let failed_ops = ops
+        .iter()
+        .filter(|op| op.state.as_str() == "failed")
+        .count();
+    let has_review = ops.iter().any(|op| op.op_type == "review");
+    let has_verification = ops
+        .iter()
+        .any(|op| op.op_type == "verify" || op.op_type == "validate");
+    let has_diff = ops.iter().any(|op| op.op_type == "diff");
+    let mut tool_ops = Vec::new();
+    for op in ops {
+        let label = if op.op_type == "tool" {
+            op.input
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| op.input.get("tool").and_then(Value::as_str))
+                .map(|name| format!("tool:{name}"))
+                .unwrap_or_else(|| "tool".to_string())
+        } else {
+            op.op_type.clone()
+        };
+        if !tool_ops.iter().any(|existing| existing == &label) {
+            tool_ops.push(label);
+        }
+    }
+    tool_ops.truncate(10);
+    let summary = format!(
+        "{} {} workflow with {} op(s), {} completed, {} failed; review={}, verification={}, diff={}.",
+        run.execution_mode,
+        run.state.as_str(),
+        ops.len(),
+        completed_ops,
+        failed_ops,
+        has_review,
+        has_verification,
+        has_diff
+    );
+    CodingWorkflowPatternDistillation {
+        run_id: run.id.clone(),
+        session_id: run.session_id.clone(),
+        kind: run.kind.clone(),
+        state: run.state.as_str().to_string(),
+        execution_mode: run.execution_mode.clone(),
+        op_count: ops.len(),
+        completed_ops,
+        failed_ops,
+        has_review,
+        has_verification,
+        has_diff,
+        tool_ops,
+        summary,
+    }
+}
+
+fn distill_failure_feedback(failure: &CodingFailureBucket) -> CodingFailureFeedback {
+    CodingFailureFeedback {
+        category: failure.category.clone(),
+        label: failure.label.clone(),
+        severity: failure.severity.clone(),
+        count: failure.count,
+        rule: feedback_rule_for_failure(&failure.category).to_string(),
+        expected_signals: expected_signals_for_failure(&failure.category)
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+        examples: failure.examples.clone(),
+    }
+}
+
+fn feedback_rule_for_failure(category: &str) -> &'static str {
+    match category {
+        "validation_failed" => {
+            "Before finishing, run the smallest validation command that covers the changed surface and cite its output."
+        }
+        "eval_failed" => {
+            "Turn the failing behavior into a deterministic fixture before broadening policy or workflow guidance."
+        }
+        "review_blocker" => {
+            "Treat recurring P0/P1 findings as a pre-finish checklist item and require explicit resolution evidence."
+        }
+        "repair_loop_exhausted" => {
+            "Stop repair loops when attempts no longer improve diff or validation evidence, then ask for a narrower plan."
+        }
+        "no_effective_diff_progress" => {
+            "Require a diff-progress checkpoint before spending more turns on the same implementation direction."
+        }
+        "permission_stall" => {
+            "Surface approval blockers early and keep a resumable plan instead of waiting indefinitely."
+        }
+        "context_miss" => {
+            "Recall project-local context and recent changed files before editing or reviewing shared behavior."
+        }
+        "verification_selection_gap" => {
+            "If verification planning selects no command, record why no runnable check exists and prefer static evidence."
+        }
+        _ => {
+            "Capture the smallest reproducible signal, expected evidence, and next review checkpoint before codifying guidance."
+        }
+    }
+}
+
+fn build_distillation_proposal_candidates(
+    report: &CodingTrendReport,
+    distillation: &CodingImprovementDistillation,
+) -> Vec<NewProposal> {
+    let mut out = Vec::new();
+    let scope_key = report.scope_key();
+
+    if let Some(pattern) = distillation.workflow_patterns.iter().find(|pattern| {
+        pattern.state == "completed"
+            && pattern.failed_ops == 0
+            && pattern.has_review
+            && pattern.has_verification
+            && pattern.has_diff
+    }) {
+        out.push(NewProposal {
+            kind: "workflow_template".to_string(),
+            source_type: "transcript_distillation".to_string(),
+            source_id: pattern.run_id.clone(),
+            title: "Promote distilled review-verify workflow shape".to_string(),
+            body: format!(
+                "Distillation found a completed workflow with review, verification, and diff evidence: {}",
+                pattern.summary
+            ),
+            payload: json!({
+                "proposalType": "workflow_template",
+                "distillation": distillation,
+                "workflowPattern": pattern,
+                "scope": report.scope,
+                "projectId": report.project_id,
+            }),
+            fingerprint: format!("distill:{scope_key}:workflow:{}", pattern.run_id),
+        });
+
+        if !distillation.transcript.objective_snippets.is_empty() {
+            out.push(NewProposal {
+                kind: "skill_candidate".to_string(),
+                source_type: "transcript_distillation".to_string(),
+                source_id: pattern.run_id.clone(),
+                title: "Draft learned skill from distilled coding run".to_string(),
+                body: "A successful run has reusable objective, workflow, review, verification, and tool-use signals. Create a managed draft skill for human review before activation.".to_string(),
+                payload: json!({
+                    "proposalType": "skill_candidate",
+                    "distillation": distillation,
+                    "workflowPattern": pattern,
+                    "scope": report.scope,
+                    "projectId": report.project_id,
+                }),
+                fingerprint: format!("distill:{scope_key}:skill:{}", pattern.run_id),
+            });
+        }
+    }
+
+    for feedback in distillation.failure_feedback.iter().take(3) {
+        out.push(NewProposal {
+            kind: "guidance_candidate".to_string(),
+            source_type: "failure_feedback".to_string(),
+            source_id: feedback.category.clone(),
+            title: format!("Codify failure feedback for {}", feedback.label),
+            body: format!(
+                "{} occurrence(s) suggest a durable rule: {}",
+                feedback.count, feedback.rule
+            ),
+            payload: json!({
+                "proposalType": "guidance_candidate",
+                "failureFeedback": feedback,
+                "distillationSummary": {
+                    "sessionsScanned": distillation.transcript.sessions_scanned,
+                    "messagesScanned": distillation.transcript.messages_scanned,
+                    "toolCalls": distillation.transcript.tool_calls,
+                    "toolErrors": distillation.transcript.tool_errors,
+                },
+                "scope": report.scope,
+                "projectId": report.project_id,
+            }),
+            fingerprint: format!("feedback:{scope_key}:failure:{}", feedback.category),
+        });
+    }
+
+    if let Some(tool) = distillation
+        .transcript
+        .top_tools
+        .iter()
+        .filter(|tool| tool.errors > 0)
+        .max_by(|a, b| {
+            a.errors
+                .cmp(&b.errors)
+                .then_with(|| a.calls.cmp(&b.calls))
+                .then_with(|| b.tool_name.cmp(&a.tool_name))
+        })
+    {
+        out.push(NewProposal {
+            kind: "guidance_candidate".to_string(),
+            source_type: "tool_feedback".to_string(),
+            source_id: tool.tool_name.clone(),
+            title: format!("Tighten tool usage guidance for {}", tool.tool_name),
+            body: format!(
+                "{} had {} error(s) across {} call(s) in the distilled transcript window.",
+                tool.tool_name, tool.errors, tool.calls
+            ),
+            payload: json!({
+                "proposalType": "guidance_candidate",
+                "toolFeedback": tool,
+                "errorSnippets": distillation.transcript.error_snippets,
+                "scope": report.scope,
+                "projectId": report.project_id,
+            }),
+            fingerprint: format!(
+                "feedback:{scope_key}:tool:{}",
+                sanitize_slug(&tool.tool_name)
+            ),
+        });
+    }
+
+    out.truncate(6);
+    out
+}
+
+fn distilled_candidate_from_new_proposal(candidate: &NewProposal) -> CodingDistilledCandidate {
+    CodingDistilledCandidate {
+        kind: candidate.kind.clone(),
+        source_type: candidate.source_type.clone(),
+        source_id: candidate.source_id.clone(),
+        title: candidate.title.clone(),
+        rationale: candidate.body.clone(),
+        fingerprint: candidate.fingerprint.clone(),
+    }
+}
+
+fn workflow_distillation_markdown(payload: &Value) -> String {
+    let mut lines = Vec::new();
+    if let Some(pattern) = payload.get("workflowPattern") {
+        if let Some(summary) = pattern.get("summary").and_then(Value::as_str) {
+            lines.push(format!("- Workflow pattern: {summary}"));
+        }
+        let tools = pattern
+            .get("toolOps")
+            .and_then(Value::as_array)
+            .map(|values| string_array_preview(values))
+            .unwrap_or_default();
+        if !tools.is_empty() {
+            lines.push(format!("- Reused ops/tools: {tools}"));
+        }
+    }
+    if let Some(transcript) = payload
+        .get("distillation")
+        .and_then(|value| value.get("transcript"))
+    {
+        if let Some(messages) = transcript.get("messagesScanned").and_then(Value::as_u64) {
+            lines.push(format!(
+                "- Transcript window: {messages} message(s) scanned."
+            ));
+        }
+        if let Some(top_tools) = transcript.get("topTools").and_then(Value::as_array) {
+            let tool_names = top_tools
+                .iter()
+                .take(4)
+                .filter_map(|tool| tool.get("toolName").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if !tool_names.is_empty() {
+                lines.push(format!("- Dominant tools: {tool_names}."));
+            }
+        }
+    }
+    if lines.is_empty() {
+        "No transcript distillation payload was attached; verify the source run manually."
+            .to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn guidance_distillation_markdown(payload: &Value) -> String {
+    let mut lines = Vec::new();
+    if let Some(feedback) = payload.get("failureFeedback") {
+        if let Some(rule) = feedback.get("rule").and_then(Value::as_str) {
+            lines.push(format!("- Proposed durable rule: {rule}"));
+        }
+        let signals = feedback
+            .get("expectedSignals")
+            .and_then(Value::as_array)
+            .map(|values| string_array_preview(values))
+            .unwrap_or_default();
+        if !signals.is_empty() {
+            lines.push(format!("- Evidence to require: {signals}"));
+        }
+        let examples = feedback
+            .get("examples")
+            .and_then(Value::as_array)
+            .map(|values| string_array_preview(values))
+            .unwrap_or_default();
+        if !examples.is_empty() {
+            lines.push(format!("- Recent examples: {examples}"));
+        }
+    }
+    if let Some(tool) = payload.get("toolFeedback") {
+        let name = tool
+            .get("toolName")
+            .and_then(Value::as_str)
+            .unwrap_or("tool");
+        let calls = tool.get("calls").and_then(Value::as_u64).unwrap_or(0);
+        let errors = tool.get("errors").and_then(Value::as_u64).unwrap_or(0);
+        lines.push(format!(
+            "- Tool feedback: `{name}` had {errors} error(s) across {calls} call(s)."
+        ));
+    }
+    if lines.is_empty() {
+        "No distilled feedback payload was attached; inspect the source proposal before promotion."
+            .to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+fn skill_when_to_use_markdown(payload: &Value) -> String {
+    let snippets = payload
+        .get("distillation")
+        .and_then(|value| value.get("transcript"))
+        .and_then(|value| value.get("objectiveSnippets"))
+        .and_then(Value::as_array)
+        .map(|values| string_array_preview(values))
+        .unwrap_or_default();
+    if snippets.is_empty() {
+        "- A future task matches the successful source workflow shape.".to_string()
+    } else {
+        format!("- A future task resembles these source objectives: {snippets}.")
+    }
+}
+
+fn skill_distillation_markdown(payload: &Value) -> String {
+    let mut lines = Vec::new();
+    lines.push(workflow_distillation_markdown(payload));
+    if let Some(errors) = payload
+        .get("distillation")
+        .and_then(|value| value.get("transcript"))
+        .and_then(|value| value.get("errorSnippets"))
+        .and_then(Value::as_array)
+    {
+        let preview = string_array_preview(errors);
+        if !preview.is_empty() {
+            lines.push(format!(
+                "- Known tool/error snippets to avoid carrying into the skill: {preview}"
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn string_array_preview(values: &[Value]) -> String {
+    values
+        .iter()
+        .take(5)
+        .filter_map(Value::as_str)
+        .filter_map(distillation_snippet)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 fn build_action_plan_for_proposal(
     proposal: CodingImprovementProposal,
     base_dir: &Path,
@@ -1794,9 +2447,10 @@ fn build_workflow_template_action_plan(
 ) -> Result<CodingImprovementActionPlan> {
     let slug = proposal_slug(&proposal);
     let target = base_dir.join("workflows").join(format!("{slug}.md"));
+    let distilled_evidence = workflow_distillation_markdown(&proposal.payload);
     let content = format!(
-        "# {}\n\nSource proposal: `{}`\n\n## Why This Exists\n\n{}\n\n## Draft Workflow Shape\n\n```js\nexport default async function main(workflow) {{\n  const task = await workflow.task.create({{ title: \"Review and verify focused change\" }});\n  const review = await workflow.review({{ label: \"focused-review\", profiles: [\"correctness\", \"tests\"] }});\n  const verification = await workflow.verify({{ label: \"targeted-verification\", maxCommands: 2 }});\n  await workflow.task.update({{ task, status: \"completed\" }});\n  await workflow.finish({{ summary: \"Review and verification completed\", review, verification }});\n}}\n```\n\n## Promotion Checklist\n\n- Confirm this shape matches at least one successful run.\n- Replace placeholder profiles and command limits with project-specific choices.\n- Add a coding eval fixture before promoting it to a reusable workflow.\n",
-        proposal.title, proposal.id, proposal.body
+        "# {}\n\nSource proposal: `{}`\n\n## Why This Exists\n\n{}\n\n## Distilled Evidence\n\n{}\n\n## Draft Workflow Shape\n\n```js\nexport default async function main(workflow) {{\n  const task = await workflow.task.create({{ title: \"Review and verify focused change\" }});\n  const review = await workflow.review({{ label: \"focused-review\", profiles: [\"correctness\", \"tests\"] }});\n  const verification = await workflow.verify({{ label: \"targeted-verification\", maxCommands: 2 }});\n  await workflow.task.update({{ task, status: \"completed\" }});\n  await workflow.finish({{ summary: \"Review and verification completed\", review, verification }});\n}}\n```\n\n## Promotion Checklist\n\n- Confirm this shape matches at least one successful run.\n- Replace placeholder profiles and command limits with project-specific choices.\n- Add a coding eval fixture before promoting it to a reusable workflow.\n",
+        proposal.title, proposal.id, proposal.body, distilled_evidence
     );
     Ok(single_file_plan(
         proposal,
@@ -1815,11 +2469,13 @@ fn build_guidance_candidate_action_plan(
 ) -> Result<CodingImprovementActionPlan> {
     let slug = proposal_slug(&proposal);
     let target = base_dir.join("guidance").join(format!("{slug}.md"));
+    let distilled_evidence = guidance_distillation_markdown(&proposal.payload);
     let content = format!(
-        "# {}\n\nSource proposal: `{}`\n\n## Signal\n\n{}\n\n## Draft Guidance\n\n- Before changing policy, identify the smallest reproducible example behind this signal.\n- Prefer focused review and targeted verification over broad validation suites.\n- Keep project guidance concrete: name the risky pattern, the preferred check, and the evidence needed before completion.\n\n## Evidence Payload\n\n```json\n{}\n```\n",
+        "# {}\n\nSource proposal: `{}`\n\n## Signal\n\n{}\n\n## Distilled Evidence\n\n{}\n\n## Draft Guidance\n\n- Before changing policy, identify the smallest reproducible example behind this signal.\n- Prefer focused review and targeted verification over broad validation suites.\n- Keep project guidance concrete: name the risky pattern, the preferred check, and the evidence needed before completion.\n\n## Evidence Payload\n\n```json\n{}\n```\n",
         proposal.title,
         proposal.id,
         proposal.body,
+        distilled_evidence,
         serde_json::to_string_pretty(&proposal.payload)?
     );
     Ok(single_file_plan(
@@ -1844,8 +2500,12 @@ fn build_skill_candidate_action_plan(
         proposal.id
     );
     let body = format!(
-        "---\nname: {skill_id}\ndescription: {description}\nstatus: draft\nmetadata:\n  source: coding_improvement\n  proposal_id: {}\n---\n\n# {}\n\nUse this skill when a future task matches the same successful pattern captured by the source proposal.\n\n## Operating Guidance\n\n1. Read the current task, repository rules, and relevant control-plane evidence first.\n2. Prefer focused review, targeted verification, and explicit evidence over broad checks.\n3. If the pattern does not clearly match, do not activate this skill.\n\n## Source Signal\n\n{}\n\n## Review Notes\n\n- This is a draft generated by the Coding Improvement Loop.\n- Review the original transcript or run evidence before activating it.\n- Keep the final skill short and tool-aware.\n",
-        proposal.id, proposal.title, proposal.body
+        "---\nname: {skill_id}\ndescription: {description}\nstatus: draft\nmetadata:\n  source: coding_improvement\n  proposal_id: {}\n---\n\n# {}\n\nUse this skill when a future task matches the same successful pattern captured by the source proposal.\n\n## When To Use\n\n{}\n\n## Operating Guidance\n\n1. Read the current task, repository rules, and relevant control-plane evidence first.\n2. Prefer focused review, targeted verification, and explicit evidence over broad checks.\n3. If the pattern does not clearly match, do not activate this skill.\n\n## Source Signal\n\n{}\n\n## Distilled Evidence\n\n{}\n\n## Review Notes\n\n- This is a draft generated by the Coding Improvement Loop.\n- Review the original transcript or run evidence before activating it.\n- Keep the final skill short and tool-aware.\n",
+        proposal.id,
+        proposal.title,
+        skill_when_to_use_markdown(&proposal.payload),
+        proposal.body,
+        skill_distillation_markdown(&proposal.payload)
     );
     Ok(CodingImprovementActionPlan {
         proposal,
@@ -3107,5 +3767,147 @@ mod tests {
             .failures
             .iter()
             .any(|failure| failure.category == "context_miss"));
+    }
+
+    #[test]
+    fn distillation_reads_transcript_workflow_and_feedback_into_proposals() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::user(
+                "Implement a focused workflow with review, verification, and a final diff check.",
+            ),
+        )
+        .unwrap();
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::assistant(
+                "I will inspect the code, make the smallest change, then verify it.",
+            ),
+        )
+        .unwrap();
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::tool(
+                "call-read",
+                "read",
+                "{\"path\":\"src/lib.rs\"}",
+                "opened src/lib.rs",
+                Some(15),
+                false,
+            ),
+        )
+        .unwrap();
+        db.append_message(
+            &session.id,
+            &crate::session::NewMessage::tool(
+                "call-check",
+                "exec",
+                "{\"cmd\":\"cargo check -p ha-core\"}",
+                "error: unresolved import",
+                Some(1200),
+                true,
+            ),
+        )
+        .unwrap();
+
+        db.record_coding_eval_run(RecordCodingEvalRunInput {
+            session_id: Some(session.id.clone()),
+            project_id: None,
+            suite: "coding_control_plane".to_string(),
+            name: "distill_failure".to_string(),
+            status: "failed".to_string(),
+            metrics: json!({"reason": "missing regression"}),
+            source_type: Some("test".to_string()),
+            source_id: Some("distill_failure".to_string()),
+        })
+        .unwrap();
+
+        let run = db
+            .create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "coding.workflow".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: "export default async function main(workflow) { await workflow.review({label:'r'}); await workflow.verify({label:'v'}); await workflow.diff({label:'d'}); }".to_string(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(
+            &run.id,
+            crate::workflow::WorkflowRunState::Running,
+            Some("test"),
+        )
+        .unwrap();
+        for (op_key, op_type) in [
+            ("001-review", "review"),
+            ("002-verify", "verify"),
+            ("003-diff", "diff"),
+        ] {
+            db.upsert_workflow_op_started(crate::workflow::UpsertWorkflowOpInput {
+                run_id: run.id.clone(),
+                op_key: op_key.to_string(),
+                op_type: op_type.to_string(),
+                effect_class: crate::workflow::WorkflowEffectClass::Pure,
+                input: json!({"label": op_type}),
+                child_handle: None,
+            })
+            .unwrap();
+            db.complete_workflow_op(&run.id, op_key, json!({"ok": true}))
+                .unwrap();
+        }
+        db.transition_workflow_run(
+            &run.id,
+            crate::workflow::WorkflowRunState::Completed,
+            Some("done"),
+        )
+        .unwrap();
+
+        let result = db
+            .distill_coding_improvement_proposals(&session.id, Some(30))
+            .unwrap();
+        assert!(result.inserted >= 3);
+        assert_eq!(result.distillation.transcript.sessions_scanned, 1);
+        assert_eq!(result.distillation.transcript.tool_calls, 2);
+        assert_eq!(result.distillation.transcript.tool_errors, 1);
+        assert!(result
+            .distillation
+            .workflow_patterns
+            .iter()
+            .any(|pattern| pattern.run_id == run.id
+                && pattern.has_review
+                && pattern.has_verification
+                && pattern.has_diff));
+        assert!(result
+            .distillation
+            .failure_feedback
+            .iter()
+            .any(|feedback| feedback.category == "eval_failed"));
+        assert!(result
+            .proposals
+            .iter()
+            .any(|proposal| proposal.source_type == "transcript_distillation"
+                && proposal.kind == "workflow_template"));
+        assert!(result
+            .proposals
+            .iter()
+            .any(|proposal| proposal.source_type == "failure_feedback"
+                && proposal.kind == "guidance_candidate"));
+        assert!(result
+            .proposals
+            .iter()
+            .any(|proposal| proposal.source_type == "tool_feedback"
+                && proposal.kind == "guidance_candidate"));
+
+        let second = db
+            .distill_coding_improvement_proposals(&session.id, Some(30))
+            .unwrap();
+        assert_eq!(second.inserted, 0);
     }
 }

@@ -1064,6 +1064,77 @@ export interface GenerateCodingImprovementProposalsResult {
   proposals: CodingImprovementProposal[];
 }
 
+export interface DistillCodingImprovementResult {
+  inserted: number;
+  distillation: CodingImprovementDistillation;
+  proposals: CodingImprovementProposal[];
+}
+
+export interface CodingImprovementDistillation {
+  sessionId: string;
+  projectId?: string | null;
+  scope: string;
+  generatedAt: string;
+  transcript: CodingTranscriptDistillation;
+  workflowPatterns: CodingWorkflowPatternDistillation[];
+  failureFeedback: CodingFailureFeedback[];
+  candidates: CodingDistilledCandidate[];
+}
+
+export interface CodingTranscriptDistillation {
+  sessionsScanned: number;
+  messagesScanned: number;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
+  toolErrors: number;
+  topTools: CodingToolUsageDistillation[];
+  objectiveSnippets: string[];
+  errorSnippets: string[];
+}
+
+export interface CodingToolUsageDistillation {
+  toolName: string;
+  calls: number;
+  errors: number;
+  avgDurationMs?: number | null;
+}
+
+export interface CodingWorkflowPatternDistillation {
+  runId: string;
+  sessionId: string;
+  kind: string;
+  state: string;
+  executionMode: string;
+  opCount: number;
+  completedOps: number;
+  failedOps: number;
+  hasReview: boolean;
+  hasVerification: boolean;
+  hasDiff: boolean;
+  toolOps: string[];
+  summary: string;
+}
+
+export interface CodingFailureFeedback {
+  category: string;
+  label: string;
+  severity: string;
+  count: number;
+  rule: string;
+  expectedSignals: string[];
+  examples: string[];
+}
+
+export interface CodingDistilledCandidate {
+  kind: string;
+  sourceType: string;
+  sourceId: string;
+  title: string;
+  rationale: string;
+  fingerprint: string;
+}
+
 export interface RecordCodingEvalRunInput {
   sessionId?: string | null;
   projectId?: string | null;

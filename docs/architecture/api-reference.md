@@ -467,6 +467,7 @@ Smart Verification owner API 管理 durable validation run。`plan_smart_verific
 | `get_coding_trend_report` | `GET /api/sessions/{sessionId}/coding-trend?windowDays=30` | ✅ |
 | `list_coding_improvement_proposals` | `GET /api/sessions/{sessionId}/coding-improvement/proposals` | ✅ |
 | `generate_coding_improvement_proposals` | `POST /api/sessions/{sessionId}/coding-improvement/proposals` | ✅ |
+| `distill_coding_improvement_proposals` | `POST /api/sessions/{sessionId}/coding-improvement/distill` | ✅ |
 | `update_coding_improvement_proposal_status` | `POST /api/coding-improvement/proposals/{proposalId}/status` | ✅ |
 | `preview_coding_improvement_proposal_action` | `GET /api/coding-improvement/proposals/{proposalId}/action-preview` | ✅ |
 | `apply_coding_improvement_proposal` | `POST /api/coding-improvement/proposals/{proposalId}/apply` | ✅ |
@@ -474,7 +475,7 @@ Smart Verification owner API 管理 durable validation run。`plan_smart_verific
 | `promote_coding_improvement_proposal` | `POST /api/coding-improvement/proposals/{proposalId}/promote` | ✅ |
 | `record_coding_eval_run` | `POST /api/coding-improvement/eval-runs` | ✅ |
 
-Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Verification / Coding Eval 数据生成 trend report、workflow retro、failure taxonomy 和 proposal 队列。`generate_coding_improvement_proposals` 只写 `coding_improvement_proposals(status='draft')`；`preview_coding_improvement_proposal_action` 返回确定性 action plan；`apply_coding_improvement_proposal` 先原子 claim draft proposal，再仅应用成 reviewable draft artifact 或 managed draft skill，目标已存在或并发创建都 fail-closed，不直接修改 project guidance、AGENTS、memory 或生产 eval fixture。`preview_coding_improvement_proposal_promotion` / `promote_coding_improvement_proposal` 只对已应用草稿显式晋升，目标冲突 fail-closed。无痕会话 fail-closed。完整契约见 [Coding Improvement Loop](coding-improvement-loop.md)。
+Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Verification / Coding Eval / transcript 数据生成 trend report、workflow retro、failure taxonomy、transcript distillation 和 proposal 队列。`generate_coding_improvement_proposals` 从 report 派生候选；`distill_coding_improvement_proposals` 显式扫描 transcript、tool error、workflow ops 与 failure feedback 后只写 `coding_improvement_proposals(status='draft')`；`preview_coding_improvement_proposal_action` 返回确定性 action plan；`apply_coding_improvement_proposal` 先原子 claim draft proposal，再仅应用成 reviewable draft artifact 或 managed draft skill，目标已存在或并发创建都 fail-closed，不直接修改 project guidance、AGENTS、memory 或生产 eval fixture。`preview_coding_improvement_proposal_promotion` / `promote_coding_improvement_proposal` 只对已应用草稿显式晋升，目标冲突 fail-closed。无痕会话 fail-closed。完整契约见 [Coding Improvement Loop](coding-improvement-loop.md)。
 
 ### Workflow Runs
 
@@ -788,7 +789,10 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `dashboard_learning_timeline` | `POST /api/dashboard/learning/timeline` | ✅ |
 | `dashboard_top_skills` | `POST /api/dashboard/learning/top-skills` | ✅ |
 | `dashboard_recall_stats` | `POST /api/dashboard/learning/recall-stats` | ✅ |
+| `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | ✅ |
 | `dashboard_plan_stats` | `POST /api/dashboard/plan-stats` | ✅ |
+
+`dashboard_coding_improvement` 是 Phase 4.3 只读全局学习聚合，按 DashboardFilter 返回 workflow / eval / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、proposal status 和 latest retros；不生成 proposal、不 apply、不 promotion。
 
 ### Async / Deferred tools + Memory selection
 

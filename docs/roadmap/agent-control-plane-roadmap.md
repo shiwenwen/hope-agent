@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-02
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
 
 ## 1. 路线调整结论
 
@@ -50,6 +50,8 @@ Phase 3.10 Deep Review / Profiles / IDE Context（已完成）
 Phase 3.11 Trend Report / Improvement Loop 接口（已完成）
 Phase 4.1  Proposal-to-Action Learning Loop（已完成）
 Phase 4.2  Draft Promotion + Workflow Retro Loop（已完成）
+Phase 4.3  Dashboard 全局学习视图（已完成）
+Phase 4.4  Transcript Distillation + Failure Feedback（已完成）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -77,7 +79,7 @@ Phase 4.2  Draft Promotion + Workflow Retro Loop（已完成）
 | Context Retrieval | 通用 owner-plane，当前 coding-first | 已实现 Phase 3.6 | 当前任务下一步最该看哪些上下文，以及能否直接进入 focused review / verification。 |
 | Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 3.7 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄。 |
 | Coding Improvement | coding-first 改进回路，报告形态可复用于通用控制面 | 已实现 Phase 3.11 | 最近任务为什么完成/阻塞，下一步应补 eval、workflow、guidance 还是 skill。 |
-| Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.2 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物，并把已应用草稿显式晋升为正式 eval fixture / project guidance / active skill。 |
+| Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.4 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物，把已应用草稿显式晋升为正式 eval fixture / project guidance / active skill，并支持用户显式从 transcript / workflow / failure feedback 提炼更高质量候选。 |
 
 用户视角应稳定成：
 
@@ -496,7 +498,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - Tauri + HTTP owner API 已对齐：读取 trend report、列出/生成 proposal、更新 proposal 状态、记录 eval run。
 - Workspace GUI 已新增「质量趋势」区块：显示近 30 天 Goal / Workflow / Eval / Repair 指标、常见 blocker、候选草案，并支持生成/预览/应用/拒绝 proposal。
 - Coding Eval harness 已新增 improvement run/check，`repair_loop_blocks_with_evidence` fixture 覆盖 `repair_loop_exhausted`、draft `eval_candidate` 和 eval success rate。
-- Dashboard 全局化未伪装落地：当前准确入口是 Workspace 的 session/project scope；后续若要做 Dashboard，需要新增正式 project/global scope API。
+- Dashboard 全局化已在 Phase 4.3 通过正式 project/global scope API 落地，未用任意 session 伪装全局趋势。
 - 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 8.1 Phase 4：Learning Loop / Skill & Guidance 沉淀
@@ -522,6 +524,26 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - promotion 使用 `promoting` / `promoted` / `promotion_failed` 托管状态，目标已存在且内容不同、并发创建、AGENTS include 或 skill 激活失败均 fail-closed。
 - Coding Eval 新增 `improvement_retro_and_promotion` fixture，覆盖 retro 写入、候选生成、草稿应用和正式晋升。
 - 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+
+### Phase 4.3 Dashboard 全局学习视图（已完成）
+
+- 新增 `dashboard::coding_improvement` 只读聚合：消费 workflow、coding eval、review finding、verification step、proposal、workflow retro durable 表。
+- 新增 `dashboard_coding_improvement` Tauri command 与 HTTP `POST /api/dashboard/learning/coding-improvement`，输入复用 `DashboardFilter`，输出 overview / timeline / byProject / topFailures / proposalStatuses / latestRetros。
+- Dashboard Learning Tab 新增 Coding Improvement 区块：展示 workflow/eval 成功率、review blocker、verification failure、distillation queue、项目级信号、failure modes 和 latest retros。
+- 该视图不生成 proposal、不 apply、不 promotion，只读既有事实；cron / subagent / incognito session 按 Dashboard 通用规则排除。
+- 单元测试覆盖项目级 rollup 与 incognito 排除。
+- 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Dashboard 数据大盘架构](../architecture/dashboard.md)。
+
+### Phase 4.4 Transcript Distillation + Failure Feedback（已完成）
+
+- 新增 `distill_coding_improvement_proposals` owner action：显式扫描当前 session/project scope 的真实 transcript、tool result、workflow ops 和 failure taxonomy。
+- 输出 `DistillCodingImprovementResult`，包含 transcript 统计、top tools、tool errors、workflow pattern、failure feedback rule、expected signals 和本次候选摘要。
+- 蒸馏候选仍写入既有 `coding_improvement_proposals(status='draft')`，不新增状态机、不自动 apply、不自动 promotion，重复触发靠 fingerprint 去重。
+- Workspace 质量趋势区块新增「提炼候选」按钮，与「生成改进候选」并列；生成看 trend report，提炼看 transcript/workflow/failure 细节。
+- Action plan 生成会把 distillation evidence 写进 workflow / guidance / skill 草稿，减少“草稿只有泛泛建议”的问题。
+- Tauri / HTTP / Transport 已接通：`POST /api/sessions/{sid}/coding-improvement/distill`。
+- 单元测试覆盖 transcript message、tool error、review+verify+diff workflow op、failed eval feedback、proposal 插入和重复触发去重。
+- 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
 
 ## 9. 体验与性能红线
 

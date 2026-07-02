@@ -1263,6 +1263,10 @@ fn build_router_with_cors(
             "/dashboard/learning/recall-stats",
             post(routes::dashboard::recall_stats),
         )
+        .route(
+            "/dashboard/learning/coding-improvement",
+            post(routes::dashboard::coding_improvement),
+        )
         .route("/dashboard/plan-stats", post(routes::dashboard::plan_stats))
         .route(
             "/dashboard/local-model-usage",
@@ -1405,7 +1409,7 @@ fn build_router_with_cors(
             "/review-findings/{id}/status",
             post(routes::review::update_review_finding_status),
         )
-        // Coding trend report, improvement proposals, and promotion loop (Phase 3.11-4.2)
+        // Coding trend report, improvement proposals, distillation, and promotion loop (Phase 3.11-4.4)
         .route(
             "/sessions/{sid}/coding-trend",
             get(routes::coding_improvement::get_coding_trend_report),
@@ -1414,6 +1418,10 @@ fn build_router_with_cors(
             "/sessions/{sid}/coding-improvement/proposals",
             get(routes::coding_improvement::list_coding_improvement_proposals)
                 .post(routes::coding_improvement::generate_coding_improvement_proposals),
+        )
+        .route(
+            "/sessions/{sid}/coding-improvement/distill",
+            post(routes::coding_improvement::distill_coding_improvement_proposals),
         )
         .route(
             "/coding-improvement/proposals/{id}/status",

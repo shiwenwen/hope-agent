@@ -3,8 +3,8 @@ use axum::Json;
 use ha_core::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingEvalRunRecord, CodingImprovementActionPlan,
     CodingImprovementPromotionPlan, CodingImprovementProposal, CodingTrendReport,
-    GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
-    RecordCodingEvalRunInput,
+    DistillCodingImprovementResult, GenerateCodingImprovementProposalsResult,
+    PromoteCodingImprovementProposalResult, RecordCodingEvalRunInput,
 };
 use serde::Deserialize;
 
@@ -57,6 +57,16 @@ pub async fn generate_coding_improvement_proposals(
     Json(body): Json<GenerateProposalsBody>,
 ) -> Result<Json<GenerateCodingImprovementProposalsResult>, AppError> {
     Ok(Json(session_db()?.generate_coding_improvement_proposals(
+        &session_id,
+        body.window_days,
+    )?))
+}
+
+pub async fn distill_coding_improvement_proposals(
+    Path(session_id): Path<String>,
+    Json(body): Json<GenerateProposalsBody>,
+) -> Result<Json<DistillCodingImprovementResult>, AppError> {
+    Ok(Json(session_db()?.distill_coding_improvement_proposals(
         &session_id,
         body.window_days,
     )?))

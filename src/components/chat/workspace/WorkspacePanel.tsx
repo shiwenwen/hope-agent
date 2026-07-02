@@ -3394,6 +3394,7 @@ function CodingTrendSection({
     report,
     loading,
     generating,
+    distilling,
     updatingProposalId,
     previewingProposalId,
     applyingProposalId,
@@ -3404,6 +3405,7 @@ function CodingTrendSection({
     error,
     refresh,
     generateProposals,
+    distillProposals,
     updateProposalStatus,
     previewProposalAction,
     applyProposal,
@@ -3421,7 +3423,7 @@ function CodingTrendSection({
   ).length
   const visibleRetros = (report?.retros ?? []).slice(0, 3)
   const topCategory = report ? codingTrendTopReviewCategory(report) : null
-  const disabled = !sessionId || incognito || loading || generating
+  const disabled = !sessionId || incognito || loading || generating || distilling
 
   const meta =
     loading && !report ? (
@@ -3458,6 +3460,19 @@ function CodingTrendSection({
               count: result.inserted,
             })
           : t("workspace.codingTrend.generatedNoop", "候选已是最新"),
+      )
+    }
+  }
+
+  const handleDistill = async () => {
+    const result = await distillProposals()
+    if (result) {
+      toast.success(
+        result.inserted > 0
+          ? t("workspace.codingTrend.distilled", "已提炼 {{count}} 个候选", {
+              count: result.inserted,
+            })
+          : t("workspace.codingTrend.distilledNoop", "提炼候选已是最新"),
       )
     }
   }
@@ -3555,11 +3570,24 @@ function CodingTrendSection({
             )}
             <span className="truncate">{t("workspace.codingTrend.generate", "生成改进候选")}</span>
           </button>
+          <button
+            type="button"
+            onClick={handleDistill}
+            disabled={disabled}
+            className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-border/60 bg-secondary/35 px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary/55 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {distilling ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Brain className="h-3.5 w-3.5" />
+            )}
+            <span className="truncate">{t("workspace.codingTrend.distill", "提炼候选")}</span>
+          </button>
           <IconTip label={t("workspace.codingTrend.refresh", "刷新质量趋势")}>
             <button
               type="button"
               onClick={refresh}
-              disabled={loading || generating}
+              disabled={loading || generating || distilling}
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-secondary/25 text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:opacity-55"
               aria-label={t("workspace.codingTrend.refresh", "刷新质量趋势")}
             >

@@ -1,9 +1,9 @@
 # Dashboard 数据大盘架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-02
 
 ## 概述
 
-Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 10 个文件，采用「筛选器 + 查询函数」的管道式架构。
+Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 11 个文件，采用「筛选器 + 查询函数」的管道式架构。
 
 核心设计原则：
 - **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL AND incognito = 0`，排除定时任务会话、子 Agent 会话和无痕会话
@@ -23,6 +23,7 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `cost.rs` | 模型定价表与成本计算引擎 |
 | `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（埋点写入 `session.db.learning_events`） |
+| `coding_improvement.rs` | Coding Improvement 全局 / 项目级学习聚合：workflow、eval、review、verification、proposal、retro 只读 rollup |
 | `plan_stats.rs` | Plan 统计聚合：Dashboard "Plans" tab 数据源（详见下文） |
 | `local_models.rs` | 本地模型 Tab 专属聚合：按 `provider::local::known_local_backends` 反查"本地"provider name 列表后对 sessions / messages 表做 token / 调用次数 / TTFT / 错误率统计；前端 `LocalModelsSection` 消费 |
 
@@ -294,6 +295,28 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 - 读：上述 4 个查询函数按 `kind IN (...)` + `ts >= now - window_days` 做窗口聚合
 - 表归属在 `session.db` 而非独立库，避免新增 SQLite 文件；与 sessions / messages 共享连接池
 
+## Coding Improvement Learning（coding_improvement.rs）
+
+> 新增于 Phase 4.3。Dashboard Learning Tab 的全局 / 项目级 coding 学习视图；Tauri `dashboard_coding_improvement` / HTTP `POST /api/dashboard/learning/coding-improvement`。
+
+该模块只读已有 durable control-plane 表，不触发 proposal generation、apply 或 promotion。
+
+| 区块 | 来源 | 说明 |
+|---|---|---|
+| `overview` | `sessions` / `workflow_runs` / `coding_eval_runs` / `review_findings` / `verification_steps` / `coding_workflow_retros` / `coding_improvement_proposals` | 汇总 workflow completion、eval success、review blocker、verification failure、retro recommendation、proposal status 和 distillation candidates |
+| `timeline` | 同上 | 按日聚合 completed/blocked/failed workflow、passed/failed eval、proposal created/applied/promoted、retro recommendation |
+| `byProject` | `project_id` + 可选 `projects.name` | 按项目展示 workflow/eval 成功率、blocker、proposal 与待沉淀候选 |
+| `topFailures` | `coding_improvement_proposals.payload_json` | 从 `eval_candidate` proposal 的 failure taxonomy 中聚合 top failure mode |
+| `proposalStatuses` | `coding_improvement_proposals.status` | proposal 状态分布 |
+| `latestRetros` | `coding_workflow_retros` | 最近 terminal workflow retro summary 与 recommendation |
+
+过滤契约：
+
+- 复用 `DashboardFilter` 的时间 / agent / provider / model 维度。
+- session 级数据排除 cron、subagent 和 incognito。
+- sessionless eval run 可进入全局 eval 聚合；一旦按 agent/provider/model 过滤，会自然被排除。
+- Project name 只作显示增强；`projects` 表不存在或缺失行时仍按 `project_id` 聚合。
+
 ## Plan 统计（plan_stats.rs）
 
 > 新增于 2026-05-11。Dashboard "Plans" tab 的数据源；Tauri `dashboard_plan_stats` / HTTP `POST /api/dashboard/plan-stats`。
@@ -470,5 +493,6 @@ sequenceDiagram
 | `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
 | `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
+| `crates/ha-core/src/dashboard/coding_improvement.rs` | Coding Improvement 全局 / 项目级只读学习聚合 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

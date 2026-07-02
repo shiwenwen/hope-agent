@@ -401,6 +401,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_coding_trend_report:         { method: "GET",    path: "/api/sessions/{sessionId}/coding-trend" },
   list_coding_improvement_proposals: { method: "GET",  path: "/api/sessions/{sessionId}/coding-improvement/proposals" },
   generate_coding_improvement_proposals: { method: "POST", path: "/api/sessions/{sessionId}/coding-improvement/proposals" },
+  distill_coding_improvement_proposals: { method: "POST", path: "/api/sessions/{sessionId}/coding-improvement/distill" },
   update_coding_improvement_proposal_status: { method: "POST", path: "/api/coding-improvement/proposals/{proposalId}/status" },
   preview_coding_improvement_proposal_action: { method: "GET", path: "/api/coding-improvement/proposals/{proposalId}/action-preview" },
   apply_coding_improvement_proposal: { method: "POST", path: "/api/coding-improvement/proposals/{proposalId}/apply" },
@@ -654,6 +655,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_learning_timeline:     { method: "POST",   path: "/api/dashboard/learning/timeline" },
   dashboard_top_skills:            { method: "POST",   path: "/api/dashboard/learning/top-skills" },
   dashboard_recall_stats:          { method: "POST",   path: "/api/dashboard/learning/recall-stats" },
+  dashboard_coding_improvement:    { method: "POST",   path: "/api/dashboard/learning/coding-improvement" },
   dashboard_plan_stats:            { method: "POST",   path: "/api/dashboard/plan-stats" },
   dashboard_local_model_usage:     { method: "POST",   path: "/api/dashboard/local-model-usage" },
 

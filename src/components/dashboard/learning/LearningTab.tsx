@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Loader2, RefreshCw, Sparkles } from "lucide-react"
+import {
+  Activity,
+  CheckCircle2,
+  GitBranch,
+  Layers3,
+  Loader2,
+  RefreshCw,
+  ShieldAlert,
+  Sparkles,
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import type { CodingImprovementDashboard, DashboardFilter } from "../types"
 
 interface LearningOverview {
   windowDays: number
@@ -40,7 +51,11 @@ interface RecallStats {
 
 const WINDOW_OPTIONS = [7, 14, 30, 60, 90]
 
-export default function LearningTab() {
+interface LearningTabProps {
+  filter: DashboardFilter
+}
+
+export default function LearningTab({ filter }: LearningTabProps) {
   const { t } = useTranslation()
   const [windowDays, setWindowDays] = useState(30)
   const [loading, setLoading] = useState(false)
@@ -48,11 +63,12 @@ export default function LearningTab() {
   const [timeline, setTimeline] = useState<TimelinePoint[]>([])
   const [topSkills, setTopSkills] = useState<SkillUsage[]>([])
   const [recall, setRecall] = useState<RecallStats | null>(null)
+  const [coding, setCoding] = useState<CodingImprovementDashboard | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const [ov, tl, ts, rs] = await Promise.all([
+      const [ov, tl, ts, rs, ci] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
           windowDays,
         }),
@@ -66,17 +82,22 @@ export default function LearningTab() {
         getTransport().call<RecallStats>("dashboard_recall_stats", {
           windowDays,
         }),
+        getTransport().call<CodingImprovementDashboard>("dashboard_coding_improvement", {
+          filter,
+          limit: 8,
+        }),
       ])
       setOverview(ov)
       setTimeline(tl ?? [])
       setTopSkills(ts ?? [])
       setRecall(rs)
+      setCoding(ci)
     } catch (e) {
       logger.error("dashboard", "LearningTab::load", "Failed to load learning data", e)
     } finally {
       setLoading(false)
     }
-  }, [windowDays])
+  }, [filter, windowDays])
 
   useEffect(() => {
     reload()
@@ -118,6 +139,8 @@ export default function LearningTab() {
           </Button>
         </div>
       </div>
+
+      <CodingImprovementSection coding={coding} />
 
       {/* Overview cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -272,6 +295,334 @@ function OverviewCard({
       {hint && <div className="text-[10px] text-muted-foreground">{hint}</div>}
     </div>
   )
+}
+
+function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboard | null }) {
+  const { t } = useTranslation()
+  const overview = coding?.overview
+  const recentTimeline = coding?.timeline.slice(-10).reverse() ?? []
+  const maxTimelineValue = Math.max(
+    1,
+    ...recentTimeline.map(
+      (p) =>
+        p.completedWorkflows +
+        p.blockedWorkflows +
+        p.failedWorkflows +
+        p.evalPassed +
+        p.evalFailed +
+        p.proposalsCreated +
+        p.proposalsApplied +
+        p.proposalsPromoted +
+        p.retroRecommendations,
+    ),
+  )
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t("dashboard.learning.codingImprovement", {
+            defaultValue: "Coding improvement",
+          })}
+        </h4>
+        {coding?.generatedAt && (
+          <span className="text-[10px] text-muted-foreground">
+            {new Date(coding.generatedAt).toLocaleString()}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <InsightCard
+          icon={GitBranch}
+          label={t("dashboard.learning.workflowHealth", {
+            defaultValue: "Workflow",
+          })}
+          value={formatPct(overview?.workflowCompletionRate)}
+          hint={`${overview?.completedWorkflows ?? 0}/${overview?.workflowRuns ?? 0}`}
+        />
+        <InsightCard
+          icon={CheckCircle2}
+          label={t("dashboard.learning.evalHealth", { defaultValue: "Eval" })}
+          value={formatPct(overview?.evalSuccessRate)}
+          hint={`${overview?.passedEvalRuns ?? 0}/${overview?.evalRuns ?? 0}`}
+        />
+        <InsightCard
+          icon={ShieldAlert}
+          label={t("dashboard.learning.blockers", { defaultValue: "Blockers" })}
+          value={overview?.openReviewBlockers ?? 0}
+          hint={t("dashboard.learning.verificationFailures", {
+            defaultValue: "{{n}} verification",
+            n: overview?.failedVerificationSteps ?? 0,
+          })}
+        />
+        <InsightCard
+          icon={Layers3}
+          label={t("dashboard.learning.distillationQueue", {
+            defaultValue: "Distillation",
+          })}
+          value={overview?.distillationCandidates ?? 0}
+          hint={t("dashboard.learning.proposalHint", {
+            defaultValue: "{{n}} drafts",
+            n: overview?.draftProposals ?? 0,
+          })}
+        />
+        <InsightCard
+          icon={Activity}
+          label={t("dashboard.learning.retros", { defaultValue: "Retros" })}
+          value={overview?.retros ?? 0}
+          hint={t("dashboard.learning.retroHint", {
+            defaultValue: "{{n}} recommendations",
+            n: overview?.retroRecommendations ?? 0,
+          })}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr] gap-3">
+        <div className="border border-border/60 rounded-lg p-4 min-w-0">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              {t("dashboard.learning.projectSignals", {
+                defaultValue: "Project signals",
+              })}
+            </h4>
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {coding?.byProject.length ?? 0}
+            </span>
+          </div>
+          {coding?.byProject.length ? (
+            <div className="space-y-2">
+              {coding.byProject.map((project) => (
+                <ProjectSignalRow
+                  key={project.projectId ?? "__unassigned__"}
+                  name={project.projectName ?? project.projectId ?? "Unassigned"}
+                  projectId={project.projectId}
+                  workflowRate={project.workflowCompletionRate}
+                  evalRate={project.evalSuccessRate}
+                  blockers={project.openReviewBlockers}
+                  candidates={project.distillationCandidates}
+                />
+              ))}
+            </div>
+          ) : (
+            <EmptyLine label={t("dashboard.learning.noProjectSignals", {
+              defaultValue: "No coding improvement signals",
+            })} />
+          )}
+        </div>
+
+        <div className="border border-border/60 rounded-lg p-4 min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            {t("dashboard.learning.failureModes", { defaultValue: "Failure modes" })}
+          </h4>
+          {coding?.topFailures.length ? (
+            <div className="space-y-2">
+              {coding.topFailures.map((failure) => (
+                <div
+                  key={failure.category}
+                  className="flex items-center gap-2 text-xs border-b border-border/20 pb-2 last:border-0 last:pb-0"
+                >
+                  <span className={`h-2 w-2 rounded-full ${severityDot(failure.severity)}`} />
+                  <span className="font-medium truncate flex-1">{failure.label}</span>
+                  <span className="text-muted-foreground tabular-nums">{failure.count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyLine label={t("dashboard.learning.noFailureModes", {
+              defaultValue: "No failure modes",
+            })} />
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <div className="border border-border/60 rounded-lg p-4 min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            {t("dashboard.learning.improvementTimeline", {
+              defaultValue: "Improvement timeline",
+            })}
+          </h4>
+          {recentTimeline.length ? (
+            <div className="space-y-2">
+              {recentTimeline.map((point) => {
+                const total =
+                  point.completedWorkflows +
+                  point.blockedWorkflows +
+                  point.failedWorkflows +
+                  point.evalPassed +
+                  point.evalFailed +
+                  point.proposalsCreated +
+                  point.proposalsApplied +
+                  point.proposalsPromoted +
+                  point.retroRecommendations
+                return (
+                  <div key={point.date} className="flex items-center gap-3 text-xs">
+                    <span className="w-20 text-muted-foreground tabular-nums">
+                      {point.date}
+                    </span>
+                    <div className="h-2 flex-1 bg-secondary/40 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500"
+                        style={{ width: `${Math.max(4, (total / maxTimelineValue) * 100)}%` }}
+                      />
+                    </div>
+                    <span className="w-8 text-right tabular-nums text-muted-foreground">
+                      {total}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <EmptyLine label={t("dashboard.learning.noTimeline", {
+              defaultValue: "No timeline data",
+            })} />
+          )}
+        </div>
+
+        <div className="border border-border/60 rounded-lg p-4 min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            {t("dashboard.learning.latestRetros", { defaultValue: "Latest retros" })}
+          </h4>
+          {coding?.latestRetros.length ? (
+            <div className="space-y-2 max-h-[220px] overflow-y-auto">
+              {coding.latestRetros.map((retro) => (
+                <div
+                  key={retro.id}
+                  className="text-xs border-b border-border/20 pb-2 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${stateTone(retro.runState)}`}>
+                      {retro.runState}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {new Date(retro.updatedAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-foreground line-clamp-2">{retro.summary}</p>
+                  {retro.recommendations[0] && (
+                    <p className="text-[10px] text-muted-foreground mt-1 truncate">
+                      {retro.recommendations[0].title}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyLine label={t("dashboard.learning.noRetros", {
+              defaultValue: "No retros",
+            })} />
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function InsightCard({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: LucideIcon
+  label: string
+  value: string | number
+  hint?: string
+}) {
+  return (
+    <div className="border border-border/60 rounded-lg p-3 flex flex-col gap-2 min-w-0">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="text-2xl font-semibold tabular-nums">{value}</div>
+      {hint && <div className="text-[10px] text-muted-foreground truncate">{hint}</div>}
+    </div>
+  )
+}
+
+function ProjectSignalRow({
+  name,
+  projectId,
+  workflowRate,
+  evalRate,
+  blockers,
+  candidates,
+}: {
+  name: string
+  projectId: string | null
+  workflowRate: number | null
+  evalRate: number | null
+  blockers: number
+  candidates: number
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-3 items-center text-xs">
+      <div className="min-w-0">
+        <div className="font-medium truncate">{name}</div>
+        {projectId && <div className="text-[10px] text-muted-foreground truncate">{projectId}</div>}
+      </div>
+      <MetricPill label="WF" value={formatPct(workflowRate)} />
+      <MetricPill label="EV" value={formatPct(evalRate)} />
+      <MetricPill label="B" value={blockers} tone={blockers > 0 ? "warn" : "muted"} />
+      <MetricPill label="Q" value={candidates} tone={candidates > 0 ? "accent" : "muted"} />
+    </div>
+  )
+}
+
+function MetricPill({
+  label,
+  value,
+  tone = "muted",
+}: {
+  label: string
+  value: string | number
+  tone?: "muted" | "warn" | "accent"
+}) {
+  const toneClass =
+    tone === "warn"
+      ? "bg-red-500/10 text-red-600 dark:text-red-400"
+      : tone === "accent"
+        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+        : "bg-secondary/40 text-muted-foreground"
+  return (
+    <span className={`inline-flex min-w-12 justify-center rounded px-1.5 py-0.5 tabular-nums ${toneClass}`}>
+      {label}:{value}
+    </span>
+  )
+}
+
+function EmptyLine({ label }: { label: string }) {
+  return <div className="text-xs text-muted-foreground text-center py-6">{label}</div>
+}
+
+function formatPct(value: number | null | undefined): string {
+  return typeof value === "number" ? `${Math.round(value * 100)}%` : "—"
+}
+
+function severityDot(severity: string): string {
+  switch (severity) {
+    case "high":
+      return "bg-red-500"
+    case "medium":
+      return "bg-amber-500"
+    default:
+      return "bg-muted-foreground/40"
+  }
+}
+
+function stateTone(state: string): string {
+  switch (state) {
+    case "completed":
+      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    case "blocked":
+    case "failed":
+      return "bg-red-500/10 text-red-600 dark:text-red-400"
+    default:
+      return "bg-secondary/40 text-muted-foreground"
+  }
 }
 
 function kindColor(kind: string): string {
