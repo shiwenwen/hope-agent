@@ -19,7 +19,8 @@ use serde_json::{json, Value};
 use crate::agent_loader::DEFAULT_AGENT_ID;
 use crate::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingTrendReport,
-    GenerateCodingImprovementProposalsResult, RecordCodingEvalRunInput,
+    GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
+    RecordCodingEvalRunInput,
 };
 use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
 use crate::goal::CreateGoalInput;
@@ -190,6 +191,10 @@ pub struct ImprovementEvalRun {
     #[serde(default)]
     pub apply_first_proposal: bool,
     #[serde(default)]
+    pub promote_applied_proposal: bool,
+    #[serde(default)]
+    pub apply_proposal_kind: Option<String>,
+    #[serde(default)]
     pub seed_eval_runs: Vec<RecordCodingEvalRunInput>,
 }
 
@@ -324,6 +329,16 @@ pub struct ImprovementCheck {
     pub min_applied_artifacts: Option<usize>,
     #[serde(default)]
     pub expected_action_target_contains: Option<String>,
+    #[serde(default)]
+    pub min_retros: Option<usize>,
+    #[serde(default)]
+    pub min_retro_recommendations: Option<usize>,
+    #[serde(default)]
+    pub expected_promoted_status: Option<String>,
+    #[serde(default)]
+    pub min_promoted_artifacts: Option<usize>,
+    #[serde(default)]
+    pub expected_promotion_target_contains: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -370,6 +385,7 @@ struct EvalRunArtifacts {
     improvement: Option<CodingTrendReport>,
     improvement_proposals: Option<GenerateCodingImprovementProposalsResult>,
     improvement_apply: Option<ApplyCodingImprovementProposalResult>,
+    improvement_promotion: Option<PromoteCodingImprovementProposalResult>,
     goal_evidence_relations: Vec<String>,
 }
 
@@ -430,6 +446,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
         improvement: None,
         improvement_proposals: None,
         improvement_apply: None,
+        improvement_promotion: None,
         goal_evidence_relations: Vec::new(),
     };
 
@@ -524,6 +541,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                 Some(db.generate_coding_improvement_proposals(&session.id, run.window_days)?);
         }
         if run.apply_first_proposal {
+            let desired_kind = run.apply_proposal_kind.as_deref();
             let proposal_id = artifacts
                 .improvement_proposals
                 .as_ref()
@@ -531,7 +549,10 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                     result
                         .proposals
                         .iter()
-                        .find(|proposal| proposal.status == "draft")
+                        .find(|proposal| {
+                            proposal.status == "draft"
+                                && desired_kind.is_none_or(|kind| proposal.kind == kind)
+                        })
                         .map(|proposal| proposal.id.clone())
                 })
                 .or_else(|| {
@@ -540,7 +561,10 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                         .and_then(|proposals| {
                             proposals
                                 .into_iter()
-                                .find(|proposal| proposal.status == "draft")
+                                .find(|proposal| {
+                                    proposal.status == "draft"
+                                        && desired_kind.is_none_or(|kind| proposal.kind == kind)
+                                })
                                 .map(|proposal| proposal.id)
                         })
                 })
@@ -548,6 +572,27 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                     anyhow!("applyFirstProposal requested but no draft proposal exists")
                 })?;
             artifacts.improvement_apply = Some(db.apply_coding_improvement_proposal(&proposal_id)?);
+        }
+        if run.promote_applied_proposal {
+            let proposal_id = artifacts
+                .improvement_apply
+                .as_ref()
+                .map(|result| result.proposal.id.clone())
+                .or_else(|| {
+                    db.list_coding_improvement_proposals(&session.id)
+                        .ok()
+                        .and_then(|proposals| {
+                            proposals
+                                .into_iter()
+                                .find(|proposal| proposal.status == "applied")
+                                .map(|proposal| proposal.id)
+                        })
+                })
+                .ok_or_else(|| {
+                    anyhow!("promoteAppliedProposal requested but no applied proposal exists")
+                })?;
+            artifacts.improvement_promotion =
+                Some(db.promote_coding_improvement_proposal(&proposal_id)?);
         }
         artifacts.improvement = Some(db.coding_trend_report(&session.id, run.window_days)?);
     }
@@ -1174,6 +1219,26 @@ fn check_improvement(
         );
     }
 
+    if let Some(min) = check.min_retros {
+        push_check(
+            report,
+            "improvement.min_retros",
+            snapshot.retros.len() >= min,
+            format!("{} retro(s), min {min}", snapshot.retros.len()),
+        );
+    }
+    if let Some(min) = check.min_retro_recommendations {
+        push_check(
+            report,
+            "improvement.min_retro_recommendations",
+            snapshot.retro.recommendations >= min,
+            format!(
+                "{} recommendation(s), min {min}",
+                snapshot.retro.recommendations
+            ),
+        );
+    }
+
     if check.expected_applied_status.is_some()
         || check.expected_applied_kind.is_some()
         || check.min_applied_artifacts.is_some()
@@ -1226,6 +1291,67 @@ fn check_improvement(
             push_check(
                 report,
                 "improvement.action_target",
+                found,
+                if found {
+                    "matched".to_string()
+                } else {
+                    format!(
+                        "targets={:?}",
+                        result
+                            .plan
+                            .steps
+                            .iter()
+                            .map(|step| step.target_path.as_str())
+                            .collect::<Vec<_>>()
+                    )
+                },
+            );
+        }
+    }
+
+    if check.expected_promoted_status.is_some()
+        || check.min_promoted_artifacts.is_some()
+        || check.expected_promotion_target_contains.is_some()
+    {
+        let Some(result) = artifacts.improvement_promotion.as_ref() else {
+            push_check(
+                report,
+                "improvement.promotion",
+                false,
+                "promoteAppliedProposal did not produce a promotion result",
+            );
+            return;
+        };
+
+        if let Some(expected) = check.expected_promoted_status.as_deref() {
+            push_check(
+                report,
+                "improvement.promoted_status",
+                result.proposal.status == expected,
+                format!("status={}, expected={expected}", result.proposal.status),
+            );
+        }
+        if let Some(min) = check.min_promoted_artifacts {
+            push_check(
+                report,
+                "improvement.min_promoted_artifacts",
+                result.artifacts.len() >= min,
+                format!("{} artifact(s), min {min}", result.artifacts.len()),
+            );
+        }
+        if let Some(needle) = check.expected_promotion_target_contains.as_deref() {
+            let found = result
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.path.contains(needle))
+                || result
+                    .plan
+                    .steps
+                    .iter()
+                    .any(|step| step.target_path.contains(needle));
+            push_check(
+                report,
+                "improvement.promotion_target",
                 found,
                 if found {
                     "matched".to_string()

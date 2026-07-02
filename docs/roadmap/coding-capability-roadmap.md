@@ -49,7 +49,7 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 3. **Phase 2.8：Goal-driven Workflow**。Goal 派生 workflow run，失败后生成 repair run，workflow evidence 回写 goal，最终 evaluator 收口。
 4. **Phase 2.9：真正 `/loop`**。只做定时、重复、轮询或条件触发，复用 cron / wakeup / automation。
 5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context、Trend Report / Improvement Loop 已完成。
-6. **Phase 4：Learning Loop / Skill & Guidance 沉淀**。Phase 4.1 Proposal-to-Action 已完成：改进 proposal 可预览并应用成 eval / workflow / guidance / skill 草稿产物。
+6. **Phase 4：Learning Loop / Skill & Guidance 沉淀**。Phase 4.1 Proposal-to-Action 与 Phase 4.2 Draft Promotion + Workflow Retro 已完成：改进 proposal 可预览、应用成 eval / workflow / guidance / skill 草稿产物，并可显式晋升为正式 fixture / project guidance / active skill。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -762,9 +762,9 @@ StopPolicy
 
 ### 后续池：Learning Loop 与技能沉淀
 
-状态：Phase 4.1 Proposal-to-Action 已完成；Dashboard 全局视图、retro 自动总结和草稿 promotion 仍属后续增强。
+状态：Phase 4.2 Draft Promotion + Workflow Retro 已完成；Dashboard 全局视图、更高质量 transcript distillation 和 failure mode 反哺仍属后续增强。
 
-目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，后续继续补 promotion 与全局趋势。
+目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，Phase 4.2 已补上 terminal workflow retro 与人工显式 promotion，后续继续补全局趋势与更强蒸馏。
 
 已落地：
 
@@ -775,20 +775,21 @@ StopPolicy
 - `workflow_template` 可应用为 `.hope-agent/coding-improvement/workflows/*.md` 草稿。
 - `guidance_candidate` 可应用为 `.hope-agent/coding-improvement/guidance/*.md` 草稿。
 - `skill_candidate` 可应用为 `~/.hope-agent/skills/ha-learned-*/SKILL.md` managed draft skill。
-- Workspace 质量趋势区块支持展开详情、预览、应用、拒绝和 artifact/error 展示。
+- 每次 terminal workflow 会生成 lightweight retro，retro recommendation 可进入 proposal queue。
+- 已应用草稿可显式 promotion：`eval_candidate` 进入正式 coding eval fixture，`workflow_template` / `guidance_candidate` 进入 promoted project docs 并由 `AGENTS.md` managed include 引入，`skill_candidate` 激活 managed draft skill。
+- Workspace 质量趋势区块支持展开详情、预览、应用、晋升、拒绝和 artifact/error 展示。
 - `improvement_proposal_to_action` fixture 覆盖 proposal-to-action 回归。
+- `improvement_retro_and_promotion` fixture 覆盖 retro 与 promotion 回归。
 
 后续任务：
 
-- 每次 workflow 完成后生成 lightweight retro。
-- 草稿 promotion：eval candidate 一键迁入正式 fixture、workflow/guidance 一键合入项目规则、skill draft 审核后激活。
 - 成功 transcript 可抽取更高质量 workflow skill 草稿。
 - 常见 failure mode 反哺工具描述、workflow policy、project guidance。
 - Dashboard 全局展示 coding success、review catch rate、slow tools、cache invalidators、approval stalls。
 
 产物：
 
-- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；后续补 Dashboard 全局视图设计与 promotion 设计。
+- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；后续补 Dashboard 全局视图设计与更强 distillation 设计。
 - eval / workflow / guidance / skill draft generator。
 
 ## 30 天首个里程碑
@@ -865,6 +866,6 @@ StopPolicy
 9. [Smart Verification 控制平面](../architecture/verification-engine.md)：最小验证选择、后台低风险执行、Goal validation evidence 与 Workspace 验证区块。
 10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐与行动入口、file search v2、LSP symbols、diff/artifact/review/verification/goal/task/workflow 聚合、focused review / verification。
 11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall 与控制面回归。
-12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列和 proposal-to-action；后续继续设计 retro、promotion、Dashboard 全局趋势和更强 distillation。
+12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列、proposal-to-action、workflow retro 和 draft promotion；后续继续设计 Dashboard 全局趋势和更强 distillation。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。

@@ -829,13 +829,15 @@ pub fn run() {
             commands::verification::get_verification_run,
             commands::verification::plan_smart_verification,
             commands::verification::run_smart_verification,
-            // Coding quality trend and improvement-loop proposals (Phase 3.11)
+            // Coding quality trend, improvement proposals, and promotion loop (Phase 3.11-4.2)
             commands::coding_improvement::get_coding_trend_report,
             commands::coding_improvement::list_coding_improvement_proposals,
             commands::coding_improvement::generate_coding_improvement_proposals,
             commands::coding_improvement::update_coding_improvement_proposal_status,
             commands::coding_improvement::preview_coding_improvement_proposal_action,
             commands::coding_improvement::apply_coding_improvement_proposal,
+            commands::coding_improvement::preview_coding_improvement_proposal_promotion,
+            commands::coding_improvement::promote_coding_improvement_proposal,
             commands::coding_improvement::record_coding_eval_run,
             // Managed worktrees (Phase 3 durable isolation / handoff)
             commands::worktree::list_managed_worktrees,

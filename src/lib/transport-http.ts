@@ -404,6 +404,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   update_coding_improvement_proposal_status: { method: "POST", path: "/api/coding-improvement/proposals/{proposalId}/status" },
   preview_coding_improvement_proposal_action: { method: "GET", path: "/api/coding-improvement/proposals/{proposalId}/action-preview" },
   apply_coding_improvement_proposal: { method: "POST", path: "/api/coding-improvement/proposals/{proposalId}/apply" },
+  preview_coding_improvement_proposal_promotion: { method: "GET", path: "/api/coding-improvement/proposals/{proposalId}/promotion-preview" },
+  promote_coding_improvement_proposal: { method: "POST", path: "/api/coding-improvement/proposals/{proposalId}/promote" },
   record_coding_eval_run:          { method: "POST",   path: "/api/coding-improvement/eval-runs" },
 
   // -- Managed worktrees --

@@ -82,9 +82,11 @@ import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJ
 import type {
   CodingFailureBucket,
   CodingImprovementActionPlan,
+  CodingImprovementPromotionPlan,
   CodingImprovementProposal,
   CodingMetricBucket,
   CodingTrendReport,
+  CodingWorkflowRetro,
   ContextCandidate,
   ContextCandidateKind,
   LspDiagnostic,
@@ -2862,10 +2864,13 @@ function codingFailureTone(severity: string): StatusTone {
 function codingProposalTone(status: string): StatusTone {
   switch (status) {
     case "applying":
+    case "promoting":
       return "info"
     case "applied":
+    case "promoted":
       return "good"
     case "failed":
+    case "promotion_failed":
       return "danger"
     case "rejected":
       return "muted"
@@ -2901,8 +2906,14 @@ function codingProposalStatusLabel(
       return t("workspace.codingTrend.applying", "应用中")
     case "applied":
       return t("workspace.codingTrend.applied", "已应用")
+    case "promoting":
+      return t("workspace.codingTrend.promoting", "晋升中")
+    case "promoted":
+      return t("workspace.codingTrend.promoted", "已晋升")
     case "failed":
       return t("workspace.codingTrend.applyFailed", "应用失败")
+    case "promotion_failed":
+      return t("workspace.codingTrend.promotionFailed", "晋升失败")
     case "rejected":
       return t("workspace.codingTrend.rejected", "已拒绝")
     default:
@@ -2948,29 +2959,72 @@ function CodingFailureRow({ failure }: { failure: CodingFailureBucket }) {
   )
 }
 
+function CodingRetroRow({ retro }: { retro: CodingWorkflowRetro }) {
+  const { t } = useTranslation()
+  const topRecommendation = retro.recommendations[0]
+  const severeSignal = retro.signals.find((signal) => signal.severity === "high")
+  return (
+    <IconTip label={topRecommendation?.rationale ?? retro.summary}>
+      <div className="rounded-md border border-border/50 bg-background/55 px-2.5 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Brain className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+            {retro.summary}
+          </span>
+          <StatusPill
+            label={retro.runState}
+            tone={retro.runState === "completed" ? "good" : severeSignal ? "danger" : "warn"}
+          />
+        </div>
+        {topRecommendation ? (
+          <div className="mt-1 truncate pl-5 text-[11px] text-muted-foreground">
+            {t("workspace.codingTrend.retroRecommendation", "建议")} · {topRecommendation.title}
+          </div>
+        ) : null}
+      </div>
+    </IconTip>
+  )
+}
+
 function CodingProposalDetail({
   proposal,
   actionPlan,
+  promotionPlan,
   previewing,
   applying,
+  previewingPromotion,
+  promoting,
   updating,
   onPreview,
   onApply,
+  onPreviewPromotion,
+  onPromote,
   onReject,
 }: {
   proposal: CodingImprovementProposal
   actionPlan: CodingImprovementActionPlan | null
+  promotionPlan: CodingImprovementPromotionPlan | null
   previewing?: boolean
   applying?: boolean
+  previewingPromotion?: boolean
+  promoting?: boolean
   updating?: boolean
   onPreview: (proposalId: string) => void
   onApply: (proposalId: string) => void
+  onPreviewPromotion: (proposalId: string) => void
+  onPromote: (proposalId: string) => void
   onReject: (proposalId: string) => void
 }) {
   const { t } = useTranslation()
   const plan = actionPlan?.proposal.id === proposal.id ? actionPlan : null
+  const promotion = promotionPlan?.proposal.id === proposal.id ? promotionPlan : null
   const action = proposal.action
+  const promotionRecord = proposal.promotion
   const disabled = proposal.status !== "draft" || previewing || applying || updating
+  const canPromote =
+    (proposal.status === "applied" || proposal.status === "promotion_failed") &&
+    !previewingPromotion &&
+    !promoting
   return (
     <div className="mt-2 space-y-2 border-t border-border/50 pt-2 pl-5">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -3071,6 +3125,111 @@ function CodingProposalDetail({
           {action.error}
         </div>
       ) : null}
+
+      {action?.applied || proposal.status === "promotion_failed" || proposal.status === "promoted" ? (
+        <div className="space-y-2 rounded-md border border-border/50 bg-background/50 p-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+            <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+              {t("workspace.codingTrend.promotionTitle", "晋升为正式能力")}
+            </span>
+            {proposal.status === "promoted" ? (
+              <StatusPill label={t("workspace.codingTrend.promoted", "已晋升")} tone="good" />
+            ) : proposal.status === "promotion_failed" ? (
+              <StatusPill label={t("workspace.codingTrend.promotionFailed", "晋升失败")} tone="danger" />
+            ) : null}
+          </div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              disabled={!canPromote && proposal.status !== "promoted"}
+              onClick={() => onPreviewPromotion(proposal.id)}
+              className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-55"
+            >
+              {previewingPromotion ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
+              )}
+              <span className="truncate">{t("workspace.codingTrend.previewPromotion", "预览晋升")}</span>
+            </button>
+            <button
+              type="button"
+              disabled={!canPromote || !promotion}
+              onClick={() => onPromote(proposal.id)}
+              className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-sky-500/35 bg-sky-500/10 px-2 py-1.5 text-[11px] font-medium text-sky-700 transition-colors hover:bg-sky-500/15 disabled:cursor-not-allowed disabled:opacity-55 dark:text-sky-300"
+            >
+              {promoting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              <span className="truncate">{t("workspace.codingTrend.promoteAction", "晋升")}</span>
+            </button>
+          </div>
+
+          {promotion ? (
+            <div className="space-y-1.5">
+              <div className="text-[11px] leading-snug text-muted-foreground">
+                {promotion.summary}
+              </div>
+              {promotion.steps.map((step) => (
+                <div
+                  key={`${step.action}:${step.targetPath}`}
+                  className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5"
+                >
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                      {step.label}
+                    </span>
+                    <StatusPill
+                      label={
+                        step.targetExists
+                          ? t("workspace.codingTrend.targetExists", "已存在")
+                          : t("workspace.codingTrend.newTarget", "新建")
+                      }
+                      tone={step.targetExists ? "warn" : "good"}
+                    />
+                  </div>
+                  <div className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/70">
+                    {step.targetPath}
+                  </div>
+                  {step.contentPreview ? (
+                    <pre className="mt-1.5 max-h-32 overflow-auto rounded border border-border/40 bg-muted/35 p-2 text-[10px] leading-snug text-muted-foreground">
+                      {step.contentPreview}
+                    </pre>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : proposal.status === "applied" || proposal.status === "promotion_failed" ? (
+            <div className="rounded-md border border-border/50 bg-background/50 px-2 py-1.5 text-[11px] text-muted-foreground">
+              {t("workspace.codingTrend.promotionPreviewEmpty", "预览晋升后再执行")}
+            </div>
+          ) : null}
+
+          {promotionRecord?.artifacts?.length ? (
+            <div className="space-y-1">
+              {promotionRecord.artifacts.map((artifact) => (
+                <div
+                  key={`${artifact.kind}:${artifact.path}`}
+                  className="flex min-w-0 items-center gap-1.5 rounded-md border border-sky-500/25 bg-sky-500/10 px-2 py-1.5 text-[11px]"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-300" />
+                  <span className="min-w-0 flex-1 truncate text-sky-700 dark:text-sky-200">
+                    {artifact.path}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : promotionRecord?.error ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+              {promotionRecord.error}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -3079,23 +3238,33 @@ function CodingProposalRow({
   proposal,
   selected,
   actionPlan,
+  promotionPlan,
   previewing,
   applying,
+  previewingPromotion,
+  promoting,
   updating,
   onToggle,
   onPreview,
   onApply,
+  onPreviewPromotion,
+  onPromote,
   onReject,
 }: {
   proposal: CodingImprovementProposal
   selected?: boolean
   actionPlan: CodingImprovementActionPlan | null
+  promotionPlan: CodingImprovementPromotionPlan | null
   previewing?: boolean
   applying?: boolean
+  previewingPromotion?: boolean
+  promoting?: boolean
   updating?: boolean
   onToggle: (proposalId: string) => void
   onPreview: (proposalId: string) => void
   onApply: (proposalId: string) => void
+  onPreviewPromotion: (proposalId: string) => void
+  onPromote: (proposalId: string) => void
   onReject: (proposalId: string) => void
 }) {
   const { t } = useTranslation()
@@ -3165,16 +3334,40 @@ function CodingProposalRow({
               {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             </button>
           </IconTip>
+          <IconTip label={t("workspace.codingTrend.promoteAction", "晋升")}>
+            <button
+              type="button"
+              disabled={
+                !(proposal.status === "applied" || proposal.status === "promotion_failed") ||
+                promoting ||
+                previewingPromotion ||
+                promotionPlan?.proposal.id !== proposal.id
+              }
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-sky-600 disabled:opacity-45"
+              onClick={(event) => {
+                event.stopPropagation()
+                onPromote(proposal.id)
+              }}
+              aria-label={t("workspace.codingTrend.promoteAction", "晋升")}
+            >
+              {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            </button>
+          </IconTip>
         </div>
         {selected ? (
           <CodingProposalDetail
             proposal={proposal}
             actionPlan={actionPlan}
+            promotionPlan={promotionPlan}
             previewing={previewing}
             applying={applying}
+            previewingPromotion={previewingPromotion}
+            promoting={promoting}
             updating={updating}
             onPreview={onPreview}
             onApply={onApply}
+            onPreviewPromotion={onPreviewPromotion}
+            onPromote={onPromote}
             onReject={onReject}
           />
         ) : null}
@@ -3204,13 +3397,18 @@ function CodingTrendSection({
     updatingProposalId,
     previewingProposalId,
     applyingProposalId,
+    previewingPromotionId,
+    promotingProposalId,
     actionPlan,
+    promotionPlan,
     error,
     refresh,
     generateProposals,
     updateProposalStatus,
     previewProposalAction,
     applyProposal,
+    previewProposalPromotion,
+    promoteProposal,
   } = useCodingTrendReport(sessionId, { incognito, turnActive })
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
   const failures = report?.failures ?? []
@@ -3218,6 +3416,10 @@ function CodingTrendSection({
   const proposals = report?.proposals ?? []
   const visibleProposals = proposals.slice(0, 4)
   const draftCount = proposals.filter((proposal) => proposal.status === "draft").length
+  const promotionCount = proposals.filter(
+    (proposal) => proposal.status === "applied" || proposal.status === "promotion_failed",
+  ).length
+  const visibleRetros = (report?.retros ?? []).slice(0, 3)
   const topCategory = report ? codingTrendTopReviewCategory(report) : null
   const disabled = !sessionId || incognito || loading || generating
 
@@ -3234,6 +3436,11 @@ function CodingTrendSection({
     ) : draftCount > 0 ? (
       <StatusPill
         label={t("workspace.codingTrend.proposals", "{{count}} 草案", { count: draftCount })}
+        tone="info"
+      />
+    ) : promotionCount > 0 ? (
+      <StatusPill
+        label={t("workspace.codingTrend.promotable", "{{count}} 待晋升", { count: promotionCount })}
         tone="info"
       />
     ) : report ? (
@@ -3288,13 +3495,39 @@ function CodingTrendSection({
     }
   }
 
+  const handlePreviewPromotion = async (proposalId: string) => {
+    setSelectedProposalId(proposalId)
+    const plan = await previewProposalPromotion(proposalId)
+    if (plan) {
+      toast.success(t("workspace.codingTrend.promotionPreviewReady", "晋升预览已生成"))
+    }
+  }
+
+  const handlePromoteProposal = async (proposalId: string) => {
+    setSelectedProposalId(proposalId)
+    if (promotionPlan?.proposal.id !== proposalId) {
+      const plan = await previewProposalPromotion(proposalId)
+      if (!plan) return
+    }
+    const result = await promoteProposal(proposalId)
+    if (result?.promoted) {
+      toast.success(
+        t("workspace.codingTrend.promotedToast", "已晋升 {{count}} 个正式产物", {
+          count: result.artifacts.length,
+        }),
+      )
+    } else if (result?.error) {
+      toast.error(result.error)
+    }
+  }
+
   const handleRejectProposal = async (proposalId: string) => {
     const proposal = await updateProposalStatus(proposalId, "rejected")
     if (proposal) {
       toast.success(
         t("workspace.codingTrend.statusUpdated", "候选已更新为 {{status}}", {
           status: codingProposalStatusLabel(t, proposal.status),
-          }),
+        }),
       )
     }
   }
@@ -3302,10 +3535,10 @@ function CodingTrendSection({
   return (
     <WorkspaceSection
       title={t("workspace.codingTrend.title", "质量趋势")}
-      count={failures.length + draftCount}
+      count={failures.length + draftCount + promotionCount + visibleRetros.length}
       icon={BarChart3}
       meta={meta}
-      defaultExpanded={failures.length > 0 || draftCount > 0 || !!error}
+      defaultExpanded={failures.length > 0 || draftCount > 0 || promotionCount > 0 || !!error}
     >
       <div className="space-y-2">
         <div className="flex items-center gap-1.5">
@@ -3386,9 +3619,9 @@ function CodingTrendSection({
               tone={failures.length > 0 ? "warn" : "good"}
             />
             <CodingTrendMetric
-              label={t("workspace.codingTrend.metricDrafts", "Drafts")}
-              value={draftCount}
-              tone={draftCount > 0 ? "info" : "muted"}
+              label={t("workspace.codingTrend.metricLearning", "Learning")}
+              value={report.retro.recommendations}
+              tone={report.retro.recommendations > 0 ? "info" : "muted"}
             />
           </div>
         ) : null}
@@ -3431,12 +3664,26 @@ function CodingTrendSection({
                 })}
                 tone="muted"
               />
+              <StatusPill
+                label={t("workspace.codingTrend.retros", "{{count}} retros", {
+                  count: report.retro.total,
+                })}
+                tone={report.retro.recommendations > 0 ? "info" : "muted"}
+              />
               {topCategory ? (
                 <StatusPill label={topCategory.label} tone="warn" />
               ) : null}
             </div>
           </div>
         )}
+
+        {visibleRetros.length > 0 ? (
+          <div className="space-y-1">
+            {visibleRetros.map((retro) => (
+              <CodingRetroRow key={retro.id} retro={retro} />
+            ))}
+          </div>
+        ) : null}
 
         {visibleFailures.length > 0 ? (
           <div className="space-y-1">
@@ -3454,12 +3701,17 @@ function CodingTrendSection({
                 proposal={proposal}
                 selected={selectedProposalId === proposal.id}
                 actionPlan={actionPlan}
+                promotionPlan={promotionPlan}
                 previewing={previewingProposalId === proposal.id}
                 applying={applyingProposalId === proposal.id}
+                previewingPromotion={previewingPromotionId === proposal.id}
+                promoting={promotingProposalId === proposal.id}
                 updating={updatingProposalId === proposal.id}
                 onToggle={handleToggleProposal}
                 onPreview={handlePreviewProposal}
                 onApply={handleApplyProposal}
+                onPreviewPromotion={handlePreviewPromotion}
+                onPromote={handlePromoteProposal}
                 onReject={handleRejectProposal}
               />
             ))}

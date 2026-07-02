@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-02
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
 
 ## 1. 路线调整结论
 
@@ -49,6 +49,7 @@ Phase 3.9  Repair Loop 自动化（已完成）
 Phase 3.10 Deep Review / Profiles / IDE Context（已完成）
 Phase 3.11 Trend Report / Improvement Loop 接口（已完成）
 Phase 4.1  Proposal-to-Action Learning Loop（已完成）
+Phase 4.2  Draft Promotion + Workflow Retro Loop（已完成）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -76,7 +77,7 @@ Phase 4.1  Proposal-to-Action Learning Loop（已完成）
 | Context Retrieval | 通用 owner-plane，当前 coding-first | 已实现 Phase 3.6 | 当前任务下一步最该看哪些上下文，以及能否直接进入 focused review / verification。 |
 | Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 3.7 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄。 |
 | Coding Improvement | coding-first 改进回路，报告形态可复用于通用控制面 | 已实现 Phase 3.11 | 最近任务为什么完成/阻塞，下一步应补 eval、workflow、guidance 还是 skill。 |
-| Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.1 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物。 |
+| Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.2 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物，并把已应用草稿显式晋升为正式 eval fixture / project guidance / active skill。 |
 
 用户视角应稳定成：
 
@@ -510,6 +511,17 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - Workspace 质量趋势区块已支持 proposal 展开详情、预览、应用、拒绝，并展示应用产物或错误。
 - Coding Eval 新增 `improvement_proposal_to_action` fixture，覆盖 eval failed → proposal → applied draft artifact。
 - 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
+
+### Phase 4.2 Draft Promotion + Workflow Retro Loop（已完成）
+
+- `workflow_runs` 进入 terminal state 时 best-effort 生成 `coding_workflow_retros`，记录 summary、signals、recommendations，并追加 `coding_retro_recorded` trace event；无痕会话不写。
+- `CodingTrendReport` 新增 `retro` 汇总与 `retros[]` 列表，Workspace 质量趋势区块展示最近 retro 和 recommendation。
+- `generate_coding_improvement_proposals` 会消费 retro recommendation，失败/阻塞进入 eval/guidance 候选，成功且具备 review + verification + diff 证据可进入 workflow template 候选。
+- 新增 `preview_coding_improvement_proposal_promotion` / `promote_coding_improvement_proposal`，Desktop 与 HTTP 两端对齐。
+- `eval_candidate` 晋升到 `crates/ha-core/tests/fixtures/coding_eval/`；`workflow_template` / `guidance_candidate` 晋升到 `.hope-agent/coding-improvement/promoted/` 并由 `AGENTS.md` managed include 引入；`skill_candidate` 激活 managed draft skill。
+- promotion 使用 `promoting` / `promoted` / `promotion_failed` 托管状态，目标已存在且内容不同、并发创建、AGENTS include 或 skill 激活失败均 fail-closed。
+- Coding Eval 新增 `improvement_retro_and_promotion` fixture，覆盖 retro 写入、候选生成、草稿应用和正式晋升。
+- 最终架构见 [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 9. 体验与性能红线
 

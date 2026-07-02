@@ -889,6 +889,16 @@ export interface CodingRepairLoopTrend {
   successRate?: number | null;
 }
 
+export interface CodingRetroTrend {
+  total: number;
+  completed: number;
+  blocked: number;
+  failed: number;
+  cancelled: number;
+  recommendations: number;
+  latestSummary?: string | null;
+}
+
 export interface CodingMetricBucket {
   key: string;
   label: string;
@@ -914,6 +924,32 @@ export interface CodingRunSummary {
   updatedAt: string;
 }
 
+export interface CodingRetroSignal {
+  kind: string;
+  label: string;
+  severity: string;
+  detail?: string | null;
+}
+
+export interface CodingRetroRecommendation {
+  kind: string;
+  title: string;
+  rationale: string;
+}
+
+export interface CodingWorkflowRetro {
+  id: string;
+  sessionId: string;
+  projectId?: string | null;
+  workflowRunId: string;
+  runState: string;
+  summary: string;
+  signals: CodingRetroSignal[];
+  recommendations: CodingRetroRecommendation[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CodingImprovementProposal {
   id: string;
   sessionId: string;
@@ -927,6 +963,7 @@ export interface CodingImprovementProposal {
   payload: Record<string, unknown>;
   fingerprint: string;
   action?: CodingImprovementActionRecord | null;
+  promotion?: CodingImprovementPromotionRecord | null;
   createdAt: string;
   updatedAt: string;
   decidedAt?: string | null;
@@ -970,6 +1007,40 @@ export interface ApplyCodingImprovementProposalResult {
   error?: string | null;
 }
 
+export interface CodingImprovementPromotionRecord {
+  promoted: boolean;
+  artifacts: CodingImprovementActionArtifact[];
+  error?: string | null;
+  promotedAt?: string | null;
+}
+
+export interface CodingImprovementPromotionStep {
+  action: string;
+  label: string;
+  sourcePath?: string | null;
+  targetPath: string;
+  targetExists: boolean;
+  sourceHash?: string | null;
+  contentPreview?: string | null;
+}
+
+export interface CodingImprovementPromotionPlan {
+  proposal: CodingImprovementProposal;
+  targetKind: string;
+  summary: string;
+  requiresConfirmation: boolean;
+  steps: CodingImprovementPromotionStep[];
+  preview: Record<string, unknown>;
+}
+
+export interface PromoteCodingImprovementProposalResult {
+  proposal: CodingImprovementProposal;
+  plan: CodingImprovementPromotionPlan;
+  promoted: boolean;
+  artifacts: CodingImprovementActionArtifact[];
+  error?: string | null;
+}
+
 export interface CodingTrendReport {
   sessionId: string;
   projectId?: string | null;
@@ -981,8 +1052,10 @@ export interface CodingTrendReport {
   review: CodingReviewTrend;
   verification: CodingVerificationTrend;
   repairLoop: CodingRepairLoopTrend;
+  retro: CodingRetroTrend;
   failures: CodingFailureBucket[];
   recentRuns: CodingRunSummary[];
+  retros: CodingWorkflowRetro[];
   proposals: CodingImprovementProposal[];
 }
 

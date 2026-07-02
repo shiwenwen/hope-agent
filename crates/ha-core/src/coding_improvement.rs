@@ -6,9 +6,10 @@
 //!
 //! Phase 4.1 keeps the same owner-plane safety boundary and adds a
 //! proposal-to-action layer: every proposal can be previewed as a deterministic
-//! action plan, then explicitly applied into reviewable draft artifacts. The
-//! apply path never edits AGENTS/project policy or production eval fixtures in
-//! place.
+//! action plan, then explicitly applied into reviewable draft artifacts. Phase
+//! 4.2 adds terminal workflow retros and explicit draft promotion into formal
+//! eval fixtures, project guidance includes, or active managed skills. Neither
+//! apply nor promotion is implicit.
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -23,7 +24,7 @@ use crate::session::SessionDB;
 use crate::skills::SkillStatus;
 use crate::util::now_rfc3339;
 use crate::verification::VerificationStepState;
-use crate::workflow::WorkflowRunState;
+use crate::workflow::{WorkflowOp, WorkflowRun, WorkflowRunState};
 
 const DEFAULT_WINDOW_DAYS: u32 = 30;
 const MAX_WINDOW_DAYS: u32 = 180;
@@ -44,8 +45,11 @@ pub struct CodingTrendReport {
     pub review: CodingReviewTrend,
     pub verification: CodingVerificationTrend,
     pub repair_loop: CodingRepairLoopTrend,
+    pub retro: CodingRetroTrend,
     pub failures: Vec<CodingFailureBucket>,
     pub recent_runs: Vec<CodingRunSummary>,
+    #[serde(default)]
+    pub retros: Vec<CodingWorkflowRetro>,
     pub proposals: Vec<CodingImprovementProposal>,
 }
 
@@ -114,6 +118,19 @@ pub struct CodingRepairLoopTrend {
     pub success_rate: Option<f64>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingRetroTrend {
+    pub total: usize,
+    pub completed: usize,
+    pub blocked: usize,
+    pub failed: usize,
+    pub cancelled: usize,
+    pub recommendations: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_summary: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodingMetricBucket {
@@ -151,6 +168,42 @@ pub struct CodingRunSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CodingWorkflowRetro {
+    pub id: String,
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub workflow_run_id: String,
+    pub run_state: String,
+    pub summary: String,
+    #[serde(default)]
+    pub signals: Vec<CodingRetroSignal>,
+    #[serde(default)]
+    pub recommendations: Vec<CodingRetroRecommendation>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingRetroSignal {
+    pub kind: String,
+    pub label: String,
+    pub severity: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingRetroRecommendation {
+    pub kind: String,
+    pub title: String,
+    pub rationale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CodingImprovementProposal {
     pub id: String,
     pub session_id: String,
@@ -166,6 +219,8 @@ pub struct CodingImprovementProposal {
     pub fingerprint: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<CodingImprovementActionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion: Option<CodingImprovementPromotionRecord>,
     pub created_at: String,
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -224,6 +279,59 @@ pub struct ApplyCodingImprovementProposalResult {
     pub proposal: CodingImprovementProposal,
     pub plan: CodingImprovementActionPlan,
     pub applied: bool,
+    #[serde(default)]
+    pub artifacts: Vec<CodingImprovementActionArtifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingImprovementPromotionRecord {
+    pub promoted: bool,
+    #[serde(default)]
+    pub artifacts: Vec<CodingImprovementActionArtifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promoted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingImprovementPromotionPlan {
+    pub proposal: CodingImprovementProposal,
+    pub target_kind: String,
+    pub summary: String,
+    pub requires_confirmation: bool,
+    pub steps: Vec<CodingImprovementPromotionStep>,
+    #[serde(default)]
+    pub preview: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingImprovementPromotionStep {
+    pub action: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    pub target_path: String,
+    pub target_exists: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_preview: Option<String>,
+    #[serde(skip)]
+    content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromoteCodingImprovementProposalResult {
+    pub proposal: CodingImprovementProposal,
+    pub plan: CodingImprovementPromotionPlan,
+    pub promoted: bool,
     #[serde(default)]
     pub artifacts: Vec<CodingImprovementActionArtifact>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -320,14 +428,35 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             decided_at TEXT,
             apply_result_json TEXT,
             applied_at TEXT,
+            promotion_result_json TEXT,
+            promoted_at TEXT,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
             UNIQUE(session_id, fingerprint)
+        );
+
+        CREATE TABLE IF NOT EXISTS coding_workflow_retros (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            project_id TEXT,
+            workflow_run_id TEXT NOT NULL UNIQUE,
+            run_state TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            signals_json TEXT NOT NULL DEFAULT '[]',
+            recommendations_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (workflow_run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
         );
 
         CREATE INDEX IF NOT EXISTS idx_coding_improvement_session
             ON coding_improvement_proposals(session_id, status, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_coding_improvement_project
-            ON coding_improvement_proposals(project_id, status, updated_at DESC);",
+            ON coding_improvement_proposals(project_id, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_coding_workflow_retros_session
+            ON coding_workflow_retros(session_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_coding_workflow_retros_project
+            ON coding_workflow_retros(project_id, updated_at DESC);",
     )?;
     ensure_column(
         conn,
@@ -340,6 +469,18 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         "coding_improvement_proposals",
         "applied_at",
         "ALTER TABLE coding_improvement_proposals ADD COLUMN applied_at TEXT;",
+    )?;
+    ensure_column(
+        conn,
+        "coding_improvement_proposals",
+        "promotion_result_json",
+        "ALTER TABLE coding_improvement_proposals ADD COLUMN promotion_result_json TEXT;",
+    )?;
+    ensure_column(
+        conn,
+        "coding_improvement_proposals",
+        "promoted_at",
+        "ALTER TABLE coding_improvement_proposals ADD COLUMN promoted_at TEXT;",
     )?;
     Ok(())
 }
@@ -354,6 +495,25 @@ impl SessionDB {
         let mut report = self.build_coding_trend_report(&scope)?;
         report.proposals = self.list_coding_improvement_proposals_for_scope(&scope)?;
         Ok(report)
+    }
+
+    pub fn ensure_coding_workflow_retro_for_run(
+        &self,
+        run: &WorkflowRun,
+    ) -> Result<Option<CodingWorkflowRetro>> {
+        if !run.state.is_terminal() {
+            return Ok(None);
+        }
+        let meta = self
+            .get_session(&run.session_id)?
+            .ok_or_else(|| anyhow!("session not found: {}", run.session_id))?;
+        if meta.incognito {
+            return Ok(None);
+        }
+        let ops = self.list_workflow_ops(&run.id).unwrap_or_default();
+        let retro = build_workflow_retro(run, meta.project_id.clone(), &ops);
+        self.upsert_coding_workflow_retro(retro)?;
+        self.get_coding_workflow_retro_for_run(&run.id)
     }
 
     pub fn generate_coding_improvement_proposals(
@@ -405,6 +565,15 @@ impl SessionDB {
             "applied" => bail!(
                 "coding improvement proposal {proposal_id} is already applied and cannot be manually changed"
             ),
+            "promoting" => bail!(
+                "coding improvement proposal {proposal_id} is currently promoting and cannot be manually changed"
+            ),
+            "promoted" => bail!(
+                "coding improvement proposal {proposal_id} is already promoted and cannot be manually changed"
+            ),
+            "promotion_failed" => bail!(
+                "coding improvement proposal {proposal_id} has a promotion failure; retry with promote_coding_improvement_proposal"
+            ),
             "applying" => bail!(
                 "coding improvement proposal {proposal_id} is currently applying and cannot be manually changed"
             ),
@@ -416,10 +585,12 @@ impl SessionDB {
         let changed = conn.execute(
             "UPDATE coding_improvement_proposals
              SET status = ?1,
-                 updated_at = ?2,
-                 decided_at = CASE WHEN ?1 = 'draft' THEN NULL ELSE ?2 END,
-                 apply_result_json = CASE WHEN ?1 = 'draft' THEN NULL ELSE apply_result_json END,
-                 applied_at = CASE WHEN ?1 = 'draft' THEN NULL ELSE applied_at END
+                updated_at = ?2,
+                decided_at = CASE WHEN ?1 = 'draft' THEN NULL ELSE ?2 END,
+                apply_result_json = CASE WHEN ?1 = 'draft' THEN NULL ELSE apply_result_json END,
+                applied_at = CASE WHEN ?1 = 'draft' THEN NULL ELSE applied_at END,
+                promotion_result_json = CASE WHEN ?1 = 'draft' THEN NULL ELSE promotion_result_json END,
+                promoted_at = CASE WHEN ?1 = 'draft' THEN NULL ELSE promoted_at END
              WHERE id = ?3 AND status = ?4",
             params![status, now, proposal_id, current_status],
         )?;
@@ -498,6 +669,90 @@ impl SessionDB {
                     proposal,
                     plan,
                     applied: false,
+                    artifacts: Vec::new(),
+                    error: Some(message),
+                })
+            }
+        }
+    }
+
+    pub fn preview_coding_improvement_proposal_promotion(
+        &self,
+        proposal_id: &str,
+    ) -> Result<CodingImprovementPromotionPlan> {
+        let proposal = self
+            .get_coding_improvement_proposal(proposal_id)?
+            .ok_or_else(|| anyhow!("coding improvement proposal not found: {proposal_id}"))?;
+        self.build_coding_improvement_promotion_plan(proposal)
+    }
+
+    pub fn promote_coding_improvement_proposal(
+        &self,
+        proposal_id: &str,
+    ) -> Result<PromoteCodingImprovementProposalResult> {
+        let proposal = self.claim_coding_improvement_proposal_promotion(proposal_id)?;
+        let plan = match self.build_coding_improvement_promotion_plan(proposal.clone()) {
+            Ok(plan) => plan,
+            Err(err) => {
+                let message = err.to_string();
+                let record = CodingImprovementPromotionRecord {
+                    promoted: false,
+                    artifacts: Vec::new(),
+                    error: Some(message.clone()),
+                    promoted_at: None,
+                };
+                self.set_coding_improvement_promotion_result(
+                    proposal_id,
+                    "promotion_failed",
+                    &record,
+                )?;
+                bail!(message);
+            }
+        };
+        match apply_promotion_plan(&plan) {
+            Ok(artifacts) => {
+                let record = CodingImprovementPromotionRecord {
+                    promoted: true,
+                    artifacts: artifacts.clone(),
+                    error: None,
+                    promoted_at: Some(now_rfc3339()),
+                };
+                self.set_coding_improvement_promotion_result(proposal_id, "promoted", &record)?;
+                let proposal = self
+                    .get_coding_improvement_proposal(proposal_id)?
+                    .ok_or_else(|| {
+                        anyhow!("coding improvement proposal vanished after promotion")
+                    })?;
+                Ok(PromoteCodingImprovementProposalResult {
+                    proposal,
+                    plan,
+                    promoted: true,
+                    artifacts,
+                    error: None,
+                })
+            }
+            Err(err) => {
+                let message = err.to_string();
+                let record = CodingImprovementPromotionRecord {
+                    promoted: false,
+                    artifacts: Vec::new(),
+                    error: Some(message.clone()),
+                    promoted_at: None,
+                };
+                self.set_coding_improvement_promotion_result(
+                    proposal_id,
+                    "promotion_failed",
+                    &record,
+                )?;
+                let proposal = self
+                    .get_coding_improvement_proposal(proposal_id)?
+                    .ok_or_else(|| {
+                        anyhow!("coding improvement proposal vanished after promotion failure")
+                    })?;
+                Ok(PromoteCodingImprovementProposalResult {
+                    proposal,
+                    plan,
+                    promoted: false,
                     artifacts: Vec::new(),
                     error: Some(message),
                 })
@@ -620,9 +875,23 @@ impl SessionDB {
         let mut review = CodingReviewTrend::default();
         let mut verification = CodingVerificationTrend::default();
         let mut repair_loop = CodingRepairLoopTrend::default();
+        let mut retro = CodingRetroTrend::default();
         let mut failures: BTreeMap<String, CodingFailureBucket> = BTreeMap::new();
         let mut recent_runs = Vec::new();
         let mut review_categories: BTreeMap<String, usize> = BTreeMap::new();
+        let retros = self.list_coding_workflow_retros_for_scope(scope)?;
+        retro.total = retros.len();
+        retro.latest_summary = retros.first().map(|item| item.summary.clone());
+        for item in &retros {
+            retro.recommendations += item.recommendations.len();
+            match item.run_state.as_str() {
+                "completed" => retro.completed += 1,
+                "blocked" => retro.blocked += 1,
+                "failed" => retro.failed += 1,
+                "cancelled" => retro.cancelled += 1,
+                _ => {}
+            }
+        }
 
         let eval_runs = self.list_coding_eval_runs_for_scope(scope)?;
         eval.runs = eval_runs.len();
@@ -869,8 +1138,10 @@ impl SessionDB {
             review,
             verification,
             repair_loop,
+            retro,
             failures,
             recent_runs,
+            retros,
             proposals: Vec::new(),
         })
     }
@@ -926,6 +1197,86 @@ impl SessionDB {
         Ok(out)
     }
 
+    fn list_coding_workflow_retros_for_scope(
+        &self,
+        scope: &ReportScope,
+    ) -> Result<Vec<CodingWorkflowRetro>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        if let Some(project_id) = scope.project_id.as_deref() {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, project_id, workflow_run_id, run_state, summary,
+                        signals_json, recommendations_json, created_at, updated_at
+                 FROM coding_workflow_retros
+                 WHERE project_id = ?1 AND updated_at >= ?2
+                 ORDER BY updated_at DESC
+                 LIMIT 100",
+            )?;
+            let rows = stmt.query_map(params![project_id, scope.since], row_to_retro)?;
+            collect_rows(rows)
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, project_id, workflow_run_id, run_state, summary,
+                        signals_json, recommendations_json, created_at, updated_at
+                 FROM coding_workflow_retros
+                 WHERE session_id = ?1 AND updated_at >= ?2
+                 ORDER BY updated_at DESC
+                 LIMIT 100",
+            )?;
+            let rows = stmt.query_map(params![scope.session_id, scope.since], row_to_retro)?;
+            collect_rows(rows)
+        }
+    }
+
+    fn get_coding_workflow_retro_for_run(
+        &self,
+        workflow_run_id: &str,
+    ) -> Result<Option<CodingWorkflowRetro>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT id, session_id, project_id, workflow_run_id, run_state, summary,
+                    signals_json, recommendations_json, created_at, updated_at
+             FROM coding_workflow_retros
+             WHERE workflow_run_id = ?1",
+            params![workflow_run_id],
+            row_to_retro,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    fn upsert_coding_workflow_retro(&self, retro: CodingWorkflowRetro) -> Result<()> {
+        let signals_json = serde_json::to_string(&retro.signals)?;
+        let recommendations_json = serde_json::to_string(&retro.recommendations)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT INTO coding_workflow_retros (
+                id, session_id, project_id, workflow_run_id, run_state, summary,
+                signals_json, recommendations_json, created_at, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(workflow_run_id) DO UPDATE SET
+                session_id = excluded.session_id,
+                project_id = excluded.project_id,
+                run_state = excluded.run_state,
+                summary = excluded.summary,
+                signals_json = excluded.signals_json,
+                recommendations_json = excluded.recommendations_json,
+                updated_at = excluded.updated_at",
+            params![
+                retro.id,
+                retro.session_id,
+                retro.project_id,
+                retro.workflow_run_id,
+                retro.run_state,
+                retro.summary,
+                signals_json,
+                recommendations_json,
+                retro.created_at,
+                retro.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
     fn get_coding_eval_run(&self, id: &str) -> Result<Option<CodingEvalRunRecord>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(
@@ -948,6 +1299,7 @@ impl SessionDB {
         conn.query_row(
             "SELECT id, session_id, project_id, kind, status, source_type, source_id,
                     title, body, payload_json, fingerprint, apply_result_json,
+                    promotion_result_json,
                     created_at, updated_at, decided_at
              FROM coding_improvement_proposals
              WHERE id = ?1",
@@ -967,10 +1319,11 @@ impl SessionDB {
             let mut stmt = conn.prepare(
                 "SELECT id, session_id, project_id, kind, status, source_type, source_id,
                         title, body, payload_json, fingerprint, apply_result_json,
+                        promotion_result_json,
                         created_at, updated_at, decided_at
                  FROM coding_improvement_proposals
                  WHERE project_id = ?1
-                 ORDER BY CASE status WHEN 'draft' THEN 0 ELSE 1 END, updated_at DESC
+                 ORDER BY CASE status WHEN 'draft' THEN 0 WHEN 'applied' THEN 1 WHEN 'promotion_failed' THEN 2 ELSE 3 END, updated_at DESC
                  LIMIT 100",
             )?;
             let rows = stmt.query_map(params![project_id], row_to_proposal)?;
@@ -979,10 +1332,11 @@ impl SessionDB {
             let mut stmt = conn.prepare(
                 "SELECT id, session_id, project_id, kind, status, source_type, source_id,
                         title, body, payload_json, fingerprint, apply_result_json,
+                        promotion_result_json,
                         created_at, updated_at, decided_at
                  FROM coding_improvement_proposals
                  WHERE session_id = ?1
-                 ORDER BY CASE status WHEN 'draft' THEN 0 ELSE 1 END, updated_at DESC
+                 ORDER BY CASE status WHEN 'draft' THEN 0 WHEN 'applied' THEN 1 WHEN 'promotion_failed' THEN 2 ELSE 3 END, updated_at DESC
                  LIMIT 100",
             )?;
             let rows = stmt.query_map(params![scope.session_id], row_to_proposal)?;
@@ -1050,6 +1404,24 @@ impl SessionDB {
         build_action_plan_for_proposal(proposal, &base_dir)
     }
 
+    fn build_coding_improvement_promotion_plan(
+        &self,
+        proposal: CodingImprovementProposal,
+    ) -> Result<CodingImprovementPromotionPlan> {
+        let meta = self
+            .get_session(&proposal.session_id)?
+            .ok_or_else(|| anyhow!("session not found: {}", proposal.session_id))?;
+        if meta.incognito {
+            bail!(
+                "Cannot promote coding improvement proposal for incognito session {}",
+                proposal.session_id
+            );
+        }
+        let workspace_root =
+            crate::session::effective_working_dir_for_meta(&meta).map(PathBuf::from);
+        build_promotion_plan_for_proposal(proposal, workspace_root.as_deref())
+    }
+
     fn claim_coding_improvement_proposal_apply(
         &self,
         proposal_id: &str,
@@ -1081,6 +1453,7 @@ impl SessionDB {
         conn.query_row(
             "SELECT id, session_id, project_id, kind, status, source_type, source_id,
                     title, body, payload_json, fingerprint, apply_result_json,
+                    promotion_result_json,
                     created_at, updated_at, decided_at
              FROM coding_improvement_proposals
              WHERE id = ?1",
@@ -1089,6 +1462,48 @@ impl SessionDB {
         )
         .optional()?
         .ok_or_else(|| anyhow!("coding improvement proposal vanished after claim"))
+    }
+
+    fn claim_coding_improvement_proposal_promotion(
+        &self,
+        proposal_id: &str,
+    ) -> Result<CodingImprovementProposal> {
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE coding_improvement_proposals
+             SET status = 'promoting',
+                 updated_at = ?1
+             WHERE id = ?2 AND status IN ('applied','promotion_failed')",
+            params![now, proposal_id],
+        )?;
+        if changed == 0 {
+            let status = conn
+                .query_row(
+                    "SELECT status FROM coding_improvement_proposals WHERE id = ?1",
+                    params![proposal_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            match status {
+                Some(status) => bail!(
+                    "coding improvement proposal {proposal_id} is not ready for promotion (status: {status})"
+                ),
+                None => bail!("coding improvement proposal not found: {proposal_id}"),
+            }
+        }
+        conn.query_row(
+            "SELECT id, session_id, project_id, kind, status, source_type, source_id,
+                    title, body, payload_json, fingerprint, apply_result_json,
+                    promotion_result_json,
+                    created_at, updated_at, decided_at
+             FROM coding_improvement_proposals
+             WHERE id = ?1",
+            params![proposal_id],
+            row_to_proposal,
+        )
+        .optional()?
+        .ok_or_else(|| anyhow!("coding improvement proposal vanished after promotion claim"))
     }
 
     fn set_coding_improvement_apply_result(
@@ -1116,6 +1531,31 @@ impl SessionDB {
         }
         Ok(())
     }
+
+    fn set_coding_improvement_promotion_result(
+        &self,
+        proposal_id: &str,
+        status: &str,
+        record: &CodingImprovementPromotionRecord,
+    ) -> Result<()> {
+        let now = now_rfc3339();
+        let promoted_at = record.promoted_at.clone();
+        let promotion_json = serde_json::to_string(record)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE coding_improvement_proposals
+             SET status = ?1,
+                 updated_at = ?2,
+                 promotion_result_json = ?3,
+                 promoted_at = ?4
+             WHERE id = ?5 AND status = 'promoting'",
+            params![status, now, promotion_json, promoted_at, proposal_id],
+        )?;
+        if changed == 0 {
+            bail!("coding improvement proposal {proposal_id} is no longer promoting");
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -1140,6 +1580,36 @@ struct NewProposal {
 
 fn build_proposal_candidates(report: &CodingTrendReport) -> Vec<NewProposal> {
     let mut out = Vec::new();
+    for retro in report.retros.iter().take(5) {
+        for recommendation in retro.recommendations.iter().take(2) {
+            let kind = match recommendation.kind.as_str() {
+                "eval_candidate" => "eval_candidate",
+                "workflow_template" => "workflow_template",
+                "skill_candidate" => "skill_candidate",
+                _ => "guidance_candidate",
+            };
+            out.push(NewProposal {
+                kind: kind.to_string(),
+                source_type: "workflow_retro".to_string(),
+                source_id: retro.id.clone(),
+                title: recommendation.title.clone(),
+                body: recommendation.rationale.clone(),
+                payload: json!({
+                    "proposalType": kind,
+                    "retro": retro,
+                    "recommendation": recommendation,
+                    "scope": report.scope,
+                    "projectId": report.project_id,
+                }),
+                fingerprint: format!(
+                    "retro:{}:{}:{}",
+                    report.scope_key(),
+                    retro.workflow_run_id,
+                    recommendation.kind
+                ),
+            });
+        }
+    }
     for failure in report.failures.iter().take(3) {
         out.push(NewProposal {
             kind: "eval_candidate".to_string(),
@@ -1397,6 +1867,161 @@ fn build_skill_candidate_action_plan(
     })
 }
 
+fn build_promotion_plan_for_proposal(
+    proposal: CodingImprovementProposal,
+    workspace_root: Option<&Path>,
+) -> Result<CodingImprovementPromotionPlan> {
+    match proposal.kind.as_str() {
+        "eval_candidate" => build_file_promotion_plan(
+            proposal,
+            workspace_root,
+            "eval_candidate",
+            "Promote eval candidate into the coding eval fixture suite.",
+            "Promote eval fixture",
+            |root, source| {
+                Ok(root
+                    .join("crates/ha-core/tests/fixtures/coding_eval")
+                    .join(source_file_name(source)?))
+            },
+            None,
+        ),
+        "workflow_template" => build_file_promotion_plan(
+            proposal,
+            workspace_root,
+            "workflow_template",
+            "Promote workflow template into project guidance and link it from AGENTS.md.",
+            "Promote workflow template",
+            |root, source| {
+                Ok(root
+                    .join(".hope-agent/coding-improvement/promoted/workflows")
+                    .join(source_file_name(source)?))
+            },
+            Some("Reusable workflow template"),
+        ),
+        "guidance_candidate" => build_file_promotion_plan(
+            proposal,
+            workspace_root,
+            "guidance_candidate",
+            "Promote guidance into project rules and link it from AGENTS.md.",
+            "Promote project guidance",
+            |root, source| {
+                Ok(root
+                    .join(".hope-agent/coding-improvement/promoted/guidance")
+                    .join(source_file_name(source)?))
+            },
+            Some("Coding guidance"),
+        ),
+        "skill_candidate" => build_skill_promotion_plan(proposal),
+        other => bail!("unsupported coding improvement proposal kind: {other}"),
+    }
+}
+
+fn build_file_promotion_plan(
+    proposal: CodingImprovementProposal,
+    workspace_root: Option<&Path>,
+    target_kind: &str,
+    summary: &str,
+    label: &str,
+    target_path: impl FnOnce(&Path, &Path) -> Result<PathBuf>,
+    agents_include_label: Option<&str>,
+) -> Result<CodingImprovementPromotionPlan> {
+    ensure_proposal_promotable(&proposal)?;
+    let root = workspace_root.ok_or_else(|| {
+        anyhow!(
+            "promotion for {} requires a session or project working directory",
+            proposal.kind
+        )
+    })?;
+    let source = primary_action_artifact_path(&proposal)?;
+    let content = std::fs::read_to_string(&source).map_err(|err| {
+        anyhow!(
+            "failed to read draft artifact {}: {}",
+            source.display(),
+            err
+        )
+    })?;
+    let target = target_path(root, &source)?;
+    let mut steps = vec![CodingImprovementPromotionStep {
+        action: "create_promoted_file".to_string(),
+        label: label.to_string(),
+        source_path: Some(source.to_string_lossy().to_string()),
+        target_path: target.to_string_lossy().to_string(),
+        target_exists: target.exists(),
+        source_hash: Some(short_hash(&content)),
+        content_preview: Some(truncate_preview(&content)),
+        content: Some(content),
+    }];
+
+    if let Some(include_label) = agents_include_label {
+        let agents_path = root.join("AGENTS.md");
+        let relative = target
+            .strip_prefix(root)
+            .unwrap_or(target.as_path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        let include_line = format!("- {include_label}: @./{relative}");
+        let current = std::fs::read_to_string(&agents_path).unwrap_or_default();
+        let updated = append_agents_managed_include(&current, &include_line);
+        if updated != current {
+            steps.push(CodingImprovementPromotionStep {
+                action: "update_agents_include".to_string(),
+                label: "Link from AGENTS.md".to_string(),
+                source_path: None,
+                target_path: agents_path.to_string_lossy().to_string(),
+                target_exists: agents_path.exists(),
+                source_hash: Some(short_hash(&current)),
+                content_preview: Some(truncate_preview(&updated)),
+                content: Some(updated),
+            });
+        }
+    }
+
+    Ok(CodingImprovementPromotionPlan {
+        proposal,
+        target_kind: target_kind.to_string(),
+        summary: summary.to_string(),
+        requires_confirmation: true,
+        steps,
+        preview: json!({
+            "workspaceRoot": root.to_string_lossy(),
+            "promotionKind": target_kind,
+        }),
+    })
+}
+
+fn build_skill_promotion_plan(
+    proposal: CodingImprovementProposal,
+) -> Result<CodingImprovementPromotionPlan> {
+    ensure_proposal_promotable(&proposal)?;
+    let source = primary_action_artifact_path(&proposal)?;
+    let skill_id = source
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow!("cannot infer skill id from {}", source.display()))?
+        .to_string();
+    let content = std::fs::read_to_string(&source)
+        .map_err(|err| anyhow!("failed to read draft skill {}: {}", source.display(), err))?;
+    Ok(CodingImprovementPromotionPlan {
+        proposal,
+        target_kind: "skill_candidate".to_string(),
+        summary: "Activate the managed draft skill so it becomes available to the skill catalog."
+            .to_string(),
+        requires_confirmation: true,
+        steps: vec![CodingImprovementPromotionStep {
+            action: "activate_managed_skill".to_string(),
+            label: "Activate managed skill".to_string(),
+            source_path: Some(source.to_string_lossy().to_string()),
+            target_path: source.to_string_lossy().to_string(),
+            target_exists: source.exists(),
+            source_hash: Some(short_hash(&content)),
+            content_preview: Some(truncate_preview(&content)),
+            content: Some(skill_id.clone()),
+        }],
+        preview: json!({ "skillId": skill_id }),
+    })
+}
+
 fn single_file_plan(
     proposal: CodingImprovementProposal,
     target_kind: &str,
@@ -1510,6 +2135,144 @@ fn apply_skill_candidate_plan(
         path: path.to_string_lossy().to_string(),
         content_hash: Some(short_hash(body)),
     }])
+}
+
+fn apply_promotion_plan(
+    plan: &CodingImprovementPromotionPlan,
+) -> Result<Vec<CodingImprovementActionArtifact>> {
+    let mut artifacts = Vec::new();
+    for step in &plan.steps {
+        match step.action.as_str() {
+            "create_promoted_file" => {
+                let Some(content) = step.content.as_deref().or(step.content_preview.as_deref())
+                else {
+                    bail!("missing promotion content for {}", step.target_path);
+                };
+                if step.content.is_none() && content.ends_with("[truncated]") {
+                    bail!(
+                        "refusing to promote truncated preview for {}",
+                        step.target_path
+                    );
+                }
+                let path = PathBuf::from(&step.target_path);
+                if path.exists() {
+                    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+                    if existing != content {
+                        bail!("promotion target already exists: {}", path.display());
+                    }
+                    artifacts.push(CodingImprovementActionArtifact {
+                        kind: "existing_promoted_file".to_string(),
+                        path: path.to_string_lossy().to_string(),
+                        content_hash: Some(short_hash(content)),
+                    });
+                    continue;
+                }
+                write_new_file_no_clobber(&path, content)?;
+                artifacts.push(CodingImprovementActionArtifact {
+                    kind: step.action.clone(),
+                    path: path.to_string_lossy().to_string(),
+                    content_hash: Some(short_hash(content)),
+                });
+            }
+            "update_agents_include" => {
+                let content = step
+                    .content
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("missing AGENTS.md promotion content"))?;
+                let path = PathBuf::from(&step.target_path);
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                crate::platform::write_atomic(&path, content.as_bytes())?;
+                artifacts.push(CodingImprovementActionArtifact {
+                    kind: step.action.clone(),
+                    path: path.to_string_lossy().to_string(),
+                    content_hash: Some(short_hash(content)),
+                });
+            }
+            "activate_managed_skill" => {
+                let skill_id = step
+                    .content
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("missing managed skill id"))?;
+                crate::skills::author::set_skill_status(skill_id, SkillStatus::Active)?;
+                artifacts.push(CodingImprovementActionArtifact {
+                    kind: step.action.clone(),
+                    path: step.target_path.clone(),
+                    content_hash: step.source_hash.clone(),
+                });
+            }
+            other => bail!("unsupported coding improvement promotion action: {other}"),
+        }
+    }
+    Ok(artifacts)
+}
+
+fn ensure_proposal_promotable(proposal: &CodingImprovementProposal) -> Result<()> {
+    match proposal.status.as_str() {
+        "applied" | "promotion_failed" | "promoting" | "promoted" => {}
+        other => bail!(
+            "coding improvement proposal {} is not applied and cannot be promoted (status: {other})",
+            proposal.id
+        ),
+    }
+    let action = proposal
+        .action
+        .as_ref()
+        .ok_or_else(|| anyhow!("proposal {} has no applied action record", proposal.id))?;
+    if !action.applied || action.artifacts.is_empty() {
+        bail!("proposal {} has no successful draft artifact", proposal.id);
+    }
+    Ok(())
+}
+
+fn primary_action_artifact_path(proposal: &CodingImprovementProposal) -> Result<PathBuf> {
+    let action = proposal
+        .action
+        .as_ref()
+        .ok_or_else(|| anyhow!("proposal {} has no action record", proposal.id))?;
+    let artifact = action
+        .artifacts
+        .first()
+        .ok_or_else(|| anyhow!("proposal {} has no action artifacts", proposal.id))?;
+    Ok(PathBuf::from(&artifact.path))
+}
+
+fn source_file_name(source: &Path) -> Result<&std::ffi::OsStr> {
+    source
+        .file_name()
+        .ok_or_else(|| anyhow!("draft artifact has no file name: {}", source.display()))
+}
+
+fn append_agents_managed_include(current: &str, include_line: &str) -> String {
+    if current.lines().any(|line| line.trim() == include_line) {
+        return current.to_string();
+    }
+    const START: &str = "<!-- hope-agent-coding-improvement:start -->";
+    const END: &str = "<!-- hope-agent-coding-improvement:end -->";
+    if let (Some(_start), Some(end)) = (current.find(START), current.find(END)) {
+        let mut out = String::with_capacity(current.len() + include_line.len() + 2);
+        out.push_str(&current[..end]);
+        if !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(include_line);
+        out.push('\n');
+        out.push_str(&current[end..]);
+        return out;
+    }
+    let mut out = current.trim_end().to_string();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(START);
+    out.push('\n');
+    out.push_str("# Hope Agent Coding Improvements\n\n");
+    out.push_str(include_line);
+    out.push('\n');
+    out.push_str(END);
+    out.push('\n');
+    out
 }
 
 fn write_new_file_no_clobber(path: &Path, content: &str) -> Result<()> {
@@ -1708,6 +2471,9 @@ fn normalize_manual_proposal_status(status: &str) -> Result<&'static str> {
             bail!("use apply_coding_improvement_proposal to apply a proposal")
         }
         "applying" => bail!("applying status is managed by apply_coding_improvement_proposal"),
+        "promoting" | "promoted" | "promotion_failed" => {
+            bail!("promotion status is managed by promote_coding_improvement_proposal")
+        }
         "failed" => bail!("failed status is reserved for apply errors"),
         other => bail!("unsupported coding improvement proposal status: {other}"),
     }
@@ -1770,6 +2536,7 @@ fn row_to_eval_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodingEvalRunRec
 fn row_to_proposal(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodingImprovementProposal> {
     let payload_json: String = row.get(9)?;
     let action_json: Option<String> = row.get(11)?;
+    let promotion_json: Option<String> = row.get(12)?;
     Ok(CodingImprovementProposal {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -1785,9 +2552,29 @@ fn row_to_proposal(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodingImprovemen
         action: action_json
             .as_deref()
             .and_then(|raw| serde_json::from_str(raw).ok()),
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
-        decided_at: row.get(14)?,
+        promotion: promotion_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok()),
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        decided_at: row.get(15)?,
+    })
+}
+
+fn row_to_retro(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodingWorkflowRetro> {
+    let signals_json: String = row.get(6)?;
+    let recommendations_json: String = row.get(7)?;
+    Ok(CodingWorkflowRetro {
+        id: row.get(0)?,
+        session_id: row.get(1)?,
+        project_id: row.get(2)?,
+        workflow_run_id: row.get(3)?,
+        run_state: row.get(4)?,
+        summary: row.get(5)?,
+        signals: serde_json::from_str(&signals_json).unwrap_or_default(),
+        recommendations: serde_json::from_str(&recommendations_json).unwrap_or_default(),
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -1806,6 +2593,150 @@ fn count_zero_step_verification_runs(db: &SessionDB, scope: &ReportScope) -> Res
         }
     }
     Ok(count)
+}
+
+fn build_workflow_retro(
+    run: &WorkflowRun,
+    project_id: Option<String>,
+    ops: &[WorkflowOp],
+) -> CodingWorkflowRetro {
+    let failed_ops = ops
+        .iter()
+        .filter(|op| op.state.as_str() == "failed")
+        .count();
+    let completed_ops = ops
+        .iter()
+        .filter(|op| op.state.as_str() == "completed")
+        .count();
+    let has_review = ops.iter().any(|op| op.op_type == "review");
+    let has_verify = ops
+        .iter()
+        .any(|op| op.op_type == "verify" || op.op_type == "validate");
+    let has_diff = ops.iter().any(|op| op.op_type == "diff");
+    let validation_failed = ops
+        .iter()
+        .any(|op| op.op_type == "validate" && op.state.as_str() == "failed")
+        || ops.iter().any(|op| {
+            op.op_type == "validate"
+                && op
+                    .output
+                    .as_ref()
+                    .and_then(|value| value.get("ok"))
+                    .and_then(Value::as_bool)
+                    == Some(false)
+        });
+    let mut signals = vec![CodingRetroSignal {
+        kind: "workflow_terminal".to_string(),
+        label: format!("Workflow ended as {}", run.state.as_str()),
+        severity: if run.state == WorkflowRunState::Completed {
+            "info"
+        } else {
+            "warn"
+        }
+        .to_string(),
+        detail: run.blocked_reason.clone(),
+    }];
+    if failed_ops > 0 {
+        signals.push(CodingRetroSignal {
+            kind: "failed_ops".to_string(),
+            label: format!("{failed_ops} workflow op(s) failed"),
+            severity: "high".to_string(),
+            detail: None,
+        });
+    }
+    if validation_failed {
+        signals.push(CodingRetroSignal {
+            kind: "validation_failed".to_string(),
+            label: "Validation failed inside workflow".to_string(),
+            severity: "high".to_string(),
+            detail: None,
+        });
+    }
+    if has_review {
+        signals.push(CodingRetroSignal {
+            kind: "review_used".to_string(),
+            label: "Review step was part of the run".to_string(),
+            severity: "info".to_string(),
+            detail: None,
+        });
+    }
+    if has_verify {
+        signals.push(CodingRetroSignal {
+            kind: "verification_used".to_string(),
+            label: "Verification step was part of the run".to_string(),
+            severity: "info".to_string(),
+            detail: None,
+        });
+    }
+
+    let mut recommendations = Vec::new();
+    match run.state {
+        WorkflowRunState::Completed => {
+            if failed_ops == 0 && has_review && has_verify && has_diff {
+                recommendations.push(CodingRetroRecommendation {
+                    kind: "workflow_template".to_string(),
+                    title: "Consider promoting this successful workflow shape".to_string(),
+                    rationale: "The run completed with review, verification, and diff evidence."
+                        .to_string(),
+                });
+            }
+            if !has_verify {
+                recommendations.push(CodingRetroRecommendation {
+                    kind: "guidance_candidate".to_string(),
+                    title: "Add a verification checkpoint".to_string(),
+                    rationale: "The workflow completed without an explicit verify/validate step."
+                        .to_string(),
+                });
+            }
+        }
+        WorkflowRunState::Blocked | WorkflowRunState::Failed => {
+            recommendations.push(CodingRetroRecommendation {
+                kind: "eval_candidate".to_string(),
+                title: "Capture this terminal failure as deterministic eval coverage".to_string(),
+                rationale: run.blocked_reason.clone().unwrap_or_else(|| {
+                    "The workflow reached a non-success terminal state.".to_string()
+                }),
+            });
+            recommendations.push(CodingRetroRecommendation {
+                kind: "guidance_candidate".to_string(),
+                title: "Tighten the workflow playbook for this failure mode".to_string(),
+                rationale:
+                    "A recurring blocker should become concrete project guidance before automation."
+                        .to_string(),
+            });
+        }
+        WorkflowRunState::Cancelled => {
+            recommendations.push(CodingRetroRecommendation {
+                kind: "workflow_policy".to_string(),
+                title: "Clarify stop or cancellation criteria".to_string(),
+                rationale:
+                    "Cancelled runs are useful signals when long-task expectations were unclear."
+                        .to_string(),
+            });
+        }
+        _ => {}
+    }
+
+    let summary = format!(
+        "{} workflow {} after {} completed op(s) and {} failed op(s).",
+        run.execution_mode,
+        run.state.as_str(),
+        completed_ops,
+        failed_ops
+    );
+    let now = now_rfc3339();
+    CodingWorkflowRetro {
+        id: format!("cwr_{}", uuid::Uuid::new_v4().simple()),
+        session_id: run.session_id.clone(),
+        project_id,
+        workflow_run_id: run.id.clone(),
+        run_state: run.state.as_str().to_string(),
+        summary,
+        signals,
+        recommendations,
+        created_at: run.completed_at.clone().unwrap_or_else(|| now.clone()),
+        updated_at: now,
+    }
 }
 
 #[cfg(test)]
@@ -2075,6 +3006,60 @@ mod tests {
             .expect("proposal");
         assert_eq!(stored.status, "applied");
         assert!(stored.action.as_ref().is_some_and(|action| action.applied));
+    }
+
+    #[test]
+    fn promote_eval_candidate_refuses_existing_formal_fixture_without_overwrite() {
+        let (dir, db) = test_db();
+        let workspace = dir.path().join("workspace");
+        std::fs::create_dir_all(&workspace).unwrap();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+            .unwrap();
+        db.record_coding_eval_run(RecordCodingEvalRunInput {
+            session_id: Some(session.id.clone()),
+            project_id: None,
+            suite: "coding_control_plane".to_string(),
+            name: "existing_target".to_string(),
+            status: "failed".to_string(),
+            metrics: json!({}),
+            source_type: Some("test".to_string()),
+            source_id: Some("existing_target".to_string()),
+        })
+        .unwrap();
+
+        let generated = db
+            .generate_coding_improvement_proposals(&session.id, Some(30))
+            .unwrap();
+        let proposal = generated
+            .proposals
+            .iter()
+            .find(|proposal| proposal.kind == "eval_candidate")
+            .expect("eval candidate proposal");
+        let applied = db.apply_coding_improvement_proposal(&proposal.id).unwrap();
+        assert!(applied.applied);
+        let draft_path = std::path::PathBuf::from(&applied.artifacts[0].path);
+        let target = workspace
+            .join("crates/ha-core/tests/fixtures/coding_eval")
+            .join(draft_path.file_name().unwrap());
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, "existing fixture").unwrap();
+
+        let result = db
+            .promote_coding_improvement_proposal(&proposal.id)
+            .unwrap();
+        assert!(!result.promoted);
+        assert_eq!(result.proposal.status, "promotion_failed");
+        assert!(result
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("promotion target already exists")));
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "existing fixture"
+        );
     }
 
     #[test]

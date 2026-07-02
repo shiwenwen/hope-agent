@@ -1,7 +1,8 @@
 use crate::commands::CmdError;
 use ha_core::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingEvalRunRecord, CodingImprovementActionPlan,
-    CodingImprovementProposal, CodingTrendReport, GenerateCodingImprovementProposalsResult,
+    CodingImprovementPromotionPlan, CodingImprovementProposal, CodingTrendReport,
+    GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
     RecordCodingEvalRunInput,
 };
 
@@ -71,6 +72,28 @@ pub async fn apply_coding_improvement_proposal(
     app_state
         .session_db
         .apply_coding_improvement_proposal(&proposal_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn preview_coding_improvement_proposal_promotion(
+    proposal_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<CodingImprovementPromotionPlan, CmdError> {
+    app_state
+        .session_db
+        .preview_coding_improvement_proposal_promotion(&proposal_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn promote_coding_improvement_proposal(
+    proposal_id: String,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<PromoteCodingImprovementProposalResult, CmdError> {
+    app_state
+        .session_db
+        .promote_coding_improvement_proposal(&proposal_id)
         .map_err(Into::into)
 }
 

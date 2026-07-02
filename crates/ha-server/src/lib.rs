@@ -1405,7 +1405,7 @@ fn build_router_with_cors(
             "/review-findings/{id}/status",
             post(routes::review::update_review_finding_status),
         )
-        // Coding trend report + improvement proposals (Phase 3.11)
+        // Coding trend report, improvement proposals, and promotion loop (Phase 3.11-4.2)
         .route(
             "/sessions/{sid}/coding-trend",
             get(routes::coding_improvement::get_coding_trend_report),
@@ -1426,6 +1426,14 @@ fn build_router_with_cors(
         .route(
             "/coding-improvement/proposals/{id}/apply",
             post(routes::coding_improvement::apply_coding_improvement_proposal),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/promotion-preview",
+            get(routes::coding_improvement::preview_coding_improvement_proposal_promotion),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/promote",
+            post(routes::coding_improvement::promote_coding_improvement_proposal),
         )
         .route(
             "/coding-improvement/eval-runs",

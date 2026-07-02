@@ -429,6 +429,17 @@ impl SessionDB {
                     let _ = self.evaluate_goal(goal_id);
                 }
             }
+            if let Ok(Some(retro)) = self.ensure_coding_workflow_retro_for_run(&run) {
+                let _ = self.append_workflow_event(
+                    &run.id,
+                    "coding_retro_recorded",
+                    json!({
+                        "retroId": retro.id,
+                        "summary": retro.summary,
+                        "recommendations": retro.recommendations,
+                    }),
+                );
+            }
         }
         Ok(run)
     }

@@ -4,9 +4,11 @@ import { getTransport } from "@/lib/transport-provider"
 import type {
   ApplyCodingImprovementProposalResult,
   CodingImprovementActionPlan,
+  CodingImprovementPromotionPlan,
   CodingImprovementProposal,
   CodingTrendReport,
   GenerateCodingImprovementProposalsResult,
+  PromoteCodingImprovementProposalResult,
 } from "@/lib/transport"
 
 export interface CodingTrendReportState {
@@ -16,7 +18,10 @@ export interface CodingTrendReportState {
   updatingProposalId: string | null
   previewingProposalId: string | null
   applyingProposalId: string | null
+  previewingPromotionId: string | null
+  promotingProposalId: string | null
   actionPlan: CodingImprovementActionPlan | null
+  promotionPlan: CodingImprovementPromotionPlan | null
   error: string | null
   refresh: () => void
   generateProposals: () => Promise<GenerateCodingImprovementProposalsResult | null>
@@ -26,6 +31,8 @@ export interface CodingTrendReportState {
   ) => Promise<CodingImprovementProposal | null>
   previewProposalAction: (proposalId: string) => Promise<CodingImprovementActionPlan | null>
   applyProposal: (proposalId: string) => Promise<ApplyCodingImprovementProposalResult | null>
+  previewProposalPromotion: (proposalId: string) => Promise<CodingImprovementPromotionPlan | null>
+  promoteProposal: (proposalId: string) => Promise<PromoteCodingImprovementProposalResult | null>
 }
 
 const CODING_TREND_WINDOW_DAYS = 30
@@ -48,7 +55,10 @@ export function useCodingTrendReport(
   const [updatingProposalId, setUpdatingProposalId] = useState<string | null>(null)
   const [previewingProposalId, setPreviewingProposalId] = useState<string | null>(null)
   const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null)
+  const [previewingPromotionId, setPreviewingPromotionId] = useState<string | null>(null)
+  const [promotingProposalId, setPromotingProposalId] = useState<string | null>(null)
   const [actionPlan, setActionPlan] = useState<CodingImprovementActionPlan | null>(null)
+  const [promotionPlan, setPromotionPlan] = useState<CodingImprovementPromotionPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
   const reqRef = useRef(0)
   const eventRefreshTimerRef = useRef<number | null>(null)
@@ -58,6 +68,7 @@ export function useCodingTrendReport(
       reqRef.current += 1
       setReport(null)
       setActionPlan(null)
+      setPromotionPlan(null)
       setLoading(false)
       setError(null)
       return
@@ -241,6 +252,55 @@ export function useCodingTrendReport(
     [disabled, fetchReport, incognito, sessionId],
   )
 
+  const previewProposalPromotion = useCallback(
+    async (proposalId: string) => {
+      if (!sessionId || disabled || incognito) return null
+      setPreviewingPromotionId(proposalId)
+      setError(null)
+      try {
+        const plan = await getTransport().call<CodingImprovementPromotionPlan>(
+          "preview_coding_improvement_proposal_promotion",
+          { proposalId },
+        )
+        setPromotionPlan(plan)
+        return plan
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "useCodingTrendReport", "Failed to preview improvement promotion", e)
+        setError(message)
+        return null
+      } finally {
+        setPreviewingPromotionId(null)
+      }
+    },
+    [disabled, incognito, sessionId],
+  )
+
+  const promoteProposal = useCallback(
+    async (proposalId: string) => {
+      if (!sessionId || disabled || incognito) return null
+      setPromotingProposalId(proposalId)
+      setError(null)
+      try {
+        const result = await getTransport().call<PromoteCodingImprovementProposalResult>(
+          "promote_coding_improvement_proposal",
+          { proposalId },
+        )
+        setPromotionPlan(result.plan)
+        fetchReport()
+        return result
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "useCodingTrendReport", "Failed to promote improvement proposal", e)
+        setError(message)
+        return null
+      } finally {
+        setPromotingProposalId(null)
+      }
+    },
+    [disabled, fetchReport, incognito, sessionId],
+  )
+
   return {
     report,
     loading,
@@ -248,12 +308,17 @@ export function useCodingTrendReport(
     updatingProposalId,
     previewingProposalId,
     applyingProposalId,
+    previewingPromotionId,
+    promotingProposalId,
     actionPlan,
+    promotionPlan,
     error,
     refresh: fetchReport,
     generateProposals,
     updateProposalStatus,
     previewProposalAction,
     applyProposal,
+    previewProposalPromotion,
+    promoteProposal,
   }
 }

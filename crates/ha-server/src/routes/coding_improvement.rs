@@ -2,7 +2,8 @@ use axum::extract::{Path, Query};
 use axum::Json;
 use ha_core::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingEvalRunRecord, CodingImprovementActionPlan,
-    CodingImprovementProposal, CodingTrendReport, GenerateCodingImprovementProposalsResult,
+    CodingImprovementPromotionPlan, CodingImprovementProposal, CodingTrendReport,
+    GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
     RecordCodingEvalRunInput,
 };
 use serde::Deserialize;
@@ -85,6 +86,24 @@ pub async fn apply_coding_improvement_proposal(
 ) -> Result<Json<ApplyCodingImprovementProposalResult>, AppError> {
     session_db()?
         .apply_coding_improvement_proposal(&proposal_id)
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+pub async fn preview_coding_improvement_proposal_promotion(
+    Path(proposal_id): Path<String>,
+) -> Result<Json<CodingImprovementPromotionPlan>, AppError> {
+    session_db()?
+        .preview_coding_improvement_proposal_promotion(&proposal_id)
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+pub async fn promote_coding_improvement_proposal(
+    Path(proposal_id): Path<String>,
+) -> Result<Json<PromoteCodingImprovementProposalResult>, AppError> {
+    session_db()?
+        .promote_coding_improvement_proposal(&proposal_id)
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))
 }
