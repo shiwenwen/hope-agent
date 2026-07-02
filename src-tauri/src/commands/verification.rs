@@ -29,6 +29,7 @@ pub async fn plan_smart_verification(
     scope: Option<String>,
     goal_id: Option<String>,
     max_commands: Option<usize>,
+    focus_paths: Option<Vec<String>>,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<VerificationRunSnapshot, CmdError> {
     ha_core::verification::plan_verification_for_session(
@@ -38,6 +39,7 @@ pub async fn plan_smart_verification(
             scope,
             goal_id,
             max_commands,
+            focus_paths: focus_paths.unwrap_or_default(),
         },
     )
     .await
@@ -50,6 +52,7 @@ pub async fn run_smart_verification(
     scope: Option<String>,
     goal_id: Option<String>,
     max_commands: Option<usize>,
+    focus_paths: Option<Vec<String>>,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<VerificationRunSnapshot, CmdError> {
     ha_core::verification::run_verification_for_session(
@@ -59,6 +62,7 @@ pub async fn run_smart_verification(
             scope,
             goal_id,
             max_commands,
+            focus_paths: focus_paths.unwrap_or_default(),
         },
     )
     .await

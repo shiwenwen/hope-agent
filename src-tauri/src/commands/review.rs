@@ -32,6 +32,7 @@ pub async fn run_code_review(
     base_ref: Option<String>,
     goal_id: Option<String>,
     profiles: Option<Vec<String>>,
+    focus_paths: Option<Vec<String>>,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<ReviewRunSnapshot, CmdError> {
     ha_core::review::run_review_for_session(
@@ -42,6 +43,7 @@ pub async fn run_code_review(
             base_ref,
             goal_id,
             profiles: profiles.unwrap_or_default(),
+            focus_paths: focus_paths.unwrap_or_default(),
         },
     )
     .await

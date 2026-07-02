@@ -219,6 +219,8 @@ pub struct RunReviewInput {
     pub goal_id: Option<String>,
     #[serde(default)]
     pub profiles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub focus_paths: Vec<String>,
 }
 
 struct CandidateFinding {
@@ -237,6 +239,7 @@ struct ReviewContext {
     changed: Vec<ChangedFile>,
     diagnostics: Vec<LspDiagnostic>,
     workspace_root: Option<String>,
+    focus_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -765,7 +768,7 @@ pub async fn run_review_for_session(
     input: RunReviewInput,
 ) -> Result<ReviewRunSnapshot> {
     let run = db.create_review_run(&input, &session_id)?;
-    let result = run_review_inner(db.clone(), &session_id).await;
+    let result = run_review_inner(db.clone(), &session_id, &input).await;
     match result {
         Ok((ctx, mut candidates)) => {
             let candidate_total = candidates.len();
@@ -790,25 +793,40 @@ pub async fn run_review_for_session(
 async fn run_review_inner(
     db: Arc<SessionDB>,
     session_id: &str,
+    input: &RunReviewInput,
 ) -> Result<(ReviewContext, Vec<CandidateFinding>)> {
+    let focus = FocusFilter::from_paths(&input.focus_paths);
     let diff = {
         let db = db.clone();
         let sid = session_id.to_string();
         tokio::task::spawn_blocking(move || load_session_git_diff(&db, &sid)).await??
     };
-    let diagnostics = crate::lsp::diagnostics_for_session(&db, session_id)
+    let mut diagnostics = crate::lsp::diagnostics_for_session(&db, session_id)
         .await
         .map(|snapshot| snapshot.diagnostics)
         .unwrap_or_default();
+    if focus.is_active() {
+        diagnostics.retain(|diagnostic| {
+            let path = diagnostic
+                .path
+                .as_deref()
+                .unwrap_or(diagnostic.uri.as_str());
+            focus.matches(path)
+        });
+    }
     let workspace_root = db
         .get_session(session_id)?
         .and_then(|meta| effective_working_dir_for_meta(&meta))
         .and_then(|path| workspace_root_for_path(Path::new(&path)));
-    let changed = changed_files_from_diff(diff);
+    let mut changed = changed_files_from_diff(diff);
+    if focus.is_active() {
+        changed.retain(|file| focus.matches(&file.path));
+    }
     let ctx = ReviewContext {
         changed,
         diagnostics,
         workspace_root,
+        focus_paths: focus.requested,
     };
     let mut candidates = Vec::new();
     candidates.extend(candidates_from_lsp(&ctx));
@@ -1078,6 +1096,8 @@ fn review_stats(ctx: &ReviewContext, candidates: &[CandidateFinding]) -> Value {
         "filesChanged": ctx.changed.len(),
         "diagnosticsConsidered": ctx.diagnostics.len(),
         "findings": candidates.len(),
+        "focused": !ctx.focus_paths.is_empty(),
+        "focusPaths": ctx.focus_paths.clone(),
         "confirmed": confirmed,
         "plausible": plausible,
         "refuted": refuted,
@@ -1098,15 +1118,27 @@ fn review_summary(stats: &Value) -> String {
         .get("truncatedFindings")
         .and_then(Value::as_u64)
         .unwrap_or(0);
+    let focused = stats
+        .get("focused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if findings == 0 {
+        if focused {
+            return "Focused review completed with no local findings.".to_string();
+        }
         return "Review completed with no local findings.".to_string();
     }
+    let prefix = if focused {
+        "Focused review completed"
+    } else {
+        "Review completed"
+    };
     if truncated > 0 {
         return format!(
-            "Review completed with {findings} finding(s): P0 {p0}, P1 {p1}, P2 {p2}, P3 {p3}. {truncated} additional candidate(s) were omitted by the per-run cap."
+            "{prefix} with {findings} finding(s): P0 {p0}, P1 {p1}, P2 {p2}, P3 {p3}. {truncated} additional candidate(s) were omitted by the per-run cap."
         );
     }
-    format!("Review completed with {findings} finding(s): P0 {p0}, P1 {p1}, P2 {p2}, P3 {p3}.")
+    format!("{prefix} with {findings} finding(s): P0 {p0}, P1 {p1}, P2 {p2}, P3 {p3}.")
 }
 
 fn row_to_review_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReviewRun> {
@@ -1298,6 +1330,57 @@ fn normalize_path(path: &str) -> String {
         .to_string()
 }
 
+#[derive(Debug, Clone, Default)]
+struct FocusFilter {
+    requested: Vec<String>,
+    normalized: HashSet<String>,
+}
+
+impl FocusFilter {
+    fn from_paths(paths: &[String]) -> Self {
+        let mut requested = Vec::new();
+        let mut normalized = HashSet::new();
+        for path in paths {
+            let normalized_path = normalize_focus_path(path);
+            if normalized_path.is_empty() || !normalized.insert(normalized_path.clone()) {
+                continue;
+            }
+            requested.push(normalized_path);
+        }
+        Self {
+            requested,
+            normalized,
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        !self.normalized.is_empty()
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        if !self.is_active() {
+            return true;
+        }
+        let candidate = normalize_focus_path(path);
+        self.normalized
+            .iter()
+            .any(|focus| focus_path_matches(candidate.as_str(), focus))
+    }
+}
+
+fn normalize_focus_path(path: &str) -> String {
+    normalize_path(path)
+        .trim()
+        .trim_start_matches("./")
+        .to_string()
+}
+
+fn focus_path_matches(candidate: &str, focus: &str) -> bool {
+    candidate == focus
+        || candidate.ends_with(&format!("/{focus}"))
+        || focus.ends_with(&format!("/{candidate}"))
+}
+
 fn workspace_root_for_path(path: &Path) -> Option<String> {
     let dir = if path.is_file() {
         path.parent().unwrap_or(path)
@@ -1428,6 +1511,7 @@ mod tests {
                 message: "cannot find value".to_string(),
             }],
             workspace_root: Some("/repo".to_string()),
+            focus_paths: Vec::new(),
         };
 
         let candidates = candidates_from_lsp(&ctx);

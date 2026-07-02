@@ -199,6 +199,8 @@ pub struct PlanVerificationInput {
     pub goal_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_commands: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub focus_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -814,7 +816,7 @@ pub async fn plan_verification_for_session(
         Err(err) => return db.fail_verification_run(&run.id, &err.to_string()),
     };
     let steps = db.insert_verification_steps(&run, &selected)?;
-    let stats = verification_plan_stats(&steps, None);
+    let stats = verification_plan_stats(&steps, None, &input.focus_paths);
     let summary = verification_plan_summary(&stats);
     let snapshot = db.finalize_verification_plan(&run.id, &summary, stats)?;
     Ok(VerificationRunSnapshot {
@@ -840,9 +842,16 @@ pub async fn run_verification_for_session(
         .ok_or_else(|| anyhow!("verification run {} not found after start", run.id))?;
     let bg_db = db.clone();
     let bg_run_id = run.id.clone();
+    let focus_paths = normalize_focus_paths(&input.focus_paths);
     tokio::spawn(async move {
-        if let Err(err) =
-            execute_verification_steps(bg_db.clone(), bg_run_id.clone(), selected, inserted).await
+        if let Err(err) = execute_verification_steps(
+            bg_db.clone(),
+            bg_run_id.clone(),
+            selected,
+            inserted,
+            focus_paths,
+        )
+        .await
         {
             let _ = bg_db.fail_verification_run(&bg_run_id, &err.to_string());
             app_warn!(
@@ -862,6 +871,7 @@ async fn execute_verification_steps(
     run_id: String,
     selected: Vec<SelectedVerificationStep>,
     inserted: Vec<VerificationStep>,
+    focus_paths: Vec<String>,
 ) -> Result<()> {
     let selected_by_command = selected
         .into_iter()
@@ -912,7 +922,7 @@ async fn execute_verification_steps(
     }
     let steps = db.list_verification_steps_for_run(&run_id)?;
     let failed = steps.iter().any(|step| step.state.is_failure());
-    let stats = verification_plan_stats(&steps, Some(failed));
+    let stats = verification_plan_stats(&steps, Some(failed), &focus_paths);
     let summary = verification_run_summary(&stats);
     db.complete_verification_run(&run_id, &summary, stats, failed)?;
     Ok(())
@@ -923,7 +933,7 @@ async fn select_verification_for_session(
     session_id: &str,
     input: &PlanVerificationInput,
 ) -> Result<Vec<SelectedVerificationStep>> {
-    let ctx = build_selection_context(db, session_id).await?;
+    let ctx = build_selection_context(db, session_id, input).await?;
     let mut selected = select_verification_steps(&ctx);
     let max = input
         .max_commands
@@ -935,7 +945,12 @@ async fn select_verification_for_session(
     Ok(selected)
 }
 
-async fn build_selection_context(db: Arc<SessionDB>, session_id: &str) -> Result<SelectionContext> {
+async fn build_selection_context(
+    db: Arc<SessionDB>,
+    session_id: &str,
+    input: &PlanVerificationInput,
+) -> Result<SelectionContext> {
+    let focus = FocusFilter::from_paths(&input.focus_paths);
     let meta = db
         .get_session(session_id)?
         .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
@@ -951,7 +966,10 @@ async fn build_selection_context(db: Arc<SessionDB>, session_id: &str) -> Result
     };
     let repo_root = repo_root_for_path(&workspace_root);
     let policy = read_policy_hints(&workspace_root);
-    let changed_files = changed_files_from_diff(diff, &workspace_root, repo_root.as_deref());
+    let mut changed_files = changed_files_from_diff(diff, &workspace_root, repo_root.as_deref());
+    if focus.is_active() {
+        changed_files.retain(|file| focus.matches(&file.path, &file.rel_path));
+    }
     Ok(SelectionContext {
         workspace_root,
         repo_root,
@@ -1258,7 +1276,11 @@ async fn run_verification_command(
     })
 }
 
-fn verification_plan_stats(steps: &[VerificationStep], failed_override: Option<bool>) -> Value {
+fn verification_plan_stats(
+    steps: &[VerificationStep],
+    failed_override: Option<bool>,
+    focus_paths: &[String],
+) -> Value {
     let total = steps.len();
     let runnable = steps.iter().filter(|step| step.auto_run).count();
     let gated = total.saturating_sub(runnable);
@@ -1279,6 +1301,8 @@ fn verification_plan_stats(steps: &[VerificationStep], failed_override: Option<b
         "failed": failed,
         "skipped": skipped,
         "ok": failed_override.map(|failed| !failed).unwrap_or(failed == 0),
+        "focused": !focus_paths.is_empty(),
+        "focusPaths": focus_paths,
         "commands": steps.iter().map(|step| {
             json!({
                 "command": step.command,
@@ -1296,13 +1320,29 @@ fn verification_plan_summary(stats: &Value) -> String {
     let total = stats.get("total").and_then(Value::as_u64).unwrap_or(0);
     let runnable = stats.get("runnable").and_then(Value::as_u64).unwrap_or(0);
     let gated = stats.get("gated").and_then(Value::as_u64).unwrap_or(0);
+    let focused = stats
+        .get("focused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if total == 0 {
+        if focused {
+            return "No focused verification command is needed for the selected context."
+                .to_string();
+        }
         return "No local verification command is needed for the current diff.".to_string();
     }
     if gated > 0 {
+        if focused {
+            return format!(
+                "Selected {total} focused verification command(s): {runnable} runnable, {gated} gated by policy."
+            );
+        }
         return format!(
             "Selected {total} verification command(s): {runnable} runnable, {gated} gated by policy."
         );
+    }
+    if focused {
+        return format!("Selected {total} focused verification command(s).");
     }
     format!("Selected {total} targeted verification command(s).")
 }
@@ -1312,16 +1352,37 @@ fn verification_run_summary(stats: &Value) -> String {
     let passed = stats.get("passed").and_then(Value::as_u64).unwrap_or(0);
     let failed = stats.get("failed").and_then(Value::as_u64).unwrap_or(0);
     let skipped = stats.get("skipped").and_then(Value::as_u64).unwrap_or(0);
+    let focused = stats
+        .get("focused")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if total == 0 {
+        if focused {
+            return "Focused verification completed: no local commands were needed for the selected context."
+                .to_string();
+        }
         return "Verification completed: no local commands were needed for the current diff."
             .to_string();
     }
     if failed > 0 {
+        if focused {
+            return format!("Focused verification failed: {failed}/{total} command(s) failed.");
+        }
         return format!("Verification failed: {failed}/{total} command(s) failed.");
     }
     if skipped > 0 {
+        if focused {
+            return format!(
+                "Focused verification passed for runnable commands: {passed} passed, {skipped} gated suggestion(s) skipped."
+            );
+        }
         return format!(
             "Verification passed for runnable commands: {passed} passed, {skipped} gated suggestion(s) skipped."
+        );
+    }
+    if focused {
+        return format!(
+            "Focused verification passed: {passed}/{total} targeted command(s) succeeded."
         );
     }
     format!("Verification passed: {passed}/{total} targeted command(s) succeeded.")
@@ -1467,6 +1528,62 @@ fn relative_path(path: &Path, root: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .replace('\\', "/")
+}
+
+#[derive(Debug, Clone, Default)]
+struct FocusFilter {
+    requested: Vec<String>,
+    normalized: HashSet<String>,
+}
+
+impl FocusFilter {
+    fn from_paths(paths: &[String]) -> Self {
+        let mut requested = Vec::new();
+        let mut normalized = HashSet::new();
+        for path in paths {
+            let normalized_path = normalize_focus_path(path);
+            if normalized_path.is_empty() || !normalized.insert(normalized_path.clone()) {
+                continue;
+            }
+            requested.push(normalized_path);
+        }
+        Self {
+            requested,
+            normalized,
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        !self.normalized.is_empty()
+    }
+
+    fn matches(&self, path: &Path, rel_path: &str) -> bool {
+        if !self.is_active() {
+            return true;
+        }
+        let full = normalize_focus_path(&path.to_string_lossy());
+        let rel = normalize_focus_path(rel_path);
+        self.normalized.iter().any(|focus| {
+            focus_path_matches(full.as_str(), focus) || focus_path_matches(rel.as_str(), focus)
+        })
+    }
+}
+
+fn normalize_focus_paths(paths: &[String]) -> Vec<String> {
+    FocusFilter::from_paths(paths).requested
+}
+
+fn normalize_focus_path(path: &str) -> String {
+    path.trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .to_string()
+}
+
+fn focus_path_matches(candidate: &str, focus: &str) -> bool {
+    candidate == focus
+        || candidate.ends_with(&format!("/{focus}"))
+        || focus.ends_with(&format!("/{candidate}"))
 }
 
 fn is_safe_cargo_package(name: &str) -> bool {

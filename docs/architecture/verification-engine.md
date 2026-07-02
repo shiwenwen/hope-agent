@@ -84,6 +84,7 @@ Selector 输入：
 - `session::load_session_git_diff()` 的 working-tree diff。
 - git repo root。
 - `AGENTS.md` / `CLAUDE.md` 中的项目规则提示。
+- 可选 `focusPaths[]`：在同一 session diff 内收窄 changed files 后再进入 selector。
 
 当前规则：
 
@@ -98,6 +99,8 @@ Selector 输入：
 | 项目规则提到 pre-push/full suite | gated `pnpm lint && pnpm test` |
 
 `auto_run=true` 只给低风险单点检查。高风险或重检查保存在 step 中并标记 `skipped`，用户可以看到建议，但不会被 Smart Verification 自动执行。
+
+`focusPaths[]` 不改变 `scope=local` 的安全边界：它只过滤已经由 session workspace 解析出的 diff 文件，不能让 HTTP/Tauri 客户端指定任意 cwd 或任意 shell 命令。stats 会记录 `focused=true` 与规范化后的 `focusPaths`。
 
 单次 run 最多选择 8 条 step，避免 Workspace 面板和后台执行被一次大 diff 拖垮。
 
@@ -143,7 +146,7 @@ run 创建时绑定当前 open goal（或显式 `goalId`）。终态后：
 
 ## 7. Owner API 与 GUI
 
-Owner API 不接受任意 path，只按 session id 解析 workspace。HTTP 与 Tauri 对齐：
+Owner API 不接受任意 cwd/path，只按 session id 解析 workspace。HTTP 与 Tauri 对齐；`plan_smart_verification` / `run_smart_verification` 可接受可选 `focusPaths[]` 作为 selector 输入。
 
 | 能力 | Tauri | HTTP |
 | --- | --- | --- |
@@ -159,6 +162,7 @@ Workspace 面板“验证”区块显示：
 - 推荐验证、运行推荐、刷新。
 - 最多 6 条 step：命令、原因、风险、状态、exit code、耗时。
 - 失败/超时 step 的输出摘要。
+- “推荐上下文”候选行可触发 focused verification；生成的 run 仍出现在本区块，并继续走后台低风险执行、Goal evidence 与 EventBus。
 
 刷新触发：
 
@@ -192,4 +196,4 @@ Workspace 面板“验证”区块显示：
 - 根据 changed symbol / test ownership 做更细粒度 test impact。
 - `workflow.verify()` host API：workflow 可请求 selector 生成验证计划。
 - GUI 支持用户批准单条 gated step 后运行。
-- 与 Review Engine 组合成“修复后 focused review + focused verification”闭环。
+- 与 Review Engine 组合成“修复后 focused review + focused verification”自动闭环，并复用现有 `focusPaths` 输入。

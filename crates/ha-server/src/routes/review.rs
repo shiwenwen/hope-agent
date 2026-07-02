@@ -31,6 +31,8 @@ pub struct RunReviewBody {
     pub goal_id: Option<String>,
     #[serde(default)]
     pub profiles: Vec<String>,
+    #[serde(default)]
+    pub focus_paths: Vec<String>,
 }
 
 pub async fn run_code_review(
@@ -45,6 +47,7 @@ pub async fn run_code_review(
             base_ref: body.base_ref,
             goal_id: body.goal_id,
             profiles: body.profiles,
+            focus_paths: body.focus_paths,
         },
     )
     .await

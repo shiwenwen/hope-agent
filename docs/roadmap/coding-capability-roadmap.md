@@ -48,7 +48,7 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 2. **Phase 2.7：`/goal` MVP**，已完成第一版。补一等目标对象：objective、completion criteria、budget、evidence、status、final audit。
 3. **Phase 2.8：Goal-driven Workflow**。Goal 派生 workflow run，失败后生成 repair run，workflow evidence 回写 goal，最终 evaluator 收口。
 4. **Phase 2.9：真正 `/loop`**。只做定时、重复、轮询或条件触发，复用 cron / wakeup / automation。
-5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2 已完成；后续继续做更深 review / verification / context 闭环。
+5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop 已完成；后续继续做更深 review / verification / context eval。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -180,7 +180,7 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - `tool_search` 仍偏基础关键词匹配，缺少 search hint、alias、BM25、多来源 schema 组装。
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
 - LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置、doctor 和 IDE context envelope。
-- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；后续缺口是 LLM reviewer、profiles、Workflow review/verify host API、focused re-review、workflow/task/goal evidence 关联召回和 context eval。
+- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification。后续缺口是 LLM reviewer、profiles、Workflow review/verify host API、IDE/ACP 当前文件信号和 context eval。
 - 缺少 coding eval harness 和系统级 improvement loop。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
@@ -621,11 +621,24 @@ StopPolicy
 - Workspace GUI “推荐上下文”区块：默认推荐、关键词召回、手动刷新、事件驱动刷新；文件项复用统一文件操作策略。
 - 无痕会话 fail-closed；LSP symbol 查询失败降级 warning，不阻断其它候选。
 
+### Phase 3.6：Actionable Context Loop / 可行动上下文闭环
+
+状态：已完成。最终架构见 [Context Retrieval v2](../architecture/context-retrieval.md)、[Review Engine 控制平面](../architecture/review-engine.md)、[Smart Verification 控制平面](../architecture/verification-engine.md)。
+
+目标：把“推荐上下文”从只读列表升级成可行动闭环，让用户看到候选后可以直接触发最小范围的审查或验证，同时让 Goal / Task / Workflow 证据进入同一推荐排序。
+
+已完成：
+
+- Context Retrieval 新增 `goal_evidence` / `task` / `workflow_op` 候选类型，并统计 `goalEvidence` / `tasks` / `workflowOps`。
+- 候选 metadata 支持 `actions.focusPaths` / `canReview` / `canVerify`，Workspace 候选行显示聚焦审查与聚焦验证按钮。
+- `run_code_review` 支持 `focusPaths[]`，在 local diff 内收窄 changed files 与 LSP diagnostics，并在 stats/summary 中标记 focused run。
+- `plan_smart_verification` / `run_smart_verification` 支持 `focusPaths[]`，在 selector 前收窄 changed files，并在计划和最终结果中保留 focused stats。
+- GUI 操作复用现有 durable Review / Verification run、Goal evidence、EventBus 与 Workspace 区块，不创建平行数据模型。
+
 后续增强：
 
-- workflow op / task / goal evidence 关联召回。
-- 候选行 focused review / focused verification。
 - document symbols fallback、IDE selection envelope、ACP 当前文件信号。
+- Workflow host API：`workflow.review()` / `workflow.verify()`。
 - context precision / critical context recall 进入 coding eval。
 
 ### Phase 5：Review 与 Verification Engine 后续增强
@@ -737,7 +750,7 @@ StopPolicy
 7. [LSP 与语义代码智能](../architecture/lsp.md)：LSP manager、tools、diagnostics pipeline。
 8. [Review Engine 控制平面](../architecture/review-engine.md)：diff scan、candidate、verifier、inline finding 与 Goal evidence。
 9. [Smart Verification 控制平面](../architecture/verification-engine.md)：最小验证选择、后台低风险执行、Goal validation evidence 与 Workspace 验证区块。
-10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐、file search v2、LSP symbols、diff/artifact/review/verification 聚合。
+10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐与行动入口、file search v2、LSP symbols、diff/artifact/review/verification/goal/task/workflow 聚合、focused review / verification。
 11. `docs/roadmap/coding-improvement-loop.md`：retro、eval candidate、skill/guidance distillation。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。

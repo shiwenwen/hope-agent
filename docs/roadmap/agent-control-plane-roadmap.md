@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-02
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 已作为 Phase 3.5 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；本文继续记录后续 coding-specific 能力推进顺序。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；本文继续记录后续 coding-specific 能力推进顺序。
 
 ## 1. 路线调整结论
 
@@ -42,6 +42,7 @@ Phase 3.2  LSP / Diagnostics（已完成）
 Phase 3.3  Review Engine（已完成）
 Phase 3.4  Smart Verification / 智能验证选择（已完成）
 Phase 3.5  Context Retrieval v2 / 推荐上下文（已完成）
+Phase 3.6  Actionable Context Loop / 可行动上下文闭环（已完成）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -66,7 +67,7 @@ Phase 3.5  Context Retrieval v2 / 推荐上下文（已完成）
 | Task | 通用 | 已有，workflow 已接入 | 当前可见进度事实是什么。 |
 | Loop | 通用 | 已实现第一版 | 是否按时间、事件或条件重复触发。 |
 | Worktree | coding-specific | 已实现 Phase 3.1 | 代码改动落在哪个隔离环境。 |
-| Context Retrieval | 通用 owner-plane，当前 coding-first | 已实现 Phase 3.5 | 当前任务下一步最该看哪些上下文。 |
+| Context Retrieval | 通用 owner-plane，当前 coding-first | 已实现 Phase 3.6 | 当前任务下一步最该看哪些上下文，以及能否直接进入 focused review / verification。 |
 
 用户视角应稳定成：
 
@@ -429,11 +430,19 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 无痕会话 fail-closed 返回空 snapshot；LSP symbol 不可用时只降级 warning，不阻断其它候选。
 - 最终架构见 [Context Retrieval v2](../architecture/context-retrieval.md)。
 
+### Phase 3.6 Actionable Context Loop / 可行动上下文闭环（已完成）
+
+- Context Retrieval 新增 Goal evidence、task、Workflow run/op 三类控制平面来源；失败 / blocked / awaiting / in-progress 信号优先展示，completed 信号保留但降权。
+- 可行动候选写入 `metadata.actions.focusPaths`，GUI 候选行显示聚焦审查 / 聚焦验证两个紧凑按钮。
+- Review Engine 新增 `RunReviewInput.focusPaths[]`，在同一 local diff 内收窄 changed files 与 LSP diagnostics，summary/stats 标记 `focused`。
+- Smart Verification 新增 `PlanVerificationInput.focusPaths[]`，在 selector 前收窄 changed files，plan/run/final stats 都保留 `focused` 与 `focusPaths`。
+- GUI 点击候选行操作后复用现有 durable run、Goal evidence、EventBus 与 Workspace Review/Verification 区块，不创建平行控制面。
+- 最终架构见 [Context Retrieval v2](../architecture/context-retrieval.md)、[Review Engine 控制平面](../architecture/review-engine.md)、[Smart Verification 控制平面](../architecture/verification-engine.md)。
+
 后续增强：
 
-- 接入 workflow op / task / goal evidence 关联召回。
-- 在候选行提供 focused review / focused verification 入口。
 - 增加 document symbols fallback、IDE selection envelope 与 ACP 当前文件信号。
+- Workflow host API：`workflow.review()` / `workflow.verify()`，让 script runtime 复用同一 focused owner API。
 - 把 context precision / critical context recall 纳入 coding eval。
 
 ## 9. 体验与性能红线

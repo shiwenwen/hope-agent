@@ -18,6 +18,7 @@ use crate::review::{ReviewFindingStatus, ReviewSeverity};
 use crate::session::{effective_working_dir_for_meta, SessionDB};
 use crate::util::now_rfc3339;
 use crate::verification::VerificationStepState;
+use crate::workflow::{WorkflowOpState, WorkflowRunState};
 
 const DEFAULT_LIMIT: usize = 24;
 const MAX_LIMIT: usize = 50;
@@ -43,6 +44,9 @@ pub enum ContextCandidateKind {
     Diagnostic,
     ReviewFinding,
     VerificationStep,
+    GoalEvidence,
+    Task,
+    WorkflowOp,
     UrlSource,
 }
 
@@ -77,6 +81,9 @@ pub struct ContextRetrievalStats {
     pub diagnostics: usize,
     pub review_findings: usize,
     pub verification_steps: usize,
+    pub goal_evidence: usize,
+    pub tasks: usize,
+    pub workflow_ops: usize,
     pub file_search_matches: usize,
     pub symbols: usize,
     pub url_sources: usize,
@@ -196,6 +203,9 @@ pub async fn context_retrieval_for_session(
     gather_lsp_diagnostics(&db, &session_id, &matcher, &mut map, &mut stats).await;
     gather_review_findings(&db, &session_id, &matcher, &mut map, &mut stats);
     gather_verification_steps(&db, &session_id, &matcher, &mut map, &mut stats);
+    gather_goal_evidence(&db, &session_id, &matcher, &mut map, &mut stats);
+    gather_tasks(&db, &session_id, &matcher, &mut map, &mut stats);
+    gather_workflow_ops(&db, &session_id, &matcher, &mut map, &mut stats);
     gather_file_search(
         workspace_root.as_deref(),
         query.as_deref(),
@@ -279,6 +289,7 @@ async fn gather_git_changes(
                     "linesRemoved": change.lines_removed,
                     "language": change.language,
                     "truncated": change.truncated,
+                    "actions": focus_actions(&change.path),
                 }),
             },
             900 + line_impact + boost,
@@ -340,6 +351,7 @@ async fn gather_artifacts(
                     "linesAdded": file.lines_added,
                     "linesRemoved": file.lines_removed,
                     "readLines": file.read_lines,
+                    "actions": focus_actions(&file.path),
                 }),
             },
             base + recency + boost,
@@ -432,7 +444,7 @@ async fn gather_lsp_diagnostics(
                 kind: ContextCandidateKind::Diagnostic,
                 title: diagnostic.message.clone(),
                 subtitle: Some(path.clone()),
-                path: Some(path),
+                path: Some(path.clone()),
                 line: Some(diagnostic.range.start_line),
                 url: None,
                 score: 0,
@@ -444,6 +456,7 @@ async fn gather_lsp_diagnostics(
                     "source": source,
                     "code": diagnostic.code,
                     "range": diagnostic.range,
+                    "actions": focus_actions(&path),
                 }),
             },
             severity_score - idx.min(50) as i32 + boost,
@@ -490,7 +503,7 @@ fn gather_review_findings(
                     kind: ContextCandidateKind::ReviewFinding,
                     title: finding.title,
                     subtitle: Some(finding.file.clone()),
-                    path: Some(finding.file),
+                    path: Some(finding.file.clone()),
                     line: finding.start_line,
                     url: None,
                     score: 0,
@@ -511,6 +524,7 @@ fn gather_review_findings(
                         "status": finding.status,
                         "category": finding.category,
                         "body": finding.body,
+                        "actions": focus_actions(&finding.file),
                     }),
                 },
                 base + boost,
@@ -588,6 +602,226 @@ fn gather_verification_steps(
     }
 }
 
+fn gather_goal_evidence(
+    db: &SessionDB,
+    session_id: &str,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let Ok(Some(snapshot)) = db.active_goal_for_session(session_id) else {
+        return;
+    };
+    stats.goal_evidence = snapshot.evidence.len();
+    for (idx, item) in snapshot.evidence.iter().rev().take(24).enumerate() {
+        let summary = item.summary.clone().unwrap_or_default();
+        let path = path_from_metadata(&item.metadata);
+        let source_type = item.source_type.clone();
+        let source_id = item.source_id.clone();
+        let relation = item.relation.clone();
+        let boost = matcher.boost(&[
+            &item.title,
+            &summary,
+            &source_type,
+            &relation,
+            path.as_deref().unwrap_or_default(),
+        ]);
+        let mut metadata = json!({
+            "origin": "goal_evidence",
+            "goalId": snapshot.goal.id.clone(),
+            "sourceType": source_type,
+            "sourceId": source_id,
+            "relation": relation,
+            "evidenceMetadata": item.metadata.clone(),
+        });
+        if let Some(path) = path.as_deref() {
+            metadata["actions"] = focus_actions(path);
+        }
+        upsert_candidate(
+            map,
+            format!("goal-evidence:{}", item.id),
+            ContextCandidate {
+                id: format!("goal-evidence:{}", item.id),
+                kind: ContextCandidateKind::GoalEvidence,
+                title: item.title.clone(),
+                subtitle: item.summary.clone(),
+                path,
+                line: None,
+                url: None,
+                score: 0,
+                reasons: Vec::new(),
+                sources: Vec::new(),
+                status: Some(item.relation.clone()),
+                metadata,
+            },
+            goal_evidence_score(&item.relation) + boost - idx.min(40) as i32,
+            "当前 Goal 把它记录为完成标准证据",
+            "goal",
+        );
+    }
+}
+
+fn gather_tasks(
+    db: &SessionDB,
+    session_id: &str,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let Ok(tasks) = db.list_tasks(session_id) else {
+        return;
+    };
+    stats.tasks = tasks.len();
+    for (idx, task) in tasks.iter().rev().take(24).enumerate() {
+        let title = task
+            .active_form
+            .as_deref()
+            .unwrap_or(task.content.as_str())
+            .to_string();
+        let boost = matcher.boost(&[
+            &title,
+            &task.content,
+            &task.status,
+            task.batch_id.as_deref().unwrap_or_default(),
+        ]);
+        upsert_candidate(
+            map,
+            format!("task:{}", task.id),
+            ContextCandidate {
+                id: format!("task:{}", task.id),
+                kind: ContextCandidateKind::Task,
+                title,
+                subtitle: Some(task.content.clone()),
+                path: None,
+                line: None,
+                url: None,
+                score: 0,
+                reasons: Vec::new(),
+                sources: Vec::new(),
+                status: Some(task.status.clone()),
+                metadata: json!({
+                    "origin": "task",
+                    "taskId": task.id,
+                    "batchId": task.batch_id.clone(),
+                    "createdAt": task.created_at.clone(),
+                    "updatedAt": task.updated_at.clone(),
+                }),
+            },
+            task_score(&task.status) + boost - idx.min(40) as i32,
+            "当前任务进度与下一步上下文相关",
+            "task",
+        );
+    }
+}
+
+fn gather_workflow_ops(
+    db: &SessionDB,
+    session_id: &str,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let Ok(runs) = db.list_workflow_runs_for_session(session_id, 3) else {
+        return;
+    };
+    for run in runs {
+        let Ok(Some(snapshot)) = db.workflow_run_snapshot(&run.id, 40) else {
+            continue;
+        };
+        stats.workflow_ops += snapshot.ops.len();
+        if snapshot.ops.is_empty() {
+            let title = format!("Workflow {} run", snapshot.run.kind);
+            let boost = matcher.boost(&[
+                &title,
+                snapshot.run.state.as_str(),
+                &snapshot.run.kind,
+                &snapshot.run.execution_mode,
+                snapshot.run.blocked_reason.as_deref().unwrap_or_default(),
+            ]);
+            upsert_candidate(
+                map,
+                format!("workflow-run:{}", snapshot.run.id),
+                ContextCandidate {
+                    id: format!("workflow-run:{}", snapshot.run.id),
+                    kind: ContextCandidateKind::WorkflowOp,
+                    title,
+                    subtitle: snapshot.run.blocked_reason.clone(),
+                    path: None,
+                    line: None,
+                    url: None,
+                    score: 0,
+                    reasons: Vec::new(),
+                    sources: Vec::new(),
+                    status: Some(snapshot.run.state.as_str().to_string()),
+                    metadata: json!({
+                        "origin": "workflow_run",
+                        "runId": snapshot.run.id.clone(),
+                        "kind": snapshot.run.kind.clone(),
+                        "executionMode": snapshot.run.execution_mode.clone(),
+                        "goalId": snapshot.run.goal_id.clone(),
+                        "worktreeId": snapshot.run.worktree_id.clone(),
+                    }),
+                },
+                workflow_run_score(snapshot.run.state) + boost,
+                "最近 Workflow Run 是当前执行轨迹的一部分",
+                "workflow",
+            );
+            continue;
+        }
+
+        for (idx, op) in snapshot.ops.iter().rev().take(24).enumerate() {
+            let error = op.error.as_ref().map(Value::to_string).unwrap_or_default();
+            let output = op.output.as_ref().map(Value::to_string).unwrap_or_default();
+            let boost = matcher.boost(&[
+                &op.op_key,
+                &op.op_type,
+                op.state.as_str(),
+                &error,
+                &output,
+                &snapshot.run.kind,
+            ]);
+            upsert_candidate(
+                map,
+                format!("workflow-op:{}", op.id),
+                ContextCandidate {
+                    id: format!("workflow-op:{}", op.id),
+                    kind: ContextCandidateKind::WorkflowOp,
+                    title: format!("{} · {}", op.op_type, op.op_key),
+                    subtitle: op.child_handle.clone().or_else(|| {
+                        if error.is_empty() {
+                            None
+                        } else {
+                            Some(error.clone())
+                        }
+                    }),
+                    path: None,
+                    line: None,
+                    url: None,
+                    score: 0,
+                    reasons: Vec::new(),
+                    sources: Vec::new(),
+                    status: Some(op.state.as_str().to_string()),
+                    metadata: json!({
+                        "origin": "workflow_op",
+                        "runId": snapshot.run.id.clone(),
+                        "runState": snapshot.run.state,
+                        "opId": op.id.clone(),
+                        "opKey": op.op_key.clone(),
+                        "opType": op.op_type.clone(),
+                        "effectClass": op.effect_class,
+                        "childHandle": op.child_handle.clone(),
+                        "error": op.error.clone(),
+                        "output": op.output.clone(),
+                    }),
+                },
+                workflow_op_score(op.state) + boost - idx.min(40) as i32,
+                "最近 Workflow Op 影响当前长任务执行状态",
+                "workflow",
+            );
+        }
+    }
+}
+
 async fn gather_file_search(
     workspace_root: Option<&str>,
     query: Option<&str>,
@@ -624,7 +858,7 @@ async fn gather_file_search(
                 kind: ContextCandidateKind::File,
                 title: file.name.clone(),
                 subtitle: Some(file.rel_path.clone()),
-                path: Some(file.path),
+                path: Some(file.path.clone()),
                 line: None,
                 url: None,
                 score: 0,
@@ -640,6 +874,7 @@ async fn gather_file_search(
                     "relPath": file.rel_path,
                     "isDir": file.is_dir,
                     "fileSearchScore": file.score,
+                    "actions": if file.is_dir { Value::Null } else { focus_actions(&file.path) },
                 }),
             },
             510 + (file.score / 80).clamp(0, 260) + boost,
@@ -706,7 +941,7 @@ async fn gather_lsp_symbols(
                     .clone()
                     .or(symbol.detail.clone())
                     .or_else(|| path.clone()),
-                path,
+                path: path.clone(),
                 line,
                 url: None,
                 score: 0,
@@ -719,6 +954,7 @@ async fn gather_lsp_symbols(
                     "kind": symbol.kind,
                     "detail": symbol.detail,
                     "range": symbol.range,
+                    "actions": path.as_deref().map(focus_actions).unwrap_or(Value::Null),
                 }),
             },
             700 + boost - idx.min(50) as i32,
@@ -789,14 +1025,59 @@ fn verification_score(state: VerificationStepState) -> i32 {
     }
 }
 
+fn goal_evidence_score(relation: &str) -> i32 {
+    let lower = relation.to_ascii_lowercase();
+    if lower.contains("block") || lower.contains("fail") || lower.contains("open") {
+        925
+    } else if lower.contains("review") || lower.contains("verification") {
+        805
+    } else if lower.contains("completed") || lower.contains("pass") {
+        670
+    } else {
+        720
+    }
+}
+
+fn task_score(status: &str) -> i32 {
+    match status {
+        "in_progress" => 835,
+        "pending" => 760,
+        "completed" => 520,
+        _ => 650,
+    }
+}
+
+fn workflow_run_score(state: WorkflowRunState) -> i32 {
+    match state {
+        WorkflowRunState::Failed | WorkflowRunState::Blocked => 930,
+        WorkflowRunState::AwaitingApproval | WorkflowRunState::AwaitingUser => 875,
+        WorkflowRunState::Running | WorkflowRunState::Paused | WorkflowRunState::Recovering => 820,
+        WorkflowRunState::Draft => 610,
+        WorkflowRunState::Completed => 540,
+        WorkflowRunState::Cancelled => 460,
+    }
+}
+
+fn workflow_op_score(state: WorkflowOpState) -> i32 {
+    match state {
+        WorkflowOpState::Failed => 920,
+        WorkflowOpState::Started => 835,
+        WorkflowOpState::Pending => 760,
+        WorkflowOpState::Completed => 535,
+    }
+}
+
 fn kind_rank(kind: &ContextCandidateKind) -> u8 {
     match kind {
         ContextCandidateKind::ReviewFinding => 0,
         ContextCandidateKind::Diagnostic => 1,
         ContextCandidateKind::VerificationStep => 2,
-        ContextCandidateKind::File => 3,
-        ContextCandidateKind::Symbol => 4,
-        ContextCandidateKind::UrlSource => 5,
+        ContextCandidateKind::WorkflowOp => 3,
+        ContextCandidateKind::GoalEvidence => 4,
+        ContextCandidateKind::Task => 5,
+        ContextCandidateKind::File => 6,
+        ContextCandidateKind::Symbol => 7,
+        ContextCandidateKind::UrlSource => 8,
     }
 }
 
@@ -806,4 +1087,30 @@ fn display_path(path: &str) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or(path)
         .to_string()
+}
+
+fn focus_actions(path: &str) -> Value {
+    json!({
+        "canReview": true,
+        "canVerify": true,
+        "focusPaths": [path],
+    })
+}
+
+fn path_from_metadata(metadata: &Value) -> Option<String> {
+    for key in ["path", "file", "filePath", "targetPath", "relPath"] {
+        if let Some(value) = metadata.get(key).and_then(Value::as_str) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    metadata
+        .get("paths")
+        .and_then(Value::as_array)
+        .and_then(|paths| paths.iter().find_map(Value::as_str))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
 }

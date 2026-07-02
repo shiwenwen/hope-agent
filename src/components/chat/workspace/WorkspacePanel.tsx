@@ -1490,6 +1490,12 @@ function contextKindIcon(kind: ContextCandidateKind): LucideIcon {
       return GitPullRequest
     case "verification_step":
       return CheckCircle2
+    case "goal_evidence":
+      return Brain
+    case "task":
+      return Check
+    case "workflow_op":
+      return Layers
     case "url_source":
       return Globe
   }
@@ -1510,6 +1516,12 @@ function contextKindLabel(
       return t("workspace.context.kindReview", "审查")
     case "verification_step":
       return t("workspace.context.kindVerification", "验证")
+    case "goal_evidence":
+      return t("workspace.context.kindGoal", "Goal")
+    case "task":
+      return t("workspace.context.kindTask", "任务")
+    case "workflow_op":
+      return t("workspace.context.kindWorkflow", "工作流")
     case "url_source":
       return t("workspace.context.kindUrl", "来源")
   }
@@ -1522,7 +1534,8 @@ function contextCandidateTone(candidate: ContextCandidate): StatusTone {
     status.includes("p1") ||
     status.includes("error") ||
     status.includes("failed") ||
-    status.includes("timed_out")
+    status.includes("timed_out") ||
+    status.includes("blocked")
   ) {
     return "danger"
   }
@@ -1530,11 +1543,13 @@ function contextCandidateTone(candidate: ContextCandidate): StatusTone {
     status.includes("p2") ||
     status.includes("warning") ||
     status.includes("pending") ||
-    status.includes("skipped")
+    status.includes("skipped") ||
+    status.includes("awaiting")
   ) {
     return "warn"
   }
   if (status.includes("passed") || status.includes("completed")) return "good"
+  if (status.includes("running") || status.includes("in_progress")) return "info"
   if (candidate.kind === "symbol") return "info"
   return "muted"
 }
@@ -1547,14 +1562,93 @@ function contextLocationLabel(candidate: ContextCandidate): string | null {
   return base
 }
 
+type ContextFocusedAction = "review" | "verify"
+
+function contextCandidateFocusPaths(candidate: ContextCandidate): string[] {
+  const actions = candidate.metadata?.actions
+  if (actions && typeof actions === "object" && !Array.isArray(actions)) {
+    const focusPaths = (actions as Record<string, unknown>).focusPaths
+    if (Array.isArray(focusPaths)) {
+      const paths = focusPaths.filter((path): path is string => typeof path === "string" && path.length > 0)
+      if (paths.length > 0) return paths
+    }
+  }
+  return candidate.path ? [candidate.path] : []
+}
+
+function ContextCandidateActions({
+  candidate,
+  disabled,
+  actionKey,
+  onAction,
+}: {
+  candidate: ContextCandidate
+  disabled?: boolean
+  actionKey?: string | null
+  onAction?: (candidate: ContextCandidate, action: ContextFocusedAction) => void
+}) {
+  const { t } = useTranslation()
+  const focusPaths = contextCandidateFocusPaths(candidate)
+  if (!onAction || focusPaths.length === 0) return null
+  const reviewKey = `${candidate.id}:review`
+  const verifyKey = `${candidate.id}:verify`
+  const busy = Boolean(actionKey)
+  return (
+    <div className="flex shrink-0 items-center gap-1">
+      <IconTip label={t("workspace.context.focusReview", "聚焦审查")}>
+        <button
+          type="button"
+          disabled={disabled || busy}
+          onClick={(e) => {
+            e.stopPropagation()
+            onAction(candidate, "review")
+          }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/65 text-muted-foreground transition-colors hover:border-primary/45 hover:text-foreground disabled:opacity-45"
+          aria-label={t("workspace.context.focusReview", "聚焦审查")}
+        >
+          {actionKey === reviewKey ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <GitPullRequest className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </IconTip>
+      <IconTip label={t("workspace.context.focusVerify", "聚焦验证")}>
+        <button
+          type="button"
+          disabled={disabled || busy}
+          onClick={(e) => {
+            e.stopPropagation()
+            onAction(candidate, "verify")
+          }}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border/50 bg-background/65 text-muted-foreground transition-colors hover:border-primary/45 hover:text-foreground disabled:opacity-45"
+          aria-label={t("workspace.context.focusVerify", "聚焦验证")}
+        >
+          {actionKey === verifyKey ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Gauge className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </IconTip>
+    </div>
+  )
+}
+
 function ContextFileCandidateRow({
   candidate,
   sessionId,
   onPreviewFile,
+  actionKey,
+  actionsDisabled,
+  onAction,
 }: {
   candidate: ContextCandidate
   sessionId?: string | null
   onPreviewFile?: (target: PreviewTarget) => void
+  actionKey?: string | null
+  actionsDisabled?: boolean
+  onAction?: (candidate: ContextCandidate, action: ContextFocusedAction) => void
 }) {
   const { t } = useTranslation()
   const Icon = contextKindIcon(candidate.kind)
@@ -1566,32 +1660,42 @@ function ContextFileCandidateRow({
   const overrides = useMemo(() => ({ sessionId, onPreviewFile }), [sessionId, onPreviewFile])
   const { primary, run } = useFileActions(target, overrides)
   return (
-    <IconTip label={path}>
-      <button
-        type="button"
-        onClick={() => run(primary)}
-        className="flex w-full min-w-0 items-start gap-2 rounded-md border border-border/50 bg-secondary/25 px-2.5 py-1.5 text-left transition-colors hover:bg-secondary/45"
-      >
-        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
-              {candidate.title}
-            </span>
-            {candidate.status ? (
-              <StatusPill label={candidate.status} tone={contextCandidateTone(candidate)} />
-            ) : null}
+    <div className="flex w-full min-w-0 items-stretch rounded-md border border-border/50 bg-secondary/25 transition-colors hover:bg-secondary/40">
+      <IconTip label={path}>
+        <button
+          type="button"
+          onClick={() => run(primary)}
+          className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left"
+        >
+          <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+                {candidate.title}
+              </span>
+              {candidate.status ? (
+                <StatusPill label={candidate.status} tone={contextCandidateTone(candidate)} />
+              ) : null}
+            </div>
+            <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+              {candidate.reasons[0] ?? contextKindLabel(t, candidate.kind)}
+            </div>
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/65">
+              <span className="truncate">{contextLocationLabel(candidate) ?? candidate.subtitle}</span>
+              <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
+            </div>
           </div>
-          <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
-            {candidate.reasons[0] ?? contextKindLabel(t, candidate.kind)}
-          </div>
-          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/65">
-            <span className="truncate">{contextLocationLabel(candidate) ?? candidate.subtitle}</span>
-            <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
-          </div>
-        </div>
-      </button>
-    </IconTip>
+        </button>
+      </IconTip>
+      <div className="flex shrink-0 items-start px-1.5 py-1.5">
+        <ContextCandidateActions
+          candidate={candidate}
+          disabled={actionsDisabled}
+          actionKey={actionKey}
+          onAction={onAction}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -1667,6 +1771,42 @@ function ContextRetrievalSection({
   const visible = candidates.slice(0, 8)
   const stats = snapshot?.stats
   const disabled = !sessionId || incognito || !workingDir
+  const [contextActionKey, setContextActionKey] = useState<string | null>(null)
+
+  const runFocusedContextAction = useCallback(
+    async (candidate: ContextCandidate, action: ContextFocusedAction) => {
+      if (!sessionId || disabled) return
+      const focusPaths = contextCandidateFocusPaths(candidate)
+      if (focusPaths.length === 0) return
+      const actionKey = `${candidate.id}:${action}`
+      setContextActionKey(actionKey)
+      try {
+        if (action === "review") {
+          await getTransport().call<ReviewRunSnapshot>("run_code_review", {
+            sessionId,
+            scope: "local",
+            focusPaths,
+          })
+          toast.success(t("workspace.context.focusReviewStarted", "已完成聚焦审查"))
+        } else {
+          await getTransport().call<VerificationRunSnapshot>("run_smart_verification", {
+            sessionId,
+            scope: "local",
+            focusPaths,
+          })
+          toast.success(t("workspace.context.focusVerifyStarted", "已启动聚焦验证"))
+        }
+        refresh()
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "ContextRetrievalSection", "Focused context action failed", e)
+        toast.error(message)
+      } finally {
+        setContextActionKey(null)
+      }
+    },
+    [disabled, refresh, sessionId, t],
+  )
 
   const meta =
     loading && !snapshot ? (
@@ -1731,7 +1871,10 @@ function ContextRetrievalSection({
               [t("workspace.context.statDiff", "diff"), stats.gitChanges],
               [t("workspace.context.statFiles", "文件"), stats.artifactFiles + stats.fileSearchMatches],
               [t("workspace.context.statSignals", "信号"), stats.diagnostics + stats.reviewFindings],
-              [t("workspace.context.statProof", "验证"), stats.verificationSteps + stats.symbols],
+              [
+                t("workspace.context.statControl", "闭环"),
+                stats.verificationSteps + stats.goalEvidence + stats.tasks + stats.workflowOps + stats.symbols,
+              ],
             ].map(([label, count]) => (
               <div
                 key={label as string}
@@ -1763,6 +1906,9 @@ function ContextRetrievalSection({
                   candidate={candidate}
                   sessionId={sessionId}
                   onPreviewFile={onPreviewFile}
+                  actionKey={contextActionKey}
+                  actionsDisabled={disabled || Boolean(contextActionKey)}
+                  onAction={runFocusedContextAction}
                 />
               ) : (
                 <ContextGenericCandidateRow key={candidate.id} candidate={candidate} />

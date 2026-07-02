@@ -61,7 +61,7 @@ Loop        = 定时/重复触发或条件轮询（已实现第一版）
 | Loop | 已实现第一版 | `/loop` + Workspace Loop 区块 | `loop_schedules` / `loop_runs`，HTTP `/api/sessions/{id}/loops` / `/api/loops/{id}` | 只用于真正重复触发、轮询或定时继续；完整实现见 [Loop 控制平面](../architecture/loop.md)。 |
 | Worktree | 已实现 Phase 3.1 | Workspace 环境面板 + Workflow 创建运行位置 | `managed_worktrees`，HTTP `/api/sessions/{id}/worktrees` / `/api/worktrees/{id}` | 代码改动隔离环境，偏 coding-specific；完整实现见 [Managed Worktree 控制平面](../architecture/worktree.md)。 |
 | LSP | 已实现 Phase 3.2 | Workspace 语义诊断区块 + `lsp` 工具 | `ha-core::lsp`，HTTP `/api/sessions/{id}/lsp/status` / `/api/sessions/{id}/lsp/diagnostics` | 语义导航和 diagnostics，偏 coding-specific；完整实现见 [LSP 与语义代码智能](../architecture/lsp.md)。 |
-| Context Retrieval | 已实现 Phase 3.5 | Workspace 推荐上下文区块 | `ha-core::context_retrieval`，HTTP `/api/sessions/{id}/context-retrieval` | 任务感知上下文推荐，聚合 diff/artifact/LSP/review/verification/search/symbol/source；完整实现见 [Context Retrieval v2](../architecture/context-retrieval.md)。 |
+| Context Retrieval | 已实现 Phase 3.6 | Workspace 推荐上下文区块 | `ha-core::context_retrieval`，HTTP `/api/sessions/{id}/context-retrieval` | 任务感知上下文推荐与行动入口，聚合 diff/artifact/LSP/review/verification/goal/task/workflow/search/symbol/source，并可从候选行触发 focused review / verification；完整实现见 [Context Retrieval v2](../architecture/context-retrieval.md)。 |
 
 ## 3.1 调整后的实施顺序
 
@@ -77,12 +77,13 @@ Phase 3.2  LSP / Diagnostics（已完成）
 Phase 3.3  Review Engine（已完成）
 Phase 3.4  Smart Verification / 智能验证选择（已完成）
 Phase 3.5  Context Retrieval v2 / 推荐上下文（已完成）
-Phase 3.6+ review / verification / context retrieval 深水增强
+Phase 3.6  Actionable Context Loop / 可行动上下文闭环（已完成）
+Phase 3.7+ review / verification / context eval 深水增强
 ```
 
 这意味着 LSP、review engine 不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。LSP / Diagnostics 已按这个原则落地为 Workspace 与工具层能力；Review Engine 也已按同一原则落地为 durable review run/finding，并把 P0/P1 open finding 写回 Goal evidence。
 Smart Verification 同样按这个原则落地为 durable verification run/step，并把最小验证结果写回 Goal evidence。
-Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Workspace 推荐上下文，帮助用户和后续 agent 步骤更快定位下一步最该看的文件、诊断、审查项与验证结果。
+Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Workspace 推荐上下文，并在 Phase 3.6 接入 Goal evidence、task、workflow op 关联召回与候选行 focused review / verification，帮助用户从“看到下一步”直接进入“处理下一步”。
 
 ## 4. `/mode` 的准确语义
 

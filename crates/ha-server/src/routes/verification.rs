@@ -29,6 +29,8 @@ pub struct PlanVerificationBody {
     pub goal_id: Option<String>,
     #[serde(default)]
     pub max_commands: Option<usize>,
+    #[serde(default)]
+    pub focus_paths: Vec<String>,
 }
 
 pub async fn plan_smart_verification(
@@ -42,6 +44,7 @@ pub async fn plan_smart_verification(
             scope: body.scope,
             goal_id: body.goal_id,
             max_commands: body.max_commands,
+            focus_paths: body.focus_paths,
         },
     )
     .await
@@ -60,6 +63,7 @@ pub async fn run_smart_verification(
             scope: body.scope,
             goal_id: body.goal_id,
             max_commands: body.max_commands,
+            focus_paths: body.focus_paths,
         },
     )
     .await

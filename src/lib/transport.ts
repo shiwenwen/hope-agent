@@ -647,6 +647,9 @@ export type ContextCandidateKind =
   | "diagnostic"
   | "review_finding"
   | "verification_step"
+  | "goal_evidence"
+  | "task"
+  | "workflow_op"
   | "url_source";
 
 export interface ContextCandidate {
@@ -670,6 +673,9 @@ export interface ContextRetrievalStats {
   diagnostics: number;
   reviewFindings: number;
   verificationSteps: number;
+  goalEvidence: number;
+  tasks: number;
+  workflowOps: number;
   fileSearchMatches: number;
   symbols: number;
   urlSources: number;
