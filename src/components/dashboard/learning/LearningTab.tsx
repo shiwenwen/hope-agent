@@ -9,16 +9,18 @@ import {
   Loader2,
   Play,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   Sparkles,
+  XCircle,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
+  CodingBenchmarkCampaign,
   CodingBenchmarkCenterReport,
   CodingEvalReleaseGateReport,
-  CodingEvalGoldTaskPackReport,
   CodingLearningGeneralizationReport,
 } from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter } from "../types"
@@ -56,6 +58,21 @@ interface RecallStats {
   windowDays: number
 }
 
+interface BenchmarkProviderOption {
+  id: string
+  name: string
+  enabled?: boolean
+  models: { id: string; name: string }[]
+}
+
+interface BenchmarkModelOption {
+  key: string
+  providerId: string
+  providerName: string
+  modelId: string
+  modelName: string
+}
+
 const WINDOW_OPTIONS = [7, 14, 30, 60, 90]
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -80,17 +97,23 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [recall, setRecall] = useState<RecallStats | null>(null)
   const [coding, setCoding] = useState<CodingImprovementDashboard | null>(null)
   const [benchmark, setBenchmark] = useState<CodingBenchmarkCenterReport | null>(null)
+  const [benchmarkCampaigns, setBenchmarkCampaigns] = useState<CodingBenchmarkCampaign[]>([])
+  const [benchmarkProviders, setBenchmarkProviders] = useState<BenchmarkProviderOption[]>([])
+  const [selectedBenchmarkModels, setSelectedBenchmarkModels] = useState<string[]>([])
+  const [benchmarkMaxTasks, setBenchmarkMaxTasks] = useState(3)
+  const [benchmarkBudgetUsd, setBenchmarkBudgetUsd] = useState("")
   const [releaseGate, setReleaseGate] = useState<CodingEvalReleaseGateReport | null>(null)
   const [generalization, setGeneralization] =
     useState<CodingLearningGeneralizationReport | null>(null)
   const [benchmarkRunning, setBenchmarkRunning] = useState(false)
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
+  const [campaignActionId, setCampaignActionId] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     setBenchmarkError(null)
     try {
-      const [ov, tl, ts, rs, ci, bc, rg, gen] = await Promise.all([
+      const [ov, tl, ts, rs, ci, bc, campaigns, providers, rg, gen] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
           windowDays,
         }),
@@ -114,6 +137,22 @@ export default function LearningTab({ filter }: LearningTabProps) {
             limit: 12,
           },
         }),
+        getTransport().call<CodingBenchmarkCampaign[]>("list_coding_benchmark_campaigns", {
+          input: {
+            limit: 6,
+          },
+        }),
+        getTransport()
+          .call<BenchmarkProviderOption[]>("get_providers")
+          .catch((error) => {
+            logger.warn(
+              "dashboard",
+              "LearningTab::loadProviders",
+              "Failed to load benchmark providers",
+              error,
+            )
+            return []
+          }),
         getTransport().call<CodingEvalReleaseGateReport>("evaluate_coding_eval_release_gate", {
           input: {
             windowDays: releaseGateWindowDays(filter, windowDays),
@@ -134,6 +173,8 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setRecall(rs)
       setCoding(ci)
       setBenchmark(bc)
+      setBenchmarkCampaigns(campaigns ?? [])
+      setBenchmarkProviders(providers ?? [])
       setReleaseGate(rg)
       setGeneralization(gen)
     } catch (e) {
@@ -147,16 +188,21 @@ export default function LearningTab({ filter }: LearningTabProps) {
     setBenchmarkRunning(true)
     setBenchmarkError(null)
     try {
-      await getTransport().call<CodingEvalGoldTaskPackReport>("run_coding_eval_gold_task_pack", {
+      await getTransport().call<CodingBenchmarkCampaign>("create_coding_benchmark_campaign", {
         input: {
-          executionMode: "fixture_patch",
-          baselineKind: "deterministic_mock",
-          label: "Benchmark Center deterministic run",
-          sourceType: "benchmark_center",
-          sourceId: "phase6.1",
-          recordEvalRuns: true,
-          recordPackRun: true,
-          evaluateGoal: true,
+          name: "Dashboard deterministic benchmark",
+          runNow: true,
+          goldTaskInput: {
+            executionMode: "fixture_patch",
+            baselineKind: "deterministic_mock",
+            label: "Benchmark Campaign deterministic run",
+            sourceType: "benchmark_campaign",
+            sourceId: "dashboard",
+            recordEvalRuns: true,
+            recordPackRun: true,
+            evaluateGoal: true,
+          },
+          models: [],
         },
       })
       await reload()
@@ -165,6 +211,121 @@ export default function LearningTab({ filter }: LearningTabProps) {
       logger.error("dashboard", "LearningTab::runBenchmark", "Failed to run benchmark pack", e)
     } finally {
       setBenchmarkRunning(false)
+    }
+  }, [reload])
+
+  const benchmarkModelOptions = benchmarkProviders
+    .filter((provider) => provider.enabled !== false)
+    .flatMap((provider) =>
+      provider.models.map((model) => ({
+        key: `${provider.id}::${model.id}`,
+        providerId: provider.id,
+        providerName: provider.name,
+        modelId: model.id,
+        modelName: model.name,
+      })),
+    )
+
+  const toggleBenchmarkModel = useCallback((key: string) => {
+    setSelectedBenchmarkModels((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : current.length >= 4
+          ? [...current.slice(1), key]
+          : [...current, key],
+    )
+  }, [])
+
+  const runExternalBenchmark = useCallback(async () => {
+    const selected = benchmarkModelOptions.filter((option) =>
+      selectedBenchmarkModels.includes(option.key),
+    )
+    if (!selected.length) {
+      setBenchmarkError("Select at least one external model.")
+      return
+    }
+    const providerIds = new Set(selected.map((option) => option.providerId))
+    const providers = benchmarkProviders.filter((provider) => providerIds.has(provider.id))
+    const parsedBudget = Number(benchmarkBudgetUsd)
+    setBenchmarkRunning(true)
+    setBenchmarkError(null)
+    try {
+      await getTransport().call<CodingBenchmarkCampaign>("create_coding_benchmark_campaign", {
+        input: {
+          name: "External model benchmark campaign",
+          runNow: true,
+          maxBudgetUsd:
+            benchmarkBudgetUsd.trim() && Number.isFinite(parsedBudget) && parsedBudget > 0
+              ? parsedBudget
+              : null,
+          goldTaskInput: {
+            executionMode: "agent",
+            baselineKind: "external_model",
+            label: "External model benchmark campaign",
+            sourceType: "benchmark_campaign",
+            sourceId: "dashboard-external",
+            recordEvalRuns: true,
+            recordPackRun: true,
+            evaluateGoal: true,
+            autoApproveTools: true,
+            maxTasks: Math.max(1, Math.min(20, benchmarkMaxTasks)),
+            providers,
+          },
+          models: selected.map((option) => ({
+            providerId: option.providerId,
+            modelId: option.modelId,
+            label: `${option.providerName}/${option.modelName}`,
+          })),
+        },
+      })
+      await reload()
+    } catch (e) {
+      setBenchmarkError(e instanceof Error ? e.message : String(e))
+      logger.error("dashboard", "LearningTab::runExternalBenchmark", "Failed to run external benchmark", e)
+    } finally {
+      setBenchmarkRunning(false)
+    }
+  }, [
+    benchmarkBudgetUsd,
+    benchmarkMaxTasks,
+    benchmarkModelOptions,
+    benchmarkProviders,
+    reload,
+    selectedBenchmarkModels,
+  ])
+
+  const cancelBenchmarkCampaign = useCallback(async (campaignId: string) => {
+    setCampaignActionId(campaignId)
+    setBenchmarkError(null)
+    try {
+      await getTransport().call<CodingBenchmarkCampaign | null>("cancel_coding_benchmark_campaign", {
+        campaignId,
+      })
+      await reload()
+    } catch (e) {
+      setBenchmarkError(e instanceof Error ? e.message : String(e))
+      logger.error("dashboard", "LearningTab::cancelBenchmarkCampaign", "Failed to cancel campaign", e)
+    } finally {
+      setCampaignActionId(null)
+    }
+  }, [reload])
+
+  const retryBenchmarkCampaign = useCallback(async (campaignId: string) => {
+    setCampaignActionId(campaignId)
+    setBenchmarkError(null)
+    try {
+      await getTransport().call<CodingBenchmarkCampaign | null>("run_coding_benchmark_campaign", {
+        input: {
+          campaignId,
+          retryFailedOnly: true,
+        },
+      })
+      await reload()
+    } catch (e) {
+      setBenchmarkError(e instanceof Error ? e.message : String(e))
+      logger.error("dashboard", "LearningTab::retryBenchmarkCampaign", "Failed to retry campaign", e)
+    } finally {
+      setCampaignActionId(null)
     }
   }, [reload])
 
@@ -212,11 +373,23 @@ export default function LearningTab({ filter }: LearningTabProps) {
       <CodingImprovementSection
         coding={coding}
         benchmark={benchmark}
+        benchmarkCampaigns={benchmarkCampaigns}
+        benchmarkModelOptions={benchmarkModelOptions}
+        selectedBenchmarkModels={selectedBenchmarkModels}
+        benchmarkMaxTasks={benchmarkMaxTasks}
+        benchmarkBudgetUsd={benchmarkBudgetUsd}
         releaseGate={releaseGate}
         generalization={generalization}
         benchmarkRunning={benchmarkRunning}
         benchmarkError={benchmarkError}
+        campaignActionId={campaignActionId}
         onRunBenchmark={runBenchmark}
+        onRunExternalBenchmark={runExternalBenchmark}
+        onToggleBenchmarkModel={toggleBenchmarkModel}
+        onBenchmarkMaxTasksChange={setBenchmarkMaxTasks}
+        onBenchmarkBudgetUsdChange={setBenchmarkBudgetUsd}
+        onCancelBenchmarkCampaign={cancelBenchmarkCampaign}
+        onRetryBenchmarkCampaign={retryBenchmarkCampaign}
       />
 
       {/* Overview cards */}
@@ -377,19 +550,43 @@ function OverviewCard({
 function CodingImprovementSection({
   coding,
   benchmark,
+  benchmarkCampaigns,
+  benchmarkModelOptions,
+  selectedBenchmarkModels,
+  benchmarkMaxTasks,
+  benchmarkBudgetUsd,
   releaseGate,
   generalization,
   benchmarkRunning,
   benchmarkError,
+  campaignActionId,
   onRunBenchmark,
+  onRunExternalBenchmark,
+  onToggleBenchmarkModel,
+  onBenchmarkMaxTasksChange,
+  onBenchmarkBudgetUsdChange,
+  onCancelBenchmarkCampaign,
+  onRetryBenchmarkCampaign,
 }: {
   coding: CodingImprovementDashboard | null
   benchmark: CodingBenchmarkCenterReport | null
+  benchmarkCampaigns: CodingBenchmarkCampaign[]
+  benchmarkModelOptions: BenchmarkModelOption[]
+  selectedBenchmarkModels: string[]
+  benchmarkMaxTasks: number
+  benchmarkBudgetUsd: string
   releaseGate: CodingEvalReleaseGateReport | null
   generalization: CodingLearningGeneralizationReport | null
   benchmarkRunning: boolean
   benchmarkError: string | null
+  campaignActionId: string | null
   onRunBenchmark: () => void
+  onRunExternalBenchmark: () => void
+  onToggleBenchmarkModel: (key: string) => void
+  onBenchmarkMaxTasksChange: (value: number) => void
+  onBenchmarkBudgetUsdChange: (value: string) => void
+  onCancelBenchmarkCampaign: (campaignId: string) => void
+  onRetryBenchmarkCampaign: (campaignId: string) => void
 }) {
   const { t } = useTranslation()
   const overview = coding?.overview
@@ -503,9 +700,21 @@ function CodingImprovementSection({
 
       <BenchmarkCenterPanel
         report={benchmark}
+        campaigns={benchmarkCampaigns}
+        modelOptions={benchmarkModelOptions}
+        selectedModelKeys={selectedBenchmarkModels}
+        maxTasks={benchmarkMaxTasks}
+        budgetUsd={benchmarkBudgetUsd}
         running={benchmarkRunning}
         error={benchmarkError}
+        actionId={campaignActionId}
         onRun={onRunBenchmark}
+        onRunExternal={onRunExternalBenchmark}
+        onToggleModel={onToggleBenchmarkModel}
+        onMaxTasksChange={onBenchmarkMaxTasksChange}
+        onBudgetUsdChange={onBenchmarkBudgetUsdChange}
+        onCancelCampaign={onCancelBenchmarkCampaign}
+        onRetryCampaign={onRetryBenchmarkCampaign}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -723,19 +932,47 @@ function CodingImprovementSection({
 
 function BenchmarkCenterPanel({
   report,
+  campaigns,
+  modelOptions,
+  selectedModelKeys,
+  maxTasks,
+  budgetUsd,
   running,
   error,
+  actionId,
   onRun,
+  onRunExternal,
+  onToggleModel,
+  onMaxTasksChange,
+  onBudgetUsdChange,
+  onCancelCampaign,
+  onRetryCampaign,
 }: {
   report: CodingBenchmarkCenterReport | null
+  campaigns: CodingBenchmarkCampaign[]
+  modelOptions: BenchmarkModelOption[]
+  selectedModelKeys: string[]
+  maxTasks: number
+  budgetUsd: string
   running: boolean
   error: string | null
+  actionId: string | null
   onRun: () => void
+  onRunExternal: () => void
+  onToggleModel: (key: string) => void
+  onMaxTasksChange: (value: number) => void
+  onBudgetUsdChange: (value: string) => void
+  onCancelCampaign: (campaignId: string) => void
+  onRetryCampaign: (campaignId: string) => void
 }) {
   const { t } = useTranslation()
   const attentionChecks =
     report?.checks.filter((check) => check.status !== "passed").slice(0, 4) ?? []
   const recentRuns = report?.runs.slice(0, 4) ?? []
+  const activeCampaigns = campaigns.filter((campaign) =>
+    ["queued", "running", "cancel_requested"].includes(campaign.status),
+  ).length
+  const visibleModels = modelOptions.slice(0, 10)
 
   return (
     <div className="border border-border/60 rounded-lg p-4 min-w-0">
@@ -752,96 +989,220 @@ function BenchmarkCenterPanel({
             {report?.status ?? "loading"}
           </span>
         </div>
-        <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRun} disabled={running}>
+        <div className="flex items-center gap-2">
+          {activeCampaigns > 0 && (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {activeCampaigns} active
+            </span>
+          )}
+          <Button size="sm" variant="outline" className="h-7 gap-1.5" onClick={onRun} disabled={running}>
           {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
           <span className="text-xs">
             {t("dashboard.learning.runBenchmark", { defaultValue: "Run" })}
           </span>
-        </Button>
+          </Button>
+        </div>
       </div>
       {report ? (
-        <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(0,1.15fr)_minmax(220px,0.85fr)] gap-3">
-          <div className="flex flex-wrap gap-1.5 content-start">
-            <MetricPill label="RN" value={report.summary.totalRuns} />
-            <MetricPill
-              label="PR"
-              value={formatPct(report.summary.runPassRate)}
-              tone={report.summary.failedRuns > 0 ? "warn" : "accent"}
-            />
-            <MetricPill
-              label="CS"
-              value={formatPct(report.summary.casePassRate)}
-              tone={report.summary.failedCases > 0 ? "warn" : "accent"}
-            />
-            <MetricPill
-              label="EM"
-              value={report.summary.externalModelRuns}
-              tone={report.summary.externalModelRuns > 0 ? "accent" : "muted"}
-            />
-          </div>
-          <div className="min-w-0 space-y-2">
-            {recentRuns.length ? (
-              recentRuns.map((run) => (
-                <div
-                  key={run.id}
-                  className="flex flex-wrap items-center gap-2 text-xs border-b border-border/20 pb-1.5 last:border-0 last:pb-0"
-                >
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] ${releaseGateTone(run.status)}`}>
-                    {run.status}
-                  </span>
-                  <span className="font-medium truncate max-w-48">
-                    {run.label ?? run.baselineKind}
-                  </span>
-                  <span className="text-muted-foreground tabular-nums">
-                    {run.passedCases}/{run.passedCases + run.failedCases}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {new Date(run.createdAt).toLocaleDateString()}
-                  </span>
-                  {run.failedCasesSummary[0] && (
-                    <span className="text-[10px] text-muted-foreground truncate basis-full">
-                      {run.failedCasesSummary[0]}
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(0,1.15fr)_minmax(220px,0.85fr)] gap-3">
+            <div className="flex flex-wrap gap-1.5 content-start">
+              <MetricPill label="RN" value={report.summary.totalRuns} />
+              <MetricPill
+                label="PR"
+                value={formatPct(report.summary.runPassRate)}
+                tone={report.summary.failedRuns > 0 ? "warn" : "accent"}
+              />
+              <MetricPill
+                label="CS"
+                value={formatPct(report.summary.casePassRate)}
+                tone={report.summary.failedCases > 0 ? "warn" : "accent"}
+              />
+              <MetricPill
+                label="EM"
+                value={report.summary.externalModelRuns}
+                tone={report.summary.externalModelRuns > 0 ? "accent" : "muted"}
+              />
+            </div>
+            <div className="min-w-0 space-y-2">
+              {recentRuns.length ? (
+                recentRuns.map((run) => (
+                  <div
+                    key={run.id}
+                    className="flex flex-wrap items-center gap-2 text-xs border-b border-border/20 pb-1.5 last:border-0 last:pb-0"
+                  >
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${releaseGateTone(run.status)}`}>
+                      {run.status}
                     </span>
-                  )}
+                    <span className="font-medium truncate max-w-48">
+                      {run.label ?? run.baselineKind}
+                    </span>
+                    <span className="text-muted-foreground tabular-nums">
+                      {run.passedCases}/{run.passedCases + run.failedCases}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {new Date(run.createdAt).toLocaleDateString()}
+                    </span>
+                    {run.failedCasesSummary[0] && (
+                      <span className="text-[10px] text-muted-foreground truncate basis-full">
+                        {run.failedCasesSummary[0]}
+                      </span>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <EmptyLine
+                  label={t("dashboard.learning.noBenchmarkRuns", {
+                    defaultValue: "No benchmark runs",
+                  })}
+                />
+              )}
+            </div>
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                {report.baselines.slice(0, 3).map((baseline) => (
+                  <MetricPill
+                    key={baseline.baselineKind}
+                    label={baseline.baselineKind === "external_model" ? "EX" : "DT"}
+                    value={`${baseline.passedRuns}/${baseline.runs}`}
+                    tone={baseline.failedRuns > 0 ? "warn" : "accent"}
+                  />
+                ))}
+              </div>
+              {attentionChecks.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {attentionChecks.map((check) => (
+                    <span
+                      key={check.name}
+                      className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
+                      title={`${check.expected} · ${check.actual}`}
+                    >
+                      {check.name}: {check.actual}
+                    </span>
+                  ))}
                 </div>
-              ))
+              ) : (
+                <span className="text-[10px] text-muted-foreground">
+                  {t("dashboard.learning.benchmarkClean", {
+                    defaultValue: "Benchmark checks passed",
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-border/40 pt-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("dashboard.learning.externalCampaign", {
+                  defaultValue: "External campaign",
+                })}
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span>Tasks</span>
+                  <input
+                    className="h-6 w-14 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={maxTasks}
+                    onChange={(event) =>
+                      onMaxTasksChange(Math.max(1, Math.min(20, Number(event.target.value) || 1)))
+                    }
+                  />
+                </label>
+                <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <span>USD</span>
+                  <input
+                    className="h-6 w-20 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={budgetUsd}
+                    onChange={(event) => onBudgetUsdChange(event.target.value)}
+                  />
+                </label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5"
+                  onClick={onRunExternal}
+                  disabled={running || selectedModelKeys.length === 0}
+                >
+                  {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  <span className="text-xs">
+                    {t("dashboard.learning.runExternalBenchmark", {
+                      defaultValue: "Run external",
+                    })}
+                  </span>
+                </Button>
+              </div>
+            </div>
+            {visibleModels.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {visibleModels.map((option) => {
+                  const selected = selectedModelKeys.includes(option.key)
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => onToggleModel(option.key)}
+                      className={`max-w-full truncate rounded border px-1.5 py-0.5 text-[10px] ${
+                        selected
+                          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "border-border/50 bg-secondary/30 text-muted-foreground"
+                      }`}
+                      title={`${option.providerName}/${option.modelName}`}
+                    >
+                      {option.providerName}/{option.modelName}
+                    </button>
+                  )
+                })}
+                {modelOptions.length > visibleModels.length && (
+                  <span className="rounded bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    +{modelOptions.length - visibleModels.length}
+                  </span>
+                )}
+              </div>
             ) : (
               <EmptyLine
-                label={t("dashboard.learning.noBenchmarkRuns", {
-                  defaultValue: "No benchmark runs",
+                label={t("dashboard.learning.noBenchmarkModels", {
+                  defaultValue: "No enabled provider models",
                 })}
               />
             )}
           </div>
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {report.baselines.slice(0, 3).map((baseline) => (
-                <MetricPill
-                  key={baseline.baselineKind}
-                  label={baseline.baselineKind === "external_model" ? "EX" : "DT"}
-                  value={`${baseline.passedRuns}/${baseline.runs}`}
-                  tone={baseline.failedRuns > 0 ? "warn" : "accent"}
-                />
-              ))}
+
+          <div className="border-t border-border/40 pt-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("dashboard.learning.benchmarkCampaigns", {
+                  defaultValue: "Campaigns",
+                })}
+              </span>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {campaigns.length}
+              </span>
             </div>
-            {attentionChecks.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {attentionChecks.map((check) => (
-                  <span
-                    key={check.name}
-                    className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
-                    title={`${check.expected} · ${check.actual}`}
-                  >
-                    {check.name}: {check.actual}
-                  </span>
+            {campaigns.length ? (
+              <div className="space-y-2">
+                {campaigns.slice(0, 6).map((campaign) => (
+                  <BenchmarkCampaignRow
+                    key={campaign.id}
+                    campaign={campaign}
+                    busy={actionId === campaign.id}
+                    onCancel={onCancelCampaign}
+                    onRetry={onRetryCampaign}
+                  />
                 ))}
               </div>
             ) : (
-              <span className="text-[10px] text-muted-foreground">
-                {t("dashboard.learning.benchmarkClean", {
-                  defaultValue: "Benchmark checks passed",
+              <EmptyLine
+                label={t("dashboard.learning.noBenchmarkCampaigns", {
+                  defaultValue: "No benchmark campaigns",
                 })}
-              </span>
+              />
             )}
           </div>
         </div>
@@ -858,6 +1219,105 @@ function BenchmarkCenterPanel({
             defaultValue: "Run failed: {{message}}",
             message: error,
           })}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function BenchmarkCampaignRow({
+  campaign,
+  busy,
+  onCancel,
+  onRetry,
+}: {
+  campaign: CodingBenchmarkCampaign
+  busy: boolean
+  onCancel: (campaignId: string) => void
+  onRetry: (campaignId: string) => void
+}) {
+  const { t } = useTranslation()
+  const canCancel = ["queued", "running", "cancel_requested"].includes(campaign.status)
+  const canRetry = ["failed", "partial", "cancelled", "interrupted"].includes(campaign.status)
+  const primaryItem = campaign.items[0]
+  const visibleItems = campaign.items.slice(0, 4)
+
+  return (
+    <div className="rounded border border-border/40 p-2.5 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`px-1.5 py-0.5 rounded text-[10px] ${benchmarkCampaignTone(campaign.status)}`}>
+          {campaign.status}
+        </span>
+        <span className="font-medium truncate max-w-[260px]">{campaign.name}</span>
+        <span className="text-[10px] text-muted-foreground tabular-nums">
+          {new Date(campaign.updatedAt).toLocaleString()}
+        </span>
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+          <MetricPill
+            label="IT"
+            value={`${campaign.summary.passedItems}/${campaign.summary.totalItems}`}
+            tone={campaign.summary.failedItems > 0 ? "warn" : campaign.summary.passedItems > 0 ? "accent" : "muted"}
+          />
+          <MetricPill
+            label="CS"
+            value={formatPct(campaign.summary.casePassRate)}
+            tone={campaign.summary.failedCases > 0 ? "warn" : campaign.summary.passedCases > 0 ? "accent" : "muted"}
+          />
+          <MetricPill
+            label="CK"
+            value={campaign.summary.totalChecks}
+            tone={campaign.summary.totalChecks > 0 ? "accent" : "muted"}
+          />
+          {canRetry && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5"
+              onClick={() => onRetry(campaign.id)}
+              disabled={busy}
+              title={t("dashboard.learning.retryBenchmarkCampaign", {
+                defaultValue: "Retry failed campaign items",
+              })}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+          {canCancel && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-1.5 text-muted-foreground hover:text-destructive"
+              onClick={() => onCancel(campaign.id)}
+              disabled={busy}
+              title={t("dashboard.learning.cancelBenchmarkCampaign", {
+                defaultValue: "Cancel campaign",
+              })}
+            >
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <XCircle className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {visibleItems.map((item) => (
+          <span
+            key={item.id}
+            className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${benchmarkCampaignTone(item.status)}`}
+            title={item.error ?? item.packRunId ?? item.id}
+          >
+            {formatCampaignItemTarget(item.providerId, item.modelId, item.label)} · {item.status}
+            {item.packRunId ? ` · ${item.packRunId}` : ""}
+          </span>
+        ))}
+        {campaign.items.length > visibleItems.length && (
+          <span className="rounded bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            +{campaign.items.length - visibleItems.length}
+          </span>
+        )}
+      </div>
+      {(campaign.error || primaryItem?.error) && (
+        <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" title={campaign.error ?? primaryItem?.error ?? undefined}>
+          {campaign.error ?? primaryItem?.error}
         </p>
       )}
     </div>
@@ -1135,6 +1595,35 @@ function releaseGateTone(status?: string | null): string {
     default:
       return "bg-secondary/40 text-muted-foreground"
   }
+}
+
+function benchmarkCampaignTone(status?: string | null): string {
+  switch (status) {
+    case "passed":
+      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    case "running":
+    case "queued":
+    case "cancel_requested":
+      return "bg-sky-500/10 text-sky-600 dark:text-sky-400"
+    case "failed":
+    case "interrupted":
+      return "bg-red-500/10 text-red-600 dark:text-red-400"
+    case "partial":
+    case "skipped":
+    case "cancelled":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    default:
+      return "bg-secondary/40 text-muted-foreground"
+  }
+}
+
+function formatCampaignItemTarget(
+  providerId?: string | null,
+  modelId?: string | null,
+  label?: string | null,
+): string {
+  if (providerId && modelId) return label ? `${label} (${providerId}/${modelId})` : `${providerId}/${modelId}`
+  return label?.trim() || "deterministic"
 }
 
 function releaseGateCheckTone(status: string): string {

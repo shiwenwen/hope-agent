@@ -492,8 +492,13 @@ Strategy Effect API 是 Phase 5.4 的对比入口：`evaluate_coding_eval_strate
 | `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | ✅ |
 | `evaluate_coding_learning_generalization` | `POST /api/coding-improvement/generalization/evaluate` | ✅ |
 | `get_coding_benchmark_center` | `POST /api/coding-benchmark/center` | ✅ |
+| `create_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/create` | ✅ |
+| `list_coding_benchmark_campaigns` | `POST /api/coding-benchmark/campaigns` | ✅ |
+| `get_coding_benchmark_campaign` | `GET /api/coding-benchmark/campaigns/{campaignId}` | ✅ |
+| `cancel_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/{campaignId}/cancel` | ✅ |
+| `run_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/run` | ✅ |
 
-Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Verification / Coding Eval / transcript 数据生成 trend report、workflow retro、failure taxonomy、transcript distillation 和 proposal 队列。`generate_coding_improvement_proposals` 从 report 派生候选；`distill_coding_improvement_proposals` 显式扫描 transcript、tool error、workflow ops 与 failure feedback 后只写 `coding_improvement_proposals(status='draft')`；`preview_coding_improvement_proposal_action` 返回确定性 action plan；`apply_coding_improvement_proposal` 先原子 claim draft proposal，再仅应用成 reviewable draft artifact 或 managed draft skill，目标已存在或并发创建都 fail-closed，不直接修改 project guidance、AGENTS、memory 或生产 eval fixture。`preview_coding_improvement_proposal_promotion` / `promote_coding_improvement_proposal` 只对已应用草稿显式晋升，目标冲突 fail-closed。`evaluate_coding_eval_release_gate` 只读 pack / strategy / tool-call history，输出发布质量三态；`evaluate_coding_learning_generalization` 只读 promoted learning、pack history 和 strategy history，输出跨项目学习泛化三态；`get_coding_benchmark_center` 只读 pack history 并嵌入 release / generalization gate，输出 Benchmark Run Center 三态。无痕会话 fail-closed。完整契约见 [Coding Improvement Loop](coding-improvement-loop.md)。
+Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Verification / Coding Eval / transcript 数据生成 trend report、workflow retro、failure taxonomy、transcript distillation 和 proposal 队列。`generate_coding_improvement_proposals` 从 report 派生候选；`distill_coding_improvement_proposals` 显式扫描 transcript、tool error、workflow ops 与 failure feedback 后只写 `coding_improvement_proposals(status='draft')`；`preview_coding_improvement_proposal_action` 返回确定性 action plan；`apply_coding_improvement_proposal` 先原子 claim draft proposal，再仅应用成 reviewable draft artifact 或 managed draft skill，目标已存在或并发创建都 fail-closed，不直接修改 project guidance、AGENTS、memory 或生产 eval fixture。`preview_coding_improvement_proposal_promotion` / `promote_coding_improvement_proposal` 只对已应用草稿显式晋升，目标冲突 fail-closed。`evaluate_coding_eval_release_gate` 只读 pack / strategy / tool-call history，输出发布质量三态；`evaluate_coding_learning_generalization` 只读 promoted learning、pack history 和 strategy history，输出跨项目学习泛化三态；`get_coding_benchmark_center` 只读 pack history 并嵌入 release / generalization gate，输出 Benchmark Run Center 三态；Benchmark Campaign API 创建/运行/取消/重试 durable campaign，history 不保存 provider configs 或 API key。无痕会话 fail-closed。完整契约见 [Coding Improvement Loop](coding-improvement-loop.md)。
 
 ### Workflow Runs
 
@@ -811,9 +816,14 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | ✅ |
 | `evaluate_coding_learning_generalization` | `POST /api/coding-improvement/generalization/evaluate` | ✅ |
 | `get_coding_benchmark_center` | `POST /api/coding-benchmark/center` | ✅ |
+| `create_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/create` | ✅ |
+| `list_coding_benchmark_campaigns` | `POST /api/coding-benchmark/campaigns` | ✅ |
+| `get_coding_benchmark_campaign` | `GET /api/coding-benchmark/campaigns/{campaignId}` | ✅ |
+| `cancel_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/{campaignId}/cancel` | ✅ |
+| `run_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/run` | ✅ |
 | `dashboard_plan_stats` | `POST /api/dashboard/plan-stats` | ✅ |
 
-`dashboard_coding_improvement` 是只读全局学习聚合，按 DashboardFilter 返回 workflow / case eval / pack eval / strategy effect / tool-call failure / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、tool call failures、proposal status、latest strategy effects 和 latest retros；`get_coding_benchmark_center` 进一步聚合 benchmark history、baseline buckets、recent runs、Release Gate 与 Generalization Gate。两者都不生成 proposal、不 apply、不 promotion。
+`dashboard_coding_improvement` 是只读全局学习聚合，按 DashboardFilter 返回 workflow / case eval / pack eval / strategy effect / tool-call failure / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、tool call failures、proposal status、latest strategy effects 和 latest retros；`get_coding_benchmark_center` 进一步聚合 benchmark history、baseline buckets、recent runs、Release Gate 与 Generalization Gate；Benchmark Campaign API 为 Dashboard 提供 durable campaign 列表、Run/Cancel/Retry 控制和 item-level evidence。它们都不生成 proposal、不 apply、不 promotion。
 
 `evaluate_coding_eval_release_gate` 接收 `{ "input": { "sessionId": "...", "projectId": "...", "windowDays": 30, "minPackRuns": 1, "minStrategyEffectRuns": 0, "minPackPassRate": 1.0, "requireExternalModelPack": false } }`，返回 `CodingEvalReleaseGateReport`。报告包含 `status = passed | failed | insufficient_data`、归一化 `thresholds`、pack / strategy / tool-call `summary` 和逐条 `checks`。它只读 `coding_eval_pack_runs`、`coding_strategy_effect_runs`、`coding_eval_runs`，不跑模型、不执行项目命令、不写 DB。
 

@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-03
 >
-> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化 / Dashboard、Phase 5.8 Release Gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate 与 Phase 6.1 Benchmark Run Center 已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线、Phase 5.7 strategy effect 趋势持久化 / Dashboard、Phase 5.8 Release Gate、Phase 5.9 外部模型基线 runner、Phase 5.10 Learning Generalization Gate、Phase 6.1 Benchmark Run Center 与 Phase 6.2 Benchmark Campaign Runner 已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 目录
 
@@ -295,7 +295,7 @@ cargo test -p ha-core --test coding_eval --locked
 - 自动采集 tool trace。
 - 受控自动验证命令执行。
 - 自动 outcome 初判 + 人工确认。
-- Phase 6.2 Benchmark Campaign Runner：显式 provider/model matrix、预算、长任务状态、可取消/重试/恢复的外部模型 campaign。
+- Phase 6.2 Benchmark Campaign Runner 已落地：durable campaign / item history、显式 provider/model matrix、Run/Cancel/Retry owner API、Dashboard Campaign 列表，默认 deterministic run 不访问外部模型。
 - Phase 6.3 Cross-model Comparison & Leaderboard：同 pack / 同 task version / 同 window 的跨模型对标、sample-size warning、成本/延迟/失败模式下钻。
 - Phase 6.4 Real Task Corpus Expansion：多项目、多语言、多难度、多任务类型 task pack，支持版本、来源、校准记录和 privacy / license note。
 - Phase 6.5 Benchmark Report Export：从 campaign / comparison / release gate 生成 Markdown / JSON / HTML snapshot，链接回 run / diff / review / verification / goal evidence。
@@ -324,7 +324,7 @@ Phase 0 完成的最低标准：
 - [x] Phase 5.9：落地外部模型基线 runner，显式 provider/model 才能运行并记录 `external_model` pack history。
 - [x] Phase 5.10：落地 Learning Generalization Gate，以 promoted proposal + pack history + strategy effect history 证明学习不是单项目偶然有效。
 - [x] Phase 6.1：落地 Benchmark Run Center v1，在 Dashboard 展示 benchmark readiness、baseline buckets、recent runs，并可显式触发 deterministic Gold Pack。
-- [ ] Phase 6.2：落地 Benchmark Campaign Runner，让外部模型 benchmark 成为可恢复、可取消、可审计的长任务。
+- [x] Phase 6.2：落地 Benchmark Campaign Runner，让 benchmark 成为可取消、可重试、可审计的 durable campaign。
 - [ ] Phase 6.3：落地 Cross-model Comparison & Leaderboard，在同 pack / 同 task version 下可信对标 provider/model。
 - [ ] Phase 6.4：落地 Real Task Corpus Expansion，扩展真实任务集并管理 task pack version / source / calibration。
 - [ ] Phase 6.5：落地 Benchmark Report Export，生成可复盘、可分享、可归档的 benchmark snapshot。

@@ -1095,20 +1095,17 @@ pub async fn run_benchmark_campaign(
         if let (Some(provider_id), Some(model_id)) =
             (item.provider_id.clone(), item.model_id.clone())
         {
-            if !input
-                .providers
-                .iter()
-                .any(|provider| provider.id == provider_id)
-            {
+            let Some(provider_config) = campaign_provider_config(&provider_id, &input.providers)
+            else {
                 db.fail_coding_benchmark_campaign_item(
                     &item.id,
                     &format!(
-                        "Provider config for {provider_id} was not supplied; campaign history never stores provider secrets"
+                        "Provider config for {provider_id} was not supplied or is masked; campaign history never stores provider secrets"
                     ),
                 )?;
                 continue;
-            }
-            pack_input.providers = input.providers.clone();
+            };
+            pack_input.providers = vec![provider_config];
             pack_input.model_chain = vec![ActiveModel {
                 provider_id,
                 model_id,
@@ -1134,6 +1131,27 @@ pub async fn run_benchmark_campaign(
     db.complete_coding_benchmark_campaign(&campaign_id)?;
     db.get_coding_benchmark_campaign(&campaign_id)?
         .ok_or_else(|| anyhow!("benchmark campaign not found after run: {campaign_id}"))
+}
+
+fn campaign_provider_config(
+    provider_id: &str,
+    supplied: &[ProviderConfig],
+) -> Option<ProviderConfig> {
+    supplied
+        .iter()
+        .find(|provider| {
+            provider.id == provider_id && !crate::provider::is_masked_key(&provider.api_key)
+        })
+        .cloned()
+        .or_else(|| {
+            crate::config::cached_config()
+                .providers
+                .iter()
+                .find(|provider| {
+                    provider.id == provider_id && !crate::provider::is_masked_key(&provider.api_key)
+                })
+                .cloned()
+        })
 }
 
 pub fn evaluate_strategy_effect(input: StrategyEffectEvalInput) -> StrategyEffectReport {
@@ -5421,6 +5439,135 @@ mod tests {
             .cases
             .iter()
             .all(|case| case.report.as_ref().is_some_and(FixtureReport::passed)));
+    }
+
+    #[tokio::test]
+    async fn benchmark_campaign_runs_deterministic_pack_and_records_history() {
+        let (_dir, db) = temp_session_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let campaign = db
+            .create_coding_benchmark_campaign(
+                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                    session_id: Some(session.id.clone()),
+                    name: Some("unit deterministic campaign".to_string()),
+                    gold_task_input: GoldTaskPackRunInput {
+                        ids: vec!["CE-TEST-004".to_string()],
+                        max_tasks: Some(1),
+                        record_eval_runs: true,
+                        record_pack_run: true,
+                        evaluate_goal: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+            .expect("create campaign");
+
+        assert_eq!(campaign.status, "queued");
+        assert_eq!(campaign.items.len(), 1);
+        assert_eq!(campaign.items[0].status, "queued");
+
+        let completed = run_benchmark_campaign(
+            db.clone(),
+            crate::coding_improvement::CodingBenchmarkCampaignRunInput {
+                campaign_id: campaign.id.clone(),
+                providers: Vec::new(),
+                retry_failed_only: false,
+            },
+        )
+        .await
+        .expect("run campaign");
+
+        assert_eq!(completed.status, "passed");
+        assert_eq!(completed.summary.total_items, 1);
+        assert_eq!(completed.summary.passed_items, 1);
+        assert_eq!(completed.summary.case_pass_rate, Some(1.0));
+        let item = completed.items.first().expect("campaign item");
+        assert_eq!(item.status, "passed");
+        assert_eq!(item.attempt, 1);
+        assert!(item.pack_run_id.is_some());
+        assert_eq!(item.selected_cases, 1);
+        assert_eq!(item.passed_cases, 1);
+        assert!(item.total_checks > 0);
+
+        let conn = db.conn.lock().expect("lock db");
+        let pack_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM coding_eval_pack_runs
+                 WHERE source_type = 'benchmark_campaign' AND source_id = ?1",
+                rusqlite::params![campaign.id],
+                |row| row.get(0),
+            )
+            .expect("pack run count");
+        assert_eq!(pack_runs, 1);
+    }
+
+    #[test]
+    fn benchmark_campaign_history_strips_provider_secrets() {
+        let server_url = "http://127.0.0.1:9".to_string();
+        let provider = mock_responses_provider(server_url, "secret-provider", "secret-model");
+        let (_dir, db) = temp_session_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let campaign = db
+            .create_coding_benchmark_campaign(
+                crate::coding_improvement::CodingBenchmarkCampaignCreateInput {
+                    session_id: Some(session.id),
+                    name: Some("secret strip campaign".to_string()),
+                    gold_task_input: GoldTaskPackRunInput {
+                        ids: vec!["CE-TEST-004".to_string()],
+                        providers: vec![provider],
+                        model_chain: vec![ActiveModel {
+                            provider_id: "secret-provider".to_string(),
+                            model_id: "secret-model".to_string(),
+                        }],
+                        execution_mode: Some("agent".to_string()),
+                        baseline_kind: Some("external_model".to_string()),
+                        ..Default::default()
+                    },
+                    models: vec![crate::coding_improvement::CodingBenchmarkCampaignModel {
+                        provider_id: Some("secret-provider".to_string()),
+                        model_id: Some("secret-model".to_string()),
+                        label: Some("secret baseline".to_string()),
+                    }],
+                    ..Default::default()
+                },
+            )
+            .expect("create campaign");
+
+        assert_eq!(campaign.model_matrix.len(), 1);
+        assert_eq!(
+            campaign.model_matrix[0].provider_id.as_deref(),
+            Some("secret-provider")
+        );
+        let serialized = campaign.task_filter.to_string();
+        assert!(
+            !serialized.contains("test-key"),
+            "campaign task filter leaked provider key: {serialized}"
+        );
+        assert!(
+            !serialized.contains("secret-model"),
+            "campaign task filter should not persist model chain: {serialized}"
+        );
+        assert_eq!(
+            campaign
+                .task_filter
+                .get("providers")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            campaign
+                .task_filter
+                .get("modelChain")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
     }
 
     #[tokio::test]
