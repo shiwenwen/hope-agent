@@ -224,6 +224,8 @@ pub fn check_workflow_script_draft(script: &str, options: ScriptGateOptions) -> 
         "workflow.validate(",
         "workflow.review(",
         "workflow.verify(",
+        "workflow.repairLoop(",
+        "workflow.block(",
         "workflow.askUser(",
         "workflow.trace(",
         "workflow.diff(",
@@ -264,11 +266,14 @@ pub fn check_workflow_script_draft(script: &str, options: ScriptGateOptions) -> 
         ));
     }
 
-    if !compact.contains("workflow.validate(") && !compact.contains("workflow.verify(") {
+    if !compact.contains("workflow.validate(")
+        && !compact.contains("workflow.verify(")
+        && !compact.contains("workflow.repairLoop(")
+    {
         issues.push(GateIssue::warning(
             "missing_validate",
             "Script has no targeted validation step.",
-            "Add workflow.validate({ commands, reason, label }) to execute checks, or workflow.verify({ focusPaths }) to create a Smart Verification plan.",
+            "Add workflow.validate({ commands, reason, label }) to execute checks, workflow.verify({ focusPaths }) to create a Smart Verification plan, or workflow.repairLoop(...) for a bounded repair loop.",
         ));
     }
 
@@ -497,6 +502,33 @@ export default async function main(workflow) {
   });
   await workflow.task.update({ task: observe, status: "completed" });
   return workflow.finish({ summary: "done", review, verification, budget });
+}
+"#;
+
+        let report = check_workflow_script_draft(script, ScriptGateOptions::default());
+        assert!(report.passed(), "{}", report.render_feedback("Script Gate"));
+        assert!(!report
+            .issues
+            .iter()
+            .any(|issue| issue.code == "missing_validate"));
+    }
+
+    #[test]
+    fn script_gate_accepts_repair_loop_host_api() {
+        let script = r#"
+export default async function main(workflow) {
+  const budget = { max_runtime_secs: 300, max_ops: 20, max_repair_attempts: 2 };
+  const observe = await workflow.task.create({ title: "Repair", label: "repair" });
+  const repair = await workflow.repairLoop({
+    label: "focused-repair",
+    maxAttempts: 2,
+    validationCommands: ["cargo check -p ha-core --locked"],
+    focusPaths: ["crates/ha-core/src/workflow/runtime.rs"],
+  }, async ({ attempt }) => {
+    await workflow.trace({ label: "repair-attempt", payload: { attempt } });
+  });
+  await workflow.task.update({ task: observe, status: "completed" });
+  return workflow.finish({ summary: "done", repair, budget });
 }
 "#;
 

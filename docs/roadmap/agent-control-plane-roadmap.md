@@ -44,6 +44,10 @@ Phase 3.4  Smart Verification / 智能验证选择（已完成）
 Phase 3.5  Context Retrieval v2 / 推荐上下文（已完成）
 Phase 3.6  Actionable Context Loop / 可行动上下文闭环（已完成）
 Phase 3.7  Coding Eval 控制面评测（已完成）
+Phase 3.8  Workflow Review/Verify Host API 与 Goal-aware Eval（已完成）
+Phase 3.9  Repair Loop 自动化（已完成）
+Phase 3.10 Deep Review / Profiles / IDE Context（计划中）
+Phase 3.11 Trend Report / Improvement Loop 接口（计划中）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -450,7 +454,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 首批 fixture 覆盖 Rust 控制面召回、docs-only sanity、focused scope 不扫无关文件。
 - 集成测试入口：`cargo test -p ha-core --test coding_eval --locked`。
 - 指标包含 `context_precision`、`critical_context_recall`、review finding 数量、verification command 列表。
-- 不调用 LLM、不执行真实验证命令，作为后续 LLM reviewer、repair loop 和趋势 dashboard 的底座质量闸。
+- 不调用 LLM、不执行真实验证命令，作为后续 workflow review/verify、repair loop、LLM reviewer 和趋势 dashboard 的底座质量闸。
 - 最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ### Phase 3.8 Workflow Review/Verify Host API 与 Goal-aware Eval（已完成）
@@ -461,6 +465,31 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - Goal evidence 串联已完成：review evidence、verification `validation_completed`、workflow `workflow_completed` 能进入同一 Goal 证据链。
 - Coding Eval 新增 workflow-bound fixture，验证 workflow op、review run、verification plan、Goal evidence 和 Context Retrieval 召回协同。
 - 最终架构见 [Workflow 与 Execution Mode](../architecture/workflow.md)、[Review Engine 控制平面](../architecture/review-engine.md)、[Smart Verification 控制平面](../architecture/verification-engine.md)、[Coding Eval 控制面评测](../architecture/coding-eval.md)。
+
+### Phase 3.9 Repair Loop 自动化（已完成）
+
+- `workflow.repairLoop({ label?, maxAttempts?, validationCommands?, focusPaths?, review?, verify? }, fn)` 已落地为脚本级 bounded repair loop；修复动作保持动态 callback，不退回固定 DSL。
+- 每轮 attempt 自动创建 task、执行 callback、运行 validation / focused review / verification plan，并写入 `repair_loop_*` trace。
+- `workflow.block({ reason?, label?, payload? })` 已落地为显式受控停机出口；attempt budget 耗尽统一 `blocked(reason=repair_loop_attempts_exhausted)`。
+- 原有 guarded repair stop guard 继续处理重复验证失败和无有效 diff 进展；repairLoop 不绕过旧安全阀。
+- Workspace 目标驱动 workflow 草稿默认使用 repairLoop，用户创建长任务时直接进入可验证的修复闭环。
+- Coding Eval 新增 repair-loop fixture，验证 blocked state、Goal `validation_failed` / `workflow_blocked` evidence 和 Context Retrieval 召回。
+- 最终架构见 [Workflow 与 Execution Mode](../architecture/workflow.md)、[Coding Eval 控制面评测](../architecture/coding-eval.md)。
+
+### Phase 3.10 Deep Review / Profiles / IDE Context（计划中）
+
+- LLM reviewer 生成候选 findings，再由独立 verifier 降噪；Review Engine 继续保留 deterministic 输出与 durable finding store。
+- Review profiles 支持 correctness / security / concurrency / frontend / accessibility / tests 等组合，并进入 review stats 与 Workspace 展示。
+- IDE / ACP 当前文件、selection、open tabs、active diagnostics、active symbol 接入 Context Retrieval 和 focused review / verification。
+- Diff scan 从文件级增强到 enclosing function / symbol context，减少大文件噪音。
+- eval 增加 profile-specific review、IDE context recall、LSP diagnostics fixture，继续保持无 LLM 的控制面回归。
+
+### Phase 3.11 Trend Report / Improvement Loop 接口（计划中）
+
+- 汇总 coding eval、workflow、goal、review、verification、repair loop 数据，生成项目级 coding trend report。
+- 统计 repair loop 成功率、blocked reason、review blocker 类型、验证失败类型和上下文漏召回。
+- 失败 run 可生成 eval candidate proposal；成功 run 可生成 workflow / skill / project guidance proposal。
+- 默认只产 proposal，不自动修改项目规则、全局 skill 或用户记忆。
 
 ## 9. 体验与性能红线
 

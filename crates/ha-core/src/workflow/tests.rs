@@ -1688,6 +1688,150 @@ export default async function main(workflow) {
 }
 
 #[test]
+fn runtime_repair_loop_completes_after_successful_attempt() {
+    let _async_guard = async_jobs_test_guard();
+    ensure_async_jobs_db();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("create workspace");
+
+    let session = db.create_session("ha-main").expect("create session");
+    db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+        .expect("set working dir");
+    db.update_session_permission_mode(&session.id, SessionMode::Yolo)
+        .expect("set yolo mode");
+
+    let script = r#"
+export default async function main(workflow) {
+  const budget = { max_runtime_secs: 300, max_ops: 20, max_repair_attempts: 2 };
+  const outer = await workflow.task.create({ title: "Repair loop success" });
+  const repair = await workflow.repairLoop({
+    label: "repair-success",
+    maxAttempts: 2,
+    validationCommands: ["true"],
+    review: false,
+    verify: false
+  }, async ({ attempt }) => {
+    await workflow.trace({ label: "attempt-callback", payload: { attempt } });
+    return { changed: false, attempt };
+  });
+  await workflow.task.update({ task: outer, status: "completed" });
+  await workflow.finish({ repair, budget });
+}
+"#;
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "coding.workflow".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10, "max_ops": 20 }),
+            parent_run_id: None,
+            origin: None,
+            goal_id: None,
+            worktree_id: None,
+        })
+        .expect("create workflow run");
+    db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+
+    let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let output = result.output.as_ref().expect("workflow output");
+    assert_eq!(output.pointer("/repair/kind"), Some(&json!("repair_loop")));
+    assert_eq!(output.pointer("/repair/ok"), Some(&json!(true)));
+    assert_eq!(
+        output.pointer("/repair/attempts/0/validationOk"),
+        Some(&json!(true))
+    );
+    assert!(result.snapshot.events.iter().any(|event| {
+        event.event_type == "trace"
+            && event.payload.get("label").and_then(Value::as_str)
+                == Some("repair-success:completed")
+    }));
+}
+
+#[test]
+fn runtime_repair_loop_blocks_when_attempt_budget_exhausted() {
+    let _async_guard = async_jobs_test_guard();
+    ensure_async_jobs_db();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));
+    let workspace = dir.path().join("workspace");
+    std::fs::create_dir_all(&workspace).expect("create workspace");
+
+    let session = db.create_session("ha-main").expect("create session");
+    db.update_session_working_dir(&session.id, Some(workspace.to_string_lossy().to_string()))
+        .expect("set working dir");
+    db.update_session_permission_mode(&session.id, SessionMode::Yolo)
+        .expect("set yolo mode");
+
+    let script = r#"
+export default async function main(workflow) {
+  const budget = { max_runtime_secs: 300, max_ops: 20, max_repair_attempts: 1 };
+  const outer = await workflow.task.create({ title: "Repair loop exhaustion" });
+  await workflow.repairLoop({
+    label: "repair-exhausted",
+    maxAttempts: 1,
+    validationCommands: ["printf still failing; exit 1"],
+    review: false,
+    verify: false
+  }, async ({ attempt }) => {
+    await workflow.trace({ label: "attempt-callback", payload: { attempt } });
+    return { changed: false, attempt };
+  });
+  await workflow.task.update({ task: outer, status: "completed" });
+  await workflow.finish({ reached: true, budget });
+}
+"#;
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "coding.workflow".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10, "max_ops": 20 }),
+            parent_run_id: None,
+            origin: None,
+            goal_id: None,
+            worktree_id: None,
+        })
+        .expect("create workflow run");
+    db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+
+    let err = run_workflow_script(db.clone(), &run.id).expect_err("repair loop must block");
+    assert!(err.to_string().contains("repair_loop_attempts_exhausted"));
+    let run = db
+        .get_workflow_run(&run.id)
+        .expect("get run")
+        .expect("run exists");
+    assert_eq!(run.state, WorkflowRunState::Blocked);
+    assert_eq!(
+        run.blocked_reason.as_deref(),
+        Some("repair_loop_attempts_exhausted")
+    );
+    let snapshot = db
+        .workflow_run_snapshot(&run.id, 100)
+        .expect("snapshot")
+        .expect("run snapshot");
+    assert!(snapshot.events.iter().any(|event| {
+        event.event_type == "trace"
+            && event.payload.get("label").and_then(Value::as_str)
+                == Some("repair-exhausted:exhausted")
+    }));
+    assert!(snapshot
+        .events
+        .iter()
+        .any(|event| event.event_type == "workflow_block_requested"));
+    assert!(snapshot
+        .ops
+        .iter()
+        .any(|op| op.op_type == "block" && op.state == WorkflowOpState::Failed));
+}
+
+#[test]
 fn runtime_validate_runs_targeted_exec_and_returns_structured_result() {
     let _async_guard = async_jobs_test_guard();
     ensure_async_jobs_db();

@@ -30,7 +30,7 @@
 
 | skill | behavior_quality | prompt_quality | tool_awareness | production_role | replacement |
 | --- | --- | --- | --- | --- | --- |
-| `code-review` | 中高：独立 reviewer / fail-closed / 不自审的内核**好**且与 Phase 5 review-engine 同向；但 Step 3 跑 `cargo test`/`clippy -D warnings`/`tsc`/`npm test` **全套**、Step 8 自动 `[verified]` commit | 中：可执行但偏长（300+ 行），非 progressive disclosure | 高：已用 `subagent`/`task`，但 commit/verify 行为与 Hope 冲突 | `rewrite_native`（与 Phase 5 重叠） | `ha-code-review` |
+| `code-review` | 中高：独立 reviewer / fail-closed / 不自审的内核**好**且与 Phase 3.10 Deep Review 同向；但 Step 3 跑 `cargo test`/`clippy -D warnings`/`tsc`/`npm test` **全套**、Step 8 自动 `[verified]` commit | 中：可执行但偏长（300+ 行），非 progressive disclosure | 高：已用 `subagent`/`task`，但 commit/verify 行为与 Hope 冲突 | `rewrite_native`（与 Phase 3.10 重叠） | `ha-code-review` |
 | `systematic-debugging` | 高：4 阶段 root-cause-first、Rule of Three、不复现不大改——方法论**值得保留**；但 Phase 4 含"跑全套"步骤 | 中：长、语气偏教条，"Real-World Impact" 段有不可验证统计（"95% vs 40%"） | 高：grep/read/exec/ask_user/subagent 都点到 | `rewrite_native` | `ha-debug` |
 | `test-driven-development` | 中：TDD 内核扎实；但"Iron Law / Delete means delete"过度教条，与 AGENTS"最小改动"+ 单点验证冲突，且默认强制不合 Hope 默认 | 低中：360 行、强 dogma、非 progressive | 中：exec 通用，无 Hope 专属接线 | `vendor_optional` / `rewrite_native`（opt-in） | `ha-tdd`（opt-in，不作默认策略） |
 | `subagent-driven-development` | 中高：per-task fresh subagent + 两段 review（spec→quality）+ "不并行写同文件" 与 Phase 2 workflow / roadmap 红线**高度同向**；但 Python/pytest 中心、每任务 auto-commit、粒度假设（2-5 min）偏硬 | 中：示例堆叠、偏长 | 中高：subagent/task | `rewrite_native`（内核折进 runtime + skill） | `ha-subagent-work` + workflow runtime |
@@ -64,7 +64,7 @@
 | `ha-coding-common` | 共享 coding 契约：读现状、尊重 AGENTS、最小改动、单点验证默认 | 全部 vendor 的"好习惯"提炼 |
 | `ha-implement` | feature / 小实现标准流程 | writing-plans 的计划纪律（去"塞完整代码"） |
 | `ha-debug` | 复现 → trace → 假设 → 最小修复 → 回归 | systematic-debugging 的 4 阶段（去全套验证 / 去伪统计） |
-| `ha-code-review` | review 输出格式 / finding 标准 / inline 约束 | code-review 的独立 reviewer + fail-closed（去全套 / 去 auto-commit；与 Phase 5 对接） |
+| `ha-code-review` | review 输出格式 / finding 标准 / inline 约束 | code-review 的独立 reviewer + fail-closed（去全套 / 去 auto-commit；与 Phase 3.10 对接） |
 | `ha-tdd` | 明确行为变更时先测后写（**opt-in，非默认**） | test-driven-development 内核（去 dogma） |
 | `ha-refactor` | 保行为重构、阶段 diff、强验证 | — |
 | `ha-subagent-work` | 何时并行探索 / 何时禁止并行写 | subagent-driven-development 的隔离与两段 review |

@@ -1,18 +1,13 @@
-use std::sync::Arc;
-
-use ha_core::channel::ChannelDB;
 use ha_core::coding_eval;
-use ha_core::session::SessionDB;
 
 #[tokio::test(flavor = "current_thread")]
 async fn coding_control_plane_fixtures_pass() {
     let temp = tempfile::tempdir().expect("create tempdir");
-    let db = Arc::new(SessionDB::open(&temp.path().join("sessions.db")).expect("open session db"));
-    ChannelDB::new(db.clone())
-        .migrate()
-        .expect("migrate channel db");
-    let _ = ha_core::SESSION_DB.set(db.clone());
-    let db = ha_core::get_session_db().cloned().unwrap_or(db);
+    std::env::set_var("HA_DATA_DIR", temp.path());
+    ha_core::init_runtime("test");
+    let db = ha_core::get_session_db()
+        .cloned()
+        .expect("session db initialized");
 
     let fixtures = coding_eval::load_fixtures().expect("load coding eval fixtures");
     assert!(

@@ -2852,7 +2852,7 @@ ${target}
 Work in the current workspace. First inspect the relevant files, then make the smallest coherent code change, and finish with a concise summary of changed files, validation performed, and residual risk. Follow the repository AGENTS.md instructions: run targeted validation only; do not run the full pre-push suite unless explicitly requested.`)
 
   return `export default async function main(workflow) {
-  // Budget: owner create request sets maxScriptSecs/maxOps/maxOutputTokens by execution mode; waitAll and validation stay bounded.
+  // Budget: owner create request sets maxScriptSecs/maxOps/maxOutputTokens by execution mode; repairLoop bounds attempts, validation, review, and verification.
   const observe = await workflow.task.create({
     title: "Understand target",
     label: "observe",
@@ -2876,37 +2876,35 @@ Work in the current workspace. First inspect the relevant files, then make the s
     title: "Implement target",
     label: "implement",
   });
-  const worker = await workflow.spawnAgent({
-    task: ${implementationTask},
-    label: "implement-target",
-  });
-  const implementation = await workflow.waitAll([worker], {
-    waitTimeout: 90,
-    label: "wait-implementation",
+  const repair = await workflow.repairLoop({
+    label: "implementation-repair",
+    maxAttempts: 2,
+    validationCommands: ["pnpm typecheck"],
+    validationReason: "targeted validation after each implementation repair attempt; full pre-push suite remains user-gated",
+    maxVerificationCommands: 2,
+  }, async ({ attempt, previous }) => {
+    const worker = await workflow.spawnAgent({
+      task: ${implementationTask} + "\\n\\nRepair attempt " + attempt + "/2. Previous control-plane feedback: " + JSON.stringify(previous && previous.result ? previous.result : null),
+      label: "implement-target-" + attempt,
+    });
+    const implementation = await workflow.waitAll([worker], {
+      waitTimeout: 90,
+      label: "wait-implementation-" + attempt,
+    });
+    return { implementation };
   });
   await workflow.task.update({ task: implement, status: "completed" });
 
-  const validate = await workflow.task.create({
-    title: "Run targeted validation",
-    label: "validate",
-  });
-  const validation = await workflow.validate({
-    commands: ["pnpm typecheck"],
-    reason: "targeted validation after the implementation agent finishes; full pre-push suite remains user-gated",
-    label: "targeted-validation",
-  });
   const diff = await workflow.diff({ label: "final-diff" });
-  await workflow.task.update({ task: validate, status: "completed" });
 
   await workflow.finish({
     summary: "Goal-driven coding workflow finished",
     target: ${targetLiteral},
     searchedFiles: files.matches ?? [],
-    implementation,
-    validation,
+    repair,
     diff,
-    verification: ["pnpm typecheck"],
-    residualRisk: validation.ok ? [] : ["Targeted validation did not pass; inspect the Validation tab."],
+    verification: ["pnpm typecheck", "workflow.review", "workflow.verify"],
+    residualRisk: repair.ok ? [] : ["Repair loop did not converge; inspect the Workflow trace, Review, and Validation tabs."],
   });
 }
 `

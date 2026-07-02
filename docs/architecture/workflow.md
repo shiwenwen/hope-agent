@@ -228,6 +228,8 @@ Primary-only 启动：
 | `workflow.validate({ commands, reason?, label? })` | non-idempotent | 预分配 async exec job，等待终态，返回结构化 validation 结果。 |
 | `workflow.review({ scope?, baseRef?, focusPaths?, profiles?, label? })` | idempotent | 运行 durable Review run，默认 `scope=local`，继承当前 workflow 的 `goal_id`，返回摘要、finding 数和 blocking finding 数。 |
 | `workflow.verify({ scope?, focusPaths?, maxCommands?, label? })` | idempotent | 创建 Smart Verification 计划，默认 `scope=local`，继承当前 workflow 的 `goal_id`；只规划不执行命令。 |
+| `workflow.repairLoop({ label?, maxAttempts?, validationCommands?, focusPaths?, review?, verify?, maxVerificationCommands? }, fn)` | helper | 脚本级 bounded repair loop；每轮调用 callback 执行动态修复动作，然后自动 validate / review / verify / trace。 |
+| `workflow.block({ reason?, label?, payload? })` | idempotent | 受控停机出口；写 `workflow_block_requested` event，将 run 转 `blocked` 并让 runtime 停止。 |
 | `workflow.askUser(args)` | non-idempotent | 复用 `ask_user_question`；无人值守 surface 先按 unattended 策略处理。 |
 | `workflow.diff({ label? })` | pure | 返回 session working dir 的 git diff snapshot。 |
 | `workflow.trace({ label?, payload? })` | pure | 写入 `workflow_events(type='trace')`。 |
@@ -247,6 +249,14 @@ Review / Verify 语义：
 - `workflow.verify()` 复用 Smart Verification selector，生成 durable verification run/steps，但不运行 step；真正执行命令仍由 `workflow.validate()` 或 owner 面板的 run verification 承担。
 - 两者都属于 permission-neutral coding control-plane host API：Script Gate 允许静态调用，permission preview 不要求额外审批；底层仍受 incognito、session workspace、HTTP path scope 等子系统红线约束。
 - run 绑定 `goal_id` 时，两者默认继承 goal：review 写 `review_passed` / `review_completed` / `review_finding` evidence；verify plan 写 `validation_completed` evidence，表示“验证计划已生成”，不冒充命令已通过。
+
+Repair Loop 语义：
+
+- `workflow.repairLoop(...)` 不是结构化 DSL；真正的修复动作仍由 callback 内的动态脚本决定，可以继续调用 `spawnAgent`、`tool`、`read`、`grep` 等 host API。
+- runtime 负责产品级循环骨架：每轮创建用户可见 task、记录 `repair_loop_started` / `repair_loop_attempt` / `repair_loop_completed` / `repair_loop_exhausted` trace、执行 `validationCommands`、可选 focused `review` / `verify`，并返回结构化 attempts。
+- `maxAttempts` 默认 2，运行时 clamp 到 1-5。attempts 耗尽时 helper 调用 `workflow.block({ reason: "repair_loop_attempts_exhausted" })`，run 进入 `blocked`，不会伪装成 completed。
+- `workflow.validate()` 原有 guarded repair stop guard 仍然生效；重复验证失败 fingerprint 或无有效 diff 进展会优先 block。
+- `workflow.block()` 是显式失败收口，适合脚本在预算耗尽、风险超界、需要人工介入时使用。它写入 durable op/event，并通过 Goal evidence 形成 `workflow_blocked`。
 
 ## 9. Durable Replay
 

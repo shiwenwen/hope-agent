@@ -139,6 +139,8 @@ pub struct WorkflowScriptEvalRun {
     pub execution_mode: String,
     #[serde(default)]
     pub budget: Value,
+    #[serde(default)]
+    pub allow_terminal_error: bool,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -182,6 +184,10 @@ pub struct FixtureChecks {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkflowCheck {
+    #[serde(default)]
+    pub expected_state: Option<String>,
+    #[serde(default)]
+    pub expected_blocked_reason: Option<String>,
     #[serde(default)]
     pub expected_op_types: Vec<String>,
     #[serde(default)]
@@ -369,8 +375,21 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
             goal_id: goal_id.clone(),
             worktree_id: None,
         })?;
-        artifacts.workflow =
-            Some(workflow::run_workflow_script_async(db.clone(), &workflow_run.id).await?);
+        artifacts.workflow = match workflow::run_workflow_script_async(db.clone(), &workflow_run.id)
+            .await
+        {
+            Ok(result) => Some(result),
+            Err(_err) if run.allow_terminal_error => {
+                let snapshot = db
+                    .workflow_run_snapshot(&workflow_run.id, 500)?
+                    .ok_or_else(|| anyhow::anyhow!("workflow run {} not found", workflow_run.id))?;
+                Some(workflow::WorkflowRuntimeResult {
+                    snapshot,
+                    output: None,
+                })
+            }
+            Err(err) => return Err(err),
+        };
     }
 
     if let Some(run) = &fixture.runs.review {
@@ -463,12 +482,27 @@ fn check_workflow(report: &mut FixtureReport, artifacts: &EvalRunArtifacts, chec
         );
         return;
     };
+    let expected_state = check.expected_state.as_deref().unwrap_or("completed");
     push_check(
         report,
-        "workflow.completed",
-        result.snapshot.run.state == WorkflowRunState::Completed,
-        format!("state={}", result.snapshot.run.state.as_str()),
+        "workflow.state",
+        result.snapshot.run.state.as_str() == expected_state,
+        format!(
+            "state={}, expected={expected_state}",
+            result.snapshot.run.state.as_str()
+        ),
     );
+    if let Some(expected) = check.expected_blocked_reason.as_deref() {
+        push_check(
+            report,
+            "workflow.blocked_reason",
+            result.snapshot.run.blocked_reason.as_deref() == Some(expected),
+            format!(
+                "blockedReason={:?}, expected={expected}",
+                result.snapshot.run.blocked_reason
+            ),
+        );
+    }
 
     if !check.expected_op_types.is_empty() {
         let actual = result

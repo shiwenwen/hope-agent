@@ -35,6 +35,7 @@ const REPAIR_VALIDATION_FAILED_EVENT: &str = "guarded_repair_validation_failed";
 const REPAIR_VALIDATION_PASSED_EVENT: &str = "guarded_repair_validation_passed";
 const REPAIR_SAME_VALIDATION_REASON: &str = "guarded_repair_same_validation_fingerprint";
 const REPAIR_NO_EFFECTIVE_DIFF_REASON: &str = "guarded_repair_no_effective_diff";
+const REPAIR_LOOP_EXHAUSTED_REASON: &str = "repair_loop_attempts_exhausted";
 const BUDGET_USAGE_EVENT: &str = "budget_usage";
 const BUDGET_EXHAUSTED_REASON: &str = "workflow_budget_output_tokens_exhausted";
 const VALIDATION_FINGERPRINT_OUTPUT_BYTES: usize = 2048;
@@ -716,6 +717,16 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let block_host = host.clone();
+    workflow.set(
+        "block",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(&ctx, &block_host, args, WorkflowRuntimeHost::block)
+            },
+        )),
+    )?;
+
     let finish_host = host.clone();
     workflow.set(
         "finish",
@@ -735,6 +746,26 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
         const __hopeMaterializeMap = workflow.__materializeMap;
         const __hopeEnterMapItem = workflow.__enterMapItem;
         const __hopeExitMapItem = workflow.__exitMapItem;
+        const __hopeBlock = workflow.block;
+        function __hopeRepairLoopArray(value, name) {
+          if (value == null) return [];
+          if (typeof value === "string") return value.trim().length > 0 ? [value.trim()] : [];
+          if (!Array.isArray(value)) {
+            throw new Error(`workflow.repairLoop ${name} must be a string or array`);
+          }
+          return value
+            .map((item) => {
+              if (typeof item !== "string") {
+                throw new Error(`workflow.repairLoop ${name} entries must be strings`);
+              }
+              return item.trim();
+            })
+            .filter((item) => item.length > 0);
+        }
+        function __hopeRepairLoopClampAttempts(value) {
+          const parsed = Number.isFinite(value) ? Math.trunc(value) : 2;
+          return Math.max(1, Math.min(parsed, 5));
+        }
         Object.defineProperty(workflow, "map", {
           configurable: false,
           enumerable: true,
@@ -765,6 +796,161 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
               }
             }
             return results;
+          }
+        });
+        Object.defineProperty(workflow, "repairLoop", {
+          configurable: false,
+          enumerable: true,
+          writable: false,
+          value: async function repairLoop(options, fn) {
+            if (options == null || typeof options !== "object" || Array.isArray(options)) {
+              throw new Error("workflow.repairLoop requires an options object");
+            }
+            if (typeof fn !== "function") {
+              throw new Error("workflow.repairLoop requires callback function");
+            }
+
+            const loopLabel = typeof options.label === "string" && options.label.trim().length > 0
+              ? options.label.trim()
+              : "repair-loop";
+            const maxAttempts = __hopeRepairLoopClampAttempts(options.maxAttempts ?? options.max_attempts);
+            const focusPaths = __hopeRepairLoopArray(options.focusPaths ?? options.focus_paths ?? options.files, "focusPaths");
+            const commands = __hopeRepairLoopArray(options.validationCommands ?? options.validation_commands ?? options.commands, "validationCommands");
+            const reviewEnabled = options.review !== false;
+            const verifyEnabled = options.verify !== false;
+            const attempts = [];
+            let previous = null;
+
+            await workflow.trace({
+              label: `${loopLabel}:start`,
+              payload: {
+                kind: "repair_loop_started",
+                label: loopLabel,
+                maxAttempts,
+                focusPaths,
+                validationCommands: commands,
+                review: reviewEnabled,
+                verify: verifyEnabled,
+              },
+            });
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const task = await workflow.task.create({
+                title: `${loopLabel} repair attempt ${attempt}/${maxAttempts}`,
+                label: `${loopLabel}:attempt-${attempt}`,
+              });
+              let repairResult = null;
+              try {
+                repairResult = await fn({
+                  attempt,
+                  maxAttempts,
+                  label: loopLabel,
+                  focusPaths,
+                  previous,
+                });
+                await workflow.task.update({ task, status: "completed" });
+              } catch (error) {
+                await workflow.task.update({ task, status: "in_progress" });
+                throw error;
+              }
+
+              const validation = commands.length > 0
+                ? await workflow.validate({
+                    commands,
+                    reason: options.validationReason ?? options.validation_reason ?? `${loopLabel} repair attempt ${attempt}`,
+                    label: `${loopLabel}:validate-${attempt}`,
+                  })
+                : null;
+              const review = reviewEnabled
+                ? await workflow.review({
+                    focusPaths,
+                    label: `${loopLabel}:review-${attempt}`,
+                  })
+                : null;
+              const verification = verifyEnabled
+                ? await workflow.verify({
+                    focusPaths,
+                    maxCommands: options.maxVerificationCommands ?? options.max_verification_commands,
+                    label: `${loopLabel}:verify-${attempt}`,
+                  })
+                : null;
+
+              const validationOk = !validation || validation.ok === true;
+              const reviewOk = !review || review.ok === true;
+              const verificationOk = !verification || verification.ok === true;
+              const ok = validationOk && reviewOk && verificationOk;
+              const attemptResult = {
+                attempt,
+                ok,
+                validationOk,
+                reviewOk,
+                verificationOk,
+                blockingFindings: review ? review.blockingFindings : 0,
+                validationSummary: validation ? validation.summary : null,
+                reviewSummary: review ? review.summary : null,
+                verificationSummary: verification ? verification.summary : null,
+                commandCount: verification ? verification.commandCount : 0,
+                repairResult,
+              };
+              attempts.push(attemptResult);
+              previous = {
+                attempt,
+                validation,
+                review,
+                verification,
+                result: attemptResult,
+              };
+
+              await workflow.trace({
+                label: `${loopLabel}:attempt-${attempt}`,
+                payload: {
+                  kind: "repair_loop_attempt",
+                  label: loopLabel,
+                  ...attemptResult,
+                },
+              });
+
+              if (ok) {
+                const completed = {
+                  kind: "repair_loop",
+                  ok: true,
+                  label: loopLabel,
+                  attempts,
+                  summary: `Repair loop ${loopLabel} completed after ${attempt} attempt(s).`,
+                };
+                await workflow.trace({
+                  label: `${loopLabel}:completed`,
+                  payload: {
+                    kind: "repair_loop_completed",
+                    label: loopLabel,
+                    attempts: attempt,
+                  },
+                });
+                return completed;
+              }
+            }
+
+            const exhausted = {
+              kind: "repair_loop",
+              ok: false,
+              label: loopLabel,
+              attempts,
+              summary: `Repair loop ${loopLabel} exhausted ${maxAttempts} attempt(s).`,
+            };
+            await workflow.trace({
+              label: `${loopLabel}:exhausted`,
+              payload: {
+                kind: "repair_loop_exhausted",
+                label: loopLabel,
+                maxAttempts,
+                attempts,
+              },
+            });
+            await __hopeBlock({
+              reason: "repair_loop_attempts_exhausted",
+              label: loopLabel,
+              payload: exhausted,
+            });
           }
         });
         delete workflow.__materializeMap;
@@ -1680,6 +1866,30 @@ impl WorkflowRuntimeHost {
         })
     }
 
+    fn block(&mut self, args: Value) -> Result<Value> {
+        let reason = block_reason_from_args(&args);
+        let label = optional_string(&args, "label");
+        let payload = args.get("payload").cloned().unwrap_or(Value::Null);
+        let input = compact_input(args);
+        self.execute_op("block", WorkflowEffectClass::Idempotent, input, |host| {
+            let _event = host.db.append_workflow_event(
+                &host.run_id,
+                "workflow_block_requested",
+                json!({
+                    "reason": reason,
+                    "label": label,
+                    "payload": payload,
+                }),
+            )?;
+            host.db.transition_workflow_run(
+                &host.run_id,
+                WorkflowRunState::Blocked,
+                Some(&reason),
+            )?;
+            Err(anyhow!("workflow blocked: {reason}"))
+        })
+    }
+
     fn finish(&mut self, args: Value) -> Result<Value> {
         let output_arg = args.clone();
         let input = compact_input(args);
@@ -2412,6 +2622,13 @@ fn workflow_goal_id_from_args(args: &Value, default_goal_id: Option<String>) -> 
     optional_string(args, "goalId")
         .or_else(|| optional_string(args, "goal_id"))
         .or(default_goal_id)
+}
+
+fn block_reason_from_args(args: &Value) -> String {
+    optional_string(args, "reason")
+        .map(|value| value.trim().chars().take(160).collect::<String>())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| REPAIR_LOOP_EXHAUSTED_REASON.to_string())
 }
 
 fn focus_paths_from_args(args: &Value) -> Result<Vec<String>> {
