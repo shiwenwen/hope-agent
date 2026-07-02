@@ -47,6 +47,7 @@ docker compose logs -f hope-agent
 | --- | --- | --- |
 | `HA_BIND` | `0.0.0.0:8420` | server 监听地址。容器内必须是 `0.0.0.0`（loopback 会拒绝外部连接）。entrypoint 自动翻译为 `--bind` |
 | `HA_API_KEY` | _未设置_ | HTTP/WS Bearer Token。设了之后从浏览器打开会弹「需要服务器鉴权」对话框，粘贴 token 即可继续；也支持 `https://host:8420/?token=XXX` 一次性传 token —— 前端会自动捕获到 localStorage 并把 URL 清掉。entrypoint 自动翻译为 `--api-key` |
+| `HA_KNOWLEDGE_AGENT_READ_TOKEN` | _未设置_ | Phase 7 Knowledge Agent 只读 token。只能访问 `/api/knowledge/agent/{search,read,expand,sources}`，不能访问 owner 管理 API 或 `compile/propose`；适合给外部 agent 的 HTTP 脚本使用 |
 | `HA_SERVER_AUTO_APPROVE_TOOLS` | _未设置_ | 设为 `1` / `true` / `yes` 让 HTTP 入口的每条 chat 都按「自动批准工具」处理 —— 等同于桌面端 IM 渠道账号勾上「auto-approve tools」。**全自动放行**：dangerous-commands / protected-paths / edit-command 审计 / Plan Mode ask / Smart judge **全部跳过**，LLM 触发的任何 `exec` / `write` / `edit` 直接执行无任何拦截。**不要用于不可信租户**。`--dangerously-skip-all-approvals` 是严格超集（还会静默 dispatcher 层审计日志）。无人值守 / CI / pipeline 部署且客户端没接审批 UI 时必开，否则每条 `exec` 都会等满 5 分钟超时 → deny |
 | `HA_DATA_DIR` | `/data` | 数据根目录，所有持久化文件（`config.json` / `sessions.db` / `memory.db` / 凭据 / 项目 / 附件等）都在此目录下 |
 | `HA_DEPLOYMENT` | `docker` | 给 updater 的部署形态提示。**不要改**，否则 `app_update install` 会尝试在容器内做 binary swap |

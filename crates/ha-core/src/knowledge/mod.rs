@@ -12,6 +12,7 @@
 
 pub mod access;
 pub mod agent_api;
+pub mod agent_mcp;
 pub mod chunker;
 pub mod compile;
 pub mod db;

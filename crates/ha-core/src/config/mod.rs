@@ -796,6 +796,10 @@ pub struct EmbeddedServerConfig {
     /// API Key for authenticating requests (None = no auth).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Token limited to read-only `/api/knowledge/agent/{search,read,expand,sources}`.
+    /// The global `api_key` remains the owner token for every API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_agent_read_token: Option<String>,
     /// Publicly-reachable base URL for this server, used when IM channels
     /// that only accept remote HTTPS media (LINE / QQ Bot native media, IRC
     /// text fallback) need to send `/api/attachments/...` links. `None`
@@ -810,6 +814,7 @@ impl Default for EmbeddedServerConfig {
         Self {
             bind_addr: default_server_bind(),
             api_key: None,
+            knowledge_agent_read_token: None,
             public_base_url: None,
         }
     }

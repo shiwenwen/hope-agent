@@ -44,6 +44,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | Tauri | 无鉴权（本地 IPC） |
 | HTTP REST | `Authorization: Bearer <api_key>` header |
 | WebSocket | `?token=<api_key>` 查询参数（浏览器 WS 不支持自定义 header） |
+| Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
 | 免鉴权 | `GET /api/health`、`GET /api/server/status`（server 绑定状态 / 正常运行时间 / WS 数，不含敏感字段） |
 
 `api_key=None` 时中间件全放行。鉴权实现见 [`crates/ha-server/src/middleware.rs`](../../crates/ha-server/src/middleware.rs)（constant-time 比较）。
@@ -232,7 +233,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 
 ### Knowledge Base（知识空间）
 
-**Owner / 管理平面**——API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D19）。
+**Owner / 管理平面**——全局 API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。Phase 7 的 Knowledge Agent read token 只允许下表中的 `knowledge_agent_{search,read,expand,sources}_cmd` HTTP 路由，不能访问 compile/propose 或任何管理端点。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D20）。
 
 | Tauri 命令 | HTTP 路由 | 对齐 |
 |---|---|---|
@@ -294,11 +295,11 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `sprite_config_set_cmd` | `POST /api/knowledge/sprite/config` | ✅ (写精灵配置，clamp 后返回) |
 | `kb_note_read_ref_cmd` | `GET /api/knowledge/{kbId}/note/resolve?reference=` | ✅ (WS2 transclusion：按 `[[ ]]` ref 经 resolver 取目标 `NoteReadResult`，broken 返回 `null`；Batch G 起按 ref 的 `#anchor` 切片——`^id`→块、heading→标题段，未命中降级整篇) |
 | `kb_search_cmd` | `GET /api/knowledge/search?query=&kbId=&limit=` | ✅ (FTS+向量混合) |
-| `knowledge_agent_search_cmd` | `POST /api/knowledge/agent/search` | ✅ (Phase 6 `knowledge.search`；body 可为 `{input}` 或裸 input；notes-first，返回 `truncated`；`includeSources=true` 时 raw source 单独返回且必须传 `kbId`) |
-| `knowledge_agent_read_cmd` | `POST /api/knowledge/agent/read` | ✅ (Phase 6 `knowledge.read`；`path`/`reference` 二选一，返回全文 + links/tags/source refs + `kind`) |
-| `knowledge_agent_expand_cmd` | `POST /api/knowledge/agent/expand` | ✅ (Phase 6 `knowledge.expand`；读取 note + related notes) |
-| `knowledge_agent_sources_cmd` | `POST /api/knowledge/agent/sources` | ✅ (Phase 6 `knowledge.sources`；list 默认 metadata/snippet，返回 `truncated`；只有显式 `sourceId + includeContent` 返回 source 全文) |
-| `knowledge_agent_compile_propose_cmd` | `POST /api/knowledge/agent/compile/propose` | ✅ (Phase 6 `knowledge.compile.propose`；启动 compile run，仅产 Review Diff proposals，不直接写 `.md`) |
+| `knowledge_agent_search_cmd` | `POST /api/knowledge/agent/search` | ✅ (Phase 6/7 `knowledge.search`；body 可为 `{input}` 或裸 input；notes-first，返回 `truncated`；read token 允许；`includeSources=true` 时 raw source 单独返回且必须传 `kbId`) |
+| `knowledge_agent_read_cmd` | `POST /api/knowledge/agent/read` | ✅ (Phase 6/7 `knowledge.read`；read token 允许；`path`/`reference` 二选一，返回全文 + links/tags/source refs + `kind`) |
+| `knowledge_agent_expand_cmd` | `POST /api/knowledge/agent/expand` | ✅ (Phase 6/7 `knowledge.expand`；read token 允许；读取 note + related notes) |
+| `knowledge_agent_sources_cmd` | `POST /api/knowledge/agent/sources` | ✅ (Phase 6/7 `knowledge.sources`；read token 允许；list 默认 metadata/snippet，返回 `truncated`；只有显式 `sourceId + includeContent` 返回 source 全文) |
+| `knowledge_agent_compile_propose_cmd` | `POST /api/knowledge/agent/compile/propose` | ✅ (Phase 6/7 `knowledge.compile.propose`；owner API key required，read token 禁止；启动 compile run，仅产 Review Diff proposals，不直接写 `.md`) |
 | `kb_file_read_cmd` | `GET /api/knowledge/{kbId}/files/read?path=` | ✅ (纯 owner 平面 + scope contains) |
 | `kb_file_extract_cmd` | `GET /api/knowledge/{kbId}/files/extract?path=` | ✅ |
 | `kb_file_resolve_cmd` | —（Tauri-only，`convertFileSrc`） | N/A |

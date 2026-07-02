@@ -45,7 +45,7 @@ pub struct AppContext {
 /// Build the full axum `Router` with all API routes and WebSocket endpoints.
 /// Uses permissive CORS (allow all origins), no API key auth.
 pub fn build_router(ctx: Arc<AppContext>) -> Router {
-    build_router_with_cors(ctx, &[], None)
+    build_router_with_cors(ctx, &[], None, None)
 }
 
 /// Start the HTTP/WebSocket server, binding to the configured address.
@@ -56,7 +56,12 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
 /// the ACP NDJSON stdout when the embedded server runs under
 /// `hope-agent acp`.
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
-    let router = build_router_with_cors(ctx, &config.cors_origins, config.api_key.clone());
+    let router = build_router_with_cors(
+        ctx,
+        &config.cors_origins,
+        config.api_key.clone(),
+        config.knowledge_agent_read_token.clone(),
+    );
 
     let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
         Ok(l) => l,
@@ -97,6 +102,7 @@ fn build_router_with_cors(
     ctx: Arc<AppContext>,
     cors_origins: &[String],
     api_key: Option<String>,
+    knowledge_agent_read_token: Option<String>,
 ) -> Router {
     // Health + server status are always public (no auth required). The
     // status payload only contains bound-addr / uptime / WS counts — nothing
@@ -1992,7 +1998,10 @@ fn build_router_with_cors(
     let ws_routes = Router::new().route("/events", get(ws::events::events_ws));
 
     // Apply API key auth middleware to protected routes
-    let auth_state = middleware::ApiKeyState { api_key };
+    let auth_state = middleware::ApiKeyState {
+        api_key,
+        knowledge_agent_read_token,
+    };
     let protected = Router::new()
         .nest("/api", api)
         .nest("/ws", ws_routes)

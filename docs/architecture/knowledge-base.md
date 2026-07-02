@@ -1,6 +1,6 @@
 # Knowledge Base（知识空间）
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-01
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-02
 
 本文是知识空间子系统的**单一真相源**：定位、设计取舍、数据模型、鉴权、工具面、检索、前端、自主维护与安全红线。实现细节引用代码路径而非复制，以代码为准。对外功能名「知识空间 / Knowledge Space」，代码内部保持中性——模块 `knowledge/`、工具 `note_*`、作用域 `for_knowledge`（D5）。
 
@@ -39,7 +39,7 @@ flowchart LR
 
 读取桥三通道：① 用户消息 `[[note]]` 确定性注入；② agent 主动调 `note_search` / `knowledge_recall`；③ 被动「相关笔记标题」提示（opt-in 默认关）。三者都套 `<untrusted_external_data>` 信封，永不提升为 system 指令（#7）。
 
-## 设计取舍（决策账本 D1–D18）
+## 设计取舍（决策账本 D1–D20）
 
 > 每条记录**结论 + 理由**。D 编号在全文用作契约锚点。
 
@@ -64,6 +64,7 @@ flowchart LR
 | D17 | Schema Profile / Evidence | 每个 KB 有 `knowledge_schema_profiles` 默认 profile（页面类型 + 必需章节）；compiled note 必含默认章节与 `source_id` evidence；owner UI 可从 note source refs 打开 raw source；维护面板列 schema/evidence lint issues | 编译层要给 agent 读的是稳定 schema，而不是任意 Markdown；source refs 是审计与跳转的最小证据链，lint 让不完整知识显性化 |
 | D18 | Query Filing | 知识对话回答可通过 owner-plane `kb_query_file_cmd` 生成归档 proposal，支持新建笔记 / 更新当前笔记 / 追加 MOC / 追加 Open Questions；approve 前不写盘，普通聊天来源必须显式确认，产物写 `source: conversation` 与 session/message 溯源 | 把探索式问答沉淀成长期 Wiki，但仍保持 Review Diff、人类确认、可追踪来源和 incognito fail-closed |
 | D19 | Agent Access API | 外部 agent 走稳定 owner-plane `knowledge::agent_api`：`search/read/expand/sources/compile.propose`；默认检索 wiki note 层并用 `kind` 区分 `compiled_note` / `note`，raw source 只在显式 `includeSources` / `sources` 调用中以 `kind:"source"` 暴露；compile 只产 Review Diff proposal | 让 Claude Code / Codex / Cursor 能把知识空间当长期 wiki 读取，同时不把 source 混进 note 检索、不绕过 Review Diff 和外部 root 写保护 |
+| D20 | Agent Access 产品化 | `hope-agent knowledge-mcp` 提供 stdio MCP server；默认只暴露 read-only knowledge tools，`--allow-proposals` 才暴露 compile proposal；HTTP 增加 `server.knowledgeAgentReadToken` / `HA_KNOWLEDGE_AGENT_READ_TOKEN` scoped read token，仅允许 `/api/knowledge/agent/{search,read,expand,sources}` | 外部 MCP host 应能零胶水读取知识空间，但默认不获得 owner 管理权限；只读 token 让 server 部署可把长期 wiki 暴露给外部 agent 而不交出全局 API key |
 
 ## 两类存储（D9）
 
@@ -113,6 +114,7 @@ flowchart LR
 | `compile.rs` | Knowledge Compiler（D16）：读取 source + 相关笔记，side_query 生成结构化 Markdown，转成 `CreateNote` / `PatchNote` / `SetFrontmatter` / `AppendLink` / `CreateMoc` proposal；approve 才 apply，写盘仍走 `service::note_save` 与 stale-write guard |
 | `schema.rs` | Schema Profile / Evidence（D17）：默认 profile backfill、笔记 `sources` / `source_id` 解析、source ref 跳转数据、`missing_evidence` / `stale_source` / `schema_violation` / `conflicting_claim` / `unfiled_open_question` lint issues |
 | `agent_api.rs` | Phase 6 外部 agent 稳定门面（D19）：`knowledge.search/read/expand/sources/compile.propose` 共用同一套 ha-core 类型；默认 notes-first，source 显式隔离；HTTP / Tauri 只是薄壳 |
+| `agent_mcp.rs` | Phase 7 stdio MCP server（D20）：`initialize` / `tools/list` / `tools/call` 薄包装 `agent_api`；默认只读工具集，`--allow-proposals` 才暴露 compile proposal |
 | `inject.rs` | 读取桥①：用户消息 `[[note]]` 确定性注入（`untrusted_external_data` 信封，受 `effective_kb_access` 约束，#7） |
 | `embedding.rs` / `reembed.rs` | 知识空间独立 embedding selector + 后台重嵌 job（见「检索与索引」） |
 | `maintenance/` | Layer 2 自主维护（见「自主维护」） |
@@ -209,9 +211,9 @@ AGENTS.md 只列这些为单行红线，细节在此。
 
 **Query Filing（D18）**：知识对话中已落库的 assistant 消息显示「归档」入口，打开 [`KnowledgeQueryFilingDialog.tsx`](../../src/components/knowledge/chat/KnowledgeQueryFilingDialog.tsx)：用户选择 filing mode（新建笔记 / 更新当前笔记 / MOC / Open Questions）、标题与目标路径后调用 owner 命令 `kb_query_file_cmd` 生成 `CompileProposal`，用 [`KnowledgeCompilePanel.tsx`](../../src/components/knowledge/KnowledgeCompilePanel.tsx) 的 `ProposalDiff` 预览，确认后复用 `kb_compile_proposal_approve_cmd`。后端入口 [`compile::query_file`](../../crates/ha-core/src/knowledge/compile.rs) 只产 proposal：incognito 直接拒绝；非 `kind='knowledge'` 会话必须传 `confirmConversationSource=true`；新建笔记 frontmatter 写 `type: conversation_note`、`source: conversation`、`conversation_session_id`、`conversation_message_id`，追加块写 session/message/timestamp。真正写盘仍由 Phase 2 apply 管线处理 stale-write guard、外部 root 写保护和 `knowledge:changed` 事件。
 
-## 外部 Agent API（Phase 6，D19）
+## 外部 Agent API（Phase 6–7，D19–D20）
 
-外部 agent 稳定门面在 [`knowledge/agent_api.rs`](../../crates/ha-core/src/knowledge/agent_api.rs)，Tauri 命令 `knowledge_agent_{search,read,expand,sources,compile_propose}_cmd` 与 HTTP `/api/knowledge/agent/*` 共用同一套 ha-core 类型。HTTP 仍走 server 全局 Bearer API key；本阶段不引入新的 scoped token，MCP server 后续只应作为这层 API 的薄封装。
+外部 agent 稳定门面在 [`knowledge/agent_api.rs`](../../crates/ha-core/src/knowledge/agent_api.rs)，Tauri 命令 `knowledge_agent_{search,read,expand,sources,compile_propose}_cmd`、HTTP `/api/knowledge/agent/*` 与 MCP stdio server [`knowledge/agent_mcp.rs`](../../crates/ha-core/src/knowledge/agent_mcp.rs) 共用同一套 ha-core 类型。
 
 - `knowledge.search`：notes-first，返回 `KnowledgeAgentSearchResult{notes,sources,truncated}`。默认只查 wiki note 层（`kind:"compiled_note" | "note"`），`includeSources=true` 时必须同时传 `kbId`，raw source 作为 `kind:"source"` 独立段返回，不混进 note 排名。
 - `knowledge.read`：`path` / `reference` 二选一，返回全文、tags、outgoing links、backlinks、source refs，并用 `kind:"compiled_note" | "note"` 标明是否有 evidence/source 标记。
@@ -219,7 +221,11 @@ AGENTS.md 只列这些为单行红线，细节在此。
 - `knowledge.sources`：只显式服务 raw source，返回 `KnowledgeAgentSourcesResult{sources,truncated}`。list/search 默认返回 metadata + snippet；只有 `sourceId + includeContent=true` 才返回 source 全文，避免外部 agent 一次性误取整批 raw material。
 - `knowledge.compile.propose`：启动正常 compile run，产出 Compile Review Diff proposals；它不直接 apply `.md` 写入。后续批准仍走 `compile_proposal_approve` → `service::note_save` → stale-write guard / 外部 root read-only 闸。
 
-安全边界：这组 API 属 owner 平面，和 `/api/knowledge/*` 管理端点等价，需要 API key 才可访问；agent/session 平面仍只走 `note_*` 工具与 `effective_kb_access`。Raw Source 继续不进入 `note_search` / `knowledge_recall` / system prompt，source 与 compiled note 的隔离靠独立存储、独立返回段和显式调用三层保证。
+MCP 出口：`hope-agent knowledge-mcp` 是 stdio MCP server，默认只暴露 `knowledge_search` / `knowledge_read` / `knowledge_expand` / `knowledge_sources` 四个只读工具；`--allow-proposals` 才暴露 `knowledge_compile_propose`。协议层只做 JSON-RPC / MCP tool 包装，实际行为仍调用 `knowledge::agent_api`。
+
+HTTP 鉴权：全局 `server.apiKey` 仍是 owner token，可访问所有受保护 API；`server.knowledgeAgentReadToken` 或环境变量 `HA_KNOWLEDGE_AGENT_READ_TOKEN` 是 scoped read token，只能访问 `POST /api/knowledge/agent/{search,read,expand,sources}`。该 token 对 `/api/knowledge/agent/compile/propose` 与普通 owner 管理端点返回 403。若只设置 read token 而不设置 owner API key，受保护 HTTP API 仍会要求鉴权，但 read token 不会升级为 owner。
+
+安全边界：HTTP owner token 与 Tauri owner 命令仍属 owner 平面，agent/session 平面仍只走 `note_*` 工具与 `effective_kb_access`。Raw Source 继续不进入 `note_search` / `knowledge_recall` / system prompt，source 与 compiled note 的隔离靠独立存储、独立返回段和显式调用三层保证。MCP 默认只读、HTTP scoped token、Review Diff proposal 和外部 root read-only/stale-write guard 是四层独立防线。
 
 **选区针对性编辑（替代旧 `AiRewriteDialog`，已删）两路并存**：
 - **加入对话**：编辑器选区 → 输入框上方可删除 quote chip（`useChatStream.pendingQuotes`）→ 进对话由 AI 用 `note_patch`/`note_update` 改写。note 工具结果带 `FileChangeMetadata`（[`note.rs::emit_note_diff`](../../crates/ha-core/src/tools/note.rs)，`language:"markdown"`，复用 `diff_util`）→ `ToolCallBlock` 内联 diff。落盘 emit `knowledge:changed` → 编辑器**重载当前笔记**（仅当 hash 变 + 非 dirty + 非 draft）。**脏态 + 磁盘 hash 变**（自身改写 / 外部 vault watcher 改了同一篇）不再静默跳过，而是弹**外部修改冲突横幅**（`externalConflict` slot，[`KnowledgeView.tsx`](../../src/components/knowledge/KnowledgeView.tsx)）：「重新加载」覆盖编辑器为磁盘版、「保留我的改动」把 `baseHash` rebase 到磁盘当前 hash 使下次保存能过 stale-write guard 覆盖外部版；切换 / 关闭笔记或保存成功即清。底层兜底仍是 stale-write guard（盲存必拒），横幅只是把冲突提前暴露给用户。

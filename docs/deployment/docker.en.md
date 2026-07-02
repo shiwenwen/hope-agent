@@ -47,6 +47,7 @@ docker compose logs -f hope-agent
 | --- | --- | --- |
 | `HA_BIND` | `0.0.0.0:8420` | Server listen address. Must be `0.0.0.0` inside a container — loopback rejects external connections. Translated to `--bind` by the entrypoint |
 | `HA_API_KEY` | _unset_ | HTTP/WS Bearer token. With this set, opening the page in a browser shows a "Server authentication required" dialog — paste the token to continue, then it's saved to localStorage and reused on subsequent visits. You can also share a one-shot link `https://host:8420/?token=XXX`; the frontend captures the value into localStorage and rewrites the URL so the token never lands in history / referer / bookmarks. Translated to `--api-key` by the entrypoint |
+| `HA_KNOWLEDGE_AGENT_READ_TOKEN` | _unset_ | Phase 7 Knowledge Agent read-only token. It can only access `/api/knowledge/agent/{search,read,expand,sources}`, not owner admin APIs or `compile/propose`; useful for external-agent HTTP scripts |
 | `HA_DATA_DIR` | `/data` | Data root. All persistent state (`config.json` / `sessions.db` / `memory.db` / credentials / projects / attachments) lives here |
 | `HA_DEPLOYMENT` | `docker` | Hint to the self-updater. **Do not change** — without it `app_update install` would attempt an in-container binary swap |
 | `TZ` | `UTC` | Timezone. Affects cron scheduling and timestamp formatting |
