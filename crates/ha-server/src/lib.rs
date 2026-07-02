@@ -1388,6 +1388,13 @@ fn build_router_with_cors(
             "/sessions/{sid}/context-retrieval",
             get(routes::context_retrieval::get_context_retrieval),
         )
+        // IDE / ACP context envelope (Phase 3.10)
+        .route(
+            "/sessions/{sid}/ide-context",
+            get(routes::ide_context::get_session_ide_context)
+                .put(routes::ide_context::save_session_ide_context)
+                .delete(routes::ide_context::clear_session_ide_context),
+        )
         // Review Engine (Phase 3.3 durable local code review)
         .route(
             "/sessions/{sid}/review-runs",

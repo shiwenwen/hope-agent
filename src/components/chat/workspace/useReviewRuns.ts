@@ -15,7 +15,7 @@ export interface ReviewRunsState {
   running: boolean
   error: string | null
   refresh: () => void
-  runReview: () => Promise<ReviewRunSnapshot | null>
+  runReview: (args?: { profiles?: string[] }) => Promise<ReviewRunSnapshot | null>
   updateFindingStatus: (
     findingId: string,
     status: ReviewFindingStatus,
@@ -175,7 +175,7 @@ export function useReviewRuns(
     return () => window.clearInterval(timer)
   }, [disabled, fetchRuns, hasActiveRun, incognito, sessionId])
 
-  const runReview = useCallback(async () => {
+  const runReview = useCallback(async (args: { profiles?: string[] } = {}) => {
     if (!sessionId || disabled || incognito) return null
     setRunning(true)
     setError(null)
@@ -183,6 +183,7 @@ export function useReviewRuns(
       const nextSnapshot = await getTransport().call<ReviewRunSnapshot>("run_code_review", {
         sessionId,
         scope: "local",
+        profiles: args.profiles ?? [],
       })
       setSnapshot(nextSnapshot)
       fetchRuns()

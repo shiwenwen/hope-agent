@@ -1,6 +1,7 @@
 use axum::extract::Path;
 use axum::Json;
 use ha_core::review::{ReviewFindingStatus, RunReviewInput};
+use ha_core::session::SessionIdeContext;
 use serde::Deserialize;
 
 use crate::error::AppError;
@@ -33,6 +34,8 @@ pub struct RunReviewBody {
     pub profiles: Vec<String>,
     #[serde(default)]
     pub focus_paths: Vec<String>,
+    #[serde(default)]
+    pub ide_context: Option<SessionIdeContext>,
 }
 
 pub async fn run_code_review(
@@ -48,6 +51,7 @@ pub async fn run_code_review(
             goal_id: body.goal_id,
             profiles: body.profiles,
             focus_paths: body.focus_paths,
+            ide_context: body.ide_context,
         },
     )
     .await

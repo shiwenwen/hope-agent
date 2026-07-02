@@ -1,0 +1,107 @@
+{
+  "name": "profiles_ide_context_recall",
+  "description": "Phase 3.10 regression: review profiles and IDE context should shape findings and context retrieval.",
+  "repo": {
+    "files": [
+      {
+        "path": "package.json",
+        "text": "{\"scripts\":{\"typecheck\":\"tsc --noEmit\"},\"dependencies\":{\"@types/react\":\"latest\",\"typescript\":\"latest\"},\"devDependencies\":{}}\n"
+      },
+      {
+        "path": "src/App.tsx",
+        "text": "export function App() {\n  return <main />;\n}\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "src/App.tsx",
+        "text": "export function App() {\n  const html = { __html: window.location.hash };\n  return (\n    <main>\n      <img src=\"/hero.png\" />\n      <section dangerouslySetInnerHTML={html} />\n    </main>\n  );\n}\n"
+      }
+    ]
+  },
+  "goal": {
+    "objective": "Review the app shell accessibility and frontend risk.",
+    "completionCriteria": [
+      "Accessibility profile catches visible UI regressions",
+      "Frontend profile catches raw HTML injection risk"
+    ]
+  },
+  "runs": {
+    "review": {
+      "profiles": ["accessibility", "frontend"],
+      "ideContext": {
+        "source": "acp",
+        "currentFile": "src/App.tsx",
+        "selection": {
+          "path": "src/App.tsx",
+          "startLine": 5,
+          "endLine": 6,
+          "text": "<img src=\"/hero.png\" />"
+        },
+        "openTabs": ["src/App.tsx"],
+        "activeSymbol": {
+          "name": "App",
+          "kind": "function",
+          "path": "src/App.tsx",
+          "line": 1
+        }
+      }
+    },
+    "context": {
+      "query": "hero",
+      "limit": 24,
+      "ideContext": {
+        "source": "acp",
+        "currentFile": "src/App.tsx",
+        "selection": {
+          "path": "src/App.tsx",
+          "startLine": 5,
+          "endLine": 6,
+          "text": "<img src=\"/hero.png\" />"
+        },
+        "openTabs": ["src/App.tsx"],
+        "activeSymbol": {
+          "name": "App",
+          "kind": "function",
+          "path": "src/App.tsx",
+          "line": 1
+        }
+      }
+    }
+  },
+  "checks": {
+    "review": {
+      "minFindings": 2,
+      "expectFocused": false,
+      "expectIdeContext": true,
+      "expectedProfiles": ["accessibility", "frontend"],
+      "expectedTitles": [
+        "Image element added without alt text",
+        "Raw HTML injection surface added"
+      ],
+      "expectedCategories": ["accessibility", "frontend"],
+      "expectedFiles": ["src/App.tsx"]
+    },
+    "context": {
+      "minCriticalRecall": 1.0,
+      "minPrecision": 0.2,
+      "maxCandidates": 24,
+      "expectActionPaths": ["src/App.tsx"],
+      "critical": [
+        {
+          "kind": "ide_context",
+          "source": "ide",
+          "pathSuffix": "src/App.tsx"
+        },
+        {
+          "kind": "file",
+          "pathSuffix": "src/App.tsx"
+        },
+        {
+          "kind": "review_finding",
+          "titleContains": "alt text"
+        }
+      ]
+    }
+  }
+}

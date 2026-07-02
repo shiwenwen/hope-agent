@@ -650,6 +650,7 @@ export type ContextCandidateKind =
   | "goal_evidence"
   | "task"
   | "workflow_op"
+  | "ide_context"
   | "url_source";
 
 export interface ContextCandidate {
@@ -676,6 +677,7 @@ export interface ContextRetrievalStats {
   goalEvidence: number;
   tasks: number;
   workflowOps: number;
+  ideContextSignals: number;
   fileSearchMatches: number;
   symbols: number;
   urlSources: number;
@@ -691,6 +693,42 @@ export interface ContextRetrievalSnapshot {
   truncated: boolean;
   disabledReason?: string | null;
   generatedAt: string;
+}
+
+export interface IdeLineRange {
+  path?: string | null;
+  startLine?: number | null;
+  endLine?: number | null;
+  text?: string | null;
+}
+
+export interface IdeDiagnosticContext {
+  path?: string | null;
+  line?: number | null;
+  severity?: string | null;
+  message?: string | null;
+}
+
+export interface IdeSymbolContext {
+  name?: string | null;
+  kind?: string | null;
+  path?: string | null;
+  line?: number | null;
+}
+
+export interface SessionIdeContext {
+  source?: string | null;
+  currentFile?: string | null;
+  selection?: IdeLineRange | null;
+  openTabs?: string[];
+  activeDiagnostic?: IdeDiagnosticContext | null;
+  activeSymbol?: IdeSymbolContext | null;
+}
+
+export interface SessionIdeContextSnapshot {
+  sessionId: string;
+  context: SessionIdeContext;
+  updatedAt: string;
 }
 
 export type ReviewRunState = "running" | "completed" | "failed" | "cancelled";

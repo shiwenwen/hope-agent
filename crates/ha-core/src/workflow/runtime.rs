@@ -18,7 +18,7 @@ use crate::async_jobs::{BackgroundJob, JobManager, JobOrigin, JobStatus};
 use crate::plan::check_workflow_script_draft;
 use crate::review::{self, ReviewFindingStatus, RunReviewInput};
 use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
-use crate::session::{SessionDB, Task, TaskStatus};
+use crate::session::{SessionDB, SessionIdeContext, Task, TaskStatus};
 use crate::tools::{self, ToolExecContext};
 use crate::verification::{self, PlanVerificationInput};
 
@@ -816,6 +816,7 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
             const maxAttempts = __hopeRepairLoopClampAttempts(options.maxAttempts ?? options.max_attempts);
             const focusPaths = __hopeRepairLoopArray(options.focusPaths ?? options.focus_paths ?? options.files, "focusPaths");
             const commands = __hopeRepairLoopArray(options.validationCommands ?? options.validation_commands ?? options.commands, "validationCommands");
+            const reviewProfiles = __hopeRepairLoopArray(options.reviewProfiles ?? options.review_profiles ?? options.profiles, "reviewProfiles");
             const reviewEnabled = options.review !== false;
             const verifyEnabled = options.verify !== false;
             const attempts = [];
@@ -829,6 +830,7 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
                 maxAttempts,
                 focusPaths,
                 validationCommands: commands,
+                reviewProfiles,
                 review: reviewEnabled,
                 verify: verifyEnabled,
               },
@@ -864,6 +866,7 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
               const review = reviewEnabled
                 ? await workflow.review({
                     focusPaths,
+                    profiles: reviewProfiles,
                     label: `${loopLabel}:review-${attempt}`,
                   })
                 : null;
@@ -1576,6 +1579,7 @@ impl WorkflowRuntimeHost {
             goal_id: workflow_goal_id_from_args(&args, self.goal_id.clone()),
             profiles: string_array_arg(&args, "profiles")?,
             focus_paths: focus_paths_from_args(&args)?,
+            ide_context: ide_context_from_args(&args)?,
         };
         let snapshot = self
             .tokio_handle
@@ -2629,6 +2633,22 @@ fn block_reason_from_args(args: &Value) -> String {
         .map(|value| value.trim().chars().take(160).collect::<String>())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| REPAIR_LOOP_EXHAUSTED_REASON.to_string())
+}
+
+fn ide_context_from_args(args: &Value) -> Result<Option<SessionIdeContext>> {
+    let Some(value) = args
+        .get("ideContext")
+        .or_else(|| args.get("ide_context"))
+        .cloned()
+    else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let context = serde_json::from_value::<SessionIdeContext>(value)
+        .context("workflow ideContext must match SessionIdeContext shape")?;
+    Ok(Some(context.sanitized()))
 }
 
 fn focus_paths_from_args(args: &Value) -> Result<Vec<String>> {

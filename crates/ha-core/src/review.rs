@@ -1,12 +1,13 @@
 //! Durable local code review engine.
 //!
-//! Phase 3.3 starts with a deterministic local reviewer: it scans the current
-//! git working-tree diff, overlays cached LSP diagnostics, verifies each
+//! The deterministic local reviewer scans the current git working-tree diff,
+//! overlays cached LSP diagnostics and optional IDE context, verifies each
 //! candidate into a stable tri-state verdict, and persists the result as a
-//! control-plane object. The data model intentionally leaves room for future
-//! LLM reviewers without making the GUI or Goal evidence depend on them.
+//! control-plane object. Profile-specific rules and the optional Deep Review
+//! LLM reviewer feed the same durable finding model, so GUI and Goal evidence
+//! never depend on model availability.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -14,8 +15,10 @@ use similar::{ChangeTag, TextDiff};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::lsp::LspDiagnostic;
+use crate::session::SessionIdeContext;
 use crate::session::{
     effective_working_dir_for_meta, load_session_git_diff, SessionDB, WorkspaceGitDiff,
     WorkspaceGitFileAction, WorkspaceGitFileChange,
@@ -24,6 +27,20 @@ use crate::util::now_rfc3339;
 
 const REVIEW_EVENT_PAYLOAD_MAX_BYTES: usize = 64 * 1024;
 const MAX_FINDINGS_PER_RUN: usize = 100;
+const LLM_REVIEW_TIMEOUT_SECS: u64 = 20;
+const LLM_REVIEW_MAX_TOKENS: u32 = 2048;
+const MAX_LLM_FINDINGS: usize = 12;
+const DEFAULT_REVIEW_PROFILES: &[&str] = &["correctness", "security", "maintainability", "tests"];
+const SUPPORTED_REVIEW_PROFILES: &[&str] = &[
+    "correctness",
+    "security",
+    "concurrency",
+    "frontend",
+    "accessibility",
+    "tests",
+    "maintainability",
+    "deep",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -221,6 +238,8 @@ pub struct RunReviewInput {
     pub profiles: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub focus_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ide_context: Option<SessionIdeContext>,
 }
 
 struct CandidateFinding {
@@ -240,6 +259,81 @@ struct ReviewContext {
     diagnostics: Vec<LspDiagnostic>,
     workspace_root: Option<String>,
     focus_paths: Vec<String>,
+    profiles: ReviewProfileSet,
+    ide_context: Option<SessionIdeContext>,
+    warnings: Vec<String>,
+    llm_reviewer_status: String,
+    llm_review_model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewProfileSet {
+    requested: Vec<String>,
+    active: HashSet<String>,
+    unknown: Vec<String>,
+}
+
+impl ReviewProfileSet {
+    fn from_requested(requested: &[String]) -> Self {
+        let mut active = HashSet::new();
+        let mut out_requested = Vec::new();
+        let mut unknown = Vec::new();
+        if requested.is_empty() {
+            for profile in DEFAULT_REVIEW_PROFILES {
+                active.insert((*profile).to_string());
+                out_requested.push((*profile).to_string());
+            }
+            return Self {
+                requested: out_requested,
+                active,
+                unknown,
+            };
+        }
+
+        for raw in requested {
+            let profile = normalize_profile(raw);
+            if profile.is_empty() {
+                continue;
+            }
+            if profile == "all" {
+                for supported in SUPPORTED_REVIEW_PROFILES {
+                    active.insert((*supported).to_string());
+                }
+                out_requested.push(profile);
+                continue;
+            }
+            if SUPPORTED_REVIEW_PROFILES.contains(&profile.as_str()) {
+                active.insert(profile.clone());
+                out_requested.push(profile);
+            } else {
+                unknown.push(profile);
+            }
+        }
+        if active.is_empty() {
+            for profile in DEFAULT_REVIEW_PROFILES {
+                active.insert((*profile).to_string());
+            }
+        }
+        Self {
+            requested: dedup_strings(out_requested),
+            active,
+            unknown: dedup_strings(unknown),
+        }
+    }
+
+    fn has(&self, profile: &str) -> bool {
+        self.active.contains(profile)
+    }
+
+    fn wants_llm(&self) -> bool {
+        self.has("deep")
+    }
+
+    fn active_sorted(&self) -> Vec<String> {
+        let mut values = self.active.iter().cloned().collect::<Vec<_>>();
+        values.sort();
+        values
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -340,10 +434,6 @@ impl SessionDB {
         {
             bail!("review base_ref is not supported yet; omit baseRef for local review");
         }
-        if !input.profiles.is_empty() {
-            bail!("review profiles are not supported yet; omit profiles for local review");
-        }
-
         let goal_id = match input.goal_id.as_deref() {
             Some(goal_id) => {
                 let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
@@ -392,7 +482,9 @@ impl SessionDB {
                 "scope": scope,
                 "baseRef": input.base_ref,
                 "goalId": goal_id,
-                "profiles": input.profiles,
+                "profiles": ReviewProfileSet::from_requested(&input.profiles).active_sorted(),
+                "profileRequest": input.profiles,
+                "hasInlineIdeContext": input.ide_context.is_some(),
             }),
         );
         emit_review_run("review:created", &run);
@@ -796,6 +888,12 @@ async fn run_review_inner(
     input: &RunReviewInput,
 ) -> Result<(ReviewContext, Vec<CandidateFinding>)> {
     let focus = FocusFilter::from_paths(&input.focus_paths);
+    let profiles = ReviewProfileSet::from_requested(&input.profiles);
+    let mut warnings = profiles
+        .unknown
+        .iter()
+        .map(|profile| format!("unknown review profile ignored: {profile}"))
+        .collect::<Vec<_>>();
     let diff = {
         let db = db.clone();
         let sid = session_id.to_string();
@@ -822,16 +920,51 @@ async fn run_review_inner(
     if focus.is_active() {
         changed.retain(|file| focus.matches(&file.path));
     }
-    let ctx = ReviewContext {
+    let ide_context = input.ide_context.clone().or_else(|| {
+        db.get_session_ide_context(session_id)
+            .ok()
+            .flatten()
+            .map(|snapshot| snapshot.context)
+    });
+    let mut ctx = ReviewContext {
         changed,
         diagnostics,
         workspace_root,
         focus_paths: focus.requested,
+        profiles,
+        ide_context,
+        warnings: Vec::new(),
+        llm_reviewer_status: "not_requested".to_string(),
+        llm_review_model: None,
     };
+    ctx.warnings.append(&mut warnings);
     let mut candidates = Vec::new();
-    candidates.extend(candidates_from_lsp(&ctx));
+    if ctx.profiles.has("correctness") {
+        candidates.extend(candidates_from_lsp(&ctx));
+    }
     candidates.extend(candidates_from_changed_lines(&ctx));
-    candidates.extend(candidates_from_test_coverage(&ctx));
+    if ctx.profiles.has("tests") {
+        candidates.extend(candidates_from_test_coverage(&ctx));
+    }
+    if ctx.profiles.has("frontend") || ctx.profiles.has("accessibility") {
+        candidates.extend(candidates_from_frontend(&ctx));
+    }
+    if ctx.profiles.has("concurrency") {
+        candidates.extend(candidates_from_concurrency(&ctx));
+    }
+    if ctx.profiles.wants_llm() {
+        match run_llm_reviewer(&ctx).await {
+            Ok((model, llm_candidates)) => {
+                ctx.llm_reviewer_status = "completed".to_string();
+                ctx.llm_review_model = Some(model);
+                candidates.extend(llm_candidates);
+            }
+            Err(err) => {
+                ctx.llm_reviewer_status = "failed".to_string();
+                ctx.warnings.push(format!("LLM reviewer skipped: {err}"));
+            }
+        }
+    }
     dedup_candidates(&mut candidates);
     candidates.sort_by(|a, b| {
         a.severity
@@ -934,15 +1067,21 @@ fn candidates_from_lsp(ctx: &ReviewContext) -> Vec<CandidateFinding> {
             ),
             category: "correctness".to_string(),
             severity,
-            evidence: json!({
+            evidence: enriched_evidence(
+                ctx,
+                changed,
+                Some(line),
+                json!({
                 "kind": "lsp_diagnostic",
+                "profile": "correctness",
                 "source": diagnostic.source,
                 "code": diagnostic.code,
                 "message": diagnostic.message,
                 "diagnosticSeverity": diagnostic.severity,
                 "uri": diagnostic.uri,
                 "workspaceRoot": ctx.workspace_root,
-            }),
+                }),
+            ),
             confidence,
         });
     }
@@ -975,7 +1114,8 @@ fn candidates_from_changed_lines(ctx: &ReviewContext) -> Vec<CandidateFinding> {
             };
             let trimmed = text.trim();
             if is_conflict_marker(trimmed) {
-                out.push(CandidateFinding {
+                if ctx.profiles.has("correctness") {
+                    out.push(CandidateFinding {
                     file: file.path.clone(),
                     start_line: Some(*line),
                     end_line: Some(*line),
@@ -983,11 +1123,17 @@ fn candidates_from_changed_lines(ctx: &ReviewContext) -> Vec<CandidateFinding> {
                     body: "This line contains a git conflict marker. Shipping it would usually break parsing or expose unresolved conflict text to users.".to_string(),
                     category: "correctness".to_string(),
                     severity: ReviewSeverity::P1,
-                    evidence: json!({ "kind": "conflict_marker", "line": trimmed }),
+                    evidence: enriched_evidence(
+                        ctx,
+                        file,
+                        Some(*line),
+                        json!({ "kind": "conflict_marker", "profile": "correctness", "line": trimmed }),
+                    ),
                     confidence: 0.99,
                 });
+                }
             }
-            if !is_test_path(&file.path) {
+            if ctx.profiles.has("maintainability") && !is_test_path(&file.path) {
                 if let Some(kind) = debug_statement_kind(trimmed, &file.language) {
                     out.push(CandidateFinding {
                     file: file.path.clone(),
@@ -1000,12 +1146,17 @@ fn candidates_from_changed_lines(ctx: &ReviewContext) -> Vec<CandidateFinding> {
                     ),
                     category: "maintainability".to_string(),
                     severity: ReviewSeverity::P2,
-                    evidence: json!({ "kind": "debug_statement", "statement": kind, "line": trimmed }),
+                    evidence: enriched_evidence(
+                        ctx,
+                        file,
+                        Some(*line),
+                        json!({ "kind": "debug_statement", "profile": "maintainability", "statement": kind, "line": trimmed }),
+                    ),
                     confidence: 0.68,
                 });
                 }
             }
-            if secret_pattern(trimmed).is_some() {
+            if ctx.profiles.has("security") && secret_pattern(trimmed).is_some() {
                 out.push(CandidateFinding {
                     file: file.path.clone(),
                     start_line: Some(*line),
@@ -1014,7 +1165,12 @@ fn candidates_from_changed_lines(ctx: &ReviewContext) -> Vec<CandidateFinding> {
                     body: "The changed line resembles a credential or private key. Remove it from the commit and rotate the value if it was real.".to_string(),
                     category: "security".to_string(),
                     severity: ReviewSeverity::P1,
-                    evidence: json!({ "kind": "secret_pattern", "linePreview": redact_secret_line(trimmed) }),
+                    evidence: enriched_evidence(
+                        ctx,
+                        file,
+                        Some(*line),
+                        json!({ "kind": "secret_pattern", "profile": "security", "linePreview": redact_secret_line(trimmed) }),
+                    ),
                     confidence: 0.86,
                 });
             }
@@ -1041,15 +1197,291 @@ fn candidates_from_test_coverage(ctx: &ReviewContext) -> Vec<CandidateFinding> {
             body: "This review run found source code changes but no test/spec files in the same diff. Add focused coverage or record the targeted validation that proves the behavior.".to_string(),
             category: "tests".to_string(),
             severity: ReviewSeverity::P3,
-            evidence: json!({
+            evidence: enriched_evidence(ctx, file, first_changed_line(file), json!({
                 "kind": "no_test_change",
+                "profile": "tests",
                 "language": file.language,
                 "linesAdded": file.lines_added,
                 "linesRemoved": file.lines_removed,
-            }),
+            })),
             confidence: 0.57,
         })
         .collect()
+}
+
+fn candidates_from_frontend(ctx: &ReviewContext) -> Vec<CandidateFinding> {
+    let mut out = Vec::new();
+    for file in &ctx.changed {
+        if !is_frontend_language(&file.language) {
+            continue;
+        }
+        for line in &file.changed_lines {
+            let Some(text) = file.after_lines.get(line.saturating_sub(1) as usize) else {
+                continue;
+            };
+            let trimmed = text.trim();
+            let lower = trimmed.to_ascii_lowercase();
+            if ctx.profiles.has("accessibility") && image_without_alt(&lower) {
+                out.push(CandidateFinding {
+                    file: file.path.clone(),
+                    start_line: Some(*line),
+                    end_line: Some(*line),
+                    title: "Image element added without alt text".to_string(),
+                    body: "The changed JSX/HTML adds an image without an `alt` attribute on the same element. Add meaningful alt text or `alt=\"\"` for decorative images.".to_string(),
+                    category: "accessibility".to_string(),
+                    severity: ReviewSeverity::P2,
+                    evidence: enriched_evidence(ctx, file, Some(*line), json!({
+                        "kind": "image_without_alt",
+                        "profile": "accessibility",
+                        "line": trimmed,
+                    })),
+                    confidence: 0.74,
+                });
+            }
+            if ctx.profiles.has("accessibility") && clickable_div_without_keyboard(&lower) {
+                out.push(CandidateFinding {
+                    file: file.path.clone(),
+                    start_line: Some(*line),
+                    end_line: Some(*line),
+                    title: "Clickable non-button lacks keyboard affordance".to_string(),
+                    body: "The changed element handles clicks but does not show a keyboard handler or button role on the same element. Prefer a `<button>` or add keyboard/ARIA affordances.".to_string(),
+                    category: "accessibility".to_string(),
+                    severity: ReviewSeverity::P2,
+                    evidence: enriched_evidence(ctx, file, Some(*line), json!({
+                        "kind": "clickable_non_button",
+                        "profile": "accessibility",
+                        "line": trimmed,
+                    })),
+                    confidence: 0.63,
+                });
+            }
+            if ctx.profiles.has("frontend") && lower.contains("dangerouslysetinnerhtml") {
+                out.push(CandidateFinding {
+                    file: file.path.clone(),
+                    start_line: Some(*line),
+                    end_line: Some(*line),
+                    title: "Raw HTML injection surface added".to_string(),
+                    body: "The changed JSX uses `dangerouslySetInnerHTML`. Make sure the value is sanitized and covered by review before shipping.".to_string(),
+                    category: "frontend".to_string(),
+                    severity: ReviewSeverity::P1,
+                    evidence: enriched_evidence(ctx, file, Some(*line), json!({
+                        "kind": "dangerous_inner_html",
+                        "profile": "frontend",
+                        "line": trimmed,
+                    })),
+                    confidence: 0.81,
+                });
+            }
+            if ctx.profiles.has("frontend")
+                && lower.contains("addeventlistener(")
+                && !file_contains(&file.after_lines, "removeEventListener(")
+            {
+                out.push(CandidateFinding {
+                    file: file.path.clone(),
+                    start_line: Some(*line),
+                    end_line: Some(*line),
+                    title: "Event listener added without visible cleanup".to_string(),
+                    body: "The changed code adds an event listener, but this file does not contain a matching `removeEventListener`. Check for leaks across remounts or repeated setup.".to_string(),
+                    category: "frontend".to_string(),
+                    severity: ReviewSeverity::P2,
+                    evidence: enriched_evidence(ctx, file, Some(*line), json!({
+                        "kind": "event_listener_without_cleanup",
+                        "profile": "frontend",
+                        "line": trimmed,
+                    })),
+                    confidence: 0.58,
+                });
+            }
+        }
+    }
+    out
+}
+
+fn candidates_from_concurrency(ctx: &ReviewContext) -> Vec<CandidateFinding> {
+    let mut out = Vec::new();
+    for file in &ctx.changed {
+        for line in &file.changed_lines {
+            let Some(text) = file.after_lines.get(line.saturating_sub(1) as usize) else {
+                continue;
+            };
+            let trimmed = text.trim();
+            let lower = trimmed.to_ascii_lowercase();
+            if file.language == "rust"
+                && lower.contains("std::thread::sleep")
+                && line_in_async_context(file, *line)
+            {
+                out.push(CandidateFinding {
+                    file: file.path.clone(),
+                    start_line: Some(*line),
+                    end_line: Some(*line),
+                    title: "Blocking sleep added inside async context".to_string(),
+                    body: "This changed line calls `std::thread::sleep` near an async function or block. Use an async timer such as `tokio::time::sleep` to avoid blocking the executor thread.".to_string(),
+                    category: "concurrency".to_string(),
+                    severity: ReviewSeverity::P2,
+                    evidence: enriched_evidence(ctx, file, Some(*line), json!({
+                        "kind": "blocking_sleep_async",
+                        "profile": "concurrency",
+                        "line": trimmed,
+                    })),
+                    confidence: 0.76,
+                });
+            }
+            if file.language == "rust"
+                && lower.contains(".lock().unwrap()")
+                && line_in_async_context(file, *line)
+            {
+                out.push(CandidateFinding {
+                    file: file.path.clone(),
+                    start_line: Some(*line),
+                    end_line: Some(*line),
+                    title: "Synchronous lock unwrap added in async context".to_string(),
+                    body: "The changed line unwraps a synchronous lock near async code. Check for poisoned-lock panics and executor blocking; prefer explicit error handling or an async-aware lock where appropriate.".to_string(),
+                    category: "concurrency".to_string(),
+                    severity: ReviewSeverity::P2,
+                    evidence: enriched_evidence(ctx, file, Some(*line), json!({
+                        "kind": "sync_lock_unwrap_async",
+                        "profile": "concurrency",
+                        "line": trimmed,
+                    })),
+                    confidence: 0.61,
+                });
+            }
+        }
+    }
+    out
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LlmReviewEnvelope {
+    #[serde(default)]
+    findings: Vec<LlmReviewFinding>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LlmReviewFinding {
+    file: String,
+    #[serde(default)]
+    start_line: Option<u32>,
+    #[serde(default)]
+    end_line: Option<u32>,
+    title: String,
+    body: String,
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    severity: Option<String>,
+    #[serde(default)]
+    confidence: Option<f64>,
+}
+
+async fn run_llm_reviewer(ctx: &ReviewContext) -> Result<(String, Vec<CandidateFinding>)> {
+    if ctx.changed.is_empty() {
+        return Ok(("none".to_string(), Vec::new()));
+    }
+    let config = crate::config::cached_config();
+    let (agent, model) = crate::recap::build_analysis_agent(&config)
+        .await
+        .context("build analysis agent for deep review")?;
+    let prompt = render_llm_review_prompt(ctx);
+    let result = tokio::time::timeout(
+        Duration::from_secs(LLM_REVIEW_TIMEOUT_SECS),
+        agent.side_query(&prompt, LLM_REVIEW_MAX_TOKENS),
+    )
+    .await
+    .map_err(|_| anyhow!("LLM reviewer timed out after {LLM_REVIEW_TIMEOUT_SECS}s"))?
+    .context("LLM reviewer side_query failed")?;
+    let span = crate::extract_json_span(&result.text, Some('{'))
+        .ok_or_else(|| anyhow!("LLM reviewer returned no JSON object"))?;
+    let envelope: LlmReviewEnvelope =
+        serde_json::from_str(span).context("parse LLM reviewer JSON")?;
+    let changed = ctx
+        .changed
+        .iter()
+        .map(|file| (normalize_path(&file.path), file))
+        .collect::<HashMap<_, _>>();
+    let mut findings = Vec::new();
+    for item in envelope.findings.into_iter().take(MAX_LLM_FINDINGS) {
+        let file = normalize_path(&item.file);
+        let Some(changed_file) = changed.get(&file).or_else(|| {
+            changed
+                .iter()
+                .find(|(path, _)| focus_path_matches(path, &normalize_focus_path(&file)))
+                .map(|(_, file)| file)
+        }) else {
+            continue;
+        };
+        let title = item.title.trim();
+        let body = item.body.trim();
+        if title.is_empty() || body.is_empty() {
+            continue;
+        }
+        let severity = item
+            .severity
+            .as_deref()
+            .map(ReviewSeverity::from_str)
+            .unwrap_or(ReviewSeverity::P2);
+        let category = item
+            .category
+            .as_deref()
+            .map(normalize_profile)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "correctness".to_string());
+        let confidence = item.confidence.unwrap_or(0.66).clamp(0.0, 1.0);
+        findings.push(CandidateFinding {
+            file: changed_file.path.clone(),
+            start_line: item.start_line,
+            end_line: item.end_line.or(item.start_line),
+            title: title.to_string(),
+            body: body.to_string(),
+            category: category.clone(),
+            severity,
+            evidence: enriched_evidence(
+                ctx,
+                changed_file,
+                item.start_line,
+                json!({
+                    "kind": "llm_reviewer",
+                    "profile": "deep",
+                    "model": model.clone(),
+                    "category": category,
+                }),
+            ),
+            confidence,
+        });
+    }
+    Ok((model, findings))
+}
+
+fn render_llm_review_prompt(ctx: &ReviewContext) -> String {
+    let mut out = String::new();
+    out.push_str("You are a senior code reviewer. Review only the changed snippets below.\n");
+    out.push_str("Return exactly one JSON object: {\"findings\":[{file,startLine,endLine,title,body,category,severity,confidence}]}.\n");
+    out.push_str("Use severity p0/p1/p2/p3. Report only actionable correctness, security, concurrency, frontend, accessibility, or tests issues. Prefer no findings over weak speculation.\n\n");
+    out.push_str("Active deterministic profiles: ");
+    out.push_str(&ctx.profiles.active_sorted().join(", "));
+    out.push_str("\n\n");
+    if let Some(ide) = &ctx.ide_context {
+        out.push_str("IDE context:\n");
+        out.push_str(&serde_json::to_string(ide).unwrap_or_default());
+        out.push_str("\n\n");
+    }
+    for file in &ctx.changed {
+        out.push_str("File: ");
+        out.push_str(&file.path);
+        out.push('\n');
+        out.push_str("Language: ");
+        out.push_str(&file.language);
+        out.push('\n');
+        for line in sorted_changed_lines(file).into_iter().take(40) {
+            if let Some(text) = file.after_lines.get(line.saturating_sub(1) as usize) {
+                out.push_str(&format!("{line}: {}\n", crate::truncate_utf8(text, 240)));
+            }
+        }
+        out.push('\n');
+    }
+    out
 }
 
 fn verify_candidate(candidate: &CandidateFinding) -> ReviewVerdict {
@@ -1061,10 +1493,17 @@ fn verify_candidate(candidate: &CandidateFinding) -> ReviewVerdict {
     match kind {
         "conflict_marker" => ReviewVerdict::Confirmed,
         "secret_pattern" => ReviewVerdict::Confirmed,
+        "dangerous_inner_html" => ReviewVerdict::Confirmed,
         "lsp_diagnostic" if candidate.severity.is_blocking() => ReviewVerdict::Confirmed,
         "lsp_diagnostic" | "debug_statement" | "no_test_change" | "truncated_diff" => {
             ReviewVerdict::Plausible
         }
+        "image_without_alt"
+        | "clickable_non_button"
+        | "event_listener_without_cleanup"
+        | "blocking_sleep_async"
+        | "sync_lock_unwrap_async"
+        | "llm_reviewer" => ReviewVerdict::Plausible,
         _ if candidate.confidence >= 0.9 => ReviewVerdict::Confirmed,
         _ if candidate.confidence < 0.35 => ReviewVerdict::Refuted,
         _ => ReviewVerdict::Plausible,
@@ -1079,6 +1518,8 @@ fn review_stats(ctx: &ReviewContext, candidates: &[CandidateFinding]) -> Value {
     let mut p1 = 0u32;
     let mut p2 = 0u32;
     let mut p3 = 0u32;
+    let mut symbol_contexts = 0u32;
+    let mut ide_context_hits = 0u32;
     for candidate in candidates {
         match verify_candidate(candidate) {
             ReviewVerdict::Confirmed => confirmed += 1,
@@ -1091,6 +1532,12 @@ fn review_stats(ctx: &ReviewContext, candidates: &[CandidateFinding]) -> Value {
             ReviewSeverity::P2 => p2 += 1,
             ReviewSeverity::P3 => p3 += 1,
         }
+        if candidate.evidence.get("symbolContext").is_some() {
+            symbol_contexts += 1;
+        }
+        if candidate.evidence.get("ideContext").is_some() {
+            ide_context_hits += 1;
+        }
     }
     json!({
         "filesChanged": ctx.changed.len(),
@@ -1098,6 +1545,15 @@ fn review_stats(ctx: &ReviewContext, candidates: &[CandidateFinding]) -> Value {
         "findings": candidates.len(),
         "focused": !ctx.focus_paths.is_empty(),
         "focusPaths": ctx.focus_paths.clone(),
+        "profiles": ctx.profiles.active_sorted(),
+        "profileRequest": ctx.profiles.requested.clone(),
+        "unknownProfiles": ctx.profiles.unknown.clone(),
+        "ideContext": review_ide_context_stats(ctx.ide_context.as_ref()),
+        "symbolContexts": symbol_contexts,
+        "ideContextHits": ide_context_hits,
+        "warnings": ctx.warnings.clone(),
+        "llmReviewer": ctx.llm_reviewer_status.clone(),
+        "llmReviewModel": ctx.llm_review_model.clone(),
         "confirmed": confirmed,
         "plausible": plausible,
         "refuted": refuted,
@@ -1139,6 +1595,201 @@ fn review_summary(stats: &Value) -> String {
         );
     }
     format!("{prefix} with {findings} finding(s): P0 {p0}, P1 {p1}, P2 {p2}, P3 {p3}.")
+}
+
+fn review_ide_context_stats(ide: Option<&SessionIdeContext>) -> Value {
+    let Some(ide) = ide else {
+        return json!({
+            "present": false,
+            "paths": [],
+        });
+    };
+    json!({
+        "present": !ide.is_empty(),
+        "source": ide.source.clone(),
+        "currentFile": ide.current_file.clone(),
+        "hasSelection": ide.selection.is_some(),
+        "hasActiveDiagnostic": ide.active_diagnostic.is_some(),
+        "activeSymbol": ide.active_symbol.as_ref().and_then(|symbol| symbol.name.clone()),
+        "openTabs": ide.open_tabs.len(),
+        "paths": ide.relevant_paths(),
+    })
+}
+
+fn enriched_evidence(
+    ctx: &ReviewContext,
+    file: &ChangedFile,
+    line: Option<u32>,
+    mut evidence: Value,
+) -> Value {
+    if let Some(obj) = evidence.as_object_mut() {
+        if let Some(line) = line {
+            if let Some(symbol) = enclosing_symbol(file, line) {
+                obj.insert("symbolContext".to_string(), symbol);
+            }
+        }
+        if let Some(ide) = ctx
+            .ide_context
+            .as_ref()
+            .and_then(|ide| ide_match(ide, &file.path, line))
+        {
+            obj.insert("ideContext".to_string(), ide);
+        }
+    }
+    evidence
+}
+
+fn enclosing_symbol(file: &ChangedFile, line: u32) -> Option<Value> {
+    if file.after_lines.is_empty() {
+        return None;
+    }
+    let idx = line.saturating_sub(1) as usize;
+    let end = idx.min(file.after_lines.len().saturating_sub(1));
+    let start = end.saturating_sub(80);
+    for (offset, text) in file.after_lines[start..=end].iter().enumerate().rev() {
+        let actual_line = (start + offset + 1) as u32;
+        if let Some((kind, name)) = symbol_from_line(text, &file.language) {
+            return Some(json!({
+                "name": name,
+                "kind": kind,
+                "startLine": actual_line,
+            }));
+        }
+    }
+    None
+}
+
+fn symbol_from_line(line: &str, language: &str) -> Option<(&'static str, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if language == "rust" {
+        if let Some(name) = extract_after_keyword(trimmed, "fn ") {
+            return Some(("function", name));
+        }
+        if let Some(name) = extract_after_keyword(trimmed, "struct ") {
+            return Some(("struct", name));
+        }
+        if let Some(name) = extract_after_keyword(trimmed, "enum ") {
+            return Some(("enum", name));
+        }
+        if let Some(name) = extract_after_keyword(trimmed, "impl ") {
+            return Some(("impl", name));
+        }
+    }
+    if matches!(
+        language,
+        "typescript" | "tsx" | "javascript" | "jsx" | "typescriptreact" | "javascriptreact"
+    ) {
+        if let Some(name) = extract_after_keyword(trimmed, "function ") {
+            return Some(("function", name));
+        }
+        if let Some(name) = extract_after_keyword(trimmed, "class ") {
+            return Some(("class", name));
+        }
+        if let Some(name) = extract_const_function(trimmed) {
+            return Some(("function", name));
+        }
+    }
+    if language == "python" {
+        if let Some(name) = extract_after_keyword(trimmed, "def ") {
+            return Some(("function", name));
+        }
+        if let Some(name) = extract_after_keyword(trimmed, "class ") {
+            return Some(("class", name));
+        }
+    }
+    None
+}
+
+fn extract_after_keyword(line: &str, keyword: &str) -> Option<String> {
+    let idx = line.find(keyword)?;
+    let rest = line[idx + keyword.len()..].trim_start();
+    let name = rest
+        .chars()
+        .take_while(|ch| ch.is_alphanumeric() || *ch == '_' || *ch == '<')
+        .collect::<String>();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.trim_end_matches('<').to_string())
+    }
+}
+
+fn extract_const_function(line: &str) -> Option<String> {
+    let trimmed = line.trim_start_matches("export ").trim_start();
+    let rest = trimmed
+        .strip_prefix("const ")
+        .or_else(|| trimmed.strip_prefix("let "))
+        .or_else(|| trimmed.strip_prefix("var "))?;
+    let name = rest
+        .chars()
+        .take_while(|ch| ch.is_alphanumeric() || *ch == '_' || *ch == '$')
+        .collect::<String>();
+    let tail = rest.get(name.len()..).unwrap_or_default();
+    if name.is_empty() || !(tail.contains("=>") || tail.contains("function")) {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+fn ide_match(ide: &SessionIdeContext, file: &str, line: Option<u32>) -> Option<Value> {
+    let mut signals = Vec::new();
+    if path_matches_any(file, ide.current_file.as_deref()) {
+        signals.push("current_file");
+    }
+    if let Some(selection) = &ide.selection {
+        if path_matches_any(file, selection.path.as_deref()) {
+            if let Some(line) = line {
+                let start = selection.start_line.unwrap_or(line);
+                let end = selection.end_line.unwrap_or(start);
+                if line + 3 >= start && line <= end + 3 {
+                    signals.push("selection");
+                }
+            } else {
+                signals.push("selection");
+            }
+        }
+    }
+    if let Some(diagnostic) = &ide.active_diagnostic {
+        if path_matches_any(file, diagnostic.path.as_deref()) {
+            if line.is_none()
+                || diagnostic.line.is_none_or(|diag_line| {
+                    let line = line.unwrap_or(diag_line);
+                    line + 3 >= diag_line && line <= diag_line + 3
+                })
+            {
+                signals.push("active_diagnostic");
+            }
+        }
+    }
+    if let Some(symbol) = &ide.active_symbol {
+        if path_matches_any(file, symbol.path.as_deref()) {
+            signals.push("active_symbol");
+        }
+    }
+    if ide
+        .open_tabs
+        .iter()
+        .any(|path| focus_path_matches(file, path))
+    {
+        signals.push("open_tab");
+    }
+    if signals.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "source": ide.source.clone(),
+        "signals": signals,
+        "currentFile": ide.current_file.clone(),
+        "activeSymbol": ide.active_symbol.as_ref().and_then(|symbol| symbol.name.clone()),
+    }))
+}
+
+fn path_matches_any(file: &str, other: Option<&str>) -> bool {
+    other.is_some_and(|other| focus_path_matches(file, &normalize_focus_path(other)))
 }
 
 fn row_to_review_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReviewRun> {
@@ -1323,6 +1974,73 @@ fn is_test_path(path: &str) -> bool {
         || lower.ends_with("_test.py")
 }
 
+fn is_frontend_language(language: &str) -> bool {
+    matches!(
+        language,
+        "tsx" | "jsx" | "typescriptreact" | "javascriptreact" | "html" | "vue" | "svelte"
+    )
+}
+
+fn image_without_alt(line: &str) -> bool {
+    (line.contains("<img") || line.contains("<image")) && !line.contains("alt=")
+}
+
+fn clickable_div_without_keyboard(line: &str) -> bool {
+    (line.contains("<div") || line.contains("<span"))
+        && line.contains("onclick=")
+        && !line.contains("onkeydown=")
+        && !line.contains("onkeyup=")
+        && !line.contains("role=")
+}
+
+fn file_contains(lines: &[String], needle: &str) -> bool {
+    lines.iter().any(|line| line.contains(needle))
+}
+
+fn line_in_async_context(file: &ChangedFile, line: u32) -> bool {
+    let idx = line.saturating_sub(1) as usize;
+    let start = idx.saturating_sub(25);
+    file.after_lines
+        .get(start..=idx.min(file.after_lines.len().saturating_sub(1)))
+        .unwrap_or(&[])
+        .iter()
+        .any(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.contains("async fn")
+                || lower.contains("async move")
+                || lower.contains("tokio::spawn")
+        })
+}
+
+fn sorted_changed_lines(file: &ChangedFile) -> Vec<u32> {
+    let mut lines = file.changed_lines.iter().copied().collect::<Vec<_>>();
+    lines.sort_unstable();
+    lines
+}
+
+fn normalize_profile(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .replace('_', "-")
+        .replace(' ', "-")
+        .replace("a11y", "accessibility")
+        .replace("security-review", "security")
+        .replace("frontend-review", "frontend")
+        .replace("deep-review", "deep")
+}
+
+fn dedup_strings(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for value in values {
+        if seen.insert(value.clone()) {
+            out.push(value);
+        }
+    }
+    out
+}
+
 fn normalize_path(path: &str) -> String {
     PathBuf::from(path)
         .to_string_lossy()
@@ -1460,6 +2178,42 @@ mod tests {
         }
     }
 
+    fn review_context(
+        changed: Vec<ChangedFile>,
+        profiles: &[&str],
+        ide_context: Option<SessionIdeContext>,
+    ) -> ReviewContext {
+        ReviewContext {
+            changed,
+            diagnostics: Vec::new(),
+            workspace_root: Some("/repo".to_string()),
+            focus_paths: Vec::new(),
+            profiles: ReviewProfileSet::from_requested(
+                &profiles
+                    .iter()
+                    .map(|profile| (*profile).to_string())
+                    .collect::<Vec<_>>(),
+            ),
+            ide_context,
+            warnings: Vec::new(),
+            llm_reviewer_status: "not_requested".to_string(),
+            llm_review_model: None,
+        }
+    }
+
+    fn tsx_file(after: &str, changed_lines: &[u32]) -> ChangedFile {
+        ChangedFile {
+            path: "/repo/src/App.tsx".to_string(),
+            action: WorkspaceGitFileAction::Edit,
+            language: "tsx".to_string(),
+            changed_lines: changed_lines.iter().copied().collect(),
+            after_lines: after.lines().map(ToString::to_string).collect(),
+            truncated: false,
+            lines_added: changed_lines.len() as u32,
+            lines_removed: 0,
+        }
+    }
+
     #[test]
     fn changed_after_lines_track_inserted_lines() {
         let lines = changed_after_lines(&change("a\nb\nc\n", "a\nb2\nc\n"));
@@ -1485,8 +2239,8 @@ mod tests {
 
     #[test]
     fn lsp_candidates_keep_one_based_diagnostic_lines() {
-        let ctx = ReviewContext {
-            changed: vec![ChangedFile {
+        let mut ctx = review_context(
+            vec![ChangedFile {
                 path: "/repo/src/lib.rs".to_string(),
                 action: WorkspaceGitFileAction::Edit,
                 language: "rust".to_string(),
@@ -1496,28 +2250,100 @@ mod tests {
                 lines_added: 1,
                 lines_removed: 0,
             }],
-            diagnostics: vec![LspDiagnostic {
-                uri: "file:///repo/src/lib.rs".to_string(),
-                path: Some("/repo/src/lib.rs".to_string()),
-                range: crate::lsp::LspRange {
-                    start_line: 2,
-                    start_column: 1,
-                    end_line: 2,
-                    end_column: 8,
-                },
-                severity: "error".to_string(),
-                code: None,
-                source: Some("rust-analyzer".to_string()),
-                message: "cannot find value".to_string(),
-            }],
-            workspace_root: Some("/repo".to_string()),
-            focus_paths: Vec::new(),
-        };
+            &[],
+            None,
+        );
+        ctx.diagnostics = vec![LspDiagnostic {
+            uri: "file:///repo/src/lib.rs".to_string(),
+            path: Some("/repo/src/lib.rs".to_string()),
+            range: crate::lsp::LspRange {
+                start_line: 2,
+                start_column: 1,
+                end_line: 2,
+                end_column: 8,
+            },
+            severity: "error".to_string(),
+            code: None,
+            source: Some("rust-analyzer".to_string()),
+            message: "cannot find value".to_string(),
+        }];
 
         let candidates = candidates_from_lsp(&ctx);
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].start_line, Some(2));
         assert_eq!(candidates[0].end_line, Some(2));
+    }
+
+    #[test]
+    fn profile_set_defaults_and_unknowns_are_stable() {
+        let defaults = ReviewProfileSet::from_requested(&[]);
+        assert!(defaults.has("correctness"));
+        assert!(defaults.has("security"));
+        assert!(defaults.has("maintainability"));
+        assert!(defaults.has("tests"));
+        assert!(!defaults.has("frontend"));
+
+        let selected =
+            ReviewProfileSet::from_requested(&["frontend".to_string(), "mystery".to_string()]);
+        assert!(selected.has("frontend"));
+        assert!(!selected.has("correctness"));
+        assert_eq!(selected.unknown, vec!["mystery".to_string()]);
+    }
+
+    #[test]
+    fn frontend_profiles_emit_targeted_findings() {
+        let ctx = review_context(
+            vec![tsx_file(
+                "export function App() {\n  return <img src=\"/hero.png\" />;\n}\n",
+                &[2],
+            )],
+            &["accessibility"],
+            None,
+        );
+
+        let candidates = candidates_from_frontend(&ctx);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].category, "accessibility");
+        assert_eq!(candidates[0].title, "Image element added without alt text");
+    }
+
+    #[test]
+    fn enriched_evidence_records_symbol_and_ide_context() {
+        let ctx = review_context(
+            vec![tsx_file(
+                "export function App() {\n  return <img src=\"/hero.png\" />;\n}\n",
+                &[2],
+            )],
+            &["accessibility"],
+            Some(SessionIdeContext {
+                source: Some("acp".to_string()),
+                current_file: Some("/repo/src/App.tsx".to_string()),
+                selection: Some(crate::session::IdeLineRange {
+                    path: Some("/repo/src/App.tsx".to_string()),
+                    start_line: Some(2),
+                    end_line: Some(2),
+                    text: Some("<img src=\"/hero.png\" />".to_string()),
+                }),
+                open_tabs: vec!["/repo/src/App.tsx".to_string()],
+                active_diagnostic: None,
+                active_symbol: None,
+            }),
+        );
+
+        let candidates = candidates_from_frontend(&ctx);
+        let evidence = &candidates[0].evidence;
+        assert_eq!(
+            evidence
+                .pointer("/symbolContext/name")
+                .and_then(Value::as_str),
+            Some("App")
+        );
+        let signals = evidence
+            .pointer("/ideContext/signals")
+            .and_then(Value::as_array)
+            .expect("ide context signals");
+        assert!(signals.iter().any(|signal| signal == "current_file"));
+        assert!(signals.iter().any(|signal| signal == "selection"));
     }
 
     #[test]

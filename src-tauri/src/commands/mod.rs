@@ -18,6 +18,7 @@ pub mod dreaming;
 pub mod execution_mode;
 pub mod filesystem;
 pub mod goal;
+pub mod ide_context;
 pub mod knowledge;
 pub mod local_embedding;
 pub mod local_llm;

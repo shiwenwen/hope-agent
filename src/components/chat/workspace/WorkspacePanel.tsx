@@ -1496,6 +1496,8 @@ function contextKindIcon(kind: ContextCandidateKind): LucideIcon {
       return Check
     case "workflow_op":
       return Layers
+    case "ide_context":
+      return Monitor
     case "url_source":
       return Globe
   }
@@ -1522,6 +1524,8 @@ function contextKindLabel(
       return t("workspace.context.kindTask", "任务")
     case "workflow_op":
       return t("workspace.context.kindWorkflow", "工作流")
+    case "ide_context":
+      return t("workspace.context.kindIde", "IDE")
     case "url_source":
       return t("workspace.context.kindUrl", "来源")
   }
@@ -1870,7 +1874,10 @@ function ContextRetrievalSection({
             {[
               [t("workspace.context.statDiff", "diff"), stats.gitChanges],
               [t("workspace.context.statFiles", "文件"), stats.artifactFiles + stats.fileSearchMatches],
-              [t("workspace.context.statSignals", "信号"), stats.diagnostics + stats.reviewFindings],
+              [
+                t("workspace.context.statSignals", "信号"),
+                stats.diagnostics + stats.reviewFindings + stats.ideContextSignals,
+              ],
               [
                 t("workspace.context.statControl", "闭环"),
                 stats.verificationSteps + stats.goalEvidence + stats.tasks + stats.workflowOps + stats.symbols,
@@ -2185,6 +2192,32 @@ function reviewStatsNumber(snapshot: ReviewRunSnapshot | null, key: string): num
   return typeof value === "number" && Number.isFinite(value) ? value : 0
 }
 
+const REVIEW_PROFILE_OPTIONS = [
+  { id: "correctness", label: "Correct" },
+  { id: "security", label: "Security" },
+  { id: "maintainability", label: "Maintain" },
+  { id: "tests", label: "Tests" },
+  { id: "concurrency", label: "Concurrency" },
+  { id: "frontend", label: "Frontend" },
+  { id: "accessibility", label: "A11y" },
+  { id: "deep", label: "Deep" },
+] as const
+
+const DEFAULT_REVIEW_PROFILES = ["correctness", "security", "maintainability", "tests"]
+
+function reviewStatsStringArray(snapshot: ReviewRunSnapshot | null, key: string): string[] {
+  const value = snapshot?.run.stats?.[key]
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0)
+}
+
+function reviewStatsBoolean(snapshot: ReviewRunSnapshot | null, path: [string, string]): boolean {
+  const root = snapshot?.run.stats?.[path[0]]
+  if (!root || typeof root !== "object") return false
+  const value = (root as Record<string, unknown>)[path[1]]
+  return value === true
+}
+
 function ReviewSection({
   sessionId,
   incognito,
@@ -2216,6 +2249,11 @@ function ReviewSection({
   const p1 = reviewStatsNumber(snapshot, "p1")
   const p2 = reviewStatsNumber(snapshot, "p2")
   const p3 = reviewStatsNumber(snapshot, "p3")
+  const activeProfiles = reviewStatsStringArray(snapshot, "profiles")
+  const warnings = reviewStatsStringArray(snapshot, "warnings")
+  const ideContextPresent = reviewStatsBoolean(snapshot, ["ideContext", "present"])
+  const llmReviewer = typeof latest?.stats?.llmReviewer === "string" ? latest.stats.llmReviewer : null
+  const [selectedProfiles, setSelectedProfiles] = useState<string[]>(DEFAULT_REVIEW_PROFILES)
   const disabled = !sessionId || incognito || !workingDir || running || loading || latest?.state === "running"
 
   const blockingCount = openFindings.filter(
@@ -2243,7 +2281,7 @@ function ReviewSection({
     )
 
   const handleRunReview = async () => {
-    const next = await runReview()
+    const next = await runReview({ profiles: selectedProfiles })
     if (next) {
       toast.success(
         next.findings.length > 0
@@ -2253,6 +2291,16 @@ function ReviewSection({
           : t("workspace.review.runDoneClean", "审查完成，未发现问题"),
       )
     }
+  }
+
+  const toggleProfile = (profile: string) => {
+    setSelectedProfiles((current) => {
+      if (current.includes(profile)) {
+        const next = current.filter((item) => item !== profile)
+        return next.length > 0 ? next : DEFAULT_REVIEW_PROFILES
+      }
+      return [...current, profile]
+    })
   }
 
   const handleFindingStatus = async (findingId: string, status: ReviewFindingStatus) => {
@@ -2325,6 +2373,28 @@ function ReviewSection({
           </IconTip>
         </div>
 
+        <div className="grid grid-cols-4 gap-1">
+          {REVIEW_PROFILE_OPTIONS.map((profile) => {
+            const active = selectedProfiles.includes(profile.id)
+            return (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => toggleProfile(profile.id)}
+                disabled={running || loading}
+                className={cn(
+                  "h-7 min-w-0 rounded-md border px-1.5 text-[10px] font-medium transition-colors disabled:opacity-55",
+                  active
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/45 hover:text-foreground",
+                )}
+              >
+                <span className="block truncate">{profile.label}</span>
+              </button>
+            )
+          })}
+        </div>
+
         {!workingDir ? (
           <EmptyHint>{t("workspace.review.noWorkspace", "选择工作目录后可审查本地改动")}</EmptyHint>
         ) : incognito ? (
@@ -2347,6 +2417,22 @@ function ReviewSection({
             {closedCount > 0 ? (
               <div className="mt-1 pl-5 text-[10px] text-muted-foreground/65">
                 {t("workspace.review.closedCount", "{{count}} 条已处理", { count: closedCount })}
+              </div>
+            ) : null}
+            {activeProfiles.length > 0 || ideContextPresent || llmReviewer ? (
+              <div className="mt-1 flex min-w-0 flex-wrap gap-1 pl-5">
+                {activeProfiles.slice(0, 4).map((profile) => (
+                  <StatusPill key={profile} label={profile} tone="muted" />
+                ))}
+                {ideContextPresent ? (
+                  <StatusPill label={t("workspace.review.ideContext", "IDE context")} tone="info" />
+                ) : null}
+                {llmReviewer && llmReviewer !== "not_requested" ? (
+                  <StatusPill
+                    label={llmReviewer === "completed" ? "Deep reviewer" : "Deep skipped"}
+                    tone={llmReviewer === "completed" ? "good" : "warn"}
+                  />
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -2418,6 +2504,11 @@ function ReviewSection({
                 })}
               </div>
             ) : null}
+          </div>
+        ) : null}
+        {warnings.length > 0 ? (
+          <div className="px-2 text-[10px] text-muted-foreground/60">
+            {warnings.slice(0, 2).join(" · ")}
           </div>
         ) : null}
       </div>
@@ -2881,6 +2972,7 @@ Work in the current workspace. First inspect the relevant files, then make the s
     maxAttempts: 2,
     validationCommands: ["pnpm typecheck"],
     validationReason: "targeted validation after each implementation repair attempt; full pre-push suite remains user-gated",
+    reviewProfiles: ["correctness", "security", "maintainability", "tests", "frontend", "accessibility"],
     maxVerificationCommands: 2,
   }, async ({ attempt, previous }) => {
     const worker = await workflow.spawnAgent({

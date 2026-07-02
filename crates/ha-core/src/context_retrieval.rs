@@ -15,7 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::review::{ReviewFindingStatus, ReviewSeverity};
-use crate::session::{effective_working_dir_for_meta, SessionDB};
+use crate::session::{effective_working_dir_for_meta, SessionDB, SessionIdeContext};
 use crate::util::now_rfc3339;
 use crate::verification::VerificationStepState;
 use crate::workflow::{WorkflowOpState, WorkflowRunState};
@@ -34,6 +34,8 @@ pub struct ContextRetrievalInput {
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ide_context: Option<SessionIdeContext>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -48,6 +50,7 @@ pub enum ContextCandidateKind {
     Task,
     WorkflowOp,
     UrlSource,
+    IdeContext,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +87,8 @@ pub struct ContextRetrievalStats {
     pub goal_evidence: usize,
     pub tasks: usize,
     pub workflow_ops: usize,
+    #[serde(default)]
+    pub ide_context_signals: usize,
     pub file_search_matches: usize,
     pub symbols: usize,
     pub url_sources: usize,
@@ -197,7 +202,14 @@ pub async fn context_retrieval_for_session(
 
     let mut stats = ContextRetrievalStats::default();
     let mut map: HashMap<String, CandidateAccum> = HashMap::new();
+    let ide_context = input.ide_context.or_else(|| {
+        db.get_session_ide_context(&session_id)
+            .ok()
+            .flatten()
+            .map(|snapshot| snapshot.context)
+    });
 
+    gather_ide_context(ide_context.as_ref(), &matcher, &mut map, &mut stats);
     gather_git_changes(db.clone(), &session_id, &matcher, &mut map, &mut stats).await;
     gather_artifacts(db.clone(), &session_id, &matcher, &mut map, &mut stats).await;
     gather_lsp_diagnostics(&db, &session_id, &matcher, &mut map, &mut stats).await;
@@ -393,6 +405,225 @@ async fn gather_artifacts(
             430 + (20usize.saturating_sub(idx).min(20) as i32) + boost,
             "本会话引用过这个来源",
             "artifacts",
+        );
+    }
+}
+
+fn gather_ide_context(
+    ide: Option<&SessionIdeContext>,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let Some(ide) = ide else {
+        return;
+    };
+    if ide.is_empty() {
+        return;
+    }
+    let source = ide.source.as_deref().unwrap_or("ide");
+    if let Some(path) = ide.current_file.as_deref() {
+        stats.ide_context_signals += 1;
+        let boost = matcher.boost(&[path, source]);
+        upsert_candidate(
+            map,
+            format!("file:{path}"),
+            ContextCandidate {
+                id: format!("file:{path}"),
+                kind: ContextCandidateKind::File,
+                title: display_path(path),
+                subtitle: Some(path.to_string()),
+                path: Some(path.to_string()),
+                line: None,
+                url: None,
+                score: 0,
+                reasons: Vec::new(),
+                sources: Vec::new(),
+                status: Some("current_file".to_string()),
+                metadata: json!({
+                    "origin": "ide_context",
+                    "source": source,
+                    "signal": "current_file",
+                    "actions": focus_actions(path),
+                }),
+            },
+            960 + boost,
+            "IDE/ACP 当前正在查看这个文件",
+            "ide",
+        );
+    }
+
+    if let Some(selection) = ide.selection.as_ref() {
+        if let Some(path) = selection.path.as_deref() {
+            stats.ide_context_signals += 1;
+            let title = selection
+                .text
+                .as_deref()
+                .map(|text| {
+                    let compact = text.replace('\n', " ");
+                    crate::truncate_utf8(&compact, 80).to_string()
+                })
+                .unwrap_or_else(|| "IDE selection".to_string());
+            let boost = matcher.boost(&[path, &title, source]);
+            upsert_candidate(
+                map,
+                format!(
+                    "ide-selection:{path}:{}",
+                    selection.start_line.unwrap_or_default()
+                ),
+                ContextCandidate {
+                    id: format!(
+                        "ide-selection:{path}:{}",
+                        selection.start_line.unwrap_or_default()
+                    ),
+                    kind: ContextCandidateKind::IdeContext,
+                    title,
+                    subtitle: Some(path.to_string()),
+                    path: Some(path.to_string()),
+                    line: selection.start_line,
+                    url: None,
+                    score: 0,
+                    reasons: Vec::new(),
+                    sources: Vec::new(),
+                    status: Some("selection".to_string()),
+                    metadata: json!({
+                        "origin": "ide_context",
+                        "source": source,
+                        "signal": "selection",
+                        "range": selection,
+                        "actions": focus_actions(path),
+                    }),
+                },
+                990 + boost,
+                "IDE/ACP 当前选区直接指向这里",
+                "ide",
+            );
+        }
+    }
+
+    if let Some(diagnostic) = ide.active_diagnostic.as_ref() {
+        if let Some(path) = diagnostic.path.as_deref() {
+            stats.ide_context_signals += 1;
+            let title = diagnostic
+                .message
+                .clone()
+                .unwrap_or_else(|| "Active IDE diagnostic".to_string());
+            let boost = matcher.boost(&[
+                path,
+                &title,
+                diagnostic.severity.as_deref().unwrap_or_default(),
+                source,
+            ]);
+            upsert_candidate(
+                map,
+                format!(
+                    "ide-diagnostic:{path}:{}",
+                    diagnostic.line.unwrap_or_default()
+                ),
+                ContextCandidate {
+                    id: format!(
+                        "ide-diagnostic:{path}:{}",
+                        diagnostic.line.unwrap_or_default()
+                    ),
+                    kind: ContextCandidateKind::Diagnostic,
+                    title,
+                    subtitle: Some(path.to_string()),
+                    path: Some(path.to_string()),
+                    line: diagnostic.line,
+                    url: None,
+                    score: 0,
+                    reasons: Vec::new(),
+                    sources: Vec::new(),
+                    status: diagnostic
+                        .severity
+                        .clone()
+                        .or_else(|| Some("diagnostic".to_string())),
+                    metadata: json!({
+                        "origin": "ide_context",
+                        "source": source,
+                        "signal": "active_diagnostic",
+                        "diagnostic": diagnostic,
+                        "actions": focus_actions(path),
+                    }),
+                },
+                980 + boost,
+                "IDE/ACP 当前诊断指向这里",
+                "ide",
+            );
+        }
+    }
+
+    if let Some(symbol) = ide.active_symbol.as_ref() {
+        if let Some(path) = symbol.path.as_deref() {
+            stats.ide_context_signals += 1;
+            let title = symbol
+                .name
+                .clone()
+                .unwrap_or_else(|| "Active IDE symbol".to_string());
+            let boost = matcher.boost(&[
+                path,
+                &title,
+                symbol.kind.as_deref().unwrap_or_default(),
+                source,
+            ]);
+            upsert_candidate(
+                map,
+                format!("ide-symbol:{path}:{}", symbol.line.unwrap_or_default()),
+                ContextCandidate {
+                    id: format!("ide-symbol:{path}:{}", symbol.line.unwrap_or_default()),
+                    kind: ContextCandidateKind::Symbol,
+                    title,
+                    subtitle: Some(path.to_string()),
+                    path: Some(path.to_string()),
+                    line: symbol.line,
+                    url: None,
+                    score: 0,
+                    reasons: Vec::new(),
+                    sources: Vec::new(),
+                    status: symbol.kind.clone().or_else(|| Some("symbol".to_string())),
+                    metadata: json!({
+                        "origin": "ide_context",
+                        "source": source,
+                        "signal": "active_symbol",
+                        "symbol": symbol,
+                        "actions": focus_actions(path),
+                    }),
+                },
+                940 + boost,
+                "IDE/ACP 当前符号与这里相关",
+                "ide",
+            );
+        }
+    }
+
+    for (idx, path) in ide.open_tabs.iter().take(12).enumerate() {
+        stats.ide_context_signals += 1;
+        let boost = matcher.boost(&[path, source]);
+        upsert_candidate(
+            map,
+            format!("file:{path}"),
+            ContextCandidate {
+                id: format!("file:{path}"),
+                kind: ContextCandidateKind::File,
+                title: display_path(path),
+                subtitle: Some(path.clone()),
+                path: Some(path.clone()),
+                line: None,
+                url: None,
+                score: 0,
+                reasons: Vec::new(),
+                sources: Vec::new(),
+                status: Some("open_tab".to_string()),
+                metadata: json!({
+                    "origin": "ide_context",
+                    "source": source,
+                    "signal": "open_tab",
+                    "actions": focus_actions(path),
+                }),
+            },
+            720 + boost - idx.min(20) as i32,
+            "IDE/ACP 打开的文件提供了当前工作集信号",
+            "ide",
         );
     }
 }
@@ -1076,13 +1307,14 @@ fn kind_rank(kind: &ContextCandidateKind) -> u8 {
     match kind {
         ContextCandidateKind::ReviewFinding => 0,
         ContextCandidateKind::Diagnostic => 1,
-        ContextCandidateKind::VerificationStep => 2,
-        ContextCandidateKind::WorkflowOp => 3,
-        ContextCandidateKind::GoalEvidence => 4,
-        ContextCandidateKind::Task => 5,
-        ContextCandidateKind::File => 6,
-        ContextCandidateKind::Symbol => 7,
-        ContextCandidateKind::UrlSource => 8,
+        ContextCandidateKind::IdeContext => 2,
+        ContextCandidateKind::VerificationStep => 3,
+        ContextCandidateKind::WorkflowOp => 4,
+        ContextCandidateKind::GoalEvidence => 5,
+        ContextCandidateKind::Task => 6,
+        ContextCandidateKind::File => 7,
+        ContextCandidateKind::Symbol => 8,
+        ContextCandidateKind::UrlSource => 9,
     }
 }
 

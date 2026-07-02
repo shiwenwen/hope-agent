@@ -230,4 +230,4 @@ diagnostics -> DIAGNOSTIC_CACHE + prompt suffix + Workspace panel
 2. LSP client restart/backoff 与 health doctor。
 3. diagnostics 进入 Goal evidence / Workflow validation summary 的强类型链路。
 4. Review Engine 已读取 LSP diagnostics 作为 candidate finding 的证据；后续增强 focused re-review 与 profile 权重。
-5. ACP IDE context envelope：open files、selection、visible diagnostics、active editor URI。
+5. 更完整的 ACP / IDE 双向 RPC；轻量 IDE context envelope 已在 Phase 3.10 通过 Context Retrieval / Review Engine 落地。

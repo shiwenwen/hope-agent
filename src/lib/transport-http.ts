@@ -385,6 +385,9 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_lsp_status:                  { method: "GET",    path: "/api/sessions/{sessionId}/lsp/status" },
   get_lsp_diagnostics:             { method: "GET",    path: "/api/sessions/{sessionId}/lsp/diagnostics" },
   get_context_retrieval:           { method: "GET",    path: "/api/sessions/{sessionId}/context-retrieval" },
+  get_session_ide_context:          { method: "GET",    path: "/api/sessions/{sessionId}/ide-context" },
+  save_session_ide_context:         { method: "PUT",    path: "/api/sessions/{sessionId}/ide-context" },
+  clear_session_ide_context:        { method: "DELETE", path: "/api/sessions/{sessionId}/ide-context" },
 
   // -- Review Engine --
   list_review_runs:                { method: "GET",    path: "/api/sessions/{sessionId}/review-runs" },

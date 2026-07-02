@@ -82,13 +82,13 @@ Phase 3.6  Actionable Context Loop / 可行动上下文闭环（已完成）
 Phase 3.7  Coding Eval 控制面评测（已完成）
 Phase 3.8  Workflow Review/Verify Host API 与 Goal-aware Eval（已完成）
 Phase 3.9  Repair Loop 自动化（已完成）
-Phase 3.10 Deep Review / Profiles / IDE Context（计划中）
+Phase 3.10 Deep Review / Profiles / IDE Context（已完成）
 Phase 3.11 Trend Report / Improvement Loop 接口（计划中）
 ```
 
 这意味着 LSP、review engine 不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。LSP / Diagnostics 已按这个原则落地为 Workspace 与工具层能力；Review Engine 也已按同一原则落地为 durable review run/finding，并把 P0/P1 open finding 写回 Goal evidence。
 Smart Verification 同样按这个原则落地为 durable verification run/step，并把最小验证结果写回 Goal evidence。
-Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Workspace 推荐上下文，并在 Phase 3.6 接入 Goal evidence、task、workflow op 关联召回与候选行 focused review / verification，帮助用户从“看到下一步”直接进入“处理下一步”。Phase 3.7 再把这组控制面协同纳入确定性 eval，确保后续增强不会破坏 focused action、最小验证选择和关键上下文召回。Phase 3.8 已把 `workflow.review()` / `workflow.verify()` 接入同一链路，workflow 脚本内产生的 review、verification plan 与 Goal evidence 也会进入控制面回归。Phase 3.9 再把 `workflow.repairLoop()` / `workflow.block()` 接入 runtime 与 eval，使 repair loop 能明确完成或 blocked。
+Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Workspace 推荐上下文，并在 Phase 3.6 接入 Goal evidence、task、workflow op 关联召回与候选行 focused review / verification，帮助用户从“看到下一步”直接进入“处理下一步”。Phase 3.7 再把这组控制面协同纳入确定性 eval，确保后续增强不会破坏 focused action、最小验证选择和关键上下文召回。Phase 3.8 已把 `workflow.review()` / `workflow.verify()` 接入同一链路，workflow 脚本内产生的 review、verification plan 与 Goal evidence 也会进入控制面回归。Phase 3.9 再把 `workflow.repairLoop()` / `workflow.block()` 接入 runtime 与 eval，使 repair loop 能明确完成或 blocked。Phase 3.10 已把 review profiles、Deep Review、IDE/ACP context 和 symbol-context evidence 接入同一套 durable Review / Context / Eval 链路。Phase 3 剩余只剩 3.11 Trend Report / Improvement Loop。
 
 ## 4. `/mode` 的准确语义
 

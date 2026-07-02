@@ -680,6 +680,18 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE tasks ADD COLUMN batch_id TEXT;")?;
         }
 
+        // Migration: latest IDE / ACP context envelope for a session. This is
+        // owner-plane state only: Review Engine and Context Retrieval may read
+        // it, but it is never injected as a system instruction.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS session_ide_context (
+                session_id TEXT PRIMARY KEY,
+                context_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
+        )?;
+
         // Migration: Agent Team tables
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS teams (

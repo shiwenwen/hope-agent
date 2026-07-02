@@ -815,6 +815,10 @@ pub fn run() {
             commands::lsp::get_lsp_diagnostics,
             // Context Retrieval v2 (Phase 3.5 task-aware context ranking)
             commands::context_retrieval::get_context_retrieval,
+            // IDE / ACP context envelope (Phase 3.10)
+            commands::ide_context::get_session_ide_context,
+            commands::ide_context::save_session_ide_context,
+            commands::ide_context::clear_session_ide_context,
             // Review Engine (Phase 3.3 durable local code review)
             commands::review::list_review_runs,
             commands::review::get_review_run,

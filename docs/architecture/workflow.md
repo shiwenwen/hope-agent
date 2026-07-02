@@ -226,9 +226,9 @@ Primary-only 启动：
 | `workflow.spawnAgent(args)` | non-idempotent | 走 `subagent` 工具，预分配 child run id。 |
 | `workflow.waitAll(handles, options?)` | pure | 走 `subagent` 工具等待子 Agent，汇总结果。 |
 | `workflow.validate({ commands, reason?, label? })` | non-idempotent | 预分配 async exec job，等待终态，返回结构化 validation 结果。 |
-| `workflow.review({ scope?, baseRef?, focusPaths?, profiles?, label? })` | idempotent | 运行 durable Review run，默认 `scope=local`，继承当前 workflow 的 `goal_id`，返回摘要、finding 数和 blocking finding 数。 |
+| `workflow.review({ scope?, baseRef?, focusPaths?, profiles?, ideContext?, label? })` | idempotent | 运行 durable Review run，默认 `scope=local`，继承当前 workflow 的 `goal_id`，返回摘要、finding 数和 blocking finding 数。 |
 | `workflow.verify({ scope?, focusPaths?, maxCommands?, label? })` | idempotent | 创建 Smart Verification 计划，默认 `scope=local`，继承当前 workflow 的 `goal_id`；只规划不执行命令。 |
-| `workflow.repairLoop({ label?, maxAttempts?, validationCommands?, focusPaths?, review?, verify?, maxVerificationCommands? }, fn)` | helper | 脚本级 bounded repair loop；每轮调用 callback 执行动态修复动作，然后自动 validate / review / verify / trace。 |
+| `workflow.repairLoop({ label?, maxAttempts?, validationCommands?, focusPaths?, reviewProfiles?, review?, verify?, maxVerificationCommands? }, fn)` | helper | 脚本级 bounded repair loop；每轮调用 callback 执行动态修复动作，然后自动 validate / profile-aware review / verify / trace。 |
 | `workflow.block({ reason?, label?, payload? })` | idempotent | 受控停机出口；写 `workflow_block_requested` event，将 run 转 `blocked` 并让 runtime 停止。 |
 | `workflow.askUser(args)` | non-idempotent | 复用 `ask_user_question`；无人值守 surface 先按 unattended 策略处理。 |
 | `workflow.diff({ label? })` | pure | 返回 session working dir 的 git diff snapshot。 |
@@ -246,6 +246,7 @@ Primary-only 启动：
 Review / Verify 语义：
 
 - `workflow.review()` 复用 Review Engine owner API，读取 session workspace 的 local diff，可用 `focusPaths` 收窄范围。它不改代码，不执行命令。
+- `workflow.review()` 可传 `profiles[]` 和 `ideContext`；profiles 写入 review stats 并决定 deterministic/Deep Review surface，`ideContext` 用于 finding evidence 与 Context Retrieval 对齐。非空 `baseRef` 仍会拒绝。
 - `workflow.verify()` 复用 Smart Verification selector，生成 durable verification run/steps，但不运行 step；真正执行命令仍由 `workflow.validate()` 或 owner 面板的 run verification 承担。
 - 两者都属于 permission-neutral coding control-plane host API：Script Gate 允许静态调用，permission preview 不要求额外审批；底层仍受 incognito、session workspace、HTTP path scope 等子系统红线约束。
 - run 绑定 `goal_id` 时，两者默认继承 goal：review 写 `review_passed` / `review_completed` / `review_finding` evidence；verify plan 写 `validation_completed` evidence，表示“验证计划已生成”，不冒充命令已通过。
@@ -253,7 +254,8 @@ Review / Verify 语义：
 Repair Loop 语义：
 
 - `workflow.repairLoop(...)` 不是结构化 DSL；真正的修复动作仍由 callback 内的动态脚本决定，可以继续调用 `spawnAgent`、`tool`、`read`、`grep` 等 host API。
-- runtime 负责产品级循环骨架：每轮创建用户可见 task、记录 `repair_loop_started` / `repair_loop_attempt` / `repair_loop_completed` / `repair_loop_exhausted` trace、执行 `validationCommands`、可选 focused `review` / `verify`，并返回结构化 attempts。
+- runtime 负责产品级循环骨架：每轮创建用户可见 task、记录 `repair_loop_started` / `repair_loop_attempt` / `repair_loop_completed` / `repair_loop_exhausted` trace、执行 `validationCommands`、可选 focused profile-aware `review` / `verify`，并返回结构化 attempts。
+- `reviewProfiles` / `review_profiles` / `profiles` 是 repairLoop 的 review profile 输入，会传给每轮 `workflow.review()`；GUI 生成的默认草稿会启用 correctness / security / maintainability / tests / frontend / accessibility。
 - `maxAttempts` 默认 2，运行时 clamp 到 1-5。attempts 耗尽时 helper 调用 `workflow.block({ reason: "repair_loop_attempts_exhausted" })`，run 进入 `blocked`，不会伪装成 completed。
 - `workflow.validate()` 原有 guarded repair stop guard 仍然生效；重复验证失败 fingerprint 或无有效 diff 进展会优先 block。
 - `workflow.block()` 是显式失败收口，适合脚本在预算耗尽、风险超界、需要人工介入时使用。它写入 durable op/event，并通过 Goal evidence 形成 `workflow_blocked`。

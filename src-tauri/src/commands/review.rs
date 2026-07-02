@@ -2,6 +2,7 @@ use crate::commands::CmdError;
 use ha_core::review::{
     ReviewFinding, ReviewFindingStatus, ReviewRun, ReviewRunSnapshot, RunReviewInput,
 };
+use ha_core::session::SessionIdeContext;
 
 #[tauri::command]
 pub async fn list_review_runs(
@@ -33,6 +34,7 @@ pub async fn run_code_review(
     goal_id: Option<String>,
     profiles: Option<Vec<String>>,
     focus_paths: Option<Vec<String>>,
+    ide_context: Option<SessionIdeContext>,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<ReviewRunSnapshot, CmdError> {
     ha_core::review::run_review_for_session(
@@ -44,6 +46,7 @@ pub async fn run_code_review(
             goal_id,
             profiles: profiles.unwrap_or_default(),
             focus_paths: focus_paths.unwrap_or_default(),
+            ide_context,
         },
     )
     .await

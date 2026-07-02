@@ -20,7 +20,7 @@ use crate::agent_loader::DEFAULT_AGENT_ID;
 use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
 use crate::goal::CreateGoalInput;
 use crate::review::{self, RunReviewInput};
-use crate::session::{SessionDB, TaskStatus};
+use crate::session::{SessionDB, SessionIdeContext, TaskStatus};
 use crate::verification::{self, PlanVerificationInput};
 use crate::workflow::{
     self, CreateWorkflowRunInput, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowRunState,
@@ -148,6 +148,10 @@ pub struct WorkflowScriptEvalRun {
 pub struct ReviewEvalRun {
     #[serde(default)]
     pub focus_paths: Vec<String>,
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
+    pub ide_context: Option<SessionIdeContext>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -166,6 +170,8 @@ pub struct ContextEvalRun {
     pub query: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub ide_context: Option<SessionIdeContext>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -239,6 +245,10 @@ pub struct ReviewCheck {
     pub max_findings: Option<usize>,
     #[serde(default)]
     pub expect_focused: Option<bool>,
+    #[serde(default)]
+    pub expected_profiles: Vec<String>,
+    #[serde(default)]
+    pub expect_ide_context: Option<bool>,
     #[serde(default)]
     pub expected_titles: Vec<String>,
     #[serde(default)]
@@ -400,7 +410,9 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                 RunReviewInput {
                     scope: Some("local".to_string()),
                     goal_id: goal_id.clone(),
+                    profiles: run.profiles.clone(),
                     focus_paths: resolve_focus_paths(&artifacts.repo_root, &run.focus_paths),
+                    ide_context: run.ide_context.clone(),
                     ..Default::default()
                 },
             )
@@ -432,6 +444,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                 context_retrieval::ContextRetrievalInput {
                     query: run.query.clone(),
                     limit: run.limit,
+                    ide_context: run.ide_context.clone(),
                 },
             )
             .await?,
@@ -723,6 +736,44 @@ fn check_review(report: &mut FixtureReport, artifacts: &EvalRunArtifacts, check:
             "review.focused",
             focused == expect,
             format!("focused={focused}, expected={expect}"),
+        );
+    }
+    for profile in &check.expected_profiles {
+        let found = snapshot
+            .run
+            .stats
+            .get("profiles")
+            .and_then(Value::as_array)
+            .is_some_and(|profiles| {
+                profiles
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .any(|p| p == profile)
+            });
+        push_check(
+            report,
+            format!("review.profile.{profile}"),
+            found,
+            if found {
+                "matched".to_string()
+            } else {
+                format!("stats={}", snapshot.run.stats)
+            },
+        );
+    }
+    if let Some(expect) = check.expect_ide_context {
+        let present = snapshot
+            .run
+            .stats
+            .get("ideContext")
+            .and_then(|value| value.get("present"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        push_check(
+            report,
+            "review.ide_context",
+            present == expect,
+            format!("ideContext.present={present}, expected={expect}"),
         );
     }
     for title in &check.expected_titles {
@@ -1050,6 +1101,7 @@ fn candidate_kind(candidate: &ContextCandidate) -> &'static str {
         ContextCandidateKind::GoalEvidence => "goal_evidence",
         ContextCandidateKind::Task => "task",
         ContextCandidateKind::WorkflowOp => "workflow_op",
+        ContextCandidateKind::IdeContext => "ide_context",
         ContextCandidateKind::UrlSource => "url_source",
     }
 }

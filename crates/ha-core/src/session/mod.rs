@@ -6,6 +6,7 @@ mod environment;
 pub(crate) mod events;
 pub mod export;
 mod helpers;
+mod ide_context;
 mod pending;
 mod subagent_db;
 mod tasks;
@@ -28,6 +29,10 @@ pub use helpers::{
     auto_title, cleanup_orphan_incognito, db_path, effective_session_working_dir,
     effective_working_dir_for_meta, ensure_first_message_title, is_session_incognito,
     lookup_session_meta,
+};
+pub use ide_context::{
+    IdeDiagnosticContext, IdeLineRange, IdeSymbolContext, SessionIdeContext,
+    SessionIdeContextSnapshot,
 };
 pub use pending::enrich_pending_interactions;
 pub use tasks::{

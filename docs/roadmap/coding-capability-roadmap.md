@@ -48,7 +48,7 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 2. **Phase 2.7：`/goal` MVP**，已完成第一版。补一等目标对象：objective、completion criteria、budget、evidence、status、final audit。
 3. **Phase 2.8：Goal-driven Workflow**。Goal 派生 workflow run，失败后生成 repair run，workflow evidence 回写 goal，最终 evaluator 收口。
 4. **Phase 2.9：真正 `/loop`**。只做定时、重复、轮询或条件触发，复用 cron / wakeup / automation。
-5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化已完成；后续继续做更深 LLM reviewer / profiles / IDE context / 趋势报告。
+5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context 已完成；Phase 3 剩余只剩 Trend Report / Improvement Loop 接口。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -179,8 +179,8 @@ Hope 已经具备很多 coding agent 需要的基础能力：
 - ToolDefinition 元数据不够表达工具风险、展示、输入校验、语义分类和并发能力。
 - `tool_search` 仍偏基础关键词匹配，缺少 search hint、alias、BM25、多来源 schema 组装。
 - Managed Worktree 创建、恢复、归档、交接已在 Phase 3.1 补齐；后续缺口转为 detail 页面、清理策略和 review/LSP evidence 接入。
-- LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置、doctor 和 IDE context envelope。
-- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness；Phase 3.8 已补齐 Workflow review/verify host API 与 Goal-aware eval；Phase 3.9 已补齐 bounded repair loop 自动化、受控 block 停机和 repair-loop eval。后续缺口是 LLM reviewer、profiles、IDE/ACP 当前文件信号、趋势报告和系统级 improvement loop。
+- LSP 语义代码工具和被动 diagnostics 注入已在 Phase 3.2 补齐；后续缺口是项目级配置和 doctor。
+- 独立 `/review` engine、verifier 三态和 Workspace 审查区块已在 Phase 3.3 补齐；Smart Verification 已在 Phase 3.4 补齐最小验证选择、后台低风险执行和 Goal validation evidence；Context Retrieval v2 已在 Phase 3.5 补齐任务感知上下文推荐、file search v2 + LSP symbols + diff/artifact/review/verification 聚合；Phase 3.6 已补齐 workflow/task/goal evidence 关联召回和候选行 focused review / focused verification；Phase 3.7 已补齐确定性 coding control-plane eval harness；Phase 3.8 已补齐 Workflow review/verify host API 与 Goal-aware eval；Phase 3.9 已补齐 bounded repair loop 自动化、受控 block 停机和 repair-loop eval；Phase 3.10 已补齐 LLM reviewer、review profiles、IDE/ACP 当前文件信号、symbol-context evidence 和 profile/IDE eval。后续缺口是趋势报告和系统级 improvement loop。
 - 已有第一层 coding eval harness；仍缺完整任务级自动执行器、dashboard 和失败转 improvement backlog。
 - 内置 coding skills 还偏“说明书”，尚未产品化为稳定 workflow policy。
 
@@ -553,7 +553,7 @@ StopPolicy
 - 项目级 `.hope/lsp.json` 或插件贡献 LSP server 配置。
 - LSP client restart/backoff 与 doctor。
 - diagnostics 进入 Goal evidence / Workflow validation summary 的强类型链路。
-- ACP IDE context envelope：open files、selection、visible diagnostics、active editor URI。
+- 更完整的 ACP / IDE 双向 RPC；轻量 IDE context envelope 已在 Phase 3.10 落地。
 
 ### Phase 3.3：Review Engine
 
@@ -666,7 +666,7 @@ StopPolicy
 
 已完成：
 
-- `workflow.review({ focusPaths?, baseRef?, profiles?, scope? })` host API：idempotent durable op，复用 Review Engine，默认 local diff，继承 workflow `goal_id`。
+- `workflow.review({ focusPaths?, baseRef?, profiles?, ideContext?, scope? })` host API：idempotent durable op，复用 Review Engine，默认 local diff，继承 workflow `goal_id`。
 - `workflow.verify({ focusPaths?, maxCommands?, scope? })` host API：idempotent durable op，复用 Smart Verification selector，只生成计划，不执行命令。
 - Script Gate / permission preview 把 `workflow.review()` / `workflow.verify()` 归类为 permission-neutral coding control-plane API，静态调用可直接通过。
 - Goal evidence 串联：review 继续写 `review_passed` / `review_completed` / `review_finding`，verification plan 写 `validation_completed`，workflow completion 写 `workflow_completed`。
@@ -699,17 +699,20 @@ StopPolicy
 
 ### Phase 3.10：Deep Review / Profiles / IDE Context
 
-状态：计划中。
+状态：已完成。最终架构见 [Review Engine 控制平面](../architecture/review-engine.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Workflow 与 Execution Mode](../architecture/workflow.md)、[Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 目标：把当前 deterministic review / verification 从“结构化控制面”提升到“更接近资深工程师的缺陷发现能力”，同时让当前 IDE / ACP 工作上下文成为一等信号。
 
-任务：
+已完成：
 
-- LLM reviewer：在本地 diff、LSP diagnostics、Context Retrieval 候选和架构文档基础上生成候选 findings，再交给独立 verifier 降噪。
-- Review profiles：correctness、security、concurrency、frontend、accessibility、tests 等 profile 可组合选择，并写入 review run stats。
-- IDE / ACP context：接入当前文件、selection、open tabs、diagnostic cursor、active symbol，让推荐上下文和 focused review 更贴近用户正在看的位置。
-- Diff scan 增强：从文件级扩到 enclosing function / symbol context，降低大文件 review 噪音。
-- eval 扩展：新增 seeded LSP diagnostics、profile-specific review、IDE context recall fixture，保持无 LLM 的 deterministic 控制面回归。
+- LLM reviewer：`deep` profile 下通过 bounded side-query 生成候选 findings，超时/失败只写 warning，不阻断 deterministic review。
+- Review profiles：`correctness`、`security`、`maintainability`、`tests`、`concurrency`、`frontend`、`accessibility`、`deep` 可组合选择，并写入 review run stats / Workspace 展示。
+- IDE / ACP context：接入当前文件、selection、open tabs、active diagnostic、active symbol，让 Context Retrieval 和 review evidence 更贴近用户正在看的位置。
+- Session IDE context owner API：Tauri + HTTP `get/save/clear_session_ide_context`，ACP `_meta.ideContext` best-effort 写入。
+- Diff scan 增强：从文件级扩到 enclosing function / symbol context，finding evidence 可解释当前符号位置。
+- Workflow 接入：`workflow.review({ profiles?, ideContext? })` 与 `workflow.repairLoop({ reviewProfiles? })` 支持 profile-aware review。
+- GUI：Workspace Review 区块提供 profile toggles，run card 展示 active profiles、IDE context 与 Deep reviewer 状态；Context 区块展示 IDE 候选与 IDE 信号计数。
+- eval 扩展：新增 `profiles_ide_context_recall` fixture，保持无 LLM 的 deterministic 控制面回归。
 
 验收：
 
@@ -739,15 +742,12 @@ StopPolicy
 
 ### 后续池：Review 与 Verification Engine 增强
 
-目标：在 Phase 3.3 Review Engine 与 Phase 3.4 Smart Verification 的基础上，把 review 和 verification 组合成更强的闭环；其中 LLM reviewer、profiles、IDE context 已前移到 Phase 3.10，趋势指标已前移到 Phase 3.11。
+目标：在 Phase 3.3 Review Engine 与 Phase 3.4 Smart Verification 的基础上，把 review 和 verification 组合成更强的闭环；其中 Deep Review、profiles、IDE context 已在 Phase 3.10 落地，趋势指标已前移到 Phase 3.11。
 
 任务：
 
 - 支持 base branch、commit range 和远程 PR review。
-- Diff scan 增强到 enclosing function / symbol context。
-- LLM reviewer 生成更高召回 candidate findings。
-- 去重后交给独立 verifier agent，输出 `CONFIRMED`、`PLAUSIBLE`、`REFUTED`。
-- 支持 review profiles：correctness、security、concurrency、frontend、accessibility、tests。
+- 独立 verifier agent v2：在当前本地 verifier 后追加 evidence quote / 反证 / 更细降噪。
 - 支持 inline finding、可选 auto-fix、fix 后 re-review。
 - Verification selector 加入历史 trace、test impact、owner map 和 symbol 级影响分析。
 

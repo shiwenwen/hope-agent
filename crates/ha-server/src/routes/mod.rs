@@ -23,6 +23,7 @@ pub mod filesystem;
 pub mod generated_images;
 pub mod goal;
 pub mod health;
+pub mod ide_context;
 pub mod knowledge;
 pub mod local_embedding;
 pub mod local_llm;

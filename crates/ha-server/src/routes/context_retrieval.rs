@@ -24,6 +24,7 @@ pub async fn get_context_retrieval(
         ha_core::context_retrieval::ContextRetrievalInput {
             query: query.query,
             limit: query.limit,
+            ide_context: None,
         },
     )
     .await
