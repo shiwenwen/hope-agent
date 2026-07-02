@@ -1468,6 +1468,10 @@ fn build_router_with_cors(
             "/coding-improvement/release-gate/evaluate",
             post(routes::coding_improvement::evaluate_coding_eval_release_gate),
         )
+        .route(
+            "/coding-improvement/generalization/evaluate",
+            post(routes::coding_improvement::evaluate_coding_learning_generalization),
+        )
         // Smart verification selector (Phase 3.4)
         .route(
             "/sessions/{sid}/verification-runs",

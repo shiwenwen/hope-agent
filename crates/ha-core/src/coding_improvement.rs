@@ -39,6 +39,14 @@ const DEFAULT_RELEASE_GATE_MAX_MIXED_STRATEGY_EFFECTS: usize = 0;
 const DEFAULT_RELEASE_GATE_MAX_MISSING_TOOL_CALL_RUNS: usize = 0;
 const DEFAULT_RELEASE_GATE_MAX_VALIDATION_VIOLATION_DELTA: isize = 0;
 const DEFAULT_RELEASE_GATE_MAX_SCOPE_CREEP_DELTA: isize = 0;
+const DEFAULT_GENERALIZATION_MIN_PROJECTS: usize = 2;
+const DEFAULT_GENERALIZATION_MIN_PROJECT_PACK_RUNS: usize = 1;
+const DEFAULT_GENERALIZATION_MIN_PROJECT_PACK_PASS_RATE: f64 = 1.0;
+const DEFAULT_GENERALIZATION_MIN_STRATEGY_EFFECT_RUNS_PER_PROJECT: usize = 0;
+const DEFAULT_GENERALIZATION_MAX_REGRESSED_PROJECTS: usize = 0;
+const DEFAULT_GENERALIZATION_MAX_MIXED_PROJECTS: usize = 0;
+const DEFAULT_GENERALIZATION_MAX_VALIDATION_VIOLATION_DELTA_PER_PROJECT: isize = 0;
+const DEFAULT_GENERALIZATION_MAX_SCOPE_CREEP_DELTA_PER_PROJECT: isize = 0;
 const MAX_SCOPE_SESSIONS: usize = 200;
 const MAX_CONTENT_PREVIEW_BYTES: usize = 12 * 1024;
 const MAX_DISTILLATION_SESSIONS: usize = 12;
@@ -677,6 +685,168 @@ pub struct CodingEvalReleaseGateReport {
     pub checks: Vec<CodingEvalReleaseGateCheck>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub proposal_kinds: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_projects: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_project_pack_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_project_pack_pass_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_strategy_effect_runs_per_project: Option<usize>,
+    #[serde(default = "crate::default_true")]
+    pub require_promoted_learning: bool,
+    #[serde(default)]
+    pub require_external_model_pack: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_regressed_projects: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mixed_projects: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_validation_violation_delta_per_project: Option<isize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_scope_creep_delta_per_project: Option<isize>,
+}
+
+impl Default for CodingLearningGeneralizationInput {
+    fn default() -> Self {
+        Self {
+            session_id: None,
+            project_id: None,
+            window_days: None,
+            source_type: None,
+            source_id: None,
+            proposal_kinds: Vec::new(),
+            min_projects: None,
+            min_project_pack_runs: None,
+            min_project_pack_pass_rate: None,
+            min_strategy_effect_runs_per_project: None,
+            require_promoted_learning: true,
+            require_external_model_pack: false,
+            max_regressed_projects: None,
+            max_mixed_projects: None,
+            max_validation_violation_delta_per_project: None,
+            max_scope_creep_delta_per_project: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationThresholds {
+    pub min_projects: usize,
+    pub min_project_pack_runs: usize,
+    pub min_project_pack_pass_rate: f64,
+    pub min_strategy_effect_runs_per_project: usize,
+    pub require_promoted_learning: bool,
+    pub require_external_model_pack: bool,
+    pub max_regressed_projects: usize,
+    pub max_mixed_projects: usize,
+    pub max_validation_violation_delta_per_project: isize,
+    pub max_scope_creep_delta_per_project: isize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationSummary {
+    pub projects_evaluated: usize,
+    pub projects_with_promoted_learning: usize,
+    pub projects_with_pack_runs: usize,
+    pub projects_with_strategy_effects: usize,
+    pub projects_with_external_model_pack: usize,
+    pub passed_projects: usize,
+    pub failed_projects: usize,
+    pub insufficient_projects: usize,
+    pub total_promoted_learning: usize,
+    pub total_pack_runs: usize,
+    pub total_strategy_effect_runs: usize,
+    pub regressed_projects: usize,
+    pub mixed_projects: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationItem {
+    pub proposal_id: String,
+    pub project_id: String,
+    pub kind: String,
+    pub title: String,
+    pub source_type: String,
+    pub source_id: String,
+    pub promoted_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationProject {
+    pub project_id: String,
+    pub status: String,
+    pub promoted_learning: usize,
+    pub pack_runs: usize,
+    pub passed_pack_runs: usize,
+    pub failed_pack_runs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pack_pass_rate: Option<f64>,
+    pub external_model_pack_runs: usize,
+    pub strategy_effect_runs: usize,
+    pub improved_strategy_effects: usize,
+    pub regressed_strategy_effects: usize,
+    pub mixed_strategy_effects: usize,
+    pub validation_violation_delta: isize,
+    pub scope_creep_delta: isize,
+    pub execution_failure_delta: isize,
+    pub reasons: Vec<String>,
+    pub learning_items: Vec<CodingLearningGeneralizationItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationCheck {
+    pub name: String,
+    pub status: String,
+    pub severity: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingLearningGeneralizationReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub window_days: u32,
+    pub since: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub proposal_kinds: Vec<String>,
+    pub thresholds: CodingLearningGeneralizationThresholds,
+    pub summary: CodingLearningGeneralizationSummary,
+    pub projects: Vec<CodingLearningGeneralizationProject>,
+    pub checks: Vec<CodingLearningGeneralizationCheck>,
+}
+
 struct ReportScope {
     session_id: String,
     project_id: Option<String>,
@@ -691,6 +861,138 @@ struct ReleaseGateScope {
     scope: String,
     window_days: u32,
     since: String,
+}
+
+struct LearningGeneralizationScope {
+    session_id: Option<String>,
+    project_id: Option<String>,
+    scope: String,
+    window_days: u32,
+    since: String,
+    source_type: Option<String>,
+    source_id: Option<String>,
+    proposal_kinds: Vec<String>,
+}
+
+#[derive(Default)]
+struct LearningProjectAccumulator {
+    learning_items: Vec<CodingLearningGeneralizationItem>,
+    pack_runs: usize,
+    passed_pack_runs: usize,
+    failed_pack_runs: usize,
+    external_model_pack_runs: usize,
+    strategy_effect_runs: usize,
+    improved_strategy_effects: usize,
+    regressed_strategy_effects: usize,
+    mixed_strategy_effects: usize,
+    validation_violation_delta: isize,
+    scope_creep_delta: isize,
+    execution_failure_delta: isize,
+}
+
+impl LearningProjectAccumulator {
+    fn into_report(
+        mut self,
+        project_id: String,
+        thresholds: &CodingLearningGeneralizationThresholds,
+    ) -> CodingLearningGeneralizationProject {
+        let promoted_learning = self.learning_items.len();
+        self.learning_items.truncate(8);
+        let pack_pass_rate = ratio(
+            self.passed_pack_runs,
+            self.passed_pack_runs + self.failed_pack_runs,
+        );
+        let mut insufficient = Vec::new();
+        let mut failures = Vec::new();
+
+        if thresholds.require_promoted_learning && promoted_learning == 0 {
+            insufficient.push("no promoted learning artifact in this project".to_string());
+        }
+        if self.pack_runs < thresholds.min_project_pack_runs {
+            insufficient.push(format!(
+                "{} pack run(s), need {}",
+                self.pack_runs, thresholds.min_project_pack_runs
+            ));
+        }
+        if thresholds.require_external_model_pack && self.external_model_pack_runs == 0 {
+            insufficient.push("no external_model pack run".to_string());
+        }
+        if self.strategy_effect_runs < thresholds.min_strategy_effect_runs_per_project {
+            insufficient.push(format!(
+                "{} strategy effect run(s), need {}",
+                self.strategy_effect_runs, thresholds.min_strategy_effect_runs_per_project
+            ));
+        }
+        if self.pack_runs >= thresholds.min_project_pack_runs {
+            match pack_pass_rate {
+                Some(rate) if rate + f64::EPSILON < thresholds.min_project_pack_pass_rate => {
+                    failures.push(format!(
+                        "pack pass rate {rate:.3} below {:.3}",
+                        thresholds.min_project_pack_pass_rate
+                    ));
+                }
+                None if thresholds.min_project_pack_pass_rate > 0.0 => {
+                    insufficient.push("pack history has no passed/failed denominator".to_string());
+                }
+                _ => {}
+            }
+        }
+        if self.regressed_strategy_effects > 0 {
+            failures.push(format!(
+                "{} regressed strategy effect(s)",
+                self.regressed_strategy_effects
+            ));
+        }
+        if self.mixed_strategy_effects > 0 && thresholds.max_mixed_projects == 0 {
+            failures.push(format!(
+                "{} mixed strategy effect(s)",
+                self.mixed_strategy_effects
+            ));
+        }
+        if self.validation_violation_delta > thresholds.max_validation_violation_delta_per_project {
+            failures.push(format!(
+                "validation violation delta {} exceeds {}",
+                self.validation_violation_delta,
+                thresholds.max_validation_violation_delta_per_project
+            ));
+        }
+        if self.scope_creep_delta > thresholds.max_scope_creep_delta_per_project {
+            failures.push(format!(
+                "scope creep delta {} exceeds {}",
+                self.scope_creep_delta, thresholds.max_scope_creep_delta_per_project
+            ));
+        }
+
+        let status = if !failures.is_empty() {
+            "failed"
+        } else if !insufficient.is_empty() {
+            "insufficient_data"
+        } else {
+            "passed"
+        };
+        let mut reasons = failures;
+        reasons.extend(insufficient);
+
+        CodingLearningGeneralizationProject {
+            project_id,
+            status: status.to_string(),
+            promoted_learning,
+            pack_runs: self.pack_runs,
+            passed_pack_runs: self.passed_pack_runs,
+            failed_pack_runs: self.failed_pack_runs,
+            pack_pass_rate,
+            external_model_pack_runs: self.external_model_pack_runs,
+            strategy_effect_runs: self.strategy_effect_runs,
+            improved_strategy_effects: self.improved_strategy_effects,
+            regressed_strategy_effects: self.regressed_strategy_effects,
+            mixed_strategy_effects: self.mixed_strategy_effects,
+            validation_violation_delta: self.validation_violation_delta,
+            scope_creep_delta: self.scope_creep_delta,
+            execution_failure_delta: self.execution_failure_delta,
+            reasons,
+            learning_items: self.learning_items,
+        }
+    }
 }
 
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
@@ -1480,6 +1782,215 @@ impl SessionDB {
         })
     }
 
+    pub fn evaluate_coding_learning_generalization(
+        &self,
+        input: CodingLearningGeneralizationInput,
+    ) -> Result<CodingLearningGeneralizationReport> {
+        let thresholds = learning_generalization_thresholds(&input);
+        let scope = self.resolve_coding_learning_generalization_scope(&input)?;
+        let mut projects = self.coding_learning_generalization_projects(&scope, &thresholds)?;
+        let mut summary = CodingLearningGeneralizationSummary::default();
+
+        for project in &projects {
+            summary.projects_evaluated += 1;
+            summary.total_promoted_learning += project.promoted_learning;
+            summary.total_pack_runs += project.pack_runs;
+            summary.total_strategy_effect_runs += project.strategy_effect_runs;
+            if project.promoted_learning > 0 {
+                summary.projects_with_promoted_learning += 1;
+            }
+            if project.pack_runs > 0 {
+                summary.projects_with_pack_runs += 1;
+            }
+            if project.strategy_effect_runs > 0 {
+                summary.projects_with_strategy_effects += 1;
+            }
+            if project.external_model_pack_runs > 0 {
+                summary.projects_with_external_model_pack += 1;
+            }
+            if project.regressed_strategy_effects > 0 {
+                summary.regressed_projects += 1;
+            }
+            if project.mixed_strategy_effects > 0 {
+                summary.mixed_projects += 1;
+            }
+            match project.status.as_str() {
+                "passed" => summary.passed_projects += 1,
+                "failed" => summary.failed_projects += 1,
+                _ => summary.insufficient_projects += 1,
+            }
+        }
+
+        let mut checks = Vec::new();
+        push_generalization_check(
+            &mut checks,
+            "project_sample",
+            if summary.projects_evaluated < thresholds.min_projects {
+                "insufficient_data"
+            } else {
+                "passed"
+            },
+            "required",
+            format!("at least {} project(s)", thresholds.min_projects),
+            format!("{} project(s)", summary.projects_evaluated),
+            "Cross-project learning needs evidence outside a single project.",
+        );
+
+        if thresholds.require_promoted_learning {
+            push_generalization_check(
+                &mut checks,
+                "promoted_learning_sample",
+                if summary.projects_with_promoted_learning < thresholds.min_projects {
+                    "insufficient_data"
+                } else {
+                    "passed"
+                },
+                "required",
+                format!(
+                    "promoted learning in at least {} project(s)",
+                    thresholds.min_projects
+                ),
+                format!(
+                    "{} project(s), {} promoted artifact(s)",
+                    summary.projects_with_promoted_learning, summary.total_promoted_learning
+                ),
+                "Only promoted guidance, workflow, or skill artifacts count as durable learning.",
+            );
+        }
+
+        push_generalization_check(
+            &mut checks,
+            "pack_history_sample",
+            if summary.projects_with_pack_runs < thresholds.min_projects {
+                "insufficient_data"
+            } else {
+                "passed"
+            },
+            "required",
+            format!(
+                "pack history in at least {} project(s)",
+                thresholds.min_projects
+            ),
+            format!(
+                "{} project(s), {} pack run(s)",
+                summary.projects_with_pack_runs, summary.total_pack_runs
+            ),
+            "Gold Task Pack history is the comparable quality signal across projects.",
+        );
+
+        if thresholds.require_external_model_pack {
+            push_generalization_check(
+                &mut checks,
+                "external_model_project_sample",
+                if summary.projects_with_external_model_pack < thresholds.min_projects {
+                    "insufficient_data"
+                } else {
+                    "passed"
+                },
+                "required",
+                format!(
+                    "external_model pack history in at least {} project(s)",
+                    thresholds.min_projects
+                ),
+                format!("{} project(s)", summary.projects_with_external_model_pack),
+                "External provider evidence stays separate from deterministic and mock baselines.",
+            );
+        }
+
+        push_generalization_check(
+            &mut checks,
+            "project_quality",
+            if summary.failed_projects > 0 {
+                "failed"
+            } else if summary.passed_projects < thresholds.min_projects {
+                "insufficient_data"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "at least {} passed project(s), 0 failed project(s)",
+                thresholds.min_projects
+            ),
+            format!(
+                "{} passed, {} failed, {} insufficient",
+                summary.passed_projects, summary.failed_projects, summary.insufficient_projects
+            ),
+            "Learning should generalize without dragging any measured project below its quality bar.",
+        );
+
+        push_generalization_check(
+            &mut checks,
+            "strategy_regression_projects",
+            if summary.regressed_projects > thresholds.max_regressed_projects {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "<= {} project(s) with strategy regression",
+                thresholds.max_regressed_projects
+            ),
+            format!("{} project(s)", summary.regressed_projects),
+            "A cross-project learning artifact should not regress any project strategy evidence.",
+        );
+
+        push_generalization_check(
+            &mut checks,
+            "mixed_strategy_projects",
+            if summary.mixed_projects > thresholds.max_mixed_projects {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "<= {} project(s) with mixed strategy effects",
+                thresholds.max_mixed_projects
+            ),
+            format!("{} project(s)", summary.mixed_projects),
+            "Mixed outcomes require human review before claiming broad generalization.",
+        );
+
+        let has_failed = checks.iter().any(|check| check.status == "failed");
+        let has_insufficient_data = checks
+            .iter()
+            .any(|check| check.status == "insufficient_data");
+        let status = if has_failed {
+            "failed"
+        } else if has_insufficient_data {
+            "insufficient_data"
+        } else {
+            "passed"
+        };
+
+        projects.sort_by(|a, b| {
+            project_status_rank(&a.status)
+                .cmp(&project_status_rank(&b.status))
+                .then_with(|| b.promoted_learning.cmp(&a.promoted_learning))
+                .then_with(|| b.pack_runs.cmp(&a.pack_runs))
+                .then_with(|| a.project_id.cmp(&b.project_id))
+        });
+
+        Ok(CodingLearningGeneralizationReport {
+            generated_at: now_rfc3339(),
+            status: status.to_string(),
+            scope: scope.scope,
+            session_id: scope.session_id,
+            project_id: scope.project_id,
+            window_days: scope.window_days,
+            since: scope.since,
+            source_type: scope.source_type,
+            source_id: scope.source_id,
+            proposal_kinds: scope.proposal_kinds,
+            thresholds,
+            summary,
+            projects,
+            checks,
+        })
+    }
+
     fn resolve_durable_coding_record_scope(
         &self,
         session_id: Option<String>,
@@ -1559,6 +2070,77 @@ impl SessionDB {
             scope,
             window_days,
             since,
+        })
+    }
+
+    fn resolve_coding_learning_generalization_scope(
+        &self,
+        input: &CodingLearningGeneralizationInput,
+    ) -> Result<LearningGeneralizationScope> {
+        let window_days = input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS);
+        let since = chrono::Utc::now()
+            .checked_sub_signed(chrono::Duration::days(window_days as i64))
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let session_id = input
+            .session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let explicit_project_id = input
+            .project_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let session_project_id = if let Some(session_id) = session_id.as_deref() {
+            let meta = self
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+            if meta.incognito {
+                bail!(
+                    "Cannot evaluate coding learning generalization for incognito session {session_id}"
+                );
+            }
+            meta.project_id
+        } else {
+            None
+        };
+        let project_id = explicit_project_id.or(session_project_id);
+        let scope = if project_id.is_some() {
+            "project"
+        } else if session_id.is_some() {
+            "session"
+        } else {
+            "global"
+        }
+        .to_string();
+        let source_type = input
+            .source_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let source_id = input
+            .source_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let proposal_kinds = normalize_generalization_proposal_kinds(&input.proposal_kinds);
+        Ok(LearningGeneralizationScope {
+            session_id,
+            project_id,
+            scope,
+            window_days,
+            since,
+            source_type,
+            source_id,
+            proposal_kinds,
         })
     }
 
@@ -1683,6 +2265,123 @@ impl SessionDB {
         )?;
 
         Ok(summary)
+    }
+
+    fn coding_learning_generalization_projects(
+        &self,
+        scope: &LearningGeneralizationScope,
+        thresholds: &CodingLearningGeneralizationThresholds,
+    ) -> Result<Vec<CodingLearningGeneralizationProject>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut projects: BTreeMap<String, LearningProjectAccumulator> = BTreeMap::new();
+
+        let (proposal_where, proposal_params) = learning_generalization_filter(
+            scope,
+            "cip",
+            "COALESCE(cip.promoted_at, cip.updated_at)",
+            true,
+            true,
+        );
+        let mut stmt = conn.prepare(&format!(
+            "SELECT COALESCE(cip.project_id, s.project_id), cip.id, cip.kind, cip.title,
+                    cip.source_type, cip.source_id, COALESCE(cip.promoted_at, cip.updated_at)
+             FROM coding_improvement_proposals cip
+             LEFT JOIN sessions s ON s.id = cip.session_id
+             {}
+             ORDER BY COALESCE(cip.promoted_at, cip.updated_at) DESC",
+            proposal_where
+        ))?;
+        let proposal_rows = stmt.query_map(params_from_iter(proposal_params.iter()), |row| {
+            Ok(CodingLearningGeneralizationItem {
+                project_id: row.get(0)?,
+                proposal_id: row.get(1)?,
+                kind: row.get(2)?,
+                title: row.get(3)?,
+                source_type: row.get(4)?,
+                source_id: row.get(5)?,
+                promoted_at: row.get(6)?,
+            })
+        })?;
+        for item in collect_rows(proposal_rows)? {
+            let project = projects.entry(item.project_id.clone()).or_default();
+            project.learning_items.push(item);
+        }
+
+        let (pack_where, pack_params) =
+            learning_generalization_filter(scope, "cepr", "cepr.created_at", false, false);
+        let mut stmt = conn.prepare(&format!(
+            "SELECT COALESCE(cepr.project_id, s.project_id), cepr.status, cepr.baseline_kind, COUNT(*)
+             FROM coding_eval_pack_runs cepr
+             LEFT JOIN sessions s ON s.id = cepr.session_id
+             {}
+             GROUP BY COALESCE(cepr.project_id, s.project_id), cepr.status, cepr.baseline_kind",
+            pack_where
+        ))?;
+        let pack_rows = stmt.query_map(params_from_iter(pack_params.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                nonnegative_usize(row.get::<_, i64>(3)?),
+            ))
+        })?;
+        for row in pack_rows {
+            let (project_id, status, baseline_kind, count) = row?;
+            let project = projects.entry(project_id).or_default();
+            project.pack_runs += count;
+            match status.as_str() {
+                "passed" => project.passed_pack_runs += count,
+                "failed" => project.failed_pack_runs += count,
+                _ => {}
+            }
+            if baseline_kind == "external_model" {
+                project.external_model_pack_runs += count;
+            }
+        }
+
+        let (strategy_where, strategy_params) =
+            learning_generalization_filter(scope, "cser", "cser.created_at", false, true);
+        let mut stmt = conn.prepare(&format!(
+            "SELECT COALESCE(cser.project_id, s.project_id), cser.verdict, COUNT(*),
+                    COALESCE(SUM(cser.validation_violation_delta), 0),
+                    COALESCE(SUM(cser.scope_creep_delta), 0),
+                    COALESCE(SUM(cser.execution_failure_delta), 0)
+             FROM coding_strategy_effect_runs cser
+             LEFT JOIN sessions s ON s.id = cser.session_id
+             {}
+             GROUP BY COALESCE(cser.project_id, s.project_id), cser.verdict",
+            strategy_where
+        ))?;
+        let strategy_rows = stmt.query_map(params_from_iter(strategy_params.iter()), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                nonnegative_usize(row.get::<_, i64>(2)?),
+                row.get::<_, i64>(3)? as isize,
+                row.get::<_, i64>(4)? as isize,
+                row.get::<_, i64>(5)? as isize,
+            ))
+        })?;
+        for row in strategy_rows {
+            let (project_id, verdict, count, validation_delta, scope_delta, execution_delta) = row?;
+            let project = projects.entry(project_id).or_default();
+            project.strategy_effect_runs += count;
+            project.validation_violation_delta += validation_delta;
+            project.scope_creep_delta += scope_delta;
+            project.execution_failure_delta += execution_delta;
+            match verdict.as_str() {
+                "improved" => project.improved_strategy_effects += count,
+                "regressed" => project.regressed_strategy_effects += count,
+                "mixed" => project.mixed_strategy_effects += count,
+                _ => {}
+            }
+        }
+
+        let mut out = Vec::new();
+        for (project_id, project) in projects {
+            out.push(project.into_report(project_id, thresholds));
+        }
+        Ok(out)
     }
 
     fn resolve_coding_report_scope(
@@ -3974,6 +4673,59 @@ fn release_gate_thresholds(input: &CodingEvalReleaseGateInput) -> CodingEvalRele
     }
 }
 
+fn learning_generalization_thresholds(
+    input: &CodingLearningGeneralizationInput,
+) -> CodingLearningGeneralizationThresholds {
+    CodingLearningGeneralizationThresholds {
+        min_projects: input
+            .min_projects
+            .unwrap_or(DEFAULT_GENERALIZATION_MIN_PROJECTS)
+            .max(1),
+        min_project_pack_runs: input
+            .min_project_pack_runs
+            .unwrap_or(DEFAULT_GENERALIZATION_MIN_PROJECT_PACK_RUNS),
+        min_project_pack_pass_rate: input
+            .min_project_pack_pass_rate
+            .unwrap_or(DEFAULT_GENERALIZATION_MIN_PROJECT_PACK_PASS_RATE)
+            .clamp(0.0, 1.0),
+        min_strategy_effect_runs_per_project: input
+            .min_strategy_effect_runs_per_project
+            .unwrap_or(DEFAULT_GENERALIZATION_MIN_STRATEGY_EFFECT_RUNS_PER_PROJECT),
+        require_promoted_learning: input.require_promoted_learning,
+        require_external_model_pack: input.require_external_model_pack,
+        max_regressed_projects: input
+            .max_regressed_projects
+            .unwrap_or(DEFAULT_GENERALIZATION_MAX_REGRESSED_PROJECTS),
+        max_mixed_projects: input
+            .max_mixed_projects
+            .unwrap_or(DEFAULT_GENERALIZATION_MAX_MIXED_PROJECTS),
+        max_validation_violation_delta_per_project: input
+            .max_validation_violation_delta_per_project
+            .unwrap_or(DEFAULT_GENERALIZATION_MAX_VALIDATION_VIOLATION_DELTA_PER_PROJECT),
+        max_scope_creep_delta_per_project: input
+            .max_scope_creep_delta_per_project
+            .unwrap_or(DEFAULT_GENERALIZATION_MAX_SCOPE_CREEP_DELTA_PER_PROJECT),
+    }
+}
+
+fn normalize_generalization_proposal_kinds(values: &[String]) -> Vec<String> {
+    let mut kinds = values
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if kinds.is_empty() {
+        kinds = vec![
+            "guidance_candidate".to_string(),
+            "skill_candidate".to_string(),
+            "workflow_template".to_string(),
+        ];
+    }
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
 fn push_gate_check(
     checks: &mut Vec<CodingEvalReleaseGateCheck>,
     name: &str,
@@ -3984,6 +4736,25 @@ fn push_gate_check(
     detail: impl Into<String>,
 ) {
     checks.push(CodingEvalReleaseGateCheck {
+        name: name.to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        expected: expected.into(),
+        actual: actual.into(),
+        detail: detail.into(),
+    });
+}
+
+fn push_generalization_check(
+    checks: &mut Vec<CodingLearningGeneralizationCheck>,
+    name: &str,
+    status: &str,
+    severity: &str,
+    expected: impl Into<String>,
+    actual: impl Into<String>,
+    detail: impl Into<String>,
+) {
+    checks.push(CodingLearningGeneralizationCheck {
         name: name.to_string(),
         status: status.to_string(),
         severity: severity.to_string(),
@@ -4015,6 +4786,66 @@ fn release_gate_filter(
         params.push(session_id.clone());
     }
     (format!("WHERE {}", clauses.join(" AND ")), params)
+}
+
+fn learning_generalization_filter(
+    scope: &LearningGeneralizationScope,
+    fact_alias: &str,
+    time_expr: &str,
+    proposal_only: bool,
+    source_scoped: bool,
+) -> (String, Vec<String>) {
+    let project_expr = format!("COALESCE({fact_alias}.project_id, s.project_id)");
+    let mut clauses = vec![
+        format!("{time_expr} >= ?"),
+        format!(
+            "({fact_alias}.session_id IS NULL OR (s.is_cron = 0 AND s.parent_session_id IS NULL AND s.incognito = 0))"
+        ),
+        format!("{project_expr} IS NOT NULL"),
+        format!("TRIM({project_expr}) <> ''"),
+    ];
+    let mut params = vec![scope.since.clone()];
+
+    if let Some(project_id) = scope.project_id.as_ref() {
+        clauses.push(format!("{project_expr} = ?"));
+        params.push(project_id.clone());
+    } else if let Some(session_id) = scope.session_id.as_ref() {
+        clauses.push(format!("{fact_alias}.session_id = ?"));
+        params.push(session_id.clone());
+    }
+
+    if proposal_only {
+        clauses.push(format!("{fact_alias}.status = 'promoted'"));
+        if !scope.proposal_kinds.is_empty() {
+            let placeholders = std::iter::repeat_n("?", scope.proposal_kinds.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            clauses.push(format!("{fact_alias}.kind IN ({placeholders})"));
+            params.extend(scope.proposal_kinds.iter().cloned());
+        }
+    }
+
+    if source_scoped {
+        if let Some(source_type) = scope.source_type.as_ref() {
+            clauses.push(format!("{fact_alias}.source_type = ?"));
+            params.push(source_type.clone());
+        }
+        if let Some(source_id) = scope.source_id.as_ref() {
+            clauses.push(format!("{fact_alias}.source_id = ?"));
+            params.push(source_id.clone());
+        }
+    }
+
+    (format!("WHERE {}", clauses.join(" AND ")), params)
+}
+
+fn project_status_rank(status: &str) -> usize {
+    match status {
+        "failed" => 0,
+        "insufficient_data" => 1,
+        "passed" => 2,
+        _ => 3,
+    }
 }
 
 fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
@@ -4399,6 +5230,119 @@ mod tests {
         .expect("create channel conversations table");
     }
 
+    fn insert_promoted_learning(
+        db: &SessionDB,
+        session_id: &str,
+        project_id: &str,
+        proposal_id: &str,
+        source_id: &str,
+    ) {
+        let now = now_rfc3339();
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO coding_improvement_proposals (
+                id, session_id, project_id, kind, status, source_type, source_id,
+                title, body, payload_json, fingerprint, created_at, updated_at,
+                decided_at, apply_result_json, applied_at, promotion_result_json, promoted_at
+             ) VALUES (
+                ?1, ?2, ?3, 'guidance_candidate', 'promoted', 'failure_feedback', ?4,
+                'Cross project validation guidance', 'Use targeted verification evidence.',
+                '{}', ?5, ?6, ?6, ?6, ?7, ?6, ?8, ?6
+             )",
+            params![
+                proposal_id,
+                session_id,
+                project_id,
+                source_id,
+                format!("generalization:{project_id}:{source_id}"),
+                now,
+                json!({"applied":true,"artifacts":[{"kind":"create_file","path":"draft.md"}],"error":null,"appliedAt":now}).to_string(),
+                json!({"promoted":true,"artifacts":[{"kind":"create_promoted_file","path":"guidance.md"}],"error":null,"promotedAt":now}).to_string(),
+            ],
+        )
+        .unwrap();
+    }
+
+    fn insert_generalization_pack(
+        db: &SessionDB,
+        session_id: &str,
+        project_id: &str,
+        pack_id: &str,
+        status: &str,
+    ) {
+        let now = now_rfc3339();
+        let (passed_cases, failed_cases) = if status == "passed" { (2, 0) } else { (1, 1) };
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO coding_eval_pack_runs (
+                id, session_id, project_id, pack_id, source_doc, label,
+                baseline_kind, status, selected_cases, automated_cases,
+                skipped_cases, passed_cases, failed_cases, total_checks,
+                report_json, source_type, source_id, created_at
+             ) VALUES (
+                ?1, ?2, ?3, 'phase5-gold-task-pack',
+                'docs/roadmap/coding-eval.md', 'generalization evidence',
+                'deterministic_mock', ?4, 2, 2, 0, ?5, ?6, 8,
+                '{}', 'gold_task_pack', 'phase5-gold-task-pack', ?7
+             )",
+            params![
+                pack_id,
+                session_id,
+                project_id,
+                status,
+                passed_cases,
+                failed_cases,
+                now
+            ],
+        )
+        .unwrap();
+    }
+
+    fn insert_generalization_strategy_effect(
+        db: &SessionDB,
+        session_id: &str,
+        project_id: &str,
+        run_id: &str,
+        source_id: &str,
+        verdict: &str,
+    ) {
+        let now = now_rfc3339();
+        let (pass_delta, score_delta, validation_delta, scope_delta, execution_delta) =
+            if verdict == "regressed" {
+                (-0.25, -0.2, 1, 1, 0)
+            } else {
+                (0.25, 0.2, 0, 0, 0)
+            };
+        let conn = db.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO coding_strategy_effect_runs (
+                id, session_id, project_id, strategy_type, baseline_label,
+                candidate_label, baseline_pack_run_id, candidate_pack_run_id,
+                verdict, compared_cases, pass_rate_delta, average_score_delta,
+                context_recall_delta, validation_violation_delta, scope_creep_delta,
+                execution_failure_delta, report_json, source_type, source_id, created_at
+             ) VALUES (
+                ?1, ?2, ?3, 'guidance_candidate', 'before', 'after',
+                NULL, NULL, ?4, 2, ?5, ?6, 0.1, ?7, ?8, ?9, '{}',
+                'failure_feedback', ?10, ?11
+             )",
+            params![
+                run_id,
+                session_id,
+                project_id,
+                verdict,
+                pass_delta,
+                score_delta,
+                validation_delta,
+                scope_delta,
+                execution_delta,
+                source_id,
+                now
+            ],
+        )
+        .unwrap();
+    }
+
     #[test]
     fn report_records_eval_success_rate() {
         let (_dir, db) = test_db();
@@ -4628,6 +5572,155 @@ mod tests {
         assert_eq!(report.summary.external_model_pack_runs, 0);
         assert!(report.checks.iter().any(|check| {
             check.name == "external_model_baseline" && check.status == "insufficient_data"
+        }));
+    }
+
+    #[test]
+    fn learning_generalization_passes_two_clean_projects() {
+        let (_dir, db) = test_db();
+        let source_id = "validation_failed";
+        let session_a = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some("project-generalization-a"),
+                None,
+            )
+            .unwrap();
+        let session_b = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some("project-generalization-b"),
+                None,
+            )
+            .unwrap();
+        insert_promoted_learning(
+            &db,
+            &session_a.id,
+            "project-generalization-a",
+            "cip_generalization_a",
+            source_id,
+        );
+        insert_promoted_learning(
+            &db,
+            &session_b.id,
+            "project-generalization-b",
+            "cip_generalization_b",
+            source_id,
+        );
+        insert_generalization_pack(
+            &db,
+            &session_a.id,
+            "project-generalization-a",
+            "cepr_gen_a",
+            "passed",
+        );
+        insert_generalization_pack(
+            &db,
+            &session_b.id,
+            "project-generalization-b",
+            "cepr_gen_b",
+            "passed",
+        );
+        insert_generalization_strategy_effect(
+            &db,
+            &session_a.id,
+            "project-generalization-a",
+            "cser_gen_a",
+            source_id,
+            "improved",
+        );
+        insert_generalization_strategy_effect(
+            &db,
+            &session_b.id,
+            "project-generalization-b",
+            "cser_gen_b",
+            source_id,
+            "improved",
+        );
+
+        let report = db
+            .evaluate_coding_learning_generalization(CodingLearningGeneralizationInput {
+                source_type: Some("failure_feedback".to_string()),
+                source_id: Some(source_id.to_string()),
+                min_strategy_effect_runs_per_project: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "passed");
+        assert_eq!(report.scope, "global");
+        assert_eq!(report.summary.projects_evaluated, 2);
+        assert_eq!(report.summary.passed_projects, 2);
+        assert_eq!(report.summary.total_promoted_learning, 2);
+        assert_eq!(report.summary.total_strategy_effect_runs, 2);
+        assert!(report.checks.iter().all(|check| check.status == "passed"));
+    }
+
+    #[test]
+    fn learning_generalization_fails_regressed_project() {
+        let (_dir, db) = test_db();
+        let source_id = "review_blocker";
+        let session_a = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some("project-generalization-pass"),
+                None,
+            )
+            .unwrap();
+        let session_b = db
+            .create_session_with_project(
+                crate::agent_loader::DEFAULT_AGENT_ID,
+                Some("project-generalization-regress"),
+                None,
+            )
+            .unwrap();
+        for (session, project, proposal, pack, strategy, verdict) in [
+            (
+                &session_a.id,
+                "project-generalization-pass",
+                "cip_generalization_pass",
+                "cepr_gen_pass",
+                "cser_gen_pass",
+                "improved",
+            ),
+            (
+                &session_b.id,
+                "project-generalization-regress",
+                "cip_generalization_regress",
+                "cepr_gen_regress",
+                "cser_gen_regress",
+                "regressed",
+            ),
+        ] {
+            insert_promoted_learning(&db, session, project, proposal, source_id);
+            insert_generalization_pack(&db, session, project, pack, "passed");
+            insert_generalization_strategy_effect(
+                &db, session, project, strategy, source_id, verdict,
+            );
+        }
+
+        let report = db
+            .evaluate_coding_learning_generalization(CodingLearningGeneralizationInput {
+                source_type: Some("failure_feedback".to_string()),
+                source_id: Some(source_id.to_string()),
+                min_strategy_effect_runs_per_project: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "failed");
+        assert_eq!(report.summary.failed_projects, 1);
+        assert_eq!(report.summary.regressed_projects, 1);
+        assert!(report.projects.iter().any(|project| {
+            project.project_id == "project-generalization-regress"
+                && project.status == "failed"
+                && project
+                    .reasons
+                    .iter()
+                    .any(|reason| reason.contains("regressed"))
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.name == "strategy_regression_projects" && check.status == "failed"
         }));
     }
 

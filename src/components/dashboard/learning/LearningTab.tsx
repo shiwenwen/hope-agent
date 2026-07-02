@@ -14,7 +14,10 @@ import {
 import type { LucideIcon } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { CodingEvalReleaseGateReport } from "@/lib/transport"
+import type {
+  CodingEvalReleaseGateReport,
+  CodingLearningGeneralizationReport,
+} from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter } from "../types"
 
 interface LearningOverview {
@@ -74,11 +77,13 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [recall, setRecall] = useState<RecallStats | null>(null)
   const [coding, setCoding] = useState<CodingImprovementDashboard | null>(null)
   const [releaseGate, setReleaseGate] = useState<CodingEvalReleaseGateReport | null>(null)
+  const [generalization, setGeneralization] =
+    useState<CodingLearningGeneralizationReport | null>(null)
 
   const reload = useCallback(async () => {
     setLoading(true)
     try {
-      const [ov, tl, ts, rs, ci, rg] = await Promise.all([
+      const [ov, tl, ts, rs, ci, rg, gen] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
           windowDays,
         }),
@@ -101,6 +106,14 @@ export default function LearningTab({ filter }: LearningTabProps) {
             windowDays: releaseGateWindowDays(filter, windowDays),
           },
         }),
+        getTransport().call<CodingLearningGeneralizationReport>(
+          "evaluate_coding_learning_generalization",
+          {
+            input: {
+              windowDays: releaseGateWindowDays(filter, windowDays),
+            },
+          },
+        ),
       ])
       setOverview(ov)
       setTimeline(tl ?? [])
@@ -108,6 +121,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setRecall(rs)
       setCoding(ci)
       setReleaseGate(rg)
+      setGeneralization(gen)
     } catch (e) {
       logger.error("dashboard", "LearningTab::load", "Failed to load learning data", e)
     } finally {
@@ -156,7 +170,11 @@ export default function LearningTab({ filter }: LearningTabProps) {
         </div>
       </div>
 
-      <CodingImprovementSection coding={coding} releaseGate={releaseGate} />
+      <CodingImprovementSection
+        coding={coding}
+        releaseGate={releaseGate}
+        generalization={generalization}
+      />
 
       {/* Overview cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -316,9 +334,11 @@ function OverviewCard({
 function CodingImprovementSection({
   coding,
   releaseGate,
+  generalization,
 }: {
   coding: CodingImprovementDashboard | null
   releaseGate: CodingEvalReleaseGateReport | null
+  generalization: CodingLearningGeneralizationReport | null
 }) {
   const { t } = useTranslation()
   const overview = coding?.overview
@@ -430,7 +450,10 @@ function CodingImprovementSection({
         />
       </div>
 
-      <ReleaseGatePanel report={releaseGate} />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <ReleaseGatePanel report={releaseGate} />
+        <GeneralizationPanel report={generalization} />
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr] gap-3">
         <div className="border border-border/60 rounded-lg p-4 min-w-0">
@@ -704,6 +727,80 @@ function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | nu
         <EmptyLine
           label={t("dashboard.learning.releaseGateLoading", {
             defaultValue: "Loading release gate",
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
+function GeneralizationPanel({
+  report,
+}: {
+  report: CodingLearningGeneralizationReport | null
+}) {
+  const { t } = useTranslation()
+  const attentionChecks =
+    report?.checks.filter((check) => check.status !== "passed").slice(0, 4) ?? []
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t("dashboard.learning.generalizationGate", {
+            defaultValue: "Generalization gate",
+          })}
+        </h4>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
+          {report?.status ?? "loading"}
+        </span>
+      </div>
+      {report ? (
+        <div className="grid grid-cols-1 xl:grid-cols-[auto_minmax(0,1fr)] gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            <MetricPill label="PR" value={`${report.summary.passedProjects}/${report.summary.projectsEvaluated}`} />
+            <MetricPill
+              label="LR"
+              value={report.summary.totalPromotedLearning}
+              tone={report.summary.totalPromotedLearning > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="PK"
+              value={report.summary.totalPackRuns}
+              tone={report.summary.projectsWithPackRuns > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="RG"
+              value={report.summary.regressedProjects}
+              tone={report.summary.regressedProjects > 0 ? "warn" : "muted"}
+            />
+          </div>
+          {attentionChecks.length ? (
+            <div className="flex flex-wrap gap-1.5 min-w-0 xl:justify-end">
+              {attentionChecks.map((check) => (
+                <span
+                  key={check.name}
+                  className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
+                  title={`${check.expected} · ${check.actual}`}
+                >
+                  {check.name}: {check.actual}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground xl:text-right">
+              {t("dashboard.learning.generalizationClean", {
+                defaultValue: "Cross-project checks passed",
+              })}
+            </span>
+          )}
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.generalizationLoading", {
+            defaultValue: "Loading generalization gate",
           })}
         />
       )}

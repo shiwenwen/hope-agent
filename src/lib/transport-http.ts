@@ -413,6 +413,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   promote_coding_improvement_proposal: { method: "POST", path: "/api/coding-improvement/proposals/{proposalId}/promote" },
   record_coding_eval_run:          { method: "POST",   path: "/api/coding-improvement/eval-runs" },
   evaluate_coding_eval_release_gate: { method: "POST", path: "/api/coding-improvement/release-gate/evaluate" },
+  evaluate_coding_learning_generalization: { method: "POST", path: "/api/coding-improvement/generalization/evaluate" },
 
   // -- Managed worktrees --
   list_managed_worktrees:          { method: "GET",    path: "/api/sessions/{sessionId}/worktrees" },

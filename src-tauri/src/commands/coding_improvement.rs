@@ -2,7 +2,8 @@ use crate::commands::CmdError;
 use ha_core::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingEvalReleaseGateInput, CodingEvalReleaseGateReport,
     CodingEvalRunRecord, CodingImprovementActionPlan, CodingImprovementPromotionPlan,
-    CodingImprovementProposal, CodingTrendReport, DistillCodingImprovementResult,
+    CodingImprovementProposal, CodingLearningGeneralizationInput,
+    CodingLearningGeneralizationReport, CodingTrendReport, DistillCodingImprovementResult,
     GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
     RecordCodingEvalRunInput,
 };
@@ -129,5 +130,16 @@ pub async fn evaluate_coding_eval_release_gate(
     app_state
         .session_db
         .evaluate_coding_eval_release_gate(input)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn evaluate_coding_learning_generalization(
+    input: CodingLearningGeneralizationInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<CodingLearningGeneralizationReport, CmdError> {
+    app_state
+        .session_db
+        .evaluate_coding_learning_generalization(input)
         .map_err(Into::into)
 }

@@ -3,7 +3,8 @@ use axum::Json;
 use ha_core::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingEvalReleaseGateInput, CodingEvalReleaseGateReport,
     CodingEvalRunRecord, CodingImprovementActionPlan, CodingImprovementPromotionPlan,
-    CodingImprovementProposal, CodingTrendReport, DistillCodingImprovementResult,
+    CodingImprovementProposal, CodingLearningGeneralizationInput,
+    CodingLearningGeneralizationReport, CodingTrendReport, DistillCodingImprovementResult,
     GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
     RecordCodingEvalRunInput,
 };
@@ -40,6 +41,12 @@ pub struct RecordEvalRunBody {
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseGateBody {
     pub input: CodingEvalReleaseGateInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LearningGeneralizationBody {
+    pub input: CodingLearningGeneralizationInput,
 }
 
 pub async fn get_coding_trend_report(
@@ -139,6 +146,15 @@ pub async fn evaluate_coding_eval_release_gate(
 ) -> Result<Json<CodingEvalReleaseGateReport>, AppError> {
     session_db()?
         .evaluate_coding_eval_release_gate(body.input)
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+pub async fn evaluate_coding_learning_generalization(
+    Json(body): Json<LearningGeneralizationBody>,
+) -> Result<Json<CodingLearningGeneralizationReport>, AppError> {
+    session_db()?
+        .evaluate_coding_learning_generalization(body.input)
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))
 }

@@ -12,10 +12,10 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [Agent 控制平面路线图](agent-control-plane-roadmap.md) | 新主线：通用 Agent 控制平面先稳住，再以 coding-first 落地；Phase 3 已完成 Managed Worktree / LSP / Review / Smart Verification / Context Retrieval v2 / Actionable Context Loop / Coding Eval / Workflow Review-Verify host API / Repair Loop 自动化 / Deep Review Profiles / IDE Context / Trend Report + Improvement Loop；Phase 4.1-4.4 已完成 Proposal-to-Action、Draft Promotion、Workflow Retro、Dashboard 全局学习视图、Transcript Distillation 与 Failure Feedback；Phase 5.1-5.9 已完成 task-level eval runner、agent execution runner、Gold Task Pack 全量自动化、strategy effect evaluator、mock tool-call 基线、Strategy Effect 趋势 Dashboard、Release Gate 与外部模型基线 runner |
+| [Agent 控制平面路线图](agent-control-plane-roadmap.md) | 新主线：通用 Agent 控制平面先稳住，再以 coding-first 落地；Phase 3 已完成 Managed Worktree / LSP / Review / Smart Verification / Context Retrieval v2 / Actionable Context Loop / Coding Eval / Workflow Review-Verify host API / Repair Loop 自动化 / Deep Review Profiles / IDE Context / Trend Report + Improvement Loop；Phase 4.1-4.4 已完成 Proposal-to-Action、Draft Promotion、Workflow Retro、Dashboard 全局学习视图、Transcript Distillation 与 Failure Feedback；Phase 5.1-5.10 已完成 task-level eval runner、agent execution runner、Gold Task Pack 全量自动化、strategy effect evaluator、mock tool-call 基线、Strategy Effect 趋势 Dashboard、Release Gate、外部模型基线 runner 与 Learning Generalization Gate |
 | [Coding 能力强化总纲](coding-capability-roadmap.md) | 面向 coding-first 的总体路线：调研线索、能力模型、动态 workflow、execution mode、阶段计划与验收指标；后续顺序以控制平面路线图为准 |
 | [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md) | 统一 `/goal`、`/mode`、`/workflow`、`/task`、`/worktree`、真正 `/loop` 的产品语义和实现边界 |
-| [Coding Eval 体系方案](coding-eval.md) | Phase 0 人工 gold task 体系 + Phase 3.7-5.9 已落地的确定性控制面 eval / agent execution / task-level runner / Gold Task Pack 全量自动化 / strategy effect / mock tool-call 基线 / Strategy Effect 趋势 Dashboard / Release Gate / 外部模型基线索引 |
+| [Coding Eval 体系方案](coding-eval.md) | Phase 0 人工 gold task 体系 + Phase 3.7-5.10 已落地的确定性控制面 eval / agent execution / task-level runner / Gold Task Pack 全量自动化 / strategy effect / mock tool-call 基线 / Strategy Effect 趋势 Dashboard / Release Gate / 外部模型基线索引 / Learning Generalization Gate |
 | [Coding Eval 首批 Gold Tasks](coding-eval-tasks.md) | 首批 20 个 coding eval 任务；20 个 active 任务均已进入自动化 Gold Task Pack |
 | [Coding Eval Phase 0 完成报告](coding-eval-phase0-report.md) | Phase 0 完成审计：5 个校准试跑、schema 修订、失败分类补充与 Phase 1 决策 |
 | [ToolDefinition v2 RFC](tool-definition-v2.md) | Phase 1 工具元数据、tool_search v2、deferred 默认策略和 prompt render debug 设计 |

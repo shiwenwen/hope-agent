@@ -1367,6 +1367,110 @@ export interface CodingEvalReleaseGateReport {
   checks: CodingEvalReleaseGateCheck[];
 }
 
+export interface CodingLearningGeneralizationInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  windowDays?: number | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  proposalKinds?: string[];
+  minProjects?: number | null;
+  minProjectPackRuns?: number | null;
+  minProjectPackPassRate?: number | null;
+  minStrategyEffectRunsPerProject?: number | null;
+  requirePromotedLearning?: boolean;
+  requireExternalModelPack?: boolean;
+  maxRegressedProjects?: number | null;
+  maxMixedProjects?: number | null;
+  maxValidationViolationDeltaPerProject?: number | null;
+  maxScopeCreepDeltaPerProject?: number | null;
+}
+
+export interface CodingLearningGeneralizationThresholds {
+  minProjects: number;
+  minProjectPackRuns: number;
+  minProjectPackPassRate: number;
+  minStrategyEffectRunsPerProject: number;
+  requirePromotedLearning: boolean;
+  requireExternalModelPack: boolean;
+  maxRegressedProjects: number;
+  maxMixedProjects: number;
+  maxValidationViolationDeltaPerProject: number;
+  maxScopeCreepDeltaPerProject: number;
+}
+
+export interface CodingLearningGeneralizationSummary {
+  projectsEvaluated: number;
+  projectsWithPromotedLearning: number;
+  projectsWithPackRuns: number;
+  projectsWithStrategyEffects: number;
+  projectsWithExternalModelPack: number;
+  passedProjects: number;
+  failedProjects: number;
+  insufficientProjects: number;
+  totalPromotedLearning: number;
+  totalPackRuns: number;
+  totalStrategyEffectRuns: number;
+  regressedProjects: number;
+  mixedProjects: number;
+}
+
+export interface CodingLearningGeneralizationItem {
+  proposalId: string;
+  projectId: string;
+  kind: string;
+  title: string;
+  sourceType: string;
+  sourceId: string;
+  promotedAt: string;
+}
+
+export interface CodingLearningGeneralizationProject {
+  projectId: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  promotedLearning: number;
+  packRuns: number;
+  passedPackRuns: number;
+  failedPackRuns: number;
+  packPassRate?: number | null;
+  externalModelPackRuns: number;
+  strategyEffectRuns: number;
+  improvedStrategyEffects: number;
+  regressedStrategyEffects: number;
+  mixedStrategyEffects: number;
+  validationViolationDelta: number;
+  scopeCreepDelta: number;
+  executionFailureDelta: number;
+  reasons: string[];
+  learningItems: CodingLearningGeneralizationItem[];
+}
+
+export interface CodingLearningGeneralizationCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface CodingLearningGeneralizationReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  windowDays: number;
+  since: string;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  proposalKinds: string[];
+  thresholds: CodingLearningGeneralizationThresholds;
+  summary: CodingLearningGeneralizationSummary;
+  projects: CodingLearningGeneralizationProject[];
+  checks: CodingLearningGeneralizationCheck[];
+}
+
 export interface CodingEvalFixture {
   name: string;
   description?: string;
