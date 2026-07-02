@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use crate::coding_eval::{GoldTaskPackReport, StrategyEffectReport};
 use crate::review::{ReviewFindingStatus, ReviewSeverity};
 use crate::session::{MessageRole, SessionDB, SessionMessage};
 use crate::skills::SkillStatus;
@@ -475,6 +476,101 @@ pub struct CodingEvalRunRecord {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordCodingEvalPackRunInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub report: GoldTaskPackReport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingEvalPackRunRecord {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub pack_id: String,
+    pub source_doc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub baseline_kind: String,
+    pub status: String,
+    pub selected_cases: usize,
+    pub automated_cases: usize,
+    pub skipped_cases: usize,
+    pub passed_cases: usize,
+    pub failed_cases: usize,
+    pub total_checks: usize,
+    pub report: GoldTaskPackReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordCodingStrategyEffectRunInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_pack_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_pack_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub report: StrategyEffectReport,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingStrategyEffectRunRecord {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub strategy_type: String,
+    pub baseline_label: String,
+    pub candidate_label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub baseline_pack_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidate_pack_run_id: Option<String>,
+    pub verdict: String,
+    pub compared_cases: usize,
+    pub pass_rate_delta: f64,
+    pub average_score_delta: f64,
+    pub context_recall_delta: f64,
+    pub validation_violation_delta: isize,
+    pub scope_creep_delta: isize,
+    pub execution_failure_delta: isize,
+    pub report: StrategyEffectReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    pub created_at: String,
+}
+
 struct ReportScope {
     session_id: String,
     project_id: Option<String>,
@@ -503,6 +599,64 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             ON coding_eval_runs(project_id, session_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_coding_eval_runs_status
             ON coding_eval_runs(status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS coding_eval_pack_runs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            project_id TEXT,
+            pack_id TEXT NOT NULL,
+            source_doc TEXT NOT NULL,
+            label TEXT,
+            baseline_kind TEXT NOT NULL,
+            status TEXT NOT NULL,
+            selected_cases INTEGER NOT NULL,
+            automated_cases INTEGER NOT NULL,
+            skipped_cases INTEGER NOT NULL,
+            passed_cases INTEGER NOT NULL,
+            failed_cases INTEGER NOT NULL,
+            total_checks INTEGER NOT NULL,
+            report_json TEXT NOT NULL DEFAULT '{}',
+            source_type TEXT,
+            source_id TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_coding_eval_pack_runs_scope
+            ON coding_eval_pack_runs(project_id, session_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_coding_eval_pack_runs_status
+            ON coding_eval_pack_runs(status, baseline_kind, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS coding_strategy_effect_runs (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            project_id TEXT,
+            strategy_type TEXT NOT NULL,
+            baseline_label TEXT NOT NULL,
+            candidate_label TEXT NOT NULL,
+            baseline_pack_run_id TEXT,
+            candidate_pack_run_id TEXT,
+            verdict TEXT NOT NULL,
+            compared_cases INTEGER NOT NULL,
+            pass_rate_delta REAL NOT NULL,
+            average_score_delta REAL NOT NULL,
+            context_recall_delta REAL NOT NULL,
+            validation_violation_delta INTEGER NOT NULL,
+            scope_creep_delta INTEGER NOT NULL,
+            execution_failure_delta INTEGER NOT NULL,
+            report_json TEXT NOT NULL DEFAULT '{}',
+            source_type TEXT,
+            source_id TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (baseline_pack_run_id) REFERENCES coding_eval_pack_runs(id) ON DELETE SET NULL,
+            FOREIGN KEY (candidate_pack_run_id) REFERENCES coding_eval_pack_runs(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_coding_strategy_effect_runs_scope
+            ON coding_strategy_effect_runs(project_id, session_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_coding_strategy_effect_runs_verdict
+            ON coding_strategy_effect_runs(verdict, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS coding_improvement_proposals (
             id TEXT PRIMARY KEY,
@@ -885,30 +1039,8 @@ impl SessionDB {
         input: RecordCodingEvalRunInput,
     ) -> Result<CodingEvalRunRecord> {
         let status = normalize_eval_status(&input.status)?;
-        let session_id = input
-            .session_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string);
-        if let Some(session_id) = session_id.as_deref() {
-            let meta = self
-                .get_session(session_id)?
-                .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
-            if meta.incognito {
-                bail!("Cannot record coding eval run for incognito session {session_id}");
-            }
-        }
-        let project_id = input
-            .project_id
-            .or_else(|| {
-                session_id
-                    .as_deref()
-                    .and_then(|sid| self.get_session(sid).ok().flatten())
-                    .and_then(|meta| meta.project_id)
-            })
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
+        let (session_id, project_id) =
+            self.resolve_durable_coding_record_scope(input.session_id, input.project_id, "eval")?;
         let suite = input.suite.trim();
         let name = input.name.trim();
         if suite.is_empty() || name.is_empty() {
@@ -939,6 +1071,142 @@ impl SessionDB {
         drop(conn);
         self.get_coding_eval_run(&id)?
             .ok_or_else(|| anyhow!("coding eval run vanished after insert"))
+    }
+
+    pub fn record_coding_eval_pack_run(
+        &self,
+        input: RecordCodingEvalPackRunInput,
+    ) -> Result<CodingEvalPackRunRecord> {
+        let (session_id, project_id) = self.resolve_durable_coding_record_scope(
+            input.session_id,
+            input.project_id,
+            "eval pack",
+        )?;
+        let baseline_kind = normalize_baseline_kind(input.baseline_kind.as_deref());
+        let label = input
+            .label
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let status = if input.report.passed {
+            "passed"
+        } else if input.report.automated_cases == 0 {
+            "skipped"
+        } else {
+            "failed"
+        };
+        let id = format!("cepr_{}", uuid::Uuid::new_v4().simple());
+        let now = now_rfc3339();
+        let report_json = stable_json(&serde_json::to_value(&input.report)?)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT INTO coding_eval_pack_runs (
+                id, session_id, project_id, pack_id, source_doc, label, baseline_kind, status,
+                selected_cases, automated_cases, skipped_cases, passed_cases, failed_cases,
+                total_checks, report_json, source_type, source_id, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            params![
+                id,
+                session_id,
+                project_id,
+                input.report.pack_id,
+                input.report.source_doc,
+                label,
+                baseline_kind,
+                status,
+                input.report.selected_cases as i64,
+                input.report.automated_cases as i64,
+                input.report.skipped_cases as i64,
+                input.report.passed_cases as i64,
+                input.report.failed_cases as i64,
+                input.report.total_checks as i64,
+                report_json,
+                input.source_type,
+                input.source_id,
+                now,
+            ],
+        )?;
+        drop(conn);
+        self.get_coding_eval_pack_run(&id)?
+            .ok_or_else(|| anyhow!("coding eval pack run vanished after insert"))
+    }
+
+    pub fn record_coding_strategy_effect_run(
+        &self,
+        input: RecordCodingStrategyEffectRunInput,
+    ) -> Result<CodingStrategyEffectRunRecord> {
+        let (session_id, project_id) = self.resolve_durable_coding_record_scope(
+            input.session_id,
+            input.project_id,
+            "strategy effect",
+        )?;
+        let report = input.report;
+        let id = format!("cser_{}", uuid::Uuid::new_v4().simple());
+        let now = now_rfc3339();
+        let report_json = stable_json(&serde_json::to_value(&report)?)?;
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "INSERT INTO coding_strategy_effect_runs (
+                id, session_id, project_id, strategy_type, baseline_label, candidate_label,
+                baseline_pack_run_id, candidate_pack_run_id, verdict, compared_cases,
+                pass_rate_delta, average_score_delta, context_recall_delta,
+                validation_violation_delta, scope_creep_delta, execution_failure_delta,
+                report_json, source_type, source_id, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+            params![
+                id,
+                session_id,
+                project_id,
+                report.strategy_type,
+                report.baseline_label,
+                report.candidate_label,
+                input.baseline_pack_run_id,
+                input.candidate_pack_run_id,
+                report.verdict,
+                report.compared_cases as i64,
+                report.summary.pass_rate_delta,
+                report.summary.average_score_delta,
+                report.summary.context_recall_delta,
+                report.summary.validation_violation_delta as i64,
+                report.summary.scope_creep_delta as i64,
+                report.summary.execution_failure_delta as i64,
+                report_json,
+                input.source_type,
+                input.source_id,
+                now,
+            ],
+        )?;
+        drop(conn);
+        self.get_coding_strategy_effect_run(&id)?
+            .ok_or_else(|| anyhow!("coding strategy effect run vanished after insert"))
+    }
+
+    fn resolve_durable_coding_record_scope(
+        &self,
+        session_id: Option<String>,
+        project_id: Option<String>,
+        kind: &str,
+    ) -> Result<(Option<String>, Option<String>)> {
+        let session_id = session_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let session_project_id = if let Some(session_id) = session_id.as_deref() {
+            let meta = self
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+            if meta.incognito {
+                bail!("Cannot record coding {kind} run for incognito session {session_id}");
+            }
+            meta.project_id
+        } else {
+            None
+        };
+        let project_id = project_id
+            .or(session_project_id)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        Ok((session_id, project_id))
     }
 
     fn resolve_coding_report_scope(
@@ -1461,6 +1729,41 @@ impl SessionDB {
              WHERE id = ?1",
             params![id],
             row_to_eval_run,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    fn get_coding_eval_pack_run(&self, id: &str) -> Result<Option<CodingEvalPackRunRecord>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT id, session_id, project_id, pack_id, source_doc, label, baseline_kind,
+                    status, selected_cases, automated_cases, skipped_cases, passed_cases,
+                    failed_cases, total_checks, report_json, source_type, source_id, created_at
+             FROM coding_eval_pack_runs
+             WHERE id = ?1",
+            params![id],
+            row_to_eval_pack_run,
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    fn get_coding_strategy_effect_run(
+        &self,
+        id: &str,
+    ) -> Result<Option<CodingStrategyEffectRunRecord>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT id, session_id, project_id, strategy_type, baseline_label, candidate_label,
+                    baseline_pack_run_id, candidate_pack_run_id, verdict, compared_cases,
+                    pass_rate_delta, average_score_delta, context_recall_delta,
+                    validation_violation_delta, scope_creep_delta, execution_failure_delta,
+                    report_json, source_type, source_id, created_at
+             FROM coding_strategy_effect_runs
+             WHERE id = ?1",
+            params![id],
+            row_to_strategy_effect_run,
         )
         .optional()
         .map_err(Into::into)
@@ -3148,6 +3451,22 @@ fn normalize_eval_status(status: &str) -> Result<&'static str> {
     }
 }
 
+fn normalize_baseline_kind(value: Option<&str>) -> String {
+    let normalized = value
+        .unwrap_or("deterministic_mock")
+        .trim()
+        .to_ascii_lowercase()
+        .replace([' ', '-'], "_");
+    match normalized.as_str() {
+        "" | "deterministic" | "fixture" | "fixture_patch" | "mock" => {
+            "deterministic_mock".to_string()
+        }
+        "mock_provider" | "provider_mock" => "mock_provider".to_string(),
+        "external" | "external_provider" | "real_model" | "model" => "external_model".to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn ratio(numerator: usize, denominator: usize) -> Option<f64> {
     if denominator == 0 {
         None
@@ -3190,6 +3509,99 @@ fn row_to_eval_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodingEvalRunRec
         source_type: row.get(7)?,
         source_id: row.get(8)?,
         created_at: row.get(9)?,
+    })
+}
+
+fn row_to_eval_pack_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<CodingEvalPackRunRecord> {
+    let report_json: String = row.get(14)?;
+    let mut report =
+        serde_json::from_str::<GoldTaskPackReport>(&report_json).unwrap_or_else(|_| {
+            GoldTaskPackReport {
+                pack_id: row.get(3).unwrap_or_default(),
+                source_doc: row.get(4).unwrap_or_default(),
+                pack_run_id: None,
+                selected_cases: row.get::<_, i64>(8).unwrap_or_default().max(0) as usize,
+                automated_cases: row.get::<_, i64>(9).unwrap_or_default().max(0) as usize,
+                skipped_cases: row.get::<_, i64>(10).unwrap_or_default().max(0) as usize,
+                passed_cases: row.get::<_, i64>(11).unwrap_or_default().max(0) as usize,
+                failed_cases: row.get::<_, i64>(12).unwrap_or_default().max(0) as usize,
+                total_checks: row.get::<_, i64>(13).unwrap_or_default().max(0) as usize,
+                passed: row
+                    .get::<_, String>(7)
+                    .map(|status| status == "passed")
+                    .unwrap_or(false),
+                cases: Vec::new(),
+            }
+        });
+    let id: String = row.get(0)?;
+    report.pack_run_id = Some(id.clone());
+    Ok(CodingEvalPackRunRecord {
+        id,
+        session_id: row.get(1)?,
+        project_id: row.get(2)?,
+        pack_id: row.get(3)?,
+        source_doc: row.get(4)?,
+        label: row.get(5)?,
+        baseline_kind: row.get(6)?,
+        status: row.get(7)?,
+        selected_cases: row.get::<_, i64>(8)?.max(0) as usize,
+        automated_cases: row.get::<_, i64>(9)?.max(0) as usize,
+        skipped_cases: row.get::<_, i64>(10)?.max(0) as usize,
+        passed_cases: row.get::<_, i64>(11)?.max(0) as usize,
+        failed_cases: row.get::<_, i64>(12)?.max(0) as usize,
+        total_checks: row.get::<_, i64>(13)?.max(0) as usize,
+        report,
+        source_type: row.get(15)?,
+        source_id: row.get(16)?,
+        created_at: row.get(17)?,
+    })
+}
+
+fn row_to_strategy_effect_run(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<CodingStrategyEffectRunRecord> {
+    let report_json: String = row.get(16)?;
+    let mut report =
+        serde_json::from_str::<StrategyEffectReport>(&report_json).unwrap_or_else(|_| {
+            StrategyEffectReport {
+                run_id: None,
+                strategy_type: row.get(3).unwrap_or_else(|_| "strategy".to_string()),
+                baseline_label: row.get(4).unwrap_or_else(|_| "baseline".to_string()),
+                candidate_label: row.get(5).unwrap_or_else(|_| "candidate".to_string()),
+                verdict: row.get(8).unwrap_or_else(|_| "inconclusive".to_string()),
+                compared_cases: row.get::<_, i64>(9).unwrap_or_default().max(0) as usize,
+                baseline_only_cases: Vec::new(),
+                candidate_only_cases: Vec::new(),
+                summary: Default::default(),
+                dimensions: Vec::new(),
+                cases: Vec::new(),
+                regressions: Vec::new(),
+                improvements: Vec::new(),
+            }
+        });
+    let id: String = row.get(0)?;
+    report.run_id = Some(id.clone());
+    Ok(CodingStrategyEffectRunRecord {
+        id,
+        session_id: row.get(1)?,
+        project_id: row.get(2)?,
+        strategy_type: row.get(3)?,
+        baseline_label: row.get(4)?,
+        candidate_label: row.get(5)?,
+        baseline_pack_run_id: row.get(6)?,
+        candidate_pack_run_id: row.get(7)?,
+        verdict: row.get(8)?,
+        compared_cases: row.get::<_, i64>(9)?.max(0) as usize,
+        pass_rate_delta: row.get(10)?,
+        average_score_delta: row.get(11)?,
+        context_recall_delta: row.get(12)?,
+        validation_violation_delta: row.get::<_, i64>(13)? as isize,
+        scope_creep_delta: row.get::<_, i64>(14)? as isize,
+        execution_failure_delta: row.get::<_, i64>(15)? as isize,
+        report,
+        source_type: row.get(17)?,
+        source_id: row.get(18)?,
+        created_at: row.get(19)?,
     })
 }
 

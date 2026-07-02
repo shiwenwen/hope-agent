@@ -32,6 +32,8 @@ pub async fn run_coding_eval_gold_task_pack(
 #[tauri::command]
 pub async fn evaluate_coding_eval_strategy_effect(
     input: StrategyEffectEvalInput,
+    app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<StrategyEffectReport, CmdError> {
-    Ok(coding_eval::evaluate_strategy_effect(input))
+    coding_eval::evaluate_strategy_effect_with_recording(&app_state.session_db, input)
+        .map_err(Into::into)
 }

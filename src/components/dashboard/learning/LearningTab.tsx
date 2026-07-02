@@ -301,6 +301,7 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
   const { t } = useTranslation()
   const overview = coding?.overview
   const recentTimeline = coding?.timeline.slice(-10).reverse() ?? []
+  const failureModes = [...(coding?.topFailures ?? []), ...(coding?.toolCallFailures ?? [])]
   const maxTimelineValue = Math.max(
     1,
     ...recentTimeline.map(
@@ -310,6 +311,13 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
         p.failedWorkflows +
         p.evalPassed +
         p.evalFailed +
+        p.evalPackPassed +
+        p.evalPackFailed +
+        p.strategyImproved +
+        p.strategyRegressed +
+        p.strategyMixed +
+        Math.abs(p.validationViolationDelta) +
+        Math.abs(p.scopeCreepDelta) +
         p.proposalsCreated +
         p.proposalsApplied +
         p.proposalsPromoted +
@@ -332,7 +340,7 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
         )}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
         <InsightCard
           icon={GitBranch}
           label={t("dashboard.learning.workflowHealth", {
@@ -346,6 +354,28 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
           label={t("dashboard.learning.evalHealth", { defaultValue: "Eval" })}
           value={formatPct(overview?.evalSuccessRate)}
           hint={`${overview?.passedEvalRuns ?? 0}/${overview?.evalRuns ?? 0}`}
+        />
+        <InsightCard
+          icon={Layers3}
+          label={t("dashboard.learning.packHealth", { defaultValue: "Pack" })}
+          value={formatPct(overview?.evalPackPassRate)}
+          hint={`${overview?.passedEvalPackRuns ?? 0}/${overview?.evalPackRuns ?? 0}`}
+        />
+        <InsightCard
+          icon={Activity}
+          label={t("dashboard.learning.strategyEffects", {
+            defaultValue: "Strategy",
+          })}
+          value={overview?.strategyEffectRuns ?? 0}
+          hint={`+${overview?.improvedStrategyEffects ?? 0} / -${overview?.regressedStrategyEffects ?? 0}`}
+        />
+        <InsightCard
+          icon={Sparkles}
+          label={t("dashboard.learning.toolCalls", { defaultValue: "Tool calls" })}
+          value={overview?.missingToolCallRuns ?? 0}
+          hint={t("dashboard.learning.missingToolCalls", {
+            defaultValue: "missing calls",
+          })}
         />
         <InsightCard
           icon={ShieldAlert}
@@ -399,6 +429,8 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
                   projectId={project.projectId}
                   workflowRate={project.workflowCompletionRate}
                   evalRate={project.evalSuccessRate}
+                  packRate={project.evalPackPassRate}
+                  strategyRegressions={project.regressedStrategyEffects}
                   blockers={project.openReviewBlockers}
                   candidates={project.distillationCandidates}
                 />
@@ -415,9 +447,9 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
             {t("dashboard.learning.failureModes", { defaultValue: "Failure modes" })}
           </h4>
-          {coding?.topFailures.length ? (
+          {failureModes.length ? (
             <div className="space-y-2">
-              {coding.topFailures.map((failure) => (
+              {failureModes.map((failure) => (
                 <div
                   key={failure.category}
                   className="flex items-center gap-2 text-xs border-b border-border/20 pb-2 last:border-0 last:pb-0"
@@ -436,7 +468,7 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <div className="border border-border/60 rounded-lg p-4 min-w-0">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
             {t("dashboard.learning.improvementTimeline", {
@@ -452,6 +484,13 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
                   point.failedWorkflows +
                   point.evalPassed +
                   point.evalFailed +
+                  point.evalPackPassed +
+                  point.evalPackFailed +
+                  point.strategyImproved +
+                  point.strategyRegressed +
+                  point.strategyMixed +
+                  Math.abs(point.validationViolationDelta) +
+                  Math.abs(point.scopeCreepDelta) +
                   point.proposalsCreated +
                   point.proposalsApplied +
                   point.proposalsPromoted +
@@ -477,6 +516,63 @@ function CodingImprovementSection({ coding }: { coding: CodingImprovementDashboa
           ) : (
             <EmptyLine label={t("dashboard.learning.noTimeline", {
               defaultValue: "No timeline data",
+            })} />
+          )}
+        </div>
+
+        <div className="border border-border/60 rounded-lg p-4 min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            {t("dashboard.learning.latestStrategyEffects", {
+              defaultValue: "Latest strategy effects",
+            })}
+          </h4>
+          {coding?.latestStrategyEffects.length ? (
+            <div className="space-y-2 max-h-[220px] overflow-y-auto">
+              {coding.latestStrategyEffects.map((effect) => (
+                <div
+                  key={effect.id}
+                  className="text-xs border-b border-border/20 pb-2 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center gap-2 mb-1 min-w-0">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${verdictTone(effect.verdict)}`}>
+                      {effect.verdict}
+                    </span>
+                    <span className="font-medium truncate flex-1">{effect.strategyType}</span>
+                    <span className="text-[10px] text-muted-foreground tabular-nums">
+                      {new Date(effect.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {effect.baselineLabel} -&gt; {effect.candidateLabel}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    <MetricPill
+                      label="P"
+                      value={formatSignedPct(effect.passRateDelta)}
+                      tone={deltaTone(effect.passRateDelta)}
+                    />
+                    <MetricPill
+                      label="S"
+                      value={formatSignedPct(effect.averageScoreDelta)}
+                      tone={deltaTone(effect.averageScoreDelta)}
+                    />
+                    <MetricPill
+                      label="V"
+                      value={formatSignedCount(effect.validationViolationDelta)}
+                      tone={inverseDeltaTone(effect.validationViolationDelta)}
+                    />
+                    <MetricPill
+                      label="C"
+                      value={formatSignedCount(effect.scopeCreepDelta)}
+                      tone={inverseDeltaTone(effect.scopeCreepDelta)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyLine label={t("dashboard.learning.noStrategyEffects", {
+              defaultValue: "No strategy effects",
             })} />
           )}
         </div>
@@ -548,6 +644,8 @@ function ProjectSignalRow({
   projectId,
   workflowRate,
   evalRate,
+  packRate,
+  strategyRegressions,
   blockers,
   candidates,
 }: {
@@ -555,19 +653,29 @@ function ProjectSignalRow({
   projectId: string | null
   workflowRate: number | null
   evalRate: number | null
+  packRate: number | null
+  strategyRegressions: number
   blockers: number
   candidates: number
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] gap-3 items-center text-xs">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
         <div className="font-medium truncate">{name}</div>
         {projectId && <div className="text-[10px] text-muted-foreground truncate">{projectId}</div>}
       </div>
-      <MetricPill label="WF" value={formatPct(workflowRate)} />
-      <MetricPill label="EV" value={formatPct(evalRate)} />
-      <MetricPill label="B" value={blockers} tone={blockers > 0 ? "warn" : "muted"} />
-      <MetricPill label="Q" value={candidates} tone={candidates > 0 ? "accent" : "muted"} />
+      <div className="flex flex-wrap gap-1.5 sm:justify-end">
+        <MetricPill label="WF" value={formatPct(workflowRate)} />
+        <MetricPill label="EV" value={formatPct(evalRate)} />
+        <MetricPill label="PK" value={formatPct(packRate)} />
+        <MetricPill
+          label="ST"
+          value={strategyRegressions}
+          tone={strategyRegressions > 0 ? "warn" : "muted"}
+        />
+        <MetricPill label="B" value={blockers} tone={blockers > 0 ? "warn" : "muted"} />
+        <MetricPill label="Q" value={candidates} tone={candidates > 0 ? "accent" : "muted"} />
+      </div>
     </div>
   )
 }
@@ -602,6 +710,27 @@ function formatPct(value: number | null | undefined): string {
   return typeof value === "number" ? `${Math.round(value * 100)}%` : "—"
 }
 
+function formatSignedPct(value: number): string {
+  const pct = Math.round(value * 100)
+  return `${pct > 0 ? "+" : ""}${pct}%`
+}
+
+function formatSignedCount(value: number): string {
+  return `${value > 0 ? "+" : ""}${value}`
+}
+
+function deltaTone(value: number): "muted" | "warn" | "accent" {
+  if (value > 0) return "accent"
+  if (value < 0) return "warn"
+  return "muted"
+}
+
+function inverseDeltaTone(value: number): "muted" | "warn" | "accent" {
+  if (value < 0) return "accent"
+  if (value > 0) return "warn"
+  return "muted"
+}
+
 function severityDot(severity: string): string {
   switch (severity) {
     case "high":
@@ -610,6 +739,18 @@ function severityDot(severity: string): string {
       return "bg-amber-500"
     default:
       return "bg-muted-foreground/40"
+  }
+}
+
+function verdictTone(verdict: string): string {
+  switch (verdict) {
+    case "improved":
+      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    case "regressed":
+    case "mixed":
+      return "bg-red-500/10 text-red-600 dark:text-red-400"
+    default:
+      return "bg-secondary/40 text-muted-foreground"
   }
 }
 

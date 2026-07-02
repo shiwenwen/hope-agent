@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-02
 >
-> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化与 Phase 5.6 mock tool-call 基线已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+> 状态：Phase 0 人工评测体系已完成；Phase 3.7 自动化控制面评测、Phase 5.1 task-level eval runner、Phase 5.2 agent execution runner、Phase 5.3 Gold Task Pack v1、Phase 5.4 strategy effect evaluator、Phase 5.5 Gold Task Pack 全量自动化、Phase 5.6 mock tool-call 基线与 Phase 5.7 strategy effect 趋势持久化 / Dashboard 已落地，最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
 ## 目录
 

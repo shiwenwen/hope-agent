@@ -471,9 +471,9 @@ Smart Verification owner API 管理 durable validation run。`plan_smart_verific
 
 Coding Eval owner API 运行一份完整 fixture JSON，创建临时 git repo 与真实 session / goal / task / workflow seed。`runs.execution.mode="agent"` 会按 fixture 提供的 `providers` / `modelChain` 调用 `run_chat_engine`，创建 user message + chat turn，让 agent 从 task prompt 开始执行；`mode="fixture_patch"` 用于无模型回归，只在执行阶段写入 `repo.changes`。随后 API 调用生产 Review / Smart Verification / Context Retrieval，并按 `fixture.task` 对候选 diff 做 task-level scoring。它返回 `FixtureReport`，可包含 `execution` / `task` report；`execution.toolCalls` / `metrics.executionToolCalls` 记录真实 tool message 名称，fixture 可用 `checks.execution.expectedToolCalls` / `minToolCalls` 断言模型确实调用了预期工具；`runs.task.recordEvalRun` 默认把结果写入 `coding_eval_runs(suite='task_level_coding_eval')` 供 Improvement Loop / Dashboard 消费。Phase 5.6 的 mock Responses 基线不访问外部服务，但会驱动真实 `write` 工具在临时 repo 产出 candidate diff。
 
-Gold Task Pack API 是 Phase 5.3 的批量入口：`list_coding_eval_gold_tasks` 返回内置 active gold task registry；`run_coding_eval_gold_task_pack` / `POST /api/coding-eval/gold-tasks/run` 接收 `{ "input": { "ids": [], "statuses": [], "taskTypes": [], "maxTasks": 2, "recordEvalRuns": true, "evaluateGoal": true } }`，把自动化 gold tasks materialize 成普通 fixture 后批量运行，返回 `GoldTaskPackReport`。默认只跑已自动化的 active cases，且默认走 `fixture_patch`，不访问外部模型。
+Gold Task Pack API 是 Phase 5.3 的批量入口：`list_coding_eval_gold_tasks` 返回内置 active gold task registry；`run_coding_eval_gold_task_pack` / `POST /api/coding-eval/gold-tasks/run` 接收 `{ "input": { "ids": [], "statuses": [], "taskTypes": [], "maxTasks": 2, "recordEvalRuns": true, "recordPackRun": true, "baselineKind": "deterministic_mock", "evaluateGoal": true } }`，把自动化 gold tasks materialize 成普通 fixture 后批量运行，返回 `GoldTaskPackReport`。默认只跑已自动化的 active cases，且默认走 `fixture_patch`，不访问外部模型。Phase 5.7 起 `recordPackRun` 默认把 pack summary 写入 `coding_eval_pack_runs` 并返回 `packRunId`；外部真实模型基线必须用 `baselineKind="external_model"` 标明。
 
-Strategy Effect API 是 Phase 5.4 的纯计算入口：`evaluate_coding_eval_strategy_effect` / `POST /api/coding-eval/strategy-effects/evaluate` 接收 `{ "input": { "strategyType": "workflow_policy", "baseline": GoldTaskPackReport, "candidate": GoldTaskPackReport } }`，返回 `StrategyEffectReport`。它只比较两份报告中的共同 case，candidate 漏掉 baseline case 视为回归风险，candidate 新增 case 只展示、不参与聚合；不读写 DB、不跑模型、不执行项目命令。完整契约见 [Coding Eval 控制面评测](coding-eval.md)。
+Strategy Effect API 是 Phase 5.4 的对比入口：`evaluate_coding_eval_strategy_effect` / `POST /api/coding-eval/strategy-effects/evaluate` 接收 `{ "input": { "strategyType": "workflow_policy", "baseline": GoldTaskPackReport, "candidate": GoldTaskPackReport, "recordRun": false } }`，返回 `StrategyEffectReport`。它只比较两份报告中的共同 case，candidate 漏掉 baseline case 视为回归风险，candidate 新增 case 只展示、不参与聚合；不跑模型、不执行项目命令。纯函数 `evaluate_strategy_effect()` 仍无 DB 副作用；owner API 仅在 `recordRun=true` 时写入 `coding_strategy_effect_runs` 并返回 `runId`。完整契约见 [Coding Eval 控制面评测](coding-eval.md)。
 
 ### Coding Improvement Loop
 
@@ -807,7 +807,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | ✅ |
 | `dashboard_plan_stats` | `POST /api/dashboard/plan-stats` | ✅ |
 
-`dashboard_coding_improvement` 是 Phase 4.3 只读全局学习聚合，按 DashboardFilter 返回 workflow / eval / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、proposal status 和 latest retros；不生成 proposal、不 apply、不 promotion。
+`dashboard_coding_improvement` 是只读全局学习聚合，按 DashboardFilter 返回 workflow / case eval / pack eval / strategy effect / tool-call failure / review / verification / proposal / retro 的 overview、timeline、project buckets、failure modes、tool call failures、proposal status、latest strategy effects 和 latest retros；不生成 proposal、不 apply、不 promotion。
 
 ### Async / Deferred tools + Memory selection
 

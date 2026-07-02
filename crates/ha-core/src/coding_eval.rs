@@ -21,7 +21,7 @@ use crate::chat_engine::{self, ChatEngineParams, ChatSource, NoopEventSink};
 use crate::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingTrendReport,
     GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
-    RecordCodingEvalRunInput,
+    RecordCodingEvalPackRunInput, RecordCodingEvalRunInput, RecordCodingStrategyEffectRunInput,
 };
 use crate::context_compact::CompactConfig;
 use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
@@ -51,9 +51,13 @@ pub struct CodingEvalFixture {
     pub checks: FixtureChecks,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GoldTaskPackRunInput {
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
     #[serde(default)]
     pub ids: Vec<String>,
     #[serde(default)]
@@ -67,7 +71,38 @@ pub struct GoldTaskPackRunInput {
     #[serde(default = "default_true")]
     pub record_eval_runs: bool,
     #[serde(default = "default_true")]
+    pub record_pack_run: bool,
+    #[serde(default = "default_true")]
     pub evaluate_goal: bool,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub baseline_kind: Option<String>,
+    #[serde(default)]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub source_id: Option<String>,
+}
+
+impl Default for GoldTaskPackRunInput {
+    fn default() -> Self {
+        Self {
+            session_id: None,
+            project_id: None,
+            ids: Vec::new(),
+            statuses: Vec::new(),
+            task_types: Vec::new(),
+            include_unautomated: false,
+            max_tasks: None,
+            record_eval_runs: true,
+            record_pack_run: true,
+            evaluate_goal: true,
+            label: None,
+            baseline_kind: None,
+            source_type: None,
+            source_id: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +140,8 @@ pub struct GoldTaskCaseSummary {
 pub struct GoldTaskPackReport {
     pub pack_id: String,
     pub source_doc: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_run_id: Option<String>,
     pub selected_cases: usize,
     pub automated_cases: usize,
     pub skipped_cases: usize,
@@ -132,6 +169,20 @@ pub struct GoldTaskCaseRunReport {
 #[serde(rename_all = "camelCase")]
 pub struct StrategyEffectEvalInput {
     #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub baseline_pack_run_id: Option<String>,
+    #[serde(default)]
+    pub candidate_pack_run_id: Option<String>,
+    #[serde(default)]
+    pub record_run: bool,
+    #[serde(default)]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    #[serde(default)]
     pub strategy_type: Option<String>,
     #[serde(default)]
     pub baseline_label: Option<String>,
@@ -141,9 +192,11 @@ pub struct StrategyEffectEvalInput {
     pub candidate: GoldTaskPackReport,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StrategyEffectReport {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub strategy_type: String,
     pub baseline_label: String,
     pub candidate_label: String,
@@ -158,7 +211,7 @@ pub struct StrategyEffectReport {
     pub improvements: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StrategyEffectSummary {
     pub baseline_pass_rate: f64,
@@ -181,7 +234,7 @@ pub struct StrategyEffectSummary {
     pub execution_failure_delta: isize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StrategyEffectDimension {
     pub name: String,
@@ -193,7 +246,7 @@ pub struct StrategyEffectDimension {
     pub detail: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StrategyCaseComparison {
     pub id: String,
@@ -937,9 +990,10 @@ pub async fn run_gold_task_pack(
         }
     }
 
-    Ok(GoldTaskPackReport {
+    let mut report = GoldTaskPackReport {
         pack_id: GOLD_TASK_PACK_ID.to_string(),
         source_doc: GOLD_TASK_SOURCE_DOC.to_string(),
+        pack_run_id: None,
         selected_cases: cases.len(),
         automated_cases,
         skipped_cases,
@@ -948,7 +1002,24 @@ pub async fn run_gold_task_pack(
         total_checks,
         passed: failed_cases == 0 && automated_cases > 0,
         cases,
-    })
+    };
+
+    if input.record_pack_run {
+        let record = db.record_coding_eval_pack_run(RecordCodingEvalPackRunInput {
+            session_id: input.session_id,
+            project_id: input.project_id,
+            label: input.label,
+            baseline_kind: input.baseline_kind,
+            source_type: input
+                .source_type
+                .or_else(|| Some("gold_task_pack".to_string())),
+            source_id: input.source_id.or_else(|| Some(report.pack_id.clone())),
+            report: report.clone(),
+        })?;
+        report.pack_run_id = Some(record.id);
+    }
+
+    Ok(report)
 }
 
 pub fn evaluate_strategy_effect(input: StrategyEffectEvalInput) -> StrategyEffectReport {
@@ -1053,6 +1124,7 @@ pub fn evaluate_strategy_effect(input: StrategyEffectEvalInput) -> StrategyEffec
     let verdict = derive_strategy_verdict(&comparisons, &baseline_only_cases);
 
     StrategyEffectReport {
+        run_id: None,
         strategy_type,
         baseline_label,
         candidate_label,
@@ -1066,6 +1138,42 @@ pub fn evaluate_strategy_effect(input: StrategyEffectEvalInput) -> StrategyEffec
         regressions,
         improvements,
     }
+}
+
+pub fn evaluate_strategy_effect_with_recording(
+    db: &SessionDB,
+    input: StrategyEffectEvalInput,
+) -> Result<StrategyEffectReport> {
+    let should_record = input.record_run;
+    let session_id = input.session_id.clone();
+    let project_id = input.project_id.clone();
+    let baseline_pack_run_id = input
+        .baseline_pack_run_id
+        .clone()
+        .or_else(|| input.baseline.pack_run_id.clone());
+    let candidate_pack_run_id = input
+        .candidate_pack_run_id
+        .clone()
+        .or_else(|| input.candidate.pack_run_id.clone());
+    let source_type = input
+        .source_type
+        .clone()
+        .or_else(|| Some("strategy_effect".to_string()));
+    let source_id = input.source_id.clone();
+    let mut report = evaluate_strategy_effect(input);
+    if should_record {
+        let record = db.record_coding_strategy_effect_run(RecordCodingStrategyEffectRunInput {
+            session_id,
+            project_id,
+            baseline_pack_run_id,
+            candidate_pack_run_id,
+            source_type,
+            source_id,
+            report: report.clone(),
+        })?;
+        report.run_id = Some(record.id);
+    }
+    Ok(report)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -5091,6 +5199,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gold_task_pack_and_strategy_effect_can_record_history() {
+        let (_dir, db) = temp_session_db();
+        let baseline = run_gold_task_pack(
+            db.clone(),
+            GoldTaskPackRunInput {
+                ids: vec!["CE-TEST-004".to_string()],
+                record_eval_runs: false,
+                record_pack_run: true,
+                label: Some("baseline".to_string()),
+                baseline_kind: Some("fixture_patch".to_string()),
+                source_type: Some("gold_task_pack".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("run baseline gold task pack");
+        assert!(baseline.pack_run_id.is_some());
+
+        let mut candidate = baseline.clone();
+        candidate.pack_run_id = None;
+        candidate.passed = false;
+        candidate.passed_cases = 0;
+        candidate.failed_cases = 1;
+        if let Some(case) = candidate.cases.first_mut() {
+            case.status = "failed".to_string();
+        }
+        let effect = evaluate_strategy_effect_with_recording(
+            &db,
+            StrategyEffectEvalInput {
+                session_id: None,
+                project_id: Some("project-eval-history".to_string()),
+                baseline_pack_run_id: baseline.pack_run_id.clone(),
+                candidate_pack_run_id: None,
+                record_run: true,
+                source_type: Some("strategy_effect".to_string()),
+                source_id: Some("workflow_policy".to_string()),
+                strategy_type: Some("workflow_policy".to_string()),
+                baseline_label: Some("before".to_string()),
+                candidate_label: Some("after".to_string()),
+                baseline,
+                candidate,
+            },
+        )
+        .expect("record strategy effect");
+        assert!(effect.run_id.is_some());
+
+        let conn = db.conn.lock().expect("lock db");
+        let pack_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM coding_eval_pack_runs WHERE baseline_kind = 'deterministic_mock'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("pack history count");
+        let strategy_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM coding_strategy_effect_runs WHERE verdict = 'regressed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("strategy history count");
+        assert_eq!(pack_runs, 1);
+        assert_eq!(strategy_runs, 1);
+    }
+
+    #[tokio::test]
     async fn gold_task_pack_runs_former_draft_case() {
         let (_dir, db) = temp_session_db();
         let report = run_gold_task_pack(
@@ -5168,6 +5342,13 @@ mod tests {
             .push("cargo test --all".to_string());
 
         let effect = evaluate_strategy_effect(StrategyEffectEvalInput {
+            session_id: None,
+            project_id: None,
+            baseline_pack_run_id: None,
+            candidate_pack_run_id: None,
+            record_run: false,
+            source_type: None,
+            source_id: None,
             strategy_type: Some("workflow_policy".to_string()),
             baseline_label: Some("before".to_string()),
             candidate_label: Some("after".to_string()),
@@ -5196,6 +5377,7 @@ mod tests {
         let baseline = GoldTaskPackReport {
             pack_id: GOLD_TASK_PACK_ID.to_string(),
             source_doc: GOLD_TASK_SOURCE_DOC.to_string(),
+            pack_run_id: None,
             selected_cases: 1,
             automated_cases: 1,
             skipped_cases: 0,
@@ -5224,6 +5406,13 @@ mod tests {
         };
 
         let effect = evaluate_strategy_effect(StrategyEffectEvalInput {
+            session_id: None,
+            project_id: None,
+            baseline_pack_run_id: None,
+            candidate_pack_run_id: None,
+            record_run: false,
+            source_type: None,
+            source_id: None,
             strategy_type: None,
             baseline_label: None,
             candidate_label: None,

@@ -529,6 +529,19 @@ export interface CodingImprovementDashboardOverview {
   passedEvalRuns: number
   failedEvalRuns: number
   evalSuccessRate: number | null
+  evalPackRuns: number
+  passedEvalPackRuns: number
+  failedEvalPackRuns: number
+  evalPackPassRate: number | null
+  deterministicPackRuns: number
+  externalPackRuns: number
+  strategyEffectRuns: number
+  improvedStrategyEffects: number
+  regressedStrategyEffects: number
+  mixedStrategyEffects: number
+  missingToolCallRuns: number
+  validationViolationDelta: number
+  scopeCreepDelta: number
   openReviewBlockers: number
   failedVerificationSteps: number
   retros: number
@@ -548,6 +561,13 @@ export interface CodingImprovementTimelinePoint {
   failedWorkflows: number
   evalPassed: number
   evalFailed: number
+  evalPackPassed: number
+  evalPackFailed: number
+  strategyImproved: number
+  strategyRegressed: number
+  strategyMixed: number
+  validationViolationDelta: number
+  scopeCreepDelta: number
   proposalsCreated: number
   proposalsApplied: number
   proposalsPromoted: number
@@ -562,6 +582,10 @@ export interface CodingImprovementProjectBucket {
   workflowCompletionRate: number | null
   evalRuns: number
   evalSuccessRate: number | null
+  evalPackRuns: number
+  evalPackPassRate: number | null
+  strategyEffectRuns: number
+  regressedStrategyEffects: number
   openReviewBlockers: number
   retroRecommendations: number
   draftProposals: number
@@ -581,6 +605,23 @@ export interface CodingImprovementFailureBucket {
 export interface CodingImprovementStatusBucket {
   status: string
   count: number
+}
+
+export interface CodingImprovementStrategyEffectItem {
+  id: string
+  projectId: string | null
+  strategyType: string
+  baselineLabel: string
+  candidateLabel: string
+  verdict: string
+  comparedCases: number
+  passRateDelta: number
+  averageScoreDelta: number
+  contextRecallDelta: number
+  validationViolationDelta: number
+  scopeCreepDelta: number
+  executionFailureDelta: number
+  createdAt: string
 }
 
 export interface CodingRetroRecommendation {
@@ -606,7 +647,9 @@ export interface CodingImprovementDashboard {
   timeline: CodingImprovementTimelinePoint[]
   byProject: CodingImprovementProjectBucket[]
   topFailures: CodingImprovementFailureBucket[]
+  toolCallFailures: CodingImprovementFailureBucket[]
   proposalStatuses: CodingImprovementStatusBucket[]
+  latestStrategyEffects: CodingImprovementStrategyEffectItem[]
   latestRetros: CodingImprovementRetroItem[]
 }
 

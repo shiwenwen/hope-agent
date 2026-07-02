@@ -1136,13 +1136,20 @@ export interface CodingDistilledCandidate {
 }
 
 export interface CodingEvalGoldTaskPackRunInput {
+  sessionId?: string | null;
+  projectId?: string | null;
   ids?: string[];
   statuses?: string[];
   taskTypes?: string[];
   includeUnautomated?: boolean;
   maxTasks?: number | null;
   recordEvalRuns?: boolean;
+  recordPackRun?: boolean;
   evaluateGoal?: boolean;
+  label?: string | null;
+  baselineKind?: string | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
 }
 
 export interface CodingEvalGoldTaskPackSummary {
@@ -1173,6 +1180,7 @@ export interface CodingEvalGoldTaskCaseSummary {
 export interface CodingEvalGoldTaskPackReport {
   packId: string;
   sourceDoc: string;
+  packRunId?: string | null;
   selectedCases: number;
   automatedCases: number;
   skippedCases: number;
@@ -1192,6 +1200,13 @@ export interface CodingEvalGoldTaskCaseRunReport {
 }
 
 export interface CodingEvalStrategyEffectInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  baselinePackRunId?: string | null;
+  candidatePackRunId?: string | null;
+  recordRun?: boolean;
+  sourceType?: string | null;
+  sourceId?: string | null;
   strategyType?: string | null;
   baselineLabel?: string | null;
   candidateLabel?: string | null;
@@ -1200,6 +1215,7 @@ export interface CodingEvalStrategyEffectInput {
 }
 
 export interface CodingEvalStrategyEffectReport {
+  runId?: string | null;
   strategyType: string;
   baselineLabel: string;
   candidateLabel: string;

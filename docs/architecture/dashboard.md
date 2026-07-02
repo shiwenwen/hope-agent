@@ -303,18 +303,20 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 
 | 区块 | 来源 | 说明 |
 |---|---|---|
-| `overview` | `sessions` / `workflow_runs` / `coding_eval_runs` / `review_findings` / `verification_steps` / `coding_workflow_retros` / `coding_improvement_proposals` | 汇总 workflow completion、eval success、review blocker、verification failure、retro recommendation、proposal status 和 distillation candidates |
-| `timeline` | 同上 | 按日聚合 completed/blocked/failed workflow、passed/failed eval、proposal created/applied/promoted、retro recommendation |
-| `byProject` | `project_id` + 可选 `projects.name` | 按项目展示 workflow/eval 成功率、blocker、proposal 与待沉淀候选 |
+| `overview` | `sessions` / `workflow_runs` / `coding_eval_runs` / `coding_eval_pack_runs` / `coding_strategy_effect_runs` / `review_findings` / `verification_steps` / `coding_workflow_retros` / `coding_improvement_proposals` | 汇总 workflow completion、case eval、pack pass rate、strategy verdict、tool-call missing、validation/scope delta、review blocker、verification failure、retro recommendation、proposal status 和 distillation candidates |
+| `timeline` | 同上 | 按日聚合 completed/blocked/failed workflow、passed/failed eval、passed/failed pack、strategy verdict、validation/scope delta、proposal created/applied/promoted、retro recommendation |
+| `byProject` | `project_id` + 可选 `projects.name` | 按项目展示 workflow/eval/pack 成功率、strategy regression、blocker、proposal 与待沉淀候选 |
 | `topFailures` | `coding_improvement_proposals.payload_json` | 从 `eval_candidate` proposal 的 failure taxonomy 中聚合 top failure mode |
+| `toolCallFailures` | `coding_eval_runs.metrics_json` | 聚合 agent 模式下没有产生 tool call 的 task-level eval run，作为 `missing_tool_call` failure mode |
 | `proposalStatuses` | `coding_improvement_proposals.status` | proposal 状态分布 |
+| `latestStrategyEffects` | `coding_strategy_effect_runs` | 最近 strategy effect run 的 verdict 与 pass/task/context/validation/scope/execution delta |
 | `latestRetros` | `coding_workflow_retros` | 最近 terminal workflow retro summary 与 recommendation |
 
 过滤契约：
 
 - 复用 `DashboardFilter` 的时间 / agent / provider / model 维度。
 - session 级数据排除 cron、subagent 和 incognito。
-- sessionless eval run 可进入全局 eval 聚合；一旦按 agent/provider/model 过滤，会自然被排除。
+- sessionless eval / pack / strategy run 可进入全局聚合；一旦按 agent/provider/model 过滤，会自然被排除。
 - Project name 只作显示增强；`projects` 表不存在或缺失行时仍按 `project_id` 聚合。
 
 ## Plan 统计（plan_stats.rs）

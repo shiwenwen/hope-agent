@@ -27,7 +27,9 @@ pub struct CodingImprovementDashboard {
     pub timeline: Vec<CodingImprovementTimelinePoint>,
     pub by_project: Vec<CodingImprovementProjectBucket>,
     pub top_failures: Vec<CodingImprovementFailureBucket>,
+    pub tool_call_failures: Vec<CodingImprovementFailureBucket>,
     pub proposal_statuses: Vec<CodingImprovementStatusBucket>,
+    pub latest_strategy_effects: Vec<CodingImprovementStrategyEffectItem>,
     pub latest_retros: Vec<CodingImprovementRetroItem>,
 }
 
@@ -44,6 +46,19 @@ pub struct CodingImprovementDashboardOverview {
     pub passed_eval_runs: u64,
     pub failed_eval_runs: u64,
     pub eval_success_rate: Option<f64>,
+    pub eval_pack_runs: u64,
+    pub passed_eval_pack_runs: u64,
+    pub failed_eval_pack_runs: u64,
+    pub eval_pack_pass_rate: Option<f64>,
+    pub deterministic_pack_runs: u64,
+    pub external_pack_runs: u64,
+    pub strategy_effect_runs: u64,
+    pub improved_strategy_effects: u64,
+    pub regressed_strategy_effects: u64,
+    pub mixed_strategy_effects: u64,
+    pub missing_tool_call_runs: u64,
+    pub validation_violation_delta: i64,
+    pub scope_creep_delta: i64,
     pub open_review_blockers: u64,
     pub failed_verification_steps: u64,
     pub retros: u64,
@@ -65,6 +80,13 @@ pub struct CodingImprovementTimelinePoint {
     pub failed_workflows: u64,
     pub eval_passed: u64,
     pub eval_failed: u64,
+    pub eval_pack_passed: u64,
+    pub eval_pack_failed: u64,
+    pub strategy_improved: u64,
+    pub strategy_regressed: u64,
+    pub strategy_mixed: u64,
+    pub validation_violation_delta: i64,
+    pub scope_creep_delta: i64,
     pub proposals_created: u64,
     pub proposals_applied: u64,
     pub proposals_promoted: u64,
@@ -81,6 +103,10 @@ pub struct CodingImprovementProjectBucket {
     pub workflow_completion_rate: Option<f64>,
     pub eval_runs: u64,
     pub eval_success_rate: Option<f64>,
+    pub eval_pack_runs: u64,
+    pub eval_pack_pass_rate: Option<f64>,
+    pub strategy_effect_runs: u64,
+    pub regressed_strategy_effects: u64,
     pub open_review_blockers: u64,
     pub retro_recommendations: u64,
     pub draft_proposals: u64,
@@ -104,6 +130,25 @@ pub struct CodingImprovementFailureBucket {
 pub struct CodingImprovementStatusBucket {
     pub status: String,
     pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodingImprovementStrategyEffectItem {
+    pub id: String,
+    pub project_id: Option<String>,
+    pub strategy_type: String,
+    pub baseline_label: String,
+    pub candidate_label: String,
+    pub verdict: String,
+    pub compared_cases: u64,
+    pub pass_rate_delta: f64,
+    pub average_score_delta: f64,
+    pub context_recall_delta: f64,
+    pub validation_violation_delta: i64,
+    pub scope_creep_delta: i64,
+    pub execution_failure_delta: i64,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +179,10 @@ struct ProjectAccumulator {
     completed_workflows: u64,
     eval_runs: u64,
     passed_eval_runs: u64,
+    eval_pack_runs: u64,
+    passed_eval_pack_runs: u64,
+    strategy_effect_runs: u64,
+    regressed_strategy_effects: u64,
     open_review_blockers: u64,
     retro_recommendations: u64,
     draft_proposals: u64,
@@ -154,7 +203,9 @@ pub fn query_coding_improvement_dashboard(
     let timeline = query_timeline(&conn, filter)?;
     let by_project = query_projects(&conn, filter, limit)?;
     let top_failures = query_top_failures(&conn, filter, limit)?;
+    let tool_call_failures = query_tool_call_failures(&conn, filter)?;
     let proposal_statuses = query_proposal_statuses(&conn, filter)?;
+    let latest_strategy_effects = query_latest_strategy_effects(&conn, filter, limit)?;
     let latest_retros = query_latest_retros(&conn, filter, limit)?;
 
     Ok(CodingImprovementDashboard {
@@ -163,7 +214,9 @@ pub fn query_coding_improvement_dashboard(
         timeline,
         by_project,
         top_failures,
+        tool_call_failures,
         proposal_statuses,
+        latest_strategy_effects,
         latest_retros,
     })
 }
@@ -233,6 +286,81 @@ fn query_overview(
             _ => {}
         }
     }
+
+    let pack_filter = build_fact_filter(filter, "s", "cepr.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT cepr.status, cepr.baseline_kind, COUNT(*)
+         FROM coding_eval_pack_runs cepr
+         LEFT JOIN sessions s ON s.id = cepr.session_id
+         {}
+         GROUP BY cepr.status, cepr.baseline_kind",
+        pack_filter.where_sql
+    ))?;
+    let pack_rows = stmt.query_map(params_from_iter(pack_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    let mut eval_pack_runs = 0;
+    let mut passed_eval_pack_runs = 0;
+    let mut failed_eval_pack_runs = 0;
+    let mut deterministic_pack_runs = 0;
+    let mut external_pack_runs = 0;
+    for row in pack_rows {
+        let (status, baseline_kind, n) = row?;
+        eval_pack_runs += n;
+        match status.as_str() {
+            "passed" => passed_eval_pack_runs += n,
+            "failed" => failed_eval_pack_runs += n,
+            _ => {}
+        }
+        match baseline_kind.as_str() {
+            "external_model" => external_pack_runs += n,
+            _ => deterministic_pack_runs += n,
+        }
+    }
+
+    let strategy_filter = build_fact_filter(filter, "s", "cser.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT cser.verdict, COUNT(*),
+                COALESCE(SUM(cser.validation_violation_delta), 0),
+                COALESCE(SUM(cser.scope_creep_delta), 0)
+         FROM coding_strategy_effect_runs cser
+         LEFT JOIN sessions s ON s.id = cser.session_id
+         {}
+         GROUP BY cser.verdict",
+        strategy_filter.where_sql
+    ))?;
+    let strategy_rows = stmt.query_map(params_from_iter(strategy_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            as_u64(row.get::<_, i64>(1)?),
+            row.get::<_, i64>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?;
+    let mut strategy_effect_runs = 0;
+    let mut improved_strategy_effects = 0;
+    let mut regressed_strategy_effects = 0;
+    let mut mixed_strategy_effects = 0;
+    let mut validation_violation_delta = 0;
+    let mut scope_creep_delta = 0;
+    for row in strategy_rows {
+        let (verdict, n, validation_delta, scope_delta) = row?;
+        strategy_effect_runs += n;
+        validation_violation_delta += validation_delta;
+        scope_creep_delta += scope_delta;
+        match verdict.as_str() {
+            "improved" => improved_strategy_effects += n,
+            "regressed" => regressed_strategy_effects += n,
+            "mixed" => mixed_strategy_effects += n,
+            _ => {}
+        }
+    }
+
+    let missing_tool_call_runs = count_missing_tool_call_runs(conn, filter)?;
 
     let review_filter = append_condition(
         build_fact_filter(filter, "s", "rf.updated_at", false),
@@ -307,6 +435,19 @@ fn query_overview(
         passed_eval_runs,
         failed_eval_runs,
         eval_success_rate: ratio(passed_eval_runs, eval_runs),
+        eval_pack_runs,
+        passed_eval_pack_runs,
+        failed_eval_pack_runs,
+        eval_pack_pass_rate: ratio(passed_eval_pack_runs, eval_pack_runs),
+        deterministic_pack_runs,
+        external_pack_runs,
+        strategy_effect_runs,
+        improved_strategy_effects,
+        regressed_strategy_effects,
+        mixed_strategy_effects,
+        missing_tool_call_runs,
+        validation_violation_delta,
+        scope_creep_delta,
         open_review_blockers,
         failed_verification_steps,
         retros,
@@ -378,6 +519,65 @@ fn query_timeline(
         match status.as_str() {
             "passed" => point.eval_passed += n,
             "failed" => point.eval_failed += n,
+            _ => {}
+        }
+    }
+
+    let pack_filter = build_fact_filter(filter, "s", "cepr.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT substr(cepr.created_at, 1, 10) AS day, cepr.status, COUNT(*)
+         FROM coding_eval_pack_runs cepr
+         LEFT JOIN sessions s ON s.id = cepr.session_id
+         {}
+         GROUP BY day, cepr.status",
+        pack_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(pack_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (date, status, n) = row?;
+        let point = day_point(&mut days, date);
+        match status.as_str() {
+            "passed" => point.eval_pack_passed += n,
+            "failed" => point.eval_pack_failed += n,
+            _ => {}
+        }
+    }
+
+    let strategy_filter = build_fact_filter(filter, "s", "cser.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT substr(cser.created_at, 1, 10) AS day, cser.verdict, COUNT(*),
+                COALESCE(SUM(cser.validation_violation_delta), 0),
+                COALESCE(SUM(cser.scope_creep_delta), 0)
+         FROM coding_strategy_effect_runs cser
+         LEFT JOIN sessions s ON s.id = cser.session_id
+         {}
+         GROUP BY day, cser.verdict",
+        strategy_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(strategy_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+            row.get::<_, i64>(3)?,
+            row.get::<_, i64>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (date, verdict, n, validation_delta, scope_delta) = row?;
+        let point = day_point(&mut days, date);
+        point.validation_violation_delta += validation_delta;
+        point.scope_creep_delta += scope_delta;
+        match verdict.as_str() {
+            "improved" => point.strategy_improved += n,
+            "regressed" => point.strategy_regressed += n,
+            "mixed" => point.strategy_mixed += n,
             _ => {}
         }
     }
@@ -533,6 +733,56 @@ fn query_projects(
         }
     }
 
+    let pack_filter = build_fact_filter(filter, "s", "cepr.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT COALESCE(cepr.project_id, s.project_id), cepr.status, COUNT(*)
+         FROM coding_eval_pack_runs cepr
+         LEFT JOIN sessions s ON s.id = cepr.session_id
+         {}
+         GROUP BY COALESCE(cepr.project_id, s.project_id), cepr.status",
+        pack_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(pack_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, Option<String>>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (project_id, status, n) = row?;
+        let bucket = bucket(&mut map, project_id);
+        bucket.eval_pack_runs += n;
+        if status == "passed" {
+            bucket.passed_eval_pack_runs += n;
+        }
+    }
+
+    let strategy_filter = build_fact_filter(filter, "s", "cser.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT COALESCE(cser.project_id, s.project_id), cser.verdict, COUNT(*)
+         FROM coding_strategy_effect_runs cser
+         LEFT JOIN sessions s ON s.id = cser.session_id
+         {}
+         GROUP BY COALESCE(cser.project_id, s.project_id), cser.verdict",
+        strategy_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(strategy_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, Option<String>>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (project_id, verdict, n) = row?;
+        let bucket = bucket(&mut map, project_id);
+        bucket.strategy_effect_runs += n;
+        if matches!(verdict.as_str(), "regressed" | "mixed") {
+            bucket.regressed_strategy_effects += n;
+        }
+    }
+
     let review_filter = append_condition(
         build_fact_filter(filter, "s", "rf.updated_at", false),
         "rf.status = 'open' AND rf.severity IN ('p0','p1','critical','high')",
@@ -611,6 +861,8 @@ fn query_projects(
         .filter(|bucket| {
             bucket.workflow_runs > 0
                 || bucket.eval_runs > 0
+                || bucket.eval_pack_runs > 0
+                || bucket.strategy_effect_runs > 0
                 || bucket.open_review_blockers > 0
                 || bucket.retro_recommendations > 0
                 || bucket.draft_proposals > 0
@@ -634,6 +886,10 @@ fn query_projects(
                 workflow_completion_rate: ratio(bucket.completed_workflows, bucket.workflow_runs),
                 eval_runs: bucket.eval_runs,
                 eval_success_rate: ratio(bucket.passed_eval_runs, bucket.eval_runs),
+                eval_pack_runs: bucket.eval_pack_runs,
+                eval_pack_pass_rate: ratio(bucket.passed_eval_pack_runs, bucket.eval_pack_runs),
+                strategy_effect_runs: bucket.strategy_effect_runs,
+                regressed_strategy_effects: bucket.regressed_strategy_effects,
                 open_review_blockers: bucket.open_review_blockers,
                 retro_recommendations: bucket.retro_recommendations,
                 draft_proposals: bucket.draft_proposals,
@@ -692,6 +948,22 @@ fn query_top_failures(
     collect(rows)
 }
 
+fn query_tool_call_failures(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+) -> Result<Vec<CodingImprovementFailureBucket>> {
+    let missing_tool_calls = count_missing_tool_call_runs(conn, filter)?;
+    if missing_tool_calls == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(vec![CodingImprovementFailureBucket {
+        category: "missing_tool_call".to_string(),
+        label: failure_label("missing_tool_call").to_string(),
+        severity: failure_severity("missing_tool_call").to_string(),
+        count: missing_tool_calls,
+    }])
+}
+
 fn query_proposal_statuses(
     conn: &rusqlite::Connection,
     filter: &DashboardFilter,
@@ -710,6 +982,46 @@ fn query_proposal_statuses(
         Ok(CodingImprovementStatusBucket {
             status: row.get(0)?,
             count: as_u64(row.get::<_, i64>(1)?),
+        })
+    })?;
+    collect(rows)
+}
+
+fn query_latest_strategy_effects(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+    limit: usize,
+) -> Result<Vec<CodingImprovementStrategyEffectItem>> {
+    let strategy_filter = build_fact_filter(filter, "s", "cser.created_at", true);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT cser.id, COALESCE(cser.project_id, s.project_id), cser.strategy_type,
+                cser.baseline_label, cser.candidate_label, cser.verdict, cser.compared_cases,
+                cser.pass_rate_delta, cser.average_score_delta, cser.context_recall_delta,
+                cser.validation_violation_delta, cser.scope_creep_delta,
+                cser.execution_failure_delta, cser.created_at
+         FROM coding_strategy_effect_runs cser
+         LEFT JOIN sessions s ON s.id = cser.session_id
+         {}
+         ORDER BY cser.created_at DESC
+         LIMIT {}",
+        strategy_filter.where_sql, limit
+    ))?;
+    let rows = stmt.query_map(params_from_iter(strategy_filter.params.iter()), |row| {
+        Ok(CodingImprovementStrategyEffectItem {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            strategy_type: row.get(2)?,
+            baseline_label: row.get(3)?,
+            candidate_label: row.get(4)?,
+            verdict: row.get(5)?,
+            compared_cases: as_u64(row.get::<_, i64>(6)?),
+            pass_rate_delta: row.get(7)?,
+            average_score_delta: row.get(8)?,
+            context_recall_delta: row.get(9)?,
+            validation_violation_delta: row.get(10)?,
+            scope_creep_delta: row.get(11)?,
+            execution_failure_delta: row.get(12)?,
+            created_at: row.get(13)?,
         })
     })?;
     collect(rows)
@@ -826,6 +1138,41 @@ fn count_by(
     collect(rows)
 }
 
+fn count_missing_tool_call_runs(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+) -> Result<u64> {
+    let eval_filter = append_condition(
+        build_fact_filter(filter, "s", "cer.created_at", true),
+        "cer.source_type = 'coding_task_eval'
+         AND COALESCE(
+            CAST(json_extract(cer.metrics_json, '$.metrics.executionMode') AS TEXT),
+            CAST(json_extract(cer.metrics_json, '$.metrics.execution_mode') AS TEXT),
+            CAST(json_extract(cer.metrics_json, '$.executionMode') AS TEXT),
+            CAST(json_extract(cer.metrics_json, '$.execution_mode') AS TEXT),
+            ''
+         ) = 'agent'
+         AND COALESCE(
+            json_array_length(json_extract(cer.metrics_json, '$.metrics.agentExecution.toolCalls')),
+            json_array_length(json_extract(cer.metrics_json, '$.metrics.agent_execution.tool_calls')),
+            json_array_length(json_extract(cer.metrics_json, '$.metrics.execution_tool_calls')),
+            json_array_length(json_extract(cer.metrics_json, '$.execution_tool_calls')),
+            0
+         ) = 0",
+    );
+    count(
+        conn,
+        &format!(
+            "SELECT COUNT(*)
+             FROM coding_eval_runs cer
+             LEFT JOIN sessions s ON s.id = cer.session_id
+             {}",
+            eval_filter.where_sql
+        ),
+        &eval_filter.params,
+    )
+}
+
 fn query_timeline_count(
     conn: &rusqlite::Connection,
     days: &mut BTreeMap<String, CodingImprovementTimelinePoint>,
@@ -921,6 +1268,7 @@ fn failure_label(category: &str) -> &'static str {
         "no_effective_diff_progress" => "No effective diff progress",
         "permission_stall" => "Permission stall",
         "context_miss" => "Context miss",
+        "missing_tool_call" => "Missing tool call",
         "verification_selection_gap" => "Verification selection gap",
         "workflow_failed" => "Workflow failed",
         "workflow_blocked" => "Workflow blocked",
@@ -932,7 +1280,10 @@ fn failure_label(category: &str) -> &'static str {
 fn failure_severity(category: &str) -> &'static str {
     match category {
         "review_blocker" | "repair_loop_exhausted" | "eval_failed" | "validation_failed" => "high",
-        "permission_stall" | "context_miss" | "verification_selection_gap" => "medium",
+        "permission_stall"
+        | "context_miss"
+        | "missing_tool_call"
+        | "verification_selection_gap" => "medium",
         _ => "low",
     }
 }
@@ -992,6 +1343,72 @@ mod tests {
                     metrics_json, source_type, source_id, created_at
                  ) VALUES (?1, ?2, ?3, 'suite', 'eval', 'passed', '{}', 'test', 'eval', ?4)",
                 params!["cer_dashboard", session.id, project_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_eval_runs (
+                    id, session_id, project_id, suite, name, status,
+                    metrics_json, source_type, source_id, created_at
+                 ) VALUES (
+                    ?1, ?2, ?3, 'task_level_coding_eval', 'tool-call', 'failed',
+                    ?4, 'coding_task_eval', 'tool-call', ?5
+                 )",
+                params![
+                    "cer_tool_call_dashboard",
+                    session.id,
+                    project_id,
+                    json!({"metrics":{"executionMode":"agent","agentExecution":{"toolCalls":[]}}})
+                        .to_string(),
+                    now
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_eval_pack_runs (
+                    id, session_id, project_id, pack_id, source_doc, label,
+                    baseline_kind, status, selected_cases, automated_cases,
+                    skipped_cases, passed_cases, failed_cases, total_checks,
+                    report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    ?1, ?2, ?3, 'phase5-gold-task-pack', 'docs/roadmap/coding-eval.md',
+                    'external smoke', 'external_model', 'passed', 2, 2, 0, 2, 0, 12,
+                    ?4, 'gold_task_pack', 'phase5-gold-task-pack', ?5
+                 )",
+                params![
+                    "cepr_dashboard",
+                    session.id,
+                    project_id,
+                    json!({
+                        "packId": "phase5-gold-task-pack",
+                        "sourceDoc": "docs/roadmap/coding-eval.md",
+                        "packRunId": "cepr_dashboard",
+                        "selectedCases": 2,
+                        "automatedCases": 2,
+                        "skippedCases": 0,
+                        "passedCases": 2,
+                        "failedCases": 0,
+                        "totalChecks": 12,
+                        "passed": true,
+                        "cases": []
+                    })
+                    .to_string(),
+                    now
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_strategy_effect_runs (
+                    id, session_id, project_id, strategy_type, baseline_label,
+                    candidate_label, baseline_pack_run_id, candidate_pack_run_id,
+                    verdict, compared_cases, pass_rate_delta, average_score_delta,
+                    context_recall_delta, validation_violation_delta, scope_creep_delta,
+                    execution_failure_delta, report_json, source_type, source_id, created_at
+                 ) VALUES (
+                    ?1, ?2, ?3, 'workflow_policy', 'before', 'after',
+                    NULL, 'cepr_dashboard', 'regressed', 2, -0.5, -0.25,
+                    0.0, 1, 2, 0, '{}', 'strategy_effect', 'workflow_policy', ?4
+                 )",
+                params!["cser_dashboard", session.id, project_id, now],
             )
             .unwrap();
             conn.execute(
@@ -1071,6 +1488,15 @@ mod tests {
         assert_eq!(dashboard.overview.total_sessions, 1);
         assert_eq!(dashboard.overview.completed_workflows, 1);
         assert_eq!(dashboard.overview.passed_eval_runs, 1);
+        assert_eq!(dashboard.overview.failed_eval_runs, 1);
+        assert_eq!(dashboard.overview.eval_pack_runs, 1);
+        assert_eq!(dashboard.overview.passed_eval_pack_runs, 1);
+        assert_eq!(dashboard.overview.external_pack_runs, 1);
+        assert_eq!(dashboard.overview.strategy_effect_runs, 1);
+        assert_eq!(dashboard.overview.regressed_strategy_effects, 1);
+        assert_eq!(dashboard.overview.missing_tool_call_runs, 1);
+        assert_eq!(dashboard.overview.validation_violation_delta, 1);
+        assert_eq!(dashboard.overview.scope_creep_delta, 2);
         assert_eq!(dashboard.overview.open_review_blockers, 1);
         assert_eq!(dashboard.overview.failed_verification_steps, 1);
         assert_eq!(dashboard.overview.retro_recommendations, 1);
@@ -1086,7 +1512,15 @@ mod tests {
             Some("Dashboard Project")
         );
         assert_eq!(dashboard.by_project[0].distillation_candidates, 2);
+        assert_eq!(dashboard.by_project[0].eval_pack_runs, 1);
+        assert_eq!(dashboard.by_project[0].strategy_effect_runs, 1);
+        assert_eq!(dashboard.by_project[0].regressed_strategy_effects, 1);
         assert_eq!(dashboard.top_failures[0].category, "validation_failed");
+        assert_eq!(
+            dashboard.tool_call_failures[0].category,
+            "missing_tool_call"
+        );
+        assert_eq!(dashboard.latest_strategy_effects[0].verdict, "regressed");
         assert_eq!(dashboard.latest_retros[0].recommendations.len(), 1);
         assert_eq!(dashboard.timeline.len(), 1);
     }

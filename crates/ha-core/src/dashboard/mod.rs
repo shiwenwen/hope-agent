@@ -19,7 +19,7 @@ pub use coding_improvement::{
     query_coding_improvement_dashboard, CodingImprovementDashboard,
     CodingImprovementDashboardOverview, CodingImprovementFailureBucket,
     CodingImprovementProjectBucket, CodingImprovementRetroItem, CodingImprovementStatusBucket,
-    CodingImprovementTimelinePoint,
+    CodingImprovementStrategyEffectItem, CodingImprovementTimelinePoint,
 };
 pub use detail_queries::*;
 pub use insights::*;

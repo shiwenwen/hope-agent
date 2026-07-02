@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 4.4 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
+> 状态：Phase 5.7 已实现。本文是 `ha-core::coding_improvement`、`dashboard::coding_improvement`、Coding Trend Report、Transcript Distillation、Failure Feedback、Workflow Retro、Improvement Proposal 队列、Proposal-to-Action、Draft Promotion、Gold Pack / Strategy Effect history、owner API、Workspace 质量趋势区块与 Dashboard 全局学习视图的单一技术事实源。
 
 ## 目标
 
@@ -16,15 +16,17 @@ Coding Improvement Loop 把已经持久化的 coding 控制面数据转成可审
 - workflow 进入终态时自动生成 lightweight retro；retro recommendation 也可进入 proposal queue。
 - 用户可显式触发 transcript distillation：扫描真实 session transcript、tool error、workflow op shape 和 failure taxonomy，生成更高质量的 workflow / skill / guidance proposal。
 - 已应用草稿可显式 promotion：eval candidate 迁入正式 fixture 路径，workflow/guidance 写入项目 promoted docs 并由 AGENTS.md managed include 引入，skill draft 激活为 managed active skill。
-- Dashboard Learning Tab 提供全局 / 项目级 Coding Improvement 聚合：workflow completion、eval success、review blocker、verification failure、proposal status、retro recommendation、top failure mode 与最近 retro。
+- Dashboard Learning Tab 提供全局 / 项目级 Coding Improvement 聚合：workflow completion、eval success、pack pass rate、strategy verdict、tool-call failure mode、validation / scope creep delta、review blocker、verification failure、proposal status、retro recommendation、top failure mode 与最近 retro。
 
 ## 数据模型
 
-初始化入口在 `SessionDB::open()`，由 `crate::coding_improvement::ensure_tables()` 创建三张表。
+初始化入口在 `SessionDB::open()`，由 `crate::coding_improvement::ensure_tables()` 创建五张表。
 
 | 表 | 说明 |
 | --- | --- |
 | `coding_eval_runs` | 记录 deterministic eval 或外部评测运行结果，字段包括 `session_id`、`project_id`、`suite`、`name`、`status`、`metrics_json`、`source_type`、`source_id`、`created_at`。 |
+| `coding_eval_pack_runs` | Phase 5.7 新增。记录 `GoldTaskPackReport` history，字段包括 `pack_id`、`source_doc`、`label`、`baseline_kind`、pack pass/fail/skipped/checks 汇总、`report_json`、`source_type`、`source_id`、`created_at`。`baseline_kind` 用来区分 `deterministic_mock` / `mock_provider` / `external_model`，避免把 fixture / mock 基线冒充真实模型能力。 |
+| `coding_strategy_effect_runs` | Phase 5.7 新增。记录 `StrategyEffectReport` history，字段包括 `strategy_type`、baseline/candidate label、可选 pack run 关联、`verdict`、共同 case 数、pass rate / task score / context recall / validation / scope creep / execution failure delta、`report_json`、`source_type`、`source_id`、`created_at`。 |
 | `coding_workflow_retros` | workflow 终态 retro，字段包括 `workflow_run_id`、`run_state`、`summary`、`signals_json`、`recommendations_json`、`project_id`、`created_at`、`updated_at`。`workflow_run_id` 唯一，重复终态回写走 upsert。 |
 | `coding_improvement_proposals` | 改进候选草案队列，字段包括 `kind`、`status`、`source_type`、`source_id`、`title`、`body`、`payload_json`、`fingerprint`、`decided_at`、`apply_result_json`、`applied_at`、`promotion_result_json`、`promoted_at`。 |
 
@@ -234,11 +236,13 @@ Phase 4.3 新增只读全局聚合 API：
 
 | 区块 | 内容 |
 | --- | --- |
-| `overview` | session、workflow、eval、review blocker、verification failure、retro、proposal 和 distillation queue 汇总。 |
-| `timeline` | 按天聚合 completed/blocked/failed workflow、passed/failed eval、proposal created/applied/promoted、retro recommendation。 |
-| `byProject` | 按 `project_id` 汇总 workflow/eval 成功率、blocker、proposal 与 distillation candidates；项目名可用时从 `projects` 表补齐。 |
+| `overview` | session、workflow、case eval、pack eval、strategy effect、tool-call missing、validation/scope delta、review blocker、verification failure、retro、proposal 和 distillation queue 汇总。 |
+| `timeline` | 按天聚合 completed/blocked/failed workflow、passed/failed eval、passed/failed pack、strategy verdict、validation/scope delta、proposal created/applied/promoted、retro recommendation。 |
+| `byProject` | 按 `project_id` 汇总 workflow/eval/pack 成功率、strategy regression、blocker、proposal 与 distillation candidates；项目名可用时从 `projects` 表补齐。 |
 | `topFailures` | 从 `eval_candidate` proposal payload 中读取稳定 failure category，展示 top failure mode。 |
+| `toolCallFailures` | 从 task-level eval metrics 读取 agent 模式下 `toolCalls=[]` 的 run，展示 tool-call failure mode。 |
 | `proposalStatuses` | proposal status 分布。 |
+| `latestStrategyEffects` | 最近 strategy effect run，展示 verdict、baseline/candidate label、pass rate / task score / validation / scope creep delta。 |
 | `latestRetros` | 最近 workflow retro summary 与 recommendation。 |
 
 该 API **只读** existing durable facts，不调用 `generate_coding_improvement_proposals`，不 apply，不 promotion，也不回写任何 learning event。无痕、cron、subagent session 按 Dashboard 通用规则排除；sessionless eval run 仅在未按 agent/provider/model 过滤时计入全局 eval 聚合。
@@ -259,10 +263,11 @@ Workspace 面板新增「质量趋势」区块：
 
 Dashboard Learning Tab 新增「Coding improvement」区块：
 
-- 顶部展示 Workflow / Eval 成功率、Review blocker、Verification failure、Distillation queue、Retro recommendation。
-- Project signals 列出项目级完成率、eval 率、blocker 和可沉淀候选。
-- Failure modes 展示 top eval candidate failure taxonomy。
-- Improvement timeline 展示近日日级信号密度。
+- 顶部展示 Workflow / Eval / Pack 成功率、Strategy Effect 数、Tool-call 缺失、Review blocker、Verification failure、Distillation queue、Retro recommendation。
+- Project signals 列出项目级完成率、eval 率、pack 率、strategy regression、blocker 和可沉淀候选。
+- Failure modes 展示 top eval candidate failure taxonomy 与 tool-call missing failure mode。
+- Improvement timeline 展示近日日级信号密度，包含 pack pass/fail、strategy verdict 与 validation/scope delta。
+- Latest strategy effects 展示最近策略对比 verdict 与关键 delta。
 - Latest retros 展示最近 terminal workflow retro 和首条 recommendation。
 
 Workspace 是当前 session/project 的可操作质量面板；Dashboard 是全局 / 项目级只读学习视图。两者不复用任意 session 伪装 scope，避免把 session-local report 误读成全局事实。
@@ -291,11 +296,11 @@ Phase 5.1 为 `coding_eval.rs` 增加 task-level runner fixture，覆盖候选 d
 
 Phase 5.2 为同一 harness 增加 agent execution runner：`mode=agent` 真实调用 chat engine，`mode=fixture_patch` 做无模型回归替身。task eval run metrics 会携带 execution 摘要，因此 Improvement Loop 可以区分执行失败、无 diff、scope creep、验证缺口等失败来源，而不需要新建 learning 表。
 
-Phase 5.3 为同一 harness 增加 Gold Task Pack v1；Phase 5.5 已把首批 20 个 active gold tasks 全部接入自动化 pack，可批量 materialize 成普通 task fixture 并运行。Pack 内每个 case 仍复用 `runs.task.recordEvalRun` 写入同一 `coding_eval_runs` 表，因此 Dashboard / Improvement Loop 无需新表即可按 case 粒度消费 task-level 结果；pack-level summary 只作为 owner API 响应，不改变持久化模型。
+Phase 5.3 为同一 harness 增加 Gold Task Pack v1；Phase 5.5 已把首批 20 个 active gold tasks 全部接入自动化 pack，可批量 materialize 成普通 task fixture 并运行。Pack 内每个 case 仍复用 `runs.task.recordEvalRun` 写入同一 `coding_eval_runs` 表，Phase 5.7 额外把 pack-level summary 写入 `coding_eval_pack_runs`，让 Dashboard 能按 pack 粒度展示 pass rate 与 baseline kind。
 
-Phase 5.4 为 pack report 增加策略效果评估：两份 `GoldTaskPackReport` 可通过纯函数 owner API 生成 `StrategyEffectReport`，按共同 case 比较 pass rate、task score、context recall、validation violations、scope creep 和 execution failures。该层暂不新增表；它为 workflow policy、skill/guidance、tool contract 改动提供 review-time 质量闸，后续再把 report history 纳入 Dashboard 趋势。
+Phase 5.4 为 pack report 增加策略效果评估：两份 `GoldTaskPackReport` 可通过纯函数 owner API 生成 `StrategyEffectReport`，按共同 case 比较 pass rate、task score、context recall、validation violations、scope creep 和 execution failures。Phase 5.7 保留纯函数无副作用语义，同时让 Tauri / HTTP owner API 在 `recordRun=true` 时写入 `coding_strategy_effect_runs`，把 review-time 质量闸升级为可审计趋势。
 
-Phase 5.6 为 agent execution runner 增加稳定 mock tool-call 基线与 `toolCalls` 指标。mock Responses provider 会驱动真实 `write` 工具修改临时 repo，再由 task scorer 判断候选 diff 是否完成任务；`FixtureReport.metrics.execution_tool_calls` 让 Improvement Loop 可以区分“模型调用了错误工具 / 没有调用工具”和“工具调用成功但 diff 质量不达标”。该层仍不新增表；后续策略效果趋势持久化再把 pack / strategy report history 纳入 Dashboard。
+Phase 5.6 为 agent execution runner 增加稳定 mock tool-call 基线与 `toolCalls` 指标。mock Responses provider 会驱动真实 `write` 工具修改临时 repo，再由 task scorer 判断候选 diff 是否完成任务；`FixtureReport.metrics.execution_tool_calls` 与 task report metrics 让 Improvement Loop 可以区分“模型调用了错误工具 / 没有调用工具”和“工具调用成功但 diff 质量不达标”。Phase 5.7 Dashboard 会把 agent 模式下缺失 tool call 的 run 聚合为 `missing_tool_call` failure mode。
 
 ## 红线
 

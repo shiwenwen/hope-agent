@@ -2,9 +2,9 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 更新时间：2026-07-02
+> 更新时间：2026-07-03
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地，Agent Execution Runner 已作为 Phase 5.2 落地，Gold Task Pack v1 已作为 Phase 5.3 落地，Strategy Effect Evaluator 已作为 Phase 5.4 落地，Gold Task Pack 全量自动化已作为 Phase 5.5 落地，Mock Tool-call 基线与执行指标已作为 Phase 5.6 落地，均沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地，Agent Execution Runner 已作为 Phase 5.2 落地，Gold Task Pack v1 已作为 Phase 5.3 落地，Strategy Effect Evaluator 已作为 Phase 5.4 落地，Gold Task Pack 全量自动化已作为 Phase 5.5 落地，Mock Tool-call 基线与执行指标已作为 Phase 5.6 落地，Strategy Effect 趋势持久化 / Dashboard 已作为 Phase 5.7 落地，沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md) 与 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。
 
 ## 1. 路线调整结论
 
@@ -58,7 +58,7 @@ Phase 5.3  Gold Task Pack v1（已完成）
 Phase 5.4  Strategy Effect Evaluator（已完成）
 Phase 5.5  Gold Task Pack 全量自动化（已完成）
 Phase 5.6  Mock Tool-call 基线与执行指标（已完成）
-Phase 5.7  Strategy Effect 趋势持久化 / Dashboard（下一步）
+Phase 5.7  Strategy Effect 趋势持久化 / Dashboard（已完成）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -609,11 +609,13 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - coding eval 临时 DB 统一执行 `ChannelDB::migrate()`，避免 `get_session()` metadata join 与生产 schema 漂移。
 - 最终架构见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。
 
-### Phase 5.7 Strategy Effect 趋势持久化 / Dashboard（下一步）
+### Phase 5.7 Strategy Effect 趋势持久化 / Dashboard（已完成）
 
-- 把 `GoldTaskPackReport` / `StrategyEffectReport` history 持久化为可审计质量闸。
-- Dashboard 展示 pack pass rate、strategy verdict、tool-call failure mode、validation / scope creep 趋势。
-- 保持 mock 基线和外部真实模型基线分离，避免把 deterministic mock 结果冒充真实 provider 能力。
+- 新增 `coding_eval_pack_runs` / `coding_strategy_effect_runs`，把 `GoldTaskPackReport` / `StrategyEffectReport` history 持久化为可审计质量闸。
+- `run_coding_eval_gold_task_pack` 默认 `recordPackRun=true`，返回 `packRunId`；`baselineKind` 区分 `deterministic_mock` / `mock_provider` / `external_model`。
+- `evaluate_coding_eval_strategy_effect` 保持纯对比默认无副作用，`recordRun=true` 时写入 strategy effect history 并返回 `runId`。
+- Dashboard Learning Tab 展示 pack pass rate、strategy verdict、tool-call failure mode、validation / scope creep 趋势和 latest strategy effects。
+- mock / fixture 基线与外部真实模型基线分离，避免把 deterministic mock 结果冒充真实 provider 能力。
 
 ## 9. 体验与性能红线
 
