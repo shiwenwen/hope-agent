@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "Generate",
     "serverKnowledgeAgentReadToken": "Knowledge Agent read token",
     "serverKnowledgeAgentReadTokenPlaceholder": "Leave empty to disable read-only agent access",
-    "serverKnowledgeAgentReadTokenDesc": "Scoped token for external agents. It can only call the read-only knowledge agent endpoints and never grants owner API access.",
+    "serverKnowledgeAgentReadTokenDesc": "Scoped token for external agents. It only works when an owner API key is also set; then it can call read-only knowledge agent endpoints and never grants owner API access.",
     "serverMode": "Server Mode",
     "serverModeDesc": "Choose embedded mode or connect to a remote server",
     "serverModeEmbedded": "Embedded",

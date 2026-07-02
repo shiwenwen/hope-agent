@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "Oluştur",
     "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
     "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
-    "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca salt okunur knowledge agent uç noktalarını çağırabilir ve owner API erişimi vermez.",
+    "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez.",
     "serverMode": "Sunucu modu",
     "serverModeDesc": "Gömülü modu seçin veya bir uzak sunucuya bağlanın",
     "serverModeEmbedded": "Gömülü",

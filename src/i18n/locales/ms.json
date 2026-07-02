@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "Jana",
     "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
     "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
-    "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
+    "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
     "serverMode": "Mod pelayan",
     "serverModeDesc": "Pilih mod terbenam atau sambung ke pelayan jauh",
     "serverModeEmbedded": "Terbenam",

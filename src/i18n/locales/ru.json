@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "Сгенерировать",
     "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
     "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
-    "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он может вызывать только endpoints Knowledge Agent для чтения и не даёт доступ owner API.",
+    "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API.",
     "serverMode": "Режим сервера",
     "serverModeDesc": "Выберите встроенный режим или подключение к удалённому серверу",
     "serverModeEmbedded": "Встроенный",

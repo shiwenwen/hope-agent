@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "生成",
     "serverKnowledgeAgentReadToken": "Knowledge Agent 読み取りトークン",
     "serverKnowledgeAgentReadTokenPlaceholder": "読み取り専用 Agent アクセスを無効にするには空欄",
-    "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。",
+    "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。owner API キーも設定されている場合のみ有効になり、有効時は読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。",
     "serverMode": "サーバーモード",
     "serverModeDesc": "組み込みモードまたはリモートサーバー接続を選択",
     "serverModeEmbedded": "組み込み",

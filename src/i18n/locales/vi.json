@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "Tạo",
     "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
     "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
-    "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Token này chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
+    "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
     "serverMode": "Chế độ máy chủ",
     "serverModeDesc": "Chọn chế độ nhúng hoặc kết nối với máy chủ từ xa",
     "serverModeEmbedded": "Nhúng",

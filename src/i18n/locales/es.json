@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "Generar",
     "serverKnowledgeAgentReadToken": "Token de lectura de Knowledge Agent",
     "serverKnowledgeAgentReadTokenPlaceholder": "Déjalo vacío para desactivar el acceso de agent de solo lectura",
-    "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo puede llamar a endpoints de solo lectura del knowledge agent y nunca concede acceso a la API owner.",
+    "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo funciona cuando también hay una API key owner configurada; entonces solo puede llamar endpoints de solo lectura del knowledge agent y nunca concede acceso owner API.",
     "serverMode": "Modo servidor",
     "serverModeDesc": "Elige modo embebido o conectar a un servidor remoto",
     "serverModeEmbedded": "Embebido",

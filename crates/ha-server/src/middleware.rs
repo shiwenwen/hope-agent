@@ -81,13 +81,17 @@ pub async fn require_api_key(
     next: Next,
 ) -> Response {
     let owner_key = state.api_key.as_deref().filter(|k| !k.is_empty());
+    if owner_key.is_none() {
+        // A scoped Knowledge Agent token only makes sense alongside owner API-key
+        // protection. Without an owner key the server is intentionally in no-auth
+        // mode; do not let a read token alone lock every other endpoint into an
+        // inaccessible state.
+        return next.run(request).await;
+    }
     let read_token = state
         .knowledge_agent_read_token
         .as_deref()
         .filter(|k| !k.is_empty());
-    if owner_key.is_none() && read_token.is_none() {
-        return next.run(request).await;
-    }
 
     let path = request.uri().path().to_string();
     if let Some(token) = request_auth_token(&request) {
@@ -271,10 +275,33 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
     }
 
+    #[tokio::test]
+    async fn read_token_without_owner_key_keeps_no_auth_mode() {
+        let app = auth_test_router_with(None, Some("read-token"));
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/knowledge/agent/compile/propose")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
     fn auth_test_router() -> Router {
+        auth_test_router_with(Some("owner-token"), Some("read-token"))
+    }
+
+    fn auth_test_router_with(
+        api_key: Option<&str>,
+        knowledge_agent_read_token: Option<&str>,
+    ) -> Router {
         let auth_state = ApiKeyState {
-            api_key: Some("owner-token".to_string()),
-            knowledge_agent_read_token: Some("read-token".to_string()),
+            api_key: api_key.map(str::to_string),
+            knowledge_agent_read_token: knowledge_agent_read_token.map(str::to_string),
         };
         Router::new()
             .route("/api/knowledge/agent/search", post(|| async { "ok" }))

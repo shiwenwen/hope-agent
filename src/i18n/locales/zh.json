@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "生成",
     "serverKnowledgeAgentReadToken": "知识空间 Agent 只读 Token",
     "serverKnowledgeAgentReadTokenPlaceholder": "留空则关闭只读 Agent 访问",
-    "serverKnowledgeAgentReadTokenDesc": "给外部 Agent 使用的受限 Token，只能调用知识空间只读接口，不授予 owner API 权限。",
+    "serverKnowledgeAgentReadTokenDesc": "给外部 Agent 使用的受限 Token。只有同时设置 owner API Key 时才生效；生效后只能调用知识空间只读接口，不授予 owner API 权限。",
     "serverMode": "服务器模式",
     "serverModeDesc": "选择内嵌模式或连接远程服务器",
     "serverModeEmbedded": "内嵌",

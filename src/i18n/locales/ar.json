@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "توليد",
     "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
     "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
-    "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يمكنه فقط استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
+    "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
     "serverMode": "وضع الخادم",
     "serverModeDesc": "اختر الوضع المضمن أو الاتصال بخادم بعيد",
     "serverModeEmbedded": "مضمن",

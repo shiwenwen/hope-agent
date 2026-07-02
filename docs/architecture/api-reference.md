@@ -44,7 +44,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | Tauri | 无鉴权（本地 IPC） |
 | HTTP REST | `Authorization: Bearer <api_key>` header |
 | WebSocket | `?token=<api_key>` 查询参数（浏览器 WS 不支持自定义 header） |
-| Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
+| Knowledge Agent 只读 token | `server.knowledgeAgentReadToken` 或 `HA_KNOWLEDGE_AGENT_READ_TOKEN`；仅在 owner API key 已启用时参与鉴权，仅允许 `POST /api/knowledge/agent/{search,read,expand,sources}`，其它受保护 API 返回 403 |
 | 免鉴权 | `GET /api/health`、`GET /api/server/status`（server 绑定状态 / 正常运行时间 / WS 数，不含敏感字段） |
 
 `api_key=None` 时中间件全放行。鉴权实现见 [`crates/ha-server/src/middleware.rs`](../../crates/ha-server/src/middleware.rs)（constant-time 比较）。
@@ -233,7 +233,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 
 ### Knowledge Base（知识空间）
 
-**Owner / 管理平面**——全局 API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。Knowledge Agent read token 只允许下表中的 `knowledge_agent_{search,read,expand,sources}_cmd` HTTP 路由，不能访问 compile/propose 或任何管理端点。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D20）。
+**Owner / 管理平面**——全局 API key 持有者 = owner-equivalent，看自己全部 KB，**不经 `effective_kb_access`**（那是 agent `note_*` 工具平面）。Knowledge Agent read token 只在 owner API key 保护开启时生效，只允许下表中的 `knowledge_agent_{search,read,expand,sources}_cmd` HTTP 路由，不能访问 compile/propose 或任何管理端点；若 server 处于 no-auth 模式，read token 不会单独启用鉴权。详见 [knowledge-base.md](./knowledge-base.md)（实现 + 设计契约 D1–D20）。
 
 | Tauri 命令 | HTTP 路由 | 对齐 |
 |---|---|---|

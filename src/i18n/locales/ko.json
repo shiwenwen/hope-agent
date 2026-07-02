@@ -4271,7 +4271,7 @@
     "serverGenerateApiKey": "생성",
     "serverKnowledgeAgentReadToken": "Knowledge Agent 읽기 토큰",
     "serverKnowledgeAgentReadTokenPlaceholder": "읽기 전용 Agent 접근을 비활성화하려면 비워두기",
-    "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있으며 owner API 권한은 부여하지 않습니다.",
+    "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. owner API 키가 함께 설정된 경우에만 동작하며, 동작 시 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있고 owner API 권한은 부여하지 않습니다.",
     "serverMode": "서버 모드",
     "serverModeDesc": "내장 모드 또는 원격 서버에 연결",
     "serverModeEmbedded": "내장",

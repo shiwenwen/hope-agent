@@ -744,7 +744,7 @@
       },
       "serverKnowledgeAgentReadToken": "Knowledge Agent 読み取りトークン",
       "serverKnowledgeAgentReadTokenPlaceholder": "読み取り専用 Agent アクセスを無効にするには空欄",
-      "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。"
+      "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。owner API キーも設定されている場合のみ有効になり、有効時は読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -2192,7 +2192,7 @@
       },
       "serverKnowledgeAgentReadToken": "Knowledge Agent 읽기 토큰",
       "serverKnowledgeAgentReadTokenPlaceholder": "읽기 전용 Agent 접근을 비활성화하려면 비워두기",
-      "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있으며 owner API 권한은 부여하지 않습니다."
+      "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. owner API 키가 함께 설정된 경우에만 동작하며, 동작 시 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있고 owner API 권한은 부여하지 않습니다."
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -3640,7 +3640,7 @@
       },
       "serverKnowledgeAgentReadToken": "知識空間 Agent 唯讀 Token",
       "serverKnowledgeAgentReadTokenPlaceholder": "留空則關閉唯讀 Agent 存取",
-      "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token，只能呼叫知識空間唯讀介面，不授予 owner API 權限。"
+      "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -5071,7 +5071,7 @@
       },
       "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
       "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
-      "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca salt okunur knowledge agent uç noktalarını çağırabilir ve owner API erişimi vermez."
+      "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -6519,7 +6519,7 @@
       },
       "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
-      "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Token này chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -7967,7 +7967,7 @@
       },
       "serverKnowledgeAgentReadToken": "Token de leitura do Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Deixe vazio para desativar o acesso de agent somente leitura",
-      "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner."
+      "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -9415,7 +9415,7 @@
       },
       "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
-      "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он может вызывать только endpoints Knowledge Agent для чтения и не даёт доступ owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -10863,7 +10863,7 @@
       },
       "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
-      "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يمكنه فقط استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API."
+      "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -12311,7 +12311,7 @@
       },
       "serverKnowledgeAgentReadToken": "Token de lectura de Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Déjalo vacío para desactivar el acceso de agent de solo lectura",
-      "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo puede llamar a endpoints de solo lectura del knowledge agent y nunca concede acceso a la API owner."
+      "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo funciona cuando también hay una API key owner configurada; entonces solo puede llamar endpoints de solo lectura del knowledge agent y nunca concede acceso owner API."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -13759,7 +13759,7 @@
       },
       "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
-      "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -14590,7 +14590,7 @@
       },
       "serverKnowledgeAgentReadToken": "知识空间 Agent 只读 Token",
       "serverKnowledgeAgentReadTokenPlaceholder": "留空则关闭只读 Agent 访问",
-      "serverKnowledgeAgentReadTokenDesc": "给外部 Agent 使用的受限 Token，只能调用知识空间只读接口，不授予 owner API 权限。"
+      "serverKnowledgeAgentReadTokenDesc": "给外部 Agent 使用的受限 Token。只有同时设置 owner API Key 时才生效；生效后只能调用知识空间只读接口，不授予 owner API 权限。"
     },
     "chat": {
       "handover": {

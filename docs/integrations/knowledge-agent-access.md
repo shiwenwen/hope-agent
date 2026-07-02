@@ -43,7 +43,7 @@
 
 ## HTTP
 
-Owner token 使用 `server.apiKey`，拥有完整管理权限。只读 token 使用 `server.knowledgeAgentReadToken` 或环境变量 `HA_KNOWLEDGE_AGENT_READ_TOKEN`，只允许访问：
+Owner token 使用 `server.apiKey`，拥有完整管理权限。只读 token 使用 `server.knowledgeAgentReadToken` 或环境变量 `HA_KNOWLEDGE_AGENT_READ_TOKEN`，并且只在 owner API key 已启用时生效；它只允许访问：
 
 - `POST /api/knowledge/agent/search`
 - `POST /api/knowledge/agent/read`
