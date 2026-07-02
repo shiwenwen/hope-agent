@@ -1,0 +1,161 @@
+{
+  "name": "agent_execution_runner_fixture_patch",
+  "description": "Agent execution runner should produce a candidate result before review, verification, context retrieval, task scoring, and eval-run recording.",
+  "task": {
+    "id": "CE-DOC-002",
+    "taskType": "doc_only",
+    "title": "Execute task eval update",
+    "source": "synthetic",
+    "prompt": "Update docs/agent-runner.md with a short note that the execution runner produced the candidate change.",
+    "executionMode": "doc_only",
+    "expectedBehavior": [
+      "Produce the candidate diff before scoring",
+      "Change only docs/agent-runner.md"
+    ],
+    "forbiddenBehavior": [
+      "Do not edit source code",
+      "Do not run broad test suites"
+    ],
+    "likelyFiles": [
+      "docs/agent-runner.md"
+    ],
+    "expectedArtifacts": [
+      "diff",
+      "validation"
+    ],
+    "allowedValidation": [
+      "git diff --check"
+    ],
+    "successCriteria": [
+      "docs/agent-runner.md contains the execution runner note",
+      "Execution completed before task scoring"
+    ]
+  },
+  "repo": {
+    "files": [
+      {
+        "path": "docs/agent-runner.md",
+        "text": "# Agent Runner\n\nInitial\n"
+      }
+    ],
+    "changes": [
+      {
+        "path": "docs/agent-runner.md",
+        "text": "# Agent Runner\n\nInitial\n\nExecution runner produced this candidate change.\n"
+      }
+    ]
+  },
+  "setup": {
+    "goal": {
+      "objective": "Update agent execution runner notes",
+      "completionCriteria": "The docs-only change is produced by the execution runner and cheap validation is selected."
+    },
+    "tasks": [
+      {
+        "content": "Update docs/agent-runner.md with the execution runner note",
+        "activeForm": "Updating docs/agent-runner.md",
+        "status": "completed"
+      }
+    ]
+  },
+  "runs": {
+    "execution": {
+      "mode": "fixture_patch"
+    },
+    "review": {},
+    "verification": {},
+    "context": {
+      "query": "agent execution runner notes",
+      "limit": 12
+    },
+    "task": {
+      "recordEvalRun": true,
+      "evaluateGoal": true
+    },
+    "improvement": {
+      "windowDays": 30
+    }
+  },
+  "checks": {
+    "execution": {
+      "expectedMode": "fixture_patch",
+      "expectedStatus": "completed",
+      "requireTurn": false,
+      "expectedChangedFiles": [
+        "docs/agent-runner.md"
+      ],
+      "forbiddenChangedFiles": [
+        "src/lib.rs"
+      ],
+      "responseContains": [
+        "fixture patch applied"
+      ]
+    },
+    "review": {
+      "maxFindings": 0,
+      "expectFocused": false
+    },
+    "verification": {
+      "expectedCommands": [
+        "git diff --check"
+      ],
+      "expectFocused": false
+    },
+    "context": {
+      "minCriticalRecall": 1.0,
+      "minPrecision": 0.25,
+      "maxCandidates": 12,
+      "expectActionPaths": [
+        "docs/agent-runner.md"
+      ],
+      "critical": [
+        {
+          "kind": "file",
+          "pathSuffix": "docs/agent-runner.md"
+        },
+        {
+          "kind": "verification_step",
+          "titleContains": "Check diff whitespace"
+        }
+      ]
+    },
+    "task": {
+      "expectedOutcome": "pass",
+      "minScore": 1.0,
+      "expectedChangedFiles": [
+        "docs/agent-runner.md"
+      ],
+      "forbiddenChangedFiles": [
+        "src/lib.rs"
+      ],
+      "requiredDiffContains": [
+        "Execution runner produced this candidate change."
+      ],
+      "forbiddenDiffContains": [
+        "println!"
+      ],
+      "expectedValidationCommands": [
+        "git diff --check"
+      ],
+      "forbiddenValidationCommands": [
+        "cargo test --workspace"
+      ],
+      "maxChangedFiles": 1,
+      "requireReview": true,
+      "requireVerification": true,
+      "requireContext": true,
+      "requireGoalEvaluation": true,
+      "requiredContext": [
+        {
+          "kind": "file",
+          "pathSuffix": "docs/agent-runner.md"
+        }
+      ]
+    },
+    "improvement": {
+      "expectedScope": "session",
+      "minEvalRuns": 1,
+      "expectEvalSuccessRate": 1.0
+    }
+  }
+}

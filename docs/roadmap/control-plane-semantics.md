@@ -62,7 +62,7 @@ Loop        = 定时/重复触发或条件轮询（已实现第一版）
 | Worktree | 已实现 Phase 3.1 | Workspace 环境面板 + Workflow 创建运行位置 | `managed_worktrees`，HTTP `/api/sessions/{id}/worktrees` / `/api/worktrees/{id}` | 代码改动隔离环境，偏 coding-specific；完整实现见 [Managed Worktree 控制平面](../architecture/worktree.md)。 |
 | LSP | 已实现 Phase 3.2 | Workspace 语义诊断区块 + `lsp` 工具 | `ha-core::lsp`，HTTP `/api/sessions/{id}/lsp/status` / `/api/sessions/{id}/lsp/diagnostics` | 语义导航和 diagnostics，偏 coding-specific；完整实现见 [LSP 与语义代码智能](../architecture/lsp.md)。 |
 | Context Retrieval | 已实现 Phase 3.6 | Workspace 推荐上下文区块 | `ha-core::context_retrieval`，HTTP `/api/sessions/{id}/context-retrieval` | 任务感知上下文推荐与行动入口，聚合 diff/artifact/LSP/review/verification/goal/task/workflow/search/symbol/source，并可从候选行触发 focused review / verification；完整实现见 [Context Retrieval v2](../architecture/context-retrieval.md)。 |
-| Coding Eval | 已实现 Phase 5.1 | 测试/CI 质量闸 + owner API | `ha-core::coding_eval`，`cargo test -p ha-core --test coding_eval --locked`，`run_coding_task_eval_fixture` | 确定性 fixture harness，回归 Review / Smart Verification / Context Retrieval / Goal / Task / Workflow 协同，并用 task-level runner 评估候选 diff 是否满足任务成功标准；完整实现见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。 |
+| Coding Eval | 已实现 Phase 5.2 | 测试/CI 质量闸 + owner API | `ha-core::coding_eval`，`cargo test -p ha-core --test coding_eval --locked`，`run_coding_task_eval_fixture` | 确定性 fixture harness，回归 Review / Smart Verification / Context Retrieval / Goal / Task / Workflow 协同，用 agent execution runner 从 prompt 产出候选结果，并用 task-level runner 评估候选 diff 是否满足任务成功标准；完整实现见 [Coding Eval 控制面评测](../architecture/coding-eval.md)。 |
 
 ## 3.1 调整后的实施顺序
 
@@ -86,11 +86,12 @@ Phase 3.10 Deep Review / Profiles / IDE Context（已完成）
 Phase 3.11 Trend Report / Improvement Loop 接口（已完成）
 Phase 4.1-4.4 Learning Loop / Skill & Guidance 沉淀（已完成）
 Phase 5.1  Task-level Eval Runner（已完成）
+Phase 5.2  Agent Execution Runner（已完成）
 ```
 
 这意味着 LSP、review engine 不作为 worktree 之前的顶层优先级。它们仍然重要，但应挂在 Goal / Workflow / Worktree 控制平面之下，否则容易形成一组强工具，却缺少长期任务的完成标准、证据链和最终收口。LSP / Diagnostics 已按这个原则落地为 Workspace 与工具层能力；Review Engine 也已按同一原则落地为 durable review run/finding，并把 P0/P1 open finding 写回 Goal evidence。
 Smart Verification 同样按这个原则落地为 durable verification run/step，并把最小验证结果写回 Goal evidence。
-Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Workspace 推荐上下文，并在 Phase 3.6 接入 Goal evidence、task、workflow op 关联召回与候选行 focused review / verification，帮助用户从“看到下一步”直接进入“处理下一步”。Phase 3.7 再把这组控制面协同纳入确定性 eval，确保后续增强不会破坏 focused action、最小验证选择和关键上下文召回。Phase 3.8 已把 `workflow.review()` / `workflow.verify()` 接入同一链路，workflow 脚本内产生的 review、verification plan 与 Goal evidence 也会进入控制面回归。Phase 3.9 再把 `workflow.repairLoop()` / `workflow.block()` 接入 runtime 与 eval，使 repair loop 能明确完成或 blocked。Phase 3.10 已把 review profiles、Deep Review、IDE/ACP context 和 symbol-context evidence 接入同一套 durable Review / Context / Eval 链路。Phase 3.11 已把 Trend Report / Improvement Loop 接入 durable 控制面数据与 Workspace 质量趋势区块。Phase 4 已把 learning loop 的 proposal/action/promotion/dashboard/distillation 链路接上。Phase 5.1 已把候选 diff 的 task-level 判分接入同一 eval 表。后续缺口转为真实 Agent execution runner、gold task 自动化扩张和策略效果评估。
+Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Workspace 推荐上下文，并在 Phase 3.6 接入 Goal evidence、task、workflow op 关联召回与候选行 focused review / verification，帮助用户从“看到下一步”直接进入“处理下一步”。Phase 3.7 再把这组控制面协同纳入确定性 eval，确保后续增强不会破坏 focused action、最小验证选择和关键上下文召回。Phase 3.8 已把 `workflow.review()` / `workflow.verify()` 接入同一链路，workflow 脚本内产生的 review、verification plan 与 Goal evidence 也会进入控制面回归。Phase 3.9 再把 `workflow.repairLoop()` / `workflow.block()` 接入 runtime 与 eval，使 repair loop 能明确完成或 blocked。Phase 3.10 已把 review profiles、Deep Review、IDE/ACP context 和 symbol-context evidence 接入同一套 durable Review / Context / Eval 链路。Phase 3.11 已把 Trend Report / Improvement Loop 接入 durable 控制面数据与 Workspace 质量趋势区块。Phase 4 已把 learning loop 的 proposal/action/promotion/dashboard/distillation 链路接上。Phase 5.1 已把候选 diff 的 task-level 判分接入同一 eval 表，Phase 5.2 已把真实 chat engine execution 接到 scorer 前。后续缺口转为 gold task 自动化扩张和策略效果评估。
 
 ## 4. `/mode` 的准确语义
 

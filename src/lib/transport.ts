@@ -1141,8 +1141,57 @@ export interface CodingEvalFixture {
   task?: CodingTaskEvalSpec | null;
   repo: CodingEvalRepoFixture;
   setup?: Record<string, unknown>;
-  runs?: Record<string, unknown>;
-  checks?: Record<string, unknown>;
+  runs?: CodingEvalRuns;
+  checks?: CodingEvalChecks;
+}
+
+export interface CodingEvalRuns {
+  execution?: CodingEvalAgentExecutionRun | null;
+  task?: Record<string, unknown> | null;
+  workflow?: Record<string, unknown> | null;
+  review?: Record<string, unknown> | null;
+  verification?: Record<string, unknown> | null;
+  context?: Record<string, unknown> | null;
+  improvement?: Record<string, unknown> | null;
+}
+
+export interface CodingEvalAgentExecutionRun {
+  mode?: "agent" | "fixture_patch" | string;
+  prompt?: string | null;
+  agentId?: string | null;
+  displayText?: string | null;
+  providers?: Record<string, unknown>[];
+  modelChain?: CodingEvalActiveModel[];
+  compactConfig?: Record<string, unknown> | null;
+  reasoningEffort?: string | null;
+  extraSystemContext?: string | null;
+  deniedTools?: string[];
+  autoApproveTools?: boolean;
+}
+
+export interface CodingEvalActiveModel {
+  providerId: string;
+  modelId: string;
+}
+
+export interface CodingEvalChecks {
+  execution?: CodingEvalAgentExecutionCheck | null;
+  task?: Record<string, unknown> | null;
+  workflow?: Record<string, unknown> | null;
+  review?: Record<string, unknown> | null;
+  verification?: Record<string, unknown> | null;
+  context?: Record<string, unknown> | null;
+  improvement?: Record<string, unknown> | null;
+}
+
+export interface CodingEvalAgentExecutionCheck {
+  expectedMode?: string | null;
+  expectedStatus?: string | null;
+  expectedChangedFiles?: string[];
+  forbiddenChangedFiles?: string[];
+  requireTurn?: boolean | null;
+  responseContains?: string[];
+  errorContains?: string[];
 }
 
 export interface CodingTaskEvalSpec {
@@ -1176,6 +1225,7 @@ export interface CodingEvalFixtureReport {
   name: string;
   metrics: CodingEvalMetrics;
   outcomes: CodingEvalCheckOutcome[];
+  execution?: CodingEvalAgentExecutionReport | null;
   task?: CodingTaskEvalReport | null;
 }
 
@@ -1190,11 +1240,27 @@ export interface CodingEvalMetrics {
   criticalContextRecall?: number | null;
   reviewFindings?: number | null;
   verificationCommands: string[];
+  executionStatus?: string | null;
+  executionMode?: string | null;
+  executionChangedFiles: string[];
   taskOutcome?: string | null;
   taskScore?: number | null;
   taskFailureCategory?: string | null;
   taskChangedFiles: string[];
   taskConstraintViolations: number;
+}
+
+export interface CodingEvalAgentExecutionReport {
+  mode: string;
+  status: string;
+  prompt: string;
+  agentId: string;
+  turnId?: string | null;
+  response?: string | null;
+  error?: string | null;
+  modelUsed?: CodingEvalActiveModel | null;
+  changedFiles: string[];
+  diffBytes: number;
 }
 
 export interface CodingTaskEvalReport {

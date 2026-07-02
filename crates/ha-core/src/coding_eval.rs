@@ -9,6 +9,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -16,15 +17,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::agent_loader::DEFAULT_AGENT_ID;
+use crate::chat_engine::{self, ChatEngineParams, ChatSource, NoopEventSink};
 use crate::coding_improvement::{
     ApplyCodingImprovementProposalResult, CodingTrendReport,
     GenerateCodingImprovementProposalsResult, PromoteCodingImprovementProposalResult,
     RecordCodingEvalRunInput,
 };
+use crate::context_compact::CompactConfig;
 use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
 use crate::goal::CreateGoalInput;
+use crate::provider::{ActiveModel, ProviderConfig};
 use crate::review::{self, RunReviewInput};
-use crate::session::{SessionDB, SessionIdeContext, TaskStatus};
+use crate::session::{NewMessage, SessionDB, SessionIdeContext, TaskStatus};
 use crate::verification::{self, PlanVerificationInput};
 use crate::workflow::{
     self, CreateWorkflowRunInput, UpsertWorkflowOpInput, WorkflowEffectClass, WorkflowRunState,
@@ -156,6 +160,8 @@ pub struct WorkflowOpFixture {
 #[serde(rename_all = "camelCase")]
 pub struct FixtureRuns {
     #[serde(default)]
+    pub execution: Option<AgentExecutionEvalRun>,
+    #[serde(default)]
     pub task: Option<TaskLevelEvalRun>,
     #[serde(default)]
     pub workflow: Option<WorkflowScriptEvalRun>,
@@ -233,6 +239,51 @@ pub struct ImprovementEvalRun {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AgentExecutionEvalRun {
+    #[serde(default = "default_agent_execution_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub display_text: Option<String>,
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
+    #[serde(default)]
+    pub model_chain: Vec<ActiveModel>,
+    #[serde(default)]
+    pub compact_config: Option<CompactConfig>,
+    #[serde(default)]
+    pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub extra_system_context: Option<String>,
+    #[serde(default)]
+    pub denied_tools: Vec<String>,
+    #[serde(default)]
+    pub auto_approve_tools: bool,
+}
+
+impl Default for AgentExecutionEvalRun {
+    fn default() -> Self {
+        Self {
+            mode: default_agent_execution_mode(),
+            prompt: None,
+            agent_id: None,
+            display_text: None,
+            providers: Vec::new(),
+            model_chain: Vec::new(),
+            compact_config: None,
+            reasoning_effort: None,
+            extra_system_context: None,
+            denied_tools: Vec::new(),
+            auto_approve_tools: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TaskLevelEvalRun {
     #[serde(default = "default_true")]
     pub record_eval_run: bool,
@@ -252,6 +303,8 @@ impl Default for TaskLevelEvalRun {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FixtureChecks {
+    #[serde(default)]
+    pub execution: Option<AgentExecutionCheck>,
     #[serde(default)]
     pub task: Option<TaskLevelCheck>,
     #[serde(default)]
@@ -427,6 +480,25 @@ pub struct TaskLevelCheck {
     pub required_context: Vec<CandidateExpectation>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentExecutionCheck {
+    #[serde(default)]
+    pub expected_mode: Option<String>,
+    #[serde(default)]
+    pub expected_status: Option<String>,
+    #[serde(default)]
+    pub expected_changed_files: Vec<String>,
+    #[serde(default)]
+    pub forbidden_changed_files: Vec<String>,
+    #[serde(default)]
+    pub require_turn: Option<bool>,
+    #[serde(default)]
+    pub response_contains: Vec<String>,
+    #[serde(default)]
+    pub error_contains: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CheckOutcome {
     pub name: String,
@@ -440,6 +512,12 @@ pub struct EvalMetrics {
     pub critical_context_recall: Option<f64>,
     pub review_findings: Option<usize>,
     pub verification_commands: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<String>,
+    #[serde(default)]
+    pub execution_changed_files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_outcome: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -457,6 +535,8 @@ pub struct FixtureReport {
     pub name: String,
     pub metrics: EvalMetrics,
     pub outcomes: Vec<CheckOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<AgentExecutionEvalReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task: Option<CodingTaskEvalReport>,
 }
@@ -476,6 +556,7 @@ impl FixtureReport {
 
 struct EvalRunArtifacts {
     repo_root: PathBuf,
+    execution: Option<AgentExecutionEvalReport>,
     task: Option<CodingTaskEvalReport>,
     workflow: Option<workflow::WorkflowRuntimeResult>,
     review: Option<review::ReviewRunSnapshot>,
@@ -488,6 +569,25 @@ struct EvalRunArtifacts {
     goal_evidence_relations: Vec<String>,
     goal_state: Option<String>,
     goal_evaluated: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentExecutionEvalReport {
+    pub mode: String,
+    pub status: String,
+    pub prompt: String,
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_used: Option<ActiveModel>,
+    pub changed_files: Vec<String>,
+    pub diff_bytes: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -615,6 +715,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
 
     let mut artifacts = EvalRunArtifacts {
         repo_root,
+        execution: None,
         task: None,
         workflow: None,
         review: None,
@@ -628,6 +729,12 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
         goal_state: None,
         goal_evaluated: false,
     };
+
+    if let Some(run) = &fixture.runs.execution {
+        artifacts.execution = Some(
+            run_agent_execution_eval(&db, &session.id, &artifacts.repo_root, fixture, run).await?,
+        );
+    }
 
     if let Some(run) = &fixture.runs.workflow {
         let workflow_run = db.create_workflow_run(CreateWorkflowRunInput {
@@ -823,6 +930,183 @@ fn refresh_goal_artifacts(
     Ok(())
 }
 
+async fn run_agent_execution_eval(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    repo_root: &Path,
+    fixture: &CodingEvalFixture,
+    run: &AgentExecutionEvalRun,
+) -> Result<AgentExecutionEvalReport> {
+    let prompt = run
+        .prompt
+        .clone()
+        .or_else(|| fixture.task.as_ref().map(|task| task.prompt.clone()))
+        .unwrap_or_else(|| fixture.description.clone());
+    let agent_id = run
+        .agent_id
+        .clone()
+        .unwrap_or_else(|| DEFAULT_AGENT_ID.to_string());
+    let mode = run.mode.trim();
+
+    match mode {
+        "fixture_patch" => {
+            for file in &fixture.repo.changes {
+                write_fixture_file(repo_root, file)?;
+            }
+            let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
+            Ok(AgentExecutionEvalReport {
+                mode: mode.to_string(),
+                status: "completed".to_string(),
+                prompt,
+                agent_id,
+                turn_id: None,
+                response: Some("fixture patch applied".to_string()),
+                error: None,
+                model_used: None,
+                changed_files,
+                diff_bytes,
+            })
+        }
+        "agent" => {
+            if prompt.trim().is_empty() {
+                let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
+                return Ok(AgentExecutionEvalReport {
+                    mode: mode.to_string(),
+                    status: "failed".to_string(),
+                    prompt,
+                    agent_id,
+                    turn_id: None,
+                    response: None,
+                    error: Some("agent execution requires a task prompt".to_string()),
+                    model_used: None,
+                    changed_files,
+                    diff_bytes,
+                });
+            }
+            if run.model_chain.is_empty() || run.providers.is_empty() {
+                let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
+                return Ok(AgentExecutionEvalReport {
+                    mode: mode.to_string(),
+                    status: "failed".to_string(),
+                    prompt,
+                    agent_id,
+                    turn_id: None,
+                    response: None,
+                    error: Some(
+                        "agent execution requires providers and modelChain in the fixture"
+                            .to_string(),
+                    ),
+                    model_used: None,
+                    changed_files,
+                    diff_bytes,
+                });
+            }
+
+            let user_message_id = db
+                .append_message(
+                    session_id,
+                    &NewMessage::user(&prompt).with_source(ChatSource::Http),
+                )
+                .ok();
+            let turn_id = uuid::Uuid::new_v4().to_string();
+            db.create_chat_turn_with_id(
+                &turn_id,
+                session_id,
+                ChatSource::Http.as_str(),
+                None,
+                user_message_id,
+            )?;
+
+            let params = ChatEngineParams {
+                session_id: session_id.to_string(),
+                agent_id: agent_id.clone(),
+                turn_id: Some(turn_id.clone()),
+                message: prompt.clone(),
+                display_text: run.display_text.clone(),
+                attachments: Vec::new(),
+                session_db: db.clone(),
+                model_chain: run.model_chain.clone(),
+                providers: run.providers.clone(),
+                codex_token: None,
+                resolved_temperature: None,
+                compact_config: run.compact_config.clone().unwrap_or_default(),
+                extra_system_context: run.extra_system_context.clone(),
+                reasoning_effort: run
+                    .reasoning_effort
+                    .clone()
+                    .or_else(|| Some("none".to_string())),
+                cancel: Arc::new(AtomicBool::new(false)),
+                plan_context_override: Some(crate::agent::PlanResolvedContext::off()),
+                skill_allowed_tools: Vec::new(),
+                denied_tools: run.denied_tools.clone(),
+                tool_scope: None,
+                subagent_depth: 0,
+                steer_run_id: None,
+                auto_approve_tools: run.auto_approve_tools,
+                follow_global_reasoning_effort: false,
+                post_turn_effects: false,
+                abort_on_cancel: false,
+                persist_final_error_event: true,
+                source: ChatSource::Http,
+                origin_source: None,
+                channel_kb_context: None,
+                event_sink: Arc::new(NoopEventSink),
+            };
+
+            let result = chat_engine::run_chat_engine(params).await;
+            let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
+            match result {
+                Ok(result) => Ok(AgentExecutionEvalReport {
+                    mode: mode.to_string(),
+                    status: "completed".to_string(),
+                    prompt,
+                    agent_id,
+                    turn_id: Some(turn_id),
+                    response: Some(result.response),
+                    error: None,
+                    model_used: result.model_used,
+                    changed_files,
+                    diff_bytes,
+                }),
+                Err(err) => Ok(AgentExecutionEvalReport {
+                    mode: mode.to_string(),
+                    status: "failed".to_string(),
+                    prompt,
+                    agent_id,
+                    turn_id: Some(turn_id),
+                    response: None,
+                    error: Some(err),
+                    model_used: None,
+                    changed_files,
+                    diff_bytes,
+                }),
+            }
+        }
+        other => {
+            let (changed_files, diff_bytes) = execution_diff_snapshot(repo_root)?;
+            Ok(AgentExecutionEvalReport {
+                mode: other.to_string(),
+                status: "failed".to_string(),
+                prompt,
+                agent_id,
+                turn_id: None,
+                response: None,
+                error: Some(format!(
+                    "unsupported coding eval execution mode {other:?}; expected agent or fixture_patch"
+                )),
+                model_used: None,
+                changed_files,
+                diff_bytes,
+            })
+        }
+    }
+}
+
+fn execution_diff_snapshot(repo_root: &Path) -> Result<(Vec<String>, usize)> {
+    let diff = read_task_diff_summary(repo_root)?;
+    Ok((diff.changed_files, diff.diff_bytes))
+}
+
 fn build_task_eval_report(
     fixture: &CodingEvalFixture,
     artifacts: &EvalRunArtifacts,
@@ -844,6 +1128,19 @@ fn build_task_eval_report(
     };
     let diff_text = run_git(&artifacts.repo_root, &["diff", "--"])?;
     let mut checks = Vec::new();
+    if let Some(execution) = artifacts.execution.as_ref() {
+        push_task_check(
+            &mut checks,
+            "execution.completed",
+            execution.status == "completed",
+            format!(
+                "execution.status={}, error={:?}",
+                execution.status, execution.error
+            ),
+            "execution_failed",
+            "critical",
+        );
+    }
     push_task_spec_checks(task, &diff, &validation, &mut checks);
     if let Some(check) = check {
         push_task_fixture_checks(
@@ -893,6 +1190,14 @@ fn build_task_eval_report(
             "taskType": task.task_type,
             "source": task.source,
             "executionMode": task.execution_mode,
+            "agentExecution": artifacts.execution.as_ref().map(|execution| json!({
+                "mode": &execution.mode,
+                "status": &execution.status,
+                "turnId": &execution.turn_id,
+                "modelUsed": &execution.model_used,
+                "changedFiles": &execution.changed_files,
+                "diffBytes": execution.diff_bytes,
+            })),
         }),
     })
 }
@@ -1318,8 +1623,12 @@ fn check_fixture(fixture: &CodingEvalFixture, artifacts: &EvalRunArtifacts) -> F
         name: fixture.name.clone(),
         metrics: EvalMetrics::default(),
         outcomes: Vec::new(),
+        execution: artifacts.execution.clone(),
         task: artifacts.task.clone(),
     };
+    if artifacts.execution.is_some() || fixture.checks.execution.is_some() {
+        check_execution(&mut report, artifacts, fixture.checks.execution.as_ref());
+    }
     if artifacts.task.is_some() || fixture.checks.task.is_some() {
         check_task(&mut report, artifacts, fixture.checks.task.as_ref());
     }
@@ -1457,6 +1766,104 @@ fn check_workflow(report: &mut FixtureReport, artifacts: &EvalRunArtifacts, chec
                 format!("relations={:?}", artifacts.goal_evidence_relations)
             },
         );
+    }
+}
+
+fn check_execution(
+    report: &mut FixtureReport,
+    artifacts: &EvalRunArtifacts,
+    check: Option<&AgentExecutionCheck>,
+) {
+    let Some(execution) = artifacts.execution.as_ref() else {
+        push_check(report, "execution.report", false, "execution was not run");
+        return;
+    };
+    report.metrics.execution_status = Some(execution.status.clone());
+    report.metrics.execution_mode = Some(execution.mode.clone());
+    report.metrics.execution_changed_files = execution.changed_files.clone();
+
+    if let Some(check) = check {
+        if let Some(expected) = check.expected_mode.as_deref() {
+            push_check(
+                report,
+                "execution.mode",
+                execution.mode == expected,
+                format!("mode={}, expected={expected}", execution.mode),
+            );
+        }
+        if let Some(expected) = check.expected_status.as_deref() {
+            push_check(
+                report,
+                "execution.status",
+                execution.status == expected,
+                format!("status={}, expected={expected}", execution.status),
+            );
+        }
+        if let Some(require) = check.require_turn {
+            let has_turn = execution.turn_id.is_some();
+            push_check(
+                report,
+                "execution.turn",
+                has_turn == require,
+                format!("turnPresent={has_turn}, expected={require}"),
+            );
+        }
+        for suffix in &check.expected_changed_files {
+            let found = execution
+                .changed_files
+                .iter()
+                .any(|path| path_matches_suffix(path, suffix));
+            push_check(
+                report,
+                format!("execution.changed_file.{suffix}"),
+                found,
+                format!("changedFiles={:?}", execution.changed_files),
+            );
+        }
+        for suffix in &check.forbidden_changed_files {
+            let found = execution
+                .changed_files
+                .iter()
+                .any(|path| path_matches_suffix(path, suffix));
+            push_check(
+                report,
+                format!("execution.forbidden_file.{suffix}"),
+                !found,
+                format!("changedFiles={:?}", execution.changed_files),
+            );
+        }
+        for needle in &check.response_contains {
+            let found = execution
+                .response
+                .as_deref()
+                .is_some_and(|response| response.contains(needle));
+            push_check(
+                report,
+                format!("execution.response.{}", compact_label(needle)),
+                found,
+                if found {
+                    "matched".to_string()
+                } else {
+                    format!("response={:?}", execution.response)
+                },
+            );
+        }
+        for needle in &check.error_contains {
+            let found = execution
+                .error
+                .as_deref()
+                .is_some_and(|error| error.contains(needle));
+            push_check(
+                report,
+                format!("execution.error.{}", compact_label(needle)),
+                found,
+                if found {
+                    "matched".to_string()
+                } else {
+                    format!("error={:?}", execution.error)
+                },
+            );
+        }
     }
 }
 
@@ -2146,8 +2553,10 @@ fn prepare_repo(base: &Path, fixture: &CodingEvalFixture) -> Result<PathBuf> {
     }
     run_git(&repo_root, &["add", "."])?;
     run_git(&repo_root, &["commit", "-m", "baseline"])?;
-    for file in &fixture.repo.changes {
-        write_fixture_file(&repo_root, file)?;
+    if fixture.runs.execution.is_none() {
+        for file in &fixture.repo.changes {
+            write_fixture_file(&repo_root, file)?;
+        }
     }
     Ok(repo_root)
 }
@@ -2438,6 +2847,117 @@ fn default_effect_class() -> String {
     "idempotent".to_string()
 }
 
+fn default_agent_execution_mode() -> String {
+    "agent".to_string()
+}
+
 fn default_true() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::{ApiType, ModelConfig};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    fn model_config(id: &str) -> ModelConfig {
+        ModelConfig {
+            id: id.to_string(),
+            name: id.to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        }
+    }
+
+    fn responses_sse_text(text: &str) -> String {
+        format!(
+            "data: {{\"type\":\"response.output_text.delta\",\"delta\":\"{}\"}}\n\n\
+             data: {{\"type\":\"response.completed\",\"response\":{{\"usage\":{{\"input_tokens\":1,\"output_tokens\":1}}}}}}\n\n",
+            text
+        )
+    }
+
+    #[tokio::test]
+    async fn agent_execution_mode_calls_chat_engine_and_records_turn() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_string(responses_sse_text("agent execution completed")),
+            )
+            .mount(&server)
+            .await;
+
+        let mut provider = ProviderConfig::new(
+            "Coding Eval Mock Responses".to_string(),
+            ApiType::OpenaiResponses,
+            server.uri(),
+            "test-key".to_string(),
+        );
+        provider.id = "coding-eval-mock-provider".to_string();
+        provider.models.push(model_config("mock-model"));
+
+        let fixture = CodingEvalFixture {
+            name: "agent_execution_calls_chat_engine".to_string(),
+            description: "agent execution unit test".to_string(),
+            task: None,
+            repo: RepoFixture {
+                files: vec![FileFixture {
+                    path: "README.md".to_string(),
+                    text: "# Eval\n".to_string(),
+                }],
+                changes: Vec::new(),
+            },
+            setup: FixtureSetup::default(),
+            runs: FixtureRuns {
+                execution: Some(AgentExecutionEvalRun {
+                    mode: "agent".to_string(),
+                    prompt: Some("Say the execution runner completed.".to_string()),
+                    providers: vec![provider],
+                    model_chain: vec![ActiveModel {
+                        provider_id: "coding-eval-mock-provider".to_string(),
+                        model_id: "mock-model".to_string(),
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            checks: FixtureChecks {
+                execution: Some(AgentExecutionCheck {
+                    expected_mode: Some("agent".to_string()),
+                    expected_status: Some("completed".to_string()),
+                    require_turn: Some(true),
+                    response_contains: vec!["agent execution completed".to_string()],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        };
+
+        let dir = tempfile::tempdir().expect("temp db dir");
+        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        let report = evaluate(db, &fixture).await.expect("evaluate fixture");
+        assert!(
+            report.passed(),
+            "expected execution fixture to pass: {:?}",
+            report.outcomes
+        );
+        let execution = report.execution.expect("execution report");
+        assert_eq!(execution.mode, "agent");
+        assert_eq!(execution.status, "completed");
+        assert!(execution.turn_id.is_some());
+        assert_eq!(
+            execution.response.as_deref(),
+            Some("agent execution completed")
+        );
+    }
 }

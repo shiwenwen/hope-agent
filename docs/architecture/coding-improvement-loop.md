@@ -289,6 +289,8 @@ Phase 4.4 为 `distill_coding_improvement_proposals` 增加 Rust 单元测试，
 
 Phase 5.1 为 `coding_eval.rs` 增加 task-level runner fixture，覆盖候选 diff 判分、验证命令约束、review/context/goal evidence 和 `coding_eval_runs(suite='task_level_coding_eval')` 记录。Improvement Loop 不需要新表即可消费这类任务级结果；失败仍走既有 eval failure taxonomy 与 proposal 队列。
 
+Phase 5.2 为同一 harness 增加 agent execution runner：`mode=agent` 真实调用 chat engine，`mode=fixture_patch` 做无模型回归替身。task eval run metrics 会携带 execution 摘要，因此 Improvement Loop 可以区分执行失败、无 diff、scope creep、验证缺口等失败来源，而不需要新建 learning 表。
+
 ## 红线
 
 - 不依赖 LLM：report、proposal generation 和 transcript distillation 全部规则式。
