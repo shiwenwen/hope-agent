@@ -17,8 +17,8 @@ use crate::security::ssrf::{check_url, SsrfPolicy};
 
 use crate::stt::errors::{SttError, SttResult};
 use crate::stt::types::{
-    AudioPayload, SttModelConfig, SttProviderConfig, SttProviderKind, Transcript, TranscriptOptions,
-    TranscriptSegment,
+    AudioPayload, SttModelConfig, SttProviderConfig, SttProviderKind, Transcript,
+    TranscriptOptions, TranscriptSegment,
 };
 
 use super::{classify_http_status, classify_reqwest_error, load_batch_audio};
