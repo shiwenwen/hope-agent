@@ -1,8 +1,11 @@
 import {
   Check,
+  FileAudio,
   FileText,
+  FileVideo,
   Globe,
   History,
+  Image as ImageIcon,
   Layers,
   Link2,
   Loader2,
@@ -67,7 +70,7 @@ interface SourceFileDraft {
 }
 
 const SOURCE_FILE_ACCEPT =
-  ".md,.markdown,.txt,.pdf,.docx,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ".md,.markdown,.txt,.pdf,.docx,.mp3,.m4a,.wav,.ogg,.opus,.flac,.mp4,.mov,.m4v,.webm,.mkv,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.heic,text/markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,audio/*,video/*,image/*"
 
 export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelProps) {
   const { t } = useTranslation()
@@ -386,7 +389,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     const picked = Array.from(files ?? [])
     if (picked.length === 0) return
     if (fileInputRef.current) fileInputRef.current.value = ""
-    const drafts = picked.map((file) => ({ file, kind: inferKind(file.name) }))
+    const drafts = picked.map((file) => ({ file, kind: inferKind(file.name, file.type) }))
     setMode("file")
     setFileDrafts(drafts)
     setTitle((v) => (picked.length === 1 ? v || stripExt(picked[0].name) : v))
@@ -538,11 +541,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   className="flex min-w-0 flex-1 items-start gap-2 text-left"
                   onClick={() => void openSource(source)}
                 >
-                  {source.kind === "url_snapshot" || source.kind === "browser_snapshot" ? (
-                    <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  )}
+                  <SourceKindIcon
+                    kind={source.kind}
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium text-foreground/90">
                       {source.title}
@@ -683,7 +685,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                         key={`${draft.file.name}-${draft.file.lastModified}-${draft.file.size}`}
                         className="flex min-w-0 items-center gap-2 border-b border-border-soft/40 px-3 py-2 last:border-b-0"
                       >
-                        <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <SourceKindIcon
+                          kind={draft.kind}
+                          className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-medium">{draft.file.name}</div>
                           <div className="mt-0.5 text-muted-foreground">
@@ -919,11 +924,36 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   )
 }
 
-function inferKind(fileName: string): KnowledgeSourceKind {
+function inferKind(fileName: string, mimeType?: string): KnowledgeSourceKind {
+  const mime = (mimeType || "").toLowerCase()
+  if (mime.startsWith("audio/")) return "audio_transcript"
+  if (mime.startsWith("video/")) return "video_transcript"
+  if (mime.startsWith("image/")) return "image_ocr"
   const lower = fileName.toLowerCase()
   if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "markdown"
   if (lower.endsWith(".pdf")) return "pdf"
   if (lower.endsWith(".docx")) return "docx"
+  if (hasExt(lower, [".mp3", ".m4a", ".wav", ".ogg", ".opus", ".flac"])) {
+    return "audio_transcript"
+  }
+  if (hasExt(lower, [".mp4", ".mov", ".m4v", ".webm", ".mkv"])) {
+    return "video_transcript"
+  }
+  if (
+    hasExt(lower, [
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".webp",
+      ".gif",
+      ".bmp",
+      ".tif",
+      ".tiff",
+      ".heic",
+    ])
+  ) {
+    return "image_ocr"
+  }
   return "text"
 }
 
@@ -932,7 +962,7 @@ async function inputForFileDraft(
   title: string | null,
 ): Promise<KnowledgeSourceImportInput> {
   const mimeType = draft.file.type || defaultMimeType(draft.kind)
-  if (draft.kind === "pdf" || draft.kind === "docx") {
+  if (isBinarySourceKind(draft.kind)) {
     return {
       kind: draft.kind,
       title,
@@ -958,6 +988,12 @@ function defaultMimeType(kind: KnowledgeSourceKind): string {
       return "application/pdf"
     case "docx":
       return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    case "audio_transcript":
+      return "audio/mpeg"
+    case "video_transcript":
+      return "video/mp4"
+    case "image_ocr":
+      return "image/png"
     case "browser_snapshot":
       return "text/markdown"
     case "url_snapshot":
@@ -986,6 +1022,12 @@ function sourceKindLabel(kind: KnowledgeSourceKind): string {
       return "PDF"
     case "docx":
       return "DOCX"
+    case "audio_transcript":
+      return "Audio transcript"
+    case "video_transcript":
+      return "Video transcript"
+    case "image_ocr":
+      return "Image OCR"
     case "browser_snapshot":
       return "Browser"
     case "url_snapshot":
@@ -994,6 +1036,46 @@ function sourceKindLabel(kind: KnowledgeSourceKind): string {
     default:
       return "Text"
   }
+}
+
+function SourceKindIcon({
+  kind,
+  className,
+}: {
+  kind: KnowledgeSourceKind
+  className?: string
+}) {
+  switch (kind) {
+    case "audio_transcript":
+      return <FileAudio className={className} />
+    case "video_transcript":
+      return <FileVideo className={className} />
+    case "image_ocr":
+      return <ImageIcon className={className} />
+    case "browser_snapshot":
+    case "url_snapshot":
+      return <Globe className={className} />
+    case "markdown":
+    case "pdf":
+    case "docx":
+    case "text":
+    default:
+      return <FileText className={className} />
+  }
+}
+
+function isBinarySourceKind(kind: KnowledgeSourceKind): boolean {
+  return (
+    kind === "pdf" ||
+    kind === "docx" ||
+    kind === "audio_transcript" ||
+    kind === "video_transcript" ||
+    kind === "image_ocr"
+  )
+}
+
+function hasExt(fileName: string, exts: string[]): boolean {
+  return exts.some((ext) => fileName.endsWith(ext))
 }
 
 function runStatusLabel(status: KnowledgeSourceImportRun["status"]): string {

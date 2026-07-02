@@ -58,6 +58,7 @@ pub(super) struct OneShotRequest<'a> {
     pub instruction: &'a str,
     pub max_tokens: u32,
     pub mode: OneShotMode<'a>,
+    pub user_content: Option<Value>,
 }
 
 pub(super) struct OneShotResult {
@@ -157,7 +158,7 @@ fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
             "model": model,
             "max_tokens": req.max_tokens,
             "system": system,
-            "messages": [{ "role": "user", "content": req.instruction }],
+            "messages": [{ "role": "user", "content": one_shot_user_content(req) }],
         });
     }
 
@@ -176,7 +177,7 @@ fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
         }
 
         let mut messages = params.conversation_history.clone();
-        AssistantAgent::push_user_message(&mut messages, json!(req.instruction));
+        AssistantAgent::push_user_message(&mut messages, one_shot_user_content(req));
 
         return json!({
             "model": model,
@@ -190,7 +191,7 @@ fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
     json!({
         "model": model,
         "max_tokens": req.max_tokens,
-        "messages": [{ "role": "user", "content": req.instruction }],
+            "messages": [{ "role": "user", "content": one_shot_user_content(req) }],
     })
 }
 
@@ -228,7 +229,7 @@ fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
             "max_tokens": req.max_tokens,
             "messages": [
                 { "role": "system", "content": system },
-                { "role": "user", "content": req.instruction },
+                { "role": "user", "content": one_shot_user_content(req) },
             ],
         });
     }
@@ -236,7 +237,7 @@ fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
     if let Some(params) = req.mode.cached_for(ProviderFormat::OpenAIChat) {
         let mut api_messages = vec![json!({ "role": "system", "content": &params.system_prompt })];
         api_messages.extend(params.conversation_history.iter().cloned());
-        api_messages.push(json!({ "role": "user", "content": req.instruction }));
+        api_messages.push(json!({ "role": "user", "content": one_shot_user_content(req) }));
 
         let tools_array: Vec<Value> = params
             .tool_schemas
@@ -255,7 +256,7 @@ fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
     json!({
         "model": model,
         "max_tokens": req.max_tokens,
-        "messages": [{ "role": "user", "content": req.instruction }],
+        "messages": [{ "role": "user", "content": one_shot_user_content(req) }],
     })
 }
 
@@ -466,13 +467,13 @@ fn build_responses_body(
             "store": false,
             "stream": stream,
             "instructions": system,
-            "input": [{ "role": "user", "content": req.instruction }],
+            "input": [{ "role": "user", "content": one_shot_user_content(req) }],
         }),
         _ => {
             if let Some(params) = req.mode.cached_for(expected_format) {
                 let mut input =
                     AssistantAgent::normalize_history_for_responses(&params.conversation_history);
-                AssistantAgent::push_user_message(&mut input, json!(req.instruction));
+                AssistantAgent::push_user_message(&mut input, one_shot_user_content(req));
                 json!({
                     "model": model,
                     "store": false,
@@ -487,7 +488,7 @@ fn build_responses_body(
                     "store": false,
                     "stream": stream,
                     "instructions": BARE_RESPONSES_INSTRUCTIONS,
-                    "input": [{ "role": "user", "content": req.instruction }],
+                    "input": [{ "role": "user", "content": one_shot_user_content(req) }],
                 })
             }
         }
@@ -498,6 +499,12 @@ fn build_responses_body(
     }
     body_obj.insert("reasoning".into(), json!({ "effort": "low" }));
     body
+}
+
+fn one_shot_user_content(req: &OneShotRequest<'_>) -> Value {
+    req.user_content
+        .clone()
+        .unwrap_or_else(|| json!(req.instruction))
 }
 
 // ── Shared HTTP + response-extraction helpers ───────────────────────
@@ -695,6 +702,7 @@ mod tests {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
         let body = build_anthropic_body("claude-test", &req);
         assert_eq!(
@@ -728,6 +736,7 @@ mod tests {
             mode: OneShotMode::Independent {
                 system: "SUMMARIZER",
             },
+            user_content: None,
         };
         let body = build_anthropic_body("claude-test", &req);
         assert_eq!(
@@ -747,6 +756,7 @@ mod tests {
             instruction: "X",
             max_tokens: 100,
             mode: OneShotMode::Bare,
+            user_content: None,
         };
         let body = build_anthropic_body("claude-test", &req);
         assert_eq!(
@@ -767,6 +777,7 @@ mod tests {
             instruction: "X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
         let body = build_anthropic_body("claude-test", &req);
         assert_eq!(
@@ -788,6 +799,7 @@ mod tests {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
         let body = build_openai_chat_body("gpt-test", &req);
         assert_eq!(
@@ -817,6 +829,7 @@ mod tests {
             mode: OneShotMode::Independent {
                 system: "SUMMARIZER",
             },
+            user_content: None,
         };
         let body = build_openai_chat_body("gpt-test", &req);
         assert_eq!(
@@ -841,6 +854,7 @@ mod tests {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
         let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
         assert_eq!(
@@ -890,6 +904,7 @@ mod tests {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
 
         let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
@@ -917,6 +932,7 @@ mod tests {
             mode: OneShotMode::Independent {
                 system: "SUMMARIZER",
             },
+            user_content: None,
         };
         let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
         assert_eq!(
@@ -946,6 +962,7 @@ mod tests {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
         let codex_body = build_responses_body("gpt-5", &req, ProviderFormat::Codex);
         assert_eq!(
@@ -975,6 +992,7 @@ mod tests {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params2),
+            user_content: None,
         };
         let mut responses_body =
             build_responses_body("gpt-5", &req2, ProviderFormat::OpenAIResponses);
@@ -990,6 +1008,7 @@ mod tests {
             instruction: "pick the relevant memory",
             max_tokens: 100,
             mode: OneShotMode::Bare,
+            user_content: None,
         };
         let body = build_responses_body("gpt-5", &req, ProviderFormat::Codex);
 
@@ -1011,6 +1030,7 @@ mod tests {
             instruction: "X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params),
+            user_content: None,
         };
         let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
         assert_eq!(

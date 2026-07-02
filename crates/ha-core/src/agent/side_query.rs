@@ -21,7 +21,9 @@ use anyhow::Result;
 use serde_json::json;
 
 use super::llm_adapter::{OneShotMode, OneShotRequest};
-use super::types::{AssistantAgent, CacheSafeParams, LlmProvider, ProviderFormat, SideQueryResult};
+use super::types::{
+    AssistantAgent, Attachment, CacheSafeParams, LlmProvider, ProviderFormat, SideQueryResult,
+};
 use crate::failover::executor::{execute_with_failover, FailoverPolicy};
 
 fn side_query_cache_mode(
@@ -242,6 +244,7 @@ impl AssistantAgent {
                                 instruction,
                                 max_tokens,
                                 mode,
+                                user_content: None,
                             },
                         )
                         .await?;
@@ -319,6 +322,73 @@ impl AssistantAgent {
                     instruction,
                     max_tokens,
                     mode,
+                    user_content: None,
+                },
+            )
+            .await?;
+
+        Ok(SideQueryResult {
+            text: result.text,
+            usage: result.usage,
+        })
+    }
+
+    /// Independent one-shot call that can carry image attachments.
+    ///
+    /// Used by owner-plane workflows such as Knowledge Source OCR: no chat
+    /// history, no tools, no cached user prefix, and no execution loop. The
+    /// caller supplies a scoped system prompt so text inside the image is read
+    /// as untrusted source material rather than as instructions.
+    pub(crate) async fn independent_query_with_attachments(
+        &self,
+        system: &str,
+        instruction: &str,
+        attachments: &[Attachment],
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        let client =
+            crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
+                .build()
+                .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+
+        let hydrated_codex;
+        let provider = if codex_direct_needs_oauth_hydration(&self.provider) {
+            let LlmProvider::Codex { model, .. } = &self.provider else {
+                unreachable!("checked by codex_direct_needs_oauth_hydration");
+            };
+            let (access_token, account_id) = crate::oauth::load_fresh_codex_token().await?;
+            app_info!(
+                "agent",
+                "side_query",
+                "Hydrated Codex OAuth token for independent multimodal query: model={} has_account_id={}",
+                model,
+                !account_id.is_empty()
+            );
+            hydrated_codex = LlmProvider::Codex {
+                access_token,
+                account_id,
+                model: model.clone(),
+            };
+            &hydrated_codex
+        } else {
+            &self.provider
+        };
+
+        let provider_format = ProviderFormat::from(provider);
+        let user_content = super::content::build_user_content_for_provider(
+            provider_format,
+            instruction,
+            attachments,
+        );
+        let result = provider
+            .as_adapter()
+            .one_shot(
+                &client,
+                OneShotRequest {
+                    instruction,
+                    max_tokens,
+                    mode: OneShotMode::Independent { system },
+                    user_content: Some(user_content),
                 },
             )
             .await?;
@@ -355,6 +425,7 @@ impl AssistantAgent {
                     instruction,
                     max_tokens,
                     mode: OneShotMode::Bare,
+                    user_content: None,
                 },
             )
             .await?;

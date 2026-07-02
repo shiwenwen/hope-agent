@@ -1906,6 +1906,7 @@ pub(crate) async fn summarize_direct(
                 mode: OneShotMode::Independent {
                     system: SUMMARIZATION_SYSTEM_PROMPT,
                 },
+                user_content: None,
             },
         )
         .await?;

@@ -67,6 +67,22 @@ impl RecapContext {
 /// `recap.analysisAgent`. When unset, inherit the global default agent, then
 /// resolve that agent's model chain in the same order as regular chat.
 pub async fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, String)> {
+    build_analysis_agent_inner(config, false).await
+}
+
+/// Build an analysis agent that can accept image attachments.
+///
+/// Used by owner-plane OCR workflows. Models explicitly marked as text-only
+/// are skipped up front so image imports fail with a configuration error
+/// instead of a late provider 400 after the source import has started writing.
+pub async fn build_vision_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, String)> {
+    build_analysis_agent_inner(config, true).await
+}
+
+async fn build_analysis_agent_inner(
+    config: &AppConfig,
+    require_vision: bool,
+) -> Result<(AssistantAgent, String)> {
     let explicit = normalize_agent_id(config.recap.analysis_agent.as_deref());
     let inherited = normalize_agent_id(config.default_agent_id.as_deref())
         .unwrap_or_else(|| crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID.to_string());
@@ -86,7 +102,7 @@ pub async fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent,
 
     let mut last_error: Option<anyhow::Error> = None;
     for agent_id in candidate_agent_ids {
-        match build_analysis_agent_for_id(config, &agent_id).await {
+        match build_analysis_agent_for_id(config, &agent_id, require_vision).await {
             Ok(built) => return Ok(built),
             Err(err) => {
                 app_warn!(
@@ -102,7 +118,11 @@ pub async fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent,
     }
 
     Err(last_error.unwrap_or_else(|| {
-        anyhow!("no LLM provider available — configure a provider before running /recap")
+        if require_vision {
+            anyhow!("no vision-capable LLM model configured — configure a model that accepts image input before importing image sources")
+        } else {
+            anyhow!("no LLM provider available — configure a provider before running /recap")
+        }
     }))
 }
 
@@ -116,6 +136,7 @@ fn normalize_agent_id(value: Option<&str>) -> Option<String> {
 async fn build_analysis_agent_for_id(
     config: &AppConfig,
     agent_id: &str,
+    require_vision: bool,
 ) -> Result<(AssistantAgent, String)> {
     let agent_def = crate::agent_loader::load_agent(agent_id)
         .with_context(|| format!("failed to load agent '{}'", agent_id))?;
@@ -125,6 +146,9 @@ async fn build_analysis_agent_for_id(
         let Some(prov) = find_provider(&config.providers, &model_ref.provider_id) else {
             continue;
         };
+        if require_vision && !prov.model_supports_vision(&model_ref.model_id) {
+            continue;
+        }
         let mut agent = AssistantAgent::try_new_from_provider(prov, &model_ref.model_id)
             .await?
             .with_failover_context(prov);
@@ -133,10 +157,17 @@ async fn build_analysis_agent_for_id(
         return Ok((agent, format!("{} / {}", agent_id, model_ref)));
     }
 
-    Err(anyhow!(
-        "no usable model configured for analysis agent '{}'",
-        agent_id
-    ))
+    if require_vision {
+        Err(anyhow!(
+            "no vision-capable model configured for analysis agent '{}'",
+            agent_id
+        ))
+    } else {
+        Err(anyhow!(
+            "no usable model configured for analysis agent '{}'",
+            agent_id
+        ))
+    }
 }
 
 fn analysis_model_chain(

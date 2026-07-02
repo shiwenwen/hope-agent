@@ -202,6 +202,9 @@ pub enum KnowledgeSourceKind {
     Text,
     Pdf,
     Docx,
+    AudioTranscript,
+    VideoTranscript,
+    ImageOcr,
     BrowserSnapshot,
     UrlSnapshot,
 }
@@ -213,6 +216,9 @@ impl KnowledgeSourceKind {
             KnowledgeSourceKind::Text => "text",
             KnowledgeSourceKind::Pdf => "pdf",
             KnowledgeSourceKind::Docx => "docx",
+            KnowledgeSourceKind::AudioTranscript => "audio_transcript",
+            KnowledgeSourceKind::VideoTranscript => "video_transcript",
+            KnowledgeSourceKind::ImageOcr => "image_ocr",
             KnowledgeSourceKind::BrowserSnapshot => "browser_snapshot",
             KnowledgeSourceKind::UrlSnapshot => "url_snapshot",
         }
@@ -223,6 +229,13 @@ impl KnowledgeSourceKind {
             "markdown" => KnowledgeSourceKind::Markdown,
             "pdf" => KnowledgeSourceKind::Pdf,
             "docx" => KnowledgeSourceKind::Docx,
+            "audio_transcript" | "audioTranscript" | "audio" => {
+                KnowledgeSourceKind::AudioTranscript
+            }
+            "video_transcript" | "videoTranscript" | "video" => {
+                KnowledgeSourceKind::VideoTranscript
+            }
+            "image_ocr" | "imageOcr" | "image" | "ocr" => KnowledgeSourceKind::ImageOcr,
             "browser_snapshot" | "browserSnapshot" | "browser" => {
                 KnowledgeSourceKind::BrowserSnapshot
             }

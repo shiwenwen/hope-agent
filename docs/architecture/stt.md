@@ -74,6 +74,8 @@ helper 方法：`default_base_url()` / `supports_streaming()` / `supports_batch(
 
 `SttError` 10 变体：`NotFound` / `NoActiveModel` / `Auth` / `RateLimit` / `Network` / `UnsupportedAudio` / `ProviderUnavailable` / `SsrfBlocked` / `Io` / `Other`。`Display` 渲染为 `stt:<code>: <message>`，便于 Tauri / HTTP 边界两侧解析 code。桌面链 = `current_desktop_chain()`（active + fallback_models），IM 链 = `current_im_chain()`（im_fallback_model 或 active，仅 batch-capable）。
 
+知识空间资料舱的 `audio_transcript` / `video_transcript` 导入复用桌面链：owner-plane import 接收用户选择的音视频字节，调用 `failover_transcribe_batch(current_desktop_chain, AudioPayload::Bytes, default_options)`，默认请求 timestamps（若用户未显式配置），成功后只保存带 provenance / provider / model / language / duration / segment 时间戳的 Markdown 转录快照；原始媒体不持久化。未配置 STT 或转录失败时，对应 import item 进入 `failed`，错误保留在导入历史供用户重试。
+
 ## 本地后端
 
 `stt::local` 维护 4 个已知本地后端目录（`KnownLocalSttBackend`），全部用 `OpenaiCompatible` kind 接 OpenAI 兼容端点：
