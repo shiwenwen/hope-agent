@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-/// The eight maintenance task kinds (design: Layer 2 roadmap).
+/// Maintenance task kinds (design: Layer 2 roadmap).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProposalKind {
@@ -26,6 +26,14 @@ pub enum ProposalKind {
     MocUpkeep,
     /// Distil scattered memories into a permanent topic note (LLM).
     MemoryToNote,
+    /// Compile or recompile raw sources into normal compile-review proposals.
+    SourceCompile,
+    /// Surface a likely contradiction between a source and a compiled note (LLM).
+    SourceConflict,
+    /// Build an Open Questions hub when many notes carry unresolved questions.
+    OpenQuestionsMoc,
+    /// Add a `For Agent` summary section to a schema/compiled note.
+    ForAgentSummary,
 }
 
 impl ProposalKind {
@@ -39,6 +47,10 @@ impl ProposalKind {
             ProposalKind::AutoTag => "auto_tag",
             ProposalKind::MocUpkeep => "moc_upkeep",
             ProposalKind::MemoryToNote => "memory_to_note",
+            ProposalKind::SourceCompile => "source_compile",
+            ProposalKind::SourceConflict => "source_conflict",
+            ProposalKind::OpenQuestionsMoc => "open_questions_moc",
+            ProposalKind::ForAgentSummary => "for_agent_summary",
         }
     }
 
@@ -52,18 +64,29 @@ impl ProposalKind {
             "auto_tag" => ProposalKind::AutoTag,
             "moc_upkeep" => ProposalKind::MocUpkeep,
             "memory_to_note" => ProposalKind::MemoryToNote,
+            "source_compile" => ProposalKind::SourceCompile,
+            "source_conflict" => ProposalKind::SourceConflict,
+            "open_questions_moc" => ProposalKind::OpenQuestionsMoc,
+            "for_agent_summary" => ProposalKind::ForAgentSummary,
             _ => return None,
         })
     }
 
-    /// Whether generating this kind needs an LLM side_query (cost gate). The
-    /// deterministic kinds (auto-link, orphan, frontmatter, dedup, knowledge-gap
-    /// stub) run from a `spawn_blocking` index scan with no model call.
+    /// Whether generating this kind needs an LLM side_query (cost gate).
     pub fn is_llm(&self) -> bool {
         matches!(
             self,
-            ProposalKind::AutoTag | ProposalKind::MocUpkeep | ProposalKind::MemoryToNote
+            ProposalKind::AutoTag
+                | ProposalKind::MocUpkeep
+                | ProposalKind::MemoryToNote
+                | ProposalKind::SourceConflict
         )
+    }
+
+    /// Compile-class proposals may start expensive compile runs and should not
+    /// be auto-applied while the product surface is still review-first.
+    pub fn ignores_auto_approve(&self) -> bool {
+        matches!(self, ProposalKind::SourceCompile)
     }
 }
 
@@ -101,9 +124,9 @@ impl ProposalStatus {
     }
 }
 
-/// The concrete, owner-plane file action a proposal applies. Kept to four shapes
-/// so the applier ([`super::apply`]) has one arm each; every generator maps onto
-/// one of these.
+/// The concrete, owner-plane action a proposal applies. Most actions write notes
+/// through the owner plane; compile actions only start compile runs that then
+/// create their own Review Diff proposals.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum ProposalAction {
@@ -120,6 +143,18 @@ pub enum ProposalAction {
         content: String,
         #[serde(default)]
         overwrite: bool,
+    },
+    /// Replace a note with generation-time content, guarded by the raw file hash.
+    PatchNote {
+        path: String,
+        expected_hash: String,
+        content: String,
+    },
+    /// Start a normal source compile run. Approval does not write notes directly;
+    /// it only queues compile proposals for the user to review.
+    CompileSources {
+        source_ids: Vec<String>,
+        reason: String,
     },
     /// Replace `keep_path` with merged content and delete `removes` (dedup). Each
     /// path carries its generation-time content hash so the applier can refuse if

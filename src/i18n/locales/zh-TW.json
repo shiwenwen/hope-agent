@@ -3397,7 +3397,11 @@
         "knowledgeGap": "知識缺口",
         "autoTag": "自動標籤",
         "mocUpkeep": "MOC 維護",
-        "memoryToNote": "記憶轉筆記"
+        "memoryToNote": "記憶轉筆記",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "缺口",
         "auto_tag": "標籤",
         "moc_upkeep": "MOC",
-        "memory_to_note": "記憶"
-      }
+        "memory_to_note": "記憶",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "圖譜檢視",

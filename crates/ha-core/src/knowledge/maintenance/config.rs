@@ -87,6 +87,14 @@ pub struct MaintenanceTasks {
     pub moc_upkeep: bool,
     #[serde(default = "default_true")]
     pub memory_to_note: bool,
+    #[serde(default = "default_true")]
+    pub source_compile: bool,
+    #[serde(default = "default_true")]
+    pub source_conflict: bool,
+    #[serde(default = "default_true")]
+    pub open_questions_moc: bool,
+    #[serde(default = "default_true")]
+    pub for_agent_summary: bool,
 }
 
 impl Default for MaintenanceTasks {
@@ -100,6 +108,10 @@ impl Default for MaintenanceTasks {
             auto_tag: true,
             moc_upkeep: true,
             memory_to_note: true,
+            source_compile: true,
+            source_conflict: true,
+            open_questions_moc: true,
+            for_agent_summary: true,
         }
     }
 }
@@ -116,6 +128,10 @@ impl MaintenanceTasks {
             K::AutoTag => self.auto_tag,
             K::MocUpkeep => self.moc_upkeep,
             K::MemoryToNote => self.memory_to_note,
+            K::SourceCompile => self.source_compile,
+            K::SourceConflict => self.source_conflict,
+            K::OpenQuestionsMoc => self.open_questions_moc,
+            K::ForAgentSummary => self.for_agent_summary,
         }
     }
 }

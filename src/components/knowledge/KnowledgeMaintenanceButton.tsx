@@ -112,14 +112,23 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
   }, [running, refresh, t])
 
   const decide = useCallback(
-    async (id: number, approve: boolean) => {
+    async (proposal: MaintenanceProposal, approve: boolean) => {
       if (busyId != null) return
+      const id = proposal.id
       setBusyId(id)
       try {
         await getTransport().call(
           approve ? "kb_maintenance_approve_cmd" : "kb_maintenance_reject_cmd",
           { id },
         )
+        if (approve && proposal.kind === "source_compile") {
+          toast.success(
+            t(
+              "knowledge.maintenance.compileQueued",
+              "Compile review generated. Check the source compile panel for diffs.",
+            ),
+          )
+        }
         await refresh()
       } catch (e) {
         logger.warn("knowledge", "KnowledgeMaintenanceButton::decide", "decision failed", e)
@@ -294,7 +303,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                               size="icon"
                               className="h-6 w-6 text-emerald-600"
                               disabled={busyId != null}
-                              onClick={() => decide(p.id, true)}
+                              onClick={() => decide(p, true)}
                             >
                               {busyId === p.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -309,7 +318,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                               size="icon"
                               className="h-6 w-6 text-muted-foreground"
                               disabled={busyId != null}
-                              onClick={() => decide(p.id, false)}
+                              onClick={() => decide(p, false)}
                             >
                               <X className="h-3.5 w-3.5" />
                             </Button>

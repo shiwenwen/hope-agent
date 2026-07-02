@@ -3397,7 +3397,11 @@
         "knowledgeGap": "Lỗ hổng tri thức",
         "autoTag": "Tự gắn thẻ",
         "mocUpkeep": "Bảo trì MOC",
-        "memoryToNote": "Bộ nhớ → ghi chú"
+        "memoryToNote": "Bộ nhớ → ghi chú",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "Thiếu",
         "auto_tag": "Thẻ",
         "moc_upkeep": "MOC",
-        "memory_to_note": "Bộ nhớ"
-      }
+        "memory_to_note": "Bộ nhớ",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "Xem dạng đồ thị",

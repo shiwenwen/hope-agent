@@ -462,6 +462,10 @@ export type ProposalKind =
   | "auto_tag"
   | "moc_upkeep"
   | "memory_to_note"
+  | "source_compile"
+  | "source_conflict"
+  | "open_questions_moc"
+  | "for_agent_summary"
 
 export type ProposalStatus = "draft" | "applied" | "rejected" | "failed"
 
@@ -504,6 +508,10 @@ export interface MaintenanceTasks {
   autoTag: boolean
   mocUpkeep: boolean
   memoryToNote: boolean
+  sourceCompile: boolean
+  sourceConflict: boolean
+  openQuestionsMoc: boolean
+  forAgentSummary: boolean
 }
 
 /** Wire shape of the `knowledge_maintenance` settings category. */

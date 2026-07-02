@@ -3397,7 +3397,11 @@
         "knowledgeGap": "Knowledge gaps",
         "autoTag": "Auto-tag",
         "mocUpkeep": "MOC upkeep",
-        "memoryToNote": "Memory → note"
+        "memoryToNote": "Memory → note",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5609,6 +5613,7 @@
       "runFailed": "Couldn't run maintenance",
       "applyFailed": "Couldn't apply suggestion",
       "rejectFailed": "Couldn't dismiss suggestion",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Link",
         "orphan_rescue": "Rescue",
@@ -5617,7 +5622,11 @@
         "knowledge_gap": "Gap",
         "auto_tag": "Tag",
         "moc_upkeep": "MOC",
-        "memory_to_note": "Memory"
+        "memory_to_note": "Memory",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
       }
     },
     "graph": {

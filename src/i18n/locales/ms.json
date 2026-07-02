@@ -3397,7 +3397,11 @@
         "knowledgeGap": "Jurang pengetahuan",
         "autoTag": "Auto-tag",
         "mocUpkeep": "Penyelenggaraan MOC",
-        "memoryToNote": "Memori → nota"
+        "memoryToNote": "Memori → nota",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "Jurang",
         "auto_tag": "Tag",
         "moc_upkeep": "MOC",
-        "memory_to_note": "Memori"
-      }
+        "memory_to_note": "Memori",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "Paparan graf",

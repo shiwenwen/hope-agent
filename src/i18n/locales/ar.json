@@ -3397,7 +3397,11 @@
         "knowledgeGap": "فجوات المعرفة",
         "autoTag": "وسم تلقائي",
         "mocUpkeep": "صيانة MOC",
-        "memoryToNote": "ذاكرة → ملاحظة"
+        "memoryToNote": "ذاكرة → ملاحظة",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "فجوة",
         "auto_tag": "وسم",
         "moc_upkeep": "MOC",
-        "memory_to_note": "ذاكرة"
-      }
+        "memory_to_note": "ذاكرة",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "عرض الرسم البياني",

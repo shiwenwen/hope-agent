@@ -3397,7 +3397,11 @@
         "knowledgeGap": "Lagunas de conocimiento",
         "autoTag": "Etiquetado automático",
         "mocUpkeep": "Mantenimiento de MOC",
-        "memoryToNote": "Memoria → nota"
+        "memoryToNote": "Memoria → nota",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "Vacío",
         "auto_tag": "Etiqueta",
         "moc_upkeep": "MOC",
-        "memory_to_note": "Memoria"
-      }
+        "memory_to_note": "Memoria",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "Vista de grafo",

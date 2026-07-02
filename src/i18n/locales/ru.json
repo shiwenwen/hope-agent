@@ -3397,7 +3397,11 @@
         "knowledgeGap": "Пробелы в знаниях",
         "autoTag": "Авто-теги",
         "mocUpkeep": "Обслуживание MOC",
-        "memoryToNote": "Память → заметка"
+        "memoryToNote": "Память → заметка",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "Пробел",
         "auto_tag": "Тег",
         "moc_upkeep": "MOC",
-        "memory_to_note": "Память"
-      }
+        "memory_to_note": "Память",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "Граф связей",

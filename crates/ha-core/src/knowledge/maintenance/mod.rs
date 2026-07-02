@@ -1,10 +1,12 @@
 //! Knowledge Layer-2 autonomous maintenance (WS6).
 //!
 //! A background pipeline that periodically scans each knowledge base and queues
-//! **maintenance proposals** (auto-link, orphan rescue, frontmatter fill, dedup
-//! merge, knowledge gap, auto-tag, MOC upkeep, memory→note) into a draft review
-//! queue. Nothing touches a user's notes until the owner approves a proposal in
-//! the GUI (or, opt-in, `auto_approve` applies them inline).
+//! **maintenance proposals** (source compile, source conflict review, Open
+//! Questions MOC, For Agent summary, auto-link, orphan rescue, frontmatter fill,
+//! dedup merge, knowledge gap, auto-tag, MOC upkeep, memory→note) into a draft
+//! review queue. Nothing touches a user's notes until the owner approves a
+//! proposal in the GUI (or, opt-in, `auto_approve` applies non-compile proposals
+//! inline).
 //!
 //! Mirrors the memory `dreaming` pipeline: Primary-instance gated, an
 //! `AtomicBool` serial lock, idle + cron triggers, config-driven. The proposal

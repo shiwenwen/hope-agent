@@ -11,6 +11,7 @@
 use anyhow::{bail, Result};
 
 use super::types::{MaintenanceProposal, ProposalAction};
+use crate::knowledge::types::{CompileRunStatus, CompileStartInput};
 use crate::knowledge::{parser, service};
 
 pub async fn apply_proposal(p: &MaintenanceProposal) -> Result<()> {
@@ -63,6 +64,52 @@ pub async fn apply_proposal(p: &MaintenanceProposal) -> Result<()> {
             // create_only = !overwrite: a non-overwrite create fails if the path
             // now exists (someone created it meanwhile) — surfaced to the user.
             service::note_save(kb, path, content, None, !*overwrite)?;
+            Ok(())
+        }
+        ProposalAction::PatchNote {
+            path,
+            expected_hash,
+            content,
+        } => {
+            let cur = service::note_read(kb, path)?;
+            if cur.content_hash != *expected_hash {
+                bail!("stale patch: '{path}' changed since the proposal was made");
+            }
+            if cur.content == *content {
+                return Ok(());
+            }
+            service::note_save(kb, path, content, Some(expected_hash), false)?;
+            Ok(())
+        }
+        ProposalAction::CompileSources {
+            source_ids,
+            reason: _,
+        } => {
+            if source_ids.is_empty() {
+                bail!("compile proposal has no sources");
+            }
+            let run = service::compile_start(
+                kb,
+                CompileStartInput {
+                    source_ids: source_ids.clone(),
+                    strategy: None,
+                },
+            )
+            .await?;
+            if matches!(
+                run.status,
+                CompileRunStatus::Failed | CompileRunStatus::Cancelled
+            ) {
+                bail!(
+                    "compile run {} ended with status {}{}",
+                    run.id,
+                    run.status.as_str(),
+                    run.error
+                        .as_deref()
+                        .map(|e| format!(": {e}"))
+                        .unwrap_or_default()
+                );
+            }
             Ok(())
         }
         // Destructive: validate EVERY note's generation-time hash before any write,

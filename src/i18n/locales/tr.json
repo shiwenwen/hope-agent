@@ -3397,7 +3397,11 @@
         "knowledgeGap": "Bilgi boşlukları",
         "autoTag": "Otomatik etiket",
         "mocUpkeep": "MOC bakımı",
-        "memoryToNote": "Bellek → not"
+        "memoryToNote": "Bellek → not",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "Boşluk",
         "auto_tag": "Etiket",
         "moc_upkeep": "MOC",
-        "memory_to_note": "Bellek"
-      }
+        "memory_to_note": "Bellek",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "Grafik görünümü",

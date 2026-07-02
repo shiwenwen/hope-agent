@@ -3397,7 +3397,11 @@
         "knowledgeGap": "지식 공백",
         "autoTag": "자동 태그",
         "mocUpkeep": "MOC 관리",
-        "memoryToNote": "메모리→노트"
+        "memoryToNote": "메모리→노트",
+        "sourceCompile": "Source compile",
+        "sourceConflict": "Source conflicts",
+        "openQuestionsMoc": "Open Questions MOC",
+        "forAgentSummary": "For Agent summaries"
       }
     },
     "knowledgePassiveRecall": {
@@ -5617,8 +5621,13 @@
         "knowledge_gap": "공백",
         "auto_tag": "태그",
         "moc_upkeep": "MOC",
-        "memory_to_note": "메모리"
-      }
+        "memory_to_note": "메모리",
+        "source_compile": "Compile",
+        "source_conflict": "Conflict",
+        "open_questions_moc": "Questions",
+        "for_agent_summary": "Summary"
+      },
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
     },
     "graph": {
       "toggle": "그래프 보기",

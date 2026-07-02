@@ -3397,7 +3397,11 @@
         "knowledgeGap": "知识缺口",
         "autoTag": "自动标签",
         "mocUpkeep": "MOC 维护",
-        "memoryToNote": "记忆转笔记"
+        "memoryToNote": "记忆转笔记",
+        "sourceCompile": "资料编译",
+        "sourceConflict": "资料冲突",
+        "openQuestionsMoc": "开放问题 MOC",
+        "forAgentSummary": "For Agent 摘要"
       }
     },
     "knowledgePassiveRecall": {
@@ -5609,6 +5613,7 @@
       "runFailed": "维护运行失败",
       "applyFailed": "应用建议失败",
       "rejectFailed": "忽略建议失败",
+      "compileQueued": "已生成编译审阅，请到资料编译面板查看 diff。",
       "kind": {
         "auto_link": "建链",
         "orphan_rescue": "救援",
@@ -5617,7 +5622,11 @@
         "knowledge_gap": "缺口",
         "auto_tag": "标签",
         "moc_upkeep": "MOC",
-        "memory_to_note": "记忆"
+        "memory_to_note": "记忆",
+        "source_compile": "编译",
+        "source_conflict": "冲突",
+        "open_questions_moc": "问题",
+        "for_agent_summary": "摘要"
       }
     },
     "graph": {
