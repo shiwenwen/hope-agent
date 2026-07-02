@@ -926,9 +926,48 @@ export interface CodingImprovementProposal {
   body: string;
   payload: Record<string, unknown>;
   fingerprint: string;
+  action?: CodingImprovementActionRecord | null;
   createdAt: string;
   updatedAt: string;
   decidedAt?: string | null;
+}
+
+export interface CodingImprovementActionRecord {
+  applied: boolean;
+  artifacts: CodingImprovementActionArtifact[];
+  error?: string | null;
+  appliedAt?: string | null;
+}
+
+export interface CodingImprovementActionArtifact {
+  kind: string;
+  path: string;
+  contentHash?: string | null;
+}
+
+export interface CodingImprovementActionStep {
+  action: string;
+  label: string;
+  targetPath: string;
+  targetExists: boolean;
+  contentPreview?: string | null;
+}
+
+export interface CodingImprovementActionPlan {
+  proposal: CodingImprovementProposal;
+  targetKind: string;
+  summary: string;
+  requiresConfirmation: boolean;
+  steps: CodingImprovementActionStep[];
+  preview: Record<string, unknown>;
+}
+
+export interface ApplyCodingImprovementProposalResult {
+  proposal: CodingImprovementProposal;
+  plan: CodingImprovementActionPlan;
+  applied: boolean;
+  artifacts: CodingImprovementActionArtifact[];
+  error?: string | null;
 }
 
 export interface CodingTrendReport {

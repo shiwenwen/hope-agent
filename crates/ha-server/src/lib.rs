@@ -1420,6 +1420,14 @@ fn build_router_with_cors(
             post(routes::coding_improvement::update_coding_improvement_proposal_status),
         )
         .route(
+            "/coding-improvement/proposals/{id}/action-preview",
+            get(routes::coding_improvement::preview_coding_improvement_proposal_action),
+        )
+        .route(
+            "/coding-improvement/proposals/{id}/apply",
+            post(routes::coding_improvement::apply_coding_improvement_proposal),
+        )
+        .route(
             "/coding-improvement/eval-runs",
             post(routes::coding_improvement::record_coding_eval_run),
         )

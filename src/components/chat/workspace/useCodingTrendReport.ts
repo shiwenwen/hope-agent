@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type {
+  ApplyCodingImprovementProposalResult,
+  CodingImprovementActionPlan,
   CodingImprovementProposal,
   CodingTrendReport,
   GenerateCodingImprovementProposalsResult,
@@ -12,13 +14,18 @@ export interface CodingTrendReportState {
   loading: boolean
   generating: boolean
   updatingProposalId: string | null
+  previewingProposalId: string | null
+  applyingProposalId: string | null
+  actionPlan: CodingImprovementActionPlan | null
   error: string | null
   refresh: () => void
   generateProposals: () => Promise<GenerateCodingImprovementProposalsResult | null>
   updateProposalStatus: (
     proposalId: string,
-    status: "accepted" | "rejected" | "draft",
+    status: "rejected" | "draft",
   ) => Promise<CodingImprovementProposal | null>
+  previewProposalAction: (proposalId: string) => Promise<CodingImprovementActionPlan | null>
+  applyProposal: (proposalId: string) => Promise<ApplyCodingImprovementProposalResult | null>
 }
 
 const CODING_TREND_WINDOW_DAYS = 30
@@ -39,6 +46,9 @@ export function useCodingTrendReport(
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [updatingProposalId, setUpdatingProposalId] = useState<string | null>(null)
+  const [previewingProposalId, setPreviewingProposalId] = useState<string | null>(null)
+  const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null)
+  const [actionPlan, setActionPlan] = useState<CodingImprovementActionPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
   const reqRef = useRef(0)
   const eventRefreshTimerRef = useRef<number | null>(null)
@@ -47,6 +57,7 @@ export function useCodingTrendReport(
     if (disabled || !sessionId || incognito) {
       reqRef.current += 1
       setReport(null)
+      setActionPlan(null)
       setLoading(false)
       setError(null)
       return
@@ -158,7 +169,7 @@ export function useCodingTrendReport(
   }, [disabled, fetchReport, incognito, sessionId])
 
   const updateProposalStatus = useCallback(
-    async (proposalId: string, status: "accepted" | "rejected" | "draft") => {
+    async (proposalId: string, status: "rejected" | "draft") => {
       if (!sessionId || disabled || incognito) return null
       setUpdatingProposalId(proposalId)
       setError(null)
@@ -181,14 +192,68 @@ export function useCodingTrendReport(
     [disabled, fetchReport, incognito, sessionId],
   )
 
+  const previewProposalAction = useCallback(
+    async (proposalId: string) => {
+      if (!sessionId || disabled || incognito) return null
+      setPreviewingProposalId(proposalId)
+      setError(null)
+      try {
+        const plan = await getTransport().call<CodingImprovementActionPlan>(
+          "preview_coding_improvement_proposal_action",
+          { proposalId },
+        )
+        setActionPlan(plan)
+        return plan
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "useCodingTrendReport", "Failed to preview improvement action", e)
+        setError(message)
+        return null
+      } finally {
+        setPreviewingProposalId(null)
+      }
+    },
+    [disabled, incognito, sessionId],
+  )
+
+  const applyProposal = useCallback(
+    async (proposalId: string) => {
+      if (!sessionId || disabled || incognito) return null
+      setApplyingProposalId(proposalId)
+      setError(null)
+      try {
+        const result = await getTransport().call<ApplyCodingImprovementProposalResult>(
+          "apply_coding_improvement_proposal",
+          { proposalId },
+        )
+        setActionPlan(result.plan)
+        fetchReport()
+        return result
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "useCodingTrendReport", "Failed to apply improvement proposal", e)
+        setError(message)
+        return null
+      } finally {
+        setApplyingProposalId(null)
+      }
+    },
+    [disabled, fetchReport, incognito, sessionId],
+  )
+
   return {
     report,
     loading,
     generating,
     updatingProposalId,
+    previewingProposalId,
+    applyingProposalId,
+    actionPlan,
     error,
     refresh: fetchReport,
     generateProposals,
     updateProposalStatus,
+    previewProposalAction,
+    applyProposal,
   }
 }

@@ -48,7 +48,8 @@ Phase 2 已经完成 Workflow + Execution Mode 的第一版产品化：长任务
 2. **Phase 2.7：`/goal` MVP**，已完成第一版。补一等目标对象：objective、completion criteria、budget、evidence、status、final audit。
 3. **Phase 2.8：Goal-driven Workflow**。Goal 派生 workflow run，失败后生成 repair run，workflow evidence 回写 goal，最终 evaluator 收口。
 4. **Phase 2.9：真正 `/loop`**。只做定时、重复、轮询或条件触发，复用 cron / wakeup / automation。
-5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context、Trend Report / Improvement Loop 已完成；后续进入 Learning Loop / Skill & Guidance 沉淀等 Phase 4 能力。
+5. **Phase 3：coding-specific 能力**。Managed Worktree、LSP、Review Engine、Smart Verification、Context Retrieval v2、Actionable Context Loop、Coding Eval、Workflow review/verify、Repair Loop 自动化、Deep Review / Profiles / IDE Context、Trend Report / Improvement Loop 已完成。
+6. **Phase 4：Learning Loop / Skill & Guidance 沉淀**。Phase 4.1 Proposal-to-Action 已完成：改进 proposal 可预览并应用成 eval / workflow / guidance / skill 草稿产物。
 
 这次调整的核心不是降低 coding 优先级，而是把 coding 能力挂到更稳的控制平面上。`/goal` 负责最终完成标准，`/workflow` 负责一次具体执行，`/mode` 负责推进强度，`/loop` 第一版负责重复触发，`/worktree` 才是 coding 场景的隔离环境。
 
@@ -761,21 +762,34 @@ StopPolicy
 
 ### 后续池：Learning Loop 与技能沉淀
 
-目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，后续要做的是从 proposal 进入人工确认后的实际落地动作。
+状态：Phase 4.1 Proposal-to-Action 已完成；Dashboard 全局视图、retro 自动总结和草稿 promotion 仍属后续增强。
 
-任务：
+目标：让每次 coding session 都能让系统变强；eval backlog、workflow / skill / guidance proposal 已作为 Phase 3.11 的接口先落一层，Phase 4.1 已补上从 proposal 到草稿产物的安全落地动作，后续继续补 promotion 与全局趋势。
+
+已落地：
+
+- `eval_failed` 进入 failure taxonomy，失败 eval run 可生成 `eval_candidate` backlog。
+- proposal 可预览 action plan：目标路径、是否已存在、内容预览。
+- proposal apply 先原子 claim 到内部 `applying`，目标已存在或并发创建都 fail-closed，不覆盖；`applied` 终态不可被人工状态更新改回草案。
+- `eval_candidate` 可应用为 `.hope-agent/coding-improvement/eval-candidates/*.json` 草稿。
+- `workflow_template` 可应用为 `.hope-agent/coding-improvement/workflows/*.md` 草稿。
+- `guidance_candidate` 可应用为 `.hope-agent/coding-improvement/guidance/*.md` 草稿。
+- `skill_candidate` 可应用为 `~/.hope-agent/skills/ha-learned-*/SKILL.md` managed draft skill。
+- Workspace 质量趋势区块支持展开详情、预览、应用、拒绝和 artifact/error 展示。
+- `improvement_proposal_to_action` fixture 覆盖 proposal-to-action 回归。
+
+后续任务：
 
 - 每次 workflow 完成后生成 lightweight retro。
-- 失败案例可一键转 eval candidate。
-- 成功 transcript 可抽取 workflow skill 草稿。
+- 草稿 promotion：eval candidate 一键迁入正式 fixture、workflow/guidance 一键合入项目规则、skill draft 审核后激活。
+- 成功 transcript 可抽取更高质量 workflow skill 草稿。
 - 常见 failure mode 反哺工具描述、workflow policy、project guidance。
 - Dashboard 全局展示 coding success、review catch rate、slow tools、cache invalidators、approval stalls。
 
 产物：
 
-- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；后续补 Dashboard 全局视图设计。
-- eval backlog。
-- skill/guidance draft generator。
+- [Coding Improvement Loop](../architecture/coding-improvement-loop.md) 架构文档已落地；后续补 Dashboard 全局视图设计与 promotion 设计。
+- eval / workflow / guidance / skill draft generator。
 
 ## 30 天首个里程碑
 
@@ -851,6 +865,6 @@ StopPolicy
 9. [Smart Verification 控制平面](../architecture/verification-engine.md)：最小验证选择、后台低风险执行、Goal validation evidence 与 Workspace 验证区块。
 10. [Context Retrieval v2](../architecture/context-retrieval.md)：任务感知上下文推荐与行动入口、file search v2、LSP symbols、diff/artifact/review/verification/goal/task/workflow 聚合、focused review / verification。
 11. [Coding Eval 控制面评测](../architecture/coding-eval.md)：Phase 3.7 deterministic fixture harness、context precision / critical recall 与控制面回归。
-12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、draft-only proposal 队列；后续继续设计 retro、eval candidate 落地、skill/guidance distillation。
+12. [Coding Improvement Loop](../architecture/coding-improvement-loop.md)：已落地 trend report、failure taxonomy、proposal 队列和 proposal-to-action；后续继续设计 retro、promotion、Dashboard 全局趋势和更强 distillation。
 
 这些文档完成后，再进入逐项实现。实现顺序应优先保证可评测、可回滚、可审计，而不是先堆最显眼的 UI。

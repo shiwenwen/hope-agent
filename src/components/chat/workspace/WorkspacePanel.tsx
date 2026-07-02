@@ -81,6 +81,7 @@ import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/backg
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
 import type {
   CodingFailureBucket,
+  CodingImprovementActionPlan,
   CodingImprovementProposal,
   CodingMetricBucket,
   CodingTrendReport,
@@ -2860,8 +2861,12 @@ function codingFailureTone(severity: string): StatusTone {
 
 function codingProposalTone(status: string): StatusTone {
   switch (status) {
-    case "accepted":
+    case "applying":
+      return "info"
+    case "applied":
       return "good"
+    case "failed":
+      return "danger"
     case "rejected":
       return "muted"
     default:
@@ -2892,8 +2897,12 @@ function codingProposalStatusLabel(
   status: string,
 ): string {
   switch (status) {
-    case "accepted":
-      return t("workspace.codingTrend.accepted", "已采纳")
+    case "applying":
+      return t("workspace.codingTrend.applying", "应用中")
+    case "applied":
+      return t("workspace.codingTrend.applied", "已应用")
+    case "failed":
+      return t("workspace.codingTrend.applyFailed", "应用失败")
     case "rejected":
       return t("workspace.codingTrend.rejected", "已拒绝")
     default:
@@ -2939,21 +2948,165 @@ function CodingFailureRow({ failure }: { failure: CodingFailureBucket }) {
   )
 }
 
-function CodingProposalRow({
+function CodingProposalDetail({
   proposal,
+  actionPlan,
+  previewing,
+  applying,
   updating,
-  onUpdateStatus,
+  onPreview,
+  onApply,
+  onReject,
 }: {
   proposal: CodingImprovementProposal
+  actionPlan: CodingImprovementActionPlan | null
+  previewing?: boolean
+  applying?: boolean
   updating?: boolean
-  onUpdateStatus: (proposalId: string, status: "accepted" | "rejected") => void
+  onPreview: (proposalId: string) => void
+  onApply: (proposalId: string) => void
+  onReject: (proposalId: string) => void
 }) {
   const { t } = useTranslation()
-  const disabled = updating || proposal.status !== "draft"
+  const plan = actionPlan?.proposal.id === proposal.id ? actionPlan : null
+  const action = proposal.action
+  const disabled = proposal.status !== "draft" || previewing || applying || updating
+  return (
+    <div className="mt-2 space-y-2 border-t border-border/50 pt-2 pl-5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          disabled={previewing}
+          onClick={() => onPreview(proposal.id)}
+          className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/50 disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          {previewing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Eye className="h-3.5 w-3.5" />
+          )}
+          <span className="truncate">{t("workspace.codingTrend.previewAction", "预览")}</span>
+        </button>
+        <button
+          type="button"
+          disabled={disabled || !plan}
+          onClick={() => onApply(proposal.id)}
+          className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2 py-1.5 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-55 dark:text-emerald-300"
+        >
+          {applying ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Check className="h-3.5 w-3.5" />
+          )}
+          <span className="truncate">{t("workspace.codingTrend.applyAction", "应用")}</span>
+        </button>
+        <IconTip label={t("workspace.codingTrend.reject", "拒绝")}>
+          <button
+            type="button"
+            disabled={proposal.status !== "draft" || updating}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/60 text-muted-foreground transition-colors hover:bg-secondary/50 hover:text-destructive disabled:opacity-45"
+            onClick={() => onReject(proposal.id)}
+            aria-label={t("workspace.codingTrend.reject", "拒绝")}
+          >
+            {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+          </button>
+        </IconTip>
+      </div>
+
+      {plan ? (
+        <div className="space-y-1.5">
+          <div className="text-[11px] leading-snug text-muted-foreground">{plan.summary}</div>
+          {plan.steps.map((step) => (
+            <div
+              key={`${step.action}:${step.targetPath}`}
+              className="rounded-md border border-border/50 bg-background/60 px-2 py-1.5"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                  {step.label}
+                </span>
+                <StatusPill
+                  label={
+                    step.targetExists
+                      ? t("workspace.codingTrend.targetExists", "已存在")
+                      : t("workspace.codingTrend.newTarget", "新建")
+                  }
+                  tone={step.targetExists ? "warn" : "good"}
+                />
+              </div>
+              <div className="mt-1 truncate pl-5 text-[10px] text-muted-foreground/70">
+                {step.targetPath}
+              </div>
+              {step.contentPreview ? (
+                <pre className="mt-1.5 max-h-40 overflow-auto rounded border border-border/40 bg-muted/35 p-2 text-[10px] leading-snug text-muted-foreground">
+                  {step.contentPreview}
+                </pre>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-border/50 bg-background/50 px-2 py-1.5 text-[11px] text-muted-foreground">
+          {t("workspace.codingTrend.previewEmpty", "打开预览后再应用")}
+        </div>
+      )}
+
+      {action?.artifacts?.length ? (
+        <div className="space-y-1">
+          {action.artifacts.map((artifact) => (
+            <div
+              key={`${artifact.kind}:${artifact.path}`}
+              className="flex min-w-0 items-center gap-1.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-2 py-1.5 text-[11px]"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
+              <span className="min-w-0 flex-1 truncate text-emerald-700 dark:text-emerald-200">
+                {artifact.path}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : action?.error ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+          {action.error}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function CodingProposalRow({
+  proposal,
+  selected,
+  actionPlan,
+  previewing,
+  applying,
+  updating,
+  onToggle,
+  onPreview,
+  onApply,
+  onReject,
+}: {
+  proposal: CodingImprovementProposal
+  selected?: boolean
+  actionPlan: CodingImprovementActionPlan | null
+  previewing?: boolean
+  applying?: boolean
+  updating?: boolean
+  onToggle: (proposalId: string) => void
+  onPreview: (proposalId: string) => void
+  onApply: (proposalId: string) => void
+  onReject: (proposalId: string) => void
+}) {
+  const { t } = useTranslation()
   return (
     <IconTip label={proposal.body}>
       <div className="rounded-md border border-border/50 bg-secondary/25 px-2.5 py-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          className="flex w-full min-w-0 items-center gap-1.5 text-left"
+          onClick={() => onToggle(proposal.id)}
+        >
           <Lightbulb className="h-3.5 w-3.5 shrink-0 text-amber-500" />
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
             {proposal.title}
@@ -2962,7 +3115,12 @@ function CodingProposalRow({
             label={codingProposalKindLabel(t, proposal.kind)}
             tone={codingProposalTone(proposal.status)}
           />
-        </div>
+          {selected ? (
+            <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
         <div className="mt-1 line-clamp-2 pl-5 text-[11px] leading-snug text-muted-foreground">
           {proposal.body}
         </div>
@@ -2970,33 +3128,56 @@ function CodingProposalRow({
           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/65">
             {codingProposalStatusLabel(t, proposal.status)} · {formatMessageTime(proposal.updatedAt)}
           </span>
-          <IconTip label={t("workspace.codingTrend.accept", "采纳")}>
+          <IconTip label={t("workspace.codingTrend.previewAction", "预览")}>
             <button
               type="button"
-              disabled={disabled}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-emerald-600 disabled:opacity-45"
-              onClick={() => onUpdateStatus(proposal.id, "accepted")}
-              aria-label={t("workspace.codingTrend.accept", "采纳")}
+              disabled={previewing}
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-45"
+              onClick={(event) => {
+                event.stopPropagation()
+                onPreview(proposal.id)
+              }}
+              aria-label={t("workspace.codingTrend.previewAction", "预览")}
             >
-              {updating ? (
+              {previewing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Check className="h-3.5 w-3.5" />
+                <Eye className="h-3.5 w-3.5" />
               )}
             </button>
           </IconTip>
-          <IconTip label={t("workspace.codingTrend.reject", "拒绝")}>
+          <IconTip label={t("workspace.codingTrend.applyAction", "应用")}>
             <button
               type="button"
-              disabled={disabled}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-destructive disabled:opacity-45"
-              onClick={() => onUpdateStatus(proposal.id, "rejected")}
-              aria-label={t("workspace.codingTrend.reject", "拒绝")}
+              disabled={
+                proposal.status !== "draft" ||
+                applying ||
+                previewing ||
+                actionPlan?.proposal.id !== proposal.id
+              }
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-emerald-600 disabled:opacity-45"
+              onClick={(event) => {
+                event.stopPropagation()
+                onApply(proposal.id)
+              }}
+              aria-label={t("workspace.codingTrend.applyAction", "应用")}
             >
-              <X className="h-3.5 w-3.5" />
+              {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             </button>
           </IconTip>
         </div>
+        {selected ? (
+          <CodingProposalDetail
+            proposal={proposal}
+            actionPlan={actionPlan}
+            previewing={previewing}
+            applying={applying}
+            updating={updating}
+            onPreview={onPreview}
+            onApply={onApply}
+            onReject={onReject}
+          />
+        ) : null}
       </div>
     </IconTip>
   )
@@ -3021,11 +3202,17 @@ function CodingTrendSection({
     loading,
     generating,
     updatingProposalId,
+    previewingProposalId,
+    applyingProposalId,
+    actionPlan,
     error,
     refresh,
     generateProposals,
     updateProposalStatus,
+    previewProposalAction,
+    applyProposal,
   } = useCodingTrendReport(sessionId, { incognito, turnActive })
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
   const failures = report?.failures ?? []
   const visibleFailures = failures.slice(0, 4)
   const proposals = report?.proposals ?? []
@@ -3068,13 +3255,46 @@ function CodingTrendSection({
     }
   }
 
-  const handleUpdateProposal = async (proposalId: string, status: "accepted" | "rejected") => {
-    const proposal = await updateProposalStatus(proposalId, status)
+  const handleToggleProposal = async (proposalId: string) => {
+    setSelectedProposalId((current) => (current === proposalId ? null : proposalId))
+    if (actionPlan?.proposal.id !== proposalId) {
+      await previewProposalAction(proposalId)
+    }
+  }
+
+  const handlePreviewProposal = async (proposalId: string) => {
+    setSelectedProposalId(proposalId)
+    const plan = await previewProposalAction(proposalId)
+    if (plan) {
+      toast.success(t("workspace.codingTrend.previewReady", "预览已生成"))
+    }
+  }
+
+  const handleApplyProposal = async (proposalId: string) => {
+    setSelectedProposalId(proposalId)
+    if (actionPlan?.proposal.id !== proposalId) {
+      const plan = await previewProposalAction(proposalId)
+      if (!plan) return
+    }
+    const result = await applyProposal(proposalId)
+    if (result?.applied) {
+      toast.success(
+        t("workspace.codingTrend.appliedToast", "已应用 {{count}} 个草稿产物", {
+          count: result.artifacts.length,
+        }),
+      )
+    } else if (result?.error) {
+      toast.error(result.error)
+    }
+  }
+
+  const handleRejectProposal = async (proposalId: string) => {
+    const proposal = await updateProposalStatus(proposalId, "rejected")
     if (proposal) {
       toast.success(
         t("workspace.codingTrend.statusUpdated", "候选已更新为 {{status}}", {
           status: codingProposalStatusLabel(t, proposal.status),
-        }),
+          }),
       )
     }
   }
@@ -3232,8 +3452,15 @@ function CodingTrendSection({
               <CodingProposalRow
                 key={proposal.id}
                 proposal={proposal}
+                selected={selectedProposalId === proposal.id}
+                actionPlan={actionPlan}
+                previewing={previewingProposalId === proposal.id}
+                applying={applyingProposalId === proposal.id}
                 updating={updatingProposalId === proposal.id}
-                onUpdateStatus={handleUpdateProposal}
+                onToggle={handleToggleProposal}
+                onPreview={handlePreviewProposal}
+                onApply={handleApplyProposal}
+                onReject={handleRejectProposal}
               />
             ))}
             {proposals.length > visibleProposals.length ? (

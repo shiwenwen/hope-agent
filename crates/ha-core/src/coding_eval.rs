@@ -18,7 +18,8 @@ use serde_json::{json, Value};
 
 use crate::agent_loader::DEFAULT_AGENT_ID;
 use crate::coding_improvement::{
-    CodingTrendReport, GenerateCodingImprovementProposalsResult, RecordCodingEvalRunInput,
+    ApplyCodingImprovementProposalResult, CodingTrendReport,
+    GenerateCodingImprovementProposalsResult, RecordCodingEvalRunInput,
 };
 use crate::context_retrieval::{self, ContextCandidate, ContextCandidateKind};
 use crate::goal::CreateGoalInput;
@@ -187,6 +188,8 @@ pub struct ImprovementEvalRun {
     #[serde(default)]
     pub generate_proposals: bool,
     #[serde(default)]
+    pub apply_first_proposal: bool,
+    #[serde(default)]
     pub seed_eval_runs: Vec<RecordCodingEvalRunInput>,
 }
 
@@ -313,6 +316,14 @@ pub struct ImprovementCheck {
     pub expect_eval_success_rate: Option<f64>,
     #[serde(default)]
     pub min_repair_loop_blocked: Option<usize>,
+    #[serde(default)]
+    pub expected_applied_status: Option<String>,
+    #[serde(default)]
+    pub expected_applied_kind: Option<String>,
+    #[serde(default)]
+    pub min_applied_artifacts: Option<usize>,
+    #[serde(default)]
+    pub expected_action_target_contains: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -358,6 +369,7 @@ struct EvalRunArtifacts {
     context: Option<context_retrieval::ContextRetrievalSnapshot>,
     improvement: Option<CodingTrendReport>,
     improvement_proposals: Option<GenerateCodingImprovementProposalsResult>,
+    improvement_apply: Option<ApplyCodingImprovementProposalResult>,
     goal_evidence_relations: Vec<String>,
 }
 
@@ -417,6 +429,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
         context: None,
         improvement: None,
         improvement_proposals: None,
+        improvement_apply: None,
         goal_evidence_relations: Vec::new(),
     };
 
@@ -509,6 +522,32 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
         if run.generate_proposals {
             artifacts.improvement_proposals =
                 Some(db.generate_coding_improvement_proposals(&session.id, run.window_days)?);
+        }
+        if run.apply_first_proposal {
+            let proposal_id = artifacts
+                .improvement_proposals
+                .as_ref()
+                .and_then(|result| {
+                    result
+                        .proposals
+                        .iter()
+                        .find(|proposal| proposal.status == "draft")
+                        .map(|proposal| proposal.id.clone())
+                })
+                .or_else(|| {
+                    db.list_coding_improvement_proposals(&session.id)
+                        .ok()
+                        .and_then(|proposals| {
+                            proposals
+                                .into_iter()
+                                .find(|proposal| proposal.status == "draft")
+                                .map(|proposal| proposal.id)
+                        })
+                })
+                .ok_or_else(|| {
+                    anyhow!("applyFirstProposal requested but no draft proposal exists")
+                })?;
+            artifacts.improvement_apply = Some(db.apply_coding_improvement_proposal(&proposal_id)?);
         }
         artifacts.improvement = Some(db.coding_trend_report(&session.id, run.window_days)?);
     }
@@ -1133,6 +1172,76 @@ fn check_improvement(
                 snapshot.repair_loop.blocked
             ),
         );
+    }
+
+    if check.expected_applied_status.is_some()
+        || check.expected_applied_kind.is_some()
+        || check.min_applied_artifacts.is_some()
+        || check.expected_action_target_contains.is_some()
+    {
+        let Some(result) = artifacts.improvement_apply.as_ref() else {
+            push_check(
+                report,
+                "improvement.apply",
+                false,
+                "applyFirstProposal did not produce an apply result",
+            );
+            return;
+        };
+
+        if let Some(expected) = check.expected_applied_status.as_deref() {
+            push_check(
+                report,
+                "improvement.applied_status",
+                result.proposal.status == expected,
+                format!("status={}, expected={expected}", result.proposal.status),
+            );
+        }
+        if let Some(expected) = check.expected_applied_kind.as_deref() {
+            push_check(
+                report,
+                "improvement.applied_kind",
+                result.proposal.kind == expected,
+                format!("kind={}, expected={expected}", result.proposal.kind),
+            );
+        }
+        if let Some(min) = check.min_applied_artifacts {
+            push_check(
+                report,
+                "improvement.min_applied_artifacts",
+                result.artifacts.len() >= min,
+                format!("{} artifact(s), min {min}", result.artifacts.len()),
+            );
+        }
+        if let Some(needle) = check.expected_action_target_contains.as_deref() {
+            let found = result
+                .artifacts
+                .iter()
+                .any(|artifact| artifact.path.contains(needle))
+                || result
+                    .plan
+                    .steps
+                    .iter()
+                    .any(|step| step.target_path.contains(needle));
+            push_check(
+                report,
+                "improvement.action_target",
+                found,
+                if found {
+                    "matched".to_string()
+                } else {
+                    format!(
+                        "targets={:?}",
+                        result
+                            .plan
+                            .steps
+                            .iter()
+                            .map(|step| step.target_path.as_str())
+                            .collect::<Vec<_>>()
+                    )
+                },
+            );
+        }
     }
 }
 
