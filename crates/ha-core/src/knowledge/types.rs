@@ -202,6 +202,7 @@ pub enum KnowledgeSourceKind {
     Text,
     Pdf,
     Docx,
+    BrowserSnapshot,
     UrlSnapshot,
 }
 
@@ -212,6 +213,7 @@ impl KnowledgeSourceKind {
             KnowledgeSourceKind::Text => "text",
             KnowledgeSourceKind::Pdf => "pdf",
             KnowledgeSourceKind::Docx => "docx",
+            KnowledgeSourceKind::BrowserSnapshot => "browser_snapshot",
             KnowledgeSourceKind::UrlSnapshot => "url_snapshot",
         }
     }
@@ -221,10 +223,35 @@ impl KnowledgeSourceKind {
             "markdown" => KnowledgeSourceKind::Markdown,
             "pdf" => KnowledgeSourceKind::Pdf,
             "docx" => KnowledgeSourceKind::Docx,
+            "browser_snapshot" | "browserSnapshot" | "browser" => {
+                KnowledgeSourceKind::BrowserSnapshot
+            }
             "url_snapshot" | "urlSnapshot" | "url" => KnowledgeSourceKind::UrlSnapshot,
             _ => KnowledgeSourceKind::Text,
         }
     }
+}
+
+/// Browser capture mode for Phase 9 source imports. `Auto` prefers the current
+/// text selection when present and otherwise captures the page's readable body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeBrowserCaptureMode {
+    #[default]
+    Auto,
+    Selection,
+    Page,
+}
+
+/// Owner-plane import request for capturing the active controlled browser tab
+/// into the raw-source inbox.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeBrowserSourceImportInput {
+    #[serde(default)]
+    pub mode: KnowledgeBrowserCaptureMode,
+    #[serde(default)]
+    pub title: Option<String>,
 }
 
 /// Lifecycle status for a raw source. Phase 1 creates only `Ready` rows on

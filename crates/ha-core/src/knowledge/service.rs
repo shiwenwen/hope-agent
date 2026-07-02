@@ -13,9 +13,9 @@ use super::index;
 use super::types::{
     Backlink, CompileProposal, CompileProposalStatus, CompileRun, CompileStartInput,
     CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
-    KnowledgeSource, KnowledgeSourceImportInput, KnowledgeSourceReadResult, Note, NoteReadResult,
-    NoteSearchHit, NoteSourceRef, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
-    SchemaProfile,
+    KnowledgeBrowserSourceImportInput, KnowledgeSource, KnowledgeSourceImportInput,
+    KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit, NoteSourceRef, QueryFileInput,
+    ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
 };
 use crate::filesystem::{self, WorkspaceScope};
 use crate::session::{SessionKind, SessionMeta};
@@ -53,6 +53,14 @@ pub async fn source_import(
     input: KnowledgeSourceImportInput,
 ) -> Result<KnowledgeSource> {
     super::source::import_source(kb_id, input).await
+}
+
+/// Owner import: capture the active controlled browser tab as a raw source.
+pub async fn source_import_browser(
+    kb_id: &str,
+    input: KnowledgeBrowserSourceImportInput,
+) -> Result<KnowledgeSource> {
+    super::source::import_browser_capture(kb_id, input).await
 }
 
 /// Owner list: raw sources in newest-first order.

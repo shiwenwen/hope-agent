@@ -13,10 +13,10 @@ use ha_core::knowledge::{
     KbChatThread, KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput,
     KnowledgeAgentExpandResult, KnowledgeAgentReadInput, KnowledgeAgentReadResult,
     KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
-    KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, KnowledgeSource,
-    KnowledgeSourceImportInput, KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit,
-    NoteSourceRef, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
+    KnowledgeBrowserSourceImportInput, KnowledgeGraph, KnowledgeSource, KnowledgeSourceImportInput,
+    KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit, NoteSourceRef, QueryFileInput,
+    ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -115,6 +115,16 @@ pub async fn kb_source_import_cmd(
     input: KnowledgeSourceImportInput,
 ) -> Result<KnowledgeSource, CmdError> {
     service::source_import(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_browser_cmd(
+    kb_id: String,
+    input: KnowledgeBrowserSourceImportInput,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_import_browser(&kb_id, input)
         .await
         .map_err(Into::into)
 }

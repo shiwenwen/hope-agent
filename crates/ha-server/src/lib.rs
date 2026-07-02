@@ -283,6 +283,10 @@ fn build_router_with_cors(
                 )),
         )
         .route(
+            "/knowledge/{kb_id}/sources/browser",
+            post(routes::knowledge::kb_source_import_browser),
+        )
+        .route(
             "/knowledge/{kb_id}/sources/{source_id}",
             get(routes::knowledge::kb_source_read).delete(routes::knowledge::kb_source_delete),
         )

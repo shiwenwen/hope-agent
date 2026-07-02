@@ -612,6 +612,7 @@ pub fn run() {
             commands::knowledge::reindex_note_cmd,
             commands::knowledge::reindex_dir_cmd,
             commands::knowledge::kb_source_import_cmd,
+            commands::knowledge::kb_source_import_browser_cmd,
             commands::knowledge::kb_source_list_cmd,
             commands::knowledge::kb_source_read_cmd,
             commands::knowledge::kb_source_reextract_cmd,

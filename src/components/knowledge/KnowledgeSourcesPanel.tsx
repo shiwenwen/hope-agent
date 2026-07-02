@@ -38,6 +38,8 @@ import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
+  KnowledgeBrowserCaptureMode,
+  KnowledgeBrowserSourceImportInput,
   KnowledgeSource,
   KnowledgeSourceImportInput,
   KnowledgeSourceKind,
@@ -50,7 +52,7 @@ interface KnowledgeSourcesPanelProps {
   kbId: string | null
 }
 
-type ImportMode = "url" | "text" | "file"
+type ImportMode = "url" | "text" | "file" | "browser"
 
 interface SourceFileDraft {
   file: File
@@ -72,6 +74,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [url, setUrl] = useState("")
   const [text, setText] = useState("")
   const [fileDrafts, setFileDrafts] = useState<SourceFileDraft[]>([])
+  const [browserMode, setBrowserMode] = useState<KnowledgeBrowserCaptureMode>("auto")
   const [selected, setSelected] = useState<KnowledgeSourceReadResult | null>(null)
   const [reading, setReading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeSource | null>(null)
@@ -121,6 +124,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     if (!kbId || importing) return false
     if (mode === "url") return url.trim().length > 0
     if (mode === "file") return fileDrafts.length > 0
+    if (mode === "browser") return true
     return text.trim().length > 0
   }, [fileDrafts.length, importing, kbId, mode, text, url])
 
@@ -129,6 +133,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     setUrl("")
     setText("")
     setFileDrafts([])
+    setBrowserMode("auto")
     setMode("url")
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
@@ -137,7 +142,16 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     if (!kbId || !canImport) return
     setImporting(true)
     try {
-      if (mode === "file") {
+      if (mode === "browser") {
+        const input: KnowledgeBrowserSourceImportInput = {
+          mode: browserMode,
+          title: title.trim() || null,
+        }
+        await getTransport().call<KnowledgeSource>("kb_source_import_browser_cmd", { kbId, input })
+        toast.success(t("knowledge.sources.imported", "Source imported"))
+        setImportOpen(false)
+        resetImport()
+      } else if (mode === "file") {
         const failed: SourceFileDraft[] = []
         let imported = 0
         const singleTitle = fileDrafts.length === 1 ? title.trim() || null : null
@@ -362,7 +376,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   className="flex min-w-0 flex-1 items-start gap-2 text-left"
                   onClick={() => void openSource(source)}
                 >
-                  {source.kind === "url_snapshot" ? (
+                  {source.kind === "url_snapshot" || source.kind === "browser_snapshot" ? (
                     <Globe className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   ) : (
                     <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -443,7 +457,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
             </DialogDescription>
           </DialogHeader>
           <Tabs value={mode} onValueChange={(v) => setMode(v as ImportMode)}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="url" className="gap-1.5 text-xs">
                 <Globe className="h-3.5 w-3.5" />
                 {t("knowledge.sources.url", "URL")}
@@ -455,6 +469,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
               <TabsTrigger value="file" className="gap-1.5 text-xs">
                 <Upload className="h-3.5 w-3.5" />
                 {t("knowledge.sources.file", "File")}
+              </TabsTrigger>
+              <TabsTrigger value="browser" className="gap-1.5 text-xs">
+                <Globe className="h-3.5 w-3.5" />
+                {t("knowledge.sources.browser", "Browser")}
               </TabsTrigger>
             </TabsList>
             <div className="mt-3 space-y-3">
@@ -514,6 +532,24 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                     ))}
                   </div>
                 ) : null}
+              </TabsContent>
+              <TabsContent value="browser" className="mt-0">
+                <Tabs
+                  value={browserMode}
+                  onValueChange={(v) => setBrowserMode(v as KnowledgeBrowserCaptureMode)}
+                >
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="auto" className="text-xs">
+                      {t("knowledge.sources.browserAuto", "Auto")}
+                    </TabsTrigger>
+                    <TabsTrigger value="selection" className="text-xs">
+                      {t("knowledge.sources.browserSelection", "Selection")}
+                    </TabsTrigger>
+                    <TabsTrigger value="page" className="text-xs">
+                      {t("knowledge.sources.browserPage", "Page")}
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
               </TabsContent>
             </div>
           </Tabs>
@@ -607,6 +643,8 @@ function defaultMimeType(kind: KnowledgeSourceKind): string {
       return "application/pdf"
     case "docx":
       return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    case "browser_snapshot":
+      return "text/markdown"
     case "url_snapshot":
       return "text/markdown"
     case "text":
@@ -633,6 +671,8 @@ function sourceKindLabel(kind: KnowledgeSourceKind): string {
       return "PDF"
     case "docx":
       return "DOCX"
+    case "browser_snapshot":
+      return "Browser"
     case "url_snapshot":
       return "URL"
     case "text":

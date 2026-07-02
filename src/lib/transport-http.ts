@@ -68,6 +68,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   delete_kb_cmd:                   { method: "DELETE", path: "/api/knowledge/{id}" },
   reindex_kb_cmd:                  { method: "POST",   path: "/api/knowledge/{id}/reindex" },
   kb_source_import_cmd:            { method: "POST",   path: "/api/knowledge/{kbId}/sources" },
+  kb_source_import_browser_cmd:    { method: "POST",   path: "/api/knowledge/{kbId}/sources/browser" },
   kb_source_list_cmd:              { method: "GET",    path: "/api/knowledge/{kbId}/sources" },
   kb_source_read_cmd:              { method: "GET",    path: "/api/knowledge/{kbId}/sources/{sourceId}" },
   kb_source_reextract_cmd:         { method: "POST",   path: "/api/knowledge/{kbId}/sources/{sourceId}/reextract" },

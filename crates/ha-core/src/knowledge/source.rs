@@ -8,13 +8,15 @@
 use anyhow::{anyhow, bail, Result};
 use base64::{engine::general_purpose, Engine as _};
 use futures_util::StreamExt;
+use serde::Deserialize;
 use serde_json::Value;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use super::types::{
-    KnowledgeSource, KnowledgeSourceChunk, KnowledgeSourceImportInput, KnowledgeSourceKind,
+    KnowledgeBrowserCaptureMode, KnowledgeBrowserSourceImportInput, KnowledgeSource,
+    KnowledgeSourceChunk, KnowledgeSourceImportInput, KnowledgeSourceKind,
     KnowledgeSourceReadResult, KnowledgeSourceStatus,
 };
 
@@ -23,10 +25,88 @@ const MAX_DIRECT_SOURCE_BYTES: usize = 5 * 1024 * 1024;
 /// add a larger JSON body cap for base64 expansion, but this is the real
 /// product limit.
 pub const MAX_BINARY_SOURCE_BYTES: usize = 24 * 1024 * 1024;
+const MAX_BROWSER_CAPTURE_CHARS: usize = 200_000;
 const MAX_URL_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
 const SOURCE_CHUNK_CHARS: usize = 4_000;
 const USER_AGENT: &str =
     "HopeAgent/KnowledgeSourceImporter (+https://github.com/shiwenwen/hope-agent)";
+const BROWSER_CAPTURE_JS: &str = r#"(() => {
+  const MAX_TEXT = 220000;
+  const BLOCK_TAGS = new Set(['ADDRESS','ARTICLE','ASIDE','BLOCKQUOTE','BR','CAPTION','DIV','DL','FIELDSET','FIGCAPTION','FIGURE','FOOTER','FORM','H1','H2','H3','H4','H5','H6','HEADER','HR','LI','MAIN','NAV','OL','P','PRE','SECTION','TABLE','TD','TH','TR','UL']);
+  const DROP_SELECTORS = 'script,style,noscript,template,svg,canvas,iframe,button,input,select,textarea,[hidden],[aria-hidden="true"]';
+  function cleanText(value) {
+    return String(value || '').replace(/\u00a0/g, ' ').replace(/[ \t\r\f\v]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function isHidden(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return true;
+    const rect = el.getBoundingClientRect();
+    return rect.width === 0 && rect.height === 0;
+  }
+  function appendLine(lines, value) {
+    const text = cleanText(value);
+    if (!text) return;
+    if (lines.join('\n').length + text.length > MAX_TEXT) return;
+    lines.push(text);
+  }
+  function walk(node, lines, depth) {
+    if (!node || lines.join('\n').length > MAX_TEXT) return;
+    if (node.nodeType === Node.TEXT_NODE) {
+      appendLine(lines, node.nodeValue);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node;
+    if (el.matches && el.matches(DROP_SELECTORS)) return;
+    if (isHidden(el)) return;
+    const tag = el.tagName;
+    if (/^H[1-6]$/.test(tag)) {
+      appendLine(lines, `${'#'.repeat(Number(tag.slice(1)))} ${el.innerText || el.textContent || ''}`);
+      return;
+    }
+    if (tag === 'LI') {
+      appendLine(lines, `- ${el.innerText || el.textContent || ''}`);
+      return;
+    }
+    if (tag === 'A') {
+      const text = cleanText(el.innerText || el.textContent || '');
+      const href = el.href || '';
+      appendLine(lines, href && text && href !== text ? `[${text}](${href})` : text);
+      return;
+    }
+    if (tag === 'PRE' || tag === 'CODE') {
+      appendLine(lines, el.innerText || el.textContent || '');
+      return;
+    }
+    const before = lines.length;
+    for (const child of Array.from(el.childNodes)) walk(child, lines, depth + 1);
+    if (BLOCK_TAGS.has(tag) && lines.length > before) lines.push('');
+  }
+  function readableRoot() {
+    return document.querySelector('article')
+      || document.querySelector('main')
+      || document.querySelector('[role="main"]')
+      || document.querySelector('.article')
+      || document.querySelector('.post')
+      || document.body;
+  }
+  function pageMarkdown() {
+    const root = readableRoot();
+    const lines = [];
+    walk(root, lines, 0);
+    const markdown = cleanText(lines.join('\n'));
+    return markdown || cleanText(document.body && document.body.innerText);
+  }
+  const selection = window.getSelection && window.getSelection();
+  const selectionText = cleanText(selection ? selection.toString() : '');
+  return {
+    url: location.href,
+    title: document.title || '',
+    selectionText,
+    pageText: pageMarkdown()
+  };
+})()"#;
 
 fn registry() -> Result<&'static std::sync::Arc<super::KnowledgeRegistry>> {
     crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))
@@ -64,6 +144,83 @@ pub async fn import_source(
         } => import_file_snapshot(kb_id, kind, title, file_name, mime_type, bytes)?,
     };
 
+    emit(kb_id, "source_import");
+    Ok(imported)
+}
+
+/// Capture the active controlled browser tab into the raw-source inbox. This is
+/// owner-plane only and intentionally not exposed as an agent tool: the user is
+/// asking Hope to archive the page they are currently controlling.
+pub async fn import_browser_capture(
+    kb_id: &str,
+    input: KnowledgeBrowserSourceImportInput,
+) -> Result<KnowledgeSource> {
+    let kb = registry()?
+        .get(kb_id)?
+        .ok_or_else(|| anyhow!("knowledge base not found: {kb_id}"))?;
+    if kb.archived {
+        bail!("cannot import source into archived knowledge base: {kb_id}");
+    }
+
+    let backend = crate::browser::acquire_backend_for(
+        crate::browser::BrowserBackendContext::default(),
+        crate::browser::BrowserBackendRequirement::ExtensionPreferred,
+    )
+    .await?;
+    let active = backend
+        .active_tab_info()
+        .await?
+        .ok_or_else(|| anyhow!("no active browser tab to capture"))?;
+    if !active.target_id.trim().is_empty() {
+        backend.select_page(&active.target_id).await?;
+    }
+    let raw = backend.evaluate(BROWSER_CAPTURE_JS).await?;
+    let capture: BrowserCapturePayload = serde_json::from_value(raw)
+        .map_err(|e| anyhow!("browser capture returned invalid payload: {e}"))?;
+    let selected = !capture.selection_text.trim().is_empty();
+    let (capture_mode, text) = match input.mode {
+        KnowledgeBrowserCaptureMode::Selection => {
+            if !selected {
+                bail!("browser selection capture requires selected text in the active tab");
+            }
+            ("selection", capture.selection_text)
+        }
+        KnowledgeBrowserCaptureMode::Page => ("page", capture.page_text),
+        KnowledgeBrowserCaptureMode::Auto => {
+            if selected {
+                ("selection", capture.selection_text)
+            } else {
+                ("page", capture.page_text)
+            }
+        }
+    };
+    let text = normalize_capture_text(&text)?;
+    let url = normalize_optional_owned(Some(capture.url))
+        .unwrap_or_else(|| active.url.clone())
+        .trim()
+        .to_string();
+    if let Some(existing) = find_duplicate_browser_capture(kb_id, &url, capture_mode, &text)? {
+        return Ok(existing);
+    }
+    let extracted_title = normalize_optional_owned(Some(capture.title))
+        .or_else(|| normalize_optional_owned(Some(active.title.clone())));
+    let title = choose_title(input.title, None, extracted_title.as_deref());
+    let captured_at = chrono::Utc::now().to_rfc3339();
+    let mut snapshot = format!(
+        "# {title}\n\nSource: {url}\nCaptured: {captured_at}\nSource-Type: browser_snapshot\nCapture-Mode: {capture_mode}\nSelected: {}\n\n---\n\n",
+        capture_mode == "selection"
+    );
+    snapshot.push_str(&text);
+    snapshot.push('\n');
+
+    let imported = persist_source(
+        kb_id,
+        KnowledgeSourceKind::BrowserSnapshot,
+        title,
+        Some(url),
+        "md",
+        snapshot,
+    )?;
     emit(kb_id, "source_import");
     Ok(imported)
 }
@@ -136,7 +293,9 @@ fn import_text_snapshot(
     let title = choose_title(title, file_name.as_deref(), None);
     let ext = match kind {
         KnowledgeSourceKind::Markdown => "md",
-        KnowledgeSourceKind::Pdf | KnowledgeSourceKind::Docx => "md",
+        KnowledgeSourceKind::Pdf
+        | KnowledgeSourceKind::Docx
+        | KnowledgeSourceKind::BrowserSnapshot => "md",
         KnowledgeSourceKind::Text | KnowledgeSourceKind::UrlSnapshot => "txt",
     };
     persist_source(kb_id, kind, title, None, ext, content)
@@ -187,6 +346,9 @@ fn import_file_snapshot(
             )
         }
         KnowledgeSourceKind::UrlSnapshot => bail!("url_snapshot source imports require url"),
+        KnowledgeSourceKind::BrowserSnapshot => {
+            bail!("browser_snapshot source imports require browser capture")
+        }
     }
 }
 
@@ -208,6 +370,81 @@ enum NormalizedImport {
         mime_type: Option<String>,
         bytes: Vec<u8>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BrowserCapturePayload {
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    selection_text: String,
+    #[serde(default)]
+    page_text: String,
+}
+
+fn normalize_capture_text(text: &str) -> Result<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        bail!("browser capture produced no readable text");
+    }
+    let char_count = trimmed.chars().count();
+    if char_count > MAX_BROWSER_CAPTURE_CHARS {
+        let truncated: String = trimmed.chars().take(MAX_BROWSER_CAPTURE_CHARS).collect();
+        Ok(format!(
+            "{}\n\n[Content truncated at {} characters, total {} characters]",
+            truncated, MAX_BROWSER_CAPTURE_CHARS, char_count
+        ))
+    } else {
+        Ok(trimmed.to_string())
+    }
+}
+
+fn find_duplicate_browser_capture(
+    kb_id: &str,
+    url: &str,
+    capture_mode: &str,
+    text: &str,
+) -> Result<Option<KnowledgeSource>> {
+    let expected_body = text.trim();
+    for source in registry()?.list_sources(kb_id)? {
+        if source.kind != KnowledgeSourceKind::BrowserSnapshot
+            || source.origin_uri.as_deref() != Some(url)
+        {
+            continue;
+        }
+        let path = source_path(kb_id, &source.stored_path)?;
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if browser_snapshot_capture_mode(&content).as_deref() == Some(capture_mode)
+            && browser_snapshot_body(&content) == expected_body
+        {
+            return Ok(Some(source));
+        }
+    }
+    Ok(None)
+}
+
+fn browser_snapshot_body(content: &str) -> &str {
+    content
+        .split_once("\n---\n\n")
+        .map(|(_, body)| body.trim())
+        .unwrap_or_else(|| content.trim())
+}
+
+fn browser_snapshot_capture_mode(content: &str) -> Option<String> {
+    for line in content.lines() {
+        if line.trim() == "---" {
+            return None;
+        }
+        if let Some(mode) = line.strip_prefix("Capture-Mode:") {
+            return normalize_optional(Some(mode)).map(str::to_string);
+        }
+    }
+    None
 }
 
 fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<NormalizedImport> {
@@ -234,6 +471,9 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
         if matches!(kind, KnowledgeSourceKind::Pdf | KnowledgeSourceKind::Docx) {
             bail!("pdf/docx source imports require dataBase64");
         }
+        if matches!(kind, KnowledgeSourceKind::BrowserSnapshot) {
+            bail!("browser_snapshot source imports require browser capture");
+        }
         return Ok(NormalizedImport::Content {
             kind,
             title: input.title,
@@ -246,6 +486,9 @@ fn normalize_import_input(input: KnowledgeSourceImportInput) -> Result<Normalize
     let kind = input.kind.unwrap_or_else(|| infer_kind(&input.file_name));
     if matches!(kind, KnowledgeSourceKind::UrlSnapshot) {
         bail!("url_snapshot source imports require url");
+    }
+    if matches!(kind, KnowledgeSourceKind::BrowserSnapshot) {
+        bail!("browser_snapshot source imports require browser capture");
     }
     let bytes = decode_base64_source(&data_base64)?;
     Ok(NormalizedImport::File {
@@ -551,6 +794,7 @@ fn default_file_name(kind: KnowledgeSourceKind) -> &'static str {
     match kind {
         KnowledgeSourceKind::Pdf => "source.pdf",
         KnowledgeSourceKind::Docx => "source.docx",
+        KnowledgeSourceKind::BrowserSnapshot => "source.md",
         KnowledgeSourceKind::Markdown => "source.md",
         KnowledgeSourceKind::UrlSnapshot => "source.md",
         KnowledgeSourceKind::Text => "source.txt",
@@ -563,7 +807,9 @@ fn default_mime_type(kind: KnowledgeSourceKind) -> &'static str {
         KnowledgeSourceKind::Docx => {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         }
-        KnowledgeSourceKind::Markdown | KnowledgeSourceKind::UrlSnapshot => "text/markdown",
+        KnowledgeSourceKind::Markdown
+        | KnowledgeSourceKind::BrowserSnapshot
+        | KnowledgeSourceKind::UrlSnapshot => "text/markdown",
         KnowledgeSourceKind::Text => "text/plain",
     }
 }
@@ -729,6 +975,35 @@ mod tests {
         req.content = Some("plain text pretending to be extracted pdf".to_string());
 
         assert!(normalize_import_input(req).is_err());
+    }
+
+    #[test]
+    fn normalize_import_rejects_browser_snapshot_content() {
+        let mut req = input();
+        req.kind = Some(KnowledgeSourceKind::BrowserSnapshot);
+        req.content = Some("captured text".to_string());
+
+        assert!(normalize_import_input(req).is_err());
+    }
+
+    #[test]
+    fn normalize_capture_text_truncates_long_page() {
+        let text = "a".repeat(MAX_BROWSER_CAPTURE_CHARS + 8);
+        let normalized = normalize_capture_text(&text).expect("normalizes");
+
+        assert!(normalized.contains("[Content truncated at"));
+        assert!(normalized.len() < text.len() + 80);
+    }
+
+    #[test]
+    fn browser_snapshot_helpers_read_mode_and_body() {
+        let content = "# Example\n\nSource: https://example.com\nCapture-Mode: selection\nSelected: true\n\n---\n\n selected text \n";
+
+        assert_eq!(
+            browser_snapshot_capture_mode(content).as_deref(),
+            Some("selection")
+        );
+        assert_eq!(browser_snapshot_body(content), "selected text");
     }
 
     #[test]

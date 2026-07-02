@@ -26,10 +26,10 @@ use ha_core::knowledge::{
     KbChatThread, KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput,
     KnowledgeAgentExpandResult, KnowledgeAgentReadInput, KnowledgeAgentReadResult,
     KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
-    KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, KnowledgeSource,
-    KnowledgeSourceImportInput, KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit,
-    NoteSourceRef, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
+    KnowledgeBrowserSourceImportInput, KnowledgeGraph, KnowledgeSource, KnowledgeSourceImportInput,
+    KnowledgeSourceReadResult, Note, NoteReadResult, NoteSearchHit, NoteSourceRef, QueryFileInput,
+    ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -201,6 +201,11 @@ pub struct KbSourceImportBody {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct KbBrowserSourceImportBody {
+    pub input: KnowledgeBrowserSourceImportInput,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct KbCompileStartBody {
     pub input: CompileStartInput,
 }
@@ -341,6 +346,16 @@ pub async fn kb_source_import(
     Json(body): Json<KbSourceImportBody>,
 ) -> Result<Json<KnowledgeSource>, AppError> {
     Ok(Json(service::source_import(&kb_id, body.input).await?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/browser`
+pub async fn kb_source_import_browser(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbBrowserSourceImportBody>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(
+        service::source_import_browser(&kb_id, body.input).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources`
