@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "セッションを選択",
     "profileRotationTitle": "プロファイル切替",
     "queueMessage": "メッセージをキューに追加",
@@ -638,29 +661,6 @@
       "reloadBody": "インストール済みの拡張機能がホストと一致しません。再読み込みすると実際の Chrome の操作を復元できます。",
       "openSettings": "設定を開く",
       "dismiss": "今後表示しない"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "保存しました",
+      "title": "元メディアの保持",
+      "description": "インポートした音声、動画、画像の原本を、ソース証拠の確認用に任意で保持します。",
+      "maxTotal": "総容量上限（MiB）",
+      "maxSource": "ソースごとの上限（MiB）",
+      "thumbnail": "サムネイルの最長辺（px）",
+      "prune": "容量超過時に古いメディアを削除",
+      "pruneDesc": "新しく保持するファイルが容量上限を超える場合、スキップする前に最も古い保持済み原本を削除します。"
+    },
     "knowledgePassiveRecall": {
       "title": "受動的な関連ノート",
       "description": "各ターンで、メッセージに関連するアクセス可能なノートのタイトルをヒントとして表示します。",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "「{{name}}」の移動先…",
     "rootFolder": "ルート",
     "remoteWritesDisabled": "リモートファイル書き込みはオフです。サーバーホストの 設定 → サーバー → リモートファイル書き込みを許可 でオンにしてください。",
+    "externalRawSync": "ソーススナップショットの外部ミラー",
+    "externalRawSyncHint": "Hope 管理のソーステキストスナップショットをこの Vault にコピーします。元の音声、動画、画像ファイルはミラーされません。",
+    "externalRawSyncDisabled": "オフ",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "既存のスナップショットはここで実行したときだけ同期されます。今後のインポートは自動で同期されます。",
+    "externalRawSyncNow": "今すぐ同期",
+    "externalRawSyncPartial": "{{synced}} 件のスナップショットを同期しました。{{failed}} 件が失敗しました。",
+    "externalRawSyncDone": "{{count}} 件のソーススナップショットを同期しました",
+    "externalRawSyncFailed": "ソーススナップショットを同期できませんでした",
     "retrievalSettings": "検索設定",
     "reindexing": "再インデックス中…",
     "reindexDone": "インデックスを再構築しました",
@@ -5613,6 +5633,7 @@
       "runFailed": "メンテナンスを実行できませんでした",
       "applyFailed": "提案を適用できませんでした",
       "rejectFailed": "提案を却下できませんでした",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "リンク",
         "orphan_rescue": "救出",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "グラフ表示",

@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "Bir oturum seç",
     "profileRotationTitle": "Profil değişimi",
     "queueMessage": "Sıraya al",
@@ -638,29 +661,6 @@
       "reloadBody": "Yüklü uzantı ana bilgisayarla eşleşmiyor. Gerçek Chrome'unuzun denetimini geri kazanmak için yeniden yükleyin.",
       "openSettings": "Ayarları aç",
       "dismiss": "Tekrar gösterme"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Kaydedildi",
+      "title": "Orijinal medya saklama",
+      "description": "İçe aktarılan ses, video ve görüntü orijinallerini kaynak kanıtlarını incelemek için isteğe bağlı olarak saklayın.",
+      "maxTotal": "Toplam kota (MiB)",
+      "maxSource": "Kaynak başına (MiB)",
+      "thumbnail": "Küçük resim uzun kenarı (px)",
+      "prune": "Kota aşılınca en eski medyayı temizle",
+      "pruneDesc": "Yeni saklanacak dosya kotayı aşacaksa, yeni dosyayı atlamadan önce en eski saklanan orijinaller kaldırılır."
+    },
     "knowledgePassiveRecall": {
       "title": "Pasif ilgili notlar",
       "description": "Her turda, mesajınızla ilgili erişilebilir not başlıklarını ipucu olarak gösterir.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "\"{{name}}\" şuraya taşınsın…",
     "rootFolder": "Kök",
     "remoteWritesDisabled": "Uzak dosya yazma kapalı. Sunucu ana makinesinde Ayarlar → Sunucu → Uzak dosya yazmaya izin ver seçeneğini açın.",
+    "externalRawSync": "Kaynak anlık görüntüsü dış aynası",
+    "externalRawSyncHint": "Hope tarafından yönetilen kaynak metin anlık görüntülerini bu kasaya kopyalar. Orijinal ses, video ve görüntü dosyaları aynalanmaz.",
+    "externalRawSyncDisabled": "Kapalı",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Mevcut anlık görüntüler yalnızca buradan çalıştırdığınızda eşitlenir; gelecekteki içe aktarmalar otomatik eşitlenir.",
+    "externalRawSyncNow": "Şimdi eşitle",
+    "externalRawSyncPartial": "{{synced}} anlık görüntü eşitlendi; {{failed}} başarısız.",
+    "externalRawSyncDone": "{{count}} kaynak anlık görüntüsü eşitlendi",
+    "externalRawSyncFailed": "Kaynak anlık görüntüleri eşitlenemedi",
     "retrievalSettings": "Erişim ayarları",
     "reindexing": "Yeniden dizinleniyor…",
     "reindexDone": "Dizin yeniden oluşturuldu",
@@ -5613,6 +5633,7 @@
       "runFailed": "Bakım çalıştırılamadı",
       "applyFailed": "Öneri uygulanamadı",
       "rejectFailed": "Öneri yoksayılamadı",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Bağla",
         "orphan_rescue": "Kurtar",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "Grafik görünümü",

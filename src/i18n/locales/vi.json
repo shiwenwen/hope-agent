@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "Chọn phiên",
     "profileRotationTitle": "Đổi profile",
     "queueMessage": "Xếp hàng gửi",
@@ -638,29 +661,6 @@
       "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
       "openSettings": "Mở cài đặt",
       "dismiss": "Không hiển thị lại"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Đã lưu",
+      "title": "Lưu giữ media gốc",
+      "description": "Tùy chọn giữ lại bản gốc âm thanh, video và hình ảnh đã nhập để xem lại bằng chứng nguồn.",
+      "maxTotal": "Tổng hạn mức (MiB)",
+      "maxSource": "Mỗi nguồn (MiB)",
+      "thumbnail": "Cạnh dài thumbnail (px)",
+      "prune": "Xóa media cũ nhất khi vượt hạn mức",
+      "pruneDesc": "Khi tệp mới được lưu giữ sẽ vượt hạn mức, hãy xóa các bản gốc đã lưu cũ nhất trước khi bỏ qua tệp mới."
+    },
     "knowledgePassiveRecall": {
       "title": "Ghi chú liên quan thụ động",
       "description": "Mỗi lượt, hiển thị tiêu đề các ghi chú có thể truy cập liên quan đến tin nhắn của bạn như một gợi ý.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "Di chuyển \"{{name}}\" đến…",
     "rootFolder": "Gốc",
     "remoteWritesDisabled": "Ghi tệp từ xa đang tắt. Bật trong Cài đặt → Máy chủ → Cho phép ghi tệp từ xa (trên máy chủ).",
+    "externalRawSync": "Sao chép snapshot nguồn ra vault ngoài",
+    "externalRawSyncHint": "Sao chép các snapshot văn bản nguồn do Hope quản lý vào vault này. Tệp âm thanh, video và hình ảnh gốc sẽ không được sao chép.",
+    "externalRawSyncDisabled": "Tắt",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Snapshot hiện có chỉ được đồng bộ khi bạn chạy tại đây; các lần nhập sau sẽ tự động đồng bộ.",
+    "externalRawSyncNow": "Đồng bộ ngay",
+    "externalRawSyncPartial": "Đã đồng bộ {{synced}} snapshot; {{failed}} thất bại.",
+    "externalRawSyncDone": "Đã đồng bộ {{count}} snapshot nguồn",
+    "externalRawSyncFailed": "Không thể đồng bộ snapshot nguồn",
     "retrievalSettings": "Cài đặt truy xuất",
     "reindexing": "Đang lập chỉ mục lại…",
     "reindexDone": "Đã xây dựng lại chỉ mục",
@@ -5613,6 +5633,7 @@
       "runFailed": "Không chạy được bảo trì",
       "applyFailed": "Không áp dụng được gợi ý",
       "rejectFailed": "Không bỏ được gợi ý",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Liên kết",
         "orphan_rescue": "Cứu",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "Xem dạng đồ thị",

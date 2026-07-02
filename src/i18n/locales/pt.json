@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "Escolher uma sessão",
     "profileRotationTitle": "Rotação de perfil",
     "queueMessage": "Enfileirar mensagem",
@@ -638,29 +661,6 @@
       "reloadBody": "A extensão instalada não corresponde ao host. Recarregue-a para restaurar o controle do seu Chrome real.",
       "openSettings": "Abrir configurações",
       "dismiss": "Não mostrar novamente"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Salvo",
+      "title": "Retenção da mídia original",
+      "description": "Opcionalmente mantenha os originais importados de áudio, vídeo e imagem para revisar evidências das fontes.",
+      "maxTotal": "Cota total (MiB)",
+      "maxSource": "Por fonte (MiB)",
+      "thumbnail": "Maior lado da miniatura (px)",
+      "prune": "Remover mídias mais antigas ao exceder a cota",
+      "pruneDesc": "Quando um novo arquivo retido excederia a cota, remova os originais retidos mais antigos antes de ignorar o novo arquivo."
+    },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas passivas",
       "description": "A cada turno, mostra títulos de notas acessíveis relacionadas à sua mensagem como dica.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "Mover \"{{name}}\" para…",
     "rootFolder": "Raiz",
     "remoteWritesDisabled": "A gravação remota de arquivos está desativada. Ative em Configurações → Servidor → Permitir gravações remotas de arquivos (no host do servidor).",
+    "externalRawSync": "Espelho externo de snapshots de fontes",
+    "externalRawSyncHint": "Copie os snapshots de texto de fontes gerenciados pelo Hope para este vault. Arquivos originais de áudio, vídeo e imagem não são espelhados.",
+    "externalRawSyncDisabled": "Desativado",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Snapshots existentes só são sincronizados quando você executa aqui; futuras importações sincronizam automaticamente.",
+    "externalRawSyncNow": "Sincronizar agora",
+    "externalRawSyncPartial": "{{synced}} snapshots sincronizados; {{failed}} falharam.",
+    "externalRawSyncDone": "{{count}} snapshots de fontes sincronizados",
+    "externalRawSyncFailed": "Não foi possível sincronizar os snapshots de fontes",
     "retrievalSettings": "Configurações de recuperação",
     "reindexing": "Reindexando…",
     "reindexDone": "Índice reconstruído",
@@ -5613,6 +5633,7 @@
       "runFailed": "Não foi possível executar a manutenção",
       "applyFailed": "Não foi possível aplicar a sugestão",
       "rejectFailed": "Não foi possível dispensar a sugestão",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Vincular",
         "orphan_rescue": "Resgate",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "Vista de grafo",

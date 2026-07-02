@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Saved",
+      "title": "Original media retention",
+      "description": "Optionally keep imported audio, video, and image originals for source evidence review.",
+      "maxTotal": "Total quota (MiB)",
+      "maxSource": "Per source (MiB)",
+      "thumbnail": "Thumbnail edge (px)",
+      "prune": "Prune oldest media over quota",
+      "pruneDesc": "When a new retained file would exceed the quota, remove the oldest retained originals before skipping the new file."
+    },
     "knowledgePassiveRecall": {
       "title": "Passive related notes",
       "description": "Each turn, surface titles of accessible notes related to your message as a hint.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "Move \"{{name}}\" to…",
     "rootFolder": "Root",
     "remoteWritesDisabled": "Remote file writing is off. Turn it on in Settings → Server → Allow remote file writes (on the server host).",
+    "externalRawSync": "Source snapshot mirror",
+    "externalRawSyncHint": "Copy Hope-managed source text snapshots into this vault. Original audio, video and image files are not mirrored.",
+    "externalRawSyncDisabled": "Off",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Existing snapshots are synced only when you run it here; future imports sync automatically.",
+    "externalRawSyncNow": "Sync now",
+    "externalRawSyncPartial": "Synced {{synced}} snapshot(s); {{failed}} failed.",
+    "externalRawSyncDone": "Synced {{count}} source snapshot(s)",
+    "externalRawSyncFailed": "Couldn't sync source snapshots",
     "retrievalSettings": "Retrieval settings",
     "reindexing": "Reindexing…",
     "reindexDone": "Index rebuilt",

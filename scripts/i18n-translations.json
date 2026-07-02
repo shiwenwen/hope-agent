@@ -731,7 +731,17 @@
       "asyncToolsWakeupMaxDelay": "自動ウェイクアップ最大遅延",
       "asyncToolsWakeupMaxDelayDesc": "エージェントが schedule_wakeup で自身を再起動できる最大遅延。より長い周期タスクは cron に任せてください。下限の 10 秒は固定です。範囲 10 秒〜7 日。",
       "asyncToolsWakeupMaxPending": "セッションごとの保留ウェイクアップ上限",
-      "asyncToolsWakeupMaxPendingDesc": "1 つのセッションが同時に保持できる保留中の自動ウェイクアップ数。超えると拒否されます（キューには入りません）。エージェントが課金ターンを大量に自己スケジュールするのを防ぎます。範囲 1〜100。"
+      "asyncToolsWakeupMaxPendingDesc": "1 つのセッションが同時に保持できる保留中の自動ウェイクアップ数。超えると拒否されます（キューには入りません）。エージェントが課金ターンを大量に自己スケジュールするのを防ぎます。範囲 1〜100。",
+      "knowledgeMediaRetention": {
+        "saved": "保存しました",
+        "title": "元メディアの保持",
+        "description": "インポートした音声、動画、画像の原本を、ソース証拠の確認用に任意で保持します。",
+        "maxTotal": "総容量上限（MiB）",
+        "maxSource": "ソースごとの上限（MiB）",
+        "thumbnail": "サムネイルの最長辺（px）",
+        "prune": "容量超過時に古いメディアを削除",
+        "pruneDesc": "新しく保持するファイルが容量上限を超える場合、スキップする前に最も古い保持済み原本を削除します。"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -1415,7 +1425,17 @@
         "banner": "このファイルはエディター外で変更されました。保存すると、その変更が上書きされます。",
         "reload": "再読み込み",
         "keepMine": "自分の変更を保持"
-      }
+      },
+      "externalRawSync": "ソーススナップショットの外部ミラー",
+      "externalRawSyncHint": "Hope 管理のソーステキストスナップショットをこの Vault にコピーします。元の音声、動画、画像ファイルはミラーされません。",
+      "externalRawSyncDisabled": "オフ",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "既存のスナップショットはここで実行したときだけ同期されます。今後のインポートは自動で同期されます。",
+      "externalRawSyncNow": "今すぐ同期",
+      "externalRawSyncPartial": "{{synced}} 件のスナップショットを同期しました。{{failed}} 件が失敗しました。",
+      "externalRawSyncDone": "{{count}} 件のソーススナップショットを同期しました",
+      "externalRawSyncFailed": "ソーススナップショットを同期できませんでした"
     },
     "common": {
       "create": "作成",
@@ -2156,7 +2176,17 @@
       "asyncToolsWakeupMaxDelay": "자동 깨우기 최대 지연",
       "asyncToolsWakeupMaxDelayDesc": "에이전트가 schedule_wakeup으로 자신을 다시 깨울 수 있는 최대 지연. 더 긴 주기 작업은 cron에 맡기세요. 하한 10초는 고정입니다. 범위 10초–7일.",
       "asyncToolsWakeupMaxPending": "세션당 대기 깨우기 상한",
-      "asyncToolsWakeupMaxPendingDesc": "한 세션이 동시에 보유할 수 있는 대기 중 자동 깨우기 수. 초과하면 거부됩니다(대기열에 넣지 않음). 에이전트가 과금 턴을 대량으로 자가 예약하는 것을 방지합니다. 범위 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "한 세션이 동시에 보유할 수 있는 대기 중 자동 깨우기 수. 초과하면 거부됩니다(대기열에 넣지 않음). 에이전트가 과금 턴을 대량으로 자가 예약하는 것을 방지합니다. 범위 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "저장됨",
+        "title": "원본 미디어 보관",
+        "description": "가져온 오디오, 비디오, 이미지 원본을 소스 증거 검토용으로 선택 보관합니다.",
+        "maxTotal": "전체 할당량(MiB)",
+        "maxSource": "소스당 한도(MiB)",
+        "thumbnail": "썸네일 최대 변(px)",
+        "prune": "할당량 초과 시 가장 오래된 미디어 정리",
+        "pruneDesc": "새로 보관할 파일이 할당량을 초과하면 새 파일을 건너뛰기 전에 가장 오래된 보관 원본을 삭제합니다."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -2840,7 +2870,17 @@
         "banner": "이 파일이 편집기 외부에서 수정되었습니다. 저장하면 해당 변경 사항을 덮어씁니다.",
         "reload": "다시 불러오기",
         "keepMine": "내 변경 사항 유지"
-      }
+      },
+      "externalRawSync": "소스 스냅샷 외부 미러",
+      "externalRawSyncHint": "Hope가 관리하는 소스 텍스트 스냅샷을 이 vault에 복사합니다. 원본 오디오, 비디오, 이미지 파일은 미러링하지 않습니다.",
+      "externalRawSyncDisabled": "끔",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "기존 스냅샷은 여기에서 실행할 때만 동기화됩니다. 이후 새 가져오기는 자동으로 동기화됩니다.",
+      "externalRawSyncNow": "지금 동기화",
+      "externalRawSyncPartial": "스냅샷 {{synced}}개 동기화됨, {{failed}}개 실패.",
+      "externalRawSyncDone": "소스 스냅샷 {{count}}개 동기화됨",
+      "externalRawSyncFailed": "소스 스냅샷을 동기화할 수 없습니다"
     },
     "common": {
       "create": "만들기",
@@ -3581,7 +3621,17 @@
       "asyncToolsWakeupMaxDelay": "定時喚醒最長延遲",
       "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定時喚醒的最長延遲上限；更長的週期任務應交給定時任務（cron）。下限固定 10 秒。範圍 10 秒–7 天。",
       "asyncToolsWakeupMaxPending": "每會話定時喚醒上限",
-      "asyncToolsWakeupMaxPendingDesc": "單一會話最多可同時掛起的定時喚醒數；超出直接拒絕（不排隊），防止代理自我排程出大量計費輪次。範圍 1–100。"
+      "asyncToolsWakeupMaxPendingDesc": "單一會話最多可同時掛起的定時喚醒數；超出直接拒絕（不排隊），防止代理自我排程出大量計費輪次。範圍 1–100。",
+      "knowledgeMediaRetention": {
+        "saved": "已儲存",
+        "title": "原始媒體留存",
+        "description": "可選擇保留匯入的音訊、影片和圖片原件，用於來源證據回看。",
+        "maxTotal": "總配額（MiB）",
+        "maxSource": "單一資料上限（MiB）",
+        "thumbnail": "縮圖最長邊（px）",
+        "prune": "超過配額時清理最舊媒體",
+        "pruneDesc": "當新的留存檔案會超過配額時，先刪除最舊的已留存原件；若仍不足，則跳過新檔案留存。"
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -4234,7 +4284,17 @@
         "banner": "此檔案已在編輯器外被修改，儲存將覆蓋那些變更。",
         "reload": "重新載入",
         "keepMine": "保留我的變更"
-      }
+      },
+      "externalRawSync": "資料快照外部鏡像",
+      "externalRawSyncHint": "將 Hope 管理的資料文字快照複製到此外部庫。原始音訊、影片和圖片檔案不會鏡像。",
+      "externalRawSyncDisabled": "關閉",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "現有快照只會在你手動同步時寫入；之後的新匯入會自動同步。",
+      "externalRawSyncNow": "立即同步",
+      "externalRawSyncPartial": "已同步 {{synced}} 個快照；{{failed}} 個失敗。",
+      "externalRawSyncDone": "已同步 {{count}} 個資料快照",
+      "externalRawSyncFailed": "無法同步資料快照"
     },
     "common": {
       "create": "建立",
@@ -4989,7 +5049,17 @@
       "asyncToolsWakeupMaxDelay": "En fazla kendini uyandırma gecikmesi",
       "asyncToolsWakeupMaxDelayDesc": "Aracının schedule_wakeup ile kendini ne kadar ileriye programlayabileceğinin üst sınırı; daha uzun yinelenen aralıklar cron'a aittir. 10 sn'lik alt sınır sabittir. Aralık 10 sn–7 gün.",
       "asyncToolsWakeupMaxPending": "Oturum başına bekleyen uyandırma",
-      "asyncToolsWakeupMaxPendingDesc": "Bir oturumun aynı anda tutabileceği en fazla bekleyen kendini uyandırma sayısı; aşılırsa istekler reddedilir (kuyruğa alınmaz), böylece aracı çok sayıda ücretli tur programlayamaz. Aralık 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "Bir oturumun aynı anda tutabileceği en fazla bekleyen kendini uyandırma sayısı; aşılırsa istekler reddedilir (kuyruğa alınmaz), böylece aracı çok sayıda ücretli tur programlayamaz. Aralık 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "Kaydedildi",
+        "title": "Orijinal medya saklama",
+        "description": "İçe aktarılan ses, video ve görüntü orijinallerini kaynak kanıtlarını incelemek için isteğe bağlı olarak saklayın.",
+        "maxTotal": "Toplam kota (MiB)",
+        "maxSource": "Kaynak başına (MiB)",
+        "thumbnail": "Küçük resim uzun kenarı (px)",
+        "prune": "Kota aşılınca en eski medyayı temizle",
+        "pruneDesc": "Yeni saklanacak dosya kotayı aşacaksa, yeni dosyayı atlamadan önce en eski saklanan orijinaller kaldırılır."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -5673,7 +5743,17 @@
         "banner": "Bu dosya düzenleyici dışında değiştirildi. Kaydetmek bu değişikliklerin üzerine yazar.",
         "reload": "Yeniden yükle",
         "keepMine": "Benimkini koru"
-      }
+      },
+      "externalRawSync": "Kaynak anlık görüntüsü dış aynası",
+      "externalRawSyncHint": "Hope tarafından yönetilen kaynak metin anlık görüntülerini bu kasaya kopyalar. Orijinal ses, video ve görüntü dosyaları aynalanmaz.",
+      "externalRawSyncDisabled": "Kapalı",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "Mevcut anlık görüntüler yalnızca buradan çalıştırdığınızda eşitlenir; gelecekteki içe aktarmalar otomatik eşitlenir.",
+      "externalRawSyncNow": "Şimdi eşitle",
+      "externalRawSyncPartial": "{{synced}} anlık görüntü eşitlendi; {{failed}} başarısız.",
+      "externalRawSyncDone": "{{count}} kaynak anlık görüntüsü eşitlendi",
+      "externalRawSyncFailed": "Kaynak anlık görüntüleri eşitlenemedi"
     },
     "common": {
       "create": "Oluştur",
@@ -6414,7 +6494,17 @@
       "asyncToolsWakeupMaxDelay": "Độ trễ tự đánh thức tối đa",
       "asyncToolsWakeupMaxDelayDesc": "Giới hạn trên cho khoảng thời gian tác nhân có thể tự lên lịch đánh thức qua schedule_wakeup; các chu kỳ lặp dài hơn nên dùng cron. Mức sàn 10 giây là cố định. Phạm vi 10 giây–7 ngày.",
       "asyncToolsWakeupMaxPending": "Số lần đánh thức chờ mỗi phiên",
-      "asyncToolsWakeupMaxPendingDesc": "Số lần tự đánh thức đang chờ tối đa mà một phiên có thể giữ cùng lúc; vượt quá thì yêu cầu bị từ chối (không xếp hàng), ngăn tác nhân tự lên lịch hàng loạt lượt tính phí. Phạm vi 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "Số lần tự đánh thức đang chờ tối đa mà một phiên có thể giữ cùng lúc; vượt quá thì yêu cầu bị từ chối (không xếp hàng), ngăn tác nhân tự lên lịch hàng loạt lượt tính phí. Phạm vi 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "Đã lưu",
+        "title": "Lưu giữ media gốc",
+        "description": "Tùy chọn giữ lại bản gốc âm thanh, video và hình ảnh đã nhập để xem lại bằng chứng nguồn.",
+        "maxTotal": "Tổng hạn mức (MiB)",
+        "maxSource": "Mỗi nguồn (MiB)",
+        "thumbnail": "Cạnh dài thumbnail (px)",
+        "prune": "Xóa media cũ nhất khi vượt hạn mức",
+        "pruneDesc": "Khi tệp mới được lưu giữ sẽ vượt hạn mức, hãy xóa các bản gốc đã lưu cũ nhất trước khi bỏ qua tệp mới."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -7098,7 +7188,17 @@
         "banner": "Tệp này đã bị sửa đổi bên ngoài trình chỉnh sửa. Lưu sẽ ghi đè lên những thay đổi đó.",
         "reload": "Tải lại",
         "keepMine": "Giữ bản của tôi"
-      }
+      },
+      "externalRawSync": "Sao chép snapshot nguồn ra vault ngoài",
+      "externalRawSyncHint": "Sao chép các snapshot văn bản nguồn do Hope quản lý vào vault này. Tệp âm thanh, video và hình ảnh gốc sẽ không được sao chép.",
+      "externalRawSyncDisabled": "Tắt",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "Snapshot hiện có chỉ được đồng bộ khi bạn chạy tại đây; các lần nhập sau sẽ tự động đồng bộ.",
+      "externalRawSyncNow": "Đồng bộ ngay",
+      "externalRawSyncPartial": "Đã đồng bộ {{synced}} snapshot; {{failed}} thất bại.",
+      "externalRawSyncDone": "Đã đồng bộ {{count}} snapshot nguồn",
+      "externalRawSyncFailed": "Không thể đồng bộ snapshot nguồn"
     },
     "common": {
       "create": "Tạo",
@@ -7839,7 +7939,17 @@
       "asyncToolsWakeupMaxDelay": "Atraso máximo de autodespertar",
       "asyncToolsWakeupMaxDelayDesc": "Limite superior de quão à frente o agente pode agendar um despertar via schedule_wakeup; cadências recorrentes mais longas pertencem ao cron. O piso de 10s é fixo. Intervalo 10s–7d.",
       "asyncToolsWakeupMaxPending": "Despertares pendentes por sessão",
-      "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendentes que uma sessão pode manter ao mesmo tempo; além dele, os pedidos são recusados (não entram na fila), impedindo o agente de agendar uma enxurrada de turnos cobrados. Intervalo 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendentes que uma sessão pode manter ao mesmo tempo; além dele, os pedidos são recusados (não entram na fila), impedindo o agente de agendar uma enxurrada de turnos cobrados. Intervalo 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "Salvo",
+        "title": "Retenção da mídia original",
+        "description": "Opcionalmente mantenha os originais importados de áudio, vídeo e imagem para revisar evidências das fontes.",
+        "maxTotal": "Cota total (MiB)",
+        "maxSource": "Por fonte (MiB)",
+        "thumbnail": "Maior lado da miniatura (px)",
+        "prune": "Remover mídias mais antigas ao exceder a cota",
+        "pruneDesc": "Quando um novo arquivo retido excederia a cota, remova os originais retidos mais antigos antes de ignorar o novo arquivo."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -8523,7 +8633,17 @@
         "banner": "Este arquivo foi modificado fora do editor. Salvar substituirá essas alterações.",
         "reload": "Recarregar",
         "keepMine": "Manter as minhas"
-      }
+      },
+      "externalRawSync": "Espelho externo de snapshots de fontes",
+      "externalRawSyncHint": "Copie os snapshots de texto de fontes gerenciados pelo Hope para este vault. Arquivos originais de áudio, vídeo e imagem não são espelhados.",
+      "externalRawSyncDisabled": "Desativado",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "Snapshots existentes só são sincronizados quando você executa aqui; futuras importações sincronizam automaticamente.",
+      "externalRawSyncNow": "Sincronizar agora",
+      "externalRawSyncPartial": "{{synced}} snapshots sincronizados; {{failed}} falharam.",
+      "externalRawSyncDone": "{{count}} snapshots de fontes sincronizados",
+      "externalRawSyncFailed": "Não foi possível sincronizar os snapshots de fontes"
     },
     "common": {
       "create": "Criar",
@@ -9264,7 +9384,17 @@
       "asyncToolsWakeupMaxDelay": "Макс. задержка самопробуждения",
       "asyncToolsWakeupMaxDelayDesc": "Верхний предел того, насколько вперёд агент может запланировать пробуждение через schedule_wakeup; более длинные периодические интервалы — для cron. Нижний предел 10 с фиксирован. Диапазон 10 с–7 д.",
       "asyncToolsWakeupMaxPending": "Ожидающие пробуждения на сессию",
-      "asyncToolsWakeupMaxPendingDesc": "Максимум ожидающих самопланируемых пробуждений, которые сессия может держать одновременно; сверх него запросы отклоняются (не ставятся в очередь), не давая агенту запланировать лавину оплачиваемых ходов. Диапазон 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "Максимум ожидающих самопланируемых пробуждений, которые сессия может держать одновременно; сверх него запросы отклоняются (не ставятся в очередь), не давая агенту запланировать лавину оплачиваемых ходов. Диапазон 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "Сохранено",
+        "title": "Хранение исходных медиа",
+        "description": "При желании сохраняйте импортированные оригиналы аудио, видео и изображений для проверки доказательств источников.",
+        "maxTotal": "Общая квота (MiB)",
+        "maxSource": "На источник (MiB)",
+        "thumbnail": "Длинная сторона миниатюры (px)",
+        "prune": "Удалять старые медиа при превышении квоты",
+        "pruneDesc": "Если новый сохраняемый файл превысит квоту, сначала удаляются самые старые сохранённые оригиналы; если места всё равно не хватит, новый файл пропускается."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -9948,7 +10078,17 @@
         "banner": "Этот файл был изменён вне редактора. Сохранение перезапишет эти изменения.",
         "reload": "Перезагрузить",
         "keepMine": "Оставить мои"
-      }
+      },
+      "externalRawSync": "Внешнее зеркало снимков источников",
+      "externalRawSyncHint": "Копировать управляемые Hope текстовые снимки источников в это хранилище. Оригинальные аудио-, видео- и графические файлы не зеркалируются.",
+      "externalRawSyncDisabled": "Выкл.",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "Существующие снимки синхронизируются только при запуске здесь; будущие импорты синхронизируются автоматически.",
+      "externalRawSyncNow": "Синхронизировать сейчас",
+      "externalRawSyncPartial": "Синхронизировано снимков: {{synced}}; ошибок: {{failed}}.",
+      "externalRawSyncDone": "Синхронизировано снимков источников: {{count}}",
+      "externalRawSyncFailed": "Не удалось синхронизировать снимки источников"
     },
     "common": {
       "create": "Создать",
@@ -10689,7 +10829,17 @@
       "asyncToolsWakeupMaxDelay": "أقصى تأخير للتنبيه الذاتي",
       "asyncToolsWakeupMaxDelayDesc": "الحد الأعلى لمدى ما يمكن للوكيل جدولته مسبقًا لتنبيه ذاتي عبر schedule_wakeup؛ أما الدورات المتكررة الأطول فهي من اختصاص cron. الحد الأدنى 10 ثوانٍ ثابت. النطاق 10 ثوانٍ–7 أيام.",
       "asyncToolsWakeupMaxPending": "التنبيهات المعلّقة لكل جلسة",
-      "asyncToolsWakeupMaxPendingDesc": "أقصى عدد للتنبيهات الذاتية المعلّقة التي يمكن لجلسة واحدة الاحتفاظ بها في آنٍ واحد؛ وبتجاوزه تُرفض الطلبات (ولا توضع في الطابور)، مما يمنع الوكيل من جدولة سيل من الأدوار المدفوعة. النطاق 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "أقصى عدد للتنبيهات الذاتية المعلّقة التي يمكن لجلسة واحدة الاحتفاظ بها في آنٍ واحد؛ وبتجاوزه تُرفض الطلبات (ولا توضع في الطابور)، مما يمنع الوكيل من جدولة سيل من الأدوار المدفوعة. النطاق 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "تم الحفظ",
+        "title": "الاحتفاظ بالوسائط الأصلية",
+        "description": "احتفِظ اختياريًا بأصول الصوت والفيديو والصور المستوردة لمراجعة أدلة المصادر.",
+        "maxTotal": "الحصة الإجمالية (MiB)",
+        "maxSource": "لكل مصدر (MiB)",
+        "thumbnail": "أطول ضلع للصورة المصغرة (px)",
+        "prune": "تنظيف أقدم الوسائط عند تجاوز الحصة",
+        "pruneDesc": "عندما يتسبب ملف جديد محتفَظ به في تجاوز الحصة، تُزال أقدم الأصول المحتفَظ بها قبل تخطي الملف الجديد."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -11373,7 +11523,17 @@
         "banner": "تم تعديل هذا الملف خارج المحرر. سيؤدي الحفظ إلى الكتابة فوق تلك التغييرات.",
         "reload": "إعادة التحميل",
         "keepMine": "الاحتفاظ بتغييراتي"
-      }
+      },
+      "externalRawSync": "مرآة خارجية للقطات المصادر",
+      "externalRawSyncHint": "انسخ لقطات نصوص المصادر التي يديرها Hope إلى هذا المخزن. لا تتم مرآة ملفات الصوت والفيديو والصور الأصلية.",
+      "externalRawSyncDisabled": "إيقاف",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "لا تتم مزامنة اللقطات الموجودة إلا عند تشغيل ذلك هنا؛ أما عمليات الاستيراد المستقبلية فتتم مزامنتها تلقائيًا.",
+      "externalRawSyncNow": "المزامنة الآن",
+      "externalRawSyncPartial": "تمت مزامنة {{synced}} لقطة؛ فشل {{failed}}.",
+      "externalRawSyncDone": "تمت مزامنة {{count}} لقطة مصدر",
+      "externalRawSyncFailed": "تعذرت مزامنة لقطات المصادر"
     },
     "common": {
       "create": "إنشاء",
@@ -12114,7 +12274,17 @@
       "asyncToolsWakeupMaxDelay": "Retraso máximo de autodespertar",
       "asyncToolsWakeupMaxDelayDesc": "Límite superior de con cuánta antelación el agente puede autoprogramar un despertar vía schedule_wakeup; las cadencias periódicas más largas corresponden a cron. El mínimo de 10 s es fijo. Rango 10 s–7 d.",
       "asyncToolsWakeupMaxPending": "Despertares pendientes por sesión",
-      "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendientes que una sesión puede mantener a la vez; al superarlo las solicitudes se rechazan (no se encolan), evitando que el agente autoprograme una avalancha de turnos facturados. Rango 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "Máximo de autodespertares pendientes que una sesión puede mantener a la vez; al superarlo las solicitudes se rechazan (no se encolan), evitando que el agente autoprograme una avalancha de turnos facturados. Rango 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "Guardado",
+        "title": "Conservación de medios originales",
+        "description": "Conserva opcionalmente los originales de audio, video e imagen importados para revisar la evidencia de las fuentes.",
+        "maxTotal": "Cuota total (MiB)",
+        "maxSource": "Por fuente (MiB)",
+        "thumbnail": "Borde máximo de miniatura (px)",
+        "prune": "Eliminar los medios más antiguos al superar la cuota",
+        "pruneDesc": "Cuando un archivo retenido nuevo superaría la cuota, elimina los originales retenidos más antiguos antes de omitir el nuevo archivo."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -12798,7 +12968,17 @@
         "banner": "Este archivo se modificó fuera del editor. Guardar sobrescribirá esos cambios.",
         "reload": "Recargar",
         "keepMine": "Mantener los míos"
-      }
+      },
+      "externalRawSync": "Réplica externa de instantáneas de fuentes",
+      "externalRawSyncHint": "Copia en este vault las instantáneas de texto de fuentes gestionadas por Hope. Los archivos originales de audio, video e imagen no se replican.",
+      "externalRawSyncDisabled": "Desactivado",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "Las instantáneas existentes solo se sincronizan cuando lo ejecutas aquí; las importaciones futuras se sincronizan automáticamente.",
+      "externalRawSyncNow": "Sincronizar ahora",
+      "externalRawSyncPartial": "Se sincronizaron {{synced}} instantáneas; {{failed}} fallaron.",
+      "externalRawSyncDone": "Se sincronizaron {{count}} instantáneas de fuentes",
+      "externalRawSyncFailed": "No se pudieron sincronizar las instantáneas de fuentes"
     },
     "common": {
       "create": "Crear",
@@ -13539,7 +13719,17 @@
       "asyncToolsWakeupMaxDelay": "Lengah maksimum sedar-diri",
       "asyncToolsWakeupMaxDelayDesc": "Had atas berapa awal ejen boleh menjadualkan sedar-diri melalui schedule_wakeup; kadens berulang yang lebih panjang adalah untuk cron. Had bawah 10s adalah tetap. Julat 10s–7h.",
       "asyncToolsWakeupMaxPending": "Sedaran tertunda setiap sesi",
-      "asyncToolsWakeupMaxPendingDesc": "Maksimum sedaran sedar-diri tertunda yang boleh dipegang satu sesi serentak; melebihinya permintaan ditolak (tidak dibaris-gilirkan), menghalang ejen daripada menjadualkan banyak pusingan berbayar. Julat 1–100."
+      "asyncToolsWakeupMaxPendingDesc": "Maksimum sedaran sedar-diri tertunda yang boleh dipegang satu sesi serentak; melebihinya permintaan ditolak (tidak dibaris-gilirkan), menghalang ejen daripada menjadualkan banyak pusingan berbayar. Julat 1–100.",
+      "knowledgeMediaRetention": {
+        "saved": "Disimpan",
+        "title": "Simpan media asal",
+        "description": "Secara pilihan simpan audio, video dan imej asal yang diimport untuk semakan bukti sumber.",
+        "maxTotal": "Kuota keseluruhan (MiB)",
+        "maxSource": "Setiap sumber (MiB)",
+        "thumbnail": "Sisi terpanjang lakaran kecil (px)",
+        "prune": "Bersihkan media paling lama apabila melebihi kuota",
+        "pruneDesc": "Apabila fail baharu yang disimpan akan melebihi kuota, buang asal tersimpan paling lama sebelum melangkau fail baharu."
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -14223,7 +14413,17 @@
         "banner": "Fail ini telah diubah suai di luar editor. Menyimpan akan menulis ganti perubahan tersebut.",
         "reload": "Muat semula",
         "keepMine": "Kekalkan milik saya"
-      }
+      },
+      "externalRawSync": "Cermin luaran syot kilat sumber",
+      "externalRawSyncHint": "Salin syot kilat teks sumber yang diurus Hope ke dalam vault ini. Fail audio, video dan imej asal tidak dicerminkan.",
+      "externalRawSyncDisabled": "Mati",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "Syot kilat sedia ada hanya disegerakkan apabila anda menjalankannya di sini; import akan datang disegerakkan secara automatik.",
+      "externalRawSyncNow": "Segerakkan sekarang",
+      "externalRawSyncPartial": "{{synced}} syot kilat disegerakkan; {{failed}} gagal.",
+      "externalRawSyncDone": "{{count}} syot kilat sumber disegerakkan",
+      "externalRawSyncFailed": "Tidak dapat menyegerakkan syot kilat sumber"
     },
     "common": {
       "create": "Cipta",
@@ -14347,7 +14547,17 @@
       "asyncToolsWakeupMaxDelay": "定时唤醒最长延迟",
       "asyncToolsWakeupMaxDelayDesc": "代理用 schedule_wakeup 自我定时唤醒的最长延迟上限；更长的周期任务应交给定时任务（cron）。下限固定 10 秒。范围 10 秒–7 天。",
       "asyncToolsWakeupMaxPending": "每会话定时唤醒上限",
-      "asyncToolsWakeupMaxPendingDesc": "单个会话最多可同时挂起的定时唤醒数；超出直接拒绝（不排队），防止代理自我排程出大量计费轮次。范围 1–100。"
+      "asyncToolsWakeupMaxPendingDesc": "单个会话最多可同时挂起的定时唤醒数；超出直接拒绝（不排队），防止代理自我排程出大量计费轮次。范围 1–100。",
+      "knowledgeMediaRetention": {
+        "saved": "已保存",
+        "title": "原始媒体留存",
+        "description": "可选择保留导入的音频、视频和图片原件，用于资料证据回看。",
+        "maxTotal": "总配额（MiB）",
+        "maxSource": "单个资料上限（MiB）",
+        "thumbnail": "缩略图最长边（px）",
+        "prune": "超配额时清理最旧媒体",
+        "pruneDesc": "当新留存文件会超过配额时，先删除最旧的已留存原件；如果仍不足，再跳过新文件留存。"
+      }
     },
     "chat": {
       "handover": {
@@ -14438,7 +14648,17 @@
       "expandRight": "展开面板",
       "resizeLeft": "调整侧栏宽度",
       "resizeRight": "调整面板宽度",
-      "resizeSplit": "调整分栏宽度"
+      "resizeSplit": "调整分栏宽度",
+      "externalRawSync": "资料快照外部镜像",
+      "externalRawSyncHint": "将 Hope 管理的资料文本快照复制到这个外部库。原始音频、视频和图片文件不会镜像。",
+      "externalRawSyncDisabled": "关闭",
+      "externalRawSyncRaw": "raw/",
+      "externalRawSyncSources": "sources/",
+      "externalRawSyncExistingHint": "现有快照只会在你手动同步时写入；之后的新导入会自动同步。",
+      "externalRawSyncNow": "立即同步",
+      "externalRawSyncPartial": "已同步 {{synced}} 个快照；{{failed}} 个失败。",
+      "externalRawSyncDone": "已同步 {{count}} 个资料快照",
+      "externalRawSyncFailed": "无法同步资料快照"
     },
     "common": {
       "create": "创建",

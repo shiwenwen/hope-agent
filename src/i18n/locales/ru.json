@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "Выбрать сессию",
     "profileRotationTitle": "Смена профиля",
     "queueMessage": "В очередь",
@@ -638,29 +661,6 @@
       "reloadBody": "Установленное расширение не соответствует хосту. Перезагрузите его, чтобы восстановить управление вашим реальным Chrome.",
       "openSettings": "Открыть настройки",
       "dismiss": "Больше не показывать"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Сохранено",
+      "title": "Хранение исходных медиа",
+      "description": "При желании сохраняйте импортированные оригиналы аудио, видео и изображений для проверки доказательств источников.",
+      "maxTotal": "Общая квота (MiB)",
+      "maxSource": "На источник (MiB)",
+      "thumbnail": "Длинная сторона миниатюры (px)",
+      "prune": "Удалять старые медиа при превышении квоты",
+      "pruneDesc": "Если новый сохраняемый файл превысит квоту, сначала удаляются самые старые сохранённые оригиналы; если места всё равно не хватит, новый файл пропускается."
+    },
     "knowledgePassiveRecall": {
       "title": "Пассивные связанные заметки",
       "description": "Каждый ход показывает заголовки доступных заметок, связанных с вашим сообщением, как подсказку.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "Переместить \"{{name}}\" в…",
     "rootFolder": "Корень",
     "remoteWritesDisabled": "Удаленная запись файлов отключена. Включите ее в Настройки → Сервер → Разрешить удаленную запись файлов (на серверном хосте).",
+    "externalRawSync": "Внешнее зеркало снимков источников",
+    "externalRawSyncHint": "Копировать управляемые Hope текстовые снимки источников в это хранилище. Оригинальные аудио-, видео- и графические файлы не зеркалируются.",
+    "externalRawSyncDisabled": "Выкл.",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Существующие снимки синхронизируются только при запуске здесь; будущие импорты синхронизируются автоматически.",
+    "externalRawSyncNow": "Синхронизировать сейчас",
+    "externalRawSyncPartial": "Синхронизировано снимков: {{synced}}; ошибок: {{failed}}.",
+    "externalRawSyncDone": "Синхронизировано снимков источников: {{count}}",
+    "externalRawSyncFailed": "Не удалось синхронизировать снимки источников",
     "retrievalSettings": "Настройки поиска",
     "reindexing": "Переиндексация…",
     "reindexDone": "Индекс перестроен",
@@ -5613,6 +5633,7 @@
       "runFailed": "Не удалось выполнить обслуживание",
       "applyFailed": "Не удалось применить предложение",
       "rejectFailed": "Не удалось отклонить предложение",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Ссылка",
         "orphan_rescue": "Спасение",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "Граф связей",

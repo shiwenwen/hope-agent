@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent 摘要"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "已保存",
+      "title": "原始媒体留存",
+      "description": "可选择保留导入的音频、视频和图片原件，用于资料证据回看。",
+      "maxTotal": "总配额（MiB）",
+      "maxSource": "单个资料上限（MiB）",
+      "thumbnail": "缩略图最长边（px）",
+      "prune": "超配额时清理最旧媒体",
+      "pruneDesc": "当新留存文件会超过配额时，先删除最旧的已留存原件；如果仍不足，再跳过新文件留存。"
+    },
     "knowledgePassiveRecall": {
       "title": "被动相关笔记",
       "description": "每轮对话自动列出与你消息相关的可访问笔记标题作为提示。",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "将「{{name}}」移动到…",
     "rootFolder": "根目录",
     "remoteWritesDisabled": "远程写入已关闭。请在 设置 → 服务器 → 允许远程写入文件 中开启（在 server 主机上）。",
+    "externalRawSync": "资料快照外部镜像",
+    "externalRawSyncHint": "将 Hope 管理的资料文本快照复制到这个外部库。原始音频、视频和图片文件不会镜像。",
+    "externalRawSyncDisabled": "关闭",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "现有快照只会在你手动同步时写入；之后的新导入会自动同步。",
+    "externalRawSyncNow": "立即同步",
+    "externalRawSyncPartial": "已同步 {{synced}} 个快照；{{failed}} 个失败。",
+    "externalRawSyncDone": "已同步 {{count}} 个资料快照",
+    "externalRawSyncFailed": "无法同步资料快照",
     "retrievalSettings": "检索设置",
     "reindexing": "重新索引中…",
     "reindexDone": "索引已重建",

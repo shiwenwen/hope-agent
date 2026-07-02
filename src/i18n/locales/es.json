@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "Elegir una sesión",
     "profileRotationTitle": "Rotación de perfil",
     "queueMessage": "Encolar mensaje",
@@ -638,29 +661,6 @@
       "reloadBody": "La extensión instalada no coincide con el host. Vuelve a cargarla para recuperar el control de tu Chrome real.",
       "openSettings": "Abrir ajustes",
       "dismiss": "No volver a mostrar"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Guardado",
+      "title": "Conservación de medios originales",
+      "description": "Conserva opcionalmente los originales de audio, video e imagen importados para revisar la evidencia de las fuentes.",
+      "maxTotal": "Cuota total (MiB)",
+      "maxSource": "Por fuente (MiB)",
+      "thumbnail": "Borde máximo de miniatura (px)",
+      "prune": "Eliminar los medios más antiguos al superar la cuota",
+      "pruneDesc": "Cuando un archivo retenido nuevo superaría la cuota, elimina los originales retenidos más antiguos antes de omitir el nuevo archivo."
+    },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas pasivas",
       "description": "En cada turno, muestra como sugerencia los títulos de notas accesibles relacionadas con tu mensaje.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "Mover \"{{name}}\" a…",
     "rootFolder": "Raíz",
     "remoteWritesDisabled": "La escritura remota de archivos está desactivada. Actívala en Configuración → Servidor → Permitir escritura remota de archivos (en el host del servidor).",
+    "externalRawSync": "Réplica externa de instantáneas de fuentes",
+    "externalRawSyncHint": "Copia en este vault las instantáneas de texto de fuentes gestionadas por Hope. Los archivos originales de audio, video e imagen no se replican.",
+    "externalRawSyncDisabled": "Desactivado",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Las instantáneas existentes solo se sincronizan cuando lo ejecutas aquí; las importaciones futuras se sincronizan automáticamente.",
+    "externalRawSyncNow": "Sincronizar ahora",
+    "externalRawSyncPartial": "Se sincronizaron {{synced}} instantáneas; {{failed}} fallaron.",
+    "externalRawSyncDone": "Se sincronizaron {{count}} instantáneas de fuentes",
+    "externalRawSyncFailed": "No se pudieron sincronizar las instantáneas de fuentes",
     "retrievalSettings": "Configuración de recuperación",
     "reindexing": "Reindexando…",
     "reindexDone": "Índice reconstruido",
@@ -5613,6 +5633,7 @@
       "runFailed": "No se pudo ejecutar el mantenimiento",
       "applyFailed": "No se pudo aplicar la sugerencia",
       "rejectFailed": "No se pudo descartar la sugerencia",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Enlazar",
         "orphan_rescue": "Rescate",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "Vista de grafo",

@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "Pilih sesi",
     "profileRotationTitle": "Tukar profil",
     "queueMessage": "Beratur mesej",
@@ -638,29 +661,6 @@
       "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
       "openSettings": "Buka tetapan",
       "dismiss": "Jangan tunjuk lagi"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "Disimpan",
+      "title": "Simpan media asal",
+      "description": "Secara pilihan simpan audio, video dan imej asal yang diimport untuk semakan bukti sumber.",
+      "maxTotal": "Kuota keseluruhan (MiB)",
+      "maxSource": "Setiap sumber (MiB)",
+      "thumbnail": "Sisi terpanjang lakaran kecil (px)",
+      "prune": "Bersihkan media paling lama apabila melebihi kuota",
+      "pruneDesc": "Apabila fail baharu yang disimpan akan melebihi kuota, buang asal tersimpan paling lama sebelum melangkau fail baharu."
+    },
     "knowledgePassiveRecall": {
       "title": "Nota berkaitan pasif",
       "description": "Setiap giliran, paparkan tajuk nota boleh diakses yang berkaitan dengan mesej anda sebagai petunjuk.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "Pindahkan \"{{name}}\" ke…",
     "rootFolder": "Akar",
     "remoteWritesDisabled": "Penulisan fail jauh dimatikan. Hidupkan dalam Tetapan → Pelayan → Benarkan penulisan fail jauh (pada hos pelayan).",
+    "externalRawSync": "Cermin luaran syot kilat sumber",
+    "externalRawSyncHint": "Salin syot kilat teks sumber yang diurus Hope ke dalam vault ini. Fail audio, video dan imej asal tidak dicerminkan.",
+    "externalRawSyncDisabled": "Mati",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "Syot kilat sedia ada hanya disegerakkan apabila anda menjalankannya di sini; import akan datang disegerakkan secara automatik.",
+    "externalRawSyncNow": "Segerakkan sekarang",
+    "externalRawSyncPartial": "{{synced}} syot kilat disegerakkan; {{failed}} gagal.",
+    "externalRawSyncDone": "{{count}} syot kilat sumber disegerakkan",
+    "externalRawSyncFailed": "Tidak dapat menyegerakkan syot kilat sumber",
     "retrievalSettings": "Tetapan perolehan",
     "reindexing": "Mengindeks semula…",
     "reindexDone": "Indeks dibina semula",
@@ -5613,6 +5633,7 @@
       "runFailed": "Tidak dapat menjalankan penyelenggaraan",
       "applyFailed": "Tidak dapat menggunakan cadangan",
       "rejectFailed": "Tidak dapat mengetepikan cadangan",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "Paut",
         "orphan_rescue": "Selamat",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "Paparan graf",

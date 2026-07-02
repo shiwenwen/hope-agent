@@ -499,6 +499,29 @@
         "label": "完全放行"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔離副本試跑，編輯審批不放鬆",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "掛載目前工作區，減少編輯命令審批",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "選擇工作階段",
     "profileRotationTitle": "設定切換",
     "queueMessage": "排隊發送",
@@ -638,29 +661,6 @@
       "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
       "openSettings": "前往設定",
       "dismiss": "不再顯示"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "隔離副本試跑，編輯審批不放鬆",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "掛載目前工作區，減少編輯命令審批",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "已儲存",
+      "title": "原始媒體留存",
+      "description": "可選擇保留匯入的音訊、影片和圖片原件，用於來源證據回看。",
+      "maxTotal": "總配額（MiB）",
+      "maxSource": "單一資料上限（MiB）",
+      "thumbnail": "縮圖最長邊（px）",
+      "prune": "超過配額時清理最舊媒體",
+      "pruneDesc": "當新的留存檔案會超過配額時，先刪除最舊的已留存原件；若仍不足，則跳過新檔案留存。"
+    },
     "knowledgePassiveRecall": {
       "title": "被動相關筆記",
       "description": "每輪對話自動列出與你訊息相關的可存取筆記標題作為提示。",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "將「{{name}}」移動到…",
     "rootFolder": "根目錄",
     "remoteWritesDisabled": "遠端檔案寫入已關閉。請在伺服器主機的「設定 → 伺服器 → 允許遠端檔案寫入」中開啟。",
+    "externalRawSync": "資料快照外部鏡像",
+    "externalRawSyncHint": "將 Hope 管理的資料文字快照複製到此外部庫。原始音訊、影片和圖片檔案不會鏡像。",
+    "externalRawSyncDisabled": "關閉",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "現有快照只會在你手動同步時寫入；之後的新匯入會自動同步。",
+    "externalRawSyncNow": "立即同步",
+    "externalRawSyncPartial": "已同步 {{synced}} 個快照；{{failed}} 個失敗。",
+    "externalRawSyncDone": "已同步 {{count}} 個資料快照",
+    "externalRawSyncFailed": "無法同步資料快照",
     "retrievalSettings": "檢索設定",
     "reindexing": "重新索引中…",
     "reindexDone": "索引已重建",
@@ -5613,6 +5633,7 @@
       "runFailed": "維護執行失敗",
       "applyFailed": "套用建議失敗",
       "rejectFailed": "忽略建議失敗",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "建立連結",
         "orphan_rescue": "救援",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "圖譜檢視",

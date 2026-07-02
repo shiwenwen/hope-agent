@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "اختر جلسة",
     "profileRotationTitle": "تغيير الملف الشخصي",
     "queueMessage": "وضع في الطابور",
@@ -638,29 +661,6 @@
       "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
       "openSettings": "فتح الإعدادات",
       "dismiss": "عدم الإظهار مرة أخرى"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "تم الحفظ",
+      "title": "الاحتفاظ بالوسائط الأصلية",
+      "description": "احتفِظ اختياريًا بأصول الصوت والفيديو والصور المستوردة لمراجعة أدلة المصادر.",
+      "maxTotal": "الحصة الإجمالية (MiB)",
+      "maxSource": "لكل مصدر (MiB)",
+      "thumbnail": "أطول ضلع للصورة المصغرة (px)",
+      "prune": "تنظيف أقدم الوسائط عند تجاوز الحصة",
+      "pruneDesc": "عندما يتسبب ملف جديد محتفَظ به في تجاوز الحصة، تُزال أقدم الأصول المحتفَظ بها قبل تخطي الملف الجديد."
+    },
     "knowledgePassiveRecall": {
       "title": "الملاحظات ذات الصلة السلبية",
       "description": "في كل دور، تعرض عناوين الملاحظات المتاحة المتعلقة برسالتك كتلميح.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "نقل \"{{name}}\" إلى…",
     "rootFolder": "الجذر",
     "remoteWritesDisabled": "كتابة الملفات عن بُعد متوقفة. فعّلها من الإعدادات → الخادم → السماح بكتابة الملفات عن بُعد (على مضيف الخادم).",
+    "externalRawSync": "مرآة خارجية للقطات المصادر",
+    "externalRawSyncHint": "انسخ لقطات نصوص المصادر التي يديرها Hope إلى هذا المخزن. لا تتم مرآة ملفات الصوت والفيديو والصور الأصلية.",
+    "externalRawSyncDisabled": "إيقاف",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "لا تتم مزامنة اللقطات الموجودة إلا عند تشغيل ذلك هنا؛ أما عمليات الاستيراد المستقبلية فتتم مزامنتها تلقائيًا.",
+    "externalRawSyncNow": "المزامنة الآن",
+    "externalRawSyncPartial": "تمت مزامنة {{synced}} لقطة؛ فشل {{failed}}.",
+    "externalRawSyncDone": "تمت مزامنة {{count}} لقطة مصدر",
+    "externalRawSyncFailed": "تعذرت مزامنة لقطات المصادر",
     "retrievalSettings": "إعدادات الاسترجاع",
     "reindexing": "جارٍ إعادة الفهرسة…",
     "reindexDone": "تمت إعادة بناء الفهرس",
@@ -5613,6 +5633,7 @@
       "runFailed": "تعذّر تشغيل الصيانة",
       "applyFailed": "تعذّر تطبيق الاقتراح",
       "rejectFailed": "تعذّر تجاهل الاقتراح",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "ربط",
         "orphan_rescue": "إنقاذ",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "عرض الرسم البياني",

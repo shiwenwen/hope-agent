@@ -499,6 +499,29 @@
         "label": "YOLO"
       }
     },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
+    },
     "pickSession": "세션 선택",
     "profileRotationTitle": "프로필 전환",
     "queueMessage": "대기열에 추가",
@@ -638,29 +661,6 @@
       "reloadBody": "설치된 확장 프로그램이 호스트와 일치하지 않습니다. 다시 로드하면 실제 Chrome 제어가 복원됩니다.",
       "openSettings": "설정 열기",
       "dismiss": "다시 표시 안 함"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
     }
   },
   "codexAuth": {
@@ -3404,6 +3404,16 @@
         "forAgentSummary": "For Agent summaries"
       }
     },
+    "knowledgeMediaRetention": {
+      "saved": "저장됨",
+      "title": "원본 미디어 보관",
+      "description": "가져온 오디오, 비디오, 이미지 원본을 소스 증거 검토용으로 선택 보관합니다.",
+      "maxTotal": "전체 할당량(MiB)",
+      "maxSource": "소스당 한도(MiB)",
+      "thumbnail": "썸네일 최대 변(px)",
+      "prune": "할당량 초과 시 가장 오래된 미디어 정리",
+      "pruneDesc": "새로 보관할 파일이 할당량을 초과하면 새 파일을 건너뛰기 전에 가장 오래된 보관 원본을 삭제합니다."
+    },
     "knowledgePassiveRecall": {
       "title": "수동 관련 노트",
       "description": "매 턴마다 메시지와 관련된 접근 가능한 노트 제목을 힌트로 표시합니다.",
@@ -5580,6 +5590,16 @@
     "moveToTitle": "\"{{name}}\" 이동 위치…",
     "rootFolder": "루트",
     "remoteWritesDisabled": "원격 파일 쓰기가 꺼져 있습니다. 서버 호스트의 설정 → 서버 → 원격 파일 쓰기 허용에서 켜세요.",
+    "externalRawSync": "소스 스냅샷 외부 미러",
+    "externalRawSyncHint": "Hope가 관리하는 소스 텍스트 스냅샷을 이 vault에 복사합니다. 원본 오디오, 비디오, 이미지 파일은 미러링하지 않습니다.",
+    "externalRawSyncDisabled": "끔",
+    "externalRawSyncRaw": "raw/",
+    "externalRawSyncSources": "sources/",
+    "externalRawSyncExistingHint": "기존 스냅샷은 여기에서 실행할 때만 동기화됩니다. 이후 새 가져오기는 자동으로 동기화됩니다.",
+    "externalRawSyncNow": "지금 동기화",
+    "externalRawSyncPartial": "스냅샷 {{synced}}개 동기화됨, {{failed}}개 실패.",
+    "externalRawSyncDone": "소스 스냅샷 {{count}}개 동기화됨",
+    "externalRawSyncFailed": "소스 스냅샷을 동기화할 수 없습니다",
     "retrievalSettings": "검색 설정",
     "reindexing": "재색인 중…",
     "reindexDone": "색인을 재구축했습니다",
@@ -5613,6 +5633,7 @@
       "runFailed": "유지보수를 실행하지 못했습니다",
       "applyFailed": "제안을 적용하지 못했습니다",
       "rejectFailed": "제안을 무시하지 못했습니다",
+      "compileQueued": "Compile review generated. Check the source compile panel for diffs.",
       "kind": {
         "auto_link": "링크",
         "orphan_rescue": "구조",
@@ -5626,8 +5647,7 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      },
-      "compileQueued": "Compile review generated. Check the source compile panel for diffs."
+      }
     },
     "graph": {
       "toggle": "그래프 보기",
