@@ -227,6 +227,18 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             ]),
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "goal".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.goal.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some(
+                "[objective | status | pause | resume | evaluate | clear]".into(),
+            ),
+            arg_options: None,
+            description_raw: None,
+        },
         // ── Utility ──
         SlashCommandDef {
             name: "permission".into(),

@@ -1,5 +1,5 @@
 use crate::commands::CmdError;
-use ha_core::goal::{CreateGoalInput, GoalSnapshot};
+use ha_core::goal::{CreateGoalInput, GoalSnapshot, UpdateGoalInput};
 
 #[tauri::command]
 pub async fn get_active_goal(
@@ -42,6 +42,23 @@ pub async fn create_goal(
             budget_token_limit,
             budget_time_limit_secs,
             budget_turn_limit,
+        })
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn update_goal(
+    goal_id: String,
+    objective: Option<String>,
+    completion_criteria: Option<String>,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<GoalSnapshot, CmdError> {
+    app_state
+        .session_db
+        .update_goal(UpdateGoalInput {
+            goal_id,
+            objective,
+            completion_criteria,
         })
         .map_err(Into::into)
 }

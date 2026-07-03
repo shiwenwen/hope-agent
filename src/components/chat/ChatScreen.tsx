@@ -104,6 +104,7 @@ import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
 import { messagesHaveKnowledgeActivity } from "./workspace/useSessionKnowledge"
 import { useWorkflowRuns, type WorkflowRun } from "./workspace/useWorkflowRuns"
+import { useGoal, type GoalSnapshot } from "./workspace/useGoal"
 import SubagentSessionDialog from "./SubagentSessionDialog"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
@@ -286,6 +287,38 @@ function makeClientEventMessage(message: ClientEventMessage): Message {
     _clientId: generateClientId(),
     ...message,
   }
+}
+
+function slashCommandDisplay(commandText: string): {
+  content: string
+  mode?: "goal"
+} {
+  const trimmed = commandText.trim()
+  if (!trimmed.startsWith("/goal")) return { content: commandText }
+  const rawRest = trimmed.slice("/goal".length)
+  if (rawRest.length > 0 && !/^\s/.test(rawRest)) return { content: commandText }
+  const args = rawRest.trim()
+  const [first = "", ...restParts] = args.split(/\s+/)
+  const rest = restParts.join(" ").trim()
+  const goalContent =
+    args.length === 0
+      ? "Show active goal"
+      : ["set", "create", "update", "edit"].includes(first)
+        ? rest
+        : first === "status" || first === "show"
+          ? "Show active goal"
+          : first === "pause"
+            ? "Pause active goal"
+            : first === "resume"
+              ? "Resume active goal"
+              : first === "clear" || first === "cancel"
+                ? "Clear active goal"
+                : first === "evaluate" || first === "audit"
+                  ? "Evaluate active goal"
+                  : first === "help"
+                    ? "Goal help"
+                    : args
+  return { content: goalContent || "Goal", mode: "goal" }
 }
 
 type BrowserExtensionRequiredPayload = {
@@ -710,6 +743,7 @@ export default function ChatScreen({
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
   const currentSessionId = session.currentSessionId
+  const chatGoal = useGoal(currentSessionId, { incognito: incognitoEnabled })
   const displayMode = defaultDisplayMode
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
@@ -1734,11 +1768,17 @@ export default function ChatScreen({
       const slashHistoryMessages: Message[] = []
       if (shouldShowSlashHistory && result._slashCommandText) {
         const now = new Date().toISOString()
+        const commandDisplay = slashCommandDisplay(result._slashCommandText)
         slashHistoryMessages.push(
           makeClientEventMessage({
-            content: result._slashCommandText,
+            content: commandDisplay.content,
             timestamp: now,
-            slashEvent: { kind: "command", displayAs: "user" },
+            slashEvent: {
+              kind: "command",
+              command: result._slashCommandText,
+              displayAs: "user",
+              mode: commandDisplay.mode,
+            },
           }),
         )
         if (shouldAppendResultContent) {
@@ -2041,6 +2081,86 @@ export default function ChatScreen({
       runCompactContextForCurrentSession,
       t,
     ],
+  )
+
+  const handleGoalModeSubmit = useCallback(
+    async (objective: string): Promise<boolean> => {
+      const trimmed = objective.trim()
+      if (!trimmed) return false
+      if (incognitoEnabled || draftIncognito) {
+        toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
+        return false
+      }
+      const sid = await ensureWorkflowSession()
+      if (!sid) return false
+      const commandText = `/goal ${trimmed}`
+      try {
+        const result = await getTransport().call<CommandResult>("execute_slash_command", {
+          sessionId: sid,
+          agentId: session.currentAgentId,
+          commandText,
+        })
+        result._slashCommandText = commandText
+        await handleCommandAction(result)
+        chatGoal.refresh()
+        return true
+      } catch (e) {
+        logger.error("ui", "ChatScreen::goalModeSubmit", "Failed to create goal from composer", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+        return false
+      }
+    },
+    [
+      chatGoal,
+      draftIncognito,
+      ensureWorkflowSession,
+      handleCommandAction,
+      incognitoEnabled,
+      session.currentAgentId,
+      t,
+    ],
+  )
+
+  const handleGoalUpdate = useCallback(
+    async (objective: string, completionCriteria: string): Promise<boolean> => {
+      const goalId = chatGoal.snapshot?.goal.id
+      const trimmedObjective = objective.trim()
+      if (!goalId || !trimmedObjective) return false
+      try {
+        const snapshot = await getTransport().call<GoalSnapshot>("update_goal", {
+          goalId,
+          objective: trimmedObjective,
+          completionCriteria: completionCriteria.trim(),
+        })
+        chatGoal.setSnapshot(snapshot)
+        toast.success(t("chat.goalMode.updated", "目标已更新"))
+        chatGoal.refresh()
+        return true
+      } catch (e) {
+        logger.error("ui", "ChatScreen::goalUpdate", "Failed to update goal", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+        return false
+      }
+    },
+    [chatGoal, t],
+  )
+
+  const runGoalControlAction = useCallback(
+    async (command: "pause_goal" | "resume_goal" | "clear_goal" | "evaluate_goal") => {
+      const goalId = chatGoal.snapshot?.goal.id
+      if (!goalId) return false
+      try {
+        const snapshot = await getTransport().call<GoalSnapshot>(command, { goalId })
+        chatGoal.setSnapshot(command === "clear_goal" ? null : snapshot)
+        chatGoal.refresh()
+        return true
+      } catch (e) {
+        logger.error("ui", "ChatScreen::goalControl", `Goal action failed: ${command}`, e)
+        toast.error(e instanceof Error ? e.message : String(e))
+        return false
+      }
+    },
+    [chatGoal],
   )
 
   // ── Plan Approve Handler ───────────────────────────────────────
@@ -2940,6 +3060,14 @@ export default function ChatScreen({
                       onEnterPlanMode={planMode.enterPlanMode}
                       onExitPlanMode={planMode.exitPlanMode}
                       onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                      goalSnapshot={chatGoal.snapshot}
+                      goalLoading={chatGoal.loading}
+                      onGoalModeSubmit={handleGoalModeSubmit}
+                      onGoalUpdate={handleGoalUpdate}
+                      onPauseGoal={() => runGoalControlAction("pause_goal")}
+                      onResumeGoal={() => runGoalControlAction("resume_goal")}
+                      onClearGoal={() => runGoalControlAction("clear_goal")}
+                      onEvaluateGoal={() => runGoalControlAction("evaluate_goal")}
                       taskProgressSnapshot={taskProgressSnapshot}
                       onOpenWorkspace={openWorkspacePanel}
                       workspacePanelVisible={workspacePanelVisibleInRightPanel}

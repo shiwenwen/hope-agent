@@ -265,6 +265,16 @@ pub struct CreateGoalInput {
     pub budget_turn_limit: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateGoalInput {
+    pub goal_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub objective: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_criteria: Option<String>,
+}
+
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS goals (
@@ -396,6 +406,93 @@ impl SessionDB {
             .goal_snapshot(&id, 100)?
             .ok_or_else(|| anyhow!("goal {} was not persisted", id))?;
         emit_goal("goal:created", &snapshot.goal);
+        Ok(snapshot)
+    }
+
+    pub fn update_goal(&self, input: UpdateGoalInput) -> Result<GoalSnapshot> {
+        let objective = input.objective.as_deref().map(str::trim);
+        if objective.is_some_and(str::is_empty) {
+            return Err(anyhow!("goal objective must not be empty"));
+        }
+        let completion_criteria = input.completion_criteria.as_deref().map(str::trim);
+        if objective.is_none() && completion_criteria.is_none() {
+            return self
+                .goal_snapshot(&input.goal_id, 100)?
+                .ok_or_else(|| anyhow!("goal {} not found", input.goal_id));
+        }
+
+        let now = now_rfc3339();
+        let (previous_objective, previous_criteria, previous_state) = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let current: Option<(String, String, String)> = conn
+                .query_row(
+                    "SELECT objective, completion_criteria, state FROM goals WHERE id = ?1",
+                    params![input.goal_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .optional()?;
+            let (previous_objective, previous_criteria, state) =
+                current.ok_or_else(|| anyhow!("goal {} not found", input.goal_id))?;
+            let previous_state = parse_goal_state(&state)?;
+            if previous_state.is_terminal() {
+                return Err(anyhow!("goal {} is terminal", input.goal_id));
+            }
+            let next_objective = objective.unwrap_or(previous_objective.trim());
+            let next_criteria = completion_criteria.unwrap_or(previous_criteria.trim());
+            if next_objective == previous_objective.trim()
+                && next_criteria == previous_criteria.trim()
+            {
+                drop(conn);
+                return self
+                    .goal_snapshot(&input.goal_id, 100)?
+                    .ok_or_else(|| anyhow!("goal {} not found", input.goal_id));
+            }
+            let next_state = match previous_state {
+                GoalState::Blocked | GoalState::Evaluating => GoalState::Active,
+                other => other,
+            };
+            conn.execute(
+                "UPDATE goals
+                    SET objective = COALESCE(?1, objective),
+                        completion_criteria = COALESCE(?2, completion_criteria),
+                        state = ?3,
+                        updated_at = ?4,
+                        final_summary = NULL,
+                        final_evidence_json = '{}',
+                        blocked_reason = NULL,
+                        last_evaluator_result_json = '{}'
+                 WHERE id = ?5",
+                params![
+                    objective,
+                    completion_criteria,
+                    next_state.as_str(),
+                    now,
+                    input.goal_id
+                ],
+            )?;
+            (previous_objective, previous_criteria, previous_state)
+        };
+
+        let snapshot = self
+            .goal_snapshot(&input.goal_id, 100)?
+            .ok_or_else(|| anyhow!("goal {} not found after update", input.goal_id))?;
+        let _ = self.append_goal_event(
+            &input.goal_id,
+            "goal_updated",
+            json!({
+                "previous": {
+                    "objective": previous_objective,
+                    "completionCriteria": previous_criteria,
+                    "state": previous_state.as_str(),
+                },
+                "next": {
+                    "objective": snapshot.goal.objective,
+                    "completionCriteria": snapshot.goal.completion_criteria,
+                    "state": snapshot.goal.state.as_str(),
+                },
+            }),
+        )?;
+        emit_goal("goal:updated", &snapshot.goal);
         Ok(snapshot)
     }
 

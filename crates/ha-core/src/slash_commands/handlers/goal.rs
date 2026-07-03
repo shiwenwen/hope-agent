@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::goal::{CreateGoalInput, GoalSnapshot, GoalState};
+use crate::goal::{CreateGoalInput, GoalSnapshot, GoalState, UpdateGoalInput};
 use crate::session::SessionDB;
 use crate::slash_commands::types::{CommandAction, CommandResult};
 
@@ -14,23 +14,16 @@ pub fn handle_goal(
     if trimmed.is_empty() || matches!(trimmed, "status" | "show") {
         return render_active_goal(session_db, sid);
     }
-    if trimmed == "help" {
-        return Ok(display_only(goal_usage()));
-    }
 
-    let mut parts = trimmed.split_whitespace();
-    let command = parts.next().unwrap_or_default();
-    match command {
-        "pause" => transition_active_goal(session_db, sid, GoalCommand::Pause),
-        "resume" => transition_active_goal(session_db, sid, GoalCommand::Resume),
-        "clear" | "cancel" => transition_active_goal(session_db, sid, GoalCommand::Clear),
-        "evaluate" | "audit" => transition_active_goal(session_db, sid, GoalCommand::Evaluate),
-        "status" | "show" => render_active_goal(session_db, sid),
-        "set" | "create" => create_goal(session_db, sid, trimmed[command.len()..].trim()),
-        _ => create_goal(session_db, sid, trimmed),
+    match parse_goal_request(trimmed) {
+        GoalRequest::Show => render_active_goal(session_db, sid),
+        GoalRequest::Help => Ok(display_only(goal_usage())),
+        GoalRequest::Transition(command) => transition_active_goal(session_db, sid, command),
+        GoalRequest::Upsert(raw) => upsert_goal(session_db, sid, raw),
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GoalCommand {
     Pause,
     Resume,
@@ -38,8 +31,47 @@ enum GoalCommand {
     Evaluate,
 }
 
-fn create_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<CommandResult, String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GoalRequest<'a> {
+    Show,
+    Help,
+    Transition(GoalCommand),
+    Upsert(&'a str),
+}
+
+fn parse_goal_request(trimmed: &str) -> GoalRequest<'_> {
+    match trimmed {
+        "" | "status" | "show" => GoalRequest::Show,
+        "help" => GoalRequest::Help,
+        "pause" => GoalRequest::Transition(GoalCommand::Pause),
+        "resume" => GoalRequest::Transition(GoalCommand::Resume),
+        "clear" | "cancel" => GoalRequest::Transition(GoalCommand::Clear),
+        "evaluate" | "audit" => GoalRequest::Transition(GoalCommand::Evaluate),
+        objective => GoalRequest::Upsert(objective),
+    }
+}
+
+fn upsert_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<CommandResult, String> {
     let (objective, completion_criteria) = parse_goal_create_args(raw);
+    if objective.trim().is_empty() && completion_criteria.trim().is_empty() {
+        return Err(goal_usage());
+    }
+
+    if let Some(snapshot) = session_db
+        .active_goal_for_session(sid)
+        .map_err(|e| e.to_string())?
+    {
+        let next = session_db
+            .update_goal(UpdateGoalInput {
+                goal_id: snapshot.goal.id,
+                objective: (!objective.trim().is_empty()).then_some(objective),
+                completion_criteria: (!completion_criteria.trim().is_empty())
+                    .then_some(completion_criteria),
+            })
+            .map_err(|e| e.to_string())?;
+        return Ok(display_only(render_goal_snapshot(&next)));
+    }
+
     if objective.trim().is_empty() {
         return Err(goal_usage());
     }
@@ -173,13 +205,15 @@ fn goal_usage() -> String {
     [
         "## Goal commands",
         "",
-        "- `/goal <objective> --criteria <completion criteria>`: create an active goal",
+        "- `/goal <objective> --criteria <completion criteria>`: create or update the active goal",
         "- `/goal`: show the active goal",
         "- `/goal status`: show the active goal",
         "- `/goal pause`: pause the active goal",
         "- `/goal resume`: resume the active/blocked goal",
         "- `/goal evaluate`: run final audit from linked workflow/task/validation evidence",
         "- `/goal clear`: cancel the active goal",
+        "",
+        "Control words only act as commands when they are the whole argument; longer text is treated as the goal objective.",
     ]
     .join("\n")
 }
@@ -193,4 +227,44 @@ fn display_only(content: impl Into<String>) -> CommandResult {
 
 fn short_id(id: &str) -> &str {
     id.get(..8).unwrap_or(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn control_words_only_apply_as_exact_goal_commands() {
+        assert_eq!(
+            parse_goal_request("pause"),
+            GoalRequest::Transition(GoalCommand::Pause)
+        );
+        assert_eq!(
+            parse_goal_request("pause react upgrade"),
+            GoalRequest::Upsert("pause react upgrade")
+        );
+        assert_eq!(
+            parse_goal_request("update react upgrade"),
+            GoalRequest::Upsert("update react upgrade")
+        );
+        assert_eq!(
+            parse_goal_request("set react upgrade"),
+            GoalRequest::Upsert("set react upgrade")
+        );
+    }
+
+    #[test]
+    fn goal_arg_parser_keeps_objective_and_criteria_simple() {
+        assert_eq!(
+            parse_goal_create_args("ship goal mode --criteria typecheck passes"),
+            ("ship goal mode".to_string(), "typecheck passes".to_string())
+        );
+        assert_eq!(
+            parse_goal_create_args("status should render as objective"),
+            (
+                "status should render as objective".to_string(),
+                String::new()
+            )
+        );
+    }
 }

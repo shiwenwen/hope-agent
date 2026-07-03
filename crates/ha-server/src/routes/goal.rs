@@ -1,6 +1,6 @@
 use axum::extract::Path;
 use axum::Json;
-use ha_core::goal::{CreateGoalInput, GoalSnapshot};
+use ha_core::goal::{CreateGoalInput, GoalSnapshot, UpdateGoalInput};
 use serde::Deserialize;
 
 use crate::error::AppError;
@@ -42,6 +42,29 @@ pub async fn create_goal(
             budget_token_limit: body.budget_token_limit,
             budget_time_limit_secs: body.budget_time_limit_secs,
             budget_turn_limit: body.budget_turn_limit,
+        })
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateGoalBody {
+    #[serde(default)]
+    pub objective: Option<String>,
+    #[serde(default)]
+    pub completion_criteria: Option<String>,
+}
+
+pub async fn update_goal(
+    Path(goal_id): Path<String>,
+    Json(body): Json<UpdateGoalBody>,
+) -> Result<Json<GoalSnapshot>, AppError> {
+    session_db()?
+        .update_goal(UpdateGoalInput {
+            goal_id,
+            objective: body.objective,
+            completion_criteria: body.completion_criteria,
         })
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))

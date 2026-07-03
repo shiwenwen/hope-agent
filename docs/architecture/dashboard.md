@@ -1,5 +1,5 @@
 # Dashboard 数据大盘架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-02
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-03
 
 ## 概述
 
@@ -318,6 +318,27 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 - session 级数据排除 cron、subagent 和 incognito。
 - sessionless eval / pack / strategy run 可进入全局聚合；一旦按 agent/provider/model 过滤，会自然被排除。
 - Project name 只作显示增强；`projects` 表不存在或缺失行时仍按 `project_id` 聚合。
+
+## General Domain Quality（Domain Eval owner API）
+
+> 新增于 Phase 7.6。Dashboard Learning Tab 的通用领域质量区块；前端直接调用 `evaluate_domain_quality_gate`、`list_domain_eval_runs`、`list_domain_eval_tasks`，后端事实源见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
+
+该区块不属于 `dashboard::coding_improvement` 聚合，也不与 Release Gate / Continuous Benchmark Gate 合成总分。它只读 Domain Eval / Domain Quality / Domain Evidence 历史，用于回答“非编程长任务的通用质量是否有足够证据”。
+
+| 展示项 | 来源 | 说明 |
+|---|---|---|
+| Gate status | `evaluate_domain_quality_gate` | 三态：`passed` / `failed` / `insufficient_data`。 |
+| Eval pass rate / average score | `domain_eval_runs` | 只统计通用领域 eval，不读取 `coding_eval_runs`。 |
+| Quality blockers | `domain_quality_runs` / `domain_quality_checks` | blocked / failed / needs_user run 与 approval safety blocker。 |
+| Domain coverage | `domain_eval_runs.domain` | 展示已覆盖领域数，首版内置 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task。 |
+| Attention checks | gate checks | 列出 failed / insufficient check，帮助用户知道缺的是 eval 样本、quality run、approval safety 还是领域覆盖。 |
+| Recent domain eval runs | `list_domain_eval_runs` | 展示最近通用 eval run，辅助回溯质量判断。 |
+
+红线：
+
+- 通用领域质量门与 coding benchmark 分表、分路径、分 UI 区块展示。
+- 无 domain eval 或 domain quality 历史时必须显示 `insufficient_data`，不能用 coding release gate 替代。
+- Dashboard 只读历史，不生成 proposal、不运行 eval、不触发连接器动作。
 
 ## Plan 统计（plan_stats.rs）
 

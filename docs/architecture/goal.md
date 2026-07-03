@@ -1,6 +1,6 @@
 # Goal 控制平面
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-01
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-03
 
 Goal 是长任务的顶层完成语义：**我要最终达成什么，完成标准是什么，哪些证据证明已经完成**。它位于 Execution Mode 与 Workflow 之上，适用于通用长任务；coding 只是当前最强的使用场景。
 
@@ -25,7 +25,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 | 斜杠命令 | `crates/ha-core/src/slash_commands/handlers/goal.rs` | `/goal` 文本控制面。 |
 | Tauri owner API | `src-tauri/src/commands/goal.rs` | 桌面 owner 平面命令。 |
 | HTTP owner API | `crates/ha-server/src/routes/goal.rs` | Server/Web owner 平面端点。 |
-| GUI | `src/components/chat/workspace/useGoal.ts`、`WorkspacePanel.tsx` | Workflow Control Center 内 Goal strip、创建/暂停/恢复/清除/评估、证据摘要。 |
+| GUI | `src/components/chat/workspace/useGoal.ts`、`WorkspacePanel.tsx`、`ChatInput.tsx` | Workflow Control Center 内 Goal strip、输入框目标模式、composer 上方 active Goal 状态条、创建/更新/暂停/恢复/清除/评估、证据摘要。 |
 
 红线：
 
@@ -33,6 +33,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 - 第一版没有 agent 工具面直接改 Goal；模型可建议，owner 平面落地。
 - incognito session 禁止创建 durable Goal。
 - `label` 只用于展示；Goal 与 Workflow 的关系以 `goal_id` / `goal_links` 为准。
+- Goal 更新必须走 owner 平面 `update_goal` 或 `/goal <objective>`；更新 objective 或 completion criteria 后清空旧 final audit，并让 `blocked` / `evaluating` 回到 `active`，避免旧审计结论污染新目标。
 
 ## 3. 数据模型
 
@@ -185,6 +186,7 @@ Tauri 与 HTTP 保持对齐：
 | `get_active_goal` | `GET /api/sessions/{sessionId}/goal` |
 | `create_goal` | `POST /api/sessions/{sessionId}/goal` |
 | `get_goal` | `GET /api/goals/{goalId}` |
+| `update_goal` | `PATCH /api/goals/{goalId}` |
 | `pause_goal` | `POST /api/goals/{goalId}/pause` |
 | `resume_goal` | `POST /api/goals/{goalId}/resume` |
 | `clear_goal` | `POST /api/goals/{goalId}/clear` |
@@ -216,18 +218,27 @@ EventBus：
 /goal clear
 ```
 
-`/goal` 返回 markdown 状态卡，包含目标、完成标准、workflow 数、task 完成数、final audit 和 blocked reason。
+`/goal` 返回 markdown 状态卡，包含目标、完成标准、workflow 数、task 完成数、final audit 和 blocked reason。Slash history 中 `/goal ...` 的用户行以 Goal 模式气泡展示：保留原始 command metadata，但气泡正文不显示 `/goal` 前缀。
 
 ### GUI
 
 Workspace / Workflow Control Center 内有 Goal strip：
 
 - 无 active Goal：可直接创建 objective + completion criteria。
-- 有 active Goal：展示目标摘要、状态、workflow/task/evidence 指标。
+- 有 active Goal：展示目标摘要、状态、workflow/task/evidence 指标，并支持编辑 objective / completion criteria。
 - 点击 active Goal strip 可展开 Goal detail，查看 criteria 覆盖、预算、下一步证据、结构化 evidence、timeline、workflow/task 摘要。
 - audit 后展示 final summary、blocked reason、missing/blocker/achieved 摘要。
-- 操作按钮：评估、暂停/恢复、清除。
+- 操作按钮：编辑、评估、暂停/恢复、清除。
 - 新建 workflow 默认绑定当前 active Goal；repair draft 会提示“同一 Goal 下的修复 run”。
+
+输入框也有一等 Goal 入口：
+
+- `+` 菜单 / toolbar 中的“目标”进入目标模式。
+- 目标模式发送时始终走 `/goal <objective>`；无 active Goal 时创建，有 active Goal 时更新同一个 Goal。控制词只有在完整参数精确等于 `status` / `pause` / `resume` / `evaluate` / `clear` 等时才作为命令，较长文本一律按目标正文处理。
+- 渲染用户消息时不显示 `/goal` 字符，而是在气泡内展示 Goal 模式标记。
+- 输入框上方常驻展示当前 active Goal 摘要、状态和编辑/评估/暂停/恢复/清除操作，用户不用打开 Workspace 也能掌握目标状态。
+
+每轮主对话 system prompt 会注入当前 active Goal 的 state、objective、completion criteria、blocked reason / latest audit 摘要。Goal 更新后，下一轮 prompt 重新构建即可让模型感知最新目标。
 
 ## 9. 非目标
 

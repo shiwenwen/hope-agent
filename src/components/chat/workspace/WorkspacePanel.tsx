@@ -41,6 +41,7 @@ import {
   MessageSquare,
   Monitor,
   Pause,
+  Pencil,
   Play,
   Plus,
   Radio,
@@ -5814,6 +5815,37 @@ function WorkflowRunsSection({
     [activeGoal, goalState, t],
   )
 
+  const updateActiveGoal = useCallback(
+    async (objective: string, completionCriteria: string) => {
+      if (!activeGoal) return false
+      const trimmedObjective = objective.trim()
+      if (!trimmedObjective) {
+        toast.error(t("workspace.goal.objectiveRequired", "请输入目标"))
+        return false
+      }
+      const key = `update_goal:${activeGoal.id}`
+      setGoalActionKey(key)
+      try {
+        const snapshot = await getTransport().call<GoalSnapshot>("update_goal", {
+          goalId: activeGoal.id,
+          objective: trimmedObjective,
+          completionCriteria: completionCriteria.trim(),
+        })
+        goalState.setSnapshot(snapshot)
+        toast.success(t("workspace.goal.updated", "Goal 状态已更新"))
+        goalState.refresh()
+        return true
+      } catch (e) {
+        logger.error("ui", "WorkflowRunsSection::updateGoal", "Failed to update goal", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+        return false
+      } finally {
+        setGoalActionKey(null)
+      }
+    },
+    [activeGoal, goalState, t],
+  )
+
   const clearDraftPreview = useCallback(() => {
     previewReqRef.current += 1
     setDraftPreview(null)
@@ -6191,6 +6223,7 @@ ${repairPrompt}`
               onResume={() => void runGoalAction("resume_goal")}
               onClear={() => void runGoalAction("clear_goal")}
               onEvaluate={() => void runGoalAction("evaluate_goal")}
+              onUpdate={updateActiveGoal}
             />
             <WorkflowCreateComposer
               open={createOpen}
@@ -7283,6 +7316,7 @@ function GoalControlStrip({
   onResume,
   onClear,
   onEvaluate,
+  onUpdate,
 }: {
   snapshot: GoalSnapshot | null
   loading?: boolean
@@ -7301,9 +7335,13 @@ function GoalControlStrip({
   onResume: () => void
   onClear: () => void
   onEvaluate: () => void
+  onUpdate: (objective: string, completionCriteria: string) => Promise<boolean>
 }) {
   const { t } = useTranslation()
   const [detailOpen, setDetailOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editObjective, setEditObjective] = useState("")
+  const [editCriteria, setEditCriteria] = useState("")
   const goal = snapshot?.goal ?? null
   const audit = asRecord(goal?.finalEvidence)
   const auditEvidence = recordArrayField(audit, "evidence")
@@ -7325,6 +7363,12 @@ function GoalControlStrip({
   const evidenceCount = evidenceItems.length || auditEvidence.length
   const isBusy = saving || Boolean(actionKey)
   const canCreate = !disabled && !saving && objective.trim().length > 0
+
+  useEffect(() => {
+    setEditObjective(goal?.objective ?? "")
+    setEditCriteria(goal?.completionCriteria ?? "")
+    setEditOpen(false)
+  }, [goal?.id, goal?.objective, goal?.completionCriteria])
 
   return (
     <div className="rounded-md border border-border/55 bg-secondary/20">
@@ -7479,6 +7523,65 @@ function GoalControlStrip({
             </div>
           )}
 
+          <AnimatedCollapse open={editOpen}>
+            <div className="space-y-2 rounded-md border border-border/55 bg-background/45 p-2">
+              <div className="space-y-1">
+                <label className="block text-[10px] font-medium text-muted-foreground">
+                  {t("workspace.goal.objective", "目标")}
+                </label>
+                <Textarea
+                  value={editObjective}
+                  disabled={isBusy}
+                  onChange={(event) => setEditObjective(event.target.value)}
+                  className="min-h-14 resize-y text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="block text-[10px] font-medium text-muted-foreground">
+                  {t("workspace.goal.criteria", "完成标准")}
+                </label>
+                <Textarea
+                  value={editCriteria}
+                  disabled={isBusy}
+                  onChange={(event) => setEditCriteria(event.target.value)}
+                  className="min-h-14 resize-y text-xs"
+                />
+              </div>
+              <div className="flex justify-end gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  disabled={isBusy}
+                  onClick={() => {
+                    setEditOpen(false)
+                    setEditObjective(goal.objective)
+                    setEditCriteria(goal.completionCriteria)
+                  }}
+                >
+                  {t("common.cancel", "取消")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  disabled={isBusy || !editObjective.trim()}
+                  onClick={() => {
+                    void onUpdate(editObjective, editCriteria).then((ok) => {
+                      if (ok) setEditOpen(false)
+                    })
+                  }}
+                >
+                  {actionKey?.startsWith("update_goal") ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  {t("common.save", "保存")}
+                </Button>
+              </div>
+            </div>
+          </AnimatedCollapse>
+
           {blockers.length > 0 || missing.length > 0 || achieved.length > 0 ? (
             <div className="space-y-1 text-[10px]">
               {blockers.slice(0, 2).map((item) => (
@@ -7518,7 +7621,18 @@ function GoalControlStrip({
             timeline={timelineItems}
           />
 
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-4 gap-1.5">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 min-w-0 gap-1.5 text-xs"
+              disabled={isBusy || goalIsTerminal(goal.state)}
+              onClick={() => setEditOpen((open) => !open)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              <span className="truncate">{t("workspace.goal.edit", "编辑")}</span>
+            </Button>
             <Button
               type="button"
               size="sm"

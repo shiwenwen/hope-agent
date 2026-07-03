@@ -800,6 +800,7 @@ pub fn run() {
             commands::goal::get_active_goal,
             commands::goal::get_goal,
             commands::goal::create_goal,
+            commands::goal::update_goal,
             commands::goal::pause_goal,
             commands::goal::resume_goal,
             commands::goal::clear_goal,

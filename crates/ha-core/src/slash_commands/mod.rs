@@ -242,13 +242,17 @@ pub fn append_slash_history_events(
     }
 
     let mut ids = Vec::with_capacity(2);
+    let command_display = slash_history_command_display(command_text);
 
-    let mut command_msg = crate::session::NewMessage::event(command_text).with_source(source);
+    let mut command_msg =
+        crate::session::NewMessage::event(&command_display.content).with_source(source);
     command_msg.attachments_meta = Some(
         serde_json::json!({
             "slash_command": {
                 "kind": "command",
+                "command": command_text,
                 "displayAs": "user",
+                "mode": command_display.mode,
             }
         })
         .to_string(),
@@ -270,6 +274,51 @@ pub fn append_slash_history_events(
     }
 
     Ok(ids)
+}
+
+struct SlashHistoryCommandDisplay {
+    content: String,
+    mode: Option<&'static str>,
+}
+
+fn slash_history_command_display(command_text: &str) -> SlashHistoryCommandDisplay {
+    let trimmed = command_text.trim();
+    let Some(raw_rest) = trimmed.strip_prefix("/goal") else {
+        return SlashHistoryCommandDisplay {
+            content: trimmed.to_string(),
+            mode: None,
+        };
+    };
+    if !raw_rest.is_empty() && !raw_rest.starts_with(char::is_whitespace) {
+        return SlashHistoryCommandDisplay {
+            content: trimmed.to_string(),
+            mode: None,
+        };
+    }
+    let args = raw_rest.trim();
+    let content = goal_command_display_text(args)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "Goal".to_string());
+    SlashHistoryCommandDisplay {
+        content,
+        mode: Some("goal"),
+    }
+}
+
+fn goal_command_display_text(args: &str) -> Option<String> {
+    let trimmed = args.trim();
+    if trimmed.is_empty() {
+        return Some("Show active goal".to_string());
+    }
+    match trimmed {
+        "status" | "show" => Some("Show active goal".to_string()),
+        "pause" => Some("Pause active goal".to_string()),
+        "resume" => Some("Resume active goal".to_string()),
+        "clear" | "cancel" => Some("Clear active goal".to_string()),
+        "evaluate" | "audit" => Some("Evaluate active goal".to_string()),
+        "help" => Some("Goal help".to_string()),
+        _ => Some(trimmed.to_string()),
+    }
 }
 
 /// Persist a full `CommandResult`, including markdown fallbacks for structured
@@ -703,5 +752,25 @@ mod tests {
             &CommandAction::DisplayOnly
         )));
         assert!(should_persist_slash_history(None));
+    }
+
+    #[test]
+    fn goal_slash_history_does_not_strip_objective_prefix_words() {
+        assert_eq!(
+            goal_command_display_text("pause react upgrade"),
+            Some("pause react upgrade".to_string())
+        );
+        assert_eq!(
+            goal_command_display_text("update react upgrade"),
+            Some("update react upgrade".to_string())
+        );
+        assert_eq!(
+            goal_command_display_text("set react upgrade"),
+            Some("set react upgrade".to_string())
+        );
+        assert_eq!(
+            goal_command_display_text("pause"),
+            Some("Pause active goal".to_string())
+        );
     }
 }

@@ -17,6 +17,7 @@ import {
   Code2,
   Type,
   Hash,
+  Target,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
@@ -1016,6 +1017,12 @@ function MessageBubbleInner({
             />
           ) : (
             <>
+              {msg.slashEvent?.mode === "goal" && (
+                <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  <Target className="h-3 w-3 shrink-0" />
+                  <span>{t("chat.goalMode.messageBadge", "目标")}</span>
+                </div>
+              )}
               <UserAttachments attachments={msg.attachments} />
               <UserMessageContent
                 content={msg.content}

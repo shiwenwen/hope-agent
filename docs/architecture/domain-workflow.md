@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已实现；Phase 7.3 已在 [Context Retrieval v2](context-retrieval.md) 接入 domain profile、domain evidence 候选与 access issue；Phase 7.4 已由 [Domain Quality 控制平面](domain-quality.md) 消费 template / evidence / approval gates 生成通用领域 review / verification。本文记录 `ha-core::domain_workflow`、owner API、通用 workflow template、通用 evidence 与 Goal evidence 链接的当前技术事实。
+> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已实现；Phase 7.3 已在 [Context Retrieval v2](context-retrieval.md) 接入 domain profile、domain evidence 候选与 access issue；Phase 7.4 已由 [Domain Quality 控制平面](domain-quality.md) 消费 template / evidence / approval gates 生成通用领域 review / verification；Phase 7.5-7.6 已把 Domain Quality / Evidence 作为 [Coding Improvement Loop](coding-improvement-loop.md) 的通用学习输入与 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md) 的评分输入。本文记录 `ha-core::domain_workflow`、owner API、通用 workflow template、通用 evidence 与 Goal evidence 链接的当前技术事实。
 
 ## 目标
 
@@ -106,6 +106,16 @@ Phase 7.4 起，[Domain Quality 控制平面](domain-quality.md) 会消费本模
 - Workspace 新增「领域复核」区块，非 coding 会话不需要工作目录也能运行质量门。
 
 Domain Workflow 仍只负责模板、draft 和 evidence；Domain Quality 负责 review / verification 结论，两者不互相替代。
+
+## Domain Learning / Eval 衔接
+
+Phase 7.5-7.6 不让 Domain Workflow 直接学习或评分，而是通过已持久化事实接入后续控制面：
+
+- Domain Learning 从 Domain Quality run/check 和 domain evidence 生成 draft-only proposal，proposal 必须继续走 preview / apply draft / explicit promotion。
+- Domain Eval 读取同 session/domain 的 Goal、Workflow trace、Domain Evidence 与 Domain Quality snapshot 做 deterministic scoring，并把结果写入 `domain_eval_runs`。
+- Dashboard Learning 同时展示 coding release/generalization gate 与独立的 general domain quality gate，二者不混排、不生成综合分。
+
+这保证通用场景可以沉淀经验和评测能力，同时不会让模板 registry 自行修改生产规则，也不会把 non-coding 评分混进 coding benchmark。
 
 ## Owner API
 

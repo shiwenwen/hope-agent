@@ -69,7 +69,7 @@
 | [Plan Mode](architecture/plan-mode.md)      | 5 状态机、plan = 设计契约 + task = 进度真相双轨分离、enter_plan_mode 模型主动入口、Git Checkpoint 回滚 | `plan/`, `tools/enter_plan_mode.rs`, `tools/submit_plan.rs`, `tools/task.rs` |
 | [Goal 控制平面](architecture/goal.md) | 长任务顶层目标：objective、completion criteria、状态机、证据链、final audit、Workflow 绑定与 GUI Goal strip | `goal/`, `workflow/`, `components/chat/workspace/` |
 | [Workflow 与 Execution Mode](architecture/workflow.md) | Durable `workflow.js` 执行编排、WorkflowRun/Op/Event 三表、QuickJS host API、replay、permission preview、pause/resume/cancel、Workflow Control Center | `workflow/`, `execution_mode.rs`, `components/chat/workspace/` |
-| [Domain Workflow 控制平面](architecture/domain-workflow.md) | Phase 7.1-7.3 通用场景模板 registry、workflow draft 预览、General Evidence 持久化、Goal evidence 链接与 Context Retrieval 衔接，覆盖 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops；Phase 7.4 由 Domain Quality 消费其模板与 evidence | `domain_workflow.rs`, `goal/`, `workflow/`, `context_retrieval.rs` |
+| [Domain Workflow 控制平面](architecture/domain-workflow.md) | Phase 7.1-7.6 通用场景模板 registry、workflow draft 预览、General Evidence 持久化、Goal evidence 链接、Context Retrieval、Domain Quality、Domain Learning 与 Domain Eval 衔接，覆盖 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops | `domain_workflow.rs`, `goal/`, `workflow/`, `context_retrieval.rs` |
 | [Domain Quality 控制平面](architecture/domain-quality.md) | Phase 7.4 通用领域 review / verification：基于 Domain Workflow template、General Evidence 与 approval gates 生成 durable quality run/check/event，失败或需用户确认时写回 Goal blocking evidence，并在 Workspace「领域复核」区块展示；Phase 7.5 作为 Domain Learning 的输入信号 | `domain_quality.rs`, `goal/`, `components/chat/workspace/` |
 | [Domain Eval 与 Quality Gate 控制平面](architecture/domain-eval.md) | Phase 7.6 通用领域 eval / gate：内置 15 个 Research / Writing / Data / Meeting / Knowledge eval task，基于 Goal、Workflow、Domain Evidence、Domain Quality trace 做 deterministic scoring，持久化 `domain_eval_runs`，并在 Dashboard 独立展示通用质量门 | `domain_eval.rs`, `domain_quality.rs`, `domain_workflow.rs`, `components/dashboard/learning/` |
 | [Loop 控制平面](architecture/loop.md) | 真实 `/loop`：复用 Cron 的可靠调度，按时间/条件重复触发原会话，记录 loop_schedules / loop_runs trace，支持 status / pause / resume / stop | `loop_control.rs`, `cron/`, `components/chat/workspace/` |
@@ -112,7 +112,7 @@
 | [Canvas 子系统](architecture/canvas.md)     | 7 种内容类型沙盒预览、版本快照、snapshot/eval 双向通道、独立窗口、HTTP 静态托管 | `tools/canvas/`, `canvas_db.rs` |
 | [Cron 调度](architecture/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | `cron/`                 |
 | [Sandbox 架构](architecture/sandbox.md) | 会话级 Docker 执行沙箱、权限放松矩阵、Docker 平台引导、SearXNG 容器管理 | `sandbox.rs`, `permission/`, `docker/` |
-| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标                | `dashboard/`            |
+| [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标、Learning Tab、coding release/generalization gate 与 general domain quality gate | `dashboard/`, `components/dashboard/learning/` |
 | [Recap 深度复盘](architecture/recap.md)      | 逐会话 LLM facet 提取、量化+语义融合报告、HTML 导出 | `recap/`                |
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 | [可靠性与崩溃自愈](architecture/reliability.md) | Guardian 父子三层保活、退出码协议、Crash Journal、Self-Diagnosis prompt + Auto-Fix 覆盖范围、子系统 watchdog | `guardian.rs`, `crash_journal.rs`, `self_diagnosis.rs`, `service_install.rs` |

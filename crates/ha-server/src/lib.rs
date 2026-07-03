@@ -1296,7 +1296,10 @@ fn build_router_with_cors(
             "/sessions/{sid}/goal",
             get(routes::goal::get_active_goal).post(routes::goal::create_goal),
         )
-        .route("/goals/{id}", get(routes::goal::get_goal))
+        .route(
+            "/goals/{id}",
+            get(routes::goal::get_goal).patch(routes::goal::update_goal),
+        )
         .route("/goals/{id}/pause", post(routes::goal::pause_goal))
         .route("/goals/{id}/resume", post(routes::goal::resume_goal))
         .route("/goals/{id}/clear", post(routes::goal::clear_goal))

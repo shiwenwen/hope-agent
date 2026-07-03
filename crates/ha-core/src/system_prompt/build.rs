@@ -216,6 +216,10 @@ pub fn build(
         sections.push(section.to_string());
     }
 
+    if let Some(section) = build_active_goal_section(session_id, incognito) {
+        sections.push(section);
+    }
+
     // ⑥c² Tool-call budget reminder — always injected when rounds are bounded,
     // so the model can produce a graceful handoff instead of a cut-off mid-call.
     if let Some(budget) = build_tool_budget_guidance(definition.config.capabilities.max_tool_rounds)
@@ -548,6 +552,47 @@ fn build_incognito_section() -> String {
      - Only call memory tools when the user explicitly asks to remember, recall, search, update, or delete memory.\n\
      - Treat this as a forward-looking rule for the current session only."
         .to_string()
+}
+
+fn build_active_goal_section(session_id: Option<&str>, incognito: bool) -> Option<String> {
+    if incognito {
+        return None;
+    }
+    let session_id = session_id?;
+    let db = crate::get_session_db()?;
+    let snapshot = db.active_goal_for_session(session_id).ok()??;
+    let goal = snapshot.goal;
+    let mut lines = vec![
+        "# Active Goal".to_string(),
+        String::new(),
+        "The user has set a durable goal for this session. Treat it as the current north star until the user changes, pauses, clears, or completes it.".to_string(),
+        format!("- State: {}", goal.state.as_str()),
+        format!("- Objective: {}", truncate(&goal.objective, 1200)),
+    ];
+    if !goal.completion_criteria.trim().is_empty() {
+        lines.push(format!(
+            "- Completion criteria: {}",
+            truncate(&goal.completion_criteria, 1600)
+        ));
+    }
+    if let Some(reason) = goal
+        .blocked_reason
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!("- Blocked reason: {}", truncate(reason, 600)));
+    }
+    if let Some(summary) = goal
+        .final_summary
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!("- Latest audit: {}", truncate(summary, 800)));
+    }
+    lines.push(
+        "When making progress, prefer actions that create concrete evidence toward the completion criteria. If the user updates the goal, follow the latest version.".to_string(),
+    );
+    Some(lines.join("\n"))
 }
 
 /// Build a system prompt using the legacy path (no AgentDefinition).

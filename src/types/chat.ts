@@ -213,6 +213,7 @@ export interface Message {
     kind: "command" | "result"
     command?: string
     displayAs?: "user"
+    mode?: "goal"
   }
   /** Model picker data for rendering interactive model selection cards */
   modelPickerData?: {

@@ -22,6 +22,11 @@ import {
   FolderPlus,
   Quote,
   Undo2,
+  Target,
+  Loader2,
+  PauseCircle,
+  PlayCircle,
+  CheckCircle2,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type {
@@ -78,6 +83,7 @@ import type { ContextUsageInfo } from "../chatUtils"
 import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
 import type { QuickPromptItem } from "@/types/quickPrompts"
+import type { GoalSnapshot } from "../workspace/useGoal"
 
 interface ChatInputProps {
   input: string
@@ -147,6 +153,15 @@ interface ChatInputProps {
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
   onTogglePlanPanel?: () => void
+  // Goal mode
+  goalSnapshot?: GoalSnapshot | null
+  goalLoading?: boolean
+  onGoalModeSubmit?: (objective: string) => Promise<boolean>
+  onGoalUpdate?: (objective: string, completionCriteria: string) => Promise<boolean>
+  onPauseGoal?: () => Promise<boolean>
+  onResumeGoal?: () => Promise<boolean>
+  onClearGoal?: () => Promise<boolean>
+  onEvaluateGoal?: () => Promise<boolean>
   // Session-scoped Todo progress
   taskProgressSnapshot?: TaskProgressSnapshot | null
   executionState?: ChatTurnStatus | null
@@ -243,6 +258,14 @@ export default function ChatInput({
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
+  goalSnapshot,
+  goalLoading = false,
+  onGoalModeSubmit,
+  onGoalUpdate,
+  onPauseGoal,
+  onResumeGoal,
+  onClearGoal,
+  onEvaluateGoal,
   taskProgressSnapshot,
   executionState,
   onOpenWorkspace,
@@ -262,6 +285,12 @@ export default function ChatInput({
   const [toolbarStacked, setToolbarStacked] = useState(false)
   const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
+  const [goalComposerMode, setGoalComposerMode] = useState(false)
+  const [goalSubmitting, setGoalSubmitting] = useState(false)
+  const [goalEditOpen, setGoalEditOpen] = useState(false)
+  const [goalEditObjective, setGoalEditObjective] = useState("")
+  const [goalEditCriteria, setGoalEditCriteria] = useState("")
+  const [goalActionPending, setGoalActionPending] = useState<string | null>(null)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -334,6 +363,14 @@ export default function ChatInput({
   useEffect(() => {
     inputRef.current = input
   }, [input])
+
+  const activeGoal = goalSnapshot?.goal ?? null
+  useEffect(() => {
+    setGoalEditObjective(activeGoal?.objective ?? "")
+    setGoalEditCriteria(activeGoal?.completionCriteria ?? "")
+    setGoalEditOpen(false)
+    setGoalActionPending(null)
+  }, [activeGoal?.id, activeGoal?.objective, activeGoal?.completionCriteria])
 
   /**
    * Caret anchor captured at `voice.start()` time. While recording, the
@@ -512,8 +549,9 @@ export default function ChatInput({
   const quickPrompt = useQuickPrompts(input, setComposerInput, inputHandleRef, quickPrompts)
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
-  const hasSendableContent =
-    input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
+  const hasSendableContent = goalComposerMode
+    ? input.trim().length > 0
+    : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance has to follow the input container
@@ -678,8 +716,36 @@ export default function ChatInput({
 
   const handleSend = useCallback(() => {
     resetHistoryBrowsing()
+    if (goalComposerMode) {
+      const objective = input.trim()
+      if (!objective || goalSubmitting) return
+      if (incognitoEnabled) {
+        toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
+        return
+      }
+      if (!onGoalModeSubmit) return
+      setGoalSubmitting(true)
+      void onGoalModeSubmit(objective)
+        .then((ok) => {
+          if (!ok) return
+          setComposerInput("")
+          setGoalComposerMode(false)
+        })
+        .finally(() => setGoalSubmitting(false))
+      return
+    }
     onSend()
-  }, [onSend, resetHistoryBrowsing])
+  }, [
+    goalComposerMode,
+    goalSubmitting,
+    incognitoEnabled,
+    input,
+    onGoalModeSubmit,
+    onSend,
+    resetHistoryBrowsing,
+    setComposerInput,
+    t,
+  ])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
@@ -719,6 +785,30 @@ export default function ChatInput({
         return t("planMode.executing")
     }
   })()
+  const goalToggleLabel = t("chat.goalMode.label", "目标")
+  const goalToggleTip = goalComposerMode
+    ? t("chat.goalMode.activeTip", "正在设置目标")
+    : t("chat.goalMode.enter", "进入目标模式")
+  const activeGoalStateLabel = (() => {
+    switch (activeGoal?.state) {
+      case "active":
+        return t("chat.goalMode.stateActive", "进行中")
+      case "paused":
+        return t("chat.goalMode.statePaused", "已暂停")
+      case "evaluating":
+        return t("chat.goalMode.stateEvaluating", "评估中")
+      case "blocked":
+        return t("chat.goalMode.stateBlocked", "阻塞")
+      case "completed":
+        return t("chat.goalMode.stateCompleted", "完成")
+      case "failed":
+        return t("chat.goalMode.stateFailed", "失败")
+      case "cancelled":
+        return t("chat.goalMode.stateCancelled", "已清除")
+      default:
+        return ""
+    }
+  })()
 
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -732,6 +822,35 @@ export default function ChatInput({
     } else {
       onTogglePlanPanel?.()
     }
+  }
+
+  const handleGoalModeToggle = () => {
+    if (incognitoEnabled) {
+      toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
+      return
+    }
+    setGoalComposerMode((value) => !value)
+  }
+
+  const runGoalAction = (key: string, action?: () => Promise<boolean>) => {
+    if (!action || goalActionPending) return
+    setGoalActionPending(key)
+    void action().finally(() => setGoalActionPending(null))
+  }
+
+  const saveGoalEdit = () => {
+    if (!onGoalUpdate || goalActionPending) return
+    const objective = goalEditObjective.trim()
+    if (!objective) {
+      toast.error(t("chat.goalMode.objectiveRequired", "请输入目标"))
+      return
+    }
+    setGoalActionPending("update")
+    void onGoalUpdate(objective, goalEditCriteria)
+      .then((ok) => {
+        if (ok) setGoalEditOpen(false)
+      })
+      .finally(() => setGoalActionPending(null))
   }
 
   const toggleSlashCommandMenu = () => {
@@ -878,6 +997,22 @@ export default function ChatInput({
             draftAttachments={draftKbAttachments}
             onDraftAttachChange={onDraftKbAttachChange}
           />
+          <button
+            type="button"
+            aria-label={goalToggleTip}
+            className={cn(
+              overflowMenuItemClass,
+              goalComposerMode && "text-emerald-600",
+            )}
+            disabled={incognitoEnabled}
+            onClick={() => {
+              setShowOverflowMenu(false)
+              handleGoalModeToggle()
+            }}
+          >
+            <Target className="h-4 w-4 shrink-0" />
+            <span className="truncate">{goalToggleLabel}</span>
+          </button>
           <button
             type="button"
             aria-label={planToggleTip}
@@ -1147,6 +1282,162 @@ export default function ChatInput({
           </div>
         </AnimatedCollapse>
 
+        {/* Active Goal status — always visible near the composer while a durable goal is open. */}
+        <AnimatedCollapse open={!!activeGoal && !goalComposerMode}>
+          {activeGoal ? (
+            <div className="border-b border-emerald-500/15 bg-emerald-500/7 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+              <div className="flex min-w-0 items-center gap-2">
+                <Target className="h-3.5 w-3.5 shrink-0" />
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 truncate text-left font-medium"
+                  onClick={onOpenWorkspace}
+                >
+                  {t("chat.goalMode.activeGoal", "进行中的目标")}{" "}
+                  <span className="font-normal text-foreground/75">
+                    {activeGoal.objective.replace(/\s+/g, " ")}
+                  </span>
+                </button>
+                {goalLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                ) : null}
+                <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
+                  {activeGoalStateLabel}
+                </span>
+                <IconTip label={t("chat.goalMode.edit", "编辑目标")}>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                    onClick={() => setGoalEditOpen((value) => !value)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+                <IconTip label={t("chat.goalMode.evaluate", "评估目标")}>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 disabled:opacity-50 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                    disabled={!!goalActionPending || activeGoal.state === "evaluating"}
+                    onClick={() => runGoalAction("evaluate", onEvaluateGoal)}
+                  >
+                    {goalActionPending === "evaluate" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </IconTip>
+                {activeGoal.state === "paused" || activeGoal.state === "blocked" ? (
+                  <IconTip label={t("chat.goalMode.resume", "恢复目标")}>
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 disabled:opacity-50 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                      disabled={!!goalActionPending}
+                      onClick={() => runGoalAction("resume", onResumeGoal)}
+                    >
+                      {goalActionPending === "resume" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </IconTip>
+                ) : (
+                  <IconTip label={t("chat.goalMode.pause", "暂停目标")}>
+                    <button
+                      type="button"
+                      className="rounded-md p-1 text-emerald-700/75 transition-colors hover:bg-background/60 hover:text-emerald-800 disabled:opacity-50 dark:text-emerald-300/75 dark:hover:text-emerald-200"
+                      disabled={!!goalActionPending || activeGoal.state === "evaluating"}
+                      onClick={() => runGoalAction("pause", onPauseGoal)}
+                    >
+                      {goalActionPending === "pause" ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PauseCircle className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </IconTip>
+                )}
+                <IconTip label={t("chat.goalMode.clear", "清除目标")}>
+                  <button
+                    type="button"
+                    className="rounded-md p-1 text-emerald-700/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 dark:text-emerald-300/70"
+                    disabled={!!goalActionPending}
+                    onClick={() => runGoalAction("clear", onClearGoal)}
+                  >
+                    {goalActionPending === "clear" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </IconTip>
+              </div>
+
+              <AnimatedCollapse open={goalEditOpen}>
+                <div className="mt-2 space-y-2 rounded-lg border border-emerald-500/20 bg-background/65 p-2 text-foreground">
+                  <input
+                    value={goalEditObjective}
+                    onChange={(event) => setGoalEditObjective(event.target.value)}
+                    className="h-8 w-full rounded-md border border-border/60 bg-background px-2 text-xs outline-none focus:border-emerald-500/50"
+                    placeholder={t("chat.goalMode.objectivePlaceholder", "目标")}
+                  />
+                  <textarea
+                    value={goalEditCriteria}
+                    onChange={(event) => setGoalEditCriteria(event.target.value)}
+                    className="min-h-16 w-full resize-y rounded-md border border-border/60 bg-background px-2 py-1.5 text-xs outline-none focus:border-emerald-500/50"
+                    placeholder={t("chat.goalMode.criteriaPlaceholder", "完成标准")}
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => {
+                        setGoalEditOpen(false)
+                        setGoalEditObjective(activeGoal.objective)
+                        setGoalEditCriteria(activeGoal.completionCriteria)
+                      }}
+                    >
+                      {t("common.cancel", "取消")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={goalActionPending === "update" || !goalEditObjective.trim()}
+                      onClick={saveGoalEdit}
+                    >
+                      {goalActionPending === "update" ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {t("common.save", "保存")}
+                    </Button>
+                  </div>
+                </div>
+              </AnimatedCollapse>
+            </div>
+          ) : null}
+        </AnimatedCollapse>
+
+        {/* Goal Mode Banner */}
+        <AnimatedCollapse open={goalComposerMode}>
+          <div className="flex items-center gap-2 border-b border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-700 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-emerald-300">
+            <Target className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1">
+              {t("chat.goalMode.restricted", "目标模式：发送后会创建当前会话的持续目标")}
+            </span>
+            <button
+              type="button"
+              onClick={() => setGoalComposerMode(false)}
+              className="transition-colors hover:text-emerald-900 dark:hover:text-emerald-100"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </AnimatedCollapse>
+
         {/* Plan Mode Banner */}
         <AnimatedCollapse open={planState === "planning"}>
           <div
@@ -1169,7 +1460,9 @@ export default function ChatInput({
           <MentionComposerInput
             ref={inputHandleRef}
             placeholder={
-              planState === "planning"
+              goalComposerMode
+                ? t("chat.goalMode.placeholder", "描述你希望持续推进并最终完成的目标")
+                : planState === "planning"
                 ? t("planMode.placeholder")
                 : hasPendingQueue
                   ? t("chat.pendingQueued")
@@ -1308,6 +1601,27 @@ export default function ChatInput({
                 )}
 
                 {!toolbarTight && (
+                  <IconTip label={goalToggleTip}>
+                    <button
+                      aria-label={goalToggleTip}
+                      onClick={handleGoalModeToggle}
+                      disabled={incognitoEnabled}
+                      className={cn(
+                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+                        goalComposerMode
+                          ? "text-emerald-600 bg-emerald-500/10"
+                          : activeGoal
+                            ? "text-emerald-600/90 hover:text-emerald-700"
+                            : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      <Target className="h-4 w-4 shrink-0" />
+                      <span>{goalToggleLabel}</span>
+                    </button>
+                  </IconTip>
+                )}
+
+                {!toolbarTight && (
                   <IconTip label={planToggleTip}>
                     <button
                       aria-label={planToggleTip}
@@ -1390,12 +1704,16 @@ export default function ChatInput({
                     size="icon"
                     className="h-8 w-8 rounded-full shrink-0"
                     onClick={handleSend}
-                    disabled={!hasSendableContent}
+                    disabled={!hasSendableContent || goalSubmitting}
                     aria-label={
                       loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")
                     }
                   >
-                    <Send className="h-4 w-4" />
+                    {goalSubmitting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
                   </Button>
                 </IconTip>
               </div>

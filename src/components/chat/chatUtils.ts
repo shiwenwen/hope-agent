@@ -646,6 +646,7 @@ export function parseSessionMessages(
               kind: slash.kind,
               command: typeof slash.command === "string" ? slash.command : undefined,
               displayAs: slash.displayAs === "user" ? "user" : undefined,
+              mode: slash.mode === "goal" ? "goal" : undefined,
             }
           }
         } catch {
@@ -870,6 +871,7 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.slashEvent?.kind === b.slashEvent?.kind &&
     a.slashEvent?.displayAs === b.slashEvent?.displayAs &&
     a.slashEvent?.command === b.slashEvent?.command &&
+    a.slashEvent?.mode === b.slashEvent?.mode &&
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&

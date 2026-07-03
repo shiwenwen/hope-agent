@@ -368,6 +368,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_active_goal:                 { method: "GET",    path: "/api/sessions/{sessionId}/goal" },
   create_goal:                     { method: "POST",   path: "/api/sessions/{sessionId}/goal" },
   get_goal:                        { method: "GET",    path: "/api/goals/{goalId}" },
+  update_goal:                     { method: "PATCH",  path: "/api/goals/{goalId}" },
   pause_goal:                      { method: "POST",   path: "/api/goals/{goalId}/pause" },
   resume_goal:                     { method: "POST",   path: "/api/goals/{goalId}/resume" },
   clear_goal:                      { method: "POST",   path: "/api/goals/{goalId}/clear" },
