@@ -14,6 +14,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::domain_workflow::{
+    DomainApprovalGate, DomainEvidenceItem, DomainEvidenceRequirement, DomainVerificationRule,
+    ListDomainEvidenceInput, ListDomainWorkflowTemplatesInput,
+};
 use crate::review::{ReviewFindingStatus, ReviewSeverity};
 use crate::session::{effective_working_dir_for_meta, SessionDB, SessionIdeContext};
 use crate::util::now_rfc3339;
@@ -36,6 +40,10 @@ pub struct ContextRetrievalInput {
     pub limit: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ide_context: Option<SessionIdeContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -51,6 +59,14 @@ pub enum ContextCandidateKind {
     WorkflowOp,
     UrlSource,
     IdeContext,
+    Document,
+    EmailThread,
+    CalendarEvent,
+    SheetRange,
+    KnowledgeNote,
+    WebSource,
+    Decision,
+    Artifact,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,7 +109,51 @@ pub struct ContextRetrievalStats {
     pub symbols: usize,
     pub url_sources: usize,
     #[serde(default)]
+    pub domain_candidates: usize,
+    #[serde(default)]
+    pub domain_evidence: usize,
+    #[serde(default)]
+    pub access_issues: usize,
+    #[serde(default)]
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainContextProfile {
+    pub domain: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_objective: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion_criteria: Option<String>,
+    #[serde(default)]
+    pub required_evidence: Vec<DomainEvidenceRequirement>,
+    #[serde(default)]
+    pub approval_gates: Vec<DomainApprovalGate>,
+    #[serde(default)]
+    pub verification_policy: Vec<DomainVerificationRule>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextAccessIssue {
+    pub kind: String,
+    pub title: String,
+    pub reason: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_connector: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub action: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +166,10 @@ pub struct ContextRetrievalSnapshot {
     pub workspace_root: Option<String>,
     pub candidates: Vec<ContextCandidate>,
     pub stats: ContextRetrievalStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain_context: Option<DomainContextProfile>,
+    #[serde(default)]
+    pub access_issues: Vec<ContextAccessIssue>,
     pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_reason: Option<String>,
@@ -115,6 +179,12 @@ pub struct ContextRetrievalSnapshot {
 struct CandidateAccum {
     candidate: ContextCandidate,
     rank: i32,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedDomainContext {
+    profile: DomainContextProfile,
+    goal_criteria_tokens: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +264,8 @@ pub async fn context_retrieval_for_session(
             workspace_root,
             candidates: Vec::new(),
             stats: ContextRetrievalStats::default(),
+            domain_context: None,
+            access_issues: Vec::new(),
             truncated: false,
             disabled_reason: Some("incognito".to_string()),
             generated_at: now_rfc3339(),
@@ -202,12 +274,13 @@ pub async fn context_retrieval_for_session(
 
     let mut stats = ContextRetrievalStats::default();
     let mut map: HashMap<String, CandidateAccum> = HashMap::new();
-    let ide_context = input.ide_context.or_else(|| {
+    let ide_context = input.ide_context.clone().or_else(|| {
         db.get_session_ide_context(&session_id)
             .ok()
             .flatten()
             .map(|snapshot| snapshot.context)
     });
+    let domain_context = resolve_domain_context(&db, &session_id, &input);
 
     gather_ide_context(ide_context.as_ref(), &matcher, &mut map, &mut stats);
     gather_git_changes(db.clone(), &session_id, &matcher, &mut map, &mut stats).await;
@@ -218,6 +291,14 @@ pub async fn context_retrieval_for_session(
     gather_goal_evidence(&db, &session_id, &matcher, &mut map, &mut stats);
     gather_tasks(&db, &session_id, &matcher, &mut map, &mut stats);
     gather_workflow_ops(&db, &session_id, &matcher, &mut map, &mut stats);
+    gather_domain_context(
+        &db,
+        &session_id,
+        domain_context.as_ref(),
+        &matcher,
+        &mut map,
+        &mut stats,
+    );
     gather_file_search(
         workspace_root.as_deref(),
         query.as_deref(),
@@ -235,6 +316,12 @@ pub async fn context_retrieval_for_session(
         &mut stats,
     )
     .await;
+    apply_domain_boosts(domain_context.as_ref(), &matcher, &mut map);
+    let access_issues = domain_context
+        .as_ref()
+        .map(|ctx| domain_access_issues(ctx, &map))
+        .unwrap_or_default();
+    stats.access_issues = access_issues.len();
 
     let mut candidates = map.into_values().collect::<Vec<_>>();
     candidates.sort_by(|a, b| {
@@ -256,10 +343,580 @@ pub async fn context_retrieval_for_session(
         workspace_root,
         candidates,
         stats,
+        domain_context: domain_context.map(|ctx| ctx.profile),
+        access_issues,
         truncated,
         disabled_reason: None,
         generated_at: now_rfc3339(),
     })
+}
+
+fn resolve_domain_context(
+    db: &SessionDB,
+    session_id: &str,
+    input: &ContextRetrievalInput,
+) -> Option<ResolvedDomainContext> {
+    let goal_snapshot = db
+        .active_goal_for_session(session_id)
+        .ok()
+        .flatten()
+        .or_else(|| db.latest_goal_for_session(session_id).ok().flatten());
+    let explicit_domain = input
+        .domain
+        .as_deref()
+        .and_then(non_empty)
+        .map(normalize_domain_token);
+    let workflow_domain = recent_domain_workflow_domain(db, session_id);
+    let evidence_domain = recent_domain_evidence_domain(db, session_id);
+    let inferred_domain = goal_snapshot.as_ref().and_then(|snapshot| {
+        infer_domain_from_goal(&snapshot.goal.objective, &snapshot.goal.completion_criteria)
+    });
+
+    let mut source = "none".to_string();
+    let mut domain = explicit_domain.inspect(|_| source = "input".to_string());
+    if domain.is_none() {
+        domain = workflow_domain.inspect(|_| source = "workflow".to_string());
+    }
+    if domain.is_none() {
+        domain = evidence_domain.inspect(|_| source = "domain_evidence".to_string());
+    }
+    if domain.is_none() {
+        domain = inferred_domain.inspect(|_| source = "goal_inference".to_string());
+    }
+
+    let template = input
+        .template_id
+        .as_deref()
+        .and_then(non_empty)
+        .and_then(|id| db.get_domain_workflow_template(id, None).ok().flatten())
+        .or_else(|| {
+            domain.as_ref().and_then(|domain| {
+                db.list_domain_workflow_templates(ListDomainWorkflowTemplatesInput {
+                    domain: Some(domain.clone()),
+                    limit: Some(1),
+                    ..Default::default()
+                })
+                .ok()
+                .and_then(|mut templates| templates.drain(..).next())
+            })
+        });
+    if let Some(template) = template.as_ref() {
+        if domain.is_none() {
+            domain = Some(template.domain.clone());
+            source = "template".to_string();
+        }
+    }
+    let domain = domain?;
+    let goal_criteria_tokens = goal_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            tokenize_domain_text(&format!(
+                "{}\n{}",
+                snapshot.goal.objective, snapshot.goal.completion_criteria
+            ))
+        })
+        .unwrap_or_default();
+    let profile = DomainContextProfile {
+        domain,
+        template_id: template.as_ref().map(|template| template.id.clone()),
+        template_title: template.as_ref().map(|template| template.title.clone()),
+        task_type: template
+            .as_ref()
+            .and_then(|template| template.task_types.first().cloned()),
+        goal_id: goal_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.goal.id.clone()),
+        goal_objective: goal_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.goal.objective.clone()),
+        completion_criteria: goal_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.goal.completion_criteria.clone()),
+        required_evidence: template
+            .as_ref()
+            .map(|template| template.required_evidence.clone())
+            .unwrap_or_default(),
+        approval_gates: template
+            .as_ref()
+            .map(|template| template.approval_gates.clone())
+            .unwrap_or_default(),
+        verification_policy: template
+            .as_ref()
+            .map(|template| template.verification_policy.clone())
+            .unwrap_or_default(),
+        source,
+    };
+    Some(ResolvedDomainContext {
+        profile,
+        goal_criteria_tokens,
+    })
+}
+
+fn recent_domain_workflow_domain(db: &SessionDB, session_id: &str) -> Option<String> {
+    db.list_workflow_runs_for_session(session_id, 6)
+        .ok()?
+        .into_iter()
+        .find_map(|run| {
+            run.kind
+                .strip_prefix("domain:")
+                .map(normalize_domain_token)
+                .filter(|domain| !domain.is_empty())
+        })
+}
+
+fn recent_domain_evidence_domain(db: &SessionDB, session_id: &str) -> Option<String> {
+    db.list_domain_evidence(ListDomainEvidenceInput {
+        session_id: Some(session_id.to_string()),
+        limit: Some(1),
+        ..Default::default()
+    })
+    .ok()?
+    .into_iter()
+    .next()
+    .map(|item| item.domain)
+}
+
+fn infer_domain_from_goal(objective: &str, criteria: &str) -> Option<String> {
+    let text = format!("{objective}\n{criteria}").to_ascii_lowercase();
+    let checks: &[(&str, &[&str])] = &[
+        (
+            "data_analysis",
+            &[
+                "metric",
+                "kpi",
+                "dashboard",
+                "data",
+                "数据",
+                "指标",
+                "报表",
+                "分析",
+            ],
+        ),
+        (
+            "meeting_prep",
+            &[
+                "meeting", "agenda", "calendar", "会议", "议程", "参会", "会前",
+            ],
+        ),
+        (
+            "inbox",
+            &["email", "mail", "reply", "inbox", "邮件", "回复", "收件箱"],
+        ),
+        (
+            "knowledge_curation",
+            &["knowledge", "note", "vault", "wiki", "知识", "笔记", "整理"],
+        ),
+        (
+            "writing",
+            &[
+                "write", "draft", "memo", "prd", "doc", "报告", "文档", "草稿", "写作",
+            ],
+        ),
+        (
+            "research",
+            &[
+                "research", "source", "citation", "market", "调研", "引用", "来源", "竞品",
+            ],
+        ),
+        (
+            "project_ops",
+            &["project", "status", "risk", "计划", "项目", "风险", "进度"],
+        ),
+    ];
+    checks.iter().find_map(|(domain, needles)| {
+        needles
+            .iter()
+            .any(|needle| text.contains(needle))
+            .then(|| domain.to_string())
+    })
+}
+
+fn gather_domain_context(
+    db: &SessionDB,
+    session_id: &str,
+    domain_context: Option<&ResolvedDomainContext>,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let Some(ctx) = domain_context else {
+        return;
+    };
+    let mut evidence = db
+        .list_domain_evidence(ListDomainEvidenceInput {
+            goal_id: ctx.profile.goal_id.clone(),
+            session_id: Some(session_id.to_string()),
+            domain: Some(ctx.profile.domain.clone()),
+            limit: Some(80),
+            ..Default::default()
+        })
+        .unwrap_or_default();
+    if evidence.is_empty() && ctx.profile.goal_id.is_some() {
+        evidence = db
+            .list_domain_evidence(ListDomainEvidenceInput {
+                session_id: Some(session_id.to_string()),
+                domain: Some(ctx.profile.domain.clone()),
+                limit: Some(80),
+                ..Default::default()
+            })
+            .unwrap_or_default();
+    }
+    stats.domain_evidence = evidence.len();
+    for (idx, item) in evidence.into_iter().enumerate() {
+        upsert_domain_evidence_candidate(ctx, item, idx, matcher, map, stats);
+    }
+    gather_domain_artifacts(db, session_id, ctx, matcher, map, stats);
+}
+
+fn upsert_domain_evidence_candidate(
+    ctx: &ResolvedDomainContext,
+    item: DomainEvidenceItem,
+    idx: usize,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let source = item.source_metadata.clone();
+    let path = metadata_string(
+        &source,
+        &["path", "filePath", "file", "artifactPath", "notePath"],
+    );
+    let url = metadata_string(&source, &["uri", "url", "sourceUrl", "href"]);
+    let kind = domain_evidence_kind(&item, path.as_deref(), url.as_deref());
+    let subtitle = domain_evidence_subtitle(&item, &source, path.as_deref(), url.as_deref());
+    let mut fields = vec![
+        item.title.as_str(),
+        item.summary.as_deref().unwrap_or_default(),
+        item.domain.as_str(),
+        item.evidence_type.as_str(),
+        path.as_deref().unwrap_or_default(),
+        url.as_deref().unwrap_or_default(),
+    ];
+    fields.extend(ctx.goal_criteria_tokens.iter().map(String::as_str));
+    let boost = matcher.boost(&fields);
+    let required_boost = if ctx
+        .profile
+        .required_evidence
+        .iter()
+        .any(|req| req.evidence_type == item.evidence_type && req.required)
+    {
+        110
+    } else {
+        0
+    };
+    let confidence_boost = item
+        .confidence
+        .map(|confidence| (confidence.clamp(0.0, 1.0) * 80.0).round() as i32)
+        .unwrap_or(20);
+    let redaction_penalty = if item.redaction_status == "sensitive" {
+        80
+    } else {
+        0
+    };
+    let action_metadata = domain_actions_for_candidate(&item.evidence_type, &kind);
+    let key = domain_candidate_key(&kind, &item, path.as_deref(), url.as_deref());
+    upsert_candidate(
+        map,
+        key,
+        ContextCandidate {
+            id: format!("domain-evidence:{}", item.id),
+            kind,
+            title: item.title.clone(),
+            subtitle,
+            path,
+            line: None,
+            url,
+            score: 0,
+            reasons: Vec::new(),
+            sources: Vec::new(),
+            status: Some(item.evidence_type.clone()),
+            metadata: json!({
+                "origin": "domain_evidence",
+                "domain": item.domain,
+                "evidenceId": item.id,
+                "evidenceType": item.evidence_type,
+                "goalId": item.goal_id,
+                "confidence": item.confidence,
+                "accessScope": item.access_scope,
+                "redactionStatus": item.redaction_status,
+                "sourceMetadata": item.source_metadata,
+                "domainActions": action_metadata,
+                "staleness": staleness_label(&source),
+            }),
+        },
+        domain_evidence_context_score(&item.evidence_type)
+            + required_boost
+            + confidence_boost
+            + boost
+            - redaction_penalty
+            - idx.min(60) as i32,
+        "Domain workflow 记录了这条通用证据",
+        "domain_evidence",
+    );
+    stats.domain_candidates += 1;
+}
+
+fn gather_domain_artifacts(
+    db: &SessionDB,
+    session_id: &str,
+    ctx: &ResolvedDomainContext,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+    stats: &mut ContextRetrievalStats,
+) {
+    let Ok(artifacts) = crate::session::aggregate_session_artifacts(db, session_id) else {
+        return;
+    };
+    for (idx, file) in artifacts.files.into_iter().take(60).enumerate() {
+        let Some(kind) = domain_file_kind(&file.path, &ctx.profile.domain) else {
+            continue;
+        };
+        let boost = matcher.boost(&[&file.path, &file.kind, &ctx.profile.domain]);
+        let reason = match kind {
+            ContextCandidateKind::Document => "当前领域任务可能需要引用这个文档",
+            ContextCandidateKind::SheetRange => "当前领域任务可能需要核对这个表格或数据产物",
+            ContextCandidateKind::KnowledgeNote => "当前领域任务可能需要这条知识笔记",
+            ContextCandidateKind::Artifact => "当前领域任务最近产生或读取过这个产物",
+            _ => "当前领域任务可能需要这个上下文",
+        };
+        upsert_candidate(
+            map,
+            format!("domain-artifact:{}", file.path),
+            ContextCandidate {
+                id: format!("domain-artifact:{}", file.path),
+                kind: kind.clone(),
+                title: display_path(&file.path),
+                subtitle: Some(file.path.clone()),
+                path: Some(file.path.clone()),
+                line: None,
+                url: None,
+                score: 0,
+                reasons: Vec::new(),
+                sources: Vec::new(),
+                status: Some(file.kind.clone()),
+                metadata: json!({
+                    "origin": "domain_artifact",
+                    "domain": ctx.profile.domain,
+                    "artifactKind": file.kind,
+                    "linesAdded": file.lines_added,
+                    "linesRemoved": file.lines_removed,
+                    "readLines": file.read_lines,
+                    "domainActions": domain_actions_for_kind(&kind),
+                }),
+            },
+            domain_artifact_score(&kind, &ctx.profile.domain) + boost - idx.min(50) as i32,
+            reason,
+            "domain_artifact",
+        );
+        stats.domain_candidates += 1;
+    }
+    for (idx, source) in artifacts.sources.into_iter().take(30).enumerate() {
+        let boost = matcher.boost(&[&source.url, &source.origin, &ctx.profile.domain]);
+        upsert_candidate(
+            map,
+            format!("domain-web:{}", source.url),
+            ContextCandidate {
+                id: format!("domain-web:{}", source.url),
+                kind: ContextCandidateKind::WebSource,
+                title: source
+                    .url
+                    .split('/')
+                    .filter(|segment| !segment.is_empty())
+                    .next_back()
+                    .unwrap_or(source.url.as_str())
+                    .to_string(),
+                subtitle: Some(source.url.clone()),
+                path: None,
+                line: None,
+                url: Some(source.url.clone()),
+                score: 0,
+                reasons: Vec::new(),
+                sources: Vec::new(),
+                status: Some(source.origin.clone()),
+                metadata: json!({
+                    "origin": "domain_web_source",
+                    "domain": ctx.profile.domain,
+                    "sourceOrigin": source.origin,
+                    "domainActions": domain_actions_for_kind(&ContextCandidateKind::WebSource),
+                }),
+            },
+            650 + boost - idx.min(30) as i32,
+            "当前领域任务引用过这个网页来源",
+            "domain_source",
+        );
+        stats.domain_candidates += 1;
+    }
+}
+
+fn apply_domain_boosts(
+    domain_context: Option<&ResolvedDomainContext>,
+    matcher: &QueryMatcher,
+    map: &mut HashMap<String, CandidateAccum>,
+) {
+    let Some(ctx) = domain_context else {
+        return;
+    };
+    let domain_terms = domain_terms(&ctx.profile.domain);
+    let required_types = ctx
+        .profile
+        .required_evidence
+        .iter()
+        .map(|req| req.evidence_type.as_str())
+        .collect::<Vec<_>>();
+    for acc in map.values_mut() {
+        let candidate = &mut acc.candidate;
+        let haystack = format!(
+            "{}\n{}\n{}\n{}\n{}",
+            candidate.title,
+            candidate.subtitle.as_deref().unwrap_or_default(),
+            candidate.status.as_deref().unwrap_or_default(),
+            candidate.path.as_deref().unwrap_or_default(),
+            candidate.url.as_deref().unwrap_or_default()
+        )
+        .to_ascii_lowercase();
+        let mut boost = 0;
+        if domain_terms.iter().any(|term| haystack.contains(term)) {
+            boost += 55;
+        }
+        if required_types.iter().any(|term| haystack.contains(*term)) {
+            boost += 80;
+        }
+        if !ctx.goal_criteria_tokens.is_empty()
+            && ctx
+                .goal_criteria_tokens
+                .iter()
+                .any(|term| term.len() >= 3 && haystack.contains(term))
+        {
+            boost += 65;
+        }
+        boost += matcher.boost(&[&ctx.profile.domain]) / 4;
+        if boost > 0 {
+            acc.rank += boost;
+            candidate.score = acc.rank.max(0) as u32;
+            add_unique(
+                &mut candidate.reasons,
+                "命中当前 domain workflow / Goal criteria",
+            );
+            add_unique(&mut candidate.sources, "domain_ranker");
+            if let Some(obj) = candidate.metadata.as_object_mut() {
+                obj.insert("domainBoost".to_string(), json!(boost));
+                obj.insert("domain".to_string(), json!(ctx.profile.domain.clone()));
+            }
+        }
+    }
+}
+
+fn domain_access_issues(
+    ctx: &ResolvedDomainContext,
+    map: &HashMap<String, CandidateAccum>,
+) -> Vec<ContextAccessIssue> {
+    let has_kind = |kind: ContextCandidateKind| {
+        map.values().any(|acc| {
+            acc.candidate.kind == kind
+                && acc
+                    .candidate
+                    .sources
+                    .iter()
+                    .any(|s| s.starts_with("domain"))
+        })
+    };
+    let has_evidence = |evidence_type: &str| {
+        map.values().any(|acc| {
+            acc.candidate
+                .metadata
+                .get("evidenceType")
+                .and_then(Value::as_str)
+                == Some(evidence_type)
+        })
+    };
+    let mut issues = Vec::new();
+    match ctx.profile.domain.as_str() {
+        "research" | "writing" if !has_kind(ContextCandidateKind::WebSource) => {
+            issues.push(access_issue(
+                "web_source",
+                "缺少可引用来源",
+                "当前 domain workflow 需要可追溯来源；未在会话中看到网页或引用 evidence。",
+                Some("web_search"),
+                &ctx.profile.domain,
+                "连接 Web/Search 或先添加 source_cited evidence",
+            ));
+        }
+        "meeting_prep" if !has_kind(ContextCandidateKind::CalendarEvent) => {
+            issues.push(access_issue(
+                "calendar_event",
+                "缺少会议上下文",
+                "会议准备需要日历事件、参会人或材料；当前 snapshot 没有 meeting context evidence。",
+                Some("google_calendar"),
+                &ctx.profile.domain,
+                "连接 Calendar 或记录 meeting_context_collected evidence",
+            ));
+        }
+        "data_analysis"
+            if !has_kind(ContextCandidateKind::SheetRange)
+                && !has_evidence("data_quality_checked") =>
+        {
+            issues.push(access_issue(
+                "sheet_range",
+                "缺少数据源或口径证据",
+                "数据分析任务需要表格范围、数据集或 data quality evidence。",
+                Some("google_sheets"),
+                &ctx.profile.domain,
+                "连接 Sheets / 数据源或记录 data_quality_checked evidence",
+            ));
+        }
+        "inbox" if !has_kind(ContextCandidateKind::EmailThread) => {
+            issues.push(access_issue(
+                "email_thread",
+                "缺少邮件线程上下文",
+                "邮件沟通任务需要线程、草稿或发送前确认 evidence。",
+                Some("gmail"),
+                &ctx.profile.domain,
+                "连接 Gmail 或记录 message_draft_approved evidence",
+            ));
+        }
+        "knowledge_curation" if !has_kind(ContextCandidateKind::KnowledgeNote) => {
+            issues.push(access_issue(
+                "knowledge_note",
+                "缺少知识笔记上下文",
+                "知识整理任务需要 note/source evidence 或知识空间候选。",
+                Some("knowledge_base"),
+                &ctx.profile.domain,
+                "挂载知识空间或记录 source_cited evidence",
+            ));
+        }
+        _ => {}
+    }
+    for req in &ctx.profile.required_evidence {
+        if req.required && !has_evidence(&req.evidence_type) {
+            issues.push(access_issue(
+                &req.evidence_type,
+                &format!("缺少必需证据：{}", req.title),
+                "当前 domain workflow 声明了 required evidence，但 snapshot 中还没有对应记录。",
+                None,
+                &ctx.profile.domain,
+                "补齐 evidence 后再完成 Goal",
+            ));
+        }
+    }
+    issues
+}
+
+fn access_issue(
+    kind: &str,
+    title: &str,
+    reason: &str,
+    required_connector: Option<&str>,
+    domain: &str,
+    action: &str,
+) -> ContextAccessIssue {
+    ContextAccessIssue {
+        kind: kind.to_string(),
+        title: title.to_string(),
+        reason: reason.to_string(),
+        required_connector: required_connector.map(str::to_string),
+        domain: Some(domain.to_string()),
+        action: action.to_string(),
+    }
 }
 
 async fn gather_git_changes(
@@ -1237,6 +1894,250 @@ fn add_unique(list: &mut Vec<String>, value: &str) {
     }
 }
 
+fn domain_evidence_kind(
+    item: &DomainEvidenceItem,
+    path: Option<&str>,
+    url: Option<&str>,
+) -> ContextCandidateKind {
+    match item.evidence_type.as_str() {
+        "source_cited" => {
+            if url.is_some() {
+                ContextCandidateKind::WebSource
+            } else if path.map(is_knowledge_path).unwrap_or(false)
+                || metadata_string(&item.source_metadata, &["noteId", "noteTitle", "kbId"])
+                    .is_some()
+            {
+                ContextCandidateKind::KnowledgeNote
+            } else {
+                ContextCandidateKind::Document
+            }
+        }
+        "user_decision" => ContextCandidateKind::Decision,
+        "artifact_created" | "artifact_reviewed" => path
+            .and_then(|path| domain_file_kind(path, &item.domain))
+            .unwrap_or(ContextCandidateKind::Artifact),
+        "data_quality_checked" => ContextCandidateKind::SheetRange,
+        "citation_audited" => ContextCandidateKind::WebSource,
+        "message_draft_approved" => ContextCandidateKind::EmailThread,
+        "meeting_context_collected" => ContextCandidateKind::CalendarEvent,
+        "claim_checked" => {
+            if url.is_some() {
+                ContextCandidateKind::WebSource
+            } else {
+                ContextCandidateKind::GoalEvidence
+            }
+        }
+        _ => ContextCandidateKind::GoalEvidence,
+    }
+}
+
+fn domain_evidence_subtitle(
+    item: &DomainEvidenceItem,
+    source: &Value,
+    path: Option<&str>,
+    url: Option<&str>,
+) -> Option<String> {
+    url.map(str::to_string)
+        .or_else(|| path.map(str::to_string))
+        .or_else(|| {
+            metadata_string(
+                source,
+                &["title", "threadId", "eventId", "dataset", "sheet", "range"],
+            )
+        })
+        .or_else(|| item.summary.clone())
+}
+
+fn domain_candidate_key(
+    kind: &ContextCandidateKind,
+    item: &DomainEvidenceItem,
+    path: Option<&str>,
+    url: Option<&str>,
+) -> String {
+    if let Some(url) = url {
+        return format!("domain:{kind:?}:url:{url}");
+    }
+    if let Some(path) = path {
+        return format!("domain:{kind:?}:path:{path}");
+    }
+    format!("domain:{kind:?}:{}", item.id)
+}
+
+fn domain_evidence_context_score(evidence_type: &str) -> i32 {
+    match evidence_type {
+        "source_cited" => 760,
+        "claim_checked" => 800,
+        "user_decision" => 845,
+        "artifact_created" => 700,
+        "artifact_reviewed" => 790,
+        "data_quality_checked" => 830,
+        "citation_audited" => 805,
+        "message_draft_approved" => 850,
+        "meeting_context_collected" => 820,
+        _ => 680,
+    }
+}
+
+fn domain_artifact_score(kind: &ContextCandidateKind, domain: &str) -> i32 {
+    match (kind, domain) {
+        (ContextCandidateKind::SheetRange, "data_analysis") => 735,
+        (ContextCandidateKind::WebSource, "research") => 725,
+        (ContextCandidateKind::Document, "writing") => 710,
+        (ContextCandidateKind::KnowledgeNote, "knowledge_curation") => 730,
+        (ContextCandidateKind::Artifact, _) => 650,
+        _ => 610,
+    }
+}
+
+fn domain_file_kind(path: &str, domain: &str) -> Option<ContextCandidateKind> {
+    let lower = path.to_ascii_lowercase();
+    if is_knowledge_path(&lower) {
+        return Some(ContextCandidateKind::KnowledgeNote);
+    }
+    if lower.ends_with(".csv")
+        || lower.ends_with(".tsv")
+        || lower.ends_with(".xlsx")
+        || lower.ends_with(".xls")
+        || lower.ends_with(".numbers")
+        || lower.contains("sheet")
+    {
+        return Some(ContextCandidateKind::SheetRange);
+    }
+    if lower.ends_with(".md")
+        || lower.ends_with(".txt")
+        || lower.ends_with(".docx")
+        || lower.ends_with(".doc")
+        || lower.ends_with(".pdf")
+        || lower.ends_with(".pptx")
+        || lower.ends_with(".pages")
+    {
+        return Some(ContextCandidateKind::Document);
+    }
+    if matches!(
+        domain,
+        "writing" | "research" | "meeting_prep" | "project_ops"
+    ) && (lower.contains("brief") || lower.contains("memo") || lower.contains("report"))
+    {
+        return Some(ContextCandidateKind::Artifact);
+    }
+    None
+}
+
+fn is_knowledge_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    lower.contains("/knowledge/")
+        || lower.contains("/notes/")
+        || lower.contains("/vault/")
+        || lower.contains("obsidian")
+}
+
+fn domain_actions_for_candidate(evidence_type: &str, kind: &ContextCandidateKind) -> Value {
+    let mut actions = domain_actions_for_kind(kind);
+    if let Some(obj) = actions.as_object_mut() {
+        obj.insert("canAddEvidence".to_string(), json!(true));
+        if evidence_type == "claim_checked" {
+            obj.insert("canMarkConflict".to_string(), json!(true));
+        }
+        if matches!(evidence_type, "user_decision" | "message_draft_approved") {
+            obj.insert("needsUserConfirmation".to_string(), json!(true));
+        }
+    }
+    actions
+}
+
+fn domain_actions_for_kind(kind: &ContextCandidateKind) -> Value {
+    json!({
+        "canCite": matches!(
+            kind,
+            ContextCandidateKind::Document
+                | ContextCandidateKind::WebSource
+                | ContextCandidateKind::KnowledgeNote
+                | ContextCandidateKind::SheetRange
+        ),
+        "canSummarize": matches!(
+            kind,
+            ContextCandidateKind::Document
+                | ContextCandidateKind::WebSource
+                | ContextCandidateKind::KnowledgeNote
+                | ContextCandidateKind::EmailThread
+                | ContextCandidateKind::CalendarEvent
+                | ContextCandidateKind::SheetRange
+        ),
+        "canAskUser": matches!(
+            kind,
+            ContextCandidateKind::Decision
+                | ContextCandidateKind::EmailThread
+                | ContextCandidateKind::CalendarEvent
+        ),
+        "canCreateTask": true,
+    })
+}
+
+fn staleness_label(source: &Value) -> Option<String> {
+    let retrieved = metadata_string(
+        source,
+        &["retrievedAt", "retrieved_at", "timestamp", "date"],
+    )?;
+    if retrieved.len() >= 10 {
+        Some(format!("retrieved:{retrieved}"))
+    } else {
+        Some("undated".to_string())
+    }
+}
+
+fn metadata_string(value: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = value.get(*key).and_then(Value::as_str) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn tokenize_domain_text(value: &str) -> Vec<String> {
+    value
+        .to_ascii_lowercase()
+        .split(|ch: char| {
+            !ch.is_alphanumeric() && ch != '_' && !('\u{4e00}'..='\u{9fff}').contains(&ch)
+        })
+        .map(str::trim)
+        .filter(|token| token.chars().count() >= 2)
+        .take(24)
+        .map(str::to_string)
+        .collect()
+}
+
+fn domain_terms(domain: &str) -> &'static [&'static str] {
+    match domain {
+        "research" => &[
+            "research", "source", "citation", "claim", "调研", "来源", "引用",
+        ],
+        "writing" => &["draft", "doc", "memo", "artifact", "写作", "文档", "草稿"],
+        "data_analysis" => &["data", "metric", "kpi", "sheet", "数据", "指标", "口径"],
+        "meeting_prep" => &["meeting", "agenda", "calendar", "会议", "议程", "参会"],
+        "knowledge_curation" => &["knowledge", "note", "tag", "知识", "笔记", "索引"],
+        "inbox" => &["email", "reply", "thread", "邮件", "回复", "线程"],
+        "project_ops" => &["project", "status", "risk", "owner", "项目", "风险", "进度"],
+        _ => &[],
+    }
+}
+
+fn normalize_domain_token(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace([' ', '-'], "_")
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
 fn review_score(severity: ReviewSeverity, status: ReviewFindingStatus) -> i32 {
     let base = match severity {
         ReviewSeverity::P0 => 985,
@@ -1312,9 +2213,17 @@ fn kind_rank(kind: &ContextCandidateKind) -> u8 {
         ContextCandidateKind::WorkflowOp => 4,
         ContextCandidateKind::GoalEvidence => 5,
         ContextCandidateKind::Task => 6,
-        ContextCandidateKind::File => 7,
-        ContextCandidateKind::Symbol => 8,
-        ContextCandidateKind::UrlSource => 9,
+        ContextCandidateKind::Decision => 7,
+        ContextCandidateKind::WebSource => 8,
+        ContextCandidateKind::Document => 9,
+        ContextCandidateKind::KnowledgeNote => 10,
+        ContextCandidateKind::CalendarEvent => 11,
+        ContextCandidateKind::EmailThread => 12,
+        ContextCandidateKind::SheetRange => 13,
+        ContextCandidateKind::Artifact => 14,
+        ContextCandidateKind::File => 15,
+        ContextCandidateKind::Symbol => 16,
+        ContextCandidateKind::UrlSource => 17,
     }
 }
 
@@ -1350,4 +2259,115 @@ fn path_from_metadata(metadata: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain_workflow::RecordDomainEvidenceInput;
+    use crate::goal::CreateGoalInput;
+    use tempfile::tempdir;
+
+    struct TestDb {
+        _dir: tempfile::TempDir,
+        db: Arc<SessionDB>,
+    }
+
+    fn test_db() -> TestDb {
+        let dir = tempdir().expect("tempdir");
+        let db = SessionDB::open(&dir.path().join("sessions.db")).expect("open db");
+        {
+            let conn = db.conn.lock().expect("lock connection");
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )
+            .expect("create channel conversations table");
+        }
+        TestDb {
+            _dir: dir,
+            db: Arc::new(db),
+        }
+    }
+
+    #[tokio::test]
+    async fn domain_context_retrieval_surfaces_sources_and_access_issues() {
+        let test = test_db();
+        let db = test.db.clone();
+        let session_id = db.create_session("ha-main").expect("create session").id;
+        let goal = db
+            .create_goal(CreateGoalInput {
+                session_id: session_id.clone(),
+                objective: "Research competitors and produce a cited brief".to_string(),
+                completion_criteria: "Needs citations and checked claims".to_string(),
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal");
+        db.record_domain_evidence(RecordDomainEvidenceInput {
+            goal_id: Some(goal.goal.id.clone()),
+            domain: "research".to_string(),
+            evidence_type: "source_cited".to_string(),
+            title: "Official pricing page".to_string(),
+            summary: Some("Primary source for competitor pricing".to_string()),
+            source_metadata: json!({
+                "title": "Pricing",
+                "uri": "https://example.com/pricing",
+                "retrievedAt": "2026-07-03T00:00:00Z"
+            }),
+            confidence: Some(0.92),
+            access_scope: Some("public".to_string()),
+            redaction_status: Some("none".to_string()),
+            ..Default::default()
+        })
+        .expect("record domain evidence");
+
+        let snapshot = context_retrieval_for_session(
+            db,
+            session_id.clone(),
+            ContextRetrievalInput {
+                query: Some("pricing".to_string()),
+                limit: Some(20),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("context retrieval");
+
+        assert_eq!(snapshot.session_id, session_id);
+        assert_eq!(
+            snapshot
+                .domain_context
+                .as_ref()
+                .map(|ctx| ctx.domain.as_str()),
+            Some("research")
+        );
+        assert!(snapshot.candidates.iter().any(|candidate| {
+            candidate.kind == ContextCandidateKind::WebSource
+                && candidate.url.as_deref() == Some("https://example.com/pricing")
+                && candidate
+                    .sources
+                    .iter()
+                    .any(|source| source == "domain_evidence")
+        }));
+        assert!(snapshot
+            .access_issues
+            .iter()
+            .any(|issue| issue.kind == "claim_checked" || issue.kind == "citation_audited"));
+    }
 }

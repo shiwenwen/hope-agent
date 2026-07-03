@@ -27,6 +27,8 @@ export function useContextRetrieval(
     disabled?: boolean
     query?: string
     limit?: number
+    domain?: string | null
+    templateId?: string | null
   } = {},
 ): ContextRetrievalState {
   const {
@@ -35,6 +37,8 @@ export function useContextRetrieval(
     disabled = false,
     query = "",
     limit = 24,
+    domain = null,
+    templateId = null,
   } = opts
   const [snapshot, setSnapshot] = useState<ContextRetrievalSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -59,6 +63,8 @@ export function useContextRetrieval(
         sessionId,
         query: query.trim() || null,
         limit,
+        domain,
+        templateId,
       })
       .then((next) => {
         if (reqRef.current !== req) return
@@ -72,7 +78,7 @@ export function useContextRetrieval(
         setError(message)
         setLoading(false)
       })
-  }, [disabled, incognito, limit, query, sessionId])
+  }, [disabled, domain, incognito, limit, query, sessionId, templateId])
 
   useEffect(() => {
     if (debounceTimerRef.current !== null) {

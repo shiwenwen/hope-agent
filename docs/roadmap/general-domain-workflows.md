@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-03
 >
-> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已完成第一版，并已沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)。Phase 7.3-7.6 仍为后续路线。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)。Phase 7.4-7.6 仍为后续路线。
 
 ## 1. 背景
 
@@ -149,23 +149,25 @@ DomainWorkflow
 - Evidence item 已保存来源 metadata、confidence、access scope、redaction status。
 - 无痕会话不会持久化 domain evidence。
 
-### Phase 7.3 Domain Context Retrieval（待做）
+### Phase 7.3 Domain Context Retrieval（已完成第一版）
 
 目标：把 Context Retrieval 从 coding 信号扩展到通用资料推荐，回答“这个任务下一步最该看哪些资料、来源、线程、会议、表格、笔记”。
 
-要做：
+已完成：
 
 - 新增 domain-aware context candidate 类型：document、email_thread、calendar_event、sheet_range、knowledge_note、web_source、decision、artifact、task。
 - 根据 domain workflow 和 goal criteria 排序候选，而不是只按关键词。
 - 支持来源可信度、时效、权限、重复、冲突提示。
-- GUI 候选行提供领域动作：引用到报告、加入 evidence、生成摘要、请求用户确认、标记冲突、转成 task。
+- GUI 候选行展示领域动作：引用、加入 evidence、生成摘要、请求用户确认、标记冲突、转 task；其中“复制引用”已作为真实轻量动作落地，其余通过 `metadata.domainActions` 暴露给后续 owner action。
 - 连接器缺失时显示 access issue，不伪造上下文。
+- 无工作目录的非 coding 会话仍可展示 Goal / Task / Workflow / Domain evidence / URL 候选，只跳过 workspace 信号。
 
 验收：
 
-- Research / Writing workflow 能看到来源和引用候选。
-- Meeting Prep workflow 能看到会议材料、日历上下文和历史决策。
-- Data Analysis workflow 能看到数据源、查询结果、口径说明和数据质量 issue。
+- Research / Writing workflow 能看到来源和引用候选，缺少 required evidence 时显示 access issue。
+- Meeting Prep workflow 能看到会议材料、日历上下文和历史决策类候选；缺少 calendar evidence 时显示 access issue。
+- Data Analysis workflow 能看到数据源、查询结果、口径说明和数据质量 issue；缺少 sheet/data quality evidence 时显示 access issue。
+- 新增单测覆盖 research domain evidence 召回 web source 和 required evidence 缺口。
 
 ### Phase 7.4 Domain Verification & Review（待做）
 
@@ -265,7 +267,7 @@ Gold task pack -> Domain eval task pack
 P6 完成后，建议按下列顺序推进：
 
 1. Phase 7.1 + 7.2：已完成第一版 domain workflow registry 和 general evidence，通用层地基已具备。
-2. Phase 7.3：下一步扩展 context retrieval，否则 workflow 没有足够上下文。
-3. Phase 7.4：补 domain review / verification，形成质量闭环。
+2. Phase 7.3：已完成第一版 domain context retrieval，通用 workflow 已有来源 / 证据 / 缺口推荐面。
+3. Phase 7.4：下一步补 domain review / verification，形成质量闭环。
 4. Phase 7.5：接 learning loop，让通用场景能沉淀。
 5. Phase 7.6：最后做通用 eval / gate，避免过早为未稳定模板写大量测试。

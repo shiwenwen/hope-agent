@@ -651,7 +651,15 @@ export type ContextCandidateKind =
   | "task"
   | "workflow_op"
   | "ide_context"
-  | "url_source";
+  | "url_source"
+  | "document"
+  | "email_thread"
+  | "calendar_event"
+  | "sheet_range"
+  | "knowledge_note"
+  | "web_source"
+  | "decision"
+  | "artifact";
 
 export interface ContextCandidate {
   id: string;
@@ -681,7 +689,33 @@ export interface ContextRetrievalStats {
   fileSearchMatches: number;
   symbols: number;
   urlSources: number;
+  domainCandidates: number;
+  domainEvidence: number;
+  accessIssues: number;
   warnings: string[];
+}
+
+export interface DomainContextProfile {
+  domain: string;
+  templateId?: string | null;
+  templateTitle?: string | null;
+  taskType?: string | null;
+  goalId?: string | null;
+  goalObjective?: string | null;
+  completionCriteria?: string | null;
+  requiredEvidence: DomainEvidenceRequirement[];
+  approvalGates: DomainApprovalGate[];
+  verificationPolicy: DomainVerificationRule[];
+  source: string;
+}
+
+export interface ContextAccessIssue {
+  kind: string;
+  title: string;
+  reason: string;
+  requiredConnector?: string | null;
+  domain?: string | null;
+  action: string;
 }
 
 export interface ContextRetrievalSnapshot {
@@ -690,6 +724,8 @@ export interface ContextRetrievalSnapshot {
   workspaceRoot?: string | null;
   candidates: ContextCandidate[];
   stats: ContextRetrievalStats;
+  domainContext?: DomainContextProfile | null;
+  accessIssues: ContextAccessIssue[];
   truncated: boolean;
   disabledReason?: string | null;
   generatedAt: string;

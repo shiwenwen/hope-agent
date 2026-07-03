@@ -429,12 +429,12 @@ LSP owner API 返回当前 session working dir 对应 workspace 的 language ser
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
-| `get_context_retrieval` | `GET /api/sessions/{sessionId}/context-retrieval?query=&limit=` | ✅ |
+| `get_context_retrieval` | `GET /api/sessions/{sessionId}/context-retrieval?query=&limit=&domain=&templateId=` | ✅ |
 | `get_session_ide_context` | `GET /api/sessions/{sessionId}/ide-context` | ✅ |
 | `save_session_ide_context` | `PUT /api/sessions/{sessionId}/ide-context` | ✅ |
 | `clear_session_ide_context` | `DELETE /api/sessions/{sessionId}/ide-context` | ✅ |
 
-Context Retrieval owner API 返回当前 session 的任务感知推荐上下文。后端聚合 Git diff、历史 artifacts、LSP diagnostics / workspace symbols、Review findings、Smart Verification steps、Goal evidence、tasks、Workflow ops、IDE/ACP context、file search v2 与 URL 来源，并按信号强度 + query boost 排序。无痕会话返回空 snapshot，LSP symbol 不可用时降级为 warning。候选 `metadata.actions.focusPaths` 表示 GUI 可触发 focused review / verification，但查询本身仍只读。
+Context Retrieval owner API 返回当前 session 的任务感知推荐上下文。后端聚合 Git diff、历史 artifacts、LSP diagnostics / workspace symbols、Review findings、Smart Verification steps、Goal evidence、tasks、Workflow ops、IDE/ACP context、file search v2 与 URL 来源，并按信号强度 + query boost 排序。Phase 7.3 起可选 `domain/templateId` 会启用 Domain Context Retrieval；未显式传入时也会从 `workflow_runs.kind=domain:<domain>`、domain evidence 或 Goal objective / criteria 推断 domain profile，返回 document / email thread / calendar event / sheet range / knowledge note / web source / decision / artifact 候选、`domainContext` 与 `accessIssues`。无工作目录时仍返回 Goal / Task / Workflow / Domain evidence 等通用候选，只跳过 workspace 信号；无痕会话返回空 snapshot。候选 `metadata.actions.focusPaths` 表示 GUI 可触发 focused review / verification，`metadata.domainActions` 表示引用 / evidence / 摘要 / ask-user / conflict / task 等领域动作入口，但查询本身仍只读。
 
 `session_ide_context` owner API 管理当前 session 的 IDE / ACP 快照：current file、selection、open tabs、active diagnostic、active symbol。HTTP `PUT` body 为 `{ "context": SessionIdeContext }`，以对齐 generic transport 的命令参数形态。它只作为 Review / Context 的推荐和 evidence 信号，不进入 system prompt；无痕会话拒绝持久化。完整契约见 [Context Retrieval v2](context-retrieval.md)。
 

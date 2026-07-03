@@ -10,6 +10,8 @@ pub async fn get_context_retrieval(
     query: Option<String>,
     limit: Option<usize>,
     ide_context: Option<SessionIdeContext>,
+    domain: Option<String>,
+    template_id: Option<String>,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<ContextRetrievalSnapshot, CmdError> {
     context_retrieval_for_session(
@@ -19,6 +21,8 @@ pub async fn get_context_retrieval(
             query,
             limit,
             ide_context,
+            domain,
+            template_id,
         },
     )
     .await

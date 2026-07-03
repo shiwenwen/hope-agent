@@ -12,6 +12,10 @@ pub struct ContextRetrievalQuery {
     pub query: Option<String>,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub template_id: Option<String>,
 }
 
 pub async fn get_context_retrieval(
@@ -25,6 +29,8 @@ pub async fn get_context_retrieval(
             query: query.query,
             limit: query.limit,
             ide_context: None,
+            domain: query.domain,
+            template_id: query.template_id,
         },
     )
     .await

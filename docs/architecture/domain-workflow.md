@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已实现。本文记录 `ha-core::domain_workflow`、owner API、通用 workflow template、通用 evidence 与 Goal evidence 链接的当前技术事实。
+> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已实现；Phase 7.3 已在 [Context Retrieval v2](context-retrieval.md) 接入 domain profile、domain evidence 候选与 access issue。本文记录 `ha-core::domain_workflow`、owner API、通用 workflow template、通用 evidence 与 Goal evidence 链接的当前技术事实。
 
 ## 目标
 
@@ -83,6 +83,18 @@ Phase 7.2 支持下列 evidence type：
 - 若关联 goal，会调用 `link_goal_target(goal_id, "domain_evidence", evidence_id, evidence_type, metadata)`。
 
 Goal evidence relation 白名单已加法扩展这些通用 evidence type；coding evidence relation 保持原样。
+
+## Context Retrieval 衔接
+
+Phase 7.3 起，`ha-core::context_retrieval` 会只读消费本模块的数据：
+
+- 从 `workflow_runs.kind = domain:<domain>`、`domain_evidence_items.domain`、显式 `domain/templateId` 或 Goal objective / criteria 推导 `domainContext`。
+- 把 `domain_evidence_items` 转成 document、email_thread、calendar_event、sheet_range、knowledge_note、web_source、decision、artifact 等候选。
+- 按 required evidence、Goal criteria、confidence、redaction status 和 query boost 加权排序。
+- 缺少连接器或 required evidence 时返回 `accessIssues[]`，只提示缺口，不伪造来源。
+- Workspace Context 区块展示 domain profile、access issue 与 domain action chips；“复制引用”已落地，其余动作先以 `metadata.domainActions` 暴露给后续 owner action。
+
+这条链路仍是只读 owner-plane 查询，不创建 workflow run，不写 evidence，不访问连接器。
 
 ## Owner API
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
@@ -1509,6 +1509,22 @@ function contextKindIcon(kind: ContextCandidateKind): LucideIcon {
       return Monitor
     case "url_source":
       return Globe
+    case "document":
+      return FileText
+    case "email_thread":
+      return MessageCircle
+    case "calendar_event":
+      return CalendarClock
+    case "sheet_range":
+      return Database
+    case "knowledge_note":
+      return BookText
+    case "web_source":
+      return Globe
+    case "decision":
+      return Brain
+    case "artifact":
+      return Files
   }
 }
 
@@ -1537,6 +1553,22 @@ function contextKindLabel(
       return t("workspace.context.kindIde", "IDE")
     case "url_source":
       return t("workspace.context.kindUrl", "来源")
+    case "document":
+      return t("workspace.context.kindDocument", "文档")
+    case "email_thread":
+      return t("workspace.context.kindEmailThread", "邮件")
+    case "calendar_event":
+      return t("workspace.context.kindCalendarEvent", "日程")
+    case "sheet_range":
+      return t("workspace.context.kindSheetRange", "表格")
+    case "knowledge_note":
+      return t("workspace.context.kindKnowledgeNote", "笔记")
+    case "web_source":
+      return t("workspace.context.kindWebSource", "网页")
+    case "decision":
+      return t("workspace.context.kindDecision", "决策")
+    case "artifact":
+      return t("workspace.context.kindArtifact", "产物")
   }
 }
 
@@ -1585,6 +1617,18 @@ function contextCandidateFocusPaths(candidate: ContextCandidate): string[] {
       const paths = focusPaths.filter((path): path is string => typeof path === "string" && path.length > 0)
       if (paths.length > 0) return paths
     }
+  }
+  if (
+    candidate.kind === "document" ||
+    candidate.kind === "email_thread" ||
+    candidate.kind === "calendar_event" ||
+    candidate.kind === "sheet_range" ||
+    candidate.kind === "knowledge_note" ||
+    candidate.kind === "web_source" ||
+    candidate.kind === "decision" ||
+    candidate.kind === "artifact"
+  ) {
+    return []
   }
   return candidate.path ? [candidate.path] : []
 }
@@ -1648,6 +1692,66 @@ function ContextCandidateActions({
   )
 }
 
+function contextDomainActions(candidate: ContextCandidate): Record<string, unknown> | null {
+  const actions = candidate.metadata?.domainActions
+  if (!actions || typeof actions !== "object" || Array.isArray(actions)) return null
+  return actions as Record<string, unknown>
+}
+
+function contextCitationText(candidate: ContextCandidate): string {
+  const location = candidate.url ?? candidate.path ?? candidate.subtitle ?? ""
+  const status = candidate.status ? ` (${candidate.status})` : ""
+  return location ? `${candidate.title}${status}: ${location}` : `${candidate.title}${status}`
+}
+
+function DomainContextActionChips({ candidate }: { candidate: ContextCandidate }) {
+  const { t } = useTranslation()
+  const actions = contextDomainActions(candidate)
+  if (!actions) return null
+  const chips: string[] = []
+  if (actions.canAddEvidence) chips.push(t("workspace.context.actionEvidence", "证据"))
+  if (actions.canSummarize) chips.push(t("workspace.context.actionSummarize", "摘要"))
+  if (actions.canAskUser) chips.push(t("workspace.context.actionAsk", "确认"))
+  if (actions.canMarkConflict) chips.push(t("workspace.context.actionConflict", "冲突"))
+  if (actions.canCreateTask) chips.push(t("workspace.context.actionTask", "转任务"))
+  const canCite = Boolean(actions.canCite)
+  if (!canCite && chips.length === 0) return null
+
+  const copyCitation = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(contextCitationText(candidate))
+      toast.success(t("workspace.context.citationCopied", "已复制引用"))
+    } catch (e) {
+      logger.error("ui", "DomainContextActionChips", "Copy citation failed", e)
+      toast.error(t("workspace.context.citationCopyFailed", "复制引用失败"))
+    }
+  }
+
+  return (
+    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1">
+      {canCite ? (
+        <button
+          type="button"
+          onClick={copyCitation}
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+        >
+          <Copy className="h-3 w-3" />
+          <span>{t("workspace.context.actionCite", "引用")}</span>
+        </button>
+      ) : null}
+      {chips.slice(0, 4).map((chip) => (
+        <span
+          key={chip}
+          className="rounded border border-border/40 bg-background/45 px-1.5 py-0.5 text-[10px] text-muted-foreground/80"
+        >
+          {chip}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function ContextFileCandidateRow({
   candidate,
   sessionId,
@@ -1675,9 +1779,16 @@ function ContextFileCandidateRow({
   return (
     <div className="flex w-full min-w-0 items-stretch rounded-md border border-border/50 bg-secondary/25 transition-colors hover:bg-secondary/40">
       <IconTip label={path}>
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => run(primary)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault()
+              run(primary)
+            }
+          }}
           className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left"
         >
           <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -1697,8 +1808,9 @@ function ContextFileCandidateRow({
               <span className="truncate">{contextLocationLabel(candidate) ?? candidate.subtitle}</span>
               <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
             </div>
+            <DomainContextActionChips candidate={candidate} />
           </div>
-        </button>
+        </div>
       </IconTip>
       <div className="flex shrink-0 items-start px-1.5 py-1.5">
         <ContextCandidateActions
@@ -1736,19 +1848,27 @@ function ContextGenericCandidateRow({ candidate }: { candidate: ContextCandidate
           <span className="truncate">{contextLocationLabel(candidate) ?? candidate.subtitle}</span>
           <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
         </div>
+        <DomainContextActionChips candidate={candidate} />
       </div>
     </>
   )
   return (
     <IconTip label={label}>
       {clickable ? (
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => candidate.url && openExternalUrl(candidate.url)}
+          onKeyDown={(event) => {
+            if ((event.key === "Enter" || event.key === " ") && candidate.url) {
+              event.preventDefault()
+              openExternalUrl(candidate.url)
+            }
+          }}
           className="flex w-full min-w-0 items-start gap-2 rounded-md border border-border/50 bg-secondary/25 px-2.5 py-1.5 text-left transition-colors hover:bg-secondary/45"
         >
           {content}
-        </button>
+        </div>
       ) : (
         <div className="flex min-w-0 items-start gap-2 rounded-md border border-border/50 bg-secondary/25 px-2.5 py-1.5">
           {content}
@@ -1778,12 +1898,11 @@ function ContextRetrievalSection({
     turnActive,
     query,
     limit: 24,
-    disabled: !workingDir,
   })
   const candidates = snapshot?.candidates ?? []
   const visible = candidates.slice(0, 8)
   const stats = snapshot?.stats
-  const disabled = !sessionId || incognito || !workingDir
+  const disabled = !sessionId || incognito
   const [contextActionKey, setContextActionKey] = useState<string | null>(null)
 
   const runFocusedContextAction = useCallback(
@@ -1860,7 +1979,7 @@ function ContextRetrievalSection({
               onChange={(e) => setQuery(e.target.value)}
               disabled={disabled}
               className="h-8 pl-7 text-xs"
-              placeholder={t("workspace.context.searchPlaceholder", "文件、符号、错误")}
+              placeholder={t("workspace.context.searchPlaceholder", "资料、来源、文件、任务")}
             />
           </div>
           <IconTip label={t("workspace.context.refresh", "刷新推荐上下文")}>
@@ -1882,7 +2001,10 @@ function ContextRetrievalSection({
           <div className="grid grid-cols-4 gap-1.5">
             {[
               [t("workspace.context.statDiff", "diff"), stats.gitChanges],
-              [t("workspace.context.statFiles", "文件"), stats.artifactFiles + stats.fileSearchMatches],
+              [
+                t("workspace.context.statFiles", "文件"),
+                stats.artifactFiles + stats.fileSearchMatches,
+              ],
               [
                 t("workspace.context.statSignals", "信号"),
                 stats.diagnostics + stats.reviewFindings + stats.ideContextSignals,
@@ -1890,6 +2012,14 @@ function ContextRetrievalSection({
               [
                 t("workspace.context.statControl", "闭环"),
                 stats.verificationSteps + stats.goalEvidence + stats.tasks + stats.workflowOps + stats.symbols,
+              ],
+              [
+                t("workspace.context.statDomain", "领域"),
+                stats.domainCandidates + stats.domainEvidence,
+              ],
+              [
+                t("workspace.context.statAccess", "缺口"),
+                stats.accessIssues,
               ],
             ].map(([label, count]) => (
               <div
@@ -1905,9 +2035,31 @@ function ContextRetrievalSection({
           </div>
         ) : null}
 
-        {!workingDir ? (
-          <EmptyHint>{t("workspace.context.noWorkspace", "选择工作目录后可召回上下文")}</EmptyHint>
-        ) : incognito ? (
+        {snapshot?.domainContext ? (
+          <div className="rounded-md border border-primary/20 bg-primary/5 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate">
+                {snapshot.domainContext.templateTitle ??
+                  t("workspace.context.domainFallback", "{{domain}} 领域", {
+                    domain: snapshot.domainContext.domain,
+                  })}
+              </span>
+              <StatusPill label={snapshot.domainContext.source} tone="info" />
+            </div>
+            {snapshot.accessIssues.length ? (
+              <div className="mt-1 space-y-0.5">
+                {snapshot.accessIssues.slice(0, 2).map((issue) => (
+                  <div key={`${issue.kind}:${issue.title}`} className="truncate text-amber-700 dark:text-amber-300">
+                    {issue.title} · {issue.action}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {incognito ? (
           <EmptyHint>{t("workspace.context.incognito", "无痕会话不读取历史上下文")}</EmptyHint>
         ) : error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
@@ -1939,7 +2091,11 @@ function ContextRetrievalSection({
             ) : null}
           </div>
         ) : (
-          <EmptyHint>{t("workspace.context.empty", "暂无推荐上下文")}</EmptyHint>
+          <EmptyHint>
+            {workingDir
+              ? t("workspace.context.empty", "暂无推荐上下文")
+              : t("workspace.context.emptyNoWorkspace", "暂无推荐上下文；未设置工作目录时会跳过文件搜索")}
+          </EmptyHint>
         )}
 
         {stats?.warnings.length ? (

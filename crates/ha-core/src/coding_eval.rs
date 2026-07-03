@@ -1784,6 +1784,8 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                     query: run.query.clone(),
                     limit: run.limit,
                     ide_context: run.ide_context.clone(),
+                    domain: None,
+                    template_id: None,
                 },
             )
             .await?,
@@ -4976,6 +4978,14 @@ fn candidate_kind(candidate: &ContextCandidate) -> &'static str {
         ContextCandidateKind::WorkflowOp => "workflow_op",
         ContextCandidateKind::IdeContext => "ide_context",
         ContextCandidateKind::UrlSource => "url_source",
+        ContextCandidateKind::Document => "document",
+        ContextCandidateKind::EmailThread => "email_thread",
+        ContextCandidateKind::CalendarEvent => "calendar_event",
+        ContextCandidateKind::SheetRange => "sheet_range",
+        ContextCandidateKind::KnowledgeNote => "knowledge_note",
+        ContextCandidateKind::WebSource => "web_source",
+        ContextCandidateKind::Decision => "decision",
+        ContextCandidateKind::Artifact => "artifact",
     }
 }
 
