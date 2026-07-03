@@ -83,6 +83,7 @@ interface MessageListProps {
 
 const AT_BOTTOM_THRESHOLD_PX = 48
 const LOAD_MORE_THRESHOLD_PX = 200
+const CHAT_CONTENT_MAX_WIDTH_CLASS = "max-w-[880px]"
 // Windowed view: cap simultaneously-rendered messages so a long-running
 // session that's been Load-More'd many times doesn't accumulate thousands of
 // markdown / shiki / katex subtrees in DOM. `messages` itself is not trimmed
@@ -90,6 +91,7 @@ const LOAD_MORE_THRESHOLD_PX = 200
 const MAX_DOM_MESSAGES = 200
 const UNLOAD_BATCH = 30
 const COMPACT_USER_ANCHOR_LEAD_PX = 32
+const COMPACT_USER_REPLY_VISIBLE_MIN_PX = 56
 const COMPACT_USER_ANCHOR_EXIT_MS = 200
 const ASK_USER_FOLLOW_FRAMES = 16
 
@@ -115,6 +117,14 @@ type MessageRenderRow =
   | { kind: "message"; item: MessageRenderItem }
   | CompletedTurnCollapseRow
 
+interface CompactUserAnchor {
+  dbId?: number
+  rowKey: string
+  bodyStartRowKey: string
+  bodyEndRowKey: string
+  text: string
+}
+
 function preferredScrollBehavior(): ScrollBehavior {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return "smooth"
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
@@ -136,6 +146,17 @@ function isHumanTurnStart(msg: Message): boolean {
   return msg.slashEvent?.displayAs === "user"
 }
 
+function findRenderWindowTurnStart(messages: Message[], start: number): number {
+  if (messages.length === 0) return 0
+  let i = Math.min(start, Math.max(0, messages.length - 1))
+  while (i > 0) {
+    const msg = messages[i]
+    if (msg && !msg.isMeta && isHumanTurnStart(msg)) return i
+    i -= 1
+  }
+  return 0
+}
+
 function timestampMs(msg: Message): number | null {
   if (!msg.timestamp) return null
   const ms = Date.parse(msg.timestamp)
@@ -143,17 +164,17 @@ function timestampMs(msg: Message): number | null {
 }
 
 function messageElapsedMs(msg: Message): number {
-  let total = msg.usage?.durationMs ?? 0
+  let blockTotal = 0
   const blocks = msg.contentBlocks
   if (blocks && blocks.length > 0) {
     for (const block of blocks) {
-      if (block.type === "thinking") total += block.durationMs ?? 0
-      if (block.type === "tool_call") total += block.tool.durationMs ?? 0
+      if (block.type === "thinking") blockTotal += block.durationMs ?? 0
+      if (block.type === "tool_call") blockTotal += block.tool.durationMs ?? 0
     }
   } else if (msg.toolCalls) {
-    for (const tool of msg.toolCalls) total += tool.durationMs ?? 0
+    for (const tool of msg.toolCalls) blockTotal += tool.durationMs ?? 0
   }
-  return total
+  return Math.max(msg.usage?.durationMs ?? 0, blockTotal)
 }
 
 function rowKeyForItem(item: MessageRenderItem): string {
@@ -245,6 +266,48 @@ function containsAnyHighlightTerm(text: string | null | undefined, terms: string
 
 function itemContainsAnyHighlightTerm(item: MessageRenderItem, terms: string[] | null): boolean {
   return containsAnyHighlightTerm(messageSearchText(item.msg), terms)
+}
+
+function compactAnchorTextForMessage(msg: Message): string | null {
+  const text = (msg.planComment?.comment || msg.slashEvent?.command || msg.content)
+    .replace(/\s+/g, " ")
+    .trim()
+  return text || null
+}
+
+function findActiveCompactUserAnchor(
+  container: HTMLElement,
+  anchors: CompactUserAnchor[],
+): CompactUserAnchor | null {
+  const containerRect = container.getBoundingClientRect()
+  let active: CompactUserAnchor | null = null
+
+  for (const anchor of anchors) {
+    const bodyStart = findMessageRowByKey(container, anchor.bodyStartRowKey)
+    const bodyEnd = findMessageRowByKey(container, anchor.bodyEndRowKey)
+    if (!bodyStart || !bodyEnd) continue
+    const bodyStartRect = bodyStart.getBoundingClientRect()
+    const bodyEndRect = bodyEnd.getBoundingClientRect()
+    const target = findMessageRowByKey(container, anchor.rowKey)
+    const targetHasScrolledPast = target
+      ? target.getBoundingClientRect().bottom < containerRect.top - COMPACT_USER_ANCHOR_LEAD_PX
+      : true
+
+    if (targetHasScrolledPast) {
+      const bodyTop = bodyStartRect.top
+      const bodyBottom = bodyEndRect.bottom
+      const visibleHeight =
+        Math.min(bodyBottom, containerRect.bottom) - Math.max(bodyTop, containerRect.top)
+      const bodyHeight = Math.max(0, bodyBottom - bodyTop)
+      const minVisibleHeight = Math.min(COMPACT_USER_REPLY_VISIBLE_MIN_PX, bodyHeight)
+      if (visibleHeight < minVisibleHeight) continue
+      active = anchor
+      continue
+    }
+    break
+  }
+
+  return active
 }
 
 function findMessageScrollTarget(
@@ -510,6 +573,7 @@ function CompletedTurnCollapseSummary({
   return (
     <div
       key={row.key}
+      data-message-key={row.key}
       className="grid w-full min-w-0 grid-cols-1 justify-items-stretch pb-3"
     >
       <button
@@ -568,6 +632,7 @@ export default function MessageList({
   autoCollapseCompletedTurns = true,
 }: MessageListProps) {
   const { t } = useTranslation()
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const sessionKey = sessionId ?? "draft-session"
@@ -578,6 +643,11 @@ export default function MessageList({
   const [searchExpandedUserMessageId, setSearchExpandedUserMessageId] = useState<
     number | null
   >(null)
+  const [compactUserAnchor, setCompactUserAnchor] = useState<CompactUserAnchor | null>(null)
+  const [compactUserAnchorFrame, setCompactUserAnchorFrame] = useState<{
+    left: number
+    width: number
+  } | null>(null)
   const [compactUserAnchorVisible, setCompactUserAnchorVisible] = useState(false)
   const [compactUserAnchorMounted, setCompactUserAnchorMounted] = useState(false)
   const [expandedCompletedTurns, setExpandedCompletedTurns] = useState<Set<string>>(
@@ -697,7 +767,8 @@ export default function MessageList({
   // mounted at all.
   const items = useMemo(() => {
     const out: { msg: Message; originalIndex: number }[] = []
-    const start = Math.min(displayedStart, Math.max(0, messages.length - 1))
+    const requestedStart = Math.min(displayedStart, Math.max(0, messages.length - 1))
+    const start = findRenderWindowTurnStart(messages, requestedStart)
     for (let i = start; i < messages.length; i++) {
       const msg = messages[i]
       if (!msg.isMeta) out.push({ msg, originalIndex: i })
@@ -742,42 +813,98 @@ export default function MessageList({
   }, [])
 
   const isTimelineMode = displayMode === "timeline"
-  const compactUserAnchor = useMemo(() => {
-    if (!isTimelineMode) return null
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const msg = messages[i]
-      if (msg.isMeta || msg.fromAgentId || isCenteredSystemMessage(msg)) continue
-      if (!isUserAlignedMessage(msg)) continue
-      const text = (msg.planComment?.comment || msg.slashEvent?.command || msg.content)
-        .replace(/\s+/g, " ")
-        .trim()
-      if (!text) return null
-      return {
-        dbId: msg.dbId,
-        rowKey: getMessageRowKey(msg, i),
-        text,
+  const compactUserAnchors = useMemo(() => {
+    if (!isTimelineMode) return []
+    const anchors: CompactUserAnchor[] = []
+    let pendingAnchor: Omit<CompactUserAnchor, "bodyStartRowKey" | "bodyEndRowKey"> | null = null
+    let pendingBodyStartRowKey: string | null = null
+    let pendingBodyEndRowKey: string | null = null
+
+    const finishPendingAnchor = () => {
+      if (pendingAnchor && pendingBodyStartRowKey && pendingBodyEndRowKey) {
+        anchors.push({
+          ...pendingAnchor,
+          bodyStartRowKey: pendingBodyStartRowKey,
+          bodyEndRowKey: pendingBodyEndRowKey,
+        })
+      }
+      pendingAnchor = null
+      pendingBodyStartRowKey = null
+      pendingBodyEndRowKey = null
+    }
+
+    for (const row of renderRows) {
+      const rowKey = row.kind === "message" ? rowKeyForItem(row.item) : row.key
+      if (row.kind !== "message") {
+        if (pendingAnchor) {
+          pendingBodyStartRowKey = pendingBodyStartRowKey ?? rowKey
+          pendingBodyEndRowKey = rowKey
+        }
+        continue
+      }
+
+      const { msg } = row.item
+      if (!msg.fromAgentId && !isCenteredSystemMessage(msg) && isUserAlignedMessage(msg)) {
+        finishPendingAnchor()
+        const text = compactAnchorTextForMessage(msg)
+        if (text) {
+          pendingAnchor = {
+            dbId: msg.dbId,
+            rowKey,
+            text,
+          }
+        }
+      } else if (pendingAnchor) {
+        pendingBodyStartRowKey = pendingBodyStartRowKey ?? rowKey
+        pendingBodyEndRowKey = rowKey
       }
     }
-    return null
-  }, [isTimelineMode, messages])
+
+    finishPendingAnchor()
+    return anchors
+  }, [isTimelineMode, renderRows])
 
   const updateCompactUserAnchor = useCallback(() => {
+    const root = rootRef.current
     const el = containerRef.current
-    const rowKey = compactUserAnchor?.rowKey
-    if (!el || !rowKey) {
+    const content = contentRef.current
+    if (root && content) {
+      const rootRect = root.getBoundingClientRect()
+      const contentRect = content.getBoundingClientRect()
+      const nextFrame = {
+        left: contentRect.left - rootRect.left,
+        width: contentRect.width,
+      }
+      setCompactUserAnchorFrame((prev) =>
+        prev &&
+        Math.abs(prev.left - nextFrame.left) < 0.5 &&
+        Math.abs(prev.width - nextFrame.width) < 0.5
+          ? prev
+          : nextFrame,
+      )
+    } else {
+      setCompactUserAnchorFrame(null)
+    }
+
+    if (!el || compactUserAnchors.length === 0) {
       setCompactUserAnchorVisible(false)
       return
     }
-    const target = findMessageRowByKey(el, rowKey)
-    if (!target) {
-      setCompactUserAnchorVisible(false)
-      return
+    const active = findActiveCompactUserAnchor(el, compactUserAnchors)
+    if (active) {
+      setCompactUserAnchor((prev) =>
+        prev?.rowKey === active.rowKey && prev.text === active.text ? prev : active,
+      )
     }
-    const containerTop = el.getBoundingClientRect().top
-    const targetBottom = target.getBoundingClientRect().bottom
-    const visible = targetBottom < containerTop - COMPACT_USER_ANCHOR_LEAD_PX
+    const visible = active != null
     setCompactUserAnchorVisible((prev) => (prev === visible ? prev : visible))
-  }, [compactUserAnchor?.rowKey])
+  }, [compactUserAnchors])
+
+  useLayoutEffect(() => {
+    setCompactUserAnchor(null)
+    setCompactUserAnchorVisible(false)
+    setCompactUserAnchorMounted(false)
+  }, [sessionKey, isTimelineMode])
 
   useLayoutEffect(() => {
     updateCompactUserAnchor()
@@ -1295,7 +1422,7 @@ export default function MessageList({
   const showJumpToLatest = Boolean((!atBottom && items.length > 0) || hasMoreAfter)
 
   return (
-    <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
+    <div ref={rootRef} className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
       <div
         ref={containerRef}
         key={sessionKey}
@@ -1316,7 +1443,7 @@ export default function MessageList({
           isTimelineMode && "px-5 sm:px-6",
         )}
       >
-        <div ref={contentRef}>
+        <div ref={contentRef} className={cn("mx-auto w-full", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
           {hasMore && displayedStart === 0 && (
             <div className="pt-6">
               <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
@@ -1469,8 +1596,17 @@ export default function MessageList({
 
       {compactUserAnchor && (compactUserAnchorVisible || compactUserAnchorMounted) && (
         <div
+          style={
+            compactUserAnchorFrame
+              ? {
+                  left: compactUserAnchorFrame.left,
+                  width: compactUserAnchorFrame.width,
+                }
+              : undefined
+          }
           className={cn(
-            "pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-end px-5 transition-all duration-200 ease-out sm:px-6",
+            "pointer-events-none absolute top-2 z-30 flex justify-end transition-all duration-200 ease-out",
+            !compactUserAnchorFrame && "inset-x-0 px-4 sm:px-6",
             compactUserAnchorVisible
               ? "translate-y-0 opacity-100 animate-in fade-in-0 slide-in-from-top-1"
               : "-translate-y-1 opacity-0",

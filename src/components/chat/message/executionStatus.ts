@@ -114,9 +114,10 @@ export function toolHasMedia(tool: ToolCall): boolean {
 /**
  * Wall-clock elapsed across a set of tools: the span from the earliest start to
  * the latest end. Tools that ran in parallel within a round therefore count
- * once instead of being summed (summing overstates the real elapsed). Falls
- * back to summed durations when no usable timestamps exist. `now` lets a still
- * running tool (no `durationMs` yet) contribute its in-progress elapsed.
+ * once instead of being summed, while the visible wait between sequential tools
+ * still counts as elapsed time. Falls back to summed durations when no usable
+ * timestamps exist. `now` lets a still-running tool (no `durationMs` yet)
+ * contribute its in-progress elapsed.
  */
 export function getToolsWallClockMs(tools: ToolCall[], now?: number): number | undefined {
   const elapsed = (tool: ToolCall): number | undefined => {
