@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
+import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
 import { initThemeFromConfig, listenThemeConfigChange } from "@/hooks/useTheme"
 import { initFocusTracking, listenNotificationConfigChange, notify } from "@/lib/notifications"
@@ -95,6 +97,28 @@ export default function App() {
     globalPendingUpdate.version !== ignoredVersion
 
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!isTauriMode()) return
+
+    const enforceMainWindowMinSize = async () => {
+      const win = getCurrentWindow()
+      const minSize = new LogicalSize(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
+      await win.setMinSize(minSize)
+
+      const [innerSize, scaleFactor] = await Promise.all([win.innerSize(), win.scaleFactor()])
+      const logicalSize = innerSize.toLogical(scaleFactor)
+      const width = Math.max(logicalSize.width, MAIN_WINDOW_MIN_WIDTH)
+      const height = Math.max(logicalSize.height, MAIN_WINDOW_MIN_HEIGHT)
+      if (width !== logicalSize.width || height !== logicalSize.height) {
+        await win.setSize(new LogicalSize(width, height))
+      }
+    }
+
+    enforceMainWindowMinSize().catch((err) => {
+      logger.warn("window", "App::enforceMainWindowMinSize", "Failed to enforce min size", err)
+    })
+  }, [])
 
   // Shared desktop-update install/restart lifecycle (also drives AboutPanel),
   // so the toast and the settings surface can't drift and the failure / staged

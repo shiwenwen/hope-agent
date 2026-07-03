@@ -9,7 +9,7 @@ use tauri::{LogicalSize, PhysicalPosition, PhysicalSize, Position, Size};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const MIN_MAIN_WINDOW_WIDTH: f64 = 840.0;
-const MIN_MAIN_WINDOW_HEIGHT: f64 = 480.0;
+const MIN_MAIN_WINDOW_HEIGHT: f64 = 520.0;
 const MAX_PERSISTED_DIMENSION: f64 = 10_000.0;
 const SAVE_DEBOUNCE_MS: u64 = 300;
 const SCREEN_MARGIN: f64 = 24.0;
@@ -115,6 +115,17 @@ pub(crate) fn restore_main_window_state(app: &tauri::App) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
         return;
     };
+    if let Err(e) = window.set_min_size(Some(Size::Logical(LogicalSize::new(
+        MIN_MAIN_WINDOW_WIDTH,
+        MIN_MAIN_WINDOW_HEIGHT,
+    )))) {
+        app_warn!(
+            "window",
+            "restore_size",
+            "failed to apply window min size: {}",
+            e
+        );
+    }
     let state = match load_state() {
         Ok(Some(state)) => state,
         Ok(None) => return,

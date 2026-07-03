@@ -4,6 +4,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { getTransport } from "@/lib/transport-provider"
 import { isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
+import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
 import {
   ClipboardList,
   X,
@@ -77,12 +78,12 @@ export function PlanPanel({
     if (!desktopMode) return
     const win = getCurrentWindow()
     if (!detached) {
-      win.setMinSize(new LogicalSize(1240, 480))
+      win.setMinSize(new LogicalSize(1240, MAIN_WINDOW_MIN_HEIGHT))
     } else {
-      win.setMinSize(new LogicalSize(840, 480))
+      win.setMinSize(new LogicalSize(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT))
     }
     return () => {
-      win.setMinSize(new LogicalSize(840, 480))
+      win.setMinSize(new LogicalSize(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT))
     }
   }, [detached, desktopMode])
 

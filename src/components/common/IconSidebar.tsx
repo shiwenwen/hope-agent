@@ -237,106 +237,116 @@ export default function IconSidebar({
 
         <div className="my-1 h-px w-6 bg-border-soft/80" />
 
-        {/* Agents entry */}
-        <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("settings.agents")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "agents"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenAgents}
-            >
-              <Bot className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        </div>
-
-        {/* Model configuration entry */}
-        <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("settings.modelConfig")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "modelConfig"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenModelConfig}
-            >
-              <Server className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        </div>
-
-        {/* Channels entry */}
-        <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("settings.channels")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "channels"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenChannels}
-            >
-              <MessageCircle className="h-4 w-4" />
-            </Button>
-          </IconTip>
-        </div>
-
-        {/* Skills entry */}
-        <div className="w-full flex justify-center mt-1">
-          <div className="relative">
-            <IconTip label={t("settings.skills")} side="right">
+        <div className="icon-sidebar-settings-shortcuts flex w-full flex-col items-center">
+          {/* Agents entry */}
+          <div className="w-full flex justify-center mt-1">
+            <IconTip label={t("settings.agents")} side="right">
               <Button
                 variant="ghost"
                 size="icon"
                 className={cn(
                   "rounded-xl h-8 w-8",
-                  view === "skills"
+                  view === "agents"
                     ? "bg-primary/10 text-primary hover:bg-primary/20"
                     : "text-muted-foreground hover:text-foreground",
                 )}
-                onClick={onOpenSkills}
+                onClick={onOpenAgents}
               >
-                <Puzzle className="h-4 w-4" />
+                <Bot className="h-4 w-4" />
               </Button>
             </IconTip>
-            {skillDraftCount > 0 && (
-              <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
-                {skillDraftBadgeLabel}
-              </span>
-            )}
+          </div>
+
+          {/* Model configuration entry */}
+          <div className="w-full flex justify-center mt-1">
+            <IconTip label={t("settings.modelConfig")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "modelConfig"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenModelConfig}
+              >
+                <Server className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
+
+          {/* Channels entry */}
+          <div className="w-full flex justify-center mt-1">
+            <IconTip label={t("settings.channels")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "channels"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenChannels}
+              >
+                <MessageCircle className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
+
+          {/* Skills entry */}
+          <div className="w-full flex justify-center mt-1">
+            <div className="relative">
+              <IconTip label={t("settings.skills")} side="right">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "rounded-xl h-8 w-8",
+                    view === "skills"
+                      ? "bg-primary/10 text-primary hover:bg-primary/20"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={onOpenSkills}
+                >
+                  <Puzzle className="h-4 w-4" />
+                </Button>
+              </IconTip>
+              {skillDraftCount > 0 && (
+                <span className="pointer-events-none absolute -right-1.5 -top-1 z-10 inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full border border-background bg-amber-500 px-1 text-[9px] font-bold leading-none text-white tabular-nums animate-in zoom-in-0 duration-200">
+                  {skillDraftBadgeLabel}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Memory entry */}
+          <div className="w-full flex justify-center mt-1">
+            <IconTip label={t("settings.memory")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "memory"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenMemory}
+              >
+                <Brain className="h-4 w-4" />
+              </Button>
+            </IconTip>
           </div>
         </div>
 
-        {/* Memory entry */}
+        <div className="icon-sidebar-settings-shortcuts-trailing-divider my-1 h-px w-6 bg-border-soft/60" />
+
+        {/* Browser backend — status indicator + entry to Settings → Browser.
+            Green dot when a backend is live; hover shows details. */}
         <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("settings.memory")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "memory"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenMemory}
-            >
-              <Brain className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <BrowserStatusIndicator onOpen={() => onOpenSettings("browser")} />
         </div>
 
         {/* Plans (read-only history viewer) entry */}
@@ -356,14 +366,6 @@ export default function IconSidebar({
               <ClipboardList className="h-4 w-4" />
             </Button>
           </IconTip>
-        </div>
-
-        <div className="my-1 h-px w-6 bg-border-soft/60" />
-
-        {/* Browser backend — status indicator + entry to Settings → Browser.
-            Green dot when a backend is live; hover shows details. */}
-        <div className="w-full flex justify-center mt-1">
-          <BrowserStatusIndicator onOpen={() => onOpenSettings("browser")} />
         </div>
 
         {/* Logs entry, quick jump to Settings -> Logs near runtime status. */}
@@ -386,101 +388,103 @@ export default function IconSidebar({
           {/* Server runtime health — always visible so users can catch port
               conflicts, high WS load, etc. without opening Settings. */}
           <ServerStatusIndicator onOpen={() => onOpenSettings("server")} />
-          {/* Profile */}
-          <IconTip label={t("settings.profileSettings")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "profile"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenProfile}
-            >
-              <User className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <div className="icon-sidebar-preference-shortcuts flex flex-col items-center gap-2">
+            {/* Profile */}
+            <IconTip label={t("settings.profileSettings")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "profile"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenProfile}
+              >
+                <User className="h-4 w-4" />
+              </Button>
+            </IconTip>
 
-          {/* Theme Toggle */}
-          <IconTip label={`${t("theme.title")}: ${t(`theme.${theme}`)}`} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-              onClick={cycleTheme}
-            >
-              {theme === "auto" ? (
-                <SunMoon className="h-4 w-4" />
-              ) : theme === "light" ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </Button>
-          </IconTip>
-
-          {/* Language Selector */}
-          <div className="relative">
-            <IconTip label={t("language.title")} side="right">
+            {/* Theme Toggle */}
+            <IconTip label={`${t("theme.title")}: ${t(`theme.${theme}`)}`} side="right">
               <Button
                 variant="ghost"
                 size="icon"
                 className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
-                onClick={() => setShowLangMenu(!showLangMenu)}
+                onClick={cycleTheme}
               >
-                <Languages className="h-4 w-4" />
+                {theme === "auto" ? (
+                  <SunMoon className="h-4 w-4" />
+                ) : theme === "light" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
               </Button>
             </IconTip>
-            {showLangMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
-                <div className="absolute left-14 bottom-0 z-50 bg-surface-floating border border-border-soft rounded-floating shadow-floating py-1 min-w-[160px] max-h-[400px] overflow-y-auto animate-in fade-in-0 zoom-in-95 slide-in-from-left-1 duration-150">
-                  {/* Follow System option */}
-                  <button
-                    className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                      isFollowingSystem() ? "text-primary font-medium" : "text-foreground"
-                    }`}
-                    onClick={() => {
-                      setFollowSystemLanguage()
-                      setShowLangMenu(false)
-                    }}
-                  >
-                    <Monitor className="h-3.5 w-3.5 text-primary/70" />
-                    <span>{t("language.system")}</span>
-                    {isFollowingSystem() && <span className="ml-auto text-primary">●</span>}
-                  </button>
-                  <div className="border-t border-border/50 my-0.5" />
-                  {SUPPORTED_LANGUAGES.map((lang) => (
+
+            {/* Language Selector */}
+            <div className="relative">
+              <IconTip label={t("language.title")} side="right">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-xl text-muted-foreground hover:text-foreground h-8 w-8"
+                  onClick={() => setShowLangMenu(!showLangMenu)}
+                >
+                  <Languages className="h-4 w-4" />
+                </Button>
+              </IconTip>
+              {showLangMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowLangMenu(false)} />
+                  <div className="absolute left-14 bottom-0 z-50 bg-surface-floating border border-border-soft rounded-floating shadow-floating py-1 min-w-[160px] max-h-[400px] overflow-y-auto animate-in fade-in-0 zoom-in-95 slide-in-from-left-1 duration-150">
+                    {/* Follow System option */}
                     <button
-                      key={lang.code}
                       className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
-                        !isFollowingSystem() &&
-                        (i18n.language === lang.code ||
-                          (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"))
-                          ? "text-primary font-medium"
-                          : "text-foreground"
+                        isFollowingSystem() ? "text-primary font-medium" : "text-foreground"
                       }`}
                       onClick={() => {
-                        setLanguage(lang.code)
+                        setFollowSystemLanguage()
                         setShowLangMenu(false)
                       }}
                     >
-                      <span className="text-[10px] font-bold w-5 text-primary/70">
-                        {lang.shortLabel}
-                      </span>
-                      <span>{lang.label}</span>
-                      {!isFollowingSystem() &&
-                        (i18n.language === lang.code ||
-                          (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
-                          <span className="ml-auto text-primary">●</span>
-                        )}
+                      <Monitor className="h-3.5 w-3.5 text-primary/70" />
+                      <span>{t("language.system")}</span>
+                      {isFollowingSystem() && <span className="ml-auto text-primary">●</span>}
                     </button>
-                  ))}
-                </div>
-              </>
-            )}
+                    <div className="border-t border-border/50 my-0.5" />
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <button
+                        key={lang.code}
+                        className={`flex items-center gap-2.5 w-full px-3 py-1.5 text-xs transition-colors hover:bg-secondary ${
+                          !isFollowingSystem() &&
+                          (i18n.language === lang.code ||
+                            (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh"))
+                            ? "text-primary font-medium"
+                            : "text-foreground"
+                        }`}
+                        onClick={() => {
+                          setLanguage(lang.code)
+                          setShowLangMenu(false)
+                        }}
+                      >
+                        <span className="text-[10px] font-bold w-5 text-primary/70">
+                          {lang.shortLabel}
+                        </span>
+                        <span>{lang.label}</span>
+                        {!isFollowingSystem() &&
+                          (i18n.language === lang.code ||
+                            (i18n.language.startsWith(lang.code + "-") && lang.code !== "zh")) && (
+                            <span className="ml-auto text-primary">●</span>
+                          )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {/* Settings */}
           <div className="relative flex justify-center mt-1">
