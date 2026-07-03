@@ -2728,8 +2728,8 @@ export default function ChatScreen({
                       className={cn(
                         "absolute bottom-full mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
                         emptySessionInputHero
-                          ? "inset-x-5 mx-auto max-w-[920px] sm:inset-x-8"
-                          : "left-0 right-0 mx-4",
+                          ? "inset-x-5 mx-auto max-w-[880px] sm:inset-x-8"
+                          : "inset-x-3 mx-auto max-w-[880px]",
                       )}
                     >
                       <Brain className="h-3.5 w-3.5 shrink-0" />
@@ -2746,7 +2746,10 @@ export default function ChatScreen({
                   )}
 
                   <div
-                    className={cn(emptySessionInputHero && "flex w-full max-w-[920px] flex-col")}
+                    className={cn(
+                      "mx-auto w-full max-w-[880px]",
+                      emptySessionInputHero && "flex flex-col",
+                    )}
                   >
                     {heroComposerActive && (
                       <div className="mb-5 sm:mb-6">
