@@ -512,13 +512,13 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 
 `/workflow approve` 与 `/workflow resume` 和 GUI/HTTP owner API 一样会启动 runtime，因此同样先走 `ensure_workflow_launcher_primary()`；非 Primary 直接报错且不改变 run 状态。命令返回会标注 runtime launch 是否 accepted，真实进度仍看 trace / snapshot。`/workflow pause` / `cancel` 只做状态变更与子任务取消，不需要启动 runtime。
 
-## 17. 非目标
+## 17. 非目标与子系统边界
 
-当前已实现 workflow 不包含：
+当前已实现 workflow 不拥有这些能力本身：
 
-- `/loop` 的定时/重复/轮询调度，详见 [Loop 控制平面](loop.md)。
-- LSP diagnostics。
-- 独立 review engine。
+- `/loop` 的定时 / 重复 / 轮询调度，详见 [Loop 控制平面](loop.md)。Workflow 负责一次动态执行；Loop 负责持续推进策略和触发时机。
+- LSP diagnostics 服务本身。Workflow 可通过 Context Retrieval / Review / Verification 等已实现子系统消费代码诊断、文件上下文和验证证据，但不定义 LSP 服务生命周期。
+- 独立 Review Engine 的判定逻辑本身。Workflow 通过 `workflow.review()` 调用 Review Engine，并把 review 结果纳入 trace / evidence；Review 的规则、证据模型和展示仍归 Review 子系统维护。
 - Workflow marketplace 或外部 npm workflow ecosystem。
 
-这些仍在 `docs/roadmap/` 规划中，不能在 architecture 中描述为已实现事实。
+仍处于 `docs/roadmap/` 的规划项不能在 architecture 中描述为已实现事实；已经由 Workflow 调用但不归 Workflow 拥有的能力，应在对应子系统架构文档中维护实现细节。

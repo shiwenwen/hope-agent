@@ -77,7 +77,7 @@ Phase 2 不是只加一个 `/mode` 开关，而是要把长任务变成可恢复
 - `pnpm exec vitest run src/components/chat/workspace/WorkspacePanel.test.tsx`
   - 覆盖 execution mode 切换、无 run 空态启动入口、目标式草稿、脚本高级区、无会话自动物化、无工作目录不立即运行、preflight 阻断、审批摘要、当前焦点跳转、Trace op 详情展开、draft 运行、cancel 确认、cancel 确认打开期间后台终态刷新后禁用确认、active run 轮询兜底、历史 run 展开选择、长 run 晚期失败步骤置顶、Validation 明细、输出预算 spent/limit 与预算用量事件展示、失败上下文修复提示复制、从失败上下文生成并自动预检下一版修复 workflow 草稿、修复草稿来源提示与修复专用创建文案、连续切换失败 run 后修复来源不串 run。
 - `pnpm exec vitest run src/components/chat/ChatTitleBar.test.tsx src/components/chat/internalRightPanelOverlay.test.tsx src/components/chat/right-panel/RightPanelShell.test.tsx src/components/ui/tooltip.test.tsx src/components/chat/workspace/WorkspacePanel.test.tsx`
-  - 覆盖标题栏工作目录 / Files 入口、标题栏显性 Coding 入口与 workflow 状态 badge、所有内部右侧面板的 overlay 贯通、共享 RightPanelShell overlay、轻量 tooltip 稳定性、Workspace Workflow 关键路径。
+  - 覆盖标题栏工作目录 / Files 入口、标题栏显性 Workspace / Workflow 入口与 workflow 状态 badge、所有内部右侧面板的 overlay 贯通、共享 RightPanelShell overlay、轻量 tooltip 稳定性、Workspace Workflow 关键路径。
 - `node scripts/sync-i18n.mjs --check`
   - 覆盖 Workflow Control Center 新增文案的多语言 key 完整性。
 - `pnpm build` + `rg "Workflow GUI Smoke|workflow-smoke" dist`
@@ -152,3 +152,20 @@ Phase 2 的 GUI 面向长任务，而不是只给 `/workflow` 命令做一个旁
 - `node scripts/sync-i18n.mjs --check`
 - `pnpm build`
 - `rg "Workflow GUI Smoke|workflow-smoke" dist` 无匹配，确认 dev-only smoke harness 未进入生产产物。
+
+## 2026-07-03 Workflow Mode 复核记录
+
+本轮按 Claude Code dynamic workflows 心智补齐通用 Workflow Mode 后已实跑：
+
+- `cargo check -p ha-core -p ha-server`
+- `cargo check -p hope-agent`
+- `pnpm typecheck`
+- `node scripts/sync-i18n.mjs --check`
+- `git diff --check`
+- `cargo test -p ha-core --lib workflow_mode -- --nocapture`
+- `cargo test -p ha-core --lib workflow_run_is_not_discoverable_via_tool_search -- --nocapture`
+- `cargo test -p ha-core --lib workflow_no_session_reports_default_state_without_materializing -- --nocapture`
+- `cargo test -p ha-core --lib workflow_run_execution_uses_bound_session_db_and_mode_gate -- --nocapture`
+- `cargo test -p ha-core --lib launch_claim_sets_draft_owner_and_blocks_duplicate_launch -- --nocapture`
+- `cargo test -p ha-core --lib permission_preview_clears_launch_owner_before_approval_resume -- --nocapture`
+- `pnpm vitest run src/components/chat/input/ChatInput.test.tsx src/components/chat/workspace/WorkspacePanel.test.tsx src/lib/transport-http.test.ts`

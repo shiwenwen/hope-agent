@@ -95,7 +95,7 @@ Phase 2 的产品级定义不是"能跑一个命令"，而是：
 | 外部真实模型差异 | 不同 provider 的工具调用、token usage、子 Agent 输出质量可能不同。 | 保留人工 smoke，不进入无 key 自动门禁。 |
 | 并发中途硬预算 | 当前 output token budget 在 `waitAll` 汇总后阻断后续 LLM op，不实时取消已经并发启动的子 Agent。 | Phase 3 可做 running child budget watchdog；Phase 2 第一版不把它作为阻塞。 |
 | 截图级视觉证据 | 自动测试和浏览器 DOM/layout smoke 已覆盖行为、场景切换和水平溢出；仍未保存截图 artifact。 | 截图 artifact 可作为后续体验复核材料；生产构建已确认不包含 smoke 入口。 |
-| architecture 沉淀 | 目前 workflow 仍在迭代，不应过早写入 `docs/architecture/`。 | Phase 2 稳定后再迁移成 `docs/architecture/workflow.md`，roadmap 保留设计历史。 |
+| architecture 沉淀 | workflow 已从路线图方案进入稳定实现文档，后续迭代若只改 roadmap 容易让架构真相源漂移。 | 稳定契约维护在 [`docs/architecture/workflow.md`](../architecture/workflow.md)；roadmap 只保留阶段历史、验收证据和后续增强计划。 |
 | 顶层 Goal 缺失 | Workflow 已能执行和恢复，但还没有一等对象保存最终目标、完成标准、证据和 final audit。 | 下一阶段转入 [Agent 控制平面路线图](agent-control-plane-roadmap.md)：先做 `/goal` MVP，再做 Goal-driven Workflow。 |
 
 ## 7. 完成判定
