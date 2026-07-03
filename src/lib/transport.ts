@@ -950,6 +950,179 @@ export interface RunDomainQualityInput {
   explicitUserApproval?: boolean;
 }
 
+export interface DomainEvalTaskInput {
+  prompt: string;
+  fixtureKind: string;
+  sourceRequirements: string[];
+}
+
+export interface DomainEvalEvidenceRequirement {
+  evidenceType: string;
+  title: string;
+  required: boolean;
+  minCount: number;
+  metadataKeys: string[];
+}
+
+export interface DomainEvalCalibrationRecord {
+  calibratedAt: string;
+  reviewer: string;
+  note: string;
+}
+
+export interface DomainEvalTask {
+  id: string;
+  version: string;
+  domain: string;
+  title: string;
+  taskType: string;
+  input: DomainEvalTaskInput;
+  allowedTools: string[];
+  requiredEvidence: DomainEvalEvidenceRequirement[];
+  successCriteria: string[];
+  prohibitedActions: string[];
+  calibration: DomainEvalCalibrationRecord[];
+}
+
+export interface ListDomainEvalTasksInput {
+  domain?: string | null;
+  limit?: number | null;
+}
+
+export interface RunDomainEvalTaskInput {
+  sessionId: string;
+  taskId: string;
+  label?: string | null;
+  sourceQualityRunId?: string | null;
+}
+
+export interface ListDomainEvalRunsInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  taskId?: string | null;
+  windowDays?: number | null;
+  limit?: number | null;
+}
+
+export interface DomainEvalSummary {
+  requiredEvidence: number;
+  satisfiedRequiredEvidence: number;
+  missingRequiredEvidence: number;
+  totalEvidence: number;
+  sourceCount: number;
+  datedSourceCount: number;
+  dataQualityCount: number;
+  userDecisionCount: number;
+  workflowRuns: number;
+  qualityState: string;
+}
+
+export interface DomainEvalCheck {
+  name: string;
+  category: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  weight: number;
+  score: number;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface DomainEvalReport {
+  task: DomainEvalTask;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  score: number;
+  summary: DomainEvalSummary;
+  checks: DomainEvalCheck[];
+  evidence: Record<string, unknown>;
+  goal: Record<string, unknown>;
+  quality: Record<string, unknown>;
+  workflow: Record<string, unknown>;
+}
+
+export interface DomainEvalRunRecord {
+  id: string;
+  sessionId: string;
+  projectId?: string | null;
+  taskId: string;
+  taskVersion: string;
+  domain: string;
+  label: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  score: number;
+  report: DomainEvalReport;
+  sourceQualityRunId?: string | null;
+  createdAt: string;
+}
+
+export interface DomainQualityGateInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays?: number | null;
+  minEvalRuns?: number | null;
+  minPassRate?: number | null;
+  minAverageScore?: number | null;
+  minQualityRuns?: number | null;
+  maxBlockedQualityRuns?: number | null;
+  minDomainCoverage?: number | null;
+  requireApprovalSafety?: boolean;
+}
+
+export interface DomainQualityGateThresholds {
+  minEvalRuns: number;
+  minPassRate: number;
+  minAverageScore: number;
+  minQualityRuns: number;
+  maxBlockedQualityRuns: number;
+  minDomainCoverage: number;
+  requireApprovalSafety: boolean;
+}
+
+export interface DomainQualityGateSummary {
+  evalRuns: number;
+  passedEvalRuns: number;
+  failedEvalRuns: number;
+  insufficientEvalRuns: number;
+  passRate?: number | null;
+  averageScore?: number | null;
+  qualityRuns: number;
+  completedQualityRuns: number;
+  blockedQualityRuns: number;
+  failedQualityRuns: number;
+  needsUserQualityRuns: number;
+  approvalBlockers: number;
+  domainsCovered: number;
+  evidenceItems: number;
+  sourceCited: number;
+  datedSources: number;
+  dataQualityChecked: number;
+}
+
+export interface DomainQualityGateCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface DomainQualityGateReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays: number;
+  since: string;
+  thresholds: DomainQualityGateThresholds;
+  summary: DomainQualityGateSummary;
+  checks: DomainQualityGateCheck[];
+}
+
 export interface CodingTrendOverview {
   sessions: number;
   goals: number;

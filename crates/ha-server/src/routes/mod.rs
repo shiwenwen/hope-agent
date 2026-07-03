@@ -19,6 +19,7 @@ pub mod cron;
 pub mod dashboard;
 pub mod desktop;
 pub mod dev;
+pub mod domain_eval;
 pub mod domain_quality;
 pub mod domain_workflow;
 pub mod dreaming;

@@ -1581,6 +1581,22 @@ fn build_router_with_cors(
             post(routes::domain_workflow::list_domain_evidence),
         )
         .route(
+            "/domain-eval/tasks",
+            post(routes::domain_eval::list_domain_eval_tasks),
+        )
+        .route(
+            "/domain-eval/runs/run",
+            post(routes::domain_eval::run_domain_eval_task),
+        )
+        .route(
+            "/domain-eval/runs",
+            post(routes::domain_eval::list_domain_eval_runs),
+        )
+        .route(
+            "/domain-quality-gate/evaluate",
+            post(routes::domain_eval::evaluate_domain_quality_gate),
+        )
+        .route(
             "/sessions/{sid}/domain-quality-runs",
             get(routes::domain_quality::list_domain_quality_runs),
         )

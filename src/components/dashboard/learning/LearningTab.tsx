@@ -36,6 +36,9 @@ import type {
   CodingContinuousBenchmarkGateReport,
   CodingEvalReleaseGateReport,
   CodingLearningGeneralizationReport,
+  DomainEvalRunRecord,
+  DomainEvalTask,
+  DomainQualityGateReport,
 } from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter } from "../types"
 
@@ -128,6 +131,10 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [releaseGate, setReleaseGate] = useState<CodingEvalReleaseGateReport | null>(null)
   const [generalization, setGeneralization] =
     useState<CodingLearningGeneralizationReport | null>(null)
+  const [domainQualityGate, setDomainQualityGate] =
+    useState<DomainQualityGateReport | null>(null)
+  const [domainEvalRuns, setDomainEvalRuns] = useState<DomainEvalRunRecord[]>([])
+  const [domainEvalTasks, setDomainEvalTasks] = useState<DomainEvalTask[]>([])
   const [benchmarkRunning, setBenchmarkRunning] = useState(false)
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
   const [campaignActionId, setCampaignActionId] = useState<string | null>(null)
@@ -156,6 +163,9 @@ export default function LearningTab({ filter }: LearningTabProps) {
         providers,
         rg,
         gen,
+        dqg,
+        der,
+        det,
       ] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
           windowDays,
@@ -247,6 +257,26 @@ export default function LearningTab({ filter }: LearningTabProps) {
             },
           },
         ),
+        getTransport().call<DomainQualityGateReport>("evaluate_domain_quality_gate", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            minEvalRuns: 1,
+            minQualityRuns: 1,
+            minDomainCoverage: 1,
+            requireApprovalSafety: true,
+          },
+        }),
+        getTransport().call<DomainEvalRunRecord[]>("list_domain_eval_runs", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            limit: 6,
+          },
+        }),
+        getTransport().call<DomainEvalTask[]>("list_domain_eval_tasks", {
+          input: {
+            limit: 20,
+          },
+        }),
       ])
       setOverview(ov)
       setTimeline(tl ?? [])
@@ -264,6 +294,9 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setBenchmarkProviders(providers ?? [])
       setReleaseGate(rg)
       setGeneralization(gen)
+      setDomainQualityGate(dqg)
+      setDomainEvalRuns(der ?? [])
+      setDomainEvalTasks(det ?? [])
     } catch (e) {
       logger.error("dashboard", "LearningTab::load", "Failed to load learning data", e)
     } finally {
@@ -629,6 +662,9 @@ export default function LearningTab({ filter }: LearningTabProps) {
         benchmarkBudgetUsd={benchmarkBudgetUsd}
         releaseGate={releaseGate}
         generalization={generalization}
+        domainQualityGate={domainQualityGate}
+        domainEvalRuns={domainEvalRuns}
+        domainEvalTasks={domainEvalTasks}
         benchmarkRunning={benchmarkRunning}
         benchmarkError={benchmarkError}
         campaignActionId={campaignActionId}
@@ -823,6 +859,9 @@ function CodingImprovementSection({
   benchmarkBudgetUsd,
   releaseGate,
   generalization,
+  domainQualityGate,
+  domainEvalRuns,
+  domainEvalTasks,
   benchmarkRunning,
   benchmarkError,
   campaignActionId,
@@ -860,6 +899,9 @@ function CodingImprovementSection({
   benchmarkBudgetUsd: string
   releaseGate: CodingEvalReleaseGateReport | null
   generalization: CodingLearningGeneralizationReport | null
+  domainQualityGate: DomainQualityGateReport | null
+  domainEvalRuns: DomainEvalRunRecord[]
+  domainEvalTasks: DomainEvalTask[]
   benchmarkRunning: boolean
   benchmarkError: string | null
   campaignActionId: string | null
@@ -1036,6 +1078,12 @@ function CodingImprovementSection({
         actionId={gateActionId}
         onMaterializeBacklog={onMaterializeBenchmarkBacklog}
         onResolveBacklogItem={onResolveBenchmarkBacklogItem}
+      />
+
+      <DomainQualityGatePanel
+        report={domainQualityGate}
+        runs={domainEvalRuns}
+        taskCount={domainEvalTasks.length}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
@@ -2253,6 +2301,123 @@ function BenchmarkCampaignRow({
         <p className="mt-1.5 line-clamp-2 text-[10px] text-destructive" title={campaign.error ?? primaryItem?.error ?? undefined}>
           {campaign.error ?? primaryItem?.error}
         </p>
+      )}
+    </div>
+  )
+}
+
+function DomainQualityGatePanel({
+  report,
+  runs,
+  taskCount,
+}: {
+  report: DomainQualityGateReport | null
+  runs: DomainEvalRunRecord[]
+  taskCount: number
+}) {
+  const { t } = useTranslation()
+  const attentionChecks =
+    report?.checks.filter((check) => check.status !== "passed").slice(0, 4) ?? []
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.domainQualityGate", {
+              defaultValue: "General domain quality",
+            })}
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            {t("dashboard.learning.domainQualityGateHint", {
+              defaultValue: "{{tasks}} eval tasks",
+              tasks: taskCount,
+            })}
+          </p>
+        </div>
+        <span
+          className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}
+        >
+          {report?.status ?? "loading"}
+        </span>
+      </div>
+      {report ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <MetricPill label="EV" value={`${report.summary.passedEvalRuns}/${report.summary.evalRuns}`} />
+            <MetricPill label="PR" value={formatPct(report.summary.passRate)} />
+            <MetricPill label="SC" value={report.summary.averageScore?.toFixed(2) ?? "n/a"} />
+            <MetricPill
+              label="QB"
+              value={
+                report.summary.blockedQualityRuns +
+                report.summary.failedQualityRuns +
+                report.summary.needsUserQualityRuns
+              }
+              tone={
+                report.summary.blockedQualityRuns +
+                  report.summary.failedQualityRuns +
+                  report.summary.needsUserQualityRuns >
+                0
+                  ? "warn"
+                  : "muted"
+              }
+            />
+            <MetricPill label="DM" value={report.summary.domainsCovered} />
+          </div>
+          {attentionChecks.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {attentionChecks.map((check) => (
+                <span
+                  key={check.name}
+                  className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
+                  title={`${check.expected} · ${check.actual}`}
+                >
+                  {check.name}: {check.actual}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">
+              {t("dashboard.learning.domainQualityClean", {
+                defaultValue: "All general-domain checks passed",
+              })}
+            </span>
+          )}
+          {runs.length ? (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+              {runs.slice(0, 3).map((run) => (
+                <div key={run.id} className="rounded border border-border/50 p-2 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-xs font-medium">{run.label}</span>
+                    <span
+                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(run.status)}`}
+                    >
+                      {run.status}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                    <span>{run.domain}</span>
+                    <span>{run.score.toFixed(2)}</span>
+                    <span>{new Date(run.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyLine
+              label={t("dashboard.learning.noDomainEvalRuns", {
+                defaultValue: "No general-domain eval runs",
+              })}
+            />
+          )}
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.domainQualityLoading", {
+            defaultValue: "Loading general-domain quality gate",
+          })}
+        />
       )}
     </div>
   )

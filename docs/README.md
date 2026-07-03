@@ -11,7 +11,7 @@
 | 文档 | 说明 |
 | --- | --- |
 | [Coding 能力强化总纲](roadmap/coding-capability-roadmap.md) | 面向 coding-first 的总体路线：调研线索、能力模型、动态 workflow / loop、阶段计划与验收指标；P6 已补 Campaign / Leaderboard / Corpus / Report / Continuous Gate 阶段规划 |
-| [通用场景层与 Domain Workflow 路线图](roadmap/general-domain-workflows.md) | P6 后续通用场景层规划；Phase 7.1-7.5 已落地 Domain Workflow Registry、General Evidence Model、Domain Context Retrieval、Domain Quality 领域复核与 Domain Learning Loop，后续继续泛化 eval / gate |
+| [通用场景层与 Domain Workflow 路线图](roadmap/general-domain-workflows.md) | P6 后续通用场景层规划；Phase 7.1-7.6 已落地 Domain Workflow Registry、General Evidence Model、Domain Context Retrieval、Domain Quality 领域复核、Domain Learning Loop 与 General Eval / Quality Gate |
 | [Coding Eval 体系方案](roadmap/coding-eval.md) | Phase 0 评测体系 + Phase 5.1-6.1 task scorer / agent execution / Gold Task Pack / gates / Benchmark Run Center 索引；P6 后续跟踪真实 benchmark 产品化 |
 | [Coding Eval 首批 Gold Tasks](roadmap/coding-eval-tasks.md) | 首批 20 个 coding eval 任务；20 个 active 任务均已进入自动化 Gold Task Pack |
 | [Coding Eval Phase 0 完成报告](roadmap/coding-eval-phase0-report.md) | Phase 0 完成审计：5 个校准试跑、schema 修订、失败分类补充与 Phase 1 决策 |
@@ -71,6 +71,7 @@
 | [Workflow 与 Execution Mode](architecture/workflow.md) | Durable `workflow.js` 执行编排、WorkflowRun/Op/Event 三表、QuickJS host API、replay、permission preview、pause/resume/cancel、Workflow Control Center | `workflow/`, `execution_mode.rs`, `components/chat/workspace/` |
 | [Domain Workflow 控制平面](architecture/domain-workflow.md) | Phase 7.1-7.3 通用场景模板 registry、workflow draft 预览、General Evidence 持久化、Goal evidence 链接与 Context Retrieval 衔接，覆盖 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops；Phase 7.4 由 Domain Quality 消费其模板与 evidence | `domain_workflow.rs`, `goal/`, `workflow/`, `context_retrieval.rs` |
 | [Domain Quality 控制平面](architecture/domain-quality.md) | Phase 7.4 通用领域 review / verification：基于 Domain Workflow template、General Evidence 与 approval gates 生成 durable quality run/check/event，失败或需用户确认时写回 Goal blocking evidence，并在 Workspace「领域复核」区块展示；Phase 7.5 作为 Domain Learning 的输入信号 | `domain_quality.rs`, `goal/`, `components/chat/workspace/` |
+| [Domain Eval 与 Quality Gate 控制平面](architecture/domain-eval.md) | Phase 7.6 通用领域 eval / gate：内置 15 个 Research / Writing / Data / Meeting / Knowledge eval task，基于 Goal、Workflow、Domain Evidence、Domain Quality trace 做 deterministic scoring，持久化 `domain_eval_runs`，并在 Dashboard 独立展示通用质量门 | `domain_eval.rs`, `domain_quality.rs`, `domain_workflow.rs`, `components/dashboard/learning/` |
 | [Loop 控制平面](architecture/loop.md) | 真实 `/loop`：复用 Cron 的可靠调度，按时间/条件重复触发原会话，记录 loop_schedules / loop_runs trace，支持 status / pause / resume / stop | `loop_control.rs`, `cron/`, `components/chat/workspace/` |
 | [Managed Worktree 控制平面](architecture/worktree.md) | Durable git worktree 隔离环境：创建/恢复/归档/交接、Workflow 绑定执行、Subagent 隔离、WorktreeCreate/Remove hooks、Workspace GUI 控制 | `worktree.rs`, `workflow/`, `subagent/`, `components/chat/workspace/` |
 | [LSP 与语义代码智能](architecture/lsp.md) | Language Server Protocol 控制面：语义导航工具、诊断缓存、文件修改后同步、动态 diagnostics prompt 后缀、Workspace 诊断面板 | `lsp.rs`, `tools/lsp.rs`, `components/chat/workspace/` |

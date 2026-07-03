@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-03
 >
-> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md) 与 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)。Phase 7.6 General Eval & Quality Gate 仍为后续路线。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
 ## 1. 背景
 
@@ -218,23 +218,31 @@ DomainWorkflow
 - 已应用草稿必须显式 promotion 才能成为正式 domain workflow、guidance、review profile、eval case 或 connector pattern。
 - 学习不会跨越用户/项目/连接器权限边界；incognito session 仍拒绝 domain quality / proposal 持久化。
 
-### Phase 7.6 General Eval & Quality Gate（待做）
+### Phase 7.6 General Eval & Quality Gate（已完成第一版）
 
 目标：建立非 coding 场景的 eval 和质量门禁，避免通用能力只靠感觉。
 
-要做：
+已完成：
 
-- 建立首批通用 eval tasks：Research、Writing、Data Analysis、Meeting Prep、Knowledge Curation。
-- 每个任务定义输入、允许工具、来源要求、成功标准、禁止行为、人工校准记录。
-- 复用 Goal / Workflow / Evidence / Review / Verification trace 做评分。
-- 建立通用 quality gate：evidence completeness、citation quality、data quality、approval safety、completion criteria match。
-- Dashboard 增加通用能力质量趋势，不与 coding benchmark 混排。
+- 新增 `ha-core::domain_eval`，独立于 coding eval / benchmark。
+- 建立首批 15 个通用 eval tasks：Research、Writing、Data Analysis、Meeting Prep、Knowledge Curation 各 3 个。
+- 每个 task 已定义输入 prompt、允许工具、required evidence、成功标准、禁止行为、built-in calibration 记录。
+- `run_domain_eval_task` 复用 Goal、Workflow、Domain Evidence、Domain Quality trace 做 deterministic scoring。
+- 建立 `domain_eval_runs` history，和 `coding_eval_runs` 物理分表。
+- 建立通用 quality gate：evidence completeness、citation quality、data quality、approval safety、completion criteria match、workflow trace、domain coverage。
+- Dashboard Learning 增加「General domain quality」区块，显示 gate 三态、eval pass rate、average score、quality blockers、domain coverage 与最近 run，不与 coding benchmark 混排。
+
+后续待补：
+
+- 把 promoted `domain_eval_case` 草稿自动导入 task registry 的 owner action。
+- 接项目/用户级 calibration 与人工复核记录。
+- 支持半确定性 fixture runner 驱动真实 agent 执行，再用同一 scorer 判分。
 
 验收：
 
-- 至少 15 个通用 eval tasks 可 deterministic 或 semi-deterministic 回归。
-- Eval 能发现无来源结论、漏用户确认、数据口径不明、会议材料缺失这类关键失败。
-- 通用 eval 和 coding benchmark 分开展示，避免伪综合分。
+- 15 个通用 eval tasks 已可 deterministic trace scoring。
+- Eval 已能发现无来源结论、漏用户确认、数据口径不明、缺 completion criteria / quality trace / workflow trace 等关键失败。
+- 通用 eval 和 coding benchmark 已分表、分 API、分 Dashboard 区块展示，避免伪综合分。
 
 ## 8. GUI 产品形态
 
@@ -282,4 +290,4 @@ P6 完成后，建议按下列顺序推进：
 2. Phase 7.3：已完成第一版 domain context retrieval，通用 workflow 已有来源 / 证据 / 缺口推荐面。
 3. Phase 7.4：已补 domain review / verification 与 Workspace 领域复核，形成第一版质量闭环。
 4. Phase 7.5：已接入 learning loop，让通用场景能沉淀 draft-only proposal。
-5. Phase 7.6：下一步做通用 eval / gate，避免只靠单次质量复核判断泛化能力。
+5. Phase 7.6：已补通用 eval / gate，避免只靠单次质量复核判断泛化能力。

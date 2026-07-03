@@ -12,7 +12,7 @@
 
 | 文档 | 说明 |
 | --- | --- |
-| [Agent 控制平面路线图](agent-control-plane-roadmap.md) | 新主线：通用 Agent 控制平面先稳住，再以 coding-first 落地；Phase 3-6 已完成 Managed Worktree / LSP / Review / Smart Verification / Context Retrieval / Coding Eval / Learning Loop / Benchmark 产品化；Phase 7.1-7.5 已完成 Domain Workflow Registry、General Evidence Model、Domain Context Retrieval、Domain Quality 领域复核与 Domain Learning Loop，后续进入 General Eval & Quality Gate |
+| [Agent 控制平面路线图](agent-control-plane-roadmap.md) | 新主线：通用 Agent 控制平面先稳住，再以 coding-first 落地；Phase 3-6 已完成 Managed Worktree / LSP / Review / Smart Verification / Context Retrieval / Coding Eval / Learning Loop / Benchmark 产品化；Phase 7.1-7.6 已完成 Domain Workflow Registry、General Evidence Model、Domain Context Retrieval、Domain Quality 领域复核、Domain Learning Loop 与 General Eval / Quality Gate |
 | [通用场景层与 Domain Workflow 路线图](general-domain-workflows.md) | P6 后续主线：把 Goal / Mode / Workflow / Loop / Evidence / Review / Verification / Learning Loop 泛化到 Research、Writing、Data Analysis、Meeting Prep、Knowledge Curation、Inbox、Project Ops 等非编程场景；7.1-7.3 已落地 |
 | [Coding 能力强化总纲](coding-capability-roadmap.md) | 面向 coding-first 的总体路线：调研线索、能力模型、动态 workflow、execution mode、阶段计划与验收指标；后续顺序以控制平面路线图为准 |
 | [Goal / Mode / Workflow / Loop 语义收口](control-plane-semantics.md) | 统一 `/goal`、`/mode`、`/workflow`、`/task`、`/worktree`、真正 `/loop` 的产品语义和实现边界 |

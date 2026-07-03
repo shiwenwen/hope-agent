@@ -479,6 +479,17 @@ Smart Verification owner API 管理 durable validation run。`plan_smart_verific
 
 Domain Quality owner API 管理 durable non-coding review / verification run。`run_domain_quality` 基于 Domain Workflow template、domain evidence、approval gates 和输入 metadata 同步生成 `domain_quality_runs/checks/events`，并把 `domain_quality_passed` / `domain_quality_blocked` / `domain_quality_failed` / `domain_quality_needs_user` / `domain_quality_check` 写回 Goal evidence。无工作目录也可运行；无痕会话拒绝持久化。高风险动作只有在 `sourceMetadata.requestedAction` 匹配 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失时 run 进入 `needs_user` 并阻塞 Goal。完整契约见 [Domain Quality 控制平面](domain-quality.md)。
 
+### Domain Eval / Quality Gate
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `list_domain_eval_tasks` | `POST /api/domain-eval/tasks` | ✅ |
+| `run_domain_eval_task` | `POST /api/domain-eval/runs/run` | ✅ |
+| `list_domain_eval_runs` | `POST /api/domain-eval/runs` | ✅ |
+| `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | ✅ |
+
+Domain Eval owner API 管理 non-coding eval / gate。`list_domain_eval_tasks` 返回内置 15 个 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task；`run_domain_eval_task` 读取 Goal、Workflow、Domain Evidence 与 Domain Quality trace 做 deterministic scoring，并写入 `domain_eval_runs`；`evaluate_domain_quality_gate` 只读 `domain_eval_runs`、`domain_quality_runs/checks` 与 evidence coverage，输出 `passed` / `failed` / `insufficient_data` 三态。该 API 与 coding benchmark 分表、分路径、分 Dashboard 区块展示；无痕会话 fail-closed。完整契约见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
+
 ### Coding Eval
 
 | Tauri Command | HTTP | 状态 |
@@ -862,6 +873,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `dashboard_coding_improvement` | `POST /api/dashboard/learning/coding-improvement` | ✅ |
 | `evaluate_coding_eval_release_gate` | `POST /api/coding-improvement/release-gate/evaluate` | ✅ |
 | `evaluate_coding_learning_generalization` | `POST /api/coding-improvement/generalization/evaluate` | ✅ |
+| `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | ✅ |
 | `get_coding_benchmark_center` | `POST /api/coding-benchmark/center` | ✅ |
 | `create_coding_benchmark_campaign` | `POST /api/coding-benchmark/campaigns/create` | ✅ |
 | `list_coding_benchmark_campaigns` | `POST /api/coding-benchmark/campaigns` | ✅ |
