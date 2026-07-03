@@ -374,6 +374,39 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
+    pub(crate) fn link_managed_worktree_to_workflow_run(
+        &self,
+        id: &str,
+        workflow_run_id: &str,
+    ) -> Result<Option<ManagedWorktree>> {
+        let Some(current) = self.get_managed_worktree(id)? else {
+            return Ok(None);
+        };
+        if current.workflow_run_id.as_deref() == Some(workflow_run_id)
+            || current.workflow_run_id.is_some()
+        {
+            return Ok(Some(current));
+        }
+
+        let now = now_rfc3339();
+        let changed = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "UPDATE managed_worktrees
+                    SET workflow_run_id = ?1, updated_at = ?2
+                 WHERE id = ?3 AND workflow_run_id IS NULL",
+                params![workflow_run_id, now, id],
+            )?
+        };
+        let updated = self.get_managed_worktree(id)?;
+        if changed > 0 {
+            if let Some(row) = updated.as_ref() {
+                emit_worktree_changed("worktree:updated", row);
+            }
+        }
+        Ok(updated)
+    }
+
     pub fn archive_managed_worktree(&self, id: &str) -> Result<ManagedWorktree> {
         let current = self
             .get_managed_worktree(id)?

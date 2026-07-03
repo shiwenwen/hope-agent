@@ -363,6 +363,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_ask_user_question_timeout_enabled: { method: "GET",  path: "/api/config/ask-user-question-timeout-enabled" },
   get_execution_mode:            { method: "GET",    path: "/api/sessions/{sessionId}/execution-mode" },
   set_execution_mode:            { method: "POST",   path: "/api/sessions/{sessionId}/execution-mode" },
+  get_workflow_mode:             { method: "GET",    path: "/api/sessions/{sessionId}/workflow-mode" },
+  set_workflow_mode:             { method: "POST",   path: "/api/sessions/{sessionId}/workflow-mode" },
 
   // -- Goals --
   get_active_goal:                 { method: "GET",    path: "/api/sessions/{sessionId}/goal" },

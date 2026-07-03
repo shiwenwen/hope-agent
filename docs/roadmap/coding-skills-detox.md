@@ -1,6 +1,6 @@
 # Coding Skills Detox 审计
 
-> 返回 [路线图索引](README.md) · 上层方案 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow](phase2-coding-mode-dynamic-workflow.md)
+> 返回 [路线图索引](README.md) · 上层方案 [Phase 2 Workflow Mode 与 Script-first Dynamic Workflow](phase2-coding-mode-dynamic-workflow.md)
 >
 > 状态：Draft RFC
 >

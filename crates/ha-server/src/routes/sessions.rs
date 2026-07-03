@@ -598,8 +598,21 @@ pub async fn set_session_incognito(
     Path(id): Path<String>,
     Json(body): Json<SessionIncognitoBody>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.update_session_incognito(&id, body.enabled)?;
+    ctx.session_db
+        .update_session_incognito(&id, body.enabled)
+        .map_err(map_session_incognito_error)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+fn map_session_incognito_error(err: anyhow::Error) -> AppError {
+    let message = err.to_string();
+    if message.contains("Session not found") {
+        AppError::not_found(message)
+    } else if message.contains("Cannot enable incognito") {
+        AppError::bad_request(message)
+    } else {
+        AppError::internal(message)
+    }
 }
 
 /// `PATCH /api/sessions/:id/working-dir` — persist the per-session working

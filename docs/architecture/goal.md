@@ -32,6 +32,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 - Goal 逻辑必须在 `ha-core`；Tauri / HTTP 只做薄适配。
 - 第一版没有 agent 工具面直接改 Goal；模型可建议，owner 平面落地。
 - incognito session 禁止创建 durable Goal。
+- 反向也必须成立：存在 open Goal 的普通会话不能再切成 incognito，避免 durable Goal 证据链和“关闭即焚”语义并存。
 - `label` 只用于展示；Goal 与 Workflow 的关系以 `goal_id` / `goal_links` 为准。
 - Goal 更新必须走 owner 平面 `update_goal` 或 `/goal <objective>`；更新 objective 或 completion criteria 后清空旧 final audit，并让 `blocked` / `evaluating` 回到 `active`，避免旧审计结论污染新目标。
 

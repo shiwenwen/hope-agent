@@ -1,6 +1,6 @@
 # Script-first Workflow Runtime 设计（durable replay 细化）
 
-> 返回 [路线图索引](README.md) · 上层方案 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow](phase2-coding-mode-dynamic-workflow.md)
+> 返回 [路线图索引](README.md) · 上层方案 [Phase 2 Workflow Mode 与 Script-first Dynamic Workflow](phase2-coding-mode-dynamic-workflow.md)
 >
 > 状态：Draft RFC
 >
@@ -158,7 +158,7 @@ map / 并行扇出必须把**物化后的输入列表作为该 map op 自身的 
 区分两件常被混在一起的事：
 
 - **能力沙箱（结构性，可靠）**：用内嵌引擎且**只注入 host API 绑定**，脚本根本拿不到 `fs`/`net`/`process`/`require`——访问不到不是因为被 lint 拦，而是因为绑定不存在。**不要用 denylist 拦能力**（`[].constructor.constructor('return process')()` 这类逃逸让 denylist 形同虚设）。
-- **确定性 shim（行为性）**：`Date.now()` / `Math.random()` / `new Date()`（无参）在 runtime **直接 throw**，并提供确定性替代：`workflow.now()`（返回 run 起始锚定时间）、`workflow.random(seed)`（按 op_key + seed 派生的确定性随机）。这与本运行时一致——*Date.now/Math.random 会破坏 resume，所以直接禁用*。
+- **确定性 shim（行为性）**：`Date.now()` / `Math.random()` / `new Date()`（无参）在 runtime **直接 throw**，并提供确定性替代：`workflow.now()`（返回 run 创建时间毫秒值）、`workflow.random(seed)`（按 run id + 当前执行位置 + seed 派生的确定性随机）。这与本运行时一致——*Date.now/Math.random 会破坏 resume，所以直接禁用*。
 
 Script gate 的静态 lint（§10）只作**早期友好报错**（提前告诉模型"你用了 Date.now"），**不是安全/正确性边界**。边界是 runtime 的结构沙箱 + throw。
 
@@ -186,7 +186,7 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 
 红线细节：
 
-- **claim 用 CAS + primary_owner**，防两个 Primary（误配）或 Primary 重启竞态导致双跑；非 Primary 永不进入此循环。
+- **claim 用 CAS + primary_owner**，防两个 Primary（误配）或 Primary 重启竞态导致双跑；非 Primary 永不进入此循环。owner 形如 `...:pid:<n>` 且 `<n>` 已不存活时才视为 stale；无 pid owner 不自动抢占，避免缺证据误 steal。
 - Recovering 期间**不接受新外部输入**，跑完才回 Running。
 - 重放是"重新执行脚本"而非"从某行继续"——所以脚本必须满足 §2 纯函数不变量，否则重放分叉。
 - script hash 不一致不是自动 migration；统一进入 `Blocked(reason=script_hash_mismatch)`，由用户显式决定新建 run、重审脚本或取消。
@@ -200,35 +200,34 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 | `workflow.tool({ name, args, label? })` | 由工具元数据决定 | `execute_tool_with_context` + permission | op_key 自动；写类工具带 hash 守卫 |
 | `workflow.fileSearch({ query, limit?, label? })` | pure | `filesystem::search_files` | |
 | `workflow.read({ path, label? })` / `workflow.grep({ pattern, path?, label? })` | pure | `read` / `grep` tool | |
-| `workflow.spawnAgent({ task, agent?, label?, ... })` | non_idempotent | `subagent` 队列 | 返回 handle，记 `child_handle` |
+| `workflow.spawnAgent({ task, agent_id?, label?, timeout_secs?, ... })` | non_idempotent | `subagent` 队列 | 返回 handle，记 `child_handle` |
 | `workflow.map(label, list, fn)` | 派生 | runtime | §4.2 物化；`label` 只展示，op_key 仍由位置生成 |
-| `workflow.waitAll(handles, { label?, concurrency? })` | pure（等待） | async job / subagent status | bounded concurrency，见 §8 |
+| `workflow.waitAll(handles, { timeout?, label? })` | pure（等待） | async job / subagent status | bounded wait，见 §8 |
 | `workflow.task.create({ title, label? })` / `workflow.task.update({ task, status, label? })` | idempotent | `task_create/update` | `create` 返回 task handle；`update` 按 handle 定位，`label` 仍仅展示 |
 | `workflow.validate({ commands, reason, label? })` | non_idempotent(exec) | `exec` async job + AGENTS 策略 | 受 §AGENTS 验证约束 |
 | `workflow.askUser({ question, context?, label? })` | — | `ask_user` | 走无人值守 fail-closed，见下 |
 | `workflow.trace({ payload, label? })` | pure | `workflow_events` | sanitize + 大小上限 |
 | `workflow.diff({ label? })` | pure | git / session artifacts | |
-| `workflow.now()` / `workflow.random(seed)` | pure | runtime 确定性源 | 替代 Date.now/Math.random |
-| `workflow.finish(result)` | — | `workflow_runs.state` | |
+| `workflow.now()` / `workflow.random(seed)` | pure | runtime 确定性源 | `now()` 返回 run 创建时间毫秒值；`random(seed)` 按 run id + 执行位置 + seed 派生 |
+| `workflow.finish({ summary, verification?, residualRisk? })` | — | `workflow_runs.state` | |
 
 **`workflow.askUser` 红线**：必须经 `evaluate_approval_surface(session_id)` 判定可应答性——autonomous / cron / headless 无人可答时按 `unattended_approval_action` deny/proceed，**绝不阻塞等待**（否则就是"无限等审批")。复用既有无人值守单一真相源，不另写一套。
 
 不提供（同上层方案）：raw `fs` / `fetch` / `child_process` / 任意 import / 直接 DB / 直接权限旁路。
 
-## 7. Repair loop：系统侧编排，脚本描述单轮
+## 7. Repair loop：有界 helper + runtime guard
 
-上层方案有歧义：repair 在脚本内循环，还是系统侧驱动？**定为系统侧编排**，理由：
+上层方案曾有歧义：repair 到底是在脚本里无限循环、系统侧重写脚本，还是用受控 helper。当前落地语义是：**脚本可以调用 `workflow.repairLoop(...)`，但循环必须有界，且同一个 run 内的 `workflow.js` 不可变**。
 
-- 脚本内 repair 循环要求模型为每次迭代写不撞的 op_key（位置键能解决撞键，但循环可重放性 + script_hash 稳定性仍复杂）。
-- repair 改脚本 → `script_hash` 变 → 整 run replay 失效，与"同一 run 内 repair"直接矛盾。
+红线：
 
-设计：
+- repair 动作仍由动态 JS callback 决定，可继续调用 `spawnAgent`、`tool`、`read`、`grep` 等 host API；不退回结构化 DSL。
+- runtime helper 负责循环骨架：创建 task、记录 trace、执行 `validationCommands`、可选 `review` / `verify`、汇总 attempts。
+- `maxAttempts` 运行时 clamp 到 1-5；attempts 耗尽时 helper 通过 `workflow.block({ reason: "repair_loop_attempts_exhausted", ... })` 转入 `Blocked`。
+- 禁止同一 run 内改写 `workflow.js` 继续跑。脚本改写会让 `script_hash` 变化，恢复时统一进入 `Blocked(reason=script_hash_mismatch)`，由用户显式新建 run 或取消。
+- `workflow.validate()` 的 guarded repair stop guard 仍然生效：重复失败 fingerprint、无有效 diff、范围越界或预算耗尽都可以优先 block。
 
-- **脚本/模板描述"一轮怎么跑"**（observe → act → validate → 产出结构化结果），脚本本身在一个 run 内**不可变**（script_hash 固定）。
-- repair 由 runtime 在 run 之上编排：validate 失败 → 生成 structured feedback → **作为新 op 的输入注入下一轮**（或受控的子 run），而非改写脚本。
-- no-progress 检测（diff hash / validation fingerprint / changed files 超出 plan critical files / repair 次数 / 预算）在 runtime 层判定，触发即 `AwaitingUser` 或 `Blocked`。
-
-这样 repair 可观察、可加闸、与 durable 模型相容；script_hash 不一致只发生在用户**显式编辑脚本**时，那时统一进入 `Blocked(reason=script_hash_mismatch)`。
+这样 repair 仍是模型自主动态编排，但长任务不会变成不可观察的无限循环；所有 attempt、验证、review、verify、blocked reason 都落 durable trace。
 
 ## 8. 并发与背压（coordinator 不占 worker 槽）
 
@@ -236,7 +235,7 @@ for each run where state == Running and primary_owner is stale/empty:   // 仅 P
 
 - 脚本执行线程在 `waitAll` / `spawnAgent` 等待期间**绝不持有** `async_jobs::slots` 槽或前台 idle guard。否则父占槽等子、子抢不到槽 = 死锁（async_jobs 已有"parked 持槽"同类陷阱）。
 - 子任务照走既有两域配额：subagent 走 `subagent::queue`（R7.2），tool job 走 `async_jobs::slots`（R7.1）。workflow runtime 只发起请求 + 记 handle + 等终态，**不维护平行池**。
-- `waitAll({concurrency: N})` 支持有界并发：runtime 只控制"同时发起多少 spawn 请求"，实际执行仍受底层队列配额裁决。默认 concurrency 取 execution_mode 的 max_subagents 与底层 per-session 配额的较小值。
+- `workflow.waitAll(handles, { timeout?, label? })` 只做 bounded wait / attach，不另建并发控制面。并发由 `spawnAgent` 发起数量、execution mode 的 max_subagents、`subagent::queue` 与 `async_jobs::slots` 共同约束。
 - 长扇出"等齐"优先用**完成注入合并**（对齐 background-jobs 的 Group join-all-settle）而非脚本里长 `waitAll` 死等——降低 coordinator 挂起时长。
 
 ## 9. 预算（含 token/cost）
@@ -317,7 +316,7 @@ bundled 模板就是"被 release 信任的脚本"，与通用引擎共用同一 
 
 ## 14. 实现里程碑与可测性
 
-状态：2026-06-30 已完成第 1 项 durable store/state machine、第 3 项 Primary-only startup recovery runner，并完成第 4 项的 runtime foundation 子集：QuickJS/rquickjs 受控执行、Script Gate 执行前阻断、`Date.now` / `new Date()` / `Math.random` runtime throw、位置化 op-key、`task.create/update` / `fileSearch` / `tool/read/grep` / `workflow.map` / `spawnAgent/waitAll` / async job backed `validate` / `askUser` / `diff` / `trace` / `finish`、Completed op replay 无重复副作用、Started non-idempotent op fail-closed Blocked。第 2 项 fan-out 物化已落地：`workflow.map` 冻结输入列表并给 callback 内 host call 生成 `map/item#i/op#N` 嵌套位置键；`spawnAgent` child_handle attach 与 replay 单测已覆盖，并新增真实工具路径 E2E：`workflow.spawnAgent` 经 `subagent` 工具预分配同一个 run id，落 `subagent_runs` 与 `background_jobs` 投影（测试用并发上限稳定停在 Queued，证明 durable spawn / projection），同时新增 mock-provider 回复型 fan-out E2E：两个 `workflow.spawnAgent` 子 Agent 真实跑过 child `run_chat_engine` + OpenAI Chat provider adapter 后由 `workflow.waitAll` 汇总完成；`workflow.validate` 预分配 async job child_handle，started replay 可 attach / 缺 row 同 job id 重试；显式 `workflow.tool({ args: { run_in_background: true } })` 预分配 async job child_handle，started replay 可 attach 既有 job / 缺 row 同 job id 重试；startup-like 单测覆盖 async job replay 标 interrupted 后 workflow recovery 继续完成且不重复 task；permission preview / user approval 第一版已落：创建 run 写 `script_permission_preview`，Draft 执行前静态 host call 复用 permission engine，动态工具调用进入 `awaiting_approval`，owner approve 后继续；`/mode` 已持久化为 `sessions.execution_mode` 并注入 system prompt；guarded repair stop guard 已落：validation failure 写结构化 repair event，重复失败 fingerprint 或无有效 diff 进展会 Blocked；Workspace Panel 已补 Trace / Validation / Agents 三视图。外部真实 provider smoke 只作为体验抽检，不再是实现完成的唯一证据。
+状态：2026-06-30 已完成第 1 项 durable store/state machine、第 3 项 Primary-only startup recovery runner，并完成第 4 项的 runtime foundation 子集：QuickJS/rquickjs 受控执行、Script Gate 执行前阻断、`Date.now` / `new Date()` / `Math.random` runtime throw、确定性 `workflow.now()` / `workflow.random(seed)` helper、位置化 op-key、`task.create/update` / `fileSearch` / `tool/read/grep` / `workflow.map` / `spawnAgent/waitAll` / async job backed `validate` / `askUser` / `diff` / `trace` / `finish`、Completed op replay 无重复副作用、Started non-idempotent op fail-closed Blocked。第 2 项 fan-out 物化已落地：`workflow.map` 冻结输入列表并给 callback 内 host call 生成 `map/item#i/op#N` 嵌套位置键；`spawnAgent` child_handle attach 与 replay 单测已覆盖，并新增真实工具路径 E2E：`workflow.spawnAgent` 经 `subagent` 工具预分配同一个 run id，落 `subagent_runs` 与 `background_jobs` 投影（测试用并发上限稳定停在 Queued，证明 durable spawn / projection），同时新增 mock-provider 回复型 fan-out E2E：两个 `workflow.spawnAgent` 子 Agent 真实跑过 child `run_chat_engine` + OpenAI Chat provider adapter 后由 `workflow.waitAll` 汇总完成；`workflow.validate` 预分配 async job child_handle，started replay 可 attach / 缺 row 同 job id 重试；显式 `workflow.tool({ args: { run_in_background: true } })` 预分配 async job child_handle，started replay 可 attach 既有 job / 缺 row 同 job id 重试；startup-like 单测覆盖 async job replay 标 interrupted 后 workflow recovery 继续完成且不重复 task；permission preview / user approval 第一版已落：创建 run 写 `script_permission_preview`，Draft 执行前静态 host call 复用 permission engine，动态工具调用进入 `awaiting_approval`，owner approve 后继续；`/mode` 已持久化为 `sessions.execution_mode` 并注入 system prompt；guarded repair stop guard 已落：validation failure 写结构化 repair event，重复失败 fingerprint 或无有效 diff 进展会 Blocked；Workspace Panel 已补 Trace / Validation / Agents 三视图。外部真实 provider smoke 只作为体验抽检，不再是实现完成的唯一证据。
 
 对齐上层方案 Phase 2.4 / 2.5，补可测断言：
 

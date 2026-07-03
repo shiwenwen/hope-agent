@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import type { ActiveModel, AvailableModel, SessionMode } from "@/types/chat"
 import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
@@ -328,6 +328,139 @@ describe("ChatInput", () => {
     fireEvent.keyDown(screen.getByRole("textbox"), { key: "Tab", shiftKey: true })
 
     expect(onPermissionModeChange).not.toHaveBeenCalled()
+  })
+
+  test("syncs workflow mode status from slash command events", async () => {
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "get_workflow_mode") return Promise.resolve({ mode: "off" })
+      return Promise.resolve([])
+    })
+
+    renderChatInput({ currentSessionId: "s1" })
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("get_workflow_mode", { sessionId: "s1" })
+    })
+    expect(screen.queryByText("chat.workflowMode.active")).toBeNull()
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hope-agent:workflow-mode-changed", {
+          detail: { sessionId: "other", mode: "ultracode" },
+        }),
+      )
+    })
+    expect(screen.queryByText("chat.workflowMode.active")).toBeNull()
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hope-agent:workflow-mode-changed", {
+          detail: { sessionId: "s1", mode: "on" },
+        }),
+      )
+    })
+
+    expect(await screen.findByText("chat.workflowMode.on")).toBeTruthy()
+    expect(screen.getByText("chat.workflowMode.activeOnDetail")).toBeTruthy()
+  })
+
+  test("materializes a draft session before enabling workflow mode from the composer", async () => {
+    const onEnsureSession = vi.fn(() => Promise.resolve("s-created"))
+    transportMock.call.mockImplementation((command: string, args?: unknown) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "set_workflow_mode") {
+        return Promise.resolve({ mode: (args as { mode?: string } | undefined)?.mode ?? "off" })
+      }
+      return Promise.resolve([])
+    })
+    const rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          width: 1200,
+          height: 80,
+          top: 0,
+          left: 0,
+          right: 1200,
+          bottom: 80,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
+
+    try {
+      renderChatInput({ currentSessionId: null, onEnsureSession })
+
+      const workflowButton = await screen.findByRole("button", {
+        name: "chat.workflowMode.enable",
+      })
+      fireEvent.click(workflowButton)
+
+      await waitFor(() => {
+        expect(onEnsureSession).toHaveBeenCalledTimes(1)
+        expect(transportMock.call).toHaveBeenCalledWith("set_workflow_mode", {
+          sessionId: "s-created",
+          mode: "on",
+        })
+      })
+      expect(await screen.findByText("chat.workflowMode.on")).toBeTruthy()
+    } finally {
+      rectSpy.mockRestore()
+    }
+  })
+
+  test("materializes a draft session before executing workflow slash mode command", async () => {
+    const onEnsureSession = vi.fn(() => Promise.resolve("s-created"))
+    const onCommandAction = vi.fn()
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "list_slash_commands") {
+        return Promise.resolve([
+          {
+            name: "workflow",
+            category: "utility",
+            descriptionKey: "slashCommands.workflow.description",
+            hasArgs: true,
+            argsOptional: true,
+            argOptions: ["on", "off", "ultracode"],
+          },
+        ])
+      }
+      if (command === "execute_slash_command") {
+        return Promise.resolve({
+          content: "Workflow Mode is now **On** (`on`).",
+          action: { type: "setWorkflowMode", mode: "on" },
+        })
+      }
+      return Promise.resolve([])
+    })
+
+    renderChatInput({
+      input: "/workflow on",
+      currentSessionId: null,
+      onEnsureSession,
+      onCommandAction,
+    })
+
+    await waitFor(() => expect(screen.getByText("on")).toBeTruthy())
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    await waitFor(() => {
+      expect(onEnsureSession).toHaveBeenCalledTimes(1)
+      expect(transportMock.call).toHaveBeenCalledWith("execute_slash_command", {
+        sessionId: "s-created",
+        agentId: "ha-main",
+        commandText: "/workflow on",
+      })
+      expect(onCommandAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: { type: "setWorkflowMode", mode: "on" },
+          _sessionId: "s-created",
+          _slashCommandText: "/workflow on",
+        }),
+      )
+    })
   })
 
   test("lets file mention menu consume Shift+Tab before permission cycling", async () => {

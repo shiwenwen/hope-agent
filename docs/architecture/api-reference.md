@@ -93,7 +93,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | 事件名 | 触发点 | Payload 关键字段 |
 |---|---|---|
 | `workflow:created` | `workflow::db::create_workflow_run` | `WorkflowRun` 快照 |
-| `workflow:updated` | run 状态转换、pause/resume/approve/cancel/recovery owner claim | `WorkflowRun` 快照 |
+| `workflow:updated` | run 状态转换、pause/resume/approve/cancel、launch/recovery owner claim | `WorkflowRun` 快照 |
 | `workflow:op_updated` | `workflow_ops` started/completed/failed | `WorkflowOp` 快照 |
 | `workflow:event` | `append_workflow_event` | `WorkflowEvent`；大 payload 已在落库前截断到 preview |
 
@@ -102,6 +102,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | 事件名 | 触发点 | Payload 关键字段 |
 |---|---|---|
 | `worktree:created` | `worktree::create_managed_worktree` | `ManagedWorktree` 快照 |
+| `worktree:updated` | `worktree::link_managed_worktree_to_workflow_run` 等元数据更新 | `ManagedWorktree` 快照 |
 | `worktree:archived` | `worktree::archive_managed_worktree` | `ManagedWorktree` 快照，含 dirty snapshot |
 | `worktree:restored` | `worktree::restore_managed_worktree` | `ManagedWorktree` 快照 |
 | `worktree:handoff` | `worktree::handoff_managed_worktree` | `ManagedWorktree` 快照；session working dir 已切换 |
@@ -559,8 +560,10 @@ Coding Improvement owner API 基于 durable Goal / Workflow / Review / Smart Ver
 | `resume_workflow_run` | `POST /api/workflow-runs/{runId}/resume` | ✅ |
 | `approve_workflow_run` | `POST /api/workflow-runs/{runId}/approve` | ✅ |
 | `cancel_workflow_run` | `POST /api/workflow-runs/{runId}/cancel` | ✅ |
+| `get_workflow_mode` | `GET /api/sessions/{sessionId}/workflow-mode` | ✅ |
+| `set_workflow_mode` | `POST /api/sessions/{sessionId}/workflow-mode` | ✅ |
 
-Workflow owner API 管理 durable `workflow_runs`。`preview_workflow_script` 不落库，只返回 Script Gate + permission preview；`create_workflow_run` 会强制复用同一 preflight，Gate 不通过或 permission preview 有确定 deny 时拒绝创建，并可选接收 `worktreeId` 绑定 managed worktree。`run_workflow_run` / `approve_workflow_run` / `resume_workflow_run` 只改变 owner 管理状态并异步 kick primary runtime；`cancel_workflow_run` 会先转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children。完整技术契约见 [Workflow 与 Execution Mode](workflow.md)。
+Workflow Mode 是 session 级能力开关：开启后模型才会在后续回合看到 `workflow_run` 工具，并自行判断是否需要动态编排。Workflow owner API 管理 durable `workflow_runs`。`preview_workflow_script` 不落库，只返回 Script Gate + permission preview；`create_workflow_run` 会强制复用同一 preflight，Gate 不通过或 permission preview 有确定 deny 时拒绝创建，并可选接收 `worktreeId` 绑定 managed worktree，默认 kind 为 `general.workflow`。`create_workflow_run(runImmediately=true)` / `run_workflow_run` / `approve_workflow_run` / `resume_workflow_run` 都先要求当前进程是 primary launcher，再把启动请求交给 runtime；API 返回值只表示 launch accepted，不承诺同步进入 `running`，真实进度以后续 `workflow:*` 事件和 snapshot 为准。`cancel_workflow_run` 会先转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children。完整技术契约见 [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md)。
 
 ### Goals
 

@@ -352,7 +352,7 @@ DELETE FROM acp_runs                  WHERE parent_session_id = ?;
 | `update_session_plan_mode(session_id, plan_mode)` | 更新 Plan Mode 状态 |
 | `update_session_permission_mode(session_id, mode)` | 更新会话级权限模式（`default` / `smart` / `yolo`） |
 | `update_session_sandbox_mode(session_id, mode)` | 更新会话级沙箱模式（`off` / `standard` / `isolated` / `workspace` / `trusted`） |
-| `update_session_incognito(session_id, bool)` | 切换无痕态；`project_id IS NOT NULL` 或 `channel_info IS NOT NULL` 时直接 `Err`（互斥防御） |
+| `update_session_incognito(session_id, bool)` | 切换无痕态；开启无痕时若 `project_id IS NOT NULL`、`channel_info IS NOT NULL`、`workflow_mode != off`、存在 open Goal 或已有 WorkflowRun，直接 `Err`（互斥防御） |
 | `update_session_working_dir(session_id, Option<&str>)` | 设置/清空会话级工作目录；空串当清空 |
 | `update_session_agent(session_id, agent_id)` | 切换会话 Agent；SQL 层强制 `message_count == 0`，非空会话直接拒绝（防止改动一半切 Agent 造成上下文错乱） |
 
@@ -529,12 +529,13 @@ stateDiagram-v2
 
 ### 与 Project / IM Channel 互斥
 
-无痕会话不能进项目、不能绑定 IM channel：
+无痕会话不能进项目、不能绑定 IM channel，也不能和 durable Goal / Workflow 控制面并存：
 
 - 前端 `IncognitoToggle` 在 `project_id != null` 或 `channel_info != null` 时灰化 + tooltip 解释
-- 后端 `update_session_incognito` 对 `project_id.is_some()` / `channel_info.is_some()` 直接 `Err`
+- 后端 `update_session_incognito` 对 `project_id.is_some()` / `channel_info.is_some()` / `workflow_mode.enabled()` / open Goal / 已存在 WorkflowRun 直接 `Err`
 - `create_session_with_project` 在 `project_id` 存在时强制 `incognito = false`
 - `channel/db.rs::ensure_conversation` 入口防御式清零（IM 路径创建的会话强制 `incognito = false`）
+- `update_session_workflow_mode` 反向防御：无痕会话不能开启 Workflow Mode；Goal / WorkflowRun 创建入口也会拒绝无痕 session
 
 ## 会话级工作目录
 

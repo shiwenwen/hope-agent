@@ -31,11 +31,7 @@ import type {
   SessionMode,
   SandboxMode,
 } from "@/types/chat"
-import type {
-  QuickPromptAddResult,
-  QuickPromptConfig,
-  QuickPromptItem,
-} from "@/types/quickPrompts"
+import type { QuickPromptAddResult, QuickPromptConfig, QuickPromptItem } from "@/types/quickPrompts"
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { CommandResult } from "./slash-commands/types"
@@ -167,6 +163,8 @@ interface ManualCompactOverride {
   usageFingerprint: string | null
 }
 
+const WORKFLOW_MODE_CHANGED_EVENT = "hope-agent:workflow-mode-changed"
+
 function latestAssistantUsageFingerprint(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i]
@@ -257,7 +255,6 @@ function clampResponsiveRightPanelWidth(width: number): number {
     ),
   )
 }
-
 
 function isSessionMode(value: unknown): value is SessionMode {
   return value === "default" || value === "smart" || value === "yolo"
@@ -508,7 +505,9 @@ export default function ChatScreen({
     setSidebarCollapsed(collapsed)
   }, [])
 
-  const [defaultDisplayMode, setDefaultDisplayMode] = useState(() => readChatDisplayModePreference())
+  const [defaultDisplayMode, setDefaultDisplayMode] = useState(() =>
+    readChatDisplayModePreference(),
+  )
   const [autoCollapseCompletedTurns, setAutoCollapseCompletedTurns] = useState(true)
   useEffect(() => {
     let cancelled = false
@@ -548,10 +547,7 @@ export default function ChatScreen({
     return () => {
       cancelled = true
       window.removeEventListener(CHAT_DISPLAY_MODE_EVENT, handlePreferenceChange)
-      window.removeEventListener(
-        COMPLETED_TURN_COLLAPSE_EVENT,
-        handleCompletedTurnCollapseChange,
-      )
+      window.removeEventListener(COMPLETED_TURN_COLLAPSE_EVENT, handleCompletedTurnCollapseChange)
     }
   }, [])
 
@@ -755,10 +751,7 @@ export default function ChatScreen({
     latestMessagesRef.current = session.messages
   }, [session.messages])
 
-  const inputHistory = useMemo(
-    () => recentUserInputHistory(session.messages),
-    [session.messages],
-  )
+  const inputHistory = useMemo(() => recentUserInputHistory(session.messages), [session.messages])
 
   const reloadQuickPrompts = useCallback(async () => {
     try {
@@ -782,16 +775,12 @@ export default function ChatScreen({
         })
         setQuickPrompts((prev) => {
           if (result.duplicate) {
-            return prev.some((item) => item.id === result.item.id)
-              ? prev
-              : [result.item, ...prev]
+            return prev.some((item) => item.id === result.item.id) ? prev : [result.item, ...prev]
           }
           return [result.item, ...prev.filter((item) => item.id !== result.item.id)]
         })
         toast.success(
-          result.duplicate
-            ? t("chat.quickPrompts.duplicate")
-            : t("chat.quickPrompts.added"),
+          result.duplicate ? t("chat.quickPrompts.duplicate") : t("chat.quickPrompts.added"),
         )
       } catch (e) {
         logger.error("chat", "ChatScreen::addQuickPrompt", "Failed to add quick prompt", e)
@@ -857,8 +846,9 @@ export default function ChatScreen({
       let agentId = (defaultAgentId && defaultAgentId.trim()) || project?.defaultAgentId || null
       if (!agentId) {
         agentId =
-          (await getTransport().call<string | null>("get_default_agent_id").catch(() => null)) ||
-          DEFAULT_AGENT_ID
+          (await getTransport()
+            .call<string | null>("get_default_agent_id")
+            .catch(() => null)) || DEFAULT_AGENT_ID
       }
       setDraftIncognito(false)
       setDraftKbAttachments([])
@@ -1085,10 +1075,7 @@ export default function ChatScreen({
       materializedProjectDraftSessionIdRef.current = null
     }
   }, [session.currentSessionId, currentSessionMeta, draftProjectId])
-  const projectWorkingDir = useMemo(
-    () => currentProject?.workingDir ?? null,
-    [currentProject],
-  )
+  const projectWorkingDir = useMemo(() => currentProject?.workingDir ?? null, [currentProject])
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
     ? "session"
@@ -1109,7 +1096,7 @@ export default function ChatScreen({
   const ensureWorkflowSession = useCallback(async (): Promise<string | null> => {
     if (session.currentSessionId) return session.currentSessionId
     if (draftIncognito) {
-      toast.error(t("workspace.workflow.incognito", "无痕会话不持久化 workflow"))
+      toast.error(t("workspace.workflow.incognito", "无痕会话不持久化工作流"))
       return null
     }
 
@@ -1147,20 +1134,18 @@ export default function ChatScreen({
       await reloadSessions()
       return meta.id
     } catch (err) {
-      logger.error("chat", "ChatScreen::ensureWorkflowSession", "Failed to materialize workflow session", err)
-      toast.error(t("workspace.workflow.sessionCreateFailed", "创建 workflow 会话失败"), {
+      logger.error(
+        "chat",
+        "ChatScreen::ensureWorkflowSession",
+        "Failed to materialize workflow session",
+        err,
+      )
+      toast.error(t("workspace.workflow.sessionCreateFailed", "创建工作流会话失败"), {
         description: err instanceof Error ? err.message : String(err),
       })
       return null
     }
-  }, [
-    draftIncognito,
-    draftProjectId,
-    draftWorkingDir,
-    reloadSessions,
-    session,
-    t,
-  ])
+  }, [draftIncognito, draftProjectId, draftWorkingDir, reloadSessions, session, t])
 
   // Wrap moveSessionToProject so the sidebar also reloads — otherwise the
   // moved session keeps rendering under the old "Unassigned" group until
@@ -1671,12 +1656,7 @@ export default function ChatScreen({
       formatContextUsage(currentOverride.tokensAfter, currentModelForUsage.contextWindow) ??
       baseUsage
     )
-  }, [
-    currentModelForUsage,
-    manualCompactOverride,
-    session.currentSessionId,
-    session.messages,
-  ])
+  }, [currentModelForUsage, manualCompactOverride, session.currentSessionId, session.messages])
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -1716,38 +1696,40 @@ export default function ChatScreen({
     }
   }, [session.currentAgentId])
 
-  const runCompactContextForCurrentSession = useCallback(async (): Promise<CompactResult | null> => {
-    const sid = session.currentSessionId
-    if (!sid || compactingRef.current) return null
+  const runCompactContextForCurrentSession =
+    useCallback(async (): Promise<CompactResult | null> => {
+      const sid = session.currentSessionId
+      if (!sid || compactingRef.current) return null
 
-    const noticeId = `manual-compact:${sid}:${Date.now()}`
-    compactingRef.current = true
-    setCompacting(true)
-    session.updateSessionMessages(sid, (prev) =>
-      upsertManualCompactNotice(prev, makeCompactProgressEvent(), noticeId),
-    )
+      const noticeId = `manual-compact:${sid}:${Date.now()}`
+      compactingRef.current = true
+      setCompacting(true)
+      session.updateSessionMessages(sid, (prev) =>
+        upsertManualCompactNotice(prev, makeCompactProgressEvent(), noticeId),
+      )
 
-    try {
-      const result = await compactContextNow(sid)
-      session.updateSessionMessages(sid, (prev) =>
-        upsertManualCompactNotice(prev, makeCompactResultEvent(result), noticeId),
-      )
-      return result
-    } catch (e) {
-      session.updateSessionMessages(sid, (prev) =>
-        upsertManualCompactNotice(prev, makeCompactFailedEvent(), noticeId),
-      )
-      throw e
-    } finally {
-      compactingRef.current = false
-      setCompacting(false)
-    }
-  }, [session])
+      try {
+        const result = await compactContextNow(sid)
+        session.updateSessionMessages(sid, (prev) =>
+          upsertManualCompactNotice(prev, makeCompactResultEvent(result), noticeId),
+        )
+        return result
+      } catch (e) {
+        session.updateSessionMessages(sid, (prev) =>
+          upsertManualCompactNotice(prev, makeCompactFailedEvent(), noticeId),
+        )
+        throw e
+      } finally {
+        compactingRef.current = false
+        setCompacting(false)
+      }
+    }, [session])
 
   // ── Slash Command Action Handler ──────────────────────────────
   const handleCommandAction = useCallback(
     async (result: CommandResult) => {
       const action = result.action
+      const commandSessionId = result._sessionId ?? session.currentSessionId ?? null
 
       // Skip history rows for session-spawning commands and skill passThrough
       // (the real user bubble already shows "/skillname args"). Other slash
@@ -1799,8 +1781,8 @@ export default function ChatScreen({
         )
       }
       if (slashHistoryMessages.length > 0) {
-        if (session.currentSessionId) {
-          session.updateSessionMessages(session.currentSessionId, (prev) => [
+        if (commandSessionId) {
+          session.updateSessionMessages(commandSessionId, (prev) => [
             ...prev,
             ...slashHistoryMessages,
           ])
@@ -1883,6 +1865,15 @@ export default function ChatScreen({
           break
         case "setToolPermission":
           stream.setPermissionModeByUser(action.mode)
+          break
+        case "setWorkflowMode":
+          if (commandSessionId) {
+            window.dispatchEvent(
+              new CustomEvent(WORKFLOW_MODE_CHANGED_EVENT, {
+                detail: { sessionId: commandSessionId, mode: action.mode },
+              }),
+            )
+          }
           break
         case "displayOnly":
           // Already handled above by adding event message
@@ -2101,6 +2092,7 @@ export default function ChatScreen({
           commandText,
         })
         result._slashCommandText = commandText
+        result._sessionId = sid
         await handleCommandAction(result)
         chatGoal.refresh()
         return true
@@ -2314,18 +2306,21 @@ export default function ChatScreen({
     [stream],
   )
   // Reveal a quoted file in the browser: open the files panel + signal target.
-  const handleQuoteJump = useCallback((q: QuotePayload) => {
-    setShowFilesPanel(true)
-    showRightPanelByUser("files")
-    revealQuoteNonce.current += 1
-    setRevealFile({
-      path: q.path,
-      name: q.name,
-      startLine: q.startLine,
-      endLine: q.endLine,
-      nonce: revealQuoteNonce.current,
-    })
-  }, [showRightPanelByUser])
+  const handleQuoteJump = useCallback(
+    (q: QuotePayload) => {
+      setShowFilesPanel(true)
+      showRightPanelByUser("files")
+      revealQuoteNonce.current += 1
+      setRevealFile({
+        path: q.path,
+        name: q.name,
+        startLine: q.startLine,
+        endLine: q.endLine,
+        nonce: revealQuoteNonce.current,
+      })
+    },
+    [showRightPanelByUser],
+  )
 
   // 打开并激活 Workspace 面板（状态条点击 / 重新打开）。
   const openWorkspacePanel = useCallback(() => {
@@ -2365,12 +2360,12 @@ export default function ChatScreen({
     }
   }, [hasOpenExclusiveRightPanel, rightPanelCollapsed])
 
-  const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current ? 0 : panelWidth
+  const preferredSidebarWidthForResponsive = userSidebarCollapsedPreferenceRef.current
+    ? 0
+    : panelWidth
   const responsiveRightPanelWidth = clampResponsiveRightPanelWidth(rightPanelWidth)
   const rightPanelCollapseAt =
-    preferredSidebarWidthForResponsive +
-    CHAT_MAIN_MIN_INTERACTIVE_WIDTH +
-    responsiveRightPanelWidth
+    preferredSidebarWidthForResponsive + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + responsiveRightPanelWidth
   const rightPanelExpandAt = rightPanelCollapseAt + RESPONSIVE_PANEL_HYSTERESIS
   const sidebarCollapseAt =
     panelWidth + CHAT_MAIN_MIN_INTERACTIVE_WIDTH + SIDEBAR_AUTO_COLLAPSE_GUTTER
@@ -2378,13 +2373,9 @@ export default function ChatScreen({
   const shouldAutoCollapseRightPanel = useViewportMediaQuery(
     `(max-width: ${rightPanelCollapseAt}px)`,
   )
-  const shouldAutoExpandRightPanel = useViewportMediaQuery(
-    `(min-width: ${rightPanelExpandAt}px)`,
-  )
+  const shouldAutoExpandRightPanel = useViewportMediaQuery(`(min-width: ${rightPanelExpandAt}px)`)
   const rightPanelOverlay =
-    hasOpenExclusiveRightPanel &&
-    manualRightPanelExpandedOverride &&
-    shouldAutoCollapseRightPanel
+    hasOpenExclusiveRightPanel && manualRightPanelExpandedOverride && shouldAutoCollapseRightPanel
   const shouldAutoCollapseSidebar = useViewportMediaQuery(`(max-width: ${sidebarCollapseAt}px)`)
   const shouldAutoExpandSidebar = useViewportMediaQuery(`(min-width: ${sidebarExpandAt}px)`)
 
@@ -2554,10 +2545,13 @@ export default function ChatScreen({
         : t("chat.browserExtensionRequired.openSettings", {
             defaultValue: "Open Settings > Browser to install or enable the extension.",
           })
-      toast(t("chat.browserExtensionRequired.title", { defaultValue: "Chrome extension required" }), {
-        id: "browser-extension-required",
-        description: [reason, next].filter(Boolean).join("\n"),
-      })
+      toast(
+        t("chat.browserExtensionRequired.title", { defaultValue: "Chrome extension required" }),
+        {
+          id: "browser-extension-required",
+          description: [reason, next].filter(Boolean).join("\n"),
+        },
+      )
     })
     return () => {
       try {
@@ -3027,6 +3021,7 @@ export default function ChatScreen({
                       onStop={stream.handleStop}
                       currentSessionId={session.currentSessionId}
                       currentAgentId={session.currentAgentId}
+                      onEnsureSession={ensureWorkflowSession}
                       onCommandAction={handleCommandAction}
                       permissionMode={stream.permissionMode}
                       onPermissionModeChange={stream.setPermissionModeByUser}
@@ -3053,9 +3048,7 @@ export default function ChatScreen({
                             : !!projectWorkingDir
                       }
                       workingDirSaving={workingDirSaving}
-                      onWorkingDirChange={
-                        effectiveProjectId ? undefined : handleWorkingDirChange
-                      }
+                      onWorkingDirChange={effectiveProjectId ? undefined : handleWorkingDirChange}
                       planState={planMode.planState}
                       onEnterPlanMode={planMode.enterPlanMode}
                       onExitPlanMode={planMode.exitPlanMode}
@@ -3169,9 +3162,7 @@ export default function ChatScreen({
             collapsed={rightPanelCollapsed}
             overlay={rightPanelOverlay}
             reservedMainWidth={rightPanelReservedMainWidth}
-            visible={
-              shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"
-            }
+            visible={shouldRenderRightPanelContent && renderedExclusiveRightPanel === "canvas"}
           />
 
           {/* Browser live-mirror panel — open on first `browser:frame` push,

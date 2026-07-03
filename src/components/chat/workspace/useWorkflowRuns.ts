@@ -215,7 +215,16 @@ export function useWorkflowRuns(
       }, WORKFLOW_EVENT_REFRESH_DEBOUNCE_MS)
     }
     const maybeRefreshForRun = (payload: unknown) => {
-      if (isWorkflowRunPayload(payload) && payload.sessionId !== sessionId) return
+      if (isWorkflowRunPayload(payload)) {
+        if (payload.sessionId !== sessionId) return
+        setRuns((current) => {
+          const existing = current.findIndex((run) => run.id === payload.id)
+          if (existing < 0) return [payload, ...current]
+          const next = [...current]
+          next[existing] = { ...next[existing], ...payload }
+          return next
+        })
+      }
       scheduleRefresh()
     }
     const refresh = () => scheduleRefresh()

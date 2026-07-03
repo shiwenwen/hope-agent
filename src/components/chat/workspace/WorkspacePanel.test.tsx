@@ -20,9 +20,13 @@ const envMock = vi.hoisted(() => ({
 
 const transportMock = vi.hoisted(() => ({
   supportsLocalFileOps: vi.fn(() => true),
-  call: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<unknown>>((name: string) =>
-    Promise.resolve(name === "get_background_job" ? null : []),
-  ),
+  call: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<unknown>>((name: string) => {
+    if (name === "get_background_job") return Promise.resolve(null)
+    if (name === "get_coding_trend_report") return Promise.resolve(null)
+    if (name === "get_lsp_status") return Promise.resolve(null)
+    if (name === "get_lsp_diagnostics") return Promise.resolve(null)
+    return Promise.resolve([])
+  }),
   listen: vi.fn<
     (eventName: string, handler: (payload: unknown) => void) => () => void
   >(() => () => {}),
@@ -76,9 +80,13 @@ beforeEach(() => {
   transportMock.supportsLocalFileOps.mockReturnValue(true)
   // KnowledgeSection (useSessionKnowledge) fetches attachments + subscribes to
   // knowledge:changed — stub both so the panel mounts in tests.
-  transportMock.call.mockImplementation((name: string) =>
-    Promise.resolve(name === "get_background_job" ? null : []),
-  )
+  transportMock.call.mockImplementation((name: string) => {
+    if (name === "get_background_job") return Promise.resolve(null)
+    if (name === "get_coding_trend_report") return Promise.resolve(null)
+    if (name === "get_lsp_status") return Promise.resolve(null)
+    if (name === "get_lsp_diagnostics") return Promise.resolve(null)
+    return Promise.resolve([])
+  })
   transportMock.listen.mockImplementation(() => () => {})
 })
 
@@ -367,7 +375,7 @@ describe("WorkspacePanel environment section", () => {
 })
 
 describe("WorkspacePanel workflow section", () => {
-  it("shows an actionable coding empty state before any workflow run exists", async () => {
+  it("shows an actionable workflow empty state before any workflow run exists", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "list_workflow_runs") return Promise.resolve([])
       if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
@@ -380,12 +388,12 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("准备开始 Coding run")).toBeTruthy()
+    expect(await screen.findByText("准备开始工作流运行")).toBeTruthy()
     expect(screen.getByText("已设置")).toBeTruthy()
 
-    fireEvent.click(screen.getByRole("button", { name: "开始 Coding run" }))
+    fireEvent.click(screen.getByRole("button", { name: "开始工作流运行" }))
 
-    expect(screen.getByLabelText("从 coding 目标开始")).toBeTruthy()
+    expect(screen.getByLabelText("从目标开始")).toBeTruthy()
   })
 
   it("lets the user change the session execution mode from the workspace", async () => {
@@ -431,7 +439,7 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    fireEvent.click(await screen.findByRole("button", { name: "新建 Workflow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }))
 
     const script = `export default async function main(workflow) {
   const task = await workflow.task.create({ title: "Run" });
@@ -462,7 +470,7 @@ describe("WorkspacePanel workflow section", () => {
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_workflow_run", {
         sessionId: "s1",
-        kind: "coding.workflow",
+        kind: "general.workflow",
         executionMode: "guarded",
         scriptSource: script,
         budget: { maxScriptSecs: 180, maxOps: 24, maxOutputTokens: 10000 },
@@ -493,8 +501,8 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    fireEvent.click(await screen.findByRole("button", { name: "新建 Workflow" }))
-    fireEvent.change(screen.getByLabelText("从 coding 目标开始"), {
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }))
+    fireEvent.change(screen.getByLabelText("从目标开始"), {
       target: { value: "修复设置页保存 Provider 后没有刷新状态的问题" },
     })
     fireEvent.click(screen.getByRole("button", { name: "生成可预检草稿" }))
@@ -513,7 +521,6 @@ describe("WorkspacePanel workflow section", () => {
     expect(previewedScript).toContain("修复设置页保存 Provider 后没有刷新状态的问题")
     expect(previewedScript).toContain("workflow.spawnAgent")
     expect(previewedScript).toContain("workflow.waitAll")
-    expect(previewedScript).toContain("workflow.validate")
     expect(previewedScript).toContain("Budget:")
 
     fireEvent.click(await screen.findByRole("button", { name: "创建并运行" }))
@@ -523,7 +530,7 @@ describe("WorkspacePanel workflow section", () => {
         "create_workflow_run",
         expect.objectContaining({
           sessionId: "s1",
-          kind: "coding.workflow",
+          kind: "general.workflow",
           executionMode: "guarded",
           budget: { maxScriptSecs: 180, maxOps: 24, maxOutputTokens: 10000 },
           runImmediately: true,
@@ -556,10 +563,10 @@ describe("WorkspacePanel workflow section", () => {
       },
     )
 
-    fireEvent.click(await screen.findByRole("button", { name: "新建 Workflow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }))
     expect(screen.getByText("预检时会自动创建并切换到一个新会话")).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText("从 coding 目标开始"), {
+    fireEvent.change(screen.getByLabelText("从目标开始"), {
       target: { value: "实现自动创建 workflow 会话" },
     })
     fireEvent.click(screen.getByRole("button", { name: "生成可预检草稿" }))
@@ -589,6 +596,46 @@ describe("WorkspacePanel workflow section", () => {
     })
   })
 
+  it("materializes a draft chat session before enabling workflow mode", async () => {
+    const onEnsureSession = vi.fn(() => Promise.resolve("s-created"))
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "get_workflow_mode") return Promise.resolve({ mode: "off" })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "off" })
+      if (name === "set_workflow_mode") return Promise.resolve({ mode: args?.mode ?? "on" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      if (name === "get_coding_trend_report") return Promise.resolve(null)
+      if (name === "get_lsp_status") return Promise.resolve(null)
+      if (name === "get_lsp_diagnostics") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel(
+      {
+        workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+        git: null,
+      },
+      {
+        sessionId: null,
+        sessionMeta: null,
+        onEnsureSession,
+      },
+    )
+
+    const enableWorkflowButton = (await screen.findAllByRole("button")).find((button) =>
+      button.textContent?.includes("模型按需编排"),
+    )
+    expect(enableWorkflowButton).toBeTruthy()
+    fireEvent.click(enableWorkflowButton!)
+
+    await waitFor(() => {
+      expect(onEnsureSession).toHaveBeenCalledTimes(1)
+      expect(transportMock.call).toHaveBeenCalledWith("set_workflow_mode", {
+        sessionId: "s-created",
+        mode: "on",
+      })
+    })
+  })
+
   it("keeps goal-driven workflow drafts stopped when no working directory is set", async () => {
     transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === "list_workflow_runs") return Promise.resolve([])
@@ -601,12 +648,12 @@ describe("WorkspacePanel workflow section", () => {
 
     renderPanel(null)
 
-    fireEvent.click(await screen.findByRole("button", { name: "新建 Workflow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }))
     expect(
       screen.getByText("当前会话未设置工作目录；目标草稿会先创建为待启动，设置目录后再运行。"),
     ).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText("从 coding 目标开始"), {
+    fireEvent.change(screen.getByLabelText("从目标开始"), {
       target: { value: "修复设置页保存 Provider 后没有刷新状态的问题" },
     })
     fireEvent.click(screen.getByRole("button", { name: "生成可预检草稿" }))
@@ -661,7 +708,7 @@ describe("WorkspacePanel workflow section", () => {
 
     renderPanel(null)
 
-    fireEvent.click(await screen.findByRole("button", { name: "新建 Workflow" }))
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }))
     fireEvent.click(screen.getByRole("button", { name: /高级脚本/ }))
     fireEvent.change(screen.getByLabelText("Script"), {
       target: {
@@ -920,7 +967,7 @@ describe("WorkspacePanel workflow section", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "取消" })[0])
 
-    expect(screen.getByText("取消这个 workflow run？")).toBeTruthy()
+    expect(screen.getByText("取消这个工作流运行？")).toBeTruthy()
     expect(screen.getByText(/已有 trace 会保留/)).toBeTruthy()
     expect(transportMock.call).not.toHaveBeenCalledWith("cancel_workflow_run", expect.anything())
 
@@ -932,10 +979,19 @@ describe("WorkspacePanel workflow section", () => {
   })
 
   it("disables the cancel confirmation when the run becomes terminal while the dialog is open", async () => {
-    const listeners = new Map<string, (payload: unknown) => void>()
+    const listeners = new Map<string, Array<(payload: unknown) => void>>()
     transportMock.listen.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
-      listeners.set(eventName, handler)
-      return () => listeners.delete(eventName)
+      const handlers = listeners.get(eventName) ?? []
+      handlers.push(handler)
+      listeners.set(eventName, handlers)
+      return () => {
+        const next = (listeners.get(eventName) ?? []).filter((current) => current !== handler)
+        if (next.length > 0) {
+          listeners.set(eventName, next)
+        } else {
+          listeners.delete(eventName)
+        }
+      }
     })
     let currentRun = workflowRun({ state: "running" })
     transportMock.call.mockImplementation((name: string) => {
@@ -951,7 +1007,7 @@ describe("WorkspacePanel workflow section", () => {
 
     expect((await screen.findAllByText("coding.feature")).length).toBeGreaterThan(0)
     fireEvent.click(screen.getAllByRole("button", { name: "取消" })[0])
-    expect(screen.getByText("取消这个 workflow run？")).toBeTruthy()
+    expect(screen.getByText("取消这个工作流运行？")).toBeTruthy()
 
     currentRun = workflowRun({
       state: "completed",
@@ -959,7 +1015,9 @@ describe("WorkspacePanel workflow section", () => {
       completedAt: "2026-01-01T00:03:00Z",
     })
     act(() => {
-      listeners.get("workflow:updated")?.(currentRun)
+      for (const handler of listeners.get("workflow:updated") ?? []) {
+        handler(currentRun)
+      }
     })
 
     await waitFor(() => {
@@ -1090,7 +1148,7 @@ describe("WorkspacePanel workflow section", () => {
         return Promise.resolve(
           workflowRun({
             id: "wf-repair",
-            kind: "coding.workflow",
+            kind: "general.workflow",
             state: "draft",
             parentRunId: "wf-1",
             origin: "repair",
@@ -1114,18 +1172,18 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成修复草稿" }))
 
     await waitFor(() => {
-      expect(screen.getByLabelText("从 coding 目标开始")).toBeTruthy()
+      expect(screen.getByLabelText("从目标开始")).toBeTruthy()
     })
-    const objective = screen.getByLabelText("从 coding 目标开始") as HTMLTextAreaElement
+    const objective = screen.getByLabelText("从目标开始") as HTMLTextAreaElement
     fireEvent.click(screen.getByRole("button", { name: /高级脚本/ }))
     const script = screen.getByLabelText("Script") as HTMLTextAreaElement
-    expect(objective.value).toContain("继续修复失败的 workflow run wf-1")
+    expect(objective.value).toContain("继续修复失败的工作流运行 wf-1")
     expect(objective.value).toContain("expected value to be true")
     expect(script.value).toContain("expected value to be true")
     expect(script.value).toContain("workflow.spawnAgent")
     expect(screen.getByText("修复自 wf-1")).toBeTruthy()
-    expect(screen.getByText(/不会覆盖原 run/)).toBeTruthy()
-    expect(screen.getByRole("button", { name: "创建修复 run" })).toBeTruthy()
+    expect(screen.getByText(/不会覆盖原运行/)).toBeTruthy()
+    expect(screen.getByRole("button", { name: "创建修复运行" })).toBeTruthy()
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith(
@@ -1137,7 +1195,7 @@ describe("WorkspacePanel workflow section", () => {
       )
     })
     expect(await screen.findByText("预检通过")).toBeTruthy()
-    expect(previewedRepairScript).toContain("继续修复失败的 workflow run wf-1")
+    expect(previewedRepairScript).toContain("继续修复失败的工作流运行 wf-1")
     expect(previewedRepairScript).toContain("expected value to be true")
 
     fireEvent.click(screen.getByRole("button", { name: "复制修复提示" }))
@@ -1146,20 +1204,20 @@ describe("WorkspacePanel workflow section", () => {
       expect(writeText).toHaveBeenCalledTimes(1)
     })
     const prompt = String(writeText.mock.calls[0]?.[0] ?? "")
-    expect(prompt).toContain("Workflow 失败上下文")
+    expect(prompt).toContain("工作流失败上下文")
     expect(prompt).toContain("state: failed")
     expect(prompt).toContain("main/op#2(workflow.validate)")
     expect(prompt).toContain("pnpm test")
     expect(prompt).toContain("expected value to be true")
 
-    fireEvent.click(screen.getByRole("button", { name: "创建修复 run" }))
+    fireEvent.click(screen.getByRole("button", { name: "创建修复运行" }))
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith(
         "create_workflow_run",
         expect.objectContaining({
           sessionId: "s1",
-          kind: "coding.workflow",
+          kind: "general.workflow",
           executionMode: "guarded",
           parentRunId: "wf-1",
           origin: "repair",
@@ -1201,7 +1259,7 @@ describe("WorkspacePanel workflow section", () => {
     renderPanel(null)
 
     expect(await screen.findByText("修复自 wf-parent")).toBeTruthy()
-    expect(await screen.findByText("已生成修复 run wf-grandchild")).toBeTruthy()
+    expect(await screen.findByText("已生成修复运行 wf-grandchild")).toBeTruthy()
   })
 
   it("uses the latest repair source when switching between failed workflow runs", async () => {
@@ -1251,7 +1309,7 @@ describe("WorkspacePanel workflow section", () => {
         return Promise.resolve(
           workflowRun({
             id: "wf-repair",
-            kind: "coding.workflow",
+            kind: "general.workflow",
             state: "draft",
             parentRunId: String(args?.parentRunId ?? ""),
             origin: "repair",
@@ -1269,14 +1327,14 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成修复草稿" }))
     expect(await screen.findByText("修复自 wf-old")).toBeTruthy()
 
-    fireEvent.click(screen.getByRole("button", { name: "另有 2 个历史 run" }))
+    fireEvent.click(screen.getByRole("button", { name: "另有 2 个历史运行" }))
     fireEvent.click(screen.getByRole("button", { name: /coding\.new/ }))
     expect((await screen.findAllByText("wf-new failed")).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole("button", { name: "生成修复草稿" }))
     expect(await screen.findByText("修复自 wf-new")).toBeTruthy()
     expect(await screen.findByText("预检通过")).toBeTruthy()
 
-    fireEvent.click(screen.getByRole("button", { name: "创建修复 run" }))
+    fireEvent.click(screen.getByRole("button", { name: "创建修复运行" }))
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith(

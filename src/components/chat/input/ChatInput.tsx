@@ -23,6 +23,8 @@ import {
   Quote,
   Undo2,
   Target,
+  GitPullRequest,
+  Sparkles,
   Loader2,
   PauseCircle,
   PlayCircle,
@@ -85,6 +87,51 @@ import type { AgentConfig } from "@/components/settings/types"
 import type { QuickPromptItem } from "@/types/quickPrompts"
 import type { GoalSnapshot } from "../workspace/useGoal"
 
+type WorkflowMode = "off" | "on" | "ultracode"
+
+const WORKFLOW_MODE_CHANGED_EVENT = "hope-agent:workflow-mode-changed"
+
+function normalizeWorkflowMode(value: unknown): WorkflowMode {
+  const raw =
+    typeof value === "string"
+      ? value
+      : typeof value === "object" && value !== null && "mode" in value
+        ? (value as { mode?: unknown }).mode
+        : null
+  return raw === "on" || raw === "ultracode" ? raw : "off"
+}
+
+function nextWorkflowMode(mode: WorkflowMode): WorkflowMode {
+  if (mode === "off") return "on"
+  if (mode === "on") return "ultracode"
+  return "off"
+}
+
+function workflowModeLabel(t: ReturnType<typeof useTranslation>["t"], mode: WorkflowMode): string {
+  switch (mode) {
+    case "off":
+      return t("chat.workflowMode.off", "关闭")
+    case "on":
+      return t("chat.workflowMode.on", "开启")
+    case "ultracode":
+      return t("chat.workflowMode.ultracode", "Ultracode")
+  }
+}
+
+function workflowModeToggleTip(
+  t: ReturnType<typeof useTranslation>["t"],
+  mode: WorkflowMode,
+): string {
+  switch (mode) {
+    case "off":
+      return t("chat.workflowMode.enable", "开启工作流模式")
+    case "on":
+      return t("chat.workflowMode.enableUltracode", "切换到 Ultracode")
+    case "ultracode":
+      return t("chat.workflowMode.disable", "关闭工作流模式")
+  }
+}
+
 interface ChatInputProps {
   input: string
   onInputChange: (value: string) => void
@@ -116,6 +163,8 @@ interface ChatInputProps {
   // Slash command support
   currentSessionId?: string | null
   currentAgentId?: string
+  /** Materializes a draft conversation before applying session-scoped modes. */
+  onEnsureSession?: () => Promise<string | null>
   onCommandAction?: (result: CommandResult) => void
   // Tool permission mode
   permissionMode: SessionMode
@@ -237,6 +286,7 @@ export default function ChatInput({
   onStop,
   currentSessionId,
   currentAgentId = DEFAULT_AGENT_ID,
+  onEnsureSession,
   onCommandAction,
   permissionMode,
   onPermissionModeChange,
@@ -291,6 +341,9 @@ export default function ChatInput({
   const [goalEditObjective, setGoalEditObjective] = useState("")
   const [goalEditCriteria, setGoalEditCriteria] = useState("")
   const [goalActionPending, setGoalActionPending] = useState<string | null>(null)
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("off")
+  const [workflowModeLoading, setWorkflowModeLoading] = useState(false)
+  const [workflowModeSaving, setWorkflowModeSaving] = useState<WorkflowMode | null>(null)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -352,6 +405,7 @@ export default function ChatInput({
     onCommandAction: onCommandAction ?? (() => {}),
     sessionId: currentSessionId ?? null,
     agentId: currentAgentId,
+    ensureSession: onEnsureSession,
   }
   const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
   const voice = useVoiceInput()
@@ -371,6 +425,45 @@ export default function ChatInput({
     setGoalEditOpen(false)
     setGoalActionPending(null)
   }, [activeGoal?.id, activeGoal?.objective, activeGoal?.completionCriteria])
+
+  useEffect(() => {
+    if (!currentSessionId || incognitoEnabled) {
+      setWorkflowMode("off")
+      setWorkflowModeLoading(false)
+      setWorkflowModeSaving(null)
+      return
+    }
+    let cancelled = false
+    setWorkflowModeLoading(true)
+    getTransport()
+      .call<unknown>("get_workflow_mode", { sessionId: currentSessionId })
+      .then((next) => {
+        if (cancelled) return
+        setWorkflowMode(normalizeWorkflowMode(next))
+      })
+      .catch((e) => {
+        if (cancelled) return
+        logger.error("ui", "ChatInput::loadWorkflowMode", "Failed to load workflow mode", e)
+      })
+      .finally(() => {
+        if (!cancelled) setWorkflowModeLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentSessionId, incognitoEnabled])
+
+  useEffect(() => {
+    const onWorkflowModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string | null; mode?: unknown }>).detail
+      if (!detail || detail.sessionId !== currentSessionId) return
+      setWorkflowMode(normalizeWorkflowMode(detail.mode))
+      setWorkflowModeSaving(null)
+      setWorkflowModeLoading(false)
+    }
+    window.addEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
+    return () => window.removeEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
+  }, [currentSessionId])
 
   /**
    * Caret anchor captured at `voice.start()` time. While recording, the
@@ -789,6 +882,10 @@ export default function ChatInput({
   const goalToggleTip = goalComposerMode
     ? t("chat.goalMode.activeTip", "正在设置目标")
     : t("chat.goalMode.enter", "进入目标模式")
+  const workflowToggleLabel = t("chat.workflowMode.label", "工作流")
+  const workflowToggleTip = workflowModeToggleTip(t, workflowMode)
+  const workflowModeActive = workflowMode !== "off"
+  const WorkflowModeIcon = workflowMode === "ultracode" ? Sparkles : GitPullRequest
   const activeGoalStateLabel = (() => {
     switch (activeGoal?.state) {
       case "active":
@@ -830,6 +927,52 @@ export default function ChatInput({
       return
     }
     setGoalComposerMode((value) => !value)
+  }
+
+  const updateWorkflowMode = useCallback(
+    async (nextMode: WorkflowMode) => {
+      if (incognitoEnabled) {
+        toast.error(t("chat.workflowMode.incognito", "无痕会话不启用工作流模式"))
+        return
+      }
+      const targetSessionId = currentSessionId ?? (await onEnsureSession?.())
+      if (!targetSessionId) {
+        if (!onEnsureSession) {
+          toast.error(t("chat.workflowMode.sessionRequired", "先创建会话后再开启工作流模式"))
+        }
+        return
+      }
+      if (nextMode === workflowMode || workflowModeSaving) return
+      setWorkflowModeSaving(nextMode)
+      try {
+        const next = await getTransport().call<unknown>("set_workflow_mode", {
+          sessionId: targetSessionId,
+          mode: nextMode,
+        })
+        const saved = normalizeWorkflowMode(next)
+        setWorkflowMode(saved)
+        window.dispatchEvent(
+          new CustomEvent(WORKFLOW_MODE_CHANGED_EVENT, {
+            detail: { sessionId: targetSessionId, mode: saved },
+          }),
+        )
+        toast.success(
+          t("chat.workflowMode.saved", "工作流模式已切换为 {{mode}}，模型下一轮会感知", {
+            mode: workflowModeLabel(t, saved),
+          }),
+        )
+      } catch (e) {
+        logger.error("ui", "ChatInput::updateWorkflowMode", "Failed to update workflow mode", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setWorkflowModeSaving(null)
+      }
+    },
+    [currentSessionId, incognitoEnabled, onEnsureSession, t, workflowMode, workflowModeSaving],
+  )
+
+  const handleWorkflowModeToggle = () => {
+    void updateWorkflowMode(nextWorkflowMode(workflowMode))
   }
 
   const runGoalAction = (key: string, action?: () => Promise<boolean>) => {
@@ -1000,10 +1143,7 @@ export default function ChatInput({
           <button
             type="button"
             aria-label={goalToggleTip}
-            className={cn(
-              overflowMenuItemClass,
-              goalComposerMode && "text-emerald-600",
-            )}
+            className={cn(overflowMenuItemClass, goalComposerMode && "text-emerald-600")}
             disabled={incognitoEnabled}
             onClick={() => {
               setShowOverflowMenu(false)
@@ -1012,6 +1152,29 @@ export default function ChatInput({
           >
             <Target className="h-4 w-4 shrink-0" />
             <span className="truncate">{goalToggleLabel}</span>
+          </button>
+          <button
+            type="button"
+            aria-label={workflowToggleTip}
+            className={cn(
+              overflowMenuItemClass,
+              workflowMode === "on" && "text-blue-600",
+              workflowMode === "ultracode" && "text-purple-600",
+            )}
+            disabled={incognitoEnabled || workflowModeLoading || !!workflowModeSaving}
+            onClick={() => {
+              setShowOverflowMenu(false)
+              handleWorkflowModeToggle()
+            }}
+          >
+            {workflowModeSaving ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+            ) : (
+              <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+            )}
+            <span className="truncate">
+              {workflowToggleLabel} · {workflowModeLabel(t, workflowMode)}
+            </span>
           </button>
           <button
             type="button"
@@ -1091,9 +1254,7 @@ export default function ChatInput({
 
         {/* Quick Prompt Menu (`#` popper) */}
         <QuickPromptMenu
-          isOpen={
-            quickPrompt.isOpen && !slash.isOpen && !noteMention.isOpen && !mention.isOpen
-          }
+          isOpen={quickPrompt.isOpen && !slash.isOpen && !noteMention.isOpen && !mention.isOpen}
           entries={quickPrompt.entries}
           selectedIndex={quickPrompt.selectedIndex}
           query={quickPrompt.query}
@@ -1421,6 +1582,44 @@ export default function ChatInput({
           ) : null}
         </AnimatedCollapse>
 
+        {/* Workflow Mode status — visible only when autonomous orchestration is enabled. */}
+        <AnimatedCollapse open={workflowModeActive && !incognitoEnabled}>
+          <div className="border-b border-blue-500/15 bg-blue-500/7 px-3 py-1.5 text-xs text-blue-700 dark:text-blue-300">
+            <div className="flex min-w-0 items-center gap-2">
+              <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left font-medium"
+                onClick={onOpenWorkspace}
+              >
+                {t("chat.workflowMode.active", "工作流模式")}{" "}
+                <span className="font-normal text-foreground/75">
+                  {workflowMode === "ultracode"
+                    ? t("chat.workflowMode.activeUltracodeDetail", "模型会优先使用完整动态编排")
+                    : t("chat.workflowMode.activeOnDetail", "模型可按需创建可观察的工作流运行")}
+                </span>
+              </button>
+              <span className="shrink-0 rounded-full border border-blue-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
+                {workflowModeLabel(t, workflowMode)}
+              </span>
+              <IconTip label={t("chat.workflowMode.turnOff", "关闭工作流模式")}>
+                <button
+                  type="button"
+                  className="rounded-md p-1 text-blue-700/75 transition-colors hover:bg-background/60 hover:text-blue-800 disabled:opacity-50 dark:text-blue-300/75 dark:hover:text-blue-200"
+                  disabled={!!workflowModeSaving}
+                  onClick={() => void updateWorkflowMode("off")}
+                >
+                  {workflowModeSaving === "off" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </IconTip>
+            </div>
+          </div>
+        </AnimatedCollapse>
+
         {/* Goal Mode Banner */}
         <AnimatedCollapse open={goalComposerMode}>
           <div className="flex items-center gap-2 border-b border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-700 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-emerald-300">
@@ -1463,10 +1662,10 @@ export default function ChatInput({
               goalComposerMode
                 ? t("chat.goalMode.placeholder", "描述你希望持续推进并最终完成的目标")
                 : planState === "planning"
-                ? t("planMode.placeholder")
-                : hasPendingQueue
-                  ? t("chat.pendingQueued")
-                  : t("chat.askAnything")
+                  ? t("planMode.placeholder")
+                  : hasPendingQueue
+                    ? t("chat.pendingQueued")
+                    : t("chat.askAnything")
             }
             value={input}
             onChange={setComposerInput}
@@ -1617,6 +1816,32 @@ export default function ChatInput({
                     >
                       <Target className="h-4 w-4 shrink-0" />
                       <span>{goalToggleLabel}</span>
+                    </button>
+                  </IconTip>
+                )}
+
+                {!toolbarTight && (
+                  <IconTip label={workflowToggleTip}>
+                    <button
+                      type="button"
+                      aria-label={workflowToggleTip}
+                      onClick={handleWorkflowModeToggle}
+                      disabled={incognitoEnabled || workflowModeLoading || !!workflowModeSaving}
+                      className={cn(
+                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+                        workflowMode === "on"
+                          ? "bg-blue-500/10 text-blue-600"
+                          : workflowMode === "ultracode"
+                            ? "bg-purple-500/10 text-purple-600"
+                            : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {workflowModeSaving ? (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                      ) : (
+                        <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                      )}
+                      <span>{workflowToggleLabel}</span>
                     </button>
                   </IconTip>
                 )}

@@ -1,12 +1,14 @@
-# Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案
+# Phase 2 Workflow Mode 与 Script-first Dynamic Workflow 方案
 
 > 返回 [路线图索引](README.md)
 >
-> 状态：Phase 2 方案已完成第一版产品化；后续转入 Agent 控制平面路线。
+> 状态：Phase 2 方案已完成产品化，并在 2026-07-03 按 Claude Code dynamic workflows 心智完成语义修订。
 >
-> 更新时间：2026-07-01
+> 更新时间：2026-07-03
 >
 > 路线调整：Phase 2 已完成 Workflow + Execution Mode、`/goal`、Goal-driven Workflow 和真正 `/loop` 第一版；后续顺序以 [Agent 控制平面路线图](agent-control-plane-roadmap.md) 为准，进入 Phase 3 coding-specific 能力，并把 Loop 增强作为独立后续项。
+
+> 2026-07-03 语义修订：本文文件名中的 `coding-mode` 是历史阶段名，不再代表 workflow 只能用于编码。当前产品语义已经对齐 Claude Code dynamic workflows：用户开启 session 级 Workflow Mode 后，模型在下一轮自行判断是否需要写 JavaScript workflow 并通过 `workflow_run` 启动后台 run；`/workflow on|off|ultracode` 与 GUI 入口控制的是“模型是否可自主动态编排”，`/workflow runs|trace|approve|pause|resume|cancel` 管理的是具体 run。Workflow 能力是通用的，coding 只是最先产品化的一组模板。
 
 ## 0. 设计修订说明（2026-06-30 Review 收口）
 
@@ -22,7 +24,7 @@
 | op 生命周期 + 副作用恰好一次   | replay 未定义"已发起未记录"崩溃窗口，非幂等写可能重复 | [runtime §3](workflow-script-runtime.md)                 |
 | 位置化 op-key + fan-out 物化   | 模型手写字面量 id 脆；结果驱动扇出重放错位            | [runtime §4](workflow-script-runtime.md)，本文 §8.1/§8.5 |
 | 确定性靠 runtime throw 非 lint | 能力沙箱与确定性混在一个 denylist，denylist 易逃逸    | [runtime §4.3](workflow-script-runtime.md)，本文 §8.5    |
-| repair 系统侧编排              | 脚本内 repair 改 script_hash 使整 run replay 失效     | [runtime §7](workflow-script-runtime.md)，本文 §10.4     |
+| 有界 repair loop + 脚本不可变  | 脚本改写会让 script_hash 失效；无界循环会咬死长任务  | [runtime §7](workflow-script-runtime.md)，本文 §10.4     |
 | Primary-only 执行/恢复         | 未定执行进程，多实例会双跑                            | [runtime §5](workflow-script-runtime.md)，本文 §10.1     |
 | coordinator 不占 worker 槽     | 父占槽等子 = 死锁                                     | [runtime §8](workflow-script-runtime.md)，本文 §12.2     |
 | incognito × workflow 互斥      | durable 持久化与"关闭即焚"冲突                        | 本文 §13.1                                               |
@@ -35,26 +37,28 @@
 
 ## 1. 设计结论
 
-Phase 2 不应把当前内置第三方 coding skills 直接产品化，也不应先做一个静态结构化 workflow 状态机。新的方向是：
+Phase 2 不应把当前内置第三方 coding skills 直接产品化，也不应先做一个静态结构化 workflow 状态机。修订后的方向是：
 
 ```text
-Hope-native coding skills
-  + script-first dynamic workflow
+General Workflow Mode
+  + model-authored script-first dynamic workflow
   + durable workflow run / trace / budget / permission
   + existing Plan / Task / Subagent / Async Jobs / Hooks / Permission
+  + Hope-native coding skills as one domain template
 ```
 
 一句话：
 
-> workflow 可以像 Claude Code 那样由脚本动态编排，但 Hope 必须把长任务稳定性、可恢复、可观察、权限、性能和用户体验作为底座。
+> workflow 应像 Claude Code dynamic workflows 一样由模型按任务需要写脚本并在后台执行，但 Hope 必须把长任务稳定性、可恢复、可观察、权限、性能和用户体验作为底座。
 
 Phase 2 的第一优先级：
 
 1. 审计并隔离第三方移植 skills。
-2. 重写 Hope 原生 coding skill suite。
-3. 设计并实现 script-first workflow runtime MVP。
-4. 让 workflow 脚本通过受控 host API 调用现有 Hope 子系统。
-5. 所有长任务必须可恢复、可取消、可解释、可审计。
+2. 设计 session 级 Workflow Mode，让模型在开启后自主决定是否创建 workflow，而不是要求用户每次手动建 run。
+3. 重写 Hope 原生 coding skill suite，作为 coding 领域模板，而不是 workflow 的唯一适用场景。
+4. 设计并实现 script-first workflow runtime MVP。
+5. 让 workflow 脚本通过受控 host API 调用现有 Hope 子系统。
+6. 所有长任务必须可恢复、可取消、可解释、可审计。
 
 ## 2. 背景与问题
 
@@ -186,13 +190,13 @@ workflow 脚本不能直接拿：
 
 ```ts
 await workflow.tool({ name, args, label? })
-await workflow.spawnAgent({ task, agent?, label? })
+await workflow.spawnAgent({ task, agent_id?, label?, timeout_secs? })
 await workflow.task.create({ title, label? })
 await workflow.task.update({ task, status, label? })
 await workflow.askUser({ question, context?, label? })
 await workflow.trace({ payload, label? })
 await workflow.validate({ commands, reason, label? })
-await workflow.finish(result)
+await workflow.finish({ summary, verification?, residualRisk? })
 ```
 
 所有 host API 内部继续走原有工具、权限、hooks、async job、subagent 队列。
@@ -225,7 +229,7 @@ workflow 不是黑盒。默认可见：
 - repair 原因。
 - 停止原因。
 - 预算消耗。
-- Workspace Workflow Control Center 里可直接切换当前会话 execution mode；标题栏 `Coding` 入口在 run active / waiting / failed 时显示 badge；新建 workflow 前先预检 Script Gate 与 permission preview，只有通过后才能创建；普通创建从 coding 目标开始，脚本编辑收进高级区；已有 run 可看到总览、审批焦点、授权清单、Trace timeline、Validation 命令明细、Agents 分视图、失败恢复建议；历史 run 超过首屏预览时可展开选择；Trace op/event 支持展开原始详情并复制；并可复制包含 run 状态、失败 op、验证输出、最近事件的修复提示，或直接由失败上下文生成并自动预检下一版修复 workflow 草稿；修复草稿会显示来源 run，并用修复专用创建文案避免误解为覆盖原 run。
+- Workspace Workflow Control Center 里可直接切换当前会话 workflow mode 与 execution mode；标题栏 `Workflow` 入口在 run active / waiting / failed 时显示 badge；新建 workflow 前先预检 Script Gate 与 permission preview，只有通过后才能创建；普通创建从目标开始，脚本编辑收进高级区；已有 run 可看到总览、审批焦点、授权清单、Trace timeline、Validation 命令明细、Agents 分视图、失败恢复建议；历史 run 超过首屏预览时可展开选择；Trace op/event 支持展开原始详情并复制；并可复制包含 run 状态、失败 op、验证输出、最近事件的修复提示，或直接由失败上下文生成并自动预检下一版修复 workflow 草稿；修复草稿会显示来源 run，并用修复专用创建文案避免误解为覆盖原 run。
 
 ### 4.6 Performance by state externalization
 
@@ -359,11 +363,11 @@ native skills -> workflow policy candidate
 - vendor skills 标记为 reference / optional。
 - docs 明确来源和非默认地位。
 
-## 7. Track B：Coding Mode Profile
+## 7. Track B：Coding Task Profile（历史设计）
 
 ### 7.1 目标
 
-Coding Mode Profile 不负责执行 workflow，只负责描述当前 coding 任务应该使用什么行为策略。
+本节是历史 Track B 设计，当前产品不再新增全局 `Coding Mode`。保留的语义是轻量 coding task profile：它不负责执行 workflow，只负责在编码任务中描述应该使用什么行为策略，并作为 Workflow Mode 的领域模板之一。
 
 ```rust
 CodingSessionProfile {
@@ -553,14 +557,15 @@ workflow_events
 | `workflow.fileSearch({ query, limit?, label? })`                                             | 文件搜索                                                         | `filesystem::search_files`               |
 | `workflow.read({ path, label? })`                                                            | 读文件快捷方式                                                   | `read` tool                              |
 | `workflow.grep({ pattern, path?, label? })`                                                  | 内容搜索                                                         | `grep` tool                              |
-| `workflow.spawnAgent({ task, agent?, label?, ... })`                                         | 子代理                                                           | `subagent`                               |
-| `workflow.waitAll(handles, { label?, concurrency? })`                                        | 等待多任务                                                       | async job / subagent status              |
+| `workflow.spawnAgent({ task, agent_id?, label?, timeout_secs?, ... })`                       | 子代理                                                           | `subagent`                               |
+| `workflow.waitAll(handles, { timeout?, label? })`                                            | 等待多任务                                                       | async job / subagent status              |
 | `workflow.task.create({ title, label? })` / `workflow.task.update({ task, status, label? })` | 用户可见进度；`create` 返回 task handle，`update` 按 handle 定位 | `task_create/update`                     |
 | `workflow.validate({ commands, reason, label? })`                                            | 验证命令                                                         | `exec` async job + AGENTS 策略           |
 | `workflow.askUser({ question, context?, label? })`                                           | 人工 gate                                                        | `ask_user`                               |
 | `workflow.trace({ payload, label? })`                                                        | trace event                                                      | `workflow_events`                        |
 | `workflow.diff({ label? })`                                                                  | diff snapshot                                                    | git / session artifacts                  |
-| `workflow.finish(result)`                                                                    | 完成                                                             | `workflow_runs.state`                    |
+| `workflow.now()` / `workflow.random(seed)`                                                   | 确定性时间 / 随机源                                              | runtime deterministic helper             |
+| `workflow.finish({ summary, verification?, residualRisk? })`                                 | 完成                                                             | `workflow_runs.state`                    |
 
 MVP 不提供：
 
@@ -581,7 +586,7 @@ MVP 不提供：
    - 禁 `eval`
    - 禁 `Function`
    - 禁 dynamic import
-   - 禁 raw `Date.now` / `Math.random` / `new Date()`，改用 `workflow.now()` / `workflow.random(seed)`
+   - 禁 raw `Date.now` / `Math.random` / `new Date()`，改用已实现的 `workflow.now()` / `workflow.random(seed)`
    - op 身份由 runtime 按执行位置生成，模型无需也不应手写字面量 id（见 §8.3）
 2. 预算检查：
    - max runtime
@@ -695,7 +700,7 @@ Draft
 
 ### 10.4 No-progress 检测
 
-**repair 由 runtime 系统侧编排，不在脚本内循环（红线）**：脚本/模板只描述"一轮怎么跑"，单 run 内 script_hash 不可变；validate 失败 → 生成 structured feedback 作为下一轮 op 输入注入，而非改写脚本（脚本改写会使整 run replay 失效，与"同 run 内 repair"矛盾）。详见 [runtime §7](workflow-script-runtime.md)。
+**repair loop 必须有界且脚本不可变（红线）**：允许脚本调用已落地的 `workflow.repairLoop(...)` helper 做 bounded repair；真正的修复动作仍由 callback 内的动态 JS 决定，不能退化成结构化 DSL。禁止在同一 run 内改写 `workflow.js` 或生成新的脚本继续跑，因为 script_hash 变化会让 replay 失效。详见 [runtime §7](workflow-script-runtime.md)。
 
 每轮 repair 记录：
 
@@ -726,9 +731,9 @@ AwaitingUser 或 Blocked
 右侧 Workspace 面板新增 Workflow Control Center：
 
 - Execution mode：当前会话 `off / guarded / deep / autonomous` 常驻切换。
-- Goal-driven draft：普通用户先填写 coding 目标，一键生成可预检 `workflow.js` 草稿；草稿默认编排观察、子 Agent 实现、`waitAll`、单点验证、diff、finish，并按 execution mode 带保守脚本预算。生成脚本必须显式带预算提示，避免 Script Gate 把目标式草稿误判为无界脚本。
+- Goal-driven draft：普通用户先填写目标，一键生成可预检 `workflow.js` 草稿；草稿默认编排观察、子 Agent 执行、`waitAll`、证据/产物检查、diff、finish，并按 execution mode 带保守脚本预算。生成脚本必须显式带预算提示，避免 Script Gate 把目标式草稿误判为无界脚本。
 - Session / workspace guard：没有当前会话时，新建入口要说明预检会自动物化并切换到一个真实会话；物化时继承草稿态 agent / project / workingDir，并保持 Workspace 面板打开，避免用户先手动发一条消息、切一次会话或重新打开面板。当前会话没有工作目录时，目标式草稿只能默认创建为 `draft`，并提示设置目录后再运行，避免 GUI 一键启动落到不确定目录。
-- Script draft：普通路径先写 coding 目标并生成草稿，`workflow.js` 编辑默认折叠到高级脚本区；高级用户仍可填写 kind、选择 execution mode、编辑 `workflow.js`、选择是否创建后立即运行。
+- Script draft：普通路径先写目标并生成草稿，`workflow.js` 编辑默认折叠到高级脚本区；高级用户仍可填写 kind、选择 execution mode、编辑 `workflow.js`、选择是否创建后立即运行。
 - Preflight：创建前不落库调用 `preview_workflow_script`，展示 Script Gate 阻塞项 / 修复建议、permission preview 授权清单、是否需要审批、是否存在确定 deny。
 - Run list：本会话 workflow runs、active 数、状态和快捷操作；超过首屏预览时提供展开 / 收起，避免较早失败 run 只能被提示但无法选择。
 - Overview：run 状态、execution mode、更新时间、script hash、op 进度、validation / agents 计数。
@@ -920,7 +925,7 @@ stop reason if any
 
 ### Phase 2.5：Embedded script runtime MVP
 
-状态：2026-06-30 已落 QuickJS/rquickjs runtime foundation：`workflow.js` 受控执行、`export default main(workflow)` 入口、无 raw fs/network/process/env host binding、memory/stack/timeout guard、`Date.now` / `new Date()` / `Math.random` runtime throw、位置化 `main/op#N(api)`、`task.create/update`（handle 定位）/ `fileSearch` / `tool/read/grep` / `workflow.map` / `spawnAgent` / `waitAll` / `validate`（async exec job attach）/ `askUser` / `diff` / `trace` / `finish` 首批 host API、Completed op replay、Started non-idempotent op fail-closed Blocked、Primary-only startup recovery runner。无外部 LLM 单测覆盖脚本执行、Script Gate 执行前阻断、动态 `Math.random` 访问被 runtime 阻断、已完成 `task.create` replay 不重复建 task、`workflow.map` 已物化 fan-out 列表并生成 `map/item#i/op#N` 嵌套位置键，`read/grep/tool` 经 `execute_tool_with_context` 桥接、`workflow.spawnAgent` / `workflow.waitAll` 经现有 `subagent` 工具桥接且 completed replay 不重复调度、`spawnAgent` 预分配 child_handle 并可在 started replay 时 attach / 缺 row 则同 handle 重试，新增真实工具路径 E2E 覆盖 `workflow.spawnAgent -> subagent tool -> spawn_subagent_with_run_id -> subagent_runs/background_jobs`（通过并发上限稳定停在 Queued，证明 durable spawn / projection），并新增 mock-provider 回复型 fan-out E2E 覆盖 `workflow.spawnAgent -> child run_chat_engine -> OpenAI Chat provider adapter -> waitAll`（两个子 Agent 均完成并汇总结果）、`workflow.validate` 预分配 async job child_handle、可在 started replay 时 attach / 缺 row 同 job id 重试，并返回结构化 validation 结果、显式 `workflow.tool({ args: { run_in_background: true } })` 预分配 async job child_handle、started replay 可 attach 既有 job / 缺 row 同 job id 重试、`workflow.askUser` 复用既有 ask-user 工具且无人值守 surface 先 fail-closed / 按配置 proceed、`workflow.diff` 返回 session workspace 的 git diff snapshot、`Started` 的 `tool:exec` 不盲目重跑、recovery runner CAS claim 后 replay 且不抢已 claim run，startup-like 单测覆盖 async job replay 标 interrupted 后 workflow recovery 继续完成且不重复 task；执行前 permission preview 第一版已落：创建 run 记录 `script_permission_preview`，Draft 执行前对静态 workflow host call 复用 permission engine 预览，动态工具调用先转 `awaiting_approval`，owner `approve_workflow_run` 后继续；Workspace Panel 已接入 workflow run 列表 / trace 摘要 / approve / pause / resume / cancel，并补 Trace / Validation / Agents 三视图；slash command 已接 `/workflow status|trace|approve|pause|resume|cancel`；`/mode off|guarded|deep|autonomous` 已升级为持久化 session policy（`sessions.execution_mode` + Tauri/HTTP owner API + system prompt 注入）；guarded repair stop guard 已落地（validation failure repair event、重复 fingerprint / 无有效 diff 进展 → Blocked）。外部真实 provider smoke 只作为体验抽检，不再是实现完成的唯一证据。
+状态：2026-06-30 已落 QuickJS/rquickjs runtime foundation：`workflow.js` 受控执行、`export default main(workflow)` 入口、无 raw fs/network/process/env host binding、memory/stack/timeout guard、`Date.now` / `new Date()` / `Math.random` runtime throw、确定性 `workflow.now()` / `workflow.random(seed)` helper、位置化 `main/op#N(api)`、`task.create/update`（handle 定位）/ `fileSearch` / `tool/read/grep` / `workflow.map` / `spawnAgent` / `waitAll` / `validate`（async exec job attach）/ `askUser` / `diff` / `trace` / `finish` 首批 host API、Completed op replay、Started non-idempotent op fail-closed Blocked、Primary-only startup recovery runner。无外部 LLM 单测覆盖脚本执行、Script Gate 执行前阻断、动态 `Math.random` 访问被 runtime 阻断、已完成 `task.create` replay 不重复建 task、`workflow.map` 已物化 fan-out 列表并生成 `map/item#i/op#N` 嵌套位置键，`read/grep/tool` 经 `execute_tool_with_context` 桥接、`workflow.spawnAgent` / `workflow.waitAll` 经现有 `subagent` 工具桥接且 completed replay 不重复调度、`spawnAgent` 预分配 child_handle 并可在 started replay 时 attach / 缺 row 则同 handle 重试，新增真实工具路径 E2E 覆盖 `workflow.spawnAgent -> subagent tool -> spawn_subagent_with_run_id -> subagent_runs/background_jobs`（通过并发上限稳定停在 Queued，证明 durable spawn / projection），并新增 mock-provider 回复型 fan-out E2E 覆盖 `workflow.spawnAgent -> child run_chat_engine -> OpenAI Chat provider adapter -> waitAll`（两个子 Agent 均完成并汇总结果）、`workflow.validate` 预分配 async job child_handle、可在 started replay 时 attach / 缺 row 同 job id 重试，并返回结构化 validation 结果、显式 `workflow.tool({ args: { run_in_background: true } })` 预分配 async job child_handle、started replay 可 attach 既有 job / 缺 row 同 job id 重试、`workflow.askUser` 复用既有 ask-user 工具且无人值守 surface 先 fail-closed / 按配置 proceed、`workflow.diff` 返回 session workspace 的 git diff snapshot、`Started` 的 `tool:exec` 不盲目重跑、recovery runner CAS claim 后 replay 且不抢已 claim run，startup-like 单测覆盖 async job replay 标 interrupted 后 workflow recovery 继续完成且不重复 task；执行前 permission preview 第一版已落：创建 run 记录 `script_permission_preview`，Draft 执行前对静态 workflow host call 复用 permission engine 预览，动态工具调用先转 `awaiting_approval`，owner `approve_workflow_run` 后继续；Workspace Panel 已接入 workflow run 列表 / trace 摘要 / approve / pause / resume / cancel，并补 Trace / Validation / Agents 三视图；slash command 已升级为 `/workflow on|off|ultracode|status|runs|trace|approve|pause|resume|cancel`，其中 on/ultracode 是 session 级 Workflow Mode 开关，开启后模型在后续回合自主判断是否调用 `workflow_run`；`/mode off|guarded|deep|autonomous` 已升级为持久化 session policy（`sessions.execution_mode` + Tauri/HTTP owner API + system prompt 注入）；guarded repair stop guard 已落地（validation failure repair event、重复 fingerprint / 无有效 diff 进展 → Blocked）。外部真实 provider smoke 只作为体验抽检，不再是实现完成的唯一证据。
 
 实现：
 
@@ -936,16 +941,20 @@ stop reason if any
 - 重启后 replay 不重复已完成 host call（Completed op 单测已覆盖；startup-like async job replay → workflow recovery 顺序单测已覆盖）。
 - Draft script 执行前能产出 permission preview；动态工具调用先进入 `awaiting_approval`，owner approve 后才可继续。
 
-### Phase 2.6：Workflow Panel
+### Phase 2.6：Workflow Mode 与 Workflow Control Center
 
-状态：2026-07-01 已落 Workflow Control Center v2：标题栏提供显性 `Coding` 入口，点击打开同一个 Workspace / Workflow 控制台，并在 active / waiting / failed run 存在时显示状态 badge；Workspace Panel 内展示本会话 workflow runs、active 数、状态、execution mode、总览进度、permission preview 授权清单、approval 焦点、Trace timeline、Validation / Agents 分视图、blocked/failed reason、当前焦点 / 下一步卡片、恢复建议、可复制修复提示与一键修复草稿生成；没有 run 时显示可操作空态，直接呈现当前 execution mode / 工作目录状态，并提供主按钮展开创建表单；run 超过首屏预览时提供历史展开 / 收起，用户可选择较早失败 run 并从该 run 生成修复草稿；当前焦点卡会把 running / recovering / awaiting_user / awaiting_approval / paused / failed / blocked / completed 等状态转成用户可理解的“正在执行哪一步 / 卡在哪里 / 看哪个详情页”，并可一键跳到 Trace、Validation 或 Agents；Trace 会把失败 / 运行中步骤和关键事件置顶，同时保留步骤预览与原始序号，避免长 run 固定预览吞掉真正卡点，op/event 原始 payload 可展开和复制；Validation / Agents 页头提供通过 / 失败 / 运行统计，便于扫读；审批/失败/阻塞态不再叠加语义重复的 warning/error notice，保留“当前焦点 + 授权清单/修复动作”的清晰层级；新建入口从“目标驱动”开始，用户填写 coding 目标后一键生成可预检 `workflow.js` 草稿，草稿默认编排观察、子 Agent 实现、`waitAll`、单点验证、diff、finish，并按 execution mode 带保守脚本预算；脚本编辑默认收在高级脚本区，高级用户仍可填写 kind、选择 execution mode、编辑 `workflow.js` 并选择创建后立即运行；无当前会话时预检会自动物化真实 session 并继承草稿态 agent / project / workingDir，且 Workspace 保持打开；无工作目录时只能创建 draft，不允许误触发立即运行；创建前通过不落库 `preview_workflow_script` 同时展示 Script Gate 阻塞项 / 修复建议与 permission preview 授权清单，Tauri/HTTP owner create API 也强制复用同一 preflight，只有 gate 通过且没有确定 deny 时才允许创建；Validation tab 展开每条验证命令的 job status / exit code / output 摘要，并在 validation failure 时自动聚焦；失败/阻塞态可一键复制包含 run 状态、失败 op、验证输出和最近事件的修复提示，或直接把这段上下文写入下一版 goal-driven workflow 草稿并自动触发预检，草稿区显示来源 run、说明会创建新的修复 run 且不覆盖原 run，并使用修复专用创建文案；修复 run 创建时通过 `parentRunId` / `origin=repair` 持久记录来源，父子 run 都写派生事件，刷新后仍可在详情卡和 Trace 中追踪；连续切换不同失败 run 后创建修复 run 会使用当前选中 run 的来源，不串到旧 run；提供 run draft / approve / pause / resume / cancel；`paused` run 在 DB op guard 层拒绝启动新 op，pause 会释放旧 `primary_owner`，resume 后可被新的 primary owner 重新 claim，避免按钮显示恢复但 runtime 因旧 owner 不继续；owner cancel 先把 run 转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children，并写 `run_child_cancel_requested` trace event；GUI cancel 前弹确认，说明会停止 run 与 workflow-owned children 且保留 trace；Tauri 与 HTTP 共用 owner API（preview / create / run / list / get / approve / pause / resume / cancel）。`approve` / `resume` 会异步 kick workflow runtime，避免只改状态不执行；workflow run 刷新走 `workflow:*` EventBus + 短 debounce，并在 WS lag / 页面回前台 / active run 运行期间用低频轮询兜底；窄屏 / 移动宽度下用户主动打开所有右侧互斥面板（含 Workspace/Workflow、Files、Browser、Canvas、Mac Control、Team、Background Jobs、Preview）都走 fixed overlay，不再被桌面 split-pane 挤到视口外；`/workflow` slash command 可列 run、看 trace、执行 approve / pause / resume / cancel；`/mode` 已持久化到会话级 `execution_mode`，GUI 也可直接切换，并在下一轮 system prompt 注入 guarded/deep/autonomous 的执行策略与停止条件。
+状态：2026-07-03 已完成语义升级。2026-07-01 的 Workflow Control Center v2 仍保留为可观察、可审批、可恢复的 run 管理面；新增 session 级 Workflow Mode 后，普通主路径变成：用户在输入框或 Workspace 开启 `off/on/ultracode`，下一轮模型看到 `workflow_run` 工具和 Workflow Mode prompt，自行判断是否要写脚本并启动后台 run。`/workflow on|off|ultracode|status` 控制模型自主编排能力，`/workflow runs|trace|approve|pause|resume|cancel` 管理具体 run。Workflow 不再被定义为 coding-only；coding 草稿只是手动高级入口的一种领域模板。
+
+已落能力包括：标题栏提供显性 `Workflow`/Workspace 入口，点击打开同一个 Workspace / Workflow 控制台，并在 active / waiting / failed run 存在时显示状态 badge；输入框提供工作流模式入口，开启后输入框上方常驻显示 Workflow Mode 状态；Workspace Panel 内展示本会话 workflow runs、active 数、workflow mode、execution mode、总览进度、permission preview 授权清单、approval 焦点、Trace timeline、Validation / Agents 分视图、blocked/failed reason、当前焦点 / 下一步卡片、恢复建议、可复制修复提示与一键修复草稿生成；没有 run 时显示可操作空态，直接呈现当前 workflow mode、execution mode / 工作目录状态，并提供主按钮展开创建表单；run 超过首屏预览时提供历史展开 / 收起，用户可选择较早失败 run 并从该 run 生成修复草稿；当前焦点卡会把 running / recovering / awaiting_user / awaiting_approval / paused / failed / blocked / completed 等状态转成用户可理解的“正在执行哪一步 / 卡在哪里 / 看哪个详情页”，并可一键跳到 Trace、Validation 或 Agents；Trace 会把失败 / 运行中步骤和关键事件置顶，同时保留步骤预览与原始序号，避免长 run 固定预览吞掉真正卡点，op/event 原始 payload 可展开和复制；Validation / Agents 页头提供通过 / 失败 / 运行统计，便于扫读；审批/失败/阻塞态不再叠加语义重复的 warning/error notice，保留“当前焦点 + 授权清单/修复动作”的清晰层级；新建入口从“目标驱动”开始，用户填写目标后一键生成可预检 `workflow.js` 草稿，草稿默认编排观察、子 Agent 执行、`waitAll`、证据/产物检查、diff、finish，并按 execution mode 带保守脚本预算；脚本编辑默认收在高级脚本区，高级用户仍可填写 kind、选择 execution mode、编辑 `workflow.js` 并选择创建后立即运行；无当前会话时预检会自动物化真实 session 并继承草稿态 agent / project / workingDir，且 Workspace 保持打开；无工作目录时只能创建 draft，不允许误触发立即运行；创建前通过不落库 `preview_workflow_script` 同时展示 Script Gate 阻塞项 / 修复建议与 permission preview 授权清单，Tauri/HTTP owner create API 也强制复用同一 preflight，只有 gate 通过且没有确定 deny 时才允许创建；Validation tab 展开每条验证命令的 job status / exit code / output 摘要，并在 validation failure 时自动聚焦；失败/阻塞态可一键复制包含 run 状态、失败 op、验证输出和最近事件的修复提示，或直接把这段上下文写入下一版 goal-driven workflow 草稿并自动触发预检，草稿区显示来源 run、说明会创建新的修复 run 且不覆盖原 run，并使用修复专用创建文案；修复 run 创建时通过 `parentRunId` / `origin=repair` 持久记录来源，父子 run 都写派生事件，刷新后仍可在详情卡和 Trace 中追踪；连续切换不同失败 run 后创建修复 run 会使用当前选中 run 的来源，不串到旧 run；提供 run draft / approve / pause / resume / cancel；`paused` run 在 DB op guard 层拒绝启动新 op，pause 会释放旧 `primary_owner`，resume 后可被新的 primary owner 重新 claim，避免按钮显示恢复但 runtime 因旧 owner 不继续；owner cancel 先把 run 转 `cancelled`，再 best-effort 取消 workflow-owned async tool / validation / subagent children，并写 `run_child_cancel_requested` trace event；GUI cancel 前弹确认，说明会停止 run 与 workflow-owned children 且保留 trace；Tauri 与 HTTP 共用 owner API（preview / create / run / list / get / approve / pause / resume / cancel / get_workflow_mode / set_workflow_mode）。`approve` / `resume` 会异步 kick workflow runtime，避免只改状态不执行；workflow run 刷新走 `workflow:*` EventBus + 短 debounce，并在 WS lag / 页面回前台 / active run 运行期间用低频轮询兜底；窄屏 / 移动宽度下用户主动打开所有右侧互斥面板（含 Workspace/Workflow、Files、Browser、Canvas、Mac Control、Team、Background Jobs、Preview）都走 fixed overlay，不再被桌面 split-pane 挤到视口外；`/mode` 已持久化到会话级 `execution_mode`，GUI 也可直接切换，并在下一轮 system prompt 注入 guarded/deep/autonomous 的执行策略与停止条件。
 
 实现：
 
 - Execution mode GUI 控制。
-- 标题栏 `Coding` 入口：显性进入 Workspace / Workflow 控制台，并用 badge 显示 active / waiting / failed run，避免只能靠 `/workflow` 命令或打开面板后才发现状态。
+- Workflow Mode GUI 控制：输入框入口 + 输入框上方常驻状态 + Workspace segmented control，支持 `off/on/ultracode`，状态双向同步。
+- 模型工具面：`workflow_run` 仅在 Workflow Mode 开启且非无痕时注入；执行层二次校验，创建 run 后默认立即进入 preflight / approval / runtime。
+- 标题栏 `Workflow` / Workspace 入口：显性进入 Workspace / Workflow 控制台，并用 badge 显示 active / waiting / failed run，避免只能靠 `/workflow` 命令或打开面板后才发现状态。
 - 无 run 空态启动面板：展示当前 execution mode / 工作目录状态，并一键展开创建表单。
-- Goal-driven create form：coding 目标 → 生成可预检 workflow 草稿；草稿态新对话会在预检前自动物化为真实 session 并继承 draft workingDir，默认创建后运行。
+- Goal-driven create form：目标 → 生成可预检 workflow 草稿；草稿态新对话会在预检前自动物化为真实 session 并继承 draft workingDir，默认创建后运行。
 - Script draft create form：kind / execution mode / `workflow.js` / run immediately。
 - Script draft preflight：创建前 Script Gate / permission preview / approval need / deny blocker。
 - Run list + history expand / Overview / current focus + next-step jump / permission notice + call checklist / Trace timeline + op/event detail expand/copy / Validation command details / Agents / blocked or failed reason + recovery hint + repair prompt copy + repair draft generation + auto-preflight + origin-aware repair create copy。
@@ -955,7 +964,7 @@ stop reason if any
 - Pause / resume runtime guard：paused run 拒绝启动新 op；pause 清理 owner，resume 后 runtime launcher 可重新 claim。
 - Cancel child cleanup：owner cancel 会 best-effort 取消 workflow-owned async tool / validation / subagent children，并保留 trace event；GUI cancel 前确认，防止误触发长任务停止。
 - Output token budget：goal-driven 草稿按 execution mode 写入 `maxOutputTokens`；run list 与详情总览展示 `输出预算` 用量，budget exhausted 事件进入关键事件 / Trace；runtime 达上限会阻断后续 LLM op 并转 `Blocked`。
-- `/workflow status|trace|approve|pause|resume|cancel`。
+- `/workflow on|off|ultracode|status|runs|trace|approve|pause|resume|cancel`。
 - `/mode off|guarded|deep|autonomous` 持久化控制入口。
 
 验收：
@@ -972,7 +981,7 @@ stop reason if any
 本阶段把原先容易混淆的“loop mode”彻底收口为 `/mode` execution mode：
 
 - `/mode off|guarded|deep|autonomous` 是会话级执行策略。
-- `/workflow` 是一次具体、可观察、可恢复的执行编排。
+- `/workflow` 是会话级 Workflow Mode 开关和具体 run 管理入口；`workflow_run` 创建的一次 run 才是具体、可观察、可恢复的执行编排。
 - `/goal` 已成为长期任务的顶层完成标准，见 [Goal 控制平面](../architecture/goal.md)。
 - `/loop` 只用于定时、重复触发或条件轮询。
 

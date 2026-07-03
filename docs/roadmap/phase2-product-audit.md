@@ -1,17 +1,17 @@
 # Phase 2 产品级完成审计
 
-> 返回 [路线图索引](README.md) · 上层方案 [Phase 2 Coding Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md) · 收口清单 [Phase 2 完整目标与验收清单](phase2-completion-checklist.md)
+> 返回 [路线图索引](README.md) · 上层方案 [Phase 2 Workflow Mode 与 Script-first Dynamic Workflow 方案](phase2-coding-mode-dynamic-workflow.md) · 收口清单 [Phase 2 完整目标与验收清单](phase2-completion-checklist.md)
 >
-> 更新时间：2026-07-01
+> 更新时间：2026-07-03
 >
-> 状态：Phase 2 第一版产品级完成审计。本文仍放在 `docs/roadmap/`，因为 workflow 子系统还在快速迭代；稳定后再沉淀到 `docs/architecture/`。
+> 状态：Phase 2 第一版产品级完成审计；2026-07-03 已按 Workflow Mode 语义补充。稳定实现已沉淀到 [Workflow Mode、Workflow Run 与 Execution Mode](../architecture/workflow.md)。
 
 ## 1. 结论
 
 Phase 2 的产品级定义不是"能跑一个命令"，而是：
 
-1. 用户能在 GUI 里发现 coding 长任务能力。
-2. 用户能用目标驱动的方式启动 workflow，而不是被迫先写脚本。
+1. 用户能在 GUI 里发现通用 Workflow Mode，并允许模型自主动态编排。
+2. 用户能用目标驱动的方式启动 workflow，而不是被迫先写脚本；coding 只是可选领域模板。
 3. 模型生成的动态脚本必须经过 Script Gate、permission preview 和必要审批。
 4. 长任务运行中必须可观察、可暂停、可恢复、可取消。
 5. 失败后必须能诊断和继续修复，而不是只得到一段终端输出。
@@ -23,10 +23,10 @@ Phase 2 的产品级定义不是"能跑一个命令"，而是：
 
 | 用户问题 | 产品级要求 | 当前证据 | 判定 |
 | --- | --- | --- | --- |
-| 我怎么知道有 coding workflow？ | 标题栏必须有显性入口，不能只靠 slash command。 | `ChatTitleBar` 支持 `workspaceWorkflowStatus`，`ChatScreen` 顶层订阅 `useWorkflowRuns` 后传入标题栏；`ChatTitleBar.test.tsx` 覆盖 `Coding` 入口和状态 badge。 | 通过 |
+| 我怎么知道有 workflow？ | 输入框和标题栏必须有显性入口，不能只靠 slash command。 | 输入框支持 Workflow Mode 入口与常驻状态；`ChatTitleBar` 支持 `workspaceWorkflowStatus`，`ChatScreen` 顶层订阅 `useWorkflowRuns` 后传入标题栏；测试覆盖 `Workflow` 入口和状态 badge。 | 通过 |
 | 长任务在等我吗？ | active / waiting / failed run 要在入口上显性提示。 | 标题栏 badge 汇总 active、attention、running；Workspace 共享同一份 `workflowRunsState`，避免面板内外状态分裂。 | 通过 |
 | 没有 run 时能不能直接开始？ | 空态必须有行动按钮、execution mode、工作目录状态。 | `WorkspacePanel.test.tsx` 覆盖无 run 空态、execution mode 切换、工作目录展示和创建入口。 | 通过 |
-| 普通用户是否必须先懂脚本？ | 默认从 coding 目标生成草稿，脚本编辑放高级区。 | Workspace 创建流为 goal-driven draft；`advancedScript` 折叠高级脚本区；测试覆盖目标草稿与高级脚本。 | 通过 |
+| 普通用户是否必须先懂脚本？ | 默认从目标生成草稿，脚本编辑放高级区；模型开启 Workflow Mode 后也可自行创建 run。 | Workspace 创建流为 goal-driven draft；`advancedScript` 折叠高级脚本区；测试覆盖目标草稿与高级脚本；`workflow_run` 仅在 Workflow Mode 开启后注入。 | 通过 |
 | 创建前能否知道风险？ | GUI 预检必须展示 Script Gate 阻断项和 permission preview。 | `preview_workflow_script` 不落库；Tauri/HTTP `create_workflow_run` 强制复用同一 preflight；Workspace 测试覆盖 preflight 阻断与审批摘要。 | 通过 |
 | 运行中能不能操作？ | draft / approve / pause / resume / cancel 都要可操作，cancel 必须确认。 | Workspace 动作走 owner API；`approve` / `resume` 会 kick runtime；cancel 弹窗说明会停止 run 与 workflow-owned children，且终态刷新后禁用 stale cancel。 | 通过 |
 | 运行中能不能看懂？ | 需要 overview、当前焦点、trace、validation、agents、预算。 | Workflow Control Center 展示 run 总览、当前焦点、Trace timeline、Validation tab、Agents tab、输出预算；测试覆盖焦点跳转、validation 明细、agents/预算统计。 | 通过 |
@@ -56,7 +56,7 @@ Phase 2 的产品级定义不是"能跑一个命令"，而是：
 | --- | --- | --- | --- |
 | Tauri owner API | 桌面 GUI 需要完整 owner 控制面。 | `src-tauri/src/commands/workflow.rs` 提供 list / get / preview / create / run / approve / pause / resume / cancel。 | 通过 |
 | HTTP owner API | server / Web GUI 与桌面能力一致。 | `crates/ha-server/src/routes/workflow.rs` 提供同等路由；`src/lib/transport-http.ts` 绑定 REST path。 | 通过 |
-| Slash command | 命令仍可作为高级入口，但不能成为唯一入口。 | `/workflow status|trace|approve|pause|resume|cancel` 与 `/mode off|guarded|deep|autonomous` 已接入；GUI 是主交互面。 | 通过 |
+| Slash command | 命令仍可作为高级入口，但不能成为唯一入口。 | `/workflow on|off|ultracode|status|runs|trace|approve|pause|resume|cancel` 与 `/mode off|guarded|deep|autonomous` 已接入；GUI 是主交互面，slash mode change 会同步输入框/Workspace。 | 通过 |
 | Event / refresh | UI 不能只靠单次请求。 | `useWorkflowRuns` 支持 `workflow:*` 事件刷新、visibility refresh、active run 低频 polling；外层状态复用避免双订阅。 | 通过 |
 | Dev-only smoke | GUI smoke 不能进入生产功能入口。 | `src/main.tsx` 只在 `window=workflow-smoke && import.meta.env.DEV` 动态导入；`pnpm build` 后 `dist` 无 `Workflow GUI Smoke` / `workflow-smoke` 匹配。 | 通过 |
 

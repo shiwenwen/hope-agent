@@ -8,14 +8,14 @@
 
 ## 1. 结论
 
-Phase 2 已完成 **Workflow + Execution Mode**，随后补齐 **Goal 第一版**、**Goal-driven Workflow** 和真正 `/loop` 第一版。
+Phase 2 已完成 **Workflow Mode + Workflow Run + Execution Mode**，随后补齐 **Goal 第一版**、**Goal-driven Workflow** 和真正 `/loop` 第一版。
 
 当前统一关系：
 
 ```text
 Goal        = 我要最终达成什么、完成标准是什么（已实现第一版）
 Mode        = 这次会话/目标用多主动、多深的策略推进（已实现为 /mode）
-Workflow    = 一次具体、可观察、可恢复的执行编排（已实现）
+Workflow    = session 级自主编排开关 + 一次具体、可观察、可恢复的执行编排（已实现）
 Task        = 用户可见进度事实（已有，workflow 内已接入）
 Worktree    = 代码改动落在哪个隔离环境（已实现 Phase 3.1，编码场景特有）
 Loop        = 定时/重复触发或条件轮询（已实现第一版）
@@ -56,7 +56,7 @@ Loop        = 定时/重复触发或条件轮询（已实现第一版）
 | --- | --- | --- | --- | --- |
 | Goal | 已实现第一版 | `/goal` + Workflow Control Center Goal strip | `goals` / `goal_events` / `goal_links`，HTTP `/api/sessions/{id}/goal` / `/api/goals/{id}` | 长期任务顶层对象；完整实现见 [Goal 控制平面](../architecture/goal.md)。 |
 | Mode | 已实现 | `/mode` + Workflow Control Center | `sessions.execution_mode`，`get_execution_mode` / `set_execution_mode`，HTTP `/api/sessions/{id}/execution-mode` | 会话级执行策略：`off` / `guarded` / `deep` / `autonomous`。 |
-| Workflow | 已实现 | `/workflow` + Workflow Control Center | `workflow_runs.execution_mode`、`workflow_ops`、`workflow_events` | 一次具体 run，保存创建时的 execution mode 快照。 |
+| Workflow Mode / Workflow Run | 已实现 | `/workflow` + 输入框 Workflow Mode + Workflow Control Center | `sessions.workflow_mode`、`workflow_runs.execution_mode`、`workflow_ops`、`workflow_events`，HTTP `/api/sessions/{id}/workflow-mode` | Workflow Mode 决定模型是否可自主调用 `workflow_run`；Workflow Run 是具体后台脚本执行，保存创建时的 execution mode 快照。 |
 | Task | 已有并接入 workflow | Workflow UI / `workflow.task.*` | session task store + workflow host API | 用户可见进度事实，不靠 label 定位，按 create 返回 handle 更新。 |
 | Loop | 已实现第一版 | `/loop` + Workspace Loop 区块 | `loop_schedules` / `loop_runs`，HTTP `/api/sessions/{id}/loops` / `/api/loops/{id}` | 只用于真正重复触发、轮询或定时继续；完整实现见 [Loop 控制平面](../architecture/loop.md)。 |
 | Worktree | 已实现 Phase 3.1 | Workspace 环境面板 + Workflow 创建运行位置 | `managed_worktrees`，HTTP `/api/sessions/{id}/worktrees` / `/api/worktrees/{id}` | 代码改动隔离环境，偏 coding-specific；完整实现见 [Managed Worktree 控制平面](../architecture/worktree.md)。 |
@@ -137,12 +137,20 @@ Context Retrieval v2 则把这些分散的 coding 控制面信号收束成 Works
 
 `/workflow` 回答的是：
 
-> 这一次具体怎么执行？执行到哪一步了？能否审批、暂停、恢复、取消、修复？
+> 模型是否可以自主动态编排？这一次具体 run 执行到哪一步了？能否审批、暂停、恢复、取消、修复？
 
-Workflow 是可审计 run，而不是长期目标本身。一个未来的 Goal 可以派生多个 WorkflowRun；一个 WorkflowRun 也可以作为失败后的修复 run 派生出新的 WorkflowRun。
+Workflow 分两层：
+
+- Workflow Mode：session 级开关，`off/on/ultracode`。开启后模型在下一轮看到 `workflow_run` 工具和 Workflow Mode prompt，自行判断任务是否值得写脚本并启动后台 run。
+- Workflow Run：可审计 run，而不是长期目标本身。一个 Goal 可以派生多个 WorkflowRun；一个 WorkflowRun 也可以作为失败后的修复 run 派生出新的 WorkflowRun。
 
 当前已落能力：
 
+- `sessions.workflow_mode`。
+- `/workflow on|off|ultracode|status|runs`。
+- 输入框 Workflow Mode 入口与常驻状态。
+- Workspace / Workflow Control Center Workflow Mode 控件。
+- `workflow_run` 模型工具按 session mode 可见，执行层二次校验。
 - `workflow.js` 受控 QuickJS runtime。
 - durable `workflow_runs` / `workflow_ops` / `workflow_events`。
 - Script Gate、permission preview、approval。
@@ -219,8 +227,8 @@ Goal 应保存：
 这些能力不是只能用于 coding：
 
 - Goal：通用。
-- Mode：通用，但当前 prompt 文案偏 coding-first。
-- Workflow：通用 runtime，当前模板和 GUI 入口偏 coding-first。
+- Mode：通用。
+- Workflow Mode / Workflow Run：通用；coding 只是首批深度模板，非编程任务也可用模型自主 workflow 编排。
 - Task：通用。
 - Loop：通用。
 

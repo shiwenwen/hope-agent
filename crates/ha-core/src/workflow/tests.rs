@@ -1,3 +1,4 @@
+use rusqlite::params;
 use serde_json::{json, Value};
 use std::process::Command;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -294,6 +295,59 @@ fn workflow_run_rejects_incognito_sessions() {
         })
         .expect_err("incognito must be rejected");
     assert!(err.to_string().contains("incognito"));
+}
+
+#[test]
+fn create_workflow_run_links_empty_managed_worktree_reverse_binding() {
+    let (dir, db) = temp_db();
+    let session = db.create_session("ha-main").expect("create session");
+    let worktree_id = "mwt_reverse_link";
+    let now = chrono::Utc::now().to_rfc3339();
+    let repo_root = dir.path().join("repo");
+    let worktree_path = dir.path().join("workflow-worktree");
+    std::fs::create_dir_all(&repo_root).expect("repo dir");
+    std::fs::create_dir_all(&worktree_path).expect("worktree dir");
+    let repo_root = repo_root.to_string_lossy().to_string();
+    let worktree_path = worktree_path.to_string_lossy().to_string();
+
+    {
+        let conn = db.conn.lock().expect("lock session db");
+        conn.execute(
+            "INSERT INTO managed_worktrees (
+                id, session_id, child_session_id, workflow_run_id, purpose, state, label,
+                repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
+                git_branch, dirty_snapshot_json, created_at, updated_at,
+                archived_at, restored_at, handed_off_at
+             ) VALUES (
+                ?1, ?2, NULL, NULL, 'workflow', 'active', 'Workflow worktree',
+                ?3, ?3, ?4, 'HEAD', NULL, NULL,
+                NULL, NULL, ?5, ?5,
+                NULL, NULL, NULL
+             )",
+            params![worktree_id, session.id, repo_root, worktree_path, now,],
+        )
+        .expect("insert managed worktree");
+    }
+
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "general.workflow".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: "export default async function main(workflow) {}".to_string(),
+            budget: json!({ "max_runtime_secs": 300, "max_ops": 12 }),
+            parent_run_id: None,
+            origin: None,
+            goal_id: None,
+            worktree_id: Some(worktree_id.to_string()),
+        })
+        .expect("create workflow run");
+
+    let worktree = db
+        .get_managed_worktree(worktree_id)
+        .expect("get managed worktree")
+        .expect("worktree exists");
+    assert_eq!(worktree.workflow_run_id.as_deref(), Some(run.id.as_str()));
 }
 
 #[test]
@@ -940,6 +994,91 @@ fn pause_clears_owner_so_resume_can_be_reclaimed() {
 }
 
 #[test]
+fn launch_claim_sets_draft_owner_and_blocks_duplicate_launch() {
+    let (_dir, db) = temp_db();
+    let (_session_id, run_id) = create_run(&db);
+    let owner = format!("launch:pid:{}", std::process::id());
+    let duplicate_owner = format!("duplicate:pid:{}", std::process::id());
+
+    let claimed = db
+        .claim_workflow_run_for_launch(&run_id, &owner)
+        .expect("claim draft for launch")
+        .expect("draft run should be launch-claimable");
+    assert_eq!(claimed.state, WorkflowRunState::Draft);
+    assert_eq!(claimed.primary_owner.as_deref(), Some(owner.as_str()));
+
+    let duplicate = db
+        .claim_workflow_run_for_launch(&run_id, &duplicate_owner)
+        .expect("duplicate launch claim should be handled");
+    assert!(
+        duplicate.is_none(),
+        "alive launch owner must prevent duplicate runtime launch"
+    );
+
+    let events = db
+        .list_workflow_events(&run_id, 20)
+        .expect("list workflow events");
+    assert!(events.iter().any(|event| {
+        event.event_type == "run_launch_claimed"
+            && event.payload.get("fromState").and_then(Value::as_str) == Some("draft")
+            && event.payload.get("toState").and_then(Value::as_str) == Some("draft")
+    }));
+}
+
+#[test]
+fn permission_preview_clears_launch_owner_before_approval_resume() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Write" });
+  const call = {
+    name: "write",
+    args: { path: "a.txt", content: "hello" },
+    label: "write-file"
+  };
+  await workflow.tool(call);
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ ok: true });
+}
+"#;
+    let (_session_id, run_id) = create_run_with_script(&db, script);
+    let owner = format!("launch:pid:{}", std::process::id());
+    db.claim_workflow_run_for_launch(&run_id, &owner)
+        .expect("claim draft for launch")
+        .expect("draft run should be launch-claimable");
+
+    let err = run_workflow_script(db.clone(), &run_id).expect_err("preview asks first");
+    assert!(
+        err.to_string().contains("requires user approval"),
+        "{err:#}"
+    );
+    let awaiting = db
+        .get_workflow_run(&run_id)
+        .expect("get awaiting run")
+        .expect("run exists");
+    assert_eq!(awaiting.state, WorkflowRunState::AwaitingApproval);
+    assert!(
+        awaiting.primary_owner.is_none(),
+        "awaiting approval must release runtime owner so approval can resume"
+    );
+
+    let approved = db.approve_workflow_run(&run_id).expect("approve workflow");
+    assert_eq!(approved.state, WorkflowRunState::Running);
+    assert!(approved.primary_owner.is_none());
+    let resume_owner = format!("resume:pid:{}", std::process::id());
+    let claimed = db
+        .claim_workflow_run_for_launch(&run_id, &resume_owner)
+        .expect("claim approved run for launch")
+        .expect("approved run should be launch-claimable");
+    assert_eq!(claimed.state, WorkflowRunState::Recovering);
+    assert_eq!(
+        claimed.primary_owner.as_deref(),
+        Some(resume_owner.as_str())
+    );
+}
+
+#[test]
 fn recovery_runner_claims_and_replays_completed_ops_without_duplicates() {
     let (_dir, db_raw) = temp_db();
     let db = Arc::new(db_raw);
@@ -1155,6 +1294,71 @@ fn recovery_runner_does_not_steal_already_claimed_runs() {
         .expect("run exists");
     assert_eq!(run.state, WorkflowRunState::Recovering);
     assert_eq!(run.primary_owner.as_deref(), Some("other-owner"));
+}
+
+#[test]
+fn recovery_runner_reclaims_stale_pid_owned_runs() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Recover stale owner" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ summary: "recovered stale owner" });
+}
+"#;
+    let (_recovering_session_id, recovering_run_id) = create_run_with_script(&db, script);
+    let (_running_session_id, running_run_id) = create_run_with_script(&db, script);
+    let stale_owner = format!("startup:pid:{}", u32::MAX);
+
+    db.transition_workflow_run(&recovering_run_id, WorkflowRunState::Running, Some("test"))
+        .expect("recovering run enters running");
+    db.claim_workflow_run_for_recovery(&recovering_run_id, &stale_owner)
+        .expect("claim recovering run")
+        .expect("claimed recovering run");
+
+    db.transition_workflow_run(&running_run_id, WorkflowRunState::Running, Some("test"))
+        .expect("running run enters running");
+    db.claim_workflow_run_for_recovery(&running_run_id, &stale_owner)
+        .expect("claim running run")
+        .expect("claimed running run");
+    db.transition_workflow_run(
+        &running_run_id,
+        WorkflowRunState::Running,
+        Some("runtime_start"),
+    )
+    .expect("simulated crash after recovery transitioned back to running");
+
+    let recoverable_ids: Vec<String> = db
+        .list_recoverable_workflow_runs()
+        .expect("list recoverable runs")
+        .into_iter()
+        .map(|run| run.id)
+        .collect();
+    assert!(recoverable_ids.contains(&recovering_run_id));
+    assert!(recoverable_ids.contains(&running_run_id));
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime");
+    let report = runtime
+        .block_on(recover_pending_workflow_runs(db.clone(), "new-owner"))
+        .expect("recover stale-owner workflows");
+    assert_eq!(report.attempted, 2);
+    assert_eq!(report.recovered, 2);
+    assert_eq!(report.blocked, 0);
+    assert_eq!(report.failed, 0);
+    assert!(report.errors.is_empty());
+
+    for run_id in [recovering_run_id, running_run_id] {
+        let run = db
+            .get_workflow_run(&run_id)
+            .expect("get recovered run")
+            .expect("run exists");
+        assert_eq!(run.state, WorkflowRunState::Completed);
+        assert!(run.primary_owner.is_none());
+    }
 }
 
 #[test]
@@ -3262,4 +3466,55 @@ export default async function main(workflow) {
     assert_eq!(ops.len(), 1);
     assert_eq!(ops[0].op_type, "task.create");
     assert_eq!(ops[0].state, WorkflowOpState::Completed);
+}
+
+#[test]
+fn runtime_deterministic_helpers_replace_time_and_random_sources() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const budget = { max_runtime_secs: 300, max_ops: 4 };
+  const first = workflow.random("stable-seed");
+  const repeated = workflow.random("stable-seed");
+  const other = workflow.random("other-seed");
+  const task = await workflow.task.create({ title: "Use deterministic helpers" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    now: workflow.now(),
+    first,
+    repeated,
+    other,
+    budget
+  });
+}
+"#;
+    let (_session_id, run_id) = create_run_with_script(&db, script);
+    let run = db
+        .get_workflow_run(&run_id)
+        .expect("get run")
+        .expect("run exists");
+    let expected_now = chrono::DateTime::parse_from_rfc3339(&run.created_at)
+        .expect("parse created_at")
+        .timestamp_millis();
+
+    let result = run_workflow_script(db.clone(), &run_id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let output = result.output.as_ref().expect("workflow output");
+    assert_eq!(output.get("now"), Some(&json!(expected_now)));
+    assert_eq!(output.get("first"), output.get("repeated"));
+    assert_ne!(output.get("first"), output.get("other"));
+    for key in ["first", "repeated", "other"] {
+        let value = output
+            .get(key)
+            .and_then(Value::as_f64)
+            .unwrap_or_else(|| panic!("{key} should be a number: {output}"));
+        assert!((0.0..1.0).contains(&value), "{key} out of range: {value}");
+    }
+    let ops = db.list_workflow_ops(&run_id).expect("list ops");
+    assert_eq!(
+        ops.iter().map(|op| op.op_type.as_str()).collect::<Vec<_>>(),
+        vec!["task.create", "task.update", "finish"],
+        "deterministic helpers should not create durable ops"
+    );
 }

@@ -49,7 +49,7 @@ session working dir
 | `id` | `wt_*` id。 |
 | `session_id` | 拥有者会话。 |
 | `child_session_id` | 可选；subagent child session。 |
-| `workflow_run_id` | 可选；预留 workflow 反向绑定。 |
+| `workflow_run_id` | 可选；workflow 反向绑定。`create_workflow_run(worktreeId)` 会在该字段为空时回填 run id。 |
 | `purpose` | `manual` / `workflow` / `subagent`。 |
 | `state` | `active` / `archived` / `handoff`。 |
 | `label` | 展示标签，不作为身份。 |
@@ -93,6 +93,7 @@ session working dir
 - worktree 存在；
 - 属于同一 session；
 - 状态为 `active` 或 `handoff`。
+- `workflow_runs.worktree_id` 是执行期真相源；`managed_worktrees.workflow_run_id` 是 GUI / 审计 / 清理用反向索引。创建 run 时若反向索引为空，会回填 run id 并 emit `worktree:updated`；若已绑定其它 run，不覆盖。
 
 runtime 构造 `WorkflowSessionContext` 时，如果 run 绑定 `worktree_id`：
 

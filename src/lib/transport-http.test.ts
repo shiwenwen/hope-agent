@@ -109,6 +109,20 @@ test("HttpTransport maps execution mode and workflow owner commands", async () =
     expect.objectContaining({ method: "POST", body: JSON.stringify({ mode: "deep" }) }),
   )
 
+  await transport.call("get_workflow_mode", { sessionId: "s1" })
+
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "http://localhost:8420/api/sessions/s1/workflow-mode",
+    expect.objectContaining({ method: "GET", body: undefined }),
+  )
+
+  await transport.call("set_workflow_mode", { sessionId: "s1", mode: "ultracode" })
+
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "http://localhost:8420/api/sessions/s1/workflow-mode",
+    expect.objectContaining({ method: "POST", body: JSON.stringify({ mode: "ultracode" }) }),
+  )
+
   await transport.call("list_workflow_runs", { sessionId: "s1" })
 
   expect(fetchMock).toHaveBeenLastCalledWith(
@@ -135,7 +149,7 @@ test("HttpTransport maps execution mode and workflow owner commands", async () =
 
   await transport.call("create_workflow_run", {
     sessionId: "s1",
-    kind: "coding.workflow",
+    kind: "general.workflow",
     executionMode: "guarded",
     scriptSource: "export default async function main(workflow) {}",
     budget: { maxScriptSecs: 180, maxOps: 24, maxOutputTokens: 10000 },
@@ -149,7 +163,7 @@ test("HttpTransport maps execution mode and workflow owner commands", async () =
     expect.objectContaining({
       method: "POST",
       body: JSON.stringify({
-        kind: "coding.workflow",
+        kind: "general.workflow",
         executionMode: "guarded",
         scriptSource: "export default async function main(workflow) {}",
         budget: { maxScriptSecs: 180, maxOps: 24, maxOutputTokens: 10000 },

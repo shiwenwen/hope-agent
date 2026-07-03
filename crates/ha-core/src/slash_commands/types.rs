@@ -86,6 +86,8 @@ pub enum CommandAction {
     ExportFile { content: String, filename: String },
     /// Set tool permission mode for current session.
     SetToolPermission { mode: String },
+    /// Set Workflow Mode for current session.
+    SetWorkflowMode { mode: String },
     /// No side-effect, just display the `content` field.
     DisplayOnly,
     /// Show an interactive model picker card.
@@ -231,7 +233,7 @@ impl SlashCommandDef {
             "prompts" => "View system prompt",
             "recap" => "Generate a deep analysis recap report",
             "context" => "Show context window breakdown",
-            "workflow" => "Inspect and control workflow runs",
+            "workflow" => "Toggle Workflow Mode and inspect workflow runs",
             "review" => "Review local code changes",
             "goal" => "Set and audit the session goal",
             "loop" => "Schedule recurring triggers for a goal or prompt",

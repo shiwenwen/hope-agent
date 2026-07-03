@@ -4,6 +4,7 @@ use crate::execution_mode::ExecutionMode;
 use crate::session::SessionDB;
 use crate::slash_commands::types::{CommandAction, CommandResult};
 use crate::workflow::{WorkflowOp, WorkflowRun, WorkflowRunSnapshot, WorkflowRunState};
+use crate::workflow_mode::WorkflowMode;
 
 const WORKFLOW_LIST_LIMIT: usize = 12;
 const WORKFLOW_EVENT_LIMIT: usize = 40;
@@ -15,12 +16,27 @@ pub fn handle_workflow(
     session_id: Option<&str>,
     args: &str,
 ) -> Result<CommandResult, String> {
-    let sid = session_id.ok_or("No active session")?;
     let mut parts = args.split_whitespace();
     let command = parts.next().unwrap_or("status");
+    let Some(sid) = session_id else {
+        return match command {
+            "" | "status" => Ok(display_only(
+                "## Workflow Mode\n\nNo active session yet. Workflow Mode is **Off** (`off`) by default.\n\nUse `/workflow on` or the composer Workflow button to enable autonomous workflow orchestration for a new session.",
+            )),
+            "off" | "disable" | "disabled" => Ok(display_only(
+                "Workflow Mode is already **Off** (`off`) because there is no active session yet.",
+            )),
+            "help" => Ok(display_only(workflow_usage())),
+            _ => Err("No active session. Use `/workflow on` or create a chat session first.".into()),
+        };
+    };
 
     match command {
-        "" | "status" | "list" => render_workflow_list(session_db, sid),
+        "" | "status" => render_workflow_status(session_db, sid),
+        "on" | "enable" | "enabled" => set_workflow_mode(session_db, sid, WorkflowMode::On),
+        "off" | "disable" | "disabled" => set_workflow_mode(session_db, sid, WorkflowMode::Off),
+        "ultracode" | "ultra" => set_workflow_mode(session_db, sid, WorkflowMode::Ultracode),
+        "runs" | "list" => render_workflow_list(session_db, sid),
         "trace" | "show" => {
             let run_id = parts.next();
             render_workflow_trace(session_db, sid, run_id)
@@ -32,7 +48,7 @@ pub fn handle_workflow(
         "resume" => transition_workflow_run(session_db, sid, parts.next(), WorkflowCommand::Resume),
         "cancel" => transition_workflow_run(session_db, sid, parts.next(), WorkflowCommand::Cancel),
         "help" => Ok(display_only(workflow_usage())),
-        _ => Err("Usage: /workflow [status|trace|approve|pause|resume|cancel] [run_id]".into()),
+        _ => Err("Usage: /workflow [on|off|ultracode|status|runs|trace|approve|pause|resume|cancel] [run_id]".into()),
     }
 }
 
@@ -41,8 +57,18 @@ pub fn handle_mode(
     session_id: Option<&str>,
     args: &str,
 ) -> Result<CommandResult, String> {
-    let sid = session_id.ok_or("No active session")?;
     let mode = args.split_whitespace().next().unwrap_or("status");
+    let Some(sid) = session_id else {
+        return match mode {
+            "" | "status" => Ok(display_only(
+                "Current execution mode: **Off** (`off`).\n\nNo active session exists yet, so no session policy has been persisted.",
+            )),
+            "off" => Ok(display_only(
+                "Execution mode is already **Off** (`off`) because there is no active session yet.",
+            )),
+            _ => Err("No active session. Create a chat session before changing execution mode.".into()),
+        };
+    };
     match mode {
         "" | "status" => {
             let current = session_db
@@ -97,17 +123,127 @@ impl WorkflowCommand {
             WorkflowCommand::Cancel => None,
         }
     }
+
+    fn starts_runtime(&self) -> bool {
+        matches!(self, WorkflowCommand::Approve | WorkflowCommand::Resume)
+    }
+}
+
+fn session_is_incognito(session_db: &Arc<SessionDB>, sid: &str) -> Result<bool, String> {
+    session_db
+        .get_session(sid)
+        .map_err(|e| e.to_string())?
+        .map(|meta| meta.incognito)
+        .ok_or_else(|| "Session not found".to_string())
+}
+
+fn set_workflow_mode(
+    session_db: &Arc<SessionDB>,
+    sid: &str,
+    mode: WorkflowMode,
+) -> Result<CommandResult, String> {
+    if mode.enabled() && session_is_incognito(session_db, sid)? {
+        return Err(
+            "Workflow Mode is unavailable for incognito sessions because workflow runs are durable."
+                .into(),
+        );
+    }
+    session_db
+        .update_session_workflow_mode(sid, mode)
+        .map_err(|e| e.to_string())?;
+    let guidance = match mode {
+        WorkflowMode::Off => {
+            "The model will not receive the workflow_run tool in subsequent turns."
+        }
+        WorkflowMode::On => {
+            "The model may now create observable workflow runs when dynamic orchestration helps."
+        }
+        WorkflowMode::Ultracode => {
+            "The model is now biased toward exhaustive, review-heavy workflow orchestration for substantive tasks."
+        }
+    };
+    Ok(CommandResult {
+        content: format!(
+            "Workflow Mode is now **{}** (`{}`).\n\n{}",
+            mode.label(),
+            mode.as_str(),
+            guidance
+        ),
+        action: Some(CommandAction::SetWorkflowMode {
+            mode: mode.as_str().to_string(),
+        }),
+    })
+}
+
+fn render_workflow_status(session_db: &Arc<SessionDB>, sid: &str) -> Result<CommandResult, String> {
+    let incognito = session_is_incognito(session_db, sid)?;
+    let mode = session_db
+        .get_session_workflow_mode(sid)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let display_mode = if incognito { WorkflowMode::Off } else { mode };
+    let runs = session_db
+        .list_workflow_runs_for_session(sid, WORKFLOW_LIST_LIMIT)
+        .map_err(|e| e.to_string())?;
+    let active = runs
+        .iter()
+        .filter(|run| workflow_run_is_active(run.state))
+        .count();
+    let mut lines = vec![format!(
+        "## Workflow Mode\n\nCurrent: **{}** (`{}`)\n\n{}",
+        display_mode.label(),
+        display_mode.as_str(),
+        if incognito {
+            "Workflow orchestration is unavailable in incognito sessions because workflow runs are durable."
+        } else if mode.enabled() {
+            "The model can autonomously create durable workflow runs when the task benefits from orchestration."
+        } else {
+            "Workflow orchestration is off. Use `/workflow on` or `/workflow ultracode` to enable it."
+        }
+    )];
+    lines.push(format!(
+        "\nRuns: **{}** active · {} recent",
+        active,
+        runs.len()
+    ));
+    if let Some(run) = runs.first() {
+        lines.push(format!(
+            "Latest: `{}` · **{}** · `{}` · updated `{}`",
+            short_id(&run.id),
+            run.state.as_str(),
+            run.kind,
+            run.updated_at
+        ));
+    }
+    lines.push(
+        "\nUse `/workflow runs` to list runs, `/workflow trace [run_id]` to inspect one, or `/workflow help` for all commands."
+            .into(),
+    );
+    Ok(display_only(lines.join("\n")))
 }
 
 fn render_workflow_list(session_db: &Arc<SessionDB>, sid: &str) -> Result<CommandResult, String> {
+    let incognito = session_is_incognito(session_db, sid)?;
+    let mode = session_db
+        .get_session_workflow_mode(sid)
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    let display_mode = if incognito { WorkflowMode::Off } else { mode };
     let runs = session_db
         .list_workflow_runs_for_session(sid, WORKFLOW_LIST_LIMIT)
         .map_err(|e| e.to_string())?;
 
     if runs.is_empty() {
-        return Ok(display_only(
-            "No workflow runs for this session yet.\n\nUse `/workflow help` for commands.",
-        ));
+        if incognito {
+            return Ok(display_only(
+                "No workflow runs for this session yet.\n\nWorkflow Mode is unavailable in incognito sessions because workflow runs are durable.",
+            ));
+        }
+        return Ok(display_only(format!(
+            "No workflow runs for this session yet.\n\nWorkflow Mode: **{}** (`{}`). Use `/workflow on` to let the model create runs autonomously.",
+            display_mode.label(),
+            display_mode.as_str()
+        )));
     }
 
     let active = runs
@@ -115,7 +251,9 @@ fn render_workflow_list(session_db: &Arc<SessionDB>, sid: &str) -> Result<Comman
         .filter(|run| workflow_run_is_active(run.state))
         .count();
     let mut lines = vec![format!(
-        "## Workflow runs\n\nActive: **{}** · showing latest {}",
+        "## Workflow runs\n\nMode: **{}** (`{}`) · Active: **{}** · showing latest {}",
+        display_mode.label(),
+        display_mode.as_str(),
         active,
         runs.len()
     )];
@@ -212,6 +350,9 @@ fn transition_workflow_run(
     command: WorkflowCommand,
 ) -> Result<CommandResult, String> {
     let run = resolve_workflow_run(session_db, sid, run_id, command.target_state())?;
+    if command.starts_runtime() {
+        crate::workflow::ensure_workflow_launcher_primary().map_err(|e| e.to_string())?;
+    }
     let updated = match command {
         WorkflowCommand::Approve => session_db.approve_workflow_run(&run.id),
         WorkflowCommand::Pause => session_db.pause_workflow_run(&run.id),
@@ -220,11 +361,31 @@ fn transition_workflow_run(
     }
     .map_err(|e| e.to_string())?;
 
+    let launch_accepted = if command.starts_runtime() {
+        crate::workflow::spawn_workflow_run_if_primary(
+            session_db.clone(),
+            updated.id.clone(),
+            format!("slash:{}:pid:{}", command.as_str(), std::process::id()),
+        )
+    } else {
+        false
+    };
+
+    let launch_note = if command.starts_runtime() {
+        if launch_accepted {
+            " Runtime launch accepted."
+        } else {
+            " Runtime launch was not accepted by this process."
+        }
+    } else {
+        ""
+    };
     Ok(display_only(format!(
-        "Workflow `{}` {} → **{}**.",
+        "Workflow `{}` {} → **{}**.{}",
         short_id(&updated.id),
         command.as_str(),
-        updated.state.as_str()
+        updated.state.as_str(),
+        launch_note
     )))
 }
 
@@ -295,7 +456,23 @@ fn workflow_usage() -> String {
     [
         "## Workflow commands",
         "",
-        "- `/workflow` or `/workflow status`: list recent runs",
+        "Workflow Mode is a session switch, not a separate coding mode. Turn it on, then send your normal request; the model decides whether the task is substantial enough to create a durable JavaScript workflow run.",
+        "",
+        "### Normal use",
+        "",
+        "1. `/workflow on` enables autonomous workflow orchestration for this session.",
+        "2. Send the actual task normally, for example: `research these options and produce a recommendation`.",
+        "3. If orchestration helps, the model calls `workflow_run` and the run appears in the Workspace / Workflow control center.",
+        "4. Inspect progress with `/workflow status`, `/workflow runs`, `/workflow trace`, or the GUI. Approve, pause, resume, or cancel when needed.",
+        "5. Use `/workflow off` when you want ordinary chat/tool behavior again.",
+        "",
+        "Use `/workflow ultracode` for high-rigor work where broader exploration, parallel review, validation, or long-running recovery is worth the extra cost.",
+        "",
+        "- `/workflow` or `/workflow status`: show the current Workflow Mode and run summary",
+        "- `/workflow on`: allow the model to autonomously create durable workflow runs when useful",
+        "- `/workflow ultracode`: bias the model toward exhaustive workflow orchestration for substantive tasks",
+        "- `/workflow off`: hide the workflow_run tool and disable autonomous workflow creation",
+        "- `/workflow runs`: list recent workflow runs",
         "- `/workflow trace [run_id]`: show ops and recent events",
         "- `/workflow approve [run_id]`: approve a permission-preview-gated run",
         "- `/workflow pause [run_id]`: pause a running run",
@@ -366,4 +543,169 @@ fn truncate(value: &str, max_chars: usize) -> String {
 
 fn json_compact(value: &serde_json::Value) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "<unserializable>".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    fn temp_db_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "hope-agent-workflow-slash-{name}-{}-{}.db",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ))
+    }
+
+    fn open_workflow_test_db(name: &str) -> (PathBuf, Arc<SessionDB>) {
+        let db_path = temp_db_path(name);
+        let db = Arc::new(SessionDB::open(&db_path).expect("open session db"));
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("migrate channel table");
+        (db_path, db)
+    }
+
+    #[test]
+    fn workflow_mode_command_persists_and_returns_sync_action() {
+        let (db_path, db) = open_workflow_test_db("mode-on");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+
+        let result = handle_workflow(&db, Some(&session.id), "on").expect("workflow on");
+
+        match result.action {
+            Some(CommandAction::SetWorkflowMode { mode }) => assert_eq!(mode, "on"),
+            other => panic!("unexpected action: {:?}", other),
+        }
+        assert_eq!(
+            db.get_session_workflow_mode(&session.id)
+                .expect("read workflow mode"),
+            Some(WorkflowMode::On)
+        );
+        assert!(result.content.contains("Workflow Mode is now **On**"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn workflow_no_session_reports_default_state_without_materializing() {
+        let (db_path, db) = open_workflow_test_db("no-session");
+
+        let status = handle_workflow(&db, None, "").expect("workflow status without session");
+        assert!(matches!(status.action, Some(CommandAction::DisplayOnly)));
+        assert!(status.content.contains("No active session yet"));
+        assert!(status.content.contains("**Off**"));
+
+        let off = handle_workflow(&db, None, "off").expect("workflow off without session");
+        assert!(off.content.contains("already **Off**"));
+
+        let err = handle_workflow(&db, None, "ultracode")
+            .expect_err("enabling workflow mode still requires a session");
+        assert!(err.contains("No active session"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn execution_mode_no_session_reports_default_state_without_materializing() {
+        let (db_path, db) = open_workflow_test_db("mode-no-session");
+
+        let status = handle_mode(&db, None, "").expect("mode status without session");
+        assert!(matches!(status.action, Some(CommandAction::DisplayOnly)));
+        assert!(status.content.contains("**Off**"));
+
+        let off = handle_mode(&db, None, "off").expect("mode off without session");
+        assert!(off.content.contains("already **Off**"));
+
+        let err = handle_mode(&db, None, "guarded")
+            .expect_err("persisting execution mode still requires a session");
+        assert!(err.contains("No active session"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn workflow_status_reports_mode_and_run_summary() {
+        let (db_path, db) = open_workflow_test_db("status");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        db.update_session_workflow_mode(&session.id, WorkflowMode::Ultracode)
+            .expect("set workflow mode");
+
+        let result = handle_workflow(&db, Some(&session.id), "").expect("workflow status");
+
+        assert!(matches!(result.action, Some(CommandAction::DisplayOnly)));
+        assert!(result.content.contains("Workflow Mode"));
+        assert!(result.content.contains("Ultracode"));
+        assert!(result.content.contains("Runs: **0** active"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn workflow_mode_is_unavailable_for_incognito_sessions() {
+        let (db_path, db) = open_workflow_test_db("incognito");
+        let session = db
+            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, Some(true))
+            .expect("create incognito session");
+
+        let err = handle_workflow(&db, Some(&session.id), "on")
+            .expect_err("incognito workflow mode should be rejected");
+        assert!(err.contains("incognito sessions"));
+        assert_eq!(
+            db.get_session_workflow_mode(&session.id)
+                .expect("read workflow mode"),
+            Some(WorkflowMode::Off)
+        );
+
+        let status = handle_workflow(&db, Some(&session.id), "").expect("workflow status");
+        assert!(status.content.contains("unavailable in incognito sessions"));
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn workflow_resume_slash_does_not_mark_running_when_runtime_cannot_start() {
+        if crate::runtime_lock::is_primary() {
+            return;
+        }
+        let (db_path, db) = open_workflow_test_db("resume-non-primary");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
+        let run = db
+            .create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "general.workflow".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source:
+                    "export default async function main(workflow) { await workflow.finish({ summary: 'done' }); }"
+                        .to_string(),
+                budget: serde_json::json!({}),
+                parent_run_id: None,
+                origin: None,
+                goal_id: None,
+                worktree_id: None,
+            })
+            .expect("create workflow run");
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, Some("test"))
+            .expect("mark running");
+        db.pause_workflow_run(&run.id).expect("pause workflow");
+
+        let err = handle_workflow(&db, Some(&session.id), &format!("resume {}", run.id))
+            .expect_err("non-primary slash resume should fail before state change");
+        assert!(err.contains("primary runtime process"));
+        let current = db
+            .get_workflow_run(&run.id)
+            .expect("get run")
+            .expect("run exists");
+        assert_eq!(current.state, WorkflowRunState::Paused);
+
+        let _ = std::fs::remove_file(&db_path);
+    }
 }

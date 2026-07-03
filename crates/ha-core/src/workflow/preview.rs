@@ -222,15 +222,19 @@ fn preview_raw_call(
             calls,
         ),
         "workflow.validate" => preview_validate(raw.api, raw.line, value, session_context, calls),
-        "workflow.review" | "workflow.verify" | "workflow.repairLoop" | "workflow.block" => calls
-            .push(allow_call(
-                raw.api,
-                raw.line,
-                None,
-                optional_string(&value, "label"),
-                Some(value),
-                Some("permission-neutral coding control-plane host API".to_string()),
-            )),
+        "workflow.review"
+        | "workflow.verify"
+        | "workflow.repairLoop"
+        | "workflow.block"
+        | "workflow.now"
+        | "workflow.random" => calls.push(allow_call(
+            raw.api,
+            raw.line,
+            None,
+            optional_string(&value, "label"),
+            Some(value),
+            Some("permission-neutral workflow control-plane host API".to_string()),
+        )),
         "workflow.spawnAgent" => {
             let label = optional_string(&value, "label");
             match spawn_agent_tool_args(&value) {
@@ -377,6 +381,8 @@ fn is_permission_neutral_api(api: &str) -> bool {
             | "workflow.verify"
             | "workflow.repairLoop"
             | "workflow.block"
+            | "workflow.now"
+            | "workflow.random"
     )
 }
 
@@ -629,6 +635,8 @@ fn collect_raw_calls(script: &str) -> Vec<RawWorkflowCall> {
         ("workflow.verify", "workflow.verify("),
         ("workflow.repairLoop", "workflow.repairLoop("),
         ("workflow.block", "workflow.block("),
+        ("workflow.now", "workflow.now("),
+        ("workflow.random", "workflow.random("),
         ("workflow.spawnAgent", "workflow.spawnAgent("),
         ("workflow.askUser", "workflow.askUser("),
         ("workflow.diff", "workflow.diff("),

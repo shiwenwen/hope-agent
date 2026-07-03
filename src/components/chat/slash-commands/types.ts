@@ -26,6 +26,7 @@ export type CommandAction =
   | { type: "passThrough"; message: string }
   | { type: "exportFile"; content: string; filename: string }
   | { type: "setToolPermission"; mode: "default" | "smart" | "yolo" }
+  | { type: "setWorkflowMode"; mode: "off" | "on" | "ultracode" }
   | { type: "displayOnly" }
   | {
       type: "showModelPicker"
@@ -130,6 +131,8 @@ export interface SessionPickerItem {
 export interface CommandResult {
   content: string
   action?: CommandAction
+  /** Frontend-only: the session id actually used to execute the command. */
+  _sessionId?: string
   /** Frontend-only: the raw slash command text the user invoked. */
   _slashCommandText?: string
   /** Frontend-only: set by useSlashCommands when a skill passThrough is detected */

@@ -384,6 +384,8 @@ export interface SessionMeta {
   permissionMode?: SessionMode
   /** Per-session sandbox execution posture. */
   sandboxMode?: SandboxMode
+  /** Session-scoped Workflow Mode. Enables autonomous workflow_run orchestration when not off. */
+  workflowMode?: "off" | "on" | "ultracode"
   /**
    * When set, this session belongs to a Project — project-scoped memories
    * and shared files are automatically injected into its system prompt.

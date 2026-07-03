@@ -309,6 +309,6 @@ Goal budget 不只保存字段，还要能解释：
 实现完成后：
 
 - 更新 [Goal 控制平面](../architecture/goal.md)。
-- 更新 [Workflow 与 Execution Mode](../architecture/workflow.md) 的 Goal 集成章节。
+- 更新 [Workflow Mode、Workflow Run 与 Execution Mode](../architecture/workflow.md) 的 Goal 集成章节。
 - 更新 [API 参考](../architecture/api-reference.md) 的新增 endpoints/events。
 - `/loop` 接入已完成第一版，最终事实见 [Loop 控制平面](../architecture/loop.md)。

@@ -27,7 +27,7 @@ function workflowRun(scenario: SmokeScenario, patch: Partial<WorkflowRun> = {}):
   return {
     id: `${SMOKE_SESSION_PREFIX}-${scenario}-run`,
     sessionId: `${SMOKE_SESSION_PREFIX}-${scenario}`,
-    kind: scenario === "failed" ? "coding.repair" : "coding.workflow",
+    kind: scenario === "failed" ? "general.repair" : "general.workflow",
     state: stateByScenario[scenario],
     executionMode: "guarded",
     scriptHash: "abcdef123456",
@@ -295,6 +295,9 @@ function installSmokeTransport() {
         case "get_execution_mode":
         case "set_execution_mode":
           return { mode: args?.mode ?? "guarded" } as T
+        case "get_workflow_mode":
+        case "set_workflow_mode":
+          return { mode: args?.mode ?? "on" } as T
         case "preview_workflow_script":
           return workflowScriptPreview() as T
         case "create_workflow_run":

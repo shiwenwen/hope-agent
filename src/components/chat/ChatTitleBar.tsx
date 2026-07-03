@@ -135,7 +135,7 @@ interface ChatTitleBarProps {
   onToggleWorkspacePanel?: () => void
   /** Whether the workspace panel is currently open (controls active styling). */
   workspacePanelOpen?: boolean
-  /** Compact workflow run status for the Coding entry badge. */
+  /** Compact workflow run status for the Workflow workspace entry badge. */
   workspaceWorkflowStatus?: WorkflowTitleBarStatus
   /** Toggle the right-side background-jobs panel (R4). */
   onToggleBackgroundJobsPanel?: () => void
@@ -294,14 +294,14 @@ export default function ChatTitleBar({
         : "bg-muted-foreground text-background"
   const workflowEntryLabel =
     workflowAttentionCount > 0
-      ? t("workspace.openCodingPanelAttention", "Open Coding workspace · {{count}} need attention", {
+      ? t("workspace.openCodingPanelAttention", "Open Workflow workspace · {{count}} need attention", {
           count: workflowAttentionCount,
         })
       : workflowActiveCount > 0
-        ? t("workspace.openCodingPanelActive", "Open Coding workspace · {{count}} active", {
+        ? t("workspace.openCodingPanelActive", "Open Workflow workspace · {{count}} active", {
             count: workflowActiveCount,
           })
-        : t("workspace.openCodingPanel", "Open Coding workspace")
+        : t("workspace.openCodingPanel", "Open Workflow workspace")
   const hasRightPanelControls =
     !!onToggleFilesPanel ||
     !!onToggleWorkspacePanel ||
@@ -359,7 +359,7 @@ export default function ChatTitleBar({
             onClick={onToggleWorkspacePanel}
           >
             <LayoutDashboard className="h-4 w-4 shrink-0" />
-            <span className="truncate">{t("workspace.codingEntry", "Coding")}</span>
+            <span className="truncate">{t("workspace.codingEntry", "Workflow")}</span>
             {workflowBadgeCount > 0 ? (
               <span
                 className={cn(

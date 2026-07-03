@@ -61,6 +61,11 @@ pub async fn create_workflow_run(
     let mode = body.execution_mode.unwrap_or_else(|| "guarded".to_string());
     let parsed_mode = ha_core::execution_mode::ExecutionMode::from_str(&mode)
         .ok_or_else(|| AppError::bad_request("Invalid execution mode"))?;
+    let run_now = body.run_immediately.unwrap_or(false);
+    if run_now {
+        ha_core::workflow::ensure_workflow_launcher_primary()
+            .map_err(|e| AppError::bad_request(e.to_string()))?;
+    }
     let db = session_db()?;
     let script_source = body.script_source;
     ha_core::workflow::ensure_workflow_script_can_create(
@@ -73,7 +78,7 @@ pub async fn create_workflow_run(
     let run = db
         .create_workflow_run(ha_core::workflow::CreateWorkflowRunInput {
             session_id,
-            kind: body.kind.unwrap_or_else(|| "coding.workflow".to_string()),
+            kind: body.kind.unwrap_or_else(|| "general.workflow".to_string()),
             execution_mode: parsed_mode.as_str().to_string(),
             script_source,
             budget: body.budget.unwrap_or_else(|| json!({})),
@@ -83,7 +88,7 @@ pub async fn create_workflow_run(
             worktree_id: body.worktree_id,
         })
         .map_err(|e| AppError::bad_request(e.to_string()))?;
-    if body.run_immediately.unwrap_or(false) {
+    if run_now {
         ha_core::workflow::spawn_workflow_run_if_primary(
             db.clone(),
             run.id.clone(),
@@ -102,6 +107,8 @@ pub async fn get_workflow_run(
 pub async fn run_workflow_run(
     Path(run_id): Path<String>,
 ) -> Result<Json<ha_core::workflow::WorkflowRun>, AppError> {
+    ha_core::workflow::ensure_workflow_launcher_primary()
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     let db = session_db()?;
     let run = db
         .get_workflow_run(&run_id)?
@@ -126,6 +133,8 @@ pub async fn pause_workflow_run(
 pub async fn resume_workflow_run(
     Path(run_id): Path<String>,
 ) -> Result<Json<ha_core::workflow::WorkflowRun>, AppError> {
+    ha_core::workflow::ensure_workflow_launcher_primary()
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     let db = session_db()?;
     let run = db
         .resume_workflow_run(&run_id)
@@ -141,6 +150,8 @@ pub async fn resume_workflow_run(
 pub async fn approve_workflow_run(
     Path(run_id): Path<String>,
 ) -> Result<Json<ha_core::workflow::WorkflowRun>, AppError> {
+    ha_core::workflow::ensure_workflow_launcher_primary()
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     let db = session_db()?;
     let run = db
         .approve_workflow_run(&run_id)

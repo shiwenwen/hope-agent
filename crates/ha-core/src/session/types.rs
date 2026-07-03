@@ -129,6 +129,11 @@ pub struct SessionMeta {
     /// changes survive refreshes and affect every chat entry point.
     #[serde(default)]
     pub execution_mode: ExecutionMode,
+    /// Persistent workflow autonomy mode for this session (`off` / `on` /
+    /// `ultracode`). When enabled, the model may call the workflow_run tool
+    /// to create observable durable workflow runs.
+    #[serde(default)]
+    pub workflow_mode: crate::workflow_mode::WorkflowMode,
     /// Per-session permission mode (`default` / `smart` / `yolo`).
     /// Persisted so the chat title bar's mode switcher is restored when
     /// switching back to a historical session. Serialized as a snake_case
@@ -571,6 +576,7 @@ mod tests {
             parent_session_id: None,
             plan_mode: Default::default(),
             execution_mode: Default::default(),
+            workflow_mode: Default::default(),
             permission_mode: Default::default(),
             sandbox_mode: Default::default(),
             project_id: None,

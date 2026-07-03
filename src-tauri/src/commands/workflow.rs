@@ -62,6 +62,10 @@ pub async fn create_workflow_run(
     let mode = execution_mode.unwrap_or_else(|| "guarded".to_string());
     let parsed_mode = ha_core::execution_mode::ExecutionMode::from_str(&mode)
         .ok_or_else(|| CmdError::msg("Invalid execution mode"))?;
+    let run_now = run_immediately.unwrap_or(false);
+    if run_now {
+        ha_core::workflow::ensure_workflow_launcher_primary().map_err(CmdError::from)?;
+    }
     ha_core::workflow::ensure_workflow_script_can_create(
         &app_state.session_db,
         &session_id,
@@ -72,7 +76,7 @@ pub async fn create_workflow_run(
         .session_db
         .create_workflow_run(CreateWorkflowRunInput {
             session_id,
-            kind: kind.unwrap_or_else(|| "coding.workflow".to_string()),
+            kind: kind.unwrap_or_else(|| "general.workflow".to_string()),
             execution_mode: parsed_mode.as_str().to_string(),
             script_source,
             budget: budget.unwrap_or_else(|| json!({})),
@@ -81,7 +85,7 @@ pub async fn create_workflow_run(
             goal_id,
             worktree_id,
         })?;
-    if run_immediately.unwrap_or(false) {
+    if run_now {
         ha_core::workflow::spawn_workflow_run_if_primary(
             app_state.session_db.clone(),
             run.id.clone(),
@@ -96,6 +100,7 @@ pub async fn run_workflow_run(
     run_id: String,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<WorkflowRun, CmdError> {
+    ha_core::workflow::ensure_workflow_launcher_primary().map_err(CmdError::from)?;
     let run = app_state
         .session_db
         .get_workflow_run(&run_id)?
@@ -124,6 +129,7 @@ pub async fn resume_workflow_run(
     run_id: String,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<WorkflowRun, CmdError> {
+    ha_core::workflow::ensure_workflow_launcher_primary().map_err(CmdError::from)?;
     let run = app_state
         .session_db
         .resume_workflow_run(&run_id)
@@ -141,6 +147,7 @@ pub async fn approve_workflow_run(
     run_id: String,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<WorkflowRun, CmdError> {
+    ha_core::workflow::ensure_workflow_launcher_primary().map_err(CmdError::from)?;
     let run = app_state
         .session_db
         .approve_workflow_run(&run_id)

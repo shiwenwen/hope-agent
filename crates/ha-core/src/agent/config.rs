@@ -417,6 +417,10 @@ pub fn build_system_prompt_with_session(
             .as_ref()
             .map(|m| m.execution_mode)
             .unwrap_or_default();
+        let workflow_mode = session_meta
+            .as_ref()
+            .map(|m| m.workflow_mode)
+            .unwrap_or_default();
         let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
         return crate::system_prompt::build(
             &definition,
@@ -434,6 +438,7 @@ pub fn build_system_prompt_with_session(
             channel_info,
             permission_mode,
             execution_mode,
+            workflow_mode,
         );
     }
     // Fallback: legacy prompt

@@ -215,7 +215,7 @@ The following project context files have been loaded:
 - `deep`：要求更充分的仓库侦察和风险判断，适合跨模块或长任务；验证失败最多两次定向修复。
 - `autonomous`：允许在安全、有限的范围内持续推进普通 observe/edit/validate 步骤，但仍保留所有权限、hook、sandbox、审批和项目边界。
 
-该段靠近 prompt 尾部的动态执行控制区，紧跟 `# Current Permission Mode`，避免 `/mode` 翻转时冲掉更大的静态前缀缓存。它只影响模型行为规划；实际持久 workflow 的创建、审批、暂停、恢复、取消和恢复重放仍由 [Workflow 与 Execution Mode](workflow.md) 中的 runtime / owner API 执行。
+该段靠近 prompt 尾部的动态执行控制区，紧跟 `# Current Permission Mode`，避免 `/mode` 翻转时冲掉更大的静态前缀缓存。它只影响模型行为规划；实际持久 workflow 的创建、审批、暂停、恢复、取消和恢复重放仍由 [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md) 中的 runtime / owner API 执行。
 
 `# IM Channel Attachment` 只描述稳定的 attach 状态，区别于 IM 入站 turn 通过 `ChatEngineParams.extra_system_context` 携带的 `## IM Channel Context`。后者只在 IM 消息触发的 turn 存在，包含当前 inbound sender / chat context；前者覆盖桌面 / HTTP 在同一 IM 绑定 session 中继续发消息并镜像到 IM 的场景。IM metadata 来自外部平台，prompt 中以单行 JSON 作为**不可信 routing/audience context**渲染，模型必须把字段值当作数据而非指令。
 

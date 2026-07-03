@@ -1549,6 +1549,16 @@ impl AssistantAgent {
         // most recent probe without manual threading.
         self.apply_plan_tools(&mut schemas, provider);
 
+        // Workflow Mode is a session-scoped autonomy capability, not a regular
+        // always-on built-in. Keep it out of the static catalog/tool_search and
+        // inject it only when this session explicitly enables Workflow Mode.
+        // The execution layer re-checks the persisted mode as defense-in-depth.
+        if let Some(meta) = self.lookup_session_meta() {
+            if meta.workflow_mode.enabled() && !meta.incognito {
+                schemas.push(tools::get_workflow_run_tool().to_provider_schema(provider));
+            }
+        }
+
         // Final filter pipeline (skill / denied / plan-allowed) — defense
         // in depth on top of dispatcher visibility.
         let plan_mode = self.plan_agent_mode.load();
@@ -1829,6 +1839,11 @@ impl AssistantAgent {
             home_dir: self.agent_home(),
             session_working_dir,
             session_id: self.session_id.clone(),
+            session_db: self
+                .session_db
+                .clone()
+                .or_else(|| crate::get_session_db().cloned())
+                .map(tools::SessionDbHandle),
             tool_call_id: None,
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
@@ -2167,9 +2182,10 @@ impl AssistantAgent {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use super::backdate_instant_safely;
+    use super::{backdate_instant_safely, extract_tool_name};
 
     #[test]
     fn backdate_instant_safely_subtracts_when_duration_fits() {
@@ -2210,5 +2226,68 @@ mod tests {
         // Turn boundary clears it so the next turn re-resolves.
         agent.reset_chat_flags();
         assert!(!lock(&agent), "reset_chat_flags clears the per-turn memo");
+    }
+
+    #[test]
+    fn workflow_run_schema_is_injected_only_when_workflow_mode_is_enabled() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        crate::channel::ChannelDB::new(db.clone())
+            .migrate()
+            .expect("migrate channel table");
+        let off_session = db.create_session("ha-main").expect("create off session");
+        let on_session = db.create_session("ha-main").expect("create on session");
+        let incognito_session = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .expect("create incognito session");
+        db.update_session_workflow_mode(&on_session.id, crate::workflow_mode::WorkflowMode::On)
+            .expect("enable workflow mode");
+        assert!(db
+            .update_session_workflow_mode(
+                &incognito_session.id,
+                crate::workflow_mode::WorkflowMode::Ultracode,
+            )
+            .expect_err("incognito workflow mode enable should fail")
+            .to_string()
+            .contains("incognito session"));
+        assert_eq!(
+            db.get_session(&on_session.id)
+                .expect("read on session")
+                .expect("on session exists")
+                .workflow_mode,
+            crate::workflow_mode::WorkflowMode::On
+        );
+
+        let has_workflow_run = |session_id: &str| {
+            let mut agent = super::AssistantAgent::new_anthropic("test-key");
+            agent.set_agent_id("ha-main");
+            agent.set_session_db(db.clone());
+            agent.set_session_id(session_id);
+            let meta = agent.lookup_session_meta().expect("session meta");
+            let names: Vec<String> = agent
+                .build_tool_schemas(crate::tools::ToolProvider::Anthropic)
+                .iter()
+                .map(|schema| extract_tool_name(schema).to_string())
+                .collect();
+            (
+                names
+                    .iter()
+                    .any(|name| name == crate::tools::TOOL_WORKFLOW_RUN),
+                meta,
+                names,
+            )
+        };
+
+        assert!(!has_workflow_run(&off_session.id).0);
+        let (on_has_workflow_run, on_meta, on_names) = has_workflow_run(&on_session.id);
+        assert!(
+            on_has_workflow_run,
+            "expected workflow_run schema for workflow mode {:?}, incognito={}, names={:?}",
+            on_meta.workflow_mode, on_meta.incognito, on_names
+        );
+        assert!(!has_workflow_run(&incognito_session.id).0);
     }
 }

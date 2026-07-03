@@ -11,7 +11,7 @@ use super::send_attachment;
 use super::skill;
 use super::{
     acp_spawn, browser, cron, mac_control, memory, note, notification, settings, subagent, team,
-    weather, web_fetch, web_search,
+    weather, web_fetch, web_search, workflow_tool,
 };
 use super::{
     agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
@@ -28,7 +28,8 @@ use super::{
     TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST,
     TOOL_SESSIONS_SEARCH, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN,
     TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY,
-    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WORKFLOW_RUN,
+    TOOL_WRITE,
 };
 use super::{
     TOOL_KNOWLEDGE_RECALL, TOOL_NOTE_APPEND, TOOL_NOTE_ASSIGN_BLOCK, TOOL_NOTE_BACKLINKS,
@@ -168,6 +169,18 @@ const TOOL_TIMEOUT_CLEANUP_GRACE: Duration = Duration::from_secs(5);
 
 // ── Tool Execution Context ────────────────────────────────────────
 
+/// Optional bound session database for non-global agent/runtime paths. A
+/// newtype with a hand-written `Debug` keeps SQLite connection internals out of
+/// logs while letting `ToolExecContext` remain debuggable.
+#[derive(Clone)]
+pub struct SessionDbHandle(pub Arc<crate::session::SessionDB>);
+
+impl std::fmt::Debug for SessionDbHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SessionDbHandle(..)")
+    }
+}
+
 /// Context passed to tool execution for dynamic behavior.
 ///
 /// # Concurrency contract
@@ -201,6 +214,9 @@ pub struct ToolExecContext {
     pub session_working_dir: Option<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
+    /// Session DB bound to this agent/runtime path. When absent, tools fall
+    /// back to the process-global session DB for legacy callers.
+    pub session_db: Option<SessionDbHandle>,
     /// Provider tool-call id for the currently executing tool. Async jobs
     /// persist this so completion notifications can point back to the exact
     /// original call.
@@ -586,9 +602,53 @@ impl ToolExecContext {
         }
     }
 
+    fn workflow_run_visibility_error(&self, name: &str) -> Option<String> {
+        if canonical_builtin_tool_name(name) != TOOL_WORKFLOW_RUN {
+            return None;
+        }
+        let Some(session_id) = self.session_id.as_deref() else {
+            return Some(
+                "workflow_run requires an active session with Workflow Mode enabled.".to_string(),
+            );
+        };
+        if self.incognito {
+            return Some(
+                "workflow_run is disabled for incognito sessions because workflow runs are durable."
+                    .to_string(),
+            );
+        }
+        let Some(db) = self
+            .session_db
+            .as_ref()
+            .map(|handle| handle.0.clone())
+            .or_else(|| crate::get_session_db().cloned())
+        else {
+            return Some("workflow_run cannot execute because Session DB is unavailable.".into());
+        };
+        let mode = match db.get_session_workflow_mode(session_id) {
+            Ok(Some(mode)) => mode,
+            Ok(None) => Default::default(),
+            Err(e) => {
+                return Some(format!(
+                    "workflow_run cannot read the session Workflow Mode: {e}"
+                ));
+            }
+        };
+        if !mode.enabled() {
+            return Some(
+                "Workflow Mode is off for this session. Use `/workflow on` or the GUI toggle before calling workflow_run."
+                    .to_string(),
+            );
+        }
+        None
+    }
+
     /// Human-readable reason when a tool is blocked by the current restrictions.
     pub fn tool_visibility_error(&self, name: &str) -> Option<String> {
         if let Some(err) = self.builtin_fate_error(name) {
+            return Some(err);
+        }
+        if let Some(err) = self.workflow_run_visibility_error(name) {
             return Some(err);
         }
         if self.denied_tools.iter().any(|t| t == name) {
@@ -1762,6 +1822,7 @@ pub async fn execute_tool_with_context(
             TOOL_SUBAGENT => subagent::tool_subagent(args, dispatch_ctx).await,
             TOOL_TEAM => team::tool_team(args, dispatch_ctx).await,
             TOOL_ACP_SPAWN => acp_spawn::tool_acp_spawn(args, dispatch_ctx).await,
+            TOOL_WORKFLOW_RUN => workflow_tool::tool_workflow_run(args, dispatch_ctx).await,
             TOOL_MEMORY_GET => memory::tool_memory_get(args).await,
             // Knowledge base (note_*) tools.
             TOOL_NOTE_CREATE => note::tool_note_create(args, dispatch_ctx).await,
@@ -2326,11 +2387,11 @@ fn persist_large_result(
 mod tests {
     use super::{
         build_persisted_large_result_preview, decide_async_path_with_config,
-        exec_process_background_mode, maybe_persist_large_tool_result,
+        exec_process_background_mode, execute_tool_with_context, maybe_persist_large_tool_result,
         mcp_server_auto_approves_config, migrate_exec_process_mode_to_async_job_args,
         needs_permission_engine, should_migrate_exec_process_mode_to_async_job_with_config,
         should_run_exec_reorder_gate, tool_timeout, validate_async_background_contract,
-        AsyncDecision, JobOrigin, ToolExecContext,
+        AsyncDecision, JobOrigin, SessionDbHandle, ToolExecContext,
     };
     use crate::agent_config::AsyncToolPolicy;
     use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
@@ -2341,6 +2402,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::io::Cursor;
     use std::path::Path;
+    use std::sync::Arc;
 
     fn mcp_cfg(auto_approve: bool, trust_level: McpTrustLevel) -> McpServerConfig {
         McpServerConfig {
@@ -2393,6 +2455,88 @@ mod tests {
         };
 
         assert!(tool_timeout(&ctx).is_none());
+    }
+
+    #[tokio::test]
+    async fn workflow_run_execution_uses_bound_session_db_and_mode_gate() {
+        let dir = tempfile::tempdir().expect("temp session db dir");
+        let db = Arc::new(
+            crate::session::SessionDB::open(&dir.path().join("sessions.db"))
+                .expect("open session db"),
+        );
+        let session = db.create_session("ha-main").expect("create session");
+        let ctx = ToolExecContext {
+            session_id: Some(session.id.clone()),
+            session_db: Some(SessionDbHandle(db.clone())),
+            ..ToolExecContext::default()
+        };
+        let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Run bounded smoke workflow" });
+  await workflow.trace({ label: "budget", payload: { maxRuntimeSecs: 60, maxOps: 6 } });
+  const validation = await workflow.validate({
+    label: "validate",
+    reason: "bounded smoke validation",
+    commands: [{ command: "true", label: "smoke" }]
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ summary: "ok", verification: validation, residualRisk: "none" });
+}
+"#;
+        let args = json!({
+            "script": script,
+            "runImmediately": false
+        });
+
+        let off_err = execute_tool_with_context(crate::tools::TOOL_WORKFLOW_RUN, &args, &ctx)
+            .await
+            .expect_err("workflow_run should be rejected while Workflow Mode is off");
+        assert!(off_err.to_string().contains("Workflow Mode is off"));
+        assert!(db
+            .list_workflow_runs_for_session(&session.id, 10)
+            .expect("list workflow runs")
+            .is_empty());
+
+        db.update_session_workflow_mode(&session.id, crate::workflow_mode::WorkflowMode::On)
+            .expect("enable workflow mode");
+        let raw = execute_tool_with_context(crate::tools::TOOL_WORKFLOW_RUN, &args, &ctx)
+            .await
+            .expect("workflow_run should create a run when Workflow Mode is on");
+        let parsed: serde_json::Value = serde_json::from_str(&raw).expect("parse tool result");
+        assert_eq!(parsed["kind"].as_str(), Some("general.workflow"));
+        assert_eq!(parsed["initialState"].as_str(), Some("draft"));
+        assert_eq!(parsed["expectedNextState"].as_str(), Some("draft"));
+        assert_eq!(parsed["startRequested"].as_bool(), Some(false));
+        assert_eq!(parsed["launchAccepted"].as_bool(), Some(false));
+        assert!(parsed.get("started").is_none());
+        assert!(parsed.get("queued").is_none());
+
+        let runs = db
+            .list_workflow_runs_for_session(&session.id, 10)
+            .expect("list workflow runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].kind, "general.workflow");
+
+        if !crate::runtime_lock::is_primary() {
+            let start_now_err = execute_tool_with_context(
+                crate::tools::TOOL_WORKFLOW_RUN,
+                &json!({ "script": script }),
+                &ctx,
+            )
+            .await
+            .expect_err("non-primary workflow_run should not create an unstartable draft");
+            assert!(start_now_err
+                .to_string()
+                .contains("primary runtime process"));
+            let runs = db
+                .list_workflow_runs_for_session(&session.id, 10)
+                .expect("list workflow runs");
+            assert_eq!(
+                runs.len(),
+                1,
+                "default-start failure must not create a draft run"
+            );
+        }
     }
 
     #[test]

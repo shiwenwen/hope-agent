@@ -246,6 +246,7 @@ mod tests {
             parent_session_id: None,
             plan_mode: crate::plan::PlanModeState::Off,
             execution_mode: crate::execution_mode::ExecutionMode::Off,
+            workflow_mode: crate::workflow_mode::WorkflowMode::Off,
             permission_mode: crate::permission::SessionMode::Default,
             sandbox_mode: crate::permission::SandboxMode::Off,
             channel_info: None,

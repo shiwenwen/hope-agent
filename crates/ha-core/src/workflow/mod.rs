@@ -1,4 +1,4 @@
-//! Durable workflow run store for Phase 2 script-first coding workflows.
+//! Durable workflow run store for script-first dynamic workflows.
 //!
 //! Runtime execution uses these APIs instead of inventing a parallel
 //! run/op/event store.
@@ -16,9 +16,10 @@ pub use preview::{
     WorkflowScriptPreview,
 };
 pub use runtime::{
-    cancel_workflow_run_with_children, recover_pending_workflow_runs, run_workflow_script,
-    run_workflow_script_async, spawn_startup_recovery_if_primary, spawn_workflow_run_if_primary,
-    WorkflowRecoveryReport, WorkflowRuntimeResult,
+    cancel_workflow_run_with_children, ensure_workflow_launcher_primary,
+    recover_pending_workflow_runs, run_workflow_script, run_workflow_script_async,
+    spawn_startup_recovery_if_primary, spawn_workflow_run_if_primary, WorkflowRecoveryReport,
+    WorkflowRuntimeResult,
 };
 pub use types::{
     CreateWorkflowRunInput, StartedOpRecoveryAction, UpsertWorkflowOpInput, WorkflowEffectClass,

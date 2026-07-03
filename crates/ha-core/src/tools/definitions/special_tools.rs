@@ -2,6 +2,7 @@ use serde_json::json;
 
 use super::super::{
     TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH,
+    TOOL_WORKFLOW_RUN,
 };
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
@@ -207,6 +208,68 @@ pub fn get_tool_search_tool() -> ToolDefinition {
                 }
             },
             "required": ["query"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// Returns the session-gated Workflow Mode orchestration tool definition.
+///
+/// This tool is not part of the static dispatch catalog: `AssistantAgent`
+/// injects it only when the current session has Workflow Mode enabled, and
+/// execution re-checks the persisted session mode.
+pub fn get_workflow_run_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_WORKFLOW_RUN.into(),
+        description: "Create an observable, durable workflow run from a dynamic JavaScript workflow script, then request primary runtime launch by default. Use this only when Workflow Mode is enabled and the task benefits from explicit orchestration, fan-out, checkpoints, validation, review, or long-running recovery. It is not coding-only: use it for any substantial task where a durable, inspectable plan of operations improves reliability. Do not use it for trivial one-step work. The workflow run appears in the user's Workflow control center, where it can be approved, paused, resumed, inspected, or cancelled.".into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::Meta,
+        },
+        internal: false,
+        concurrent_safe: false,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": "Complete JavaScript workflow script. It must define `export default async function main(workflow) { ... }`, use the workflow host APIs, and finish via `workflow.finish(...)`."
+                },
+                "kind": {
+                    "type": "string",
+                    "description": "Optional run kind for display and filtering. Use a domain-neutral value such as `general.workflow`, `research.workflow`, `document.workflow`, or `coding.workflow`."
+                },
+                "executionMode": {
+                    "type": "string",
+                    "enum": ["guarded", "deep", "autonomous"],
+                    "description": "Optional execution policy for the run. Omit to inherit the session execution mode, falling back to `guarded` when the session mode is off. `autonomous` requires an explicit budget with max runtime and max output tokens."
+                },
+                "budget": {
+                    "type": "object",
+                    "description": "Optional run budget, for example `{ \"maxScriptSecs\": 900, \"maxOps\": 64, \"maxOutputTokens\": 20000 }`. Required for `executionMode: \"autonomous\"`."
+                },
+                "runImmediately": {
+                    "type": "boolean",
+                    "description": "Start the run immediately after creation. Defaults to true. When permission preview requires approval, the run will stop in the approval state for the user."
+                },
+                "parentRunId": {
+                    "type": "string",
+                    "description": "Optional parent workflow run id when creating a repair or follow-up workflow."
+                },
+                "origin": {
+                    "type": "string",
+                    "description": "Optional origin label for traceability, such as `agent:workflow_mode` or `repair:<run_id>`."
+                },
+                "goalId": {
+                    "type": "string",
+                    "description": "Optional goal id. Omit to let the runtime auto-bind the active goal for this session."
+                },
+                "worktreeId": {
+                    "type": "string",
+                    "description": "Optional managed worktree id when the workflow is explicitly tied to an isolated worktree."
+                }
+            },
+            "required": ["script"],
             "additionalProperties": false
         }),
     }
@@ -477,5 +540,35 @@ pub fn get_team_tool() -> ToolDefinition {
             },
             "required": ["action"]
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn workflow_run_schema_requires_canonical_script_without_alias() {
+        let def = super::get_workflow_run_tool();
+        let properties = def
+            .parameters
+            .get("properties")
+            .and_then(|value| value.as_object())
+            .expect("workflow_run properties");
+        assert!(properties.contains_key("script"));
+        assert!(
+            !properties.contains_key("scriptSource"),
+            "scriptSource remains an execution-layer compatibility alias, but the model schema should not advertise it while `script` is required"
+        );
+        let required = def
+            .parameters
+            .get("required")
+            .and_then(|value| value.as_array())
+            .expect("workflow_run required fields");
+        assert_eq!(
+            required
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>(),
+            vec!["script"]
+        );
     }
 }

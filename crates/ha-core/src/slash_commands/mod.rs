@@ -369,6 +369,7 @@ fn slash_history_result_content(result: &CommandResult) -> Option<String> {
         CommandAction::ShowPlan { plan_content } => {
             Some(format!("**Current Plan**\n\n{}", plan_content))
         }
+        CommandAction::SetWorkflowMode { mode } => Some(format!("Workflow Mode set to `{mode}`.")),
         CommandAction::ViewSystemPrompt => Some("Opened system prompt viewer.".into()),
         CommandAction::OpenDashboardTab { tab } => Some(format!("Opened Dashboard tab `{}`.", tab)),
         CommandAction::RecapCard { report_id } => Some(format!(

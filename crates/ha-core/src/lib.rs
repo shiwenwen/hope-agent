@@ -109,6 +109,7 @@ pub mod weather;
 #[cfg(target_os = "macos")]
 pub mod weather_location_macos;
 pub mod workflow;
+pub mod workflow_mode;
 pub mod worktree;
 
 // ── Re-exports ────────────────────────────────────────────────────

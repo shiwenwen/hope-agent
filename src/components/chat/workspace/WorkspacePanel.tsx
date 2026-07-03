@@ -2171,8 +2171,9 @@ function LspDiagnosticsSection({
     [snapshot?.diagnostics],
   )
   const visibleDiagnostics = diagnostics.slice(0, 6)
-  const activeServers = status?.servers.filter((server) => server.active).length ?? 0
-  const availableServers = status?.servers.filter((server) => server.available).length ?? 0
+  const lspServers = status?.servers ?? []
+  const activeServers = lspServers.filter((server) => server.active).length
+  const availableServers = lspServers.filter((server) => server.available).length
   const count = diagnostics.length
   const meta =
     loading && !snapshot ? (
@@ -3834,6 +3835,20 @@ function CodingProposalRow({
   )
 }
 
+function isCodingTrendReport(value: unknown): value is CodingTrendReport {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "overview" in value &&
+    "eval" in value &&
+    "repairLoop" in value &&
+    "review" in value &&
+    "verification" in value &&
+    "retro" in value
+  )
+}
+
 function codingTrendTopReviewCategory(report: CodingTrendReport): CodingMetricBucket | null {
   return [...report.review.byCategory].sort((a, b) => b.count - a.count)[0] ?? null
 }
@@ -3871,20 +3886,21 @@ function CodingTrendSection({
     promoteProposal,
   } = useCodingTrendReport(sessionId, { incognito, turnActive })
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
-  const failures = report?.failures ?? []
+  const trendReport = isCodingTrendReport(report) ? report : null
+  const failures = trendReport?.failures ?? []
   const visibleFailures = failures.slice(0, 4)
-  const proposals = report?.proposals ?? []
+  const proposals = trendReport?.proposals ?? []
   const visibleProposals = proposals.slice(0, 4)
   const draftCount = proposals.filter((proposal) => proposal.status === "draft").length
   const promotionCount = proposals.filter(
     (proposal) => proposal.status === "applied" || proposal.status === "promotion_failed",
   ).length
-  const visibleRetros = (report?.retros ?? []).slice(0, 3)
-  const topCategory = report ? codingTrendTopReviewCategory(report) : null
+  const visibleRetros = (trendReport?.retros ?? []).slice(0, 3)
+  const topCategory = trendReport ? codingTrendTopReviewCategory(trendReport) : null
   const disabled = !sessionId || incognito || loading || generating || distilling
 
   const meta =
-    loading && !report ? (
+    loading && !trendReport ? (
       <StatusPill label={t("workspace.codingTrend.loading", "读取中")} tone="info" loading />
     ) : error ? (
       <StatusPill label={t("workspace.codingTrend.failed", "失败")} tone="danger" />
@@ -3903,7 +3919,7 @@ function CodingTrendSection({
         label={t("workspace.codingTrend.promotable", "{{count}} 待晋升", { count: promotionCount })}
         tone="info"
       />
-    ) : report ? (
+    ) : trendReport ? (
       <StatusPill label={t("workspace.codingTrend.ready", "已汇总")} tone="good" />
     ) : (
       <StatusPill label={t("workspace.codingTrend.idle", "待汇总")} tone="muted" />
@@ -4058,43 +4074,43 @@ function CodingTrendSection({
           </IconTip>
         </div>
 
-        {report ? (
+        {trendReport ? (
           <div className="grid grid-cols-4 gap-1.5">
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricGoal", "Goal")}
-              value={trendPercent(report.overview.goalCompletionRate)}
-              tone={codingTrendMetricTone(report.overview.goalCompletionRate)}
+              value={trendPercent(trendReport.overview.goalCompletionRate)}
+              tone={codingTrendMetricTone(trendReport.overview.goalCompletionRate)}
             />
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricWorkflow", "Workflow")}
-              value={trendPercent(report.overview.workflowCompletionRate)}
-              tone={codingTrendMetricTone(report.overview.workflowCompletionRate)}
+              value={trendPercent(trendReport.overview.workflowCompletionRate)}
+              tone={codingTrendMetricTone(trendReport.overview.workflowCompletionRate)}
             />
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricEval", "Eval")}
-              value={trendPercent(report.eval.successRate)}
-              tone={codingTrendMetricTone(report.eval.successRate)}
+              value={trendPercent(trendReport.eval.successRate)}
+              tone={codingTrendMetricTone(trendReport.eval.successRate)}
             />
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricRepair", "Repair")}
-              value={trendPercent(report.repairLoop.successRate)}
-              tone={codingTrendMetricTone(report.repairLoop.successRate)}
+              value={trendPercent(trendReport.repairLoop.successRate)}
+              tone={codingTrendMetricTone(trendReport.repairLoop.successRate)}
             />
           </div>
         ) : null}
 
-        {report ? (
+        {trendReport ? (
           <div className="grid grid-cols-4 gap-1.5">
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricReview", "Review")}
-              value={report.review.blockingFindings}
-              tone={report.review.blockingFindings > 0 ? "danger" : "good"}
+              value={trendReport.review.blockingFindings}
+              tone={trendReport.review.blockingFindings > 0 ? "danger" : "good"}
             />
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricVerify", "Verify")}
-              value={report.verification.failedSteps + report.verification.timedOutSteps}
+              value={trendReport.verification.failedSteps + trendReport.verification.timedOutSteps}
               tone={
-                report.verification.failedSteps + report.verification.timedOutSteps > 0
+                trendReport.verification.failedSteps + trendReport.verification.timedOutSteps > 0
                   ? "danger"
                   : "good"
               }
@@ -4106,8 +4122,8 @@ function CodingTrendSection({
             />
             <CodingTrendMetric
               label={t("workspace.codingTrend.metricLearning", "Learning")}
-              value={report.retro.recommendations}
-              tone={report.retro.recommendations > 0 ? "info" : "muted"}
+              value={trendReport.retro.recommendations}
+              tone={trendReport.retro.recommendations > 0 ? "info" : "muted"}
             />
           </div>
         ) : null}
@@ -4118,43 +4134,43 @@ function CodingTrendSection({
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
             {error}
           </div>
-        ) : !report ? (
+        ) : !trendReport ? (
           <EmptyHint>{t("workspace.codingTrend.empty", "还没有质量趋势记录")}</EmptyHint>
         ) : (
           <div className="rounded-md border border-border/50 bg-secondary/25 px-2.5 py-2">
             <div className="flex min-w-0 items-center gap-2">
               <BarChart3 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
-                {report.scope === "project"
+                {trendReport.scope === "project"
                   ? t("workspace.codingTrend.projectScope", "项目近 {{days}} 天", {
-                      days: report.windowDays,
+                      days: trendReport.windowDays,
                     })
                   : t("workspace.codingTrend.sessionScope", "会话近 {{days}} 天", {
-                      days: report.windowDays,
+                      days: trendReport.windowDays,
                     })}
               </span>
               <span className="shrink-0 text-[10px] text-muted-foreground">
-                {formatMessageTime(report.generatedAt)}
+                {formatMessageTime(trendReport.generatedAt)}
               </span>
             </div>
             <div className="mt-1 flex min-w-0 flex-wrap gap-1 pl-5">
               <StatusPill
                 label={t("workspace.codingTrend.sessions", "{{count}} 会话", {
-                  count: report.overview.sessions,
+                  count: trendReport.overview.sessions,
                 })}
                 tone="muted"
               />
               <StatusPill
                 label={t("workspace.codingTrend.workflows", "{{count}} runs", {
-                  count: report.overview.workflowRuns,
+                  count: trendReport.overview.workflowRuns,
                 })}
                 tone="muted"
               />
               <StatusPill
                 label={t("workspace.codingTrend.retros", "{{count}} retros", {
-                  count: report.retro.total,
+                  count: trendReport.retro.total,
                 })}
-                tone={report.retro.recommendations > 0 ? "info" : "muted"}
+                tone={trendReport.retro.recommendations > 0 ? "info" : "muted"}
               />
               {topCategory ? (
                 <StatusPill label={topCategory.label} tone="warn" />
@@ -4275,12 +4291,14 @@ const WORKFLOW_OP_PREVIEW = 6
 const WORKFLOW_FOCUS_OP_PREVIEW = 4
 
 type ExecutionMode = "off" | "guarded" | "deep" | "autonomous"
+type WorkflowAutonomyMode = "off" | "on" | "ultracode"
 type WorkflowDetailTab = "trace" | "validation" | "agents"
 
-const WORKFLOW_KIND_DEFAULT = "coding.workflow"
+const WORKFLOW_MODE_CHANGED_EVENT = "hope-agent:workflow-mode-changed"
+const WORKFLOW_KIND_DEFAULT = "general.workflow"
 const WORKFLOW_SCRIPT_TEMPLATE = `export default async function main(workflow) {
   const observe = await workflow.task.create({
-    title: "Observe workspace",
+    title: "Understand target",
     label: "observe",
   });
 
@@ -4288,28 +4306,12 @@ const WORKFLOW_SCRIPT_TEMPLATE = `export default async function main(workflow) {
     label: "observe",
     payload: { summary: "Manual workflow started" },
   });
-  await workflow.fileSearch({
-    query: "TODO",
-    limit: 5,
-    label: "observe-files",
-  });
   await workflow.task.update({ task: observe, status: "completed" });
-
-  const validate = await workflow.task.create({
-    title: "Run targeted validation",
-    label: "validate",
-  });
-  await workflow.validate({
-    commands: ["pnpm typecheck"],
-    reason: "targeted validation before finish; repair budget is bounded by execution mode",
-    label: "targeted-validation",
-  });
-  await workflow.task.update({ task: validate, status: "completed" });
 
   await workflow.finish({
     summary: "Manual workflow completed",
-    changedFiles: [],
-    verification: ["pnpm typecheck"],
+    evidence: [],
+    verification: [],
     residualRisk: [],
   });
 }
@@ -4320,16 +4322,16 @@ function workflowJsLiteral(value: string): string {
 }
 
 function buildGoalDrivenWorkflowScript(objective: string): string {
-  const target = objective.trim() || "Complete the requested coding task."
+  const target = objective.trim() || "Complete the requested task."
   const targetLiteral = workflowJsLiteral(target)
-  const implementationTask = workflowJsLiteral(`Implement this coding target end-to-end:
+  const implementationTask = workflowJsLiteral(`Complete this target end-to-end:
 
 ${target}
 
-Work in the current workspace. First inspect the relevant files, then make the smallest coherent code change, and finish with a concise summary of changed files, validation performed, and residual risk. Follow the repository AGENTS.md instructions: run targeted validation only; do not run the full pre-push suite unless explicitly requested.`)
+Work in the current session context. First inspect the relevant files, notes, sources, or artifacts that are available. If this is a coding task, follow the repository AGENTS.md instructions, make the smallest coherent change, and run targeted validation only; do not run the full pre-push suite unless explicitly requested. If this is not a coding task, produce concrete evidence, checks performed, deliverables, and residual risk.`)
 
   return `export default async function main(workflow) {
-  // Budget: owner create request sets maxScriptSecs/maxOps/maxOutputTokens by execution mode; repairLoop bounds attempts, validation, review, and verification.
+  // Budget: owner create request sets maxScriptSecs/maxOps/maxOutputTokens by execution mode.
   const observe = await workflow.task.create({
     title: "Understand target",
     label: "observe",
@@ -4350,39 +4352,29 @@ Work in the current workspace. First inspect the relevant files, then make the s
   await workflow.task.update({ task: observe, status: "completed" });
 
   const implement = await workflow.task.create({
-    title: "Implement target",
+    title: "Complete target",
     label: "implement",
   });
-  const repair = await workflow.repairLoop({
-    label: "implementation-repair",
-    maxAttempts: 2,
-    validationCommands: ["pnpm typecheck"],
-    validationReason: "targeted validation after each implementation repair attempt; full pre-push suite remains user-gated",
-    reviewProfiles: ["correctness", "security", "maintainability", "tests", "frontend", "accessibility"],
-    maxVerificationCommands: 2,
-  }, async ({ attempt, previous }) => {
-    const worker = await workflow.spawnAgent({
-      task: ${implementationTask} + "\\n\\nRepair attempt " + attempt + "/2. Previous control-plane feedback: " + JSON.stringify(previous && previous.result ? previous.result : null),
-      label: "implement-target-" + attempt,
-    });
-    const implementation = await workflow.waitAll([worker], {
-      waitTimeout: 90,
-      label: "wait-implementation-" + attempt,
-    });
-    return { implementation };
+  const worker = await workflow.spawnAgent({
+    task: ${implementationTask},
+    label: "complete-target",
+  });
+  const result = await workflow.waitAll([worker], {
+    timeout: 120,
+    label: "wait-target",
   });
   await workflow.task.update({ task: implement, status: "completed" });
 
   const diff = await workflow.diff({ label: "final-diff" });
 
   await workflow.finish({
-    summary: "Goal-driven coding workflow finished",
+    summary: "Goal-driven workflow finished",
     target: ${targetLiteral},
     searchedFiles: files.matches ?? [],
-    repair,
+    result,
     diff,
-    verification: ["pnpm typecheck", "workflow.review", "workflow.verify"],
-    residualRisk: repair.ok ? [] : ["Repair loop did not converge; inspect the Workflow trace, Review, and Validation tabs."],
+    verification: ["See worker result for checks performed"],
+    residualRisk: [],
   });
 }
 `
@@ -4488,6 +4480,11 @@ function workflowRunIsLive(state: WorkflowRunState): boolean {
 function normalizeExecutionMode(value: unknown): ExecutionMode {
   const raw = typeof value === "string" ? value : stringField(asRecord(value), "mode")
   return raw === "guarded" || raw === "deep" || raw === "autonomous" ? raw : "off"
+}
+
+function normalizeWorkflowAutonomyMode(value: unknown): WorkflowAutonomyMode {
+  const raw = typeof value === "string" ? value : stringField(asRecord(value), "mode")
+  return raw === "on" || raw === "ultracode" ? raw : "off"
 }
 
 function compactJson(value: unknown, fallback: string): string {
@@ -4634,6 +4631,34 @@ function executionModeHint(
   }
 }
 
+function workflowAutonomyModeLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  mode: WorkflowAutonomyMode,
+): string {
+  switch (mode) {
+    case "off":
+      return t("workspace.workflow.modeOff", "关闭")
+    case "on":
+      return t("workspace.workflow.modeOn", "开启")
+    case "ultracode":
+      return t("workspace.workflow.modeUltracode", "Ultracode")
+  }
+}
+
+function workflowAutonomyModeHint(
+  t: ReturnType<typeof useTranslation>["t"],
+  mode: WorkflowAutonomyMode,
+): string {
+  switch (mode) {
+    case "off":
+      return t("workspace.workflow.modeOffHint", "不开放自主编排")
+    case "on":
+      return t("workspace.workflow.modeOnHint", "模型按需编排")
+    case "ultracode":
+      return t("workspace.workflow.modeUltracodeHint", "全面验证长任务")
+  }
+}
+
 function workflowRunActionSpecs(
   t: ReturnType<typeof useTranslation>["t"],
   state: WorkflowRunState,
@@ -4641,7 +4666,7 @@ function workflowRunActionSpecs(
   const cancel: WorkflowRunActionSpec = {
     command: "cancel_workflow_run",
     label: t("workspace.workflow.cancel", "取消"),
-    success: t("workspace.workflow.cancelled", "已取消 workflow"),
+    success: t("workspace.workflow.cancelled", "已取消工作流"),
     icon: X,
     danger: true,
   }
@@ -4652,7 +4677,7 @@ function workflowRunActionSpecs(
         {
           command: "run_workflow_run",
           label: t("workspace.workflow.run", "运行"),
-          success: t("workspace.workflow.runStarted", "已启动 workflow"),
+          success: t("workspace.workflow.runStarted", "已请求启动工作流"),
           icon: Play,
           primary: true,
         },
@@ -4663,7 +4688,7 @@ function workflowRunActionSpecs(
         {
           command: "approve_workflow_run",
           label: t("workspace.workflow.approve", "批准"),
-          success: t("workspace.workflow.approved", "已批准 workflow"),
+          success: t("workspace.workflow.approved", "已批准并请求继续工作流"),
           icon: Check,
           primary: true,
         },
@@ -4674,7 +4699,7 @@ function workflowRunActionSpecs(
         {
           command: "pause_workflow_run",
           label: t("workspace.workflow.pause", "暂停"),
-          success: t("workspace.workflow.paused", "已暂停 workflow"),
+          success: t("workspace.workflow.paused", "已暂停工作流"),
           icon: Pause,
         },
         cancel,
@@ -4684,7 +4709,7 @@ function workflowRunActionSpecs(
         {
           command: "resume_workflow_run",
           label: t("workspace.workflow.resume", "恢复"),
-          success: t("workspace.workflow.resumed", "已恢复 workflow"),
+          success: t("workspace.workflow.resumed", "已请求恢复工作流"),
           icon: Play,
           primary: true,
         },
@@ -4921,7 +4946,7 @@ function buildWorkflowRepairPrompt(
   if (!isRecoverableFailure) return null
 
   const lines = [
-    "请基于下面的 Workflow 失败上下文继续修复。先定位根因，必要时调整代码或 workflow 脚本，然后运行最小验证。",
+    "请基于下面的工作流失败上下文继续修复。先定位根因，必要时调整代码或工作流脚本，然后运行最小验证。",
     "",
     "## Run",
     `- id: ${run.id}`,
@@ -5005,7 +5030,7 @@ function workflowEventTitle(
   const payload = asRecord(event.payload)
   switch (event.eventType) {
     case "run_created":
-      return t("workspace.workflow.eventRunCreated", "Workflow 已创建")
+      return t("workspace.workflow.eventRunCreated", "工作流已创建")
     case "run_state_changed":
       return t("workspace.workflow.eventRunStateChanged", "状态已更新")
     case "run_recovery_claimed":
@@ -5021,7 +5046,7 @@ function workflowEventTitle(
     case "run_derived_from":
       return t("workspace.workflow.eventRunDerivedFrom", "派生来源")
     case "run_derived_child_created":
-      return t("workspace.workflow.eventRunDerivedChildCreated", "已生成派生 run")
+      return t("workspace.workflow.eventRunDerivedChildCreated", "已生成派生运行")
     case "op_started":
       return t("workspace.workflow.eventOpStarted", "步骤开始")
     case "op_completed":
@@ -5575,6 +5600,9 @@ function WorkflowRunsSection({
   const [snapshot, setSnapshot] = useState<WorkflowRunSnapshot | null>(null)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [actionKey, setActionKey] = useState<string | null>(null)
+  const [workflowMode, setWorkflowMode] = useState<WorkflowAutonomyMode>("off")
+  const [workflowModeLoading, setWorkflowModeLoading] = useState(false)
+  const [workflowModeSaving, setWorkflowModeSaving] = useState<WorkflowAutonomyMode | null>(null)
   const [executionMode, setExecutionMode] = useState<ExecutionMode>("off")
   const [executionModeLoading, setExecutionModeLoading] = useState(false)
   const [executionModeSaving, setExecutionModeSaving] = useState<ExecutionMode | null>(null)
@@ -5599,6 +5627,7 @@ function WorkflowRunsSection({
   const [goalCriteria, setGoalCriteria] = useState("")
   const [goalSaving, setGoalSaving] = useState(false)
   const snapshotReqRef = useRef(0)
+  const workflowModeReqRef = useRef(0)
   const executionModeReqRef = useRef(0)
   const previewReqRef = useRef(0)
   const autoDetailTabRunRef = useRef<string | null>(null)
@@ -5624,7 +5653,7 @@ function WorkflowRunsSection({
   const ensureWorkflowSession = useCallback(async () => {
     if (sessionId) return sessionId
     if (!onEnsureSession) {
-      toast.error(t("workspace.workflow.sessionRequired", "先选择或创建一个会话后再新建 workflow"))
+      toast.error(t("workspace.workflow.sessionRequired", "先选择或创建一个会话后再新建工作流"))
       return null
     }
     if (!ensureSessionRef.current) {
@@ -5634,7 +5663,7 @@ function WorkflowRunsSection({
     }
     const nextSessionId = await ensureSessionRef.current
     if (!nextSessionId) {
-      toast.error(t("workspace.workflow.sessionRequired", "先选择或创建一个会话后再新建 workflow"))
+      toast.error(t("workspace.workflow.sessionRequired", "先选择或创建一个会话后再新建工作流"))
     }
     return nextSessionId
   }, [onEnsureSession, sessionId, t])
@@ -5666,10 +5695,16 @@ function WorkflowRunsSection({
       .call<WorkflowRunSnapshot | null>("get_workflow_run", { runId })
       .then((next) => {
         if (snapshotReqRef.current !== req) return
-        setSnapshot(next)
-        if (next && autoDetailTabRunRef.current !== next.run.id) {
-          setDetailTab(workflowInitialDetailTab(next))
-          autoDetailTabRunRef.current = next.run.id
+        const validNext =
+          next &&
+          typeof next === "object" &&
+          typeof (next as { run?: { id?: unknown } }).run?.id === "string"
+            ? next
+            : null
+        setSnapshot(validNext)
+        if (validNext && autoDetailTabRunRef.current !== validNext.run.id) {
+          setDetailTab(workflowInitialDetailTab(validNext))
+          autoDetailTabRunRef.current = validNext.run.id
         }
         setSnapshotLoading(false)
       })
@@ -5685,6 +5720,35 @@ function WorkflowRunsSection({
         setSnapshotLoading(false)
       })
   }, [])
+
+  const loadWorkflowMode = useCallback(() => {
+    if (!sessionId || incognito) {
+      workflowModeReqRef.current += 1
+      setWorkflowMode("off")
+      setWorkflowModeLoading(false)
+      setWorkflowModeSaving(null)
+      return
+    }
+    const req = ++workflowModeReqRef.current
+    setWorkflowModeLoading(true)
+    getTransport()
+      .call<unknown>("get_workflow_mode", { sessionId })
+      .then((next) => {
+        if (workflowModeReqRef.current !== req) return
+        setWorkflowMode(normalizeWorkflowAutonomyMode(next))
+        setWorkflowModeLoading(false)
+      })
+      .catch((e) => {
+        if (workflowModeReqRef.current !== req) return
+        logger.error(
+          "ui",
+          "WorkflowRunsSection::loadWorkflowMode",
+          "Failed to load workflow mode",
+          e,
+        )
+        setWorkflowModeLoading(false)
+      })
+  }, [incognito, sessionId])
 
   const loadExecutionMode = useCallback(() => {
     if (!sessionId || incognito) {
@@ -5726,16 +5790,72 @@ function WorkflowRunsSection({
   }, [incognito, loadSnapshot, selectedRun?.state, selectedRun?.updatedAt, selectedRunId])
 
   useEffect(() => {
+    loadWorkflowMode()
+  }, [loadWorkflowMode])
+
+  useEffect(() => {
+    const onWorkflowModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string | null; mode?: unknown }>).detail
+      if (!detail || detail.sessionId !== sessionId) return
+      setWorkflowMode(normalizeWorkflowAutonomyMode(detail.mode))
+      setWorkflowModeLoading(false)
+      setWorkflowModeSaving(null)
+    }
+    window.addEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
+    return () => window.removeEventListener(WORKFLOW_MODE_CHANGED_EVENT, onWorkflowModeChanged)
+  }, [sessionId])
+
+  useEffect(() => {
     loadExecutionMode()
   }, [loadExecutionMode])
 
+  const updateWorkflowMode = useCallback(
+    async (nextMode: WorkflowAutonomyMode) => {
+      if (incognito || nextMode === workflowMode || workflowModeSaving) return
+      const targetSessionId = sessionId ?? (await ensureWorkflowSession())
+      if (!targetSessionId) return
+      setWorkflowModeSaving(nextMode)
+      try {
+        const next = await getTransport().call<unknown>("set_workflow_mode", {
+          sessionId: targetSessionId,
+          mode: nextMode,
+        })
+        const saved = normalizeWorkflowAutonomyMode(next)
+        setWorkflowMode(saved)
+        window.dispatchEvent(
+          new CustomEvent(WORKFLOW_MODE_CHANGED_EVENT, {
+            detail: { sessionId: targetSessionId, mode: saved },
+          }),
+        )
+        toast.success(
+          t("workspace.workflow.modeSaved", "工作流模式已切换为 {{mode}}，模型下一轮会感知", {
+            mode: workflowAutonomyModeLabel(t, saved),
+          }),
+        )
+      } catch (e) {
+        logger.error(
+          "ui",
+          "WorkflowRunsSection::updateWorkflowMode",
+          "Failed to update workflow mode",
+          e,
+        )
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setWorkflowModeSaving(null)
+      }
+    },
+    [ensureWorkflowSession, incognito, sessionId, t, workflowMode, workflowModeSaving],
+  )
+
   const updateExecutionMode = useCallback(
     async (nextMode: ExecutionMode) => {
-      if (!sessionId || incognito || nextMode === executionMode) return
+      if (incognito || nextMode === executionMode || executionModeSaving) return
+      const targetSessionId = sessionId ?? (await ensureWorkflowSession())
+      if (!targetSessionId) return
       setExecutionModeSaving(nextMode)
       try {
         const next = await getTransport().call<unknown>("set_execution_mode", {
-          sessionId,
+          sessionId: targetSessionId,
           mode: nextMode,
         })
         const saved = normalizeExecutionMode(next)
@@ -5757,7 +5877,7 @@ function WorkflowRunsSection({
         setExecutionModeSaving(null)
       }
     },
-    [incognito, executionMode, sessionId, t],
+    [ensureWorkflowSession, incognito, executionMode, executionModeSaving, sessionId, t],
   )
 
   const createGoalFromDraft = useCallback(async () => {
@@ -5862,7 +5982,7 @@ function WorkflowRunsSection({
       if (incognito) return null
       const script = scriptSource.trim()
       if (!script) {
-        toast.error(t("workspace.workflow.scriptRequired", "请输入 workflow 脚本"))
+        toast.error(t("workspace.workflow.scriptRequired", "请输入工作流脚本"))
         return null
       }
       const targetSessionId = await ensureWorkflowSession()
@@ -5910,7 +6030,7 @@ function WorkflowRunsSection({
   const generateGoalDrivenDraft = useCallback(() => {
     const objective = draftObjective.trim()
     if (!objective) {
-      toast.error(t("workspace.workflow.objectiveRequired", "请输入要完成的 coding 目标"))
+      toast.error(t("workspace.workflow.objectiveRequired", "请输入要完成的目标"))
       return
     }
     setDraftKind(WORKFLOW_KIND_DEFAULT)
@@ -5919,7 +6039,7 @@ function WorkflowRunsSection({
     setDraftOrigin(null)
     clearDraftPreview()
     if (workingDir) {
-      toast.success(t("workspace.workflow.objectiveDraftReady", "已生成目标驱动 workflow 草稿"))
+      toast.success(t("workspace.workflow.objectiveDraftReady", "已生成目标驱动工作流草稿"))
     } else {
       toast.warning(
         t(
@@ -5934,7 +6054,7 @@ function WorkflowRunsSection({
     (repairPrompt: string, run: WorkflowRun) => {
       const sourceMode = normalizeExecutionMode(run.executionMode)
       const nextMode = sourceMode === "off" ? "guarded" : sourceMode
-      const objective = `继续修复失败的 workflow run ${run.id}。
+      const objective = `继续修复失败的工作流运行 ${run.id}。
 
 ${repairPrompt}`
       setCreateOpen(true)
@@ -5951,7 +6071,7 @@ ${repairPrompt}`
       setDraftScript(script)
       setDraftRunImmediately(Boolean(workingDir))
       if (workingDir) {
-        toast.success(t("workspace.workflow.repairDraftReady", "已生成修复 workflow 草稿"))
+        toast.success(t("workspace.workflow.repairDraftReady", "已生成修复工作流草稿"))
       } else {
         toast.warning(
           t(
@@ -5976,7 +6096,7 @@ ${repairPrompt}`
     if (incognito) return
     const script = draftScript.trim()
     if (!script) {
-      toast.error(t("workspace.workflow.scriptRequired", "请输入 workflow 脚本"))
+      toast.error(t("workspace.workflow.scriptRequired", "请输入工作流脚本"))
       return
     }
     if (!draftPreview?.canCreate) {
@@ -6024,11 +6144,11 @@ ${repairPrompt}`
       toast.success(
         draftOrigin?.type === "repair"
           ? runImmediatelyForCreate
-            ? t("workspace.workflow.repairCreatedAndStarted", "已创建并启动修复 workflow")
-            : t("workspace.workflow.repairCreated", "已创建修复 workflow")
+            ? t("workspace.workflow.repairCreatedAndStarted", "已创建修复工作流并请求启动")
+            : t("workspace.workflow.repairCreated", "已创建修复工作流")
           : runImmediatelyForCreate
-            ? t("workspace.workflow.createdAndStarted", "已创建并启动 workflow")
-            : t("workspace.workflow.created", "已创建 workflow"),
+            ? t("workspace.workflow.createdAndStarted", "已创建工作流并请求启动")
+            : t("workspace.workflow.created", "已创建工作流"),
       )
       setCreateOpen(false)
       setDraftOrigin(null)
@@ -6188,7 +6308,7 @@ ${repairPrompt}`
   return (
     <>
       <WorkspaceSection
-        title={t("workspace.workflow.title", "Workflow")}
+        title={t("workspace.workflow.title", "工作流")}
         count={activeCount}
         icon={GitPullRequest}
         meta={
@@ -6196,9 +6316,15 @@ ${repairPrompt}`
         }
       >
         {incognito ? (
-          <EmptyHint>{t("workspace.workflow.incognito", "无痕会话不持久化 workflow")}</EmptyHint>
+          <EmptyHint>{t("workspace.workflow.incognito", "无痕会话不持久化工作流")}</EmptyHint>
         ) : (
           <div className="space-y-2">
+            <WorkflowAutonomyModeControl
+              mode={workflowMode}
+              loading={workflowModeLoading}
+              saving={workflowModeSaving}
+              onChange={(mode) => void updateWorkflowMode(mode)}
+            />
             <WorkflowExecutionModeControl
               mode={executionMode}
               loading={executionModeLoading}
@@ -6230,7 +6356,7 @@ ${repairPrompt}`
               disabled={!canMaterializeSession}
               disabledReason={
                 !canMaterializeSession
-                  ? t("workspace.workflow.sessionRequired", "先选择或创建一个会话后再新建 workflow")
+                  ? t("workspace.workflow.sessionRequired", "先选择或创建一个会话后再新建工作流")
                   : !sessionId
                     ? t(
                         "workspace.workflow.sessionAutoCreateHint",
@@ -6352,8 +6478,8 @@ ${repairPrompt}`
                     >
                       <span>
                         {showAllRuns
-                          ? t("workspace.workflow.collapseRuns", "收起历史 run")
-                          : t("workspace.workflow.moreRuns", "另有 {{count}} 个历史 run", {
+                          ? t("workspace.workflow.collapseRuns", "收起历史运行")
+                          : t("workspace.workflow.moreRuns", "另有 {{count}} 个历史运行", {
                               count: runs.length - WORKFLOW_RUN_PREVIEW,
                             })}
                       </span>
@@ -6446,12 +6572,12 @@ ${repairPrompt}`
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("workspace.workflow.cancelConfirmTitle", "取消这个 workflow run？")}
+              {t("workspace.workflow.cancelConfirmTitle", "取消这个工作流运行？")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t(
                 "workspace.workflow.cancelConfirmBody",
-                "会停止这个 run，并尽量取消它拥有的后台任务、验证命令和子 Agent；已有 trace 会保留，方便之后复盘或生成修复草稿。",
+                "会停止这个运行，并尽量取消它拥有的后台任务、验证命令和子 Agent；已有 trace 会保留，方便之后复盘或生成修复草稿。",
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -6521,7 +6647,7 @@ function WorkflowEmptyState({
       <div className="flex min-w-0 items-center gap-2">
         <Sparkles className="h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
-          {t("workspace.workflow.emptyTitle", "准备开始 Coding run")}
+          {t("workspace.workflow.emptyTitle", "准备开始工作流运行")}
         </span>
         <StatusPill label={executionModeLabel(t, mode)} tone={mode === "off" ? "muted" : "info"} />
       </div>
@@ -6547,7 +6673,7 @@ function WorkflowEmptyState({
         onClick={onCreate}
       >
         <Plus className="h-3.5 w-3.5" />
-        <span className="truncate">{t("workspace.workflow.emptyCreate", "开始 Coding run")}</span>
+        <span className="truncate">{t("workspace.workflow.emptyCreate", "开始工作流运行")}</span>
       </Button>
     </div>
   )
@@ -6643,7 +6769,7 @@ function WorkflowCreateComposer({
       >
         <Plus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
-          {t("workspace.workflow.createTitle", "新建 Workflow")}
+          {t("workspace.workflow.createTitle", "新建工作流")}
         </span>
         <ChevronRight
           className={cn(
@@ -6683,14 +6809,14 @@ function WorkflowCreateComposer({
                 {linkedGoal
                   ? t(
                       "workspace.workflow.repairDraftGoalDetail",
-                      "将创建同一 Goal 下的修复 run，不会覆盖原 run · {{kind}}",
+                      "将创建同一 Goal 下的修复运行，不会覆盖原运行 · {{kind}}",
                       {
                         kind: repairOrigin.runKind,
                       },
                     )
                   : t(
                       "workspace.workflow.repairDraftOriginDetail",
-                      "将创建新的修复 run，不会覆盖原 run · {{kind}}",
+                      "将创建新的修复运行，不会覆盖原运行 · {{kind}}",
                       {
                         kind: repairOrigin.runKind,
                       },
@@ -6703,7 +6829,7 @@ function WorkflowCreateComposer({
             <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="truncate">
-                {t("workspace.workflow.objectiveTitle", "从 coding 目标开始")}
+                {t("workspace.workflow.objectiveTitle", "从目标开始")}
               </span>
             </div>
             <Textarea
@@ -6712,10 +6838,10 @@ function WorkflowCreateComposer({
               onChange={(event) => onObjectiveChange(event.target.value)}
               placeholder={t(
                 "workspace.workflow.objectivePlaceholder",
-                "例如：修复登录页空白问题，并跑一次 pnpm typecheck",
+                "例如：调研多份发布说明并总结风险",
               )}
               className="min-h-20 resize-y text-xs"
-              aria-label={t("workspace.workflow.objectiveTitle", "从 coding 目标开始")}
+              aria-label={t("workspace.workflow.objectiveTitle", "从目标开始")}
             />
             <Button
               type="button"
@@ -6965,7 +7091,7 @@ function WorkflowCreateComposer({
                 {repairOrigin
                   ? effectiveRunImmediately
                     ? t("workspace.workflow.createRepairAndRun", "创建并运行修复")
-                    : t("workspace.workflow.createRepair", "创建修复 run")
+                    : t("workspace.workflow.createRepair", "创建修复运行")
                   : effectiveRunImmediately
                     ? t("workspace.workflow.createAndRun", "创建并运行")
                     : t("workspace.workflow.create", "创建")}
@@ -7125,6 +7251,74 @@ function WorkflowGateIssueRow({ issue }: { issue: WorkflowGateIssue }) {
       </div>
       <div className="mt-0.5 truncate pl-4 text-[10px] text-muted-foreground/80">
         {issue.suggestion}
+      </div>
+    </div>
+  )
+}
+
+function WorkflowAutonomyModeControl({
+  mode,
+  loading,
+  saving,
+  onChange,
+}: {
+  mode: WorkflowAutonomyMode
+  loading?: boolean
+  saving?: WorkflowAutonomyMode | null
+  onChange: (mode: WorkflowAutonomyMode) => void
+}) {
+  const { t } = useTranslation()
+  const options: Array<{ mode: WorkflowAutonomyMode; icon: LucideIcon }> = [
+    { mode: "off", icon: X },
+    { mode: "on", icon: GitPullRequest },
+    { mode: "ultracode", icon: Sparkles },
+  ]
+  const busy = loading || !!saving
+
+  return (
+    <div className="rounded-md border border-border/55 bg-secondary/20 p-2">
+      <div className="mb-1.5 flex min-w-0 items-center gap-2">
+        <GitPullRequest className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+          {t("workspace.workflow.workflowMode", "工作流模式")}
+        </span>
+        {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {options.map((option) => {
+          const Icon = option.icon
+          const selected = option.mode === mode
+          const isSaving = saving === option.mode
+          return (
+            <button
+              key={option.mode}
+              type="button"
+              className={cn(
+                "min-h-12 rounded-md border px-2 py-1.5 text-left transition-colors disabled:opacity-60",
+                selected
+                  ? "border-primary/55 bg-primary/10 text-foreground"
+                  : "border-border/45 bg-background/35 text-muted-foreground hover:bg-secondary/55 hover:text-foreground",
+              )}
+              disabled={busy}
+              onClick={() => onChange(option.mode)}
+              aria-pressed={selected}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                {isSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate text-[11px] font-medium">
+                  {workflowAutonomyModeLabel(t, option.mode)}
+                </span>
+              </span>
+              <span className="mt-0.5 block truncate text-[10px] opacity-70">
+                {workflowAutonomyModeHint(t, option.mode)}
+              </span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )
@@ -7345,9 +7539,11 @@ function GoalControlStrip({
   const goal = snapshot?.goal ?? null
   const audit = asRecord(goal?.finalEvidence)
   const auditEvidence = recordArrayField(audit, "evidence")
-  const criteriaAudit = snapshot?.criteria ?? []
-  const evidenceItems = snapshot?.evidence ?? []
-  const timelineItems = snapshot?.timeline ?? []
+  const criteriaAudit = Array.isArray(snapshot?.criteria) ? snapshot.criteria : []
+  const evidenceItems = Array.isArray(snapshot?.evidence) ? snapshot.evidence : []
+  const timelineItems = Array.isArray(snapshot?.timeline) ? snapshot.timeline : []
+  const workflowRuns = Array.isArray(snapshot?.workflowRuns) ? snapshot.workflowRuns : []
+  const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : []
   const achieved = arrayField(audit, "achieved").filter(
     (item): item is string => typeof item === "string" && item.trim().length > 0,
   )
@@ -7357,9 +7553,9 @@ function GoalControlStrip({
   const blockers = arrayField(audit, "blockers").filter(
     (item): item is string => typeof item === "string" && item.trim().length > 0,
   )
-  const workflowCount = snapshot?.workflowRuns.length ?? 0
-  const taskCount = snapshot?.tasks.length ?? 0
-  const taskDone = snapshot?.tasks.filter((task) => task.status === "completed").length ?? 0
+  const workflowCount = workflowRuns.length
+  const taskCount = tasks.length
+  const taskDone = tasks.filter((task) => task.status === "completed").length
   const evidenceCount = evidenceItems.length || auditEvidence.length
   const isBusy = saving || Boolean(actionKey)
   const canCreate = !disabled && !saving && objective.trim().length > 0
@@ -8128,10 +8324,10 @@ function WorkflowRunOverview({
                 <GitBranch className="h-3.5 w-3.5 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">
                   {origin === "repair"
-                    ? t("workspace.workflow.derivedChildRepair", "已生成修复 run {{id}}", {
+                    ? t("workspace.workflow.derivedChildRepair", "已生成修复运行 {{id}}", {
                         id: childRunId,
                       })
-                    : t("workspace.workflow.derivedChild", "已生成派生 run {{id}}", {
+                    : t("workspace.workflow.derivedChild", "已生成派生运行 {{id}}", {
                         id: childRunId,
                       })}
                 </span>
@@ -8214,7 +8410,7 @@ function WorkflowRunFocusCard({
     title = t("workspace.workflow.focusUserTitle", "当前焦点：等待用户回复")
     body =
       (waitEvent ? workflowEventDetail(t, waitEvent) || workflowEventTitle(t, waitEvent) : null) ??
-      t("workspace.workflow.focusUserBody", "当前 run 正在等待会话里的用户输入或外部确认。")
+      t("workspace.workflow.focusUserBody", "当前运行正在等待会话里的用户输入或外部确认。")
     tone = "warn"
     Icon = MessageCircle
     targetTab = "trace"
@@ -8292,13 +8488,13 @@ function WorkflowRunFocusCard({
               total,
             },
           )
-        : t("workspace.workflow.focusCompletedBodyNoOps", "run 已完成，trace 已保留。")
+        : t("workspace.workflow.focusCompletedBodyNoOps", "运行已完成，trace 已保留。")
     tone = "good"
     Icon = CheckCircle2
     targetTab = "trace"
   } else {
     title = t("workspace.workflow.focusCancelledTitle", "当前焦点：已取消")
-    body = t("workspace.workflow.focusCancelledBody", "run 已停止，已有 trace 可用于复盘。")
+    body = t("workspace.workflow.focusCancelledBody", "运行已停止，已有 trace 可用于复盘。")
     tone = "muted"
     Icon = X
     targetTab = "trace"
@@ -8497,7 +8693,7 @@ function WorkflowRecoveryHint({
     title = t("workspace.workflow.nextPausedTitle", "下一步：恢复或取消")
     body = t(
       "workspace.workflow.nextPausedBody",
-      "当前 run 已暂停，可恢复继续执行，也可取消并保留 trace。",
+      "当前运行已暂停，可恢复继续执行，也可取消并保留 trace。",
     )
     tone = "warn"
   } else if (run.state === "blocked") {
@@ -8506,7 +8702,7 @@ function WorkflowRecoveryHint({
       blockedReason === "script_hash_mismatch"
         ? t(
             "workspace.workflow.nextBlockedScriptHash",
-            "脚本内容已变化；请基于当前目标生成新的 workflow。",
+            "脚本内容已变化；请基于当前目标生成新的工作流。",
           )
         : truncateMiddle(
             blockedReason ?? t("workspace.workflow.blockedFallback", "需要人工处理"),

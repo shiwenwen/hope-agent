@@ -373,6 +373,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workflow_run_is_not_discoverable_via_tool_search() {
+        let args = json!({ "query": "select:workflow_run" });
+        let result = tool_search(&args, &ToolExecContext::default())
+            .await
+            .unwrap();
+        let parsed: Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(parsed["matched_tools"].as_u64().unwrap(), 0);
+        assert!(parsed["tools"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn test_keyword_query() {
         let args = json!({ "query": "memory", "max_results": 3 });
         let result = tool_search(&args, &ToolExecContext::default())

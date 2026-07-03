@@ -11,6 +11,8 @@ export interface SlashCommandActions {
   sessionId: string | null
   /** Current agent ID */
   agentId: string
+  /** Materializes a draft chat before running commands that persist session state. */
+  ensureSession?: () => Promise<string | null>
 }
 
 export interface UseSlashCommandsReturn {
@@ -56,6 +58,37 @@ function annotateSkillPassThrough(
   if (trimmed) result._skillArgs = trimmed
 }
 
+function commandNeedsMaterializedSession(commandText: string): boolean {
+  const match = commandText.trim().match(/^\/([^\s]+)(?:\s+(.*))?$/)
+  if (!match) return false
+  const name = match[1]?.toLowerCase()
+  const args = (match[2] ?? "").trim()
+  const [firstRaw = ""] = args.split(/\s+/)
+  const first = firstRaw.toLowerCase()
+
+  if (name === "workflow") {
+    return ["on", "enable", "enabled", "ultracode", "ultra"].includes(first)
+  }
+  if (name === "mode") {
+    return ["guarded", "deep", "autonomous"].includes(first)
+  }
+  if (name === "goal") {
+    if (!args) return false
+    return ![
+      "status",
+      "show",
+      "help",
+      "pause",
+      "resume",
+      "clear",
+      "cancel",
+      "evaluate",
+      "audit",
+    ].includes(first)
+  }
+  return false
+}
+
 export function useSlashCommands(
   input: string,
   setInput: (value: string) => void,
@@ -92,7 +125,10 @@ export function useSlashCommands(
 
   // Load commands from backend (refresh when menu opens to pick up skill changes)
   const loadCommands = useCallback(() => {
-    getTransport().call<SlashCommandDef[]>("list_slash_commands").then(setCommands).catch(() => {})
+    getTransport()
+      .call<SlashCommandDef[]>("list_slash_commands")
+      .then(setCommands)
+      .catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -128,9 +164,7 @@ export function useSlashCommands(
     if (filter === "" && !input.startsWith("/")) return []
 
     const filtered = filter
-      ? commands.filter(
-          (c) => c.name.startsWith(filter) || c.name.includes(filter),
-        )
+      ? commands.filter((c) => c.name.startsWith(filter) || c.name.includes(filter))
       : commands
 
     // Sort by category order, then exact prefix first
@@ -198,6 +232,12 @@ export function useSlashCommands(
     }
   }, [shouldBeOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const resolveSessionIdForCommand = useCallback(async (commandText: string) => {
+    const current = actionsRef.current.sessionId
+    if (current || !commandNeedsMaterializedSession(commandText)) return current
+    return actionsRef.current.ensureSession?.() ?? null
+  }, [])
+
   const executeCommandInner = useCallback(
     async (cmd: SlashCommandDef) => {
       // Build command text — when triggered by button (forceOpen, no "/" in input), no args from input
@@ -213,11 +253,16 @@ export function useSlashCommands(
       setExecuting(true)
 
       try {
+        const sessionId = await resolveSessionIdForCommand(commandText)
+        if (!sessionId && commandNeedsMaterializedSession(commandText)) {
+          throw new Error("No active session")
+        }
         const result = await getTransport().call<CommandResult>("execute_slash_command", {
-          sessionId: actionsRef.current.sessionId,
+          sessionId,
           agentId: actionsRef.current.agentId,
           commandText,
         })
+        if (sessionId) result._sessionId = sessionId
         annotateSkillPassThrough(result, cmd, commandText, args)
         actionsRef.current.onCommandAction(result)
       } catch (err) {
@@ -230,7 +275,7 @@ export function useSlashCommands(
         setExecuting(false)
       }
     },
-    [input, setInput],
+    [input, resolveSessionIdForCommand, setInput],
   )
 
   const executeOption = useCallback(
@@ -242,12 +287,21 @@ export function useSlashCommands(
       setExecuting(true)
 
       const commandText = `/${cmd.name} ${option}`
-      getTransport().call<CommandResult>("execute_slash_command", {
-        sessionId: actionsRef.current.sessionId,
-        agentId: actionsRef.current.agentId,
-        commandText,
-      })
-        .then((result) => {
+      resolveSessionIdForCommand(commandText)
+        .then((sessionId) => {
+          if (!sessionId && commandNeedsMaterializedSession(commandText)) {
+            throw new Error("No active session")
+          }
+          return getTransport()
+            .call<CommandResult>("execute_slash_command", {
+              sessionId,
+              agentId: actionsRef.current.agentId,
+              commandText,
+            })
+            .then((result) => ({ result, sessionId }))
+        })
+        .then(({ result, sessionId }) => {
+          if (sessionId) result._sessionId = sessionId
           annotateSkillPassThrough(result, cmd, commandText, option)
           actionsRef.current.onCommandAction(result)
         })
@@ -263,7 +317,7 @@ export function useSlashCommands(
           setExecuting(false)
         })
     },
-    [setInput],
+    [resolveSessionIdForCommand, setInput],
   )
 
   const executeSelected = useCallback(() => {
@@ -274,7 +328,15 @@ export function useSlashCommands(
     if (filteredCommands.length > 0 && selectedIndex < filteredCommands.length) {
       executeCommandInner(filteredCommands[selectedIndex])
     }
-  }, [filteredCommands, selectedIndex, executeCommandInner, expandedCmd, filteredOptions, selectedOptionIndex, executeOption])
+  }, [
+    filteredCommands,
+    selectedIndex,
+    executeCommandInner,
+    expandedCmd,
+    filteredOptions,
+    selectedOptionIndex,
+    executeOption,
+  ])
 
   const executeCommand = useCallback(
     (cmd: SlashCommandDef) => {
@@ -322,15 +384,11 @@ export function useSlashCommands(
         switch (e.key) {
           case "ArrowUp":
             e.preventDefault()
-            setSelectedOptionIndex((prev) =>
-              prev <= 0 ? filteredOptions.length - 1 : prev - 1,
-            )
+            setSelectedOptionIndex((prev) => (prev <= 0 ? filteredOptions.length - 1 : prev - 1))
             return true
           case "ArrowDown":
             e.preventDefault()
-            setSelectedOptionIndex((prev) =>
-              prev >= filteredOptions.length - 1 ? 0 : prev + 1,
-            )
+            setSelectedOptionIndex((prev) => (prev >= filteredOptions.length - 1 ? 0 : prev + 1))
             return true
           case "Tab": {
             // Tab: fill option into input box for further editing
@@ -362,16 +420,12 @@ export function useSlashCommands(
       switch (e.key) {
         case "ArrowUp":
           e.preventDefault()
-          setSelectedIndex((prev) =>
-            prev <= 0 ? filteredCommands.length - 1 : prev - 1,
-          )
+          setSelectedIndex((prev) => (prev <= 0 ? filteredCommands.length - 1 : prev - 1))
           return true
 
         case "ArrowDown":
           e.preventDefault()
-          setSelectedIndex((prev) =>
-            prev >= filteredCommands.length - 1 ? 0 : prev + 1,
-          )
+          setSelectedIndex((prev) => (prev >= filteredCommands.length - 1 ? 0 : prev + 1))
           return true
 
         case "Tab": {
@@ -417,22 +471,32 @@ export function useSlashCommands(
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, fillInput, forceOpen, input, expandedCmd, filteredOptions, selectedOptionIndex, executeOption],
+    [
+      isOpen,
+      filteredCommands,
+      selectedIndex,
+      executeCommand,
+      setInput,
+      fillInput,
+      forceOpen,
+      input,
+      expandedCmd,
+      filteredOptions,
+      selectedOptionIndex,
+      executeOption,
+    ],
   )
 
-  const setOpen = useCallback(
-    (open: boolean) => {
-      if (open) {
-        setForceOpen(true)
-        setExpandedCmd(null)
-      } else {
-        setForceOpen(false)
-        setIsOpen(false)
-        setExpandedCmd(null)
-      }
-    },
-    [],
-  )
+  const setOpen = useCallback((open: boolean) => {
+    if (open) {
+      setForceOpen(true)
+      setExpandedCmd(null)
+    } else {
+      setForceOpen(false)
+      setIsOpen(false)
+      setExpandedCmd(null)
+    }
+  }, [])
 
   return {
     isOpen,

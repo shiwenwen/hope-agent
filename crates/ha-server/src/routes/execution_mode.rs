@@ -10,7 +10,7 @@ use crate::routes::helpers::session_db;
 pub async fn get_execution_mode(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     let mode = session_db()?
         .get_session_execution_mode(&session_id)?
-        .unwrap_or_default();
+        .ok_or_else(|| AppError::not_found(format!("Session not found: {session_id}")))?;
     Ok(Json(json!({ "mode": mode.as_str() })))
 }
 
@@ -26,6 +26,45 @@ pub async fn set_execution_mode(
 ) -> Result<Json<Value>, AppError> {
     let mode = ha_core::execution_mode::ExecutionMode::from_str(&body.mode)
         .ok_or_else(|| AppError::bad_request("Invalid execution mode"))?;
-    session_db()?.update_session_execution_mode(&session_id, mode)?;
+    session_db()?
+        .update_session_execution_mode(&session_id, mode)
+        .map_err(map_session_mode_error)?;
     Ok(Json(json!({ "mode": mode.as_str() })))
+}
+
+/// `GET /api/sessions/{session_id}/workflow-mode`
+pub async fn get_workflow_mode(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
+    let mode = session_db()?
+        .get_session_workflow_mode(&session_id)?
+        .ok_or_else(|| AppError::not_found(format!("Session not found: {session_id}")))?;
+    Ok(Json(json!({ "mode": mode.as_str() })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetWorkflowModeBody {
+    pub mode: String,
+}
+
+/// `POST /api/sessions/{session_id}/workflow-mode`
+pub async fn set_workflow_mode(
+    Path(session_id): Path<String>,
+    Json(body): Json<SetWorkflowModeBody>,
+) -> Result<Json<Value>, AppError> {
+    let mode = ha_core::workflow_mode::WorkflowMode::from_str(&body.mode)
+        .ok_or_else(|| AppError::bad_request("Invalid workflow mode"))?;
+    session_db()?
+        .update_session_workflow_mode(&session_id, mode)
+        .map_err(map_session_mode_error)?;
+    Ok(Json(json!({ "mode": mode.as_str() })))
+}
+
+fn map_session_mode_error(err: anyhow::Error) -> AppError {
+    let message = err.to_string();
+    if message.contains("Session not found") {
+        AppError::not_found(message)
+    } else if message.contains("incognito session") {
+        AppError::bad_request(message)
+    } else {
+        AppError::internal(message)
+    }
 }

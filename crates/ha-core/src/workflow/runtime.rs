@@ -186,23 +186,20 @@ pub fn spawn_workflow_run_if_primary(
         };
 
         let result = match state {
-            WorkflowRunState::Running => {
-                match db.claim_workflow_run_for_recovery(&run_id, &owner) {
+            WorkflowRunState::Draft | WorkflowRunState::Running | WorkflowRunState::Recovering => {
+                match db.claim_workflow_run_for_launch(&run_id, &owner) {
                     Ok(Some(claimed)) => run_workflow_script_async(db.clone(), &claimed.id).await,
                     Ok(None) => {
                         crate::app_info!(
                             "workflow",
                             "spawn_run",
-                            "workflow run {} is already claimed or no longer running",
+                            "workflow run {} is already claimed or no longer launchable",
                             run_id
                         );
                         return;
                     }
                     Err(err) => Err(err).context("claim workflow run before launch"),
                 }
-            }
-            WorkflowRunState::Draft | WorkflowRunState::Recovering => {
-                run_workflow_script_async(db.clone(), &run_id).await
             }
             WorkflowRunState::AwaitingApproval
             | WorkflowRunState::AwaitingUser
@@ -243,6 +240,15 @@ pub fn spawn_workflow_run_if_primary(
         }
     });
     true
+}
+
+pub fn ensure_workflow_launcher_primary() -> Result<()> {
+    if crate::runtime_lock::is_primary() {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "workflow runs can only be started by the primary runtime process"
+    ))
 }
 
 pub async fn cancel_workflow_run_with_children(
@@ -474,6 +480,7 @@ fn execute_script(
             db.clone(),
             run.id.clone(),
             run.session_id.clone(),
+            run.created_at.clone(),
             run.goal_id.clone(),
             run.execution_mode.clone(),
             session_context.clone(),
@@ -727,6 +734,36 @@ fn build_workflow_object<'js>(
         )),
     )?;
 
+    let now_host = host.clone();
+    workflow.set(
+        "__now",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &now_host,
+                    args,
+                    WorkflowRuntimeHost::deterministic_now,
+                )
+            },
+        )),
+    )?;
+
+    let random_host = host.clone();
+    workflow.set(
+        "__random",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &random_host,
+                    args,
+                    WorkflowRuntimeHost::deterministic_random,
+                )
+            },
+        )),
+    )?;
+
     let finish_host = host.clone();
     workflow.set(
         "finish",
@@ -747,6 +784,8 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
         const __hopeEnterMapItem = workflow.__enterMapItem;
         const __hopeExitMapItem = workflow.__exitMapItem;
         const __hopeBlock = workflow.block;
+        const __hopeNow = workflow.__now;
+        const __hopeRandom = workflow.__random;
         function __hopeRepairLoopArray(value, name) {
           if (value == null) return [];
           if (typeof value === "string") return value.trim().length > 0 ? [value.trim()] : [];
@@ -956,9 +995,30 @@ fn install_workflow_js_helpers(ctx: &Ctx<'_>) -> Result<()> {
             });
           }
         });
+        Object.defineProperty(workflow, "now", {
+          configurable: false,
+          enumerable: true,
+          writable: false,
+          value: function now() {
+            return __hopeNow({});
+          }
+        });
+        Object.defineProperty(workflow, "random", {
+          configurable: false,
+          enumerable: true,
+          writable: false,
+          value: function random(seed) {
+            if (typeof seed !== "string" && typeof seed !== "number" && typeof seed !== "boolean") {
+              throw new Error("workflow.random(seed) requires a string, number, or boolean seed");
+            }
+            return __hopeRandom({ seed: String(seed) });
+          }
+        });
         delete workflow.__materializeMap;
         delete workflow.__enterMapItem;
         delete workflow.__exitMapItem;
+        delete workflow.__now;
+        delete workflow.__random;
         "#,
     )
     .catch(ctx)
@@ -1108,6 +1168,7 @@ struct WorkflowRuntimeHost {
     db: Arc<SessionDB>,
     run_id: String,
     session_id: String,
+    run_created_at: String,
     goal_id: Option<String>,
     execution_mode: String,
     session_context: WorkflowSessionContext,
@@ -1132,6 +1193,7 @@ impl WorkflowRuntimeHost {
         db: Arc<SessionDB>,
         run_id: String,
         session_id: String,
+        run_created_at: String,
         goal_id: Option<String>,
         execution_mode: String,
         session_context: WorkflowSessionContext,
@@ -1141,6 +1203,7 @@ impl WorkflowRuntimeHost {
             db,
             run_id,
             session_id,
+            run_created_at,
             goal_id,
             execution_mode,
             session_context,
@@ -1894,6 +1957,31 @@ impl WorkflowRuntimeHost {
         })
     }
 
+    fn deterministic_now(&mut self, _args: Value) -> Result<Value> {
+        let created =
+            chrono::DateTime::parse_from_rfc3339(&self.run_created_at).with_context(|| {
+                format!("invalid workflow run created_at `{}`", self.run_created_at)
+            })?;
+        Ok(json!(created.timestamp_millis()))
+    }
+
+    fn deterministic_random(&mut self, args: Value) -> Result<Value> {
+        let seed = required_string(&args, "seed")?;
+        let input = format!(
+            "{}\n{}\n{}\n{}",
+            self.run_id,
+            self.run_created_at,
+            self.current_position_hint(),
+            seed
+        );
+        let hash = blake3::hash(input.as_bytes());
+        let mut bytes = [0u8; 8];
+        bytes.copy_from_slice(&hash.as_bytes()[..8]);
+        let n = u64::from_le_bytes(bytes);
+        let value = ((n >> 11) as f64) / ((1u64 << 53) as f64);
+        Ok(json!(value))
+    }
+
     fn finish(&mut self, args: Value) -> Result<Value> {
         let output_arg = args.clone();
         let input = compact_input(args);
@@ -2167,6 +2255,14 @@ impl WorkflowRuntimeHost {
         format!("{}/op#{idx}({op_type})", scope.prefix)
     }
 
+    fn current_position_hint(&self) -> String {
+        self.op_scopes
+            .iter()
+            .map(|scope| format!("{}#{}", scope.prefix, scope.next_op_index))
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+
     fn dispatch_tool(&self, name: &str, args: &Value) -> Result<String> {
         let ctx = self.tool_exec_context();
         self.dispatch_tool_with_context(name, args, ctx)
@@ -2258,6 +2354,7 @@ impl WorkflowRuntimeHost {
     fn tool_exec_context(&self) -> ToolExecContext {
         ToolExecContext {
             session_id: Some(self.session_id.clone()),
+            session_db: Some(crate::tools::SessionDbHandle(self.db.clone())),
             session_working_dir: self.session_context.working_dir.clone(),
             agent_id: self.session_context.agent_id.clone(),
             session_mode: self.session_context.session_mode,

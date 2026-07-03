@@ -796,6 +796,8 @@ pub fn run() {
             // Execution mode policy
             commands::execution_mode::get_execution_mode,
             commands::execution_mode::set_execution_mode,
+            commands::execution_mode::get_workflow_mode,
+            commands::execution_mode::set_workflow_mode,
             // Goals (top-level completion criteria and evidence)
             commands::goal::get_active_goal,
             commands::goal::get_goal,
@@ -891,7 +893,7 @@ pub fn run() {
             commands::worktree::archive_managed_worktree,
             commands::worktree::restore_managed_worktree,
             commands::worktree::handoff_managed_worktree,
-            // Workflow runs (Phase 2 durable coding workflows)
+            // Workflow runs (durable, domain-neutral dynamic orchestration)
             commands::workflow::list_workflow_runs,
             commands::workflow::get_workflow_run,
             commands::workflow::preview_workflow_script,

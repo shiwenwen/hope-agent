@@ -54,6 +54,7 @@ pub fn build(
     channel_info: Option<&crate::session::ChannelSessionInfo>,
     permission_mode: SessionMode,
     execution_mode: ExecutionMode,
+    workflow_mode: crate::workflow_mode::WorkflowMode,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -213,6 +214,13 @@ pub fn build(
     // ⑥c¹½ Execution mode policy. Session-scoped and intentionally near other
     // dynamic execution controls so /mode flips do not churn the larger prefix.
     if let Some(section) = execution_mode.system_prompt_section() {
+        sections.push(section.to_string());
+    }
+
+    // ⑥c¹¾ Workflow Mode policy. Session-scoped and placed near the other
+    // dynamic execution controls so mode flips avoid churning the static
+    // prefix cache.
+    if let Some(section) = workflow_mode.system_prompt_section() {
         sections.push(section.to_string());
     }
 
@@ -905,6 +913,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             out.contains("# Working Directory"),
@@ -936,6 +945,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         let out_blank = build(
             &definition,
@@ -953,6 +963,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out_none.contains("# Working Directory"),
@@ -984,6 +995,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         let out_guarded = build(
             &definition,
@@ -1001,6 +1013,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Guarded,
+            crate::workflow_mode::WorkflowMode::Off,
         );
 
         assert!(
@@ -1010,6 +1023,77 @@ mod memory_section_tests {
         assert!(out_guarded.contains("# Execution Mode: Guarded"));
         assert!(out_guarded.contains("observe -> plan -> edit -> targeted validate -> report"));
         assert!(out_guarded.contains("Stop and ask the user"));
+    }
+
+    #[test]
+    fn workflow_mode_prompt_injected_only_when_enabled() {
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let out_off = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
+        );
+        let out_on = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::On,
+        );
+        let out_ultracode = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            SessionMode::Default,
+            ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Ultracode,
+        );
+
+        assert!(
+            !out_off.contains("# Workflow Mode"),
+            "off mode should not inject workflow policy: {out_off}"
+        );
+        assert!(out_on.contains("# Workflow Mode: On"));
+        assert!(out_on.contains("workflow_run"));
+        assert!(out_on.contains("workflow.task.create"));
+        assert!(out_on.contains("Workflow is not coding-only"));
+        assert!(out_ultracode.contains("# Workflow Mode: Ultracode"));
+        assert!(out_ultracode.contains("Use `workflow_run` by default"));
     }
 
     #[test]
@@ -1054,6 +1138,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out.contains("# File Path Formatting"),
@@ -1082,6 +1167,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             out.contains("Your avatar image is at: /Users/me/.hope-agent/avatars/foo.png"),
@@ -1110,6 +1196,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         definition.config.avatar = None;
         let out_none = build(
@@ -1128,6 +1215,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(!out_blank.contains("Your avatar image is at:"));
         assert!(!out_none.contains("Your avatar image is at:"));
@@ -1157,6 +1245,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out.contains("Your avatar image is at:"),
@@ -1186,6 +1275,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             !out.contains("Your avatar image is at:"),
@@ -1216,6 +1306,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
         assert!(
             out.contains("Your avatar image is at: https://example.com/a.png"),
@@ -1245,6 +1336,7 @@ mod memory_section_tests {
             None,
             SessionMode::Default,
             ExecutionMode::Off,
+            crate::workflow_mode::WorkflowMode::Off,
         );
 
         assert!(out.contains("# Incognito Session"));

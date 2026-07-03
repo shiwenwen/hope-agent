@@ -1293,6 +1293,14 @@ fn build_router_with_cors(
             post(routes::execution_mode::set_execution_mode),
         )
         .route(
+            "/sessions/{sid}/workflow-mode",
+            get(routes::execution_mode::get_workflow_mode),
+        )
+        .route(
+            "/sessions/{sid}/workflow-mode",
+            post(routes::execution_mode::set_workflow_mode),
+        )
+        .route(
             "/sessions/{sid}/goal",
             get(routes::goal::get_active_goal).post(routes::goal::create_goal),
         )

@@ -77,7 +77,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count,
-           s.sandbox_mode, s.execution_mode
+           s.sandbox_mode, s.execution_mode, s.workflow_mode
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -120,7 +120,8 @@ impl SessionDB {
                 title_source TEXT NOT NULL DEFAULT 'manual',
                 pinned_at TEXT,
                 kind TEXT NOT NULL DEFAULT 'regular',
-                execution_mode TEXT NOT NULL DEFAULT 'off'
+                execution_mode TEXT NOT NULL DEFAULT 'off',
+                workflow_mode TEXT NOT NULL DEFAULT 'off'
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -616,6 +617,18 @@ impl SessionDB {
         if !has_execution_mode {
             conn.execute_batch(
                 "ALTER TABLE sessions ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'off';",
+            )?;
+        }
+
+        // Migration: persistent per-session Workflow Mode policy
+        // (off | on | ultracode). `/workflow on` writes this value and the
+        // system prompt/tool schema read it on every chat entry point.
+        let has_workflow_mode = conn
+            .prepare("SELECT workflow_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_workflow_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN workflow_mode TEXT NOT NULL DEFAULT 'off';",
             )?;
         }
 
@@ -1242,6 +1255,7 @@ impl SessionDB {
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: crate::plan::PlanModeState::Off,
             execution_mode: crate::execution_mode::ExecutionMode::Off,
+            workflow_mode: crate::workflow_mode::WorkflowMode::Off,
             permission_mode: initial_permission_mode,
             sandbox_mode: initial_sandbox_mode,
             project_id: project_id.map(|s| s.to_string()),
@@ -1904,6 +1918,10 @@ impl SessionDB {
             execution_mode: row
                 .get::<_, String>(29)
                 .map(|s| crate::execution_mode::ExecutionMode::parse_or_default(&s))
+                .unwrap_or_default(),
+            workflow_mode: row
+                .get::<_, String>(30)
+                .map(|s| crate::workflow_mode::WorkflowMode::parse_or_default(&s))
                 .unwrap_or_default(),
             project_id: row.get(14)?,
             permission_mode: row
@@ -2750,10 +2768,13 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE sessions SET execution_mode = ?1, updated_at = ?2 WHERE id = ?3",
             params![mode.as_str(), now, session_id],
         )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        }
         Ok(())
     }
 
@@ -2773,6 +2794,62 @@ impl SessionDB {
             Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
         };
         Ok(row.map(|s| crate::execution_mode::ExecutionMode::parse_or_default(&s)))
+    }
+
+    /// Persist the session workflow autonomy mode (`off` / `on` /
+    /// `ultracode`) so `/workflow on` survives refreshes and all chat entry
+    /// points expose the same workflow tool/prompt contract.
+    pub fn update_session_workflow_mode(
+        &self,
+        session_id: &str,
+        mode: crate::workflow_mode::WorkflowMode,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let incognito = conn
+            .query_row(
+                "SELECT incognito FROM sessions WHERE id = ?1",
+                params![session_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        let Some(incognito) = incognito else {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        };
+        if mode.enabled() && incognito != 0 {
+            return Err(anyhow::anyhow!(
+                "Cannot enable workflow mode on an incognito session"
+            ));
+        }
+        let affected = conn.execute(
+            "UPDATE sessions SET workflow_mode = ?1, updated_at = ?2 WHERE id = ?3",
+            params![mode.as_str(), now, session_id],
+        )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        }
+        Ok(())
+    }
+
+    /// Narrow read of just `sessions.workflow_mode`.
+    pub fn get_session_workflow_mode(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::workflow_mode::WorkflowMode>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT workflow_mode FROM sessions WHERE id = ?1")?;
+        let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
+            Ok(s) => Some(s),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
+        };
+        Ok(row.map(|s| crate::workflow_mode::WorkflowMode::parse_or_default(&s)))
     }
 
     /// Persist the session-scoped incognito mode flag.
@@ -2796,15 +2873,55 @@ impl SessionDB {
                     "Cannot enable incognito on an IM Channel session"
                 ));
             }
+            if meta.workflow_mode.enabled() {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito while Workflow Mode is enabled"
+                ));
+            }
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let open_goal: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM goals
+                     WHERE session_id = ?1 AND state IN ('active','paused','evaluating','blocked')
+                     LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(goal_id) = open_goal {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito while session has an open Goal {}",
+                    goal_id
+                ));
+            }
+            let workflow_run: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM workflow_runs WHERE session_id = ?1 LIMIT 1",
+                    params![session_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(run_id) = workflow_run {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito after workflow run {} was created",
+                    run_id
+                ));
+            }
         }
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
+        let affected = conn.execute(
             "UPDATE sessions SET incognito = ?1 WHERE id = ?2",
             params![incognito, session_id],
         )?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("Session not found: {}", session_id));
+        }
         if incognito {
             crate::memory_extract::cancel_idle_extraction(session_id);
         }
@@ -4401,6 +4518,63 @@ mod tests {
             crate::execution_mode::ExecutionMode::Deep
         );
 
+        assert_eq!(
+            db.get_session_workflow_mode(&session.id)
+                .expect("read default workflow mode"),
+            Some(crate::workflow_mode::WorkflowMode::Off)
+        );
+
+        db.update_session_workflow_mode(&session.id, crate::workflow_mode::WorkflowMode::Ultracode)
+            .expect("update workflow mode");
+
+        assert_eq!(
+            db.get_session_workflow_mode(&session.id)
+                .expect("read updated workflow mode"),
+            Some(crate::workflow_mode::WorkflowMode::Ultracode)
+        );
+        assert_eq!(
+            db.get_session(&session.id)
+                .expect("get session")
+                .expect("session exists")
+                .workflow_mode,
+            crate::workflow_mode::WorkflowMode::Ultracode
+        );
+
+        assert!(db
+            .update_session_execution_mode(
+                "missing-session",
+                crate::execution_mode::ExecutionMode::Deep,
+            )
+            .expect_err("missing session execution mode update should fail")
+            .to_string()
+            .contains("Session not found"));
+        assert!(
+            db.update_session_workflow_mode(
+                "missing-session",
+                crate::workflow_mode::WorkflowMode::On,
+            )
+            .expect_err("missing session workflow mode update should fail")
+            .to_string()
+            .contains("Session not found")
+        );
+
+        let incognito_session = db
+            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, Some(true))
+            .expect("create incognito session");
+        assert!(db
+            .update_session_workflow_mode(
+                &incognito_session.id,
+                crate::workflow_mode::WorkflowMode::On,
+            )
+            .expect_err("incognito workflow mode enable should fail")
+            .to_string()
+            .contains("incognito session"));
+        db.update_session_workflow_mode(
+            &incognito_session.id,
+            crate::workflow_mode::WorkflowMode::Off,
+        )
+        .expect("turning workflow mode off remains allowed for incognito");
+
         let _ = std::fs::remove_file(&db_path);
     }
 
@@ -4838,6 +5012,11 @@ mod tests {
                 .is_ok(),
             "expected execution_mode column to be added during migration"
         );
+        assert!(
+            conn.prepare("SELECT workflow_mode FROM sessions LIMIT 1")
+                .is_ok(),
+            "expected workflow_mode column to be added during migration"
+        );
 
         let mut stmt = conn
             .prepare("PRAGMA index_list(sessions)")
@@ -5206,6 +5385,74 @@ mod tests {
             !updated.incognito,
             "updated session should persist incognito=false"
         );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn update_session_incognito_rejects_durable_control_plane_state() {
+        let db_path = temp_db_path("session-incognito-durable-control-plane");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let workflow_mode_session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create workflow mode session");
+        db.update_session_workflow_mode(
+            &workflow_mode_session.id,
+            crate::workflow_mode::WorkflowMode::On,
+        )
+        .expect("enable workflow mode");
+        assert!(db
+            .update_session_incognito(&workflow_mode_session.id, true)
+            .expect_err("workflow mode session should not become incognito")
+            .to_string()
+            .contains("Workflow Mode"));
+
+        let goal_session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create goal session");
+        db.create_goal(crate::goal::CreateGoalInput {
+            session_id: goal_session.id.clone(),
+            objective: "Ship durable goal".to_string(),
+            completion_criteria: "Evidence is linked".to_string(),
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })
+        .expect("create goal");
+        assert!(db
+            .update_session_incognito(&goal_session.id, true)
+            .expect_err("open goal session should not become incognito")
+            .to_string()
+            .contains("open Goal"));
+
+        let workflow_run_session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create workflow run session");
+        db.create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+            session_id: workflow_run_session.id.clone(),
+            kind: "general.workflow".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: "export default async function main(workflow) { await workflow.finish({ summary: 'done' }); }".to_string(),
+            budget: serde_json::json!({}),
+            parent_run_id: None,
+            origin: None,
+            goal_id: None,
+            worktree_id: None,
+        })
+        .expect("create workflow run");
+        assert!(db
+            .update_session_incognito(&workflow_run_session.id, true)
+            .expect_err("workflow run session should not become incognito")
+            .to_string()
+            .contains("workflow run"));
+
+        assert!(db
+            .update_session_incognito("missing-session", false)
+            .expect_err("missing session incognito update should fail")
+            .to_string()
+            .contains("Session not found"));
 
         let _ = std::fs::remove_file(&db_path);
     }

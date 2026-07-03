@@ -103,12 +103,14 @@ export function useManagedWorktrees(
       scheduleRefresh()
     }
     const offCreated = transport.listen("worktree:created", maybeRefresh)
+    const offUpdated = transport.listen("worktree:updated", maybeRefresh)
     const offArchived = transport.listen("worktree:archived", maybeRefresh)
     const offRestored = transport.listen("worktree:restored", maybeRefresh)
     const offHandoff = transport.listen("worktree:handoff", maybeRefresh)
     const offLagged = transport.listen("_lagged", scheduleRefresh)
     return () => {
       offCreated()
+      offUpdated()
       offArchived()
       offRestored()
       offHandoff()

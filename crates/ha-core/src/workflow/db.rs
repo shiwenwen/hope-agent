@@ -249,6 +249,29 @@ impl SessionDB {
         let run = self
             .get_workflow_run(&id)?
             .ok_or_else(|| anyhow!("workflow run {} was not persisted", id))?;
+        if let Some(worktree_id) = run.worktree_id.as_deref() {
+            match self.link_managed_worktree_to_workflow_run(worktree_id, &run.id) {
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    crate::app_warn!(
+                        "workflow",
+                        "worktree_link",
+                        "managed worktree {} disappeared before linking to workflow run {}",
+                        worktree_id,
+                        run.id
+                    );
+                }
+                Err(err) => {
+                    crate::app_warn!(
+                        "workflow",
+                        "worktree_link",
+                        "failed to link managed worktree {} to workflow run {}: {err:#}",
+                        worktree_id,
+                        run.id
+                    );
+                }
+            }
+        }
         let _ = self.append_workflow_event(
             &run.id,
             "run_created",
@@ -375,7 +398,7 @@ impl SessionDB {
                 "UPDATE workflow_runs
                     SET state = ?1,
                         blocked_reason = CASE WHEN ?1 = 'blocked' THEN ?2 ELSE NULL END,
-                        primary_owner = CASE WHEN ?1 IN ('paused','completed','failed','cancelled','blocked') THEN NULL ELSE primary_owner END,
+                        primary_owner = CASE WHEN ?1 IN ('awaiting_approval','awaiting_user','paused','completed','failed','cancelled','blocked') THEN NULL ELSE primary_owner END,
                         completed_at = CASE WHEN ?1 IN ('completed','failed','cancelled','blocked') THEN ?3 ELSE completed_at END,
                         updated_at = ?3
                  WHERE id = ?4",
@@ -479,15 +502,64 @@ impl SessionDB {
         run_id: &str,
         owner: &str,
     ) -> Result<Option<WorkflowRun>> {
+        self.claim_workflow_run_owner(run_id, owner, WorkflowOwnerClaim::Recovery)
+    }
+
+    pub fn claim_workflow_run_for_launch(
+        &self,
+        run_id: &str,
+        owner: &str,
+    ) -> Result<Option<WorkflowRun>> {
+        self.claim_workflow_run_owner(run_id, owner, WorkflowOwnerClaim::Launch)
+    }
+
+    fn claim_workflow_run_owner(
+        &self,
+        run_id: &str,
+        owner: &str,
+        claim: WorkflowOwnerClaim,
+    ) -> Result<Option<WorkflowRun>> {
         let now = now_rfc3339();
+        let (state, current_owner) = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let row = conn
+                .query_row(
+                    "SELECT state, primary_owner FROM workflow_runs WHERE id = ?1",
+                    params![run_id],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                )
+                .optional()?;
+            let Some((raw_state, current_owner)) = row else {
+                return Ok(None);
+            };
+            (parse_run_state(&raw_state)?, current_owner)
+        };
+
+        let Some(target_state) =
+            workflow_owner_claim_target_state(state, current_owner.as_deref(), claim)
+        else {
+            return Ok(None);
+        };
+
+        let current_owner_param = current_owner.as_deref();
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let changed = conn.execute(
             "UPDATE workflow_runs
-                SET state = 'recovering', primary_owner = ?1, updated_at = ?2
-             WHERE id = ?3
-               AND state = 'running'
-               AND (primary_owner IS NULL OR primary_owner = '')",
-            params![owner, now, run_id],
+                SET state = ?1, primary_owner = ?2, updated_at = ?3
+             WHERE id = ?4
+               AND state = ?5
+               AND (
+                    (primary_owner IS NULL AND ?6 IS NULL)
+                    OR primary_owner = ?6
+               )",
+            params![
+                target_state.as_str(),
+                owner,
+                now,
+                run_id,
+                state.as_str(),
+                current_owner_param
+            ],
         )?;
         drop(conn);
 
@@ -497,8 +569,19 @@ impl SessionDB {
         let run = self
             .get_workflow_run(run_id)?
             .ok_or_else(|| anyhow!("workflow run {} not found after claim", run_id))?;
-        let _ =
-            self.append_workflow_event(run_id, "run_recovery_claimed", json!({ "owner": owner }))?;
+        let event_type = match claim {
+            WorkflowOwnerClaim::Recovery => "run_recovery_claimed",
+            WorkflowOwnerClaim::Launch => "run_launch_claimed",
+        };
+        let _ = self.append_workflow_event(
+            run_id,
+            event_type,
+            json!({
+                "owner": owner,
+                "fromState": state.as_str(),
+                "toState": target_state.as_str(),
+            }),
+        )?;
         events::emit_run_changed("workflow:updated", &run);
         Ok(Some(run))
     }
@@ -511,11 +594,14 @@ impl SessionDB {
                     parent_run_id, origin, goal_id, worktree_id,
                     created_at, updated_at, completed_at
              FROM workflow_runs
-             WHERE state = 'running' AND (primary_owner IS NULL OR primary_owner = '')
+             WHERE state IN ('draft', 'running', 'recovering')
              ORDER BY updated_at ASC",
         )?;
         let rows = stmt.query_map([], row_to_run)?;
-        collect_rows(rows)
+        Ok(collect_rows(rows)?
+            .into_iter()
+            .filter(|run| workflow_run_owner_recoverable(run.state, run.primary_owner.as_deref()))
+            .collect())
     }
 
     pub fn upsert_workflow_op_started(&self, input: UpsertWorkflowOpInput) -> Result<WorkflowOp> {
@@ -901,6 +987,63 @@ fn collect_rows<T>(
         out.push(row?);
     }
     Ok(out)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum WorkflowOwnerClaim {
+    Launch,
+    Recovery,
+}
+
+fn workflow_owner_pid(owner: &str) -> Option<u32> {
+    owner
+        .rsplit_once(":pid:")
+        .and_then(|(_, raw)| raw.parse::<u32>().ok())
+        .filter(|pid| *pid > 0)
+}
+
+fn workflow_owner_recoverable(owner: Option<&str>) -> bool {
+    let Some(owner) = owner.map(str::trim).filter(|owner| !owner.is_empty()) else {
+        return true;
+    };
+    let Some(pid) = workflow_owner_pid(owner) else {
+        return false;
+    };
+    !crate::platform::pid_alive(pid)
+}
+
+fn workflow_run_owner_recoverable(state: WorkflowRunState, owner: Option<&str>) -> bool {
+    match state {
+        WorkflowRunState::Draft => {
+            owner.map(str::trim).is_some_and(|owner| !owner.is_empty())
+                && workflow_owner_recoverable(owner)
+        }
+        WorkflowRunState::Running | WorkflowRunState::Recovering => {
+            workflow_owner_recoverable(owner)
+        }
+        _ => false,
+    }
+}
+
+fn workflow_owner_claim_target_state(
+    state: WorkflowRunState,
+    owner: Option<&str>,
+    claim: WorkflowOwnerClaim,
+) -> Option<WorkflowRunState> {
+    match (claim, state) {
+        (WorkflowOwnerClaim::Launch, WorkflowRunState::Draft) => {
+            workflow_owner_recoverable(owner).then_some(WorkflowRunState::Draft)
+        }
+        (WorkflowOwnerClaim::Launch, WorkflowRunState::Running | WorkflowRunState::Recovering)
+        | (
+            WorkflowOwnerClaim::Recovery,
+            WorkflowRunState::Running | WorkflowRunState::Recovering,
+        ) => workflow_owner_recoverable(owner).then_some(WorkflowRunState::Recovering),
+        (WorkflowOwnerClaim::Recovery, WorkflowRunState::Draft) => {
+            workflow_run_owner_recoverable(state, owner).then_some(WorkflowRunState::Draft)
+        }
+        _ => None,
+    }
 }
 
 fn parse_run_state(value: &str) -> Result<WorkflowRunState> {

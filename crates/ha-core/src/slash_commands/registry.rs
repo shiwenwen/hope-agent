@@ -326,9 +326,15 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_key: "slashCommands.workflow.description".into(),
             has_args: true,
             args_optional: true,
-            arg_placeholder: Some("[status|trace|approve|pause|resume|cancel]".into()),
+            arg_placeholder: Some(
+                "[on|off|ultracode|status|runs|trace|approve|pause|resume|cancel]".into(),
+            ),
             arg_options: Some(vec![
+                "on".into(),
+                "off".into(),
+                "ultracode".into(),
                 "status".into(),
+                "runs".into(),
                 "trace".into(),
                 "approve".into(),
                 "pause".into(),
