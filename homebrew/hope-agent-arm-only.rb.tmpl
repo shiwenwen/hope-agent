@@ -18,7 +18,7 @@ cask "hope-agent" do
   # Intel Mac users have no installable arm64 path (Rosetta 2 translates
   # Intel → Apple Silicon, not the reverse) and should stay on the prior
   # dual-arch release until the next version that ships an x64 DMG.
-  depends_on macos: ">= :big_sur", arch: :arm64
+  depends_on macos: :big_sur, arch: :arm64
 
   app "Hope Agent.app"
 

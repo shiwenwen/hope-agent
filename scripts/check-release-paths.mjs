@@ -190,6 +190,18 @@ for (const p of requiredPlatforms) {
   }
 }
 
+// ─── Check 6 ─────────────────────────────────────────────────────────
+// Homebrew deprecated string-style macOS comparisons in casks. The
+// templates should use symbols such as `depends_on macos: :big_sur`
+// so the generated public tap does not warn during `brew install`.
+for (const template of ["hope-agent.rb.tmpl", "hope-agent-arm-only.rb.tmpl"]) {
+  const templatePath = path.join("homebrew", template)
+  const cask = readFileSync(path.join(repoRoot, templatePath), "utf8")
+  if (/depends_on\s+macos:\s*["']/.test(cask)) {
+    errors.push(`${templatePath}: uses deprecated string-style depends_on macos syntax; use a symbol such as macos: :big_sur.`)
+  }
+}
+
 // ─── Report ──────────────────────────────────────────────────────────
 if (warnings.length > 0) {
   console.warn("[check-release-paths] warnings:")
