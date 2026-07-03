@@ -35,6 +35,7 @@ docs/research/
 
 # Local requirements / PRD drafts
 docs/requirements/
+docs/plan/
 
 # Local assistant state
 .claude/
