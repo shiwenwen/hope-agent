@@ -1014,6 +1014,49 @@ impl SessionDB {
         Ok(())
     }
 
+    pub(crate) fn link_goal_worktree_evidence_for_workflow_run(
+        &self,
+        run: &WorkflowRun,
+    ) -> Result<()> {
+        let Some(goal_id) = run.goal_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(worktree_id) = run.worktree_id.as_deref() else {
+            return Ok(());
+        };
+        let Some(worktree) = self.get_managed_worktree(worktree_id)? else {
+            return Ok(());
+        };
+        self.link_goal_target(
+            goal_id,
+            "worktree",
+            &worktree.id,
+            "worktree_attached",
+            goal_worktree_metadata(&worktree, Some(run)),
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn refresh_goal_worktree_evidence(
+        &self,
+        worktree: &crate::worktree::ManagedWorktree,
+    ) -> Result<()> {
+        let runs = self.list_workflow_runs_for_worktree(&worktree.id)?;
+        for run in runs {
+            let Some(goal_id) = run.goal_id.as_deref() else {
+                continue;
+            };
+            let _ = self.link_goal_target(
+                goal_id,
+                "worktree",
+                &worktree.id,
+                "worktree_attached",
+                goal_worktree_metadata(worktree, Some(&run)),
+            )?;
+        }
+        Ok(())
+    }
+
     fn link_goal_artifact_evidence_for_workflow_finish(
         &self,
         goal_id: &str,
@@ -1271,6 +1314,30 @@ impl SessionDB {
         Ok(runs)
     }
 
+    fn list_workflow_runs_for_worktree(&self, worktree_id: &str) -> Result<Vec<WorkflowRun>> {
+        let ids = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(
+                "SELECT id FROM workflow_runs
+                 WHERE worktree_id = ?1
+                    OR id IN (
+                        SELECT workflow_run_id FROM managed_worktrees
+                        WHERE id = ?1 AND workflow_run_id IS NOT NULL
+                    )
+                 ORDER BY updated_at DESC, created_at DESC",
+            )?;
+            let ids = stmt.query_map(params![worktree_id], |row| row.get::<_, String>(0))?;
+            collect_rows(ids)?
+        };
+        let mut runs = Vec::new();
+        for id in ids {
+            if let Some(run) = self.get_workflow_run(&id)? {
+                runs.push(run);
+            }
+        }
+        Ok(runs)
+    }
+
     fn build_goal_audit(&self, snapshot: &GoalSnapshot) -> Result<Value> {
         Ok(build_goal_rule_audit(snapshot))
     }
@@ -1373,6 +1440,12 @@ fn build_goal_rule_audit(snapshot: &GoalSnapshot) -> Value {
             )),
             "diff_snapshot" | "file_changed" | "artifact_created" | "diagnostic_result" => {
                 achieved.push(format!("Evidence linked: {}", item.title));
+            }
+            "worktree_attached" => {
+                achieved.push(format!(
+                    "Worktree attached: {}",
+                    item.summary.as_deref().unwrap_or(item.source_id.as_str())
+                ));
             }
             _ => {}
         }
@@ -1813,6 +1886,65 @@ fn diagnostic_clean_scope_matches(item: &GoalEvidenceItem, clean: &GoalEvidenceI
     metadata_string(&item.metadata, "path").as_deref() == Some(clean_path)
 }
 
+fn goal_worktree_metadata(
+    worktree: &crate::worktree::ManagedWorktree,
+    run: Option<&WorkflowRun>,
+) -> Value {
+    json!({
+        "worktreeId": worktree.id,
+        "runId": run.map(|run| run.id.clone()),
+        "kind": run.map(|run| run.kind.clone()),
+        "runState": run.map(|run| run.state.as_str().to_string()),
+        "reverseWorkflowRunId": worktree.workflow_run_id,
+        "purpose": worktree.purpose,
+        "state": worktree.state,
+        "label": worktree.label,
+        "path": worktree.path,
+        "pathExists": worktree.path_exists,
+        "repoRoot": worktree.repo_root,
+        "sourceWorkingDir": worktree.source_working_dir,
+        "baseRef": worktree.base_ref,
+        "baseBranch": worktree.base_branch,
+        "baseSha": worktree.base_sha,
+        "gitBranch": worktree.git_branch,
+        "dirtySnapshot": worktree.dirty_snapshot,
+        "archivedAt": worktree.archived_at,
+        "restoredAt": worktree.restored_at,
+        "handedOffAt": worktree.handed_off_at,
+        "summary": goal_worktree_summary(worktree),
+        "source": "managed_worktree",
+    })
+}
+
+fn goal_worktree_summary(worktree: &crate::worktree::ManagedWorktree) -> String {
+    let state = worktree.state.as_str();
+    let path_status = if worktree.path_exists {
+        "path exists"
+    } else {
+        "path missing"
+    };
+    let dirty = worktree
+        .dirty_snapshot
+        .as_ref()
+        .map(|snapshot| {
+            if snapshot.clean {
+                "clean snapshot".to_string()
+            } else {
+                format!("{} changed file(s)", snapshot.changed_files)
+            }
+        })
+        .unwrap_or_else(|| "no dirty snapshot".to_string());
+    let handoff = if worktree.handed_off_at.is_some() {
+        ", handed off"
+    } else {
+        ""
+    };
+    format!(
+        "{state} at {} ({path_status}; {dirty}{handoff})",
+        worktree.path
+    )
+}
+
 fn dedup_json_items(items: &mut Vec<Value>) {
     let mut seen = Vec::<String>::new();
     items.retain(|item| {
@@ -1931,6 +2063,7 @@ fn is_goal_evidence_relation(relation: &str) -> bool {
             | "review_completed"
             | "review_finding"
             | "diagnostic_result"
+            | "worktree_attached"
             | "source_cited"
             | "claim_checked"
             | "user_decision"
@@ -1955,6 +2088,7 @@ fn goal_evidence_is_positive(item: &GoalEvidenceItem) -> bool {
             | "diff_snapshot"
             | "file_changed"
             | "artifact_created"
+            | "worktree_attached"
             | "review_passed"
             | "source_cited"
             | "claim_checked"
@@ -2005,6 +2139,9 @@ fn goal_link_title(link: &GoalLink) -> String {
         "diagnostic_result" => metadata_string(&link.metadata, "message")
             .or_else(|| metadata_string(&link.metadata, "summary"))
             .unwrap_or_else(|| "Diagnostic result".to_string()),
+        "worktree_attached" => metadata_string(&link.metadata, "label")
+            .map(|label| format!("Worktree attached: {label}"))
+            .unwrap_or_else(|| "Worktree attached".to_string()),
         "source_cited" => {
             metadata_string(&link.metadata, "title").unwrap_or_else(|| "Source cited".to_string())
         }
@@ -2323,6 +2460,7 @@ fn bounded_payload(payload: Value) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use rusqlite::params;
     use serde_json::{json, Value};
 
     use super::*;
@@ -2362,6 +2500,32 @@ mod tests {
             worktree_id: None,
         })
         .expect("create workflow")
+    }
+
+    fn insert_managed_worktree(
+        db: &SessionDB,
+        session_id: &str,
+        worktree_id: &str,
+        repo_root: &str,
+        worktree_path: &str,
+    ) {
+        let now = now_rfc3339();
+        let conn = db.conn.lock().expect("lock session db");
+        conn.execute(
+            "INSERT INTO managed_worktrees (
+                id, session_id, child_session_id, workflow_run_id, purpose, state, label,
+                repo_root, source_working_dir, path, base_ref, base_branch, base_sha,
+                git_branch, dirty_snapshot_json, created_at, updated_at,
+                archived_at, restored_at, handed_off_at
+             ) VALUES (
+                ?1, ?2, NULL, NULL, 'workflow', 'active', 'Goal worktree',
+                ?3, ?3, ?4, 'HEAD', 'main', 'abc123',
+                NULL, NULL, ?5, ?5,
+                NULL, NULL, NULL
+             )",
+            params![worktree_id, session_id, repo_root, worktree_path, now],
+        )
+        .expect("insert managed worktree");
     }
 
     #[test]
@@ -2431,6 +2595,101 @@ mod tests {
                 && link.target_id == run.id
                 && link.relation == "execution_run"
         }));
+    }
+
+    #[test]
+    fn workflow_worktree_links_goal_evidence_and_handoff_refreshes_it() {
+        let (dir, db) = temp_db();
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = create_goal_for_session(&db, &session.id);
+        let worktree_id = "wt_goal_evidence";
+        let repo_root = dir.path().join("repo");
+        let worktree_path = dir.path().join("worktree");
+        std::fs::create_dir_all(&repo_root).expect("repo dir");
+        std::fs::create_dir_all(&worktree_path).expect("worktree dir");
+        let repo_root = repo_root.to_string_lossy().to_string();
+        let worktree_path = worktree_path.to_string_lossy().to_string();
+        insert_managed_worktree(&db, &session.id, worktree_id, &repo_root, &worktree_path);
+
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "coding.workflow".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: "export default async function main(workflow) {}".to_string(),
+                budget: json!({ "max_script_secs": 30, "max_ops": 8 }),
+                parent_run_id: None,
+                origin: None,
+                goal_id: Some(goal.goal.id.clone()),
+                worktree_id: Some(worktree_id.to_string()),
+            })
+            .expect("create workflow with worktree");
+
+        let snapshot = db
+            .goal_snapshot(&goal.goal.id, 200)
+            .expect("goal snapshot")
+            .expect("goal exists");
+        let link = snapshot
+            .links
+            .iter()
+            .find(|link| {
+                link.target_type == "worktree"
+                    && link.target_id == worktree_id
+                    && link.relation == "worktree_attached"
+            })
+            .expect("worktree evidence link");
+        assert_eq!(
+            link.metadata.get("state").and_then(Value::as_str),
+            Some("active")
+        );
+        assert_eq!(
+            link.metadata.get("pathExists").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            link.metadata.get("runId").and_then(Value::as_str),
+            Some(run.id.as_str())
+        );
+        assert_eq!(
+            link.metadata
+                .get("reverseWorkflowRunId")
+                .and_then(Value::as_str),
+            Some(run.id.as_str())
+        );
+        assert!(snapshot
+            .evidence
+            .iter()
+            .any(|item| item.relation == "worktree_attached"));
+
+        db.handoff_managed_worktree(worktree_id)
+            .expect("handoff worktree");
+        let refreshed = db
+            .goal_snapshot(&goal.goal.id, 200)
+            .expect("refreshed goal snapshot")
+            .expect("goal exists");
+        let refreshed_link = refreshed
+            .links
+            .iter()
+            .find(|link| {
+                link.target_type == "worktree"
+                    && link.target_id == worktree_id
+                    && link.relation == "worktree_attached"
+            })
+            .expect("refreshed worktree evidence link");
+        assert_eq!(
+            refreshed_link.metadata.get("state").and_then(Value::as_str),
+            Some("handoff")
+        );
+        assert!(refreshed_link
+            .metadata
+            .get("handedOffAt")
+            .and_then(Value::as_str)
+            .is_some());
+        assert!(refreshed_link
+            .metadata
+            .get("summary")
+            .and_then(Value::as_str)
+            .is_some_and(|summary| summary.contains("handed off")));
     }
 
     #[test]

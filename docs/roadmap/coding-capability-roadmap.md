@@ -521,6 +521,7 @@ StopPolicy
 - `managed_worktrees` durable store：记录 session、purpose、base ref/sha、path、state、dirty snapshot。
 - `.worktreeinclude`：复制必要 git-ignored setup，跳过 symlink。
 - Workflow 绑定 `worktree_id`：运行时自动 restore，默认 cwd 切到 worktree，不可用时 fail closed/block。
+- Goal evidence：绑定 Goal 的 workflow 创建后写 `worktree_attached`，并在 handoff / restore / archive 时刷新 state、path、dirty snapshot 和 handoff 时间。
 - 用户可见 subagent / batch spawn 默认尝试进入隔离 worktree；内部 helper 默认不制造 worktree。
 - `WorktreeCreate` / `WorktreeRemove` hooks 激活，支持企业自定义创建/清理链路。
 - Tauri + HTTP owner API 对齐。
@@ -532,7 +533,7 @@ StopPolicy
 - Worktree detail 页面：完整 diff、dirty file list、base ref、子任务/Workflow 归属和清理建议。
 - 清理策略：最近 N 个、pinned/in-progress/handoff 跳过、可配置保留窗口。
 - 更强 `.worktreeinclude`：支持显式 glob 预览、冲突处理和复制审计。
-- Review / LSP / diagnostics evidence 进入 worktree 维度。
+- Worktree detail 与 Review / LSP / diagnostics 的更深联动：按 worktree 维度聚合 finding、diagnostic 和验证结果。
 
 ### Phase 3.2：LSP 与语义代码智能
 

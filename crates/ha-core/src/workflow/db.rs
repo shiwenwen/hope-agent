@@ -313,6 +313,14 @@ impl SessionDB {
                     "worktreeId": run.worktree_id,
                 }),
             );
+            if let Err(err) = self.link_goal_worktree_evidence_for_workflow_run(&run) {
+                crate::app_warn!(
+                    "goal",
+                    "worktree_evidence",
+                    "failed to link worktree evidence for workflow run {}: {err:#}",
+                    run.id
+                );
+            }
         }
         let preview = super::preview::preview_workflow_run(self, &run);
         let _ = self.append_workflow_event(&run.id, "script_permission_preview", json!(preview))?;

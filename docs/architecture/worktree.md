@@ -1,6 +1,6 @@
 # Managed Worktree 控制平面
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-01
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-04
 
 Managed Worktree 是 Hope Agent 的 durable 隔离执行环境。它不是普通 `git worktree` 命令的薄包装，而是一个带持久状态、owner API、GUI 控制、Workflow 绑定、Subagent 隔离和 Hook 扩展点的控制平面。
 
@@ -35,6 +35,7 @@ session working dir
 | 路径 | `crates/ha-core/src/paths.rs` | `worktrees_dir()` 返回 `~/.hope-agent/worktrees`。 |
 | Hooks | `crates/ha-core/src/hooks/*` | `WorktreeCreate` 阻断/替换默认创建；`WorktreeRemove` 观察清理。 |
 | Workflow | `crates/ha-core/src/workflow/{types,db,runtime}.rs` | `workflow_runs.worktree_id`，运行时自动 restore 并覆盖 execution cwd。 |
+| Goal | `crates/ha-core/src/goal/mod.rs` | 绑定 workflow 后写 `worktree_attached` evidence；生命周期变化刷新 worktree state / path / handoff / dirty snapshot。 |
 | Subagent | `crates/ha-core/src/subagent/*` | 用户委派的 subagent 默认尝试创建 managed worktree 并设置 child session cwd。 |
 | Tauri | `src-tauri/src/commands/worktree.rs` | 桌面 owner 命令。 |
 | HTTP | `crates/ha-server/src/routes/worktree.rs` | Server/Web owner REST API。 |
@@ -104,6 +105,23 @@ runtime 构造 `WorkflowSessionContext` 时，如果 run 绑定 `worktree_id`：
 
 因此 `workflow.fileSearch` / `workflow.read` / `workflow.grep` / `workflow.tool` / `workflow.validate` / `workflow.diff` 都使用绑定 worktree 作为默认 cwd。
 
+## Goal Evidence 集成
+
+绑定 Goal 的 workflow run 如果带 `worktree_id`，创建后会写一条 `goal_links(target_type='worktree', relation='worktree_attached')`。这条 evidence 是执行环境证据，记录：
+
+- `worktreeId`、`runId`、`reverseWorkflowRunId`。
+- `state`、`purpose`、`label`、`path`、`pathExists`。
+- `repoRoot`、`sourceWorkingDir`、`baseRef`、`baseBranch`、`baseSha`、`gitBranch`。
+- `dirtySnapshot`、`archivedAt`、`restoredAt`、`handedOffAt`。
+
+`create_managed_worktree`、`link_managed_worktree_to_workflow_run`、`archive_managed_worktree`、`restore_managed_worktree`、`handoff_managed_worktree` 都会 best-effort 刷新这条 evidence。刷新失败只写 `app_warn`，不让 Worktree 生命周期操作失败。
+
+语义边界：
+
+- `worktree_attached` 是 positive contextual evidence，让 Goal detail、timeline 和模型下一轮 prompt 能看见改动落点与交接状态。
+- 它不是 strong completion evidence，不能单独让 Goal completed。
+- archived / missing path 不在 Goal evaluator 里一概判 blocker；真正执行时仍由 Workflow runtime 对不可用 worktree fail closed / block。
+
 ## Subagent 集成
 
 `SpawnParams.isolate_worktree` 控制 child session 是否尝试创建 managed worktree。
@@ -153,4 +171,5 @@ Workflow 创建面板有“运行位置”选择：
 - label 只展示，身份必须使用 `wt_*` id。
 - Workflow 绑定 worktree 不参与 `script_hash`。
 - Workflow 绑定 worktree 不可用时必须 fail closed/block，不能静默改用父目录。
+- Worktree 的 Goal evidence 只能描述执行环境与交接状态，不能替代 validation / review / workflow completion。
 - `.worktreeinclude` 只复制 git ignored 文件；跳过 symlink，不覆盖 git 语义。

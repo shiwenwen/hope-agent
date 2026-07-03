@@ -406,6 +406,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - workflow run 可绑定 worktree。
 - subagent 实现型任务默认进入隔离 worktree。
 - GUI 显示当前改动落在哪个 worktree。
+- 绑定 Goal 的 workflow 会写 `worktree_attached` evidence；handoff / restore / archive 会刷新 Goal 内的 worktree 状态。
 - 最终架构见 [Managed Worktree 控制平面](../architecture/worktree.md)。
 
 ### Phase 3.2 LSP / Diagnostics（已完成）

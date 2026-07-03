@@ -1,6 +1,6 @@
 # Workflow Mode、Workflow Run 与 Execution Mode
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-03
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-04
 
 本文记录已经实现的 durable workflow 子系统。Workflow Mode 是会话级“允许模型自主动态编排”的开关；Workflow Run 是一次具体、可观察、可恢复、可审批、可暂停/恢复/取消的脚本执行；Execution Mode 是会话级推进强度策略。Goal 已作为顶层目标与证据链落地，详见 [Goal 控制平面](goal.md)；定时/重复触发由 [Loop 控制平面](loop.md) 承载。
 
@@ -270,6 +270,7 @@ Worktree 绑定：
 
 - `create_workflow_run` 可接收 `worktreeId`，创建时校验 worktree 属于同一 session 且处于 `active` / `handoff`。
 - `workflow_runs.worktree_id` 是执行期真相源；创建 run 后会 best-effort 回填空的 `managed_worktrees.workflow_run_id` 作为反向索引，并 emit `worktree:updated` 供 Workspace 刷新。已有非空反向绑定不覆盖。
+- 若 run 绑定 Goal，创建后会写 `worktree_attached` Goal evidence；Worktree 后续 archive / restore / handoff 会刷新这条 evidence 的 state、path、dirty snapshot 和 handoff 时间。
 - runtime 构造 `WorkflowSessionContext` 时，如果 run 绑定 `worktree_id`，会先读取 managed worktree；路径缺失或状态归档时自动 `restore_managed_worktree`。
 - restore 失败或 worktree 不可用时，run 转 `blocked(worktree_unavailable)`，不能静默回退到父会话 working dir。
 - 绑定成功后写 `run_worktree_attached` trace event，`workflow.fileSearch` / `read` / `grep` / `tool` / `validate` / `diff` 默认 cwd 都是 worktree path。

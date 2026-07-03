@@ -337,6 +337,14 @@ impl SessionDB {
             )?;
         }
         emit_worktree_changed("worktree:created", &row);
+        if let Err(err) = self.refresh_goal_worktree_evidence(&row) {
+            crate::app_warn!(
+                "goal",
+                "worktree_evidence",
+                "failed to refresh goal worktree evidence after create {}: {err:#}",
+                row.id
+            );
+        }
         Ok(row)
     }
 
@@ -402,6 +410,14 @@ impl SessionDB {
         if changed > 0 {
             if let Some(row) = updated.as_ref() {
                 emit_worktree_changed("worktree:updated", row);
+                if let Err(err) = self.refresh_goal_worktree_evidence(row) {
+                    crate::app_warn!(
+                        "goal",
+                        "worktree_evidence",
+                        "failed to refresh goal worktree evidence after workflow link {}: {err:#}",
+                        row.id
+                    );
+                }
             }
         }
         Ok(updated)
@@ -460,6 +476,14 @@ impl SessionDB {
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found after archive: {id}"))?;
         emit_worktree_changed("worktree:archived", &row);
+        if let Err(err) = self.refresh_goal_worktree_evidence(&row) {
+            crate::app_warn!(
+                "goal",
+                "worktree_evidence",
+                "failed to refresh goal worktree evidence after archive {}: {err:#}",
+                row.id
+            );
+        }
         Ok(row)
     }
 
@@ -499,6 +523,14 @@ impl SessionDB {
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found after restore: {id}"))?;
         emit_worktree_changed("worktree:restored", &row);
+        if let Err(err) = self.refresh_goal_worktree_evidence(&row) {
+            crate::app_warn!(
+                "goal",
+                "worktree_evidence",
+                "failed to refresh goal worktree evidence after restore {}: {err:#}",
+                row.id
+            );
+        }
         Ok(row)
     }
 
@@ -527,6 +559,14 @@ impl SessionDB {
             .get_managed_worktree(id)?
             .ok_or_else(|| anyhow!("managed worktree not found after handoff: {id}"))?;
         emit_worktree_changed("worktree:handoff", &row);
+        if let Err(err) = self.refresh_goal_worktree_evidence(&row) {
+            crate::app_warn!(
+                "goal",
+                "worktree_evidence",
+                "failed to refresh goal worktree evidence after handoff {}: {err:#}",
+                row.id
+            );
+        }
         Ok(row)
     }
 }

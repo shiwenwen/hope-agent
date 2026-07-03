@@ -2,9 +2,9 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定；LSP / Diagnostics 已在 Phase 3.2 落地为语义诊断控制面，workflow 内 `lsp diagnostics/sync_file` 已接入强类型 `diagnostic_result` Goal evidence；Review Engine 已在 Phase 3.3 接入 Goal evidence；Smart Verification 已在 Phase 3.4 接入 validation evidence；`workflow.finish.artifacts` 已接入 `artifact_created` evidence。最终架构见 [Goal 控制平面](../architecture/goal.md)、[Review Engine 控制平面](../architecture/review-engine.md) 与 [Smart Verification 控制平面](../architecture/verification-engine.md)。
+> 状态：Phase 2.8 核心已完成。Milestone A/B/C 已落地；`/loop` 第一版已接入 Goal evidence，Managed Worktree 已在 Phase 3.1 落地 workflow 绑定并接入 `worktree_attached` Goal evidence；LSP / Diagnostics 已在 Phase 3.2 落地为语义诊断控制面，workflow 内 `lsp diagnostics/sync_file` 已接入强类型 `diagnostic_result` Goal evidence；Review Engine 已在 Phase 3.3 接入 Goal evidence；Smart Verification 已在 Phase 3.4 接入 validation evidence；`workflow.finish.artifacts` 已接入 `artifact_created` evidence。最终架构见 [Goal 控制平面](../architecture/goal.md)、[Managed Worktree 控制平面](../architecture/worktree.md)、[Review Engine 控制平面](../architecture/review-engine.md) 与 [Smart Verification 控制平面](../architecture/verification-engine.md)。
 >
-> 更新时间：2026-07-01
+> 更新时间：2026-07-04
 
 ## 背景
 
@@ -25,14 +25,14 @@ V2 的目标不是重做 Goal，而是把 **Goal <-> Workflow <-> Evidence <-> U
 2. Workflow 不只把 run 状态写回 Goal，还能把 diff / file / artifact / validation 级 evidence 结构化挂到 Goal。
 3. Evaluator 从“保守规则”升级为“规则引擎 + 可选 LLM 审计”，但不能让模型自说自话决定完成。
 4. Goal budget 从“持久化字段”升级为可观察、可扣减、可停止的运行约束。
-5. `/loop`、worktree、LSP、review engine 都能把结果作为 Goal evidence 接入，而不是各做各的总结；其中 `/loop` 第一版已落地，Managed Worktree 已完成 workflow 运行绑定。
+5. `/loop`、worktree、LSP、review engine 都能把结果作为 Goal evidence 接入，而不是各做各的总结；其中 `/loop` 第一版已落地，Managed Worktree 已完成 workflow 运行绑定和 `worktree_attached` evidence。
 
 ## 非目标
 
 - 不把 Goal 变成执行 runtime；具体执行仍由 Workflow / Loop / tools 承担。
 - 不让 agent 工具面直接修改 durable Goal；第一阶段仍走 owner 平面。
 - 不绕过 permission / hooks / sandbox / incognito / KB access。
-- 不在 V2 内一次性实现 LSP、review engine；worktree control plane 已在 Phase 3.1 单独完成，Goal detail 的更丰富展示仍按 evidence 边界继续增强。
+- 不在 V2 内一次性实现 LSP、review engine；worktree control plane 已在 Phase 3.1 单独完成，Goal detail 已能通过 `worktree_attached` evidence 展示改动落点和 handoff 状态，后续只做更丰富的 detail 页面。
 - 不让 LLM evaluator 覆盖 hard blocker；规则引擎先 fail closed。
 
 ## 1. Evidence v2
@@ -230,7 +230,7 @@ Goal budget 不只保存字段，还要能解释：
 | 系统 | 接入方式 | 备注 |
 | --- | --- | --- |
 | `/loop` | `loop_runs` + `goal_id` | 第一版已落地：每次触发结果成为 Goal timeline 事件。 |
-| Managed Worktree | workflow run 绑定 worktree id | Goal detail 显示改动落点和 handoff 状态。 |
+| Managed Worktree | `worktree_attached` evidence | Goal detail 显示改动落点、path 是否存在、base、dirty snapshot 和 handoff 状态。 |
 | LSP Diagnostics | diagnostic evidence | 类型错误 / lint / symbol 风险进入 audit。 |
 | Review Engine | review finding evidence | P0/P1 unresolved finding 阻止 completed。 |
 | Smart Verification | validation evidence | 最小验证选择与低风险 step 结果进入 audit。 |
@@ -285,7 +285,7 @@ Goal budget 不只保存字段，还要能解释：
 ### Milestone D：Post-2.8 Integrations
 
 - `/loop` run evidence（已落地第一版）。
-- workflow worktree 绑定（已落地第一版）；Goal detail 的 worktree 展示和 handoff 状态仍可继续增强。
+- workflow worktree 绑定 + `worktree_attached` evidence（已落地第一版）。
 - LSP diagnostics evidence（已落地第一版）。
 - review finding evidence。
 
