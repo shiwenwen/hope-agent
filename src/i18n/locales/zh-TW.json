@@ -148,7 +148,9 @@
     "reattach": "收回到面板",
     "refresh": "刷新",
     "snapshot": "截圖",
-    "versions": "版本歷史"
+    "versions": "版本歷史",
+    "panelTitle": "帆布",
+    "resizePanel": "調整畫布面板大小"
   },
   "channels": {
     "accountLabel": "賬戶名稱",
@@ -304,7 +306,8 @@
       "refresh": "立即重新整理",
       "resumeMirror": "繼續鏡像",
       "takeOver": "我來操作",
-      "takeOverHint": "暫停 1Hz 自動重新整理，你在 Chrome 中手動操作"
+      "takeOverHint": "暫停 1Hz 自動重新整理，你在 Chrome 中手動操作",
+      "resizePanel": "調整瀏覽器面板大小"
     },
     "asyncToolJobFallbackName": "背景任務",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
       "openSettings": "前往設定",
       "dismiss": "不再顯示"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "下一步行動：{{nextAction}}",
+      "openSettings": "開啟“設定”>“瀏覽器”以安裝或啟用擴充功能。",
+      "title": "需要 Chrome 擴充功能"
+    },
+    "conversationEmpty": "此對話中沒有消息",
+    "pendingCancelForceInsert": "取消本輪插入",
+    "pendingFallbackAfterReply": "回覆後發送",
+    "pendingFallbackAfterReplyTip": "尚未遇到工具完成點，將在當前回覆結束後發送。",
+    "pendingForceInsertTip": "它將等待正在執行的刀具完成，然後將其插入到模型中，而不中斷當前的刀具。",
+    "pendingInserted": "插入",
+    "pendingInsertedTip": "本輪加工完成後已將其插入模型中。",
+    "pendingQueuedShort": "排隊",
+    "pendingQueuedTip": "已加入等待佇列，當前回覆結束後發送。",
+    "pendingQueueTitle": "待發送",
+    "pendingWaitingToolBoundary": "等待工具完成點",
+    "pendingWaitingToolBoundaryTip": "等待最新的工具呼叫完成；如果本輪不再呼叫該工具，則會在回覆完成後發送。",
+    "processNotification": "行程結束",
+    "rightPanel": {
+      "collapse": "折疊右側面板",
+      "expand": "展開右側面板",
+      "switch": "切換右側面板"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "測試中...",
     "create": "建立",
     "clear": "清除",
-    "on": "開"
+    "on": "開",
+    "available": "可用",
+    "collapse": "關閉",
+    "expand": "展開",
+    "retry": "重試",
+    "unavailable": "不可用"
   },
   "context": {
     "ago": "前",
@@ -1185,7 +1216,9 @@
       "total": "合計",
       "trend": "Token 用量趨勢",
       "ttft": "首Token耗時",
-      "ttftTrend": "首 Token 耗時趨勢 (TTFT)"
+      "ttftTrend": "首 Token 耗時趨勢 (TTFT)",
+      "inputTokens": "輸入令牌",
+      "outputTokens": "輸出代幣"
     },
     "tool": {
       "avgDuration": "平均耗時",
@@ -1343,7 +1376,23 @@
     "noDiffData": "無 diff 資料",
     "openDiff": "查看 diff",
     "resizePanel": "調整 diff 面板寬度",
-    "title": "檔案變更"
+    "title": "檔案變更",
+    "actionCreate": "創造",
+    "actionDelete": "刪除",
+    "actionEdit": "修改",
+    "copyLocation": "複製目前位置",
+    "expandHiddenLines": "展開{{count}}行，內容不變",
+    "ignoreWhitespace": "忽略空格變化",
+    "locationCopied": "定位已複製",
+    "locationCopyFailed": "複製定位失敗",
+    "matchingFiles": "{{shown}} / {{total}} 文件",
+    "nextHunk": "下一步更改",
+    "noMatchingFiles": "沒有匹配的文件",
+    "openLocation": "預覽到目前行",
+    "prevHunk": "最後更改",
+    "renderMore": "顯示剩餘的 {{count}} 行",
+    "searchFiles": "搜尋文件",
+    "toggleContext": "折疊未更改的上下文"
   },
   "effort": {
     "high": "高",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "正在提交計劃…",
     "toggleLabel": "計劃",
     "versionHistory": "計劃版本",
-    "versions": "版本歷史"
+    "versions": "版本歷史",
+    "resizePanel": "調整計劃面板的大小"
   },
   "project": {
     "addProject": "新增專案",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "知識空間",
       "hint": "附加的空間讓該專案的對話可以檢索並引用其中的筆記。"
-    }
+    },
+    "projectEmojiPlaceholder": "可選"
   },
   "provider": {
     "addProvider": "添加服務商",
@@ -2433,7 +2484,13 @@
       "days": "最近 {{n}} 天",
       "incremental": "上次報告以來"
     },
-    "selectReport": "從歷史下拉列表中選擇一份報告。"
+    "selectReport": "從歷史下拉列表中選擇一份報告。",
+    "chatCard": {
+      "missingId": "缺少回顧報告 ID。",
+      "open": "打開回顧",
+      "title": "報告回顧",
+      "waiting": "等待回顧進展..."
+    }
   },
   "settings": {
     "about": "關于",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "推薦",
     "webSearchSaved": "已保存",
     "webSearchTimeout": "超時（秒）",
-    "webSearchTimeoutDesc": "搜索請求 HTTP 超時時間（5-120 秒）"
+    "webSearchTimeoutDesc": "搜索請求 HTTP 超時時間（5-120 秒）",
+    "devVisualTest": "UI動畫測試",
+    "permLoading": "正在檢查權限...",
+    "uiEffects": "背景動畫",
+    "uiEffectsDesc": "啟用全天候背景和天氣效果連動",
+    "uiEffectsToggle": "開啟效果"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -4957,7 +5019,18 @@
       "draftCreated": "已自動建立草稿技能：{{name}}。點擊審核。",
       "review": "審核",
       "unnamedSkill": "(未命名技能)"
-    }
+    },
+    "chatFork": {
+      "completed": "已完成。結果已被注入到此聊天中。",
+      "error": "失敗的。",
+      "killed": "取消。",
+      "missingRunId": "技能運作 ID 遺失。",
+      "running": "技能子代理正在運作。結果將被注入此處。",
+      "spawning": "啟動技能子代理程式...",
+      "timeout": "超時了。",
+      "title": "技能{{skill}}"
+    },
+    "defaultName": "技能"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "啟動中",
       "timeout": "逾時"
     },
-    "viewChildSession": "開啟子 Agent 會話"
+    "viewChildSession": "開啟子 Agent 會話",
+    "agentId": "代理 ID",
+    "childSessionId": "兒童會議",
+    "duration": "持續時間",
+    "model": "型號",
+    "openSession": "公開會議",
+    "runId": "運行ID",
+    "task": "任務",
+    "tokens": "代幣"
   },
   "team": {
     "active": "活躍",
@@ -5127,7 +5208,23 @@
     "todo": "待辦",
     "totalTokens": "Token 用量",
     "viewSession": "查看對話",
-    "worker": "執行者"
+    "worker": "執行者",
+    "loading": "正在加載...",
+    "messagePlaceholder": "訊息團隊...（DM 的@name）",
+    "noTasks": "沒有任務",
+    "panelTitle": "團隊",
+    "resizePanel": "調整團隊面板大小",
+    "role": {
+      "lead": "鉛",
+      "reviewer": "審稿人",
+      "worker": "勞工"
+    },
+    "tab": {
+      "dashboard": "儀表板",
+      "messages": "留言",
+      "tasks": "任務"
+    },
+    "view": "查看"
   },
   "theme": {
     "auto": "自動",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "後台任務開始"
     },
     "find": "查找文件",
     "get_settings": "讀取設置",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "讀取 Git diff 失敗",
+      "loadingDiff": "讀取差異",
+      "noTextDiff": "沒有文字可顯示差異"
     },
     "action": {
       "create": "新建",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "證據覆蓋範圍",
+      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 聲明 · {{notesWithEvidence}}/{{notes}} 註釋",
+      "evidenceRebuildFailed": "無法重建證據索引",
+      "evidenceRebuilt": "重建 {{notes}} 票據、{{refs}} 參考文獻、{{claims}} 聲明的證據索引",
+      "missingEvidence": "證據缺失",
+      "missingRefs": "缺少裁判",
+      "needsReview": "需要審查",
+      "rebuildEvidenceTip": "重建派生證據索引",
+      "schemaIssues": "架構問題",
+      "staleRefs": "過時的參考文獻"
     },
     "graph": {
       "toggle": "圖譜檢視",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "外部庫預設為唯讀。開啟後可讓編輯器與 AI 工具寫入綁定資料夾。背景自動維護一律不寫入外部庫。",
     "result": {
       "memory": "記憶"
+    },
+    "compile": {
+      "applied": "已套用建議",
+      "apply": "套用",
+      "applyFailed": "無法套用建議",
+      "cancel": "取消",
+      "cancelFailed": "無法取消執行",
+      "cancelled": "編譯執行已取消",
+      "description": "在寫入任何內容前先審閱產生的筆記變更。",
+      "empty": "選擇一個建議進行審閱",
+      "emptyHint": "產生的建議會保留在這裡，直到你套用或忽略。",
+      "failed": "編譯執行失敗",
+      "loadFailed": "無法載入編譯執行",
+      "noProposals": "本次執行沒有建議。",
+      "noRuns": "還沒有編譯執行。",
+      "proposals": "建議",
+      "proposalsLoadFailed": "無法載入建議",
+      "refresh": "重新整理",
+      "reject": "忽略",
+      "rejectFailed": "無法忽略建議",
+      "rejected": "已忽略建議",
+      "runPending": "編譯執行等待中",
+      "runSources": "{{count}} 個資料",
+      "running": "正在編譯資料…",
+      "runs": "執行",
+      "startFailed": "無法編譯資料",
+      "startSelected": "編譯 {{count}} 個",
+      "started": "已產生 {{n}} 條建議",
+      "title": "編譯資料"
+    },
+    "sources": {
+      "archiveAttachment": "歸檔到知識空間",
+      "archiveAttachmentFailed": "附件歸檔失敗",
+      "archivedAttachment": "已歸檔到知識資料",
+      "browser": "瀏覽器",
+      "browserAuto": "自動",
+      "browserPage": "整頁",
+      "browserSelection": "選取範圍",
+      "chooseFile": "選擇檔案",
+      "comparePrevious": "比較上一版",
+      "compileOne": "編譯",
+      "compileSelected": "編譯所選資料",
+      "compiled": "已編譯",
+      "compiledClaims": "使用此資料的已編譯結論",
+      "currentVersion": "目前",
+      "delete": "刪除",
+      "deleteBody": "要從原始資料艙刪除「{{name}}」嗎？",
+      "deleteFailed": "無法刪除資料",
+      "deleteTitle": "刪除資料",
+      "deleted": "資料已刪除",
+      "diffFailed": "無法載入資料差異",
+      "diffTruncated": "預覽已截斷",
+      "dismissSimilar": "忽略",
+      "downloadOriginal": "下載原件",
+      "empty": "還沒有資料。",
+      "evidenceSources": "資料來源",
+      "externalRawPath": "外部快照",
+      "file": "檔案",
+      "import": "匯入資料",
+      "importAction": "匯入",
+      "importDesc": "向這個知識空間加入原始資料。",
+      "importFailed": "無法匯入資料",
+      "importHistory": "匯入歷史",
+      "importHistoryFailed": "無法開啟匯入歷史",
+      "importRunDeduped": "已匯入 {{imported}} 個，略過 {{duplicate}} 個重複項",
+      "importRunPartial": "已匯入 {{imported}} 個，略過 {{duplicate}} 個重複項，失敗 {{failed}} 個",
+      "importRunStarted": "已開始匯入 {{count}} 個資料",
+      "imported": "資料已匯入",
+      "importedCount": "已匯入 {{count}} 個資料",
+      "keepSource": "保留「{{name}}」",
+      "loadTargetsFailed": "無法載入知識空間",
+      "loading": "正在載入…",
+      "loadingClaims": "正在載入證據索引…",
+      "loadingDiff": "正在載入差異…",
+      "mediaRetained": "已留存媒體",
+      "missingSource": "資料缺失",
+      "moreClaims": "還有 {{count}} 條結論",
+      "noCompiledClaims": "還沒有已編譯筆記結論引用此資料。",
+      "noImportRuns": "還沒有匯入執行。",
+      "noKb": "選擇一個空間以查看資料。",
+      "noKnowledgeBase": "沒有可用的知識空間",
+      "noLocalDuplicates": "此空間中沒有可刪除的重複資料",
+      "noSimilarGroups": "沒有相似資料分組。",
+      "open": "開啟",
+      "openOriginal": "開啟原件",
+      "otherKb": "其他空間 {{id}}",
+      "readFailed": "無法開啟資料",
+      "reextract": "重新擷取",
+      "reextractFailed": "無法重新擷取資料",
+      "reextracted": "資料已重新擷取",
+      "refresh": "重新整理",
+      "refreshChanged": "資料已重新整理到 v{{version}}",
+      "refreshFailed": "無法重新整理資料",
+      "refreshSource": "重新整理快照",
+      "refreshUnchanged": "資料已是最新",
+      "resolveSimilarConfirm": "保留「{{name}}」並從此空間刪除 {{count}} 個重複資料嗎？",
+      "retainedMedia": "已留存媒體",
+      "retryFailed": "無法重試失敗匯入",
+      "retryFailedAction": "重試失敗項",
+      "selectImportRun": "選擇一次匯入執行。",
+      "selectKnowledgeBase": "選擇知識空間",
+      "similarCount": "{{count}} 個相似分組",
+      "similarDismissFailed": "無法隱藏相似建議",
+      "similarDismissed": "已隱藏相似建議",
+      "similarGroups": "相似資料",
+      "similarResolveFailed": "無法處理重複資料",
+      "similarResolved": "已刪除 {{count}} 個重複資料",
+      "sourceDiff": "資料差異",
+      "staleSource": "編譯後資料已變更",
+      "supersededSource": "有更新的資料版本",
+      "text": "文字",
+      "textPlaceholder": "貼上資料文字…",
+      "thumbnailOnly": "僅縮圖",
+      "title": "資料",
+      "titlePlaceholder": "標題",
+      "uncompiled": "未編譯",
+      "url": "URL",
+      "urlKindAudio": "音訊轉錄",
+      "urlKindImage": "圖片 OCR",
+      "urlKindPage": "網頁",
+      "urlKindVideo": "影片轉錄",
+      "versionHistory": "版本歷史",
+      "versionHistoryDesc": "{{count}} 個已歸檔快照。目前：{{current}}",
+      "versionsFailed": "無法載入資料版本",
+      "itemStatus": {
+        "duplicate": "重複",
+        "failed": "失敗",
+        "imported": "已匯入",
+        "pending": "等待中",
+        "running": "執行中"
+      },
+      "kind": {
+        "audioTranscript": "音訊轉錄",
+        "browserSnapshot": "瀏覽器",
+        "docx": "DOCX",
+        "imageOcr": "圖片 OCR",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "文字",
+        "urlSnapshot": "URL",
+        "videoTranscript": "影片轉錄"
+      },
+      "runStatus": {
+        "completed": "已完成",
+        "completedWithErrors": "完成但有錯誤",
+        "failed": "失敗",
+        "running": "執行中"
+      },
+      "similarKind": {
+        "exactDuplicate": "完全重複",
+        "similar": "相似"
+      },
+      "similarScope": {
+        "crossKb": "跨空間",
+        "sameKb": "此空間"
+      }
+    },
+    "queryFile": {
+      "action": "文件",
+      "applied": "提交至知識空間",
+      "apply": "申請",
+      "applyFailed": "無法申請備案",
+      "description": "在寫作之前創建一個審查差異。",
+      "empty": "選擇這個答案應該落在哪裡。",
+      "generateFailed": "無法建立歸檔提案",
+      "reject": "拒絕",
+      "rejected": "歸檔被放棄",
+      "rejectFailed": "無法放棄歸檔",
+      "review": "評論",
+      "title": "歸檔答案",
+      "titlePlaceholder": "標題",
+      "mode": {
+        "createNote": "新建筆記",
+        "updateCurrentNote": "更新目前筆記",
+        "appendToMoc": "加入 MOC",
+        "openQuestions": "開放問題"
+      },
+      "defaultTitle": "歸檔對話",
+      "currentNotePlaceholder": "目前筆記路徑",
+      "openQuestionsPlaceholder": "帶開放問題的筆記",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "已中斷",
       "timed_out": "已逾時",
       "cancelled": "已取消"
+    },
+    "errorOutput": "錯誤",
+    "liveOutput": "即時輸出",
+    "outputFile": "完整結果",
+    "resultPreview": "結果預覽"
+  },
+  "browser": {
+    "panelTitle": "瀏覽器"
+  },
+  "error": {
+    "appCrash": "出了點問題",
+    "retry": "再試一次",
+    "unknown": "發生意外錯誤"
+  },
+  "localModels": {
+    "actions": {
+      "download": "下載"
     }
+  },
+  "macControl": {
+    "panelTitle": "蘋果電腦控制"
   }
 }

@@ -148,7 +148,9 @@
     "reattach": "Back to Panel",
     "refresh": "Refresh",
     "snapshot": "Snapshot",
-    "versions": "Version History"
+    "versions": "Version History",
+    "panelTitle": "Canvas",
+    "resizePanel": "Resize canvas panel"
   },
   "channels": {
     "accountLabel": "Account Name",
@@ -304,7 +306,8 @@
       "refresh": "Refresh now",
       "resumeMirror": "Resume mirror",
       "takeOver": "Take over",
-      "takeOverHint": "Pause 1Hz auto-refresh while you operate Chrome yourself"
+      "takeOverHint": "Pause 1Hz auto-refresh while you operate Chrome yourself",
+      "resizePanel": "Resize browser panel"
     },
     "asyncToolJobFallbackName": "Background task",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "The installed extension doesn’t match the host. Reload it to restore control of your real Chrome.",
       "openSettings": "Open settings",
       "dismiss": "Don’t show again"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Next action: {{nextAction}}",
+      "openSettings": "Open Settings > Browser to install or enable the extension.",
+      "title": "Chrome extension required"
+    },
+    "conversationEmpty": "No messages in this conversation",
+    "pendingCancelForceInsert": "Cancel insertion of this round",
+    "pendingFallbackAfterReply": "Send after reply",
+    "pendingFallbackAfterReplyTip": "The tool completion point has not been encountered and will be sent after the current reply ends.",
+    "pendingForceInsertTip": "It will wait until the tool being executed is completed and then insert it into the model without interrupting the current tool.",
+    "pendingInserted": "inserted",
+    "pendingInsertedTip": "It has been inserted into the model after this round of tooling is completed.",
+    "pendingQueuedShort": "Queuing",
+    "pendingQueuedTip": "It has been added to the waiting queue and will be sent after the current reply ends.",
+    "pendingQueueTitle": "To be sent",
+    "pendingWaitingToolBoundary": "Wait for tool completion point",
+    "pendingWaitingToolBoundaryTip": "Wait for the latest tool call to be completed; if the tool is no longer called this round, it will be sent after the reply is completed.",
+    "processNotification": "process ended",
+    "rightPanel": {
+      "collapse": "Collapse right panel",
+      "expand": "Expand right panel",
+      "switch": "Switch right panel"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "Testing...",
     "create": "Create",
     "clear": "Clear",
-    "on": "On"
+    "on": "On",
+    "available": "Available",
+    "collapse": "close",
+    "expand": "Expand",
+    "retry": "Retry",
+    "unavailable": "Unavailable"
   },
   "context": {
     "ago": "ago",
@@ -1185,7 +1216,9 @@
       "total": "Total",
       "trend": "Token Usage Trend",
       "ttft": "TTFT",
-      "ttftTrend": "Time to First Token (TTFT)"
+      "ttftTrend": "Time to First Token (TTFT)",
+      "inputTokens": "Input tokens",
+      "outputTokens": "Output tokens"
     },
     "tool": {
       "avgDuration": "Avg Duration",
@@ -1343,7 +1376,23 @@
     "noDiffData": "No diff data",
     "openDiff": "Open diff",
     "resizePanel": "Resize diff panel",
-    "title": "File changes"
+    "title": "File changes",
+    "actionCreate": "create",
+    "actionDelete": "delete",
+    "actionEdit": "Revise",
+    "copyLocation": "Copy current location",
+    "expandHiddenLines": "Expand row {{count}} with unchanged content",
+    "ignoreWhitespace": "Ignore whitespace changes",
+    "locationCopied": "Targeting copied",
+    "locationCopyFailed": "Copy positioning failed",
+    "matchingFiles": "{{shown}} / {{total}} files",
+    "nextHunk": "Next change",
+    "noMatchingFiles": "No matching files",
+    "openLocation": "Preview to current line",
+    "prevHunk": "Last change",
+    "renderMore": "Show remaining {{count}} rows",
+    "searchFiles": "Search files",
+    "toggleContext": "Collapse unchanged context"
   },
   "effort": {
     "high": "High",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "Submitting plan…",
     "toggleLabel": "Plan",
     "versionHistory": "Plan Versions",
-    "versions": "Version History"
+    "versions": "Version History",
+    "resizePanel": "Resize plan panel"
   },
   "project": {
     "addProject": "Add project",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "Knowledge spaces",
       "hint": "Attached spaces let this project's chats search and cite their notes."
-    }
+    },
+    "projectEmojiPlaceholder": "Optional"
   },
   "provider": {
     "addProvider": "Add Provider",
@@ -2433,7 +2484,13 @@
       "days": "Last {{n}} days",
       "incremental": "Since last report"
     },
-    "selectReport": "Select a report from the history dropdown."
+    "selectReport": "Select a report from the history dropdown.",
+    "chatCard": {
+      "missingId": "Recap report id is missing.",
+      "open": "Open Recap",
+      "title": "Recap report",
+      "waiting": "Waiting for recap progress..."
+    }
   },
   "settings": {
     "about": "About",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "Recommended",
     "webSearchSaved": "Saved",
     "webSearchTimeout": "Timeout (seconds)",
-    "webSearchTimeoutDesc": "HTTP timeout for search requests (5-120s)"
+    "webSearchTimeoutDesc": "HTTP timeout for search requests (5-120s)",
+    "devVisualTest": "UI animation testing",
+    "permLoading": "Checking permissions...",
+    "uiEffects": "Background animation",
+    "uiEffectsDesc": "Enable all-weather background and weather effects linkage",
+    "uiEffectsToggle": "Turn on effect"
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",
@@ -4957,7 +5019,18 @@
       "draftCreated": "Auto-created draft skill: {{name}}. Click to review.",
       "review": "Review",
       "unnamedSkill": "(unnamed skill)"
-    }
+    },
+    "chatFork": {
+      "completed": "Completed. The result has been injected into this chat.",
+      "error": "Failed.",
+      "killed": "Cancelled.",
+      "missingRunId": "Skill run id is missing.",
+      "running": "Skill sub-agent is running. The result will be injected here.",
+      "spawning": "Starting skill sub-agent...",
+      "timeout": "Timed out.",
+      "title": "Skill {{skill}}"
+    },
+    "defaultName": "skill"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "Spawning",
       "timeout": "Timeout"
     },
-    "viewChildSession": "Open sub-agent session"
+    "viewChildSession": "Open sub-agent session",
+    "agentId": "Agent ID",
+    "childSessionId": "Child session",
+    "duration": "Duration",
+    "model": "Model",
+    "openSession": "Open Session",
+    "runId": "Run ID",
+    "task": "Task",
+    "tokens": "Tokens"
   },
   "team": {
     "active": "Active",
@@ -5127,7 +5208,23 @@
     "todo": "To Do",
     "totalTokens": "Token Usage",
     "viewSession": "View Session",
-    "worker": "Worker"
+    "worker": "Worker",
+    "loading": "Loading...",
+    "messagePlaceholder": "Message team... (@name for DM)",
+    "noTasks": "No tasks",
+    "panelTitle": "Team",
+    "resizePanel": "Resize team panel",
+    "role": {
+      "lead": "Lead",
+      "reviewer": "Reviewer",
+      "worker": "Worker"
+    },
+    "tab": {
+      "dashboard": "Dashboard",
+      "messages": "Messages",
+      "tasks": "Tasks"
+    },
+    "view": "View"
   },
   "theme": {
     "auto": "Auto",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "No output",
       "running": "Running...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "Background task started"
     },
     "find": "Find Files",
     "get_settings": "Get Settings",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Reading Git diff failed",
+      "loadingDiff": "Read diff",
+      "noTextDiff": "No text to display diff"
     },
     "action": {
       "create": "New",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "Evidence coverage",
+      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} claims · {{notesWithEvidence}}/{{notes}} notes",
+      "evidenceRebuildFailed": "Couldn't rebuild evidence index",
+      "evidenceRebuilt": "Rebuilt evidence index for {{notes}} notes, {{refs}} refs, {{claims}} claims",
+      "missingEvidence": "Missing evidence",
+      "missingRefs": "Missing refs",
+      "needsReview": "Needs review",
+      "rebuildEvidenceTip": "Rebuild the derived evidence index",
+      "schemaIssues": "Schema issues",
+      "staleRefs": "Stale refs"
     },
     "graph": {
       "toggle": "Graph view",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "External vaults are read-only by default. Enable to let the editor and AI tools write to the bound folder. Background maintenance never writes to external vaults.",
     "result": {
       "memory": "Memory"
+    },
+    "compile": {
+      "applied": "Proposal applied",
+      "apply": "Apply",
+      "applyFailed": "Couldn't apply proposal",
+      "cancel": "Cancel",
+      "cancelFailed": "Couldn't cancel run",
+      "cancelled": "Compile run cancelled",
+      "description": "Review generated note changes before anything is written.",
+      "empty": "Select a proposal to review",
+      "emptyHint": "Generated proposals stay here until you apply or reject them.",
+      "failed": "Compile run failed",
+      "loadFailed": "Couldn't load compile runs",
+      "noProposals": "No proposals for this run.",
+      "noRuns": "No compile runs yet.",
+      "proposals": "Proposals",
+      "proposalsLoadFailed": "Couldn't load proposals",
+      "refresh": "Refresh",
+      "reject": "Reject",
+      "rejectFailed": "Couldn't reject proposal",
+      "rejected": "Proposal rejected",
+      "runPending": "Compile run pending",
+      "runSources": "{{count}} source(s)",
+      "running": "Compiling sources…",
+      "runs": "Runs",
+      "startFailed": "Couldn't compile sources",
+      "startSelected": "Compile {{count}}",
+      "started": "Generated {{n}} proposal(s)",
+      "title": "Compile sources"
+    },
+    "sources": {
+      "archiveAttachment": "Archive to knowledge",
+      "archiveAttachmentFailed": "Failed to archive attachment",
+      "archivedAttachment": "Archived to knowledge sources",
+      "browser": "Browser",
+      "browserAuto": "Auto",
+      "browserPage": "Page",
+      "browserSelection": "Selection",
+      "chooseFile": "Choose files",
+      "comparePrevious": "Compare previous",
+      "compileOne": "Compile",
+      "compileSelected": "Compile selected sources",
+      "compiled": "Compiled",
+      "compiledClaims": "Compiled claims using this source",
+      "currentVersion": "Current",
+      "delete": "Delete",
+      "deleteBody": "Delete {{name}} from the raw source inbox?",
+      "deleteFailed": "Couldn't delete source",
+      "deleteTitle": "Delete source",
+      "deleted": "Source deleted",
+      "diffFailed": "Couldn't load source diff",
+      "diffTruncated": "Preview truncated",
+      "dismissSimilar": "Ignore",
+      "downloadOriginal": "Download original",
+      "empty": "No sources yet.",
+      "evidenceSources": "Sources",
+      "externalRawPath": "External snapshot",
+      "file": "File",
+      "import": "Import source",
+      "importAction": "Import",
+      "importDesc": "Add raw material to this knowledge space.",
+      "importFailed": "Couldn't import source",
+      "importHistory": "Import history",
+      "importHistoryFailed": "Couldn't open import history",
+      "importRunDeduped": "Imported {{imported}}, skipped {{duplicate}} duplicate",
+      "importRunPartial": "Imported {{imported}}, skipped {{duplicate}} duplicate, failed {{failed}}",
+      "importRunStarted": "Import started for {{count}} source(s)",
+      "imported": "Source imported",
+      "importedCount": "Imported {{count}} sources",
+      "keepSource": "Keep {{name}}",
+      "loadTargetsFailed": "Failed to load knowledge spaces",
+      "loading": "Loading…",
+      "loadingClaims": "Loading evidence index...",
+      "loadingDiff": "Loading diff...",
+      "mediaRetained": "Media retained",
+      "missingSource": "Missing source",
+      "moreClaims": "+{{count}} more claims",
+      "noCompiledClaims": "No compiled note claim cites this source yet.",
+      "noImportRuns": "No import runs yet.",
+      "noKb": "Select a space to see sources.",
+      "noKnowledgeBase": "No knowledge space available",
+      "noLocalDuplicates": "No duplicate source in this space to delete",
+      "noSimilarGroups": "No similar source groups.",
+      "open": "Open",
+      "openOriginal": "Open original",
+      "otherKb": "Other space {{id}}",
+      "readFailed": "Couldn't open source",
+      "reextract": "Re-extract",
+      "reextractFailed": "Couldn't re-extract source",
+      "reextracted": "Source re-extracted",
+      "refresh": "Refresh",
+      "refreshChanged": "Source refreshed to v{{version}}",
+      "refreshFailed": "Couldn't refresh source",
+      "refreshSource": "Refresh snapshot",
+      "refreshUnchanged": "Source is already up to date",
+      "resolveSimilarConfirm": "Keep {{name}} and delete {{count}} duplicate source(s) from this space?",
+      "retainedMedia": "Retained media",
+      "retryFailed": "Couldn't retry failed imports",
+      "retryFailedAction": "Retry failed",
+      "selectImportRun": "Select an import run.",
+      "selectKnowledgeBase": "Select knowledge space",
+      "similarCount": "{{count}} similar groups",
+      "similarDismissFailed": "Couldn't hide similarity suggestion",
+      "similarDismissed": "Similarity suggestion hidden",
+      "similarGroups": "Similar sources",
+      "similarResolveFailed": "Couldn't resolve duplicate sources",
+      "similarResolved": "Deleted {{count}} duplicate source(s)",
+      "sourceDiff": "Source diff",
+      "staleSource": "Source changed after compile",
+      "supersededSource": "Newer source version available",
+      "text": "Text",
+      "textPlaceholder": "Paste source text…",
+      "thumbnailOnly": "Thumbnail only",
+      "title": "Sources",
+      "titlePlaceholder": "Title",
+      "uncompiled": "Uncompiled",
+      "url": "URL",
+      "urlKindAudio": "Audio transcript",
+      "urlKindImage": "Image OCR",
+      "urlKindPage": "Web page",
+      "urlKindVideo": "Video transcript",
+      "versionHistory": "Version history",
+      "versionHistoryDesc": "{{count}} archived snapshots. Current: {{current}}",
+      "versionsFailed": "Couldn't load source versions",
+      "itemStatus": {
+        "duplicate": "Duplicate",
+        "failed": "Failed",
+        "imported": "Imported",
+        "pending": "Pending",
+        "running": "Running"
+      },
+      "kind": {
+        "audioTranscript": "Audio transcript",
+        "browserSnapshot": "Browser",
+        "docx": "DOCX",
+        "imageOcr": "Image OCR",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "Text",
+        "urlSnapshot": "URL",
+        "videoTranscript": "Video transcript"
+      },
+      "runStatus": {
+        "completed": "Completed",
+        "completedWithErrors": "Completed with errors",
+        "failed": "Failed",
+        "running": "Running"
+      },
+      "similarKind": {
+        "exactDuplicate": "Exact duplicate",
+        "similar": "Similar"
+      },
+      "similarScope": {
+        "crossKb": "Cross-space",
+        "sameKb": "This space"
+      }
+    },
+    "queryFile": {
+      "action": "File",
+      "applied": "Filed to knowledge space",
+      "apply": "Apply",
+      "applyFailed": "Couldn't apply filing",
+      "description": "Create a review diff before writing.",
+      "empty": "Choose where this answer should land.",
+      "generateFailed": "Couldn't create filing proposal",
+      "reject": "Reject",
+      "rejected": "Filing discarded",
+      "rejectFailed": "Couldn't discard filing",
+      "review": "Review",
+      "title": "File answer",
+      "titlePlaceholder": "Title",
+      "mode": {
+        "createNote": "New note",
+        "updateCurrentNote": "Update current note",
+        "appendToMoc": "Add to MOC",
+        "openQuestions": "Open Questions"
+      },
+      "defaultTitle": "Filed conversation",
+      "currentNotePlaceholder": "Current note path",
+      "openQuestionsPlaceholder": "Note with Open Questions",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "Interrupted",
       "timed_out": "Timed out",
       "cancelled": "Cancelled"
+    },
+    "errorOutput": "mistake",
+    "liveOutput": "real time output",
+    "outputFile": "full results",
+    "resultPreview": "Results preview"
+  },
+  "browser": {
+    "panelTitle": "Browser"
+  },
+  "error": {
+    "appCrash": "Something went wrong",
+    "retry": "Try Again",
+    "unknown": "An unexpected error occurred"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Download"
     }
+  },
+  "macControl": {
+    "panelTitle": "Mac Control"
   }
 }

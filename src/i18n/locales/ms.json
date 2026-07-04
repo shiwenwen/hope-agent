@@ -148,7 +148,9 @@
     "reattach": "Kembali ke panel",
     "refresh": "Muat semula",
     "snapshot": "Tangkapan",
-    "versions": "Sejarah versi"
+    "versions": "Sejarah versi",
+    "panelTitle": "Kanvas",
+    "resizePanel": "Ubah saiz panel kanvas"
   },
   "channels": {
     "accountLabel": "Nama akaun",
@@ -304,7 +306,8 @@
       "refresh": "Muat semula sekarang",
       "resumeMirror": "Sambung semula cermin",
       "takeOver": "Ambil alih",
-      "takeOverHint": "Jeda penyegaran automatik 1Hz semasa anda mengawal Chrome sendiri"
+      "takeOverHint": "Jeda penyegaran automatik 1Hz semasa anda mengawal Chrome sendiri",
+      "resizePanel": "Ubah saiz panel penyemak imbas"
     },
     "asyncToolJobFallbackName": "Tugasan latar belakang",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
       "openSettings": "Buka tetapan",
       "dismiss": "Jangan tunjuk lagi"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Tindakan seterusnya: {{nextAction}}",
+      "openSettings": "Buka Tetapan > Penyemak Imbas untuk memasang atau mendayakan sambungan.",
+      "title": "Sambungan Chrome diperlukan"
+    },
+    "conversationEmpty": "Tiada mesej dalam perbualan ini",
+    "pendingCancelForceInsert": "Batalkan sisipan pusingan ini",
+    "pendingFallbackAfterReply": "Hantar selepas balasan",
+    "pendingFallbackAfterReplyTip": "Titik penyelesaian alat belum ditemui dan akan dihantar selepas balasan semasa tamat.",
+    "pendingForceInsertTip": "Ia akan menunggu sehingga alat yang sedang dilaksanakan selesai dan kemudian memasukkannya ke dalam model tanpa mengganggu alat semasa.",
+    "pendingInserted": "dimasukkan",
+    "pendingInsertedTip": "Ia telah dimasukkan ke dalam model selepas pusingan alatan ini selesai.",
+    "pendingQueuedShort": "Beratur",
+    "pendingQueuedTip": "Ia telah ditambahkan pada baris gilir menunggu dan akan dihantar selepas balasan semasa tamat.",
+    "pendingQueueTitle": "Untuk dihantar",
+    "pendingWaitingToolBoundary": "Tunggu titik penyiapan alat",
+    "pendingWaitingToolBoundaryTip": "Tunggu panggilan alat terkini selesai; jika alat itu tidak lagi dipanggil pusingan ini, ia akan dihantar selepas balasan selesai.",
+    "processNotification": "proses tamat",
+    "rightPanel": {
+      "collapse": "Runtuhkan panel kanan",
+      "expand": "Kembangkan panel kanan",
+      "switch": "Tukar panel kanan"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "Menguji...",
     "create": "Cipta",
     "clear": "Kosongkan",
-    "on": "Hidup"
+    "on": "Hidup",
+    "available": "Tersedia",
+    "collapse": "dekat",
+    "expand": "Kembangkan",
+    "retry": "Cuba semula",
+    "unavailable": "Tidak tersedia"
   },
   "context": {
     "ago": "yang lalu",
@@ -1185,7 +1216,9 @@
       "total": "Jumlah",
       "trend": "Trend penggunaan token",
       "ttft": "TTFT",
-      "ttftTrend": "Masa ke Token Pertama (TTFT)"
+      "ttftTrend": "Masa ke Token Pertama (TTFT)",
+      "inputTokens": "Token input",
+      "outputTokens": "Token keluaran"
     },
     "tool": {
       "avgDuration": "Tempoh purata",
@@ -1343,7 +1376,23 @@
     "noDiffData": "Tiada data diff",
     "openDiff": "Buka diff",
     "resizePanel": "Saiz semula panel diff",
-    "title": "Perubahan fail"
+    "title": "Perubahan fail",
+    "actionCreate": "cipta",
+    "actionDelete": "padam",
+    "actionEdit": "Semak semula",
+    "copyLocation": "Salin lokasi semasa",
+    "expandHiddenLines": "Kembangkan baris {{count}} dengan kandungan yang tidak berubah",
+    "ignoreWhitespace": "Abaikan perubahan ruang putih",
+    "locationCopied": "Penyasaran disalin",
+    "locationCopyFailed": "Salin kedudukan gagal",
+    "matchingFiles": "Fail {{shown}} / {{total}}",
+    "nextHunk": "Perubahan seterusnya",
+    "noMatchingFiles": "Tiada fail yang sepadan",
+    "openLocation": "Pratonton ke baris semasa",
+    "prevHunk": "Perubahan terakhir",
+    "renderMore": "Tunjukkan baris {{count}} yang tinggal",
+    "searchFiles": "Cari fail",
+    "toggleContext": "Runtuhkan konteks yang tidak berubah"
   },
   "effort": {
     "high": "Tinggi",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "Menghantar pelan…",
     "toggleLabel": "Pelan",
     "versionHistory": "Versi pelan",
-    "versions": "Sejarah versi"
+    "versions": "Sejarah versi",
+    "resizePanel": "Ubah saiz panel pelan"
   },
   "project": {
     "addProject": "Tambah projek",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "Ruang pengetahuan",
       "hint": "Ruang yang dilampirkan membolehkan sembang projek ini mencari dan memetik notanya."
-    }
+    },
+    "projectEmojiPlaceholder": "Pilihan"
   },
   "provider": {
     "addProvider": "Tambah Pembekal",
@@ -2433,7 +2484,13 @@
       "days": "{{n}} hari lepas",
       "incremental": "Sejak laporan terakhir"
     },
-    "selectReport": "Pilih laporan dari menu lungsur sejarah."
+    "selectReport": "Pilih laporan dari menu lungsur sejarah.",
+    "chatCard": {
+      "missingId": "Id laporan ringkasan tiada.",
+      "open": "Buka Rekap",
+      "title": "Laporan ringkasan",
+      "waiting": "Menunggu kemajuan rekap..."
+    }
   },
   "settings": {
     "about": "Tentang",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "Disyorkan",
     "webSearchSaved": "Disimpan",
     "webSearchTimeout": "Tamat masa (saat)",
-    "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)"
+    "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)",
+    "devVisualTest": "Ujian animasi UI",
+    "permLoading": "Menyemak kebenaran...",
+    "uiEffects": "Animasi latar belakang",
+    "uiEffectsDesc": "Dayakan pautan latar belakang semua cuaca dan kesan cuaca",
+    "uiEffectsToggle": "Hidupkan kesan"
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -4957,7 +5019,18 @@
       "draftCreated": "Kemahiran draf dibuat secara automatik: {{name}}. Klik untuk semak.",
       "review": "Semak",
       "unnamedSkill": "(kemahiran tanpa nama)"
-    }
+    },
+    "chatFork": {
+      "completed": "Selesai. Hasilnya telah disuntik ke dalam sembang ini.",
+      "error": "gagal.",
+      "killed": "Dibatalkan.",
+      "missingRunId": "Id larian kemahiran tiada.",
+      "running": "Sub-agen kemahiran sedang berjalan. Hasilnya akan disuntik di sini.",
+      "spawning": "Memulakan sub-ejen kemahiran...",
+      "timeout": "Tamat masa.",
+      "title": "Kemahiran {{skill}}"
+    },
+    "defaultName": "kemahiran"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "Memulakan",
       "timeout": "Tamat masa"
     },
-    "viewChildSession": "Buka sesi sub-agen"
+    "viewChildSession": "Buka sesi sub-agen",
+    "agentId": "ID ejen",
+    "childSessionId": "Sesi kanak-kanak",
+    "duration": "Tempoh",
+    "model": "Model",
+    "openSession": "Sesi Terbuka",
+    "runId": "Jalankan ID",
+    "task": "Tugasan",
+    "tokens": "Token"
   },
   "team": {
     "active": "Aktif",
@@ -5127,7 +5208,23 @@
     "todo": "Perlu Dibuat",
     "totalTokens": "Penggunaan Token",
     "viewSession": "Lihat sesi",
-    "worker": "Pekerja"
+    "worker": "Pekerja",
+    "loading": "Memuatkan...",
+    "messagePlaceholder": "Pasukan mesej... (@nama untuk DM)",
+    "noTasks": "Tiada tugasan",
+    "panelTitle": "Pasukan",
+    "resizePanel": "Ubah saiz panel pasukan",
+    "role": {
+      "lead": "memimpin",
+      "reviewer": "Penyemak",
+      "worker": "Pekerja"
+    },
+    "tab": {
+      "dashboard": "Papan pemuka",
+      "messages": "Mesej",
+      "tasks": "Tugasan"
+    },
+    "view": "Lihat"
   },
   "theme": {
     "auto": "Auto",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "Tugas latar belakang dimulakan"
     },
     "find": "Cari fail",
     "get_settings": "Dapatkan tetapan",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Membaca Git diff gagal",
+      "loadingDiff": "Baca diff",
+      "noTextDiff": "Tiada teks untuk memaparkan perbezaan"
     },
     "action": {
       "create": "Baharu",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "Liputan bukti",
+      "evidenceCoverageDetail": "{{pct}}% · Tuntutan {{claimsWithEvidence}}/{{claims}} · nota {{notesWithEvidence}}/{{notes}}",
+      "evidenceRebuildFailed": "Tidak dapat membina semula indeks bukti",
+      "evidenceRebuilt": "Indeks bukti yang dibina semula untuk nota {{notes}}, rujukan {{refs}}, tuntutan {{claims}}",
+      "missingEvidence": "Tiada bukti",
+      "missingRefs": "Rujukan tiada",
+      "needsReview": "Perlu semakan",
+      "rebuildEvidenceTip": "Bina semula indeks bukti terbitan",
+      "schemaIssues": "Isu skema",
+      "staleRefs": "Rujukan basi"
     },
     "graph": {
       "toggle": "Paparan graf",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "Bilik kebal luaran adalah baca sahaja secara lalai. Hidupkan untuk membenarkan penyunting dan alat AI menulis ke folder terikat. Penyelenggaraan latar belakang tidak pernah menulis ke bilik kebal luaran.",
     "result": {
       "memory": "Memori"
+    },
+    "compile": {
+      "applied": "Cadangan digunakan",
+      "apply": "Mohon",
+      "applyFailed": "Tidak dapat memohon cadangan",
+      "cancel": "Batal",
+      "cancelFailed": "Tidak dapat membatalkan larian",
+      "cancelled": "Jalan kompil dibatalkan",
+      "description": "Semak perubahan nota yang dijana sebelum apa-apa ditulis.",
+      "empty": "Pilih cadangan untuk disemak",
+      "emptyHint": "Cadangan yang dijana kekal di sini sehingga anda memohon atau menolaknya.",
+      "failed": "Jalan kompil gagal",
+      "loadFailed": "Tidak dapat memuatkan larian kompilasi",
+      "noProposals": "Tiada cadangan untuk larian ini.",
+      "noRuns": "Tiada kompilasi dijalankan lagi.",
+      "proposals": "Cadangan",
+      "proposalsLoadFailed": "Tidak dapat memuatkan cadangan",
+      "refresh": "Segarkan semula",
+      "reject": "Tolak",
+      "rejectFailed": "Tidak dapat menolak cadangan",
+      "rejected": "Cadangan ditolak",
+      "runPending": "Larian kompilasi belum selesai",
+      "runSources": "Sumber {{count}}",
+      "running": "Menyusun sumber…",
+      "runs": "Berlari",
+      "startFailed": "Tidak dapat menyusun sumber",
+      "startSelected": "Susun {{count}}",
+      "started": "Cadangan {{n}} yang dijana",
+      "title": "Susun sumber"
+    },
+    "sources": {
+      "archiveAttachment": "Arkibkan kepada pengetahuan",
+      "archiveAttachmentFailed": "Gagal mengarkibkan lampiran",
+      "archivedAttachment": "Diarkibkan kepada sumber pengetahuan",
+      "browser": "pelayar",
+      "browserAuto": "Automatik",
+      "browserPage": "Halaman",
+      "browserSelection": "Pemilihan",
+      "chooseFile": "Pilih fail",
+      "comparePrevious": "Bandingkan sebelumnya",
+      "compileOne": "Susun",
+      "compileSelected": "Susun sumber yang dipilih",
+      "compiled": "Disusun",
+      "compiledClaims": "Tuntutan yang disusun menggunakan sumber ini",
+      "currentVersion": "semasa",
+      "delete": "Padam",
+      "deleteBody": "Padamkan {{name}} daripada peti masuk sumber mentah?",
+      "deleteFailed": "Tidak dapat memadamkan sumber",
+      "deleteTitle": "Padamkan sumber",
+      "deleted": "Sumber dipadamkan",
+      "diffFailed": "Tidak dapat memuatkan perbezaan sumber",
+      "diffTruncated": "Pratonton dipenggal",
+      "dismissSimilar": "abaikan",
+      "downloadOriginal": "Muat turun asal",
+      "empty": "Tiada sumber lagi.",
+      "evidenceSources": "Sumber",
+      "externalRawPath": "Gambar luaran",
+      "file": "Fail",
+      "import": "Sumber import",
+      "importAction": "Import masuk",
+      "importDesc": "Tambahkan bahan mentah ke ruang pengetahuan ini.",
+      "importFailed": "Tidak dapat mengimport sumber",
+      "importHistory": "Sejarah import",
+      "importHistoryFailed": "Tidak dapat membuka sejarah import",
+      "importRunDeduped": "{{imported}} yang diimport, melangkau pendua {{duplicate}}",
+      "importRunPartial": "{{imported}} yang diimport, melangkau pendua {{duplicate}}, {{failed}} gagal",
+      "importRunStarted": "Import dimulakan untuk sumber {{count}}",
+      "imported": "Sumber diimport",
+      "importedCount": "Sumber {{count}} yang diimport",
+      "keepSource": "Simpan {{name}}",
+      "loadTargetsFailed": "Gagal memuatkan ruang pengetahuan",
+      "loading": "Memuatkan…",
+      "loadingClaims": "Memuatkan indeks bukti...",
+      "loadingDiff": "Memuatkan perbezaan...",
+      "mediaRetained": "Media dikekalkan",
+      "missingSource": "Sumber hilang",
+      "moreClaims": "+{{count}} lagi tuntutan",
+      "noCompiledClaims": "Tiada tuntutan nota terkumpul yang memetik sumber ini lagi.",
+      "noImportRuns": "Tiada import dijalankan lagi.",
+      "noKb": "Pilih ruang untuk melihat sumber.",
+      "noKnowledgeBase": "Tiada ruang pengetahuan tersedia",
+      "noLocalDuplicates": "Tiada sumber pendua dalam ruang ini untuk dipadamkan",
+      "noSimilarGroups": "Tiada kumpulan sumber yang serupa.",
+      "open": "Buka",
+      "openOriginal": "Buka asal",
+      "otherKb": "Ruang lain {{id}}",
+      "readFailed": "Tidak dapat membuka sumber",
+      "reextract": "Ekstrak semula",
+      "reextractFailed": "Tidak dapat mengekstrak semula sumber",
+      "reextracted": "Sumber diekstrak semula",
+      "refresh": "Segarkan semula",
+      "refreshChanged": "Sumber dimuatkan semula kepada v{{version}}",
+      "refreshFailed": "Tidak dapat memuat semula sumber",
+      "refreshSource": "Muat semula gambar",
+      "refreshUnchanged": "Sumber sudah dikemas kini",
+      "resolveSimilarConfirm": "Simpan {{name}} dan padamkan sumber pendua {{count}} daripada ruang ini?",
+      "retainedMedia": "Media yang dikekalkan",
+      "retryFailed": "Tidak dapat mencuba semula import yang gagal",
+      "retryFailedAction": "Cuba semula gagal",
+      "selectImportRun": "Pilih larian import.",
+      "selectKnowledgeBase": "Pilih ruang pengetahuan",
+      "similarCount": "{{count}} kumpulan serupa",
+      "similarDismissFailed": "Tidak dapat menyembunyikan cadangan persamaan",
+      "similarDismissed": "Cadangan persamaan disembunyikan",
+      "similarGroups": "Sumber yang serupa",
+      "similarResolveFailed": "Tidak dapat menyelesaikan sumber pendua",
+      "similarResolved": "Sumber pendua {{count}} dipadamkan",
+      "sourceDiff": "Perbezaan sumber",
+      "staleSource": "Sumber berubah selepas disusun",
+      "supersededSource": "Versi sumber yang lebih baharu tersedia",
+      "text": "Teks",
+      "textPlaceholder": "Tampal teks sumber…",
+      "thumbnailOnly": "Thumbnail sahaja",
+      "title": "Sumber",
+      "titlePlaceholder": "Tajuk",
+      "uncompiled": "Tidak tersusun",
+      "url": "URL",
+      "urlKindAudio": "Transkrip audio",
+      "urlKindImage": "OCR imej",
+      "urlKindPage": "laman web",
+      "urlKindVideo": "Transkrip video",
+      "versionHistory": "Sejarah versi",
+      "versionHistoryDesc": "Gambar arkib {{count}}. Semasa: {{current}}",
+      "versionsFailed": "Tidak dapat memuatkan versi sumber",
+      "itemStatus": {
+        "duplicate": "Pendua",
+        "failed": "gagal",
+        "imported": "Diimport",
+        "pending": "Belum selesai",
+        "running": "Berlari"
+      },
+      "kind": {
+        "audioTranscript": "Transkrip audio",
+        "browserSnapshot": "pelayar",
+        "docx": "DOCX",
+        "imageOcr": "OCR imej",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "Teks",
+        "urlSnapshot": "URL",
+        "videoTranscript": "Transkrip video"
+      },
+      "runStatus": {
+        "completed": "Selesai",
+        "completedWithErrors": "Lengkap dengan ralat",
+        "failed": "gagal",
+        "running": "Berlari"
+      },
+      "similarKind": {
+        "exactDuplicate": "Pendua tepat",
+        "similar": "serupa"
+      },
+      "similarScope": {
+        "crossKb": "Ruang silang",
+        "sameKb": "Ruang ini"
+      }
+    },
+    "queryFile": {
+      "action": "Fail",
+      "applied": "Difailkan ke ruang pengetahuan",
+      "apply": "Mohon",
+      "applyFailed": "Tidak dapat memohon pemfailan",
+      "description": "Buat perbezaan ulasan sebelum menulis.",
+      "empty": "Pilih di mana jawapan ini harus mendarat.",
+      "generateFailed": "Tidak dapat membuat cadangan pemfailan",
+      "reject": "Tolak",
+      "rejected": "Pemfailan dibuang",
+      "rejectFailed": "Tidak dapat membuang pemfailan",
+      "review": "Semakan",
+      "title": "Jawapan fail",
+      "titlePlaceholder": "Tajuk",
+      "mode": {
+        "createNote": "Nota baharu",
+        "updateCurrentNote": "Kemas kini nota semasa",
+        "appendToMoc": "Tambahkan pada MOC",
+        "openQuestions": "Soalan Terbuka"
+      },
+      "defaultTitle": "Perbualan yang difailkan",
+      "currentNotePlaceholder": "Laluan nota semasa",
+      "openQuestionsPlaceholder": "Nota dengan Soalan Terbuka",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "Terganggu",
       "timed_out": "Tamat masa",
       "cancelled": "Dibatalkan"
+    },
+    "errorOutput": "kesilapan",
+    "liveOutput": "output masa nyata",
+    "outputFile": "keputusan penuh",
+    "resultPreview": "Pratonton keputusan"
+  },
+  "browser": {
+    "panelTitle": "pelayar"
+  },
+  "error": {
+    "appCrash": "Sesuatu telah berlaku",
+    "retry": "Cuba Lagi",
+    "unknown": "Ralat yang tidak dijangka berlaku"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Muat turun"
     }
+  },
+  "macControl": {
+    "panelTitle": "Kawalan Mac"
   }
 }

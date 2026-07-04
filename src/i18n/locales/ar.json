@@ -148,7 +148,9 @@
     "reattach": "العودة إلى اللوحة",
     "refresh": "تحديث",
     "snapshot": "لقطة",
-    "versions": "سجل الإصدارات"
+    "versions": "سجل الإصدارات",
+    "panelTitle": "قماش",
+    "resizePanel": "تغيير حجم لوحة قماش"
   },
   "channels": {
     "accountLabel": "اسم الحساب",
@@ -304,7 +306,8 @@
       "refresh": "تحديث الآن",
       "resumeMirror": "استئناف المرآة",
       "takeOver": "تولّى التحكم",
-      "takeOverHint": "إيقاف التحديث التلقائي 1 هرتز أثناء تشغيل Chrome بنفسك"
+      "takeOverHint": "إيقاف التحديث التلقائي 1 هرتز أثناء تشغيل Chrome بنفسك",
+      "resizePanel": "تغيير حجم لوحة المتصفح"
     },
     "asyncToolJobFallbackName": "مهمة في الخلفية",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
       "openSettings": "فتح الإعدادات",
       "dismiss": "عدم الإظهار مرة أخرى"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "الإجراء التالي: {{nextAction}}",
+      "openSettings": "افتح الإعدادات > المتصفح لتثبيت الامتداد أو تمكينه.",
+      "title": "ملحق كروم مطلوب"
+    },
+    "conversationEmpty": "لا توجد رسائل في هذه المحادثة",
+    "pendingCancelForceInsert": "إلغاء إدراج هذه الجولة",
+    "pendingFallbackAfterReply": "أرسل بعد الرد",
+    "pendingFallbackAfterReplyTip": "لم تتم مواجهة نقطة اكتمال الأداة وسيتم إرسالها بعد انتهاء الرد الحالي.",
+    "pendingForceInsertTip": "سوف ينتظر حتى اكتمال تنفيذ الأداة ثم يقوم بإدراجها في النموذج دون مقاطعة الأداة الحالية.",
+    "pendingInserted": "تم إدراجها",
+    "pendingInsertedTip": "وقد تم إدراجه في النموذج بعد اكتمال هذه الجولة من الأدوات.",
+    "pendingQueuedShort": "الطابور",
+    "pendingQueuedTip": "تمت إضافته إلى قائمة انتظار الانتظار وسيتم إرساله بعد انتهاء الرد الحالي.",
+    "pendingQueueTitle": "ليتم إرسالها",
+    "pendingWaitingToolBoundary": "انتظر حتى نقطة اكتمال الأداة",
+    "pendingWaitingToolBoundaryTip": "انتظر حتى يكتمل استدعاء الأداة الأخير؛ إذا لم تعد الأداة تسمى هذه الجولة، فسيتم إرسالها بعد اكتمال الرد.",
+    "processNotification": "انتهت العملية",
+    "rightPanel": {
+      "collapse": "طي اللوحة اليمنى",
+      "expand": "قم بتوسيع اللوحة اليمنى",
+      "switch": "تبديل اللوحة اليمنى"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "جارٍ الاختبار...",
     "create": "إنشاء",
     "clear": "مسح",
-    "on": "تشغيل"
+    "on": "تشغيل",
+    "available": "متاح",
+    "collapse": "قريب",
+    "expand": "توسيع",
+    "retry": "أعد المحاولة",
+    "unavailable": "غير متاح"
   },
   "context": {
     "ago": "مضى",
@@ -1185,7 +1216,9 @@
       "total": "الإجمالي",
       "trend": "اتجاه استخدام الرموز",
       "ttft": "TTFT",
-      "ttftTrend": "الوقت حتى أول رمز (TTFT)"
+      "ttftTrend": "الوقت حتى أول رمز (TTFT)",
+      "inputTokens": "رموز الإدخال",
+      "outputTokens": "رموز الإخراج"
     },
     "tool": {
       "avgDuration": "متوسط المدة",
@@ -1343,7 +1376,23 @@
     "noDiffData": "لا توجد بيانات للفرق",
     "openDiff": "فتح الفرق",
     "resizePanel": "تغيير حجم لوحة الفرق",
-    "title": "تغييرات الملفات"
+    "title": "تغييرات الملفات",
+    "actionCreate": "إنشاء",
+    "actionDelete": "حذف",
+    "actionEdit": "مراجعة",
+    "copyLocation": "نسخ الموقع الحالي",
+    "expandHiddenLines": "قم بتوسيع الصف {{count}} مع عدم تغيير المحتوى",
+    "ignoreWhitespace": "تجاهل تغييرات المسافة البيضاء",
+    "locationCopied": "تم نسخ الاستهداف",
+    "locationCopyFailed": "فشل تحديد موضع النسخ",
+    "matchingFiles": "ملفات {{shown}}/{{total}}",
+    "nextHunk": "التغيير التالي",
+    "noMatchingFiles": "لا توجد ملفات مطابقة",
+    "openLocation": "معاينة السطر الحالي",
+    "prevHunk": "التغيير الأخير",
+    "renderMore": "إظهار صفوف {{count}} المتبقية",
+    "searchFiles": "البحث في الملفات",
+    "toggleContext": "طي السياق دون تغيير"
   },
   "effort": {
     "high": "عالي",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "جارٍ إرسال الخطة…",
     "toggleLabel": "خطة",
     "versionHistory": "إصدارات الخطة",
-    "versions": "سجل الإصدارات"
+    "versions": "سجل الإصدارات",
+    "resizePanel": "تغيير حجم لوحة الخطة"
   },
   "project": {
     "addProject": "إضافة مشروع",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "مساحات المعرفة",
       "hint": "تتيح المساحات المرفقة لمحادثات هذا المشروع البحث في ملاحظاتها واقتباسها."
-    }
+    },
+    "projectEmojiPlaceholder": "اختياري"
   },
   "provider": {
     "addProvider": "إضافة مزود",
@@ -2433,7 +2484,13 @@
       "days": "آخر {{n}} يوم",
       "incremental": "منذ آخر تقرير"
     },
-    "selectReport": "اختر تقريراً من قائمة السجل المنسدلة."
+    "selectReport": "اختر تقريراً من قائمة السجل المنسدلة.",
+    "chatCard": {
+      "missingId": "معرف تقرير التلخيص مفقود.",
+      "open": "افتح الخلاصة",
+      "title": "تقرير التلخيص",
+      "waiting": "في انتظار تلخيص التقدم..."
+    }
   },
   "settings": {
     "about": "حول",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "موصى به",
     "webSearchSaved": "تم الحفظ",
     "webSearchTimeout": "المهلة (ثوانٍ)",
-    "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)"
+    "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)",
+    "devVisualTest": "اختبار الرسوم المتحركة لواجهة المستخدم",
+    "permLoading": "جارٍ التحقق من الأذونات...",
+    "uiEffects": "الرسوم المتحركة الخلفية",
+    "uiEffectsDesc": "تمكين ربط الخلفية وتأثيرات الطقس في جميع الأحوال الجوية",
+    "uiEffectsToggle": "تفعيل التأثير"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",
@@ -4957,7 +5019,18 @@
       "draftCreated": "تم إنشاء مهارة مسودة تلقائيًا: {{name}}. انقر للمراجعة.",
       "review": "مراجعة",
       "unnamedSkill": "(مهارة بدون اسم)"
-    }
+    },
+    "chatFork": {
+      "completed": "مكتمل. تم إدخال النتيجة في هذه الدردشة.",
+      "error": "فشل.",
+      "killed": "تم الإلغاء.",
+      "missingRunId": "معرف تشغيل المهارة مفقود.",
+      "running": "وكيل المهارة الفرعي قيد التشغيل. سيتم حقن النتيجة هنا.",
+      "spawning": "بدء تشغيل الوكيل الفرعي للمهارة...",
+      "timeout": "انتهت المهلة.",
+      "title": "المهارة {{skill}}"
+    },
+    "defaultName": "مهارة"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "قيد البدء",
       "timeout": "انتهت المهلة"
     },
-    "viewChildSession": "فتح جلسة العميل الفرعي"
+    "viewChildSession": "فتح جلسة العميل الفرعي",
+    "agentId": "معرف الوكيل",
+    "childSessionId": "جلسة الطفل",
+    "duration": "المدة",
+    "model": "نموذج",
+    "openSession": "جلسة مفتوحة",
+    "runId": "تشغيل معرف",
+    "task": "المهمة",
+    "tokens": "الرموز"
   },
   "team": {
     "active": "نشِط",
@@ -5127,7 +5208,23 @@
     "todo": "قيد الانتظار",
     "totalTokens": "استخدام Token",
     "viewSession": "عرض الجلسة",
-    "worker": "المُنفِّذ"
+    "worker": "المُنفِّذ",
+    "loading": "جار التحميل...",
+    "messagePlaceholder": "فريق الرسائل... (@اسم الرسالة المباشرة)",
+    "noTasks": "لا توجد مهام",
+    "panelTitle": "فريق",
+    "resizePanel": "تغيير حجم لوحة الفريق",
+    "role": {
+      "lead": "الرصاص",
+      "reviewer": "المراجع",
+      "worker": "عامل"
+    },
+    "tab": {
+      "dashboard": "لوحة القيادة",
+      "messages": "الرسائل",
+      "tasks": "المهام"
+    },
+    "view": "عرض"
   },
   "theme": {
     "auto": "تلقائي",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "بدأت مهمة الخلفية"
     },
     "find": "البحث عن الملفات",
     "get_settings": "جلب الإعدادات",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "فشلت قراءة فرق Git",
+      "loadingDiff": "قراءة الفرق",
+      "noTextDiff": "لا يوجد نص لعرض الفرق"
     },
     "action": {
       "create": "جديد",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "تغطية الأدلة",
+      "evidenceCoverageDetail": "{{pct}}% · مطالبات {{claimsWithEvidence}}/{{claims}} · ملاحظات {{notesWithEvidence}}/{{notes}}",
+      "evidenceRebuildFailed": "لا يمكن إعادة بناء فهرس الأدلة",
+      "evidenceRebuilt": "تم إعادة بناء فهرس الأدلة لملاحظات {{notes}}، ومراجع {{refs}}، ومطالبات {{claims}}",
+      "missingEvidence": "أدلة مفقودة",
+      "missingRefs": "مراجع مفقودة",
+      "needsReview": "يحتاج إلى مراجعة",
+      "rebuildEvidenceTip": "إعادة بناء فهرس الأدلة المشتقة",
+      "schemaIssues": "قضايا المخطط",
+      "staleRefs": "المراجع التي لا معنى لها"
     },
     "graph": {
       "toggle": "عرض الرسم البياني",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "الخزائن الخارجية للقراءة فقط افتراضيًا. فعّل الخيار للسماح للمحرر وأدوات الذكاء الاصطناعي بالكتابة في المجلد المرتبط. لا تكتب الصيانة التلقائية في الخلفية إلى الخزائن الخارجية أبدًا.",
     "result": {
       "memory": "الذاكرة"
+    },
+    "compile": {
+      "applied": "تم تطبيق الاقتراح",
+      "apply": "تطبيق",
+      "applyFailed": "تعذر تطبيق الاقتراح",
+      "cancel": "إلغاء",
+      "cancelFailed": "تعذر إلغاء التشغيل",
+      "cancelled": "تم إلغاء تشغيل الترجمة",
+      "description": "قم بمراجعة تغييرات الملاحظة التي تم إنشاؤها قبل كتابة أي شيء.",
+      "empty": "حدد اقتراحًا للمراجعة",
+      "emptyHint": "تظل المقترحات التي تم إنشاؤها هنا حتى تقوم بتقديمها أو رفضها.",
+      "failed": "فشل تشغيل الترجمة",
+      "loadFailed": "تعذر تحميل عمليات الترجمة",
+      "noProposals": "لا توجد مقترحات لهذا المدى.",
+      "noRuns": "لا يتم تشغيل التجميع حتى الآن.",
+      "proposals": "المقترحات",
+      "proposalsLoadFailed": "تعذر تحميل المقترحات",
+      "refresh": "تحديث",
+      "reject": "رفض",
+      "rejectFailed": "لا يمكن رفض الاقتراح",
+      "rejected": "تم رفض الاقتراح",
+      "runPending": "ترجمة التشغيل معلقة",
+      "runSources": "مصدر (مصادر) {{count}}",
+      "running": "جارٍ تجميع المصادر…",
+      "runs": "أشواط",
+      "startFailed": "لا يمكن تجميع المصادر",
+      "startSelected": "تجميع {{count}}",
+      "started": "الاقتراح (المقترحات) التي تم إنشاؤها {{n}}",
+      "title": "تجميع المصادر"
+    },
+    "sources": {
+      "archiveAttachment": "الأرشيف للمعرفة",
+      "archiveAttachmentFailed": "فشل في أرشفة المرفق",
+      "archivedAttachment": "مؤرشفة في مصادر المعرفة",
+      "browser": "المتصفح",
+      "browserAuto": "تلقائي",
+      "browserPage": "الصفحة",
+      "browserSelection": "التحديد",
+      "chooseFile": "اختر الملفات",
+      "comparePrevious": "قارن السابقة",
+      "compileOne": "تجميع",
+      "compileSelected": "تجميع المصادر المختارة",
+      "compiled": "تم تجميعها",
+      "compiledClaims": "المطالبات المجمعة باستخدام هذا المصدر",
+      "currentVersion": "الحالي",
+      "delete": "حذف",
+      "deleteBody": "هل تريد حذف {{name}} من صندوق الوارد المصدر الأولي؟",
+      "deleteFailed": "تعذر حذف المصدر",
+      "deleteTitle": "حذف المصدر",
+      "deleted": "تم حذف المصدر",
+      "diffFailed": "تعذر تحميل اختلاف المصدر",
+      "diffTruncated": "تم اقتطاع المعاينة",
+      "dismissSimilar": "تجاهل",
+      "downloadOriginal": "تحميل الأصلي",
+      "empty": "لا توجد مصادر حتى الآن.",
+      "evidenceSources": "المصادر",
+      "externalRawPath": "لقطة خارجية",
+      "file": "ملف",
+      "import": "مصدر الاستيراد",
+      "importAction": "استيراد",
+      "importDesc": "أضف مادة خام إلى مساحة المعرفة هذه.",
+      "importFailed": "تعذر استيراد المصدر",
+      "importHistory": "تاريخ الاستيراد",
+      "importHistoryFailed": "تعذر فتح سجل الاستيراد",
+      "importRunDeduped": "تم استيراد {{imported}}، وتم تخطي نسخة {{duplicate}} المكررة",
+      "importRunPartial": "تم استيراد {{imported}}، وتم تخطي نسخة {{duplicate}} المكررة، وفشل {{failed}}",
+      "importRunStarted": "بدأ الاستيراد لمصدر (مصادر) {{count}}",
+      "imported": "المصدر مستورد",
+      "importedCount": "مصادر {{count}} المستوردة",
+      "keepSource": "احتفظ بـ {{name}}",
+      "loadTargetsFailed": "فشل تحميل مساحات المعرفة",
+      "loading": "جارٍ التحميل…",
+      "loadingClaims": "جارٍ تحميل فهرس الأدلة...",
+      "loadingDiff": "تحميل الفرق...",
+      "mediaRetained": "تم الاحتفاظ بالوسائط",
+      "missingSource": "المصدر مفقود",
+      "moreClaims": "+{{count}} المزيد من المطالبات",
+      "noCompiledClaims": "لا توجد مطالبة بالملاحظة المجمعة تستشهد بهذا المصدر حتى الآن.",
+      "noImportRuns": "لم يتم تشغيل أي استيراد حتى الآن.",
+      "noKb": "حدد مساحة لرؤية المصادر.",
+      "noKnowledgeBase": "لا توجد مساحة معرفية متاحة",
+      "noLocalDuplicates": "لا يوجد مصدر مكرر في هذه المساحة لحذفه",
+      "noSimilarGroups": "لا توجد مجموعات مصدر مماثلة.",
+      "open": "مفتوح",
+      "openOriginal": "فتح الأصلي",
+      "otherKb": "مساحة أخرى {{id}}",
+      "readFailed": "لا يمكن فتح المصدر",
+      "reextract": "إعادة استخراج",
+      "reextractFailed": "لا يمكن إعادة استخراج المصدر",
+      "reextracted": "تم إعادة استخراج المصدر",
+      "refresh": "تحديث",
+      "refreshChanged": "تم تحديث المصدر إلى v{{version}}",
+      "refreshFailed": "تعذر تحديث المصدر",
+      "refreshSource": "تحديث اللقطة",
+      "refreshUnchanged": "المصدر محدث بالفعل",
+      "resolveSimilarConfirm": "هل تريد الاحتفاظ بـ {{name}} وحذف المصدر (المصادر) المكررة لـ {{count}} من هذه المساحة؟",
+      "retainedMedia": "الوسائط المحتجزة",
+      "retryFailed": "تعذرت إعادة محاولة عمليات الاستيراد الفاشلة",
+      "retryFailedAction": "فشلت إعادة المحاولة",
+      "selectImportRun": "حدد تشغيل الاستيراد.",
+      "selectKnowledgeBase": "اختر مساحة المعرفة",
+      "similarCount": "مجموعات مماثلة {{count}}",
+      "similarDismissFailed": "لا يمكن إخفاء اقتراح التشابه",
+      "similarDismissed": "اقتراح التشابه مخفي",
+      "similarGroups": "مصادر مماثلة",
+      "similarResolveFailed": "لا يمكن حل المصادر المكررة",
+      "similarResolved": "تم حذف المصدر (المصادر) المكررة لـ {{count}}",
+      "sourceDiff": "اختلاف المصدر",
+      "staleSource": "تم تغيير المصدر بعد التجميع",
+      "supersededSource": "يتوفر إصدار مصدر أحدث",
+      "text": "نص",
+      "textPlaceholder": "لصق النص المصدر...",
+      "thumbnailOnly": "الصورة المصغرة فقط",
+      "title": "المصادر",
+      "titlePlaceholder": "العنوان",
+      "uncompiled": "غير مجمعة",
+      "url": "URL",
+      "urlKindAudio": "نسخة صوتية",
+      "urlKindImage": "صورة التعرف الضوئي على الحروف",
+      "urlKindPage": "صفحة ويب",
+      "urlKindVideo": "نص الفيديو",
+      "versionHistory": "تاريخ الإصدار",
+      "versionHistoryDesc": "اللقطات المؤرشفة {{count}}. الحالي: {{current}}",
+      "versionsFailed": "تعذر تحميل الإصدارات المصدر",
+      "itemStatus": {
+        "duplicate": "مكررة",
+        "failed": "فشل",
+        "imported": "مستورد",
+        "pending": "في انتظار",
+        "running": "الجري"
+      },
+      "kind": {
+        "audioTranscript": "نسخة صوتية",
+        "browserSnapshot": "المتصفح",
+        "docx": "DOCX",
+        "imageOcr": "صورة التعرف الضوئي على الحروف",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "نص",
+        "urlSnapshot": "URL",
+        "videoTranscript": "نص الفيديو"
+      },
+      "runStatus": {
+        "completed": "مكتمل",
+        "completedWithErrors": "اكتمل مع وجود أخطاء",
+        "failed": "فشل",
+        "running": "الجري"
+      },
+      "similarKind": {
+        "exactDuplicate": "مكررة بالضبط",
+        "similar": "مماثل"
+      },
+      "similarScope": {
+        "crossKb": "عبر الفضاء",
+        "sameKb": "هذه المساحة"
+      }
+    },
+    "queryFile": {
+      "action": "ملف",
+      "applied": "قدمت إلى فضاء المعرفة",
+      "apply": "تطبيق",
+      "applyFailed": "تعذر تطبيق التسجيل",
+      "description": "إنشاء فرق المراجعة قبل الكتابة.",
+      "empty": "اختر المكان الذي يجب أن تصل إليه هذه الإجابة.",
+      "generateFailed": "تعذر إنشاء اقتراح حفظ",
+      "reject": "رفض",
+      "rejected": "تم تجاهل الإيداع",
+      "rejectFailed": "تعذر تجاهل التسجيل",
+      "review": "مراجعة",
+      "title": "إجابة الملف",
+      "titlePlaceholder": "العنوان",
+      "mode": {
+        "createNote": "ملاحظة جديدة",
+        "updateCurrentNote": "تحديث الملاحظة الحالية",
+        "appendToMoc": "أضف إلى MOC",
+        "openQuestions": "أسئلة مفتوحة"
+      },
+      "defaultTitle": "محادثة ملفوفة",
+      "currentNotePlaceholder": "مسار الملاحظة الحالية",
+      "openQuestionsPlaceholder": "ملاحظة مع الأسئلة المفتوحة",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "متوقفة",
       "timed_out": "انتهت المهلة",
       "cancelled": "ملغاة"
+    },
+    "errorOutput": "خطأ",
+    "liveOutput": "الإخراج في الوقت الحقيقي",
+    "outputFile": "النتائج الكاملة",
+    "resultPreview": "معاينة النتائج"
+  },
+  "browser": {
+    "panelTitle": "المتصفح"
+  },
+  "error": {
+    "appCrash": "حدث خطأ ما",
+    "retry": "حاول مرة أخرى",
+    "unknown": "حدث خطأ غير متوقع"
+  },
+  "localModels": {
+    "actions": {
+      "download": "تحميل"
     }
+  },
+  "macControl": {
+    "panelTitle": "تحكم ماك"
   }
 }

@@ -148,7 +148,9 @@
     "reattach": "Volver al panel",
     "refresh": "Actualizar",
     "snapshot": "Captura",
-    "versions": "Historial de versiones"
+    "versions": "Historial de versiones",
+    "panelTitle": "Lienzo",
+    "resizePanel": "Cambiar el tamaño del panel de lienzo"
   },
   "channels": {
     "accountLabel": "Nombre de la cuenta",
@@ -304,7 +306,8 @@
       "refresh": "Refrescar ahora",
       "resumeMirror": "Reanudar espejo",
       "takeOver": "Tomar el control",
-      "takeOverHint": "Pausa la actualización automática de 1Hz mientras tú controlas Chrome"
+      "takeOverHint": "Pausa la actualización automática de 1Hz mientras tú controlas Chrome",
+      "resizePanel": "Cambiar el tamaño del panel del navegador"
     },
     "asyncToolJobFallbackName": "Tarea en segundo plano",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "La extensión instalada no coincide con el host. Vuelve a cargarla para recuperar el control de tu Chrome real.",
       "openSettings": "Abrir ajustes",
       "dismiss": "No volver a mostrar"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Siguiente acción: {{nextAction}}",
+      "openSettings": "Abra Configuración> Navegador para instalar o habilitar la extensión.",
+      "title": "Se requiere extensión de Chrome"
+    },
+    "conversationEmpty": "No hay mensajes en esta conversación.",
+    "pendingCancelForceInsert": "Cancelar la inserción de esta ronda",
+    "pendingFallbackAfterReply": "Enviar después de la respuesta",
+    "pendingFallbackAfterReplyTip": "No se ha encontrado el punto de finalización de la herramienta y se enviará una vez que finalice la respuesta actual.",
+    "pendingForceInsertTip": "Esperará hasta que se complete la herramienta que se está ejecutando y luego la insertará en el modelo sin interrumpir la herramienta actual.",
+    "pendingInserted": "insertado",
+    "pendingInsertedTip": "Se insertó en el modelo una vez completada esta ronda de herramientas.",
+    "pendingQueuedShort": "hacer cola",
+    "pendingQueuedTip": "Se ha agregado a la cola de espera y se enviará una vez que finalice la respuesta actual.",
+    "pendingQueueTitle": "Para ser enviado",
+    "pendingWaitingToolBoundary": "Espere hasta el punto de finalización de la herramienta",
+    "pendingWaitingToolBoundaryTip": "Espere a que se complete la última llamada a la herramienta; Si la herramienta ya no se llama en esta ronda, se enviará una vez completada la respuesta.",
+    "processNotification": "proceso finalizado",
+    "rightPanel": {
+      "collapse": "Contraer panel derecho",
+      "expand": "Expandir el panel derecho",
+      "switch": "Cambiar panel derecho"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "Probando...",
     "create": "Crear",
     "clear": "Borrar",
-    "on": "Activado"
+    "on": "Activado",
+    "available": "Disponible",
+    "collapse": "cerrar",
+    "expand": "Expandir",
+    "retry": "Reintentar",
+    "unavailable": "No disponible"
   },
   "context": {
     "ago": "atrás",
@@ -1185,7 +1216,9 @@
       "total": "Total",
       "trend": "Tendencia de uso de tokens",
       "ttft": "TTFT",
-      "ttftTrend": "Tiempo hasta el primer token (TTFT)"
+      "ttftTrend": "Tiempo hasta el primer token (TTFT)",
+      "inputTokens": "Fichas de entrada",
+      "outputTokens": "Fichas de salida"
     },
     "tool": {
       "avgDuration": "Duración media",
@@ -1343,7 +1376,23 @@
     "noDiffData": "Sin datos de diff",
     "openDiff": "Abrir diff",
     "resizePanel": "Redimensionar panel de diff",
-    "title": "Cambios de archivo"
+    "title": "Cambios de archivo",
+    "actionCreate": "crear",
+    "actionDelete": "eliminar",
+    "actionEdit": "Revisar",
+    "copyLocation": "Copiar ubicación actual",
+    "expandHiddenLines": "Expandir la fila {{count}} con contenido sin cambios",
+    "ignoreWhitespace": "Ignorar los cambios de espacios en blanco",
+    "locationCopied": "Orientación copiada",
+    "locationCopyFailed": "Error en el posicionamiento de la copia",
+    "matchingFiles": "Archivos {{shown}} / {{total}}",
+    "nextHunk": "Próximo cambio",
+    "noMatchingFiles": "No hay archivos coincidentes",
+    "openLocation": "Vista previa a la línea actual",
+    "prevHunk": "último cambio",
+    "renderMore": "Mostrar filas {{count}} restantes",
+    "searchFiles": "Buscar archivos",
+    "toggleContext": "Contraer el contexto sin cambios"
   },
   "effort": {
     "high": "Alto",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "Enviando plan…",
     "toggleLabel": "Plan",
     "versionHistory": "Versiones del plan",
-    "versions": "Historial de versiones"
+    "versions": "Historial de versiones",
+    "resizePanel": "Cambiar el tamaño del panel del plan"
   },
   "project": {
     "addProject": "Añadir proyecto",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "Espacios de conocimiento",
       "hint": "Los espacios adjuntos permiten que los chats de este proyecto busquen y citen sus notas."
-    }
+    },
+    "projectEmojiPlaceholder": "Opcional"
   },
   "provider": {
     "addProvider": "Agregar Proveedor",
@@ -2433,7 +2484,13 @@
       "days": "Últimos {{n}} días",
       "incremental": "Desde el último informe"
     },
-    "selectReport": "Selecciona un informe del menú de historial."
+    "selectReport": "Selecciona un informe del menú de historial.",
+    "chatCard": {
+      "missingId": "Falta la identificación del informe de resumen.",
+      "open": "Resumen abierto",
+      "title": "Informe recapitulativo",
+      "waiting": "Esperando el progreso del resumen..."
+    }
   },
   "settings": {
     "about": "Acerca de",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "Recomendado",
     "webSearchSaved": "Guardado",
     "webSearchTimeout": "Timeout (segundos)",
-    "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)"
+    "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)",
+    "devVisualTest": "Pruebas de animación de UI",
+    "permLoading": "Comprobando permisos...",
+    "uiEffects": "Animación de fondo",
+    "uiEffectsDesc": "Habilite la vinculación de efectos climáticos y fondos para todo clima",
+    "uiEffectsToggle": "Activar efecto"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",
@@ -4957,7 +5019,18 @@
       "draftCreated": "Habilidad borrador creada automáticamente: {{name}}. Haz clic para revisar.",
       "review": "Revisar",
       "unnamedSkill": "(habilidad sin nombre)"
-    }
+    },
+    "chatFork": {
+      "completed": "Completado. El resultado ha sido inyectado en este chat.",
+      "error": "Fallido.",
+      "killed": "Cancelado.",
+      "missingRunId": "Falta la identificación de ejecución de habilidad.",
+      "running": "El subagente de habilidades se está ejecutando. El resultado se inyectará aquí.",
+      "spawning": "Sub-agente de habilidades iniciales...",
+      "timeout": "Se agotó el tiempo.",
+      "title": "Habilidad {{skill}}"
+    },
+    "defaultName": "habilidad"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "Iniciando",
       "timeout": "Tiempo agotado"
     },
-    "viewChildSession": "Abrir sesión del sub-agente"
+    "viewChildSession": "Abrir sesión del sub-agente",
+    "agentId": "ID del agente",
+    "childSessionId": "Sesión infantil",
+    "duration": "Duración",
+    "model": "modelo",
+    "openSession": "Sesión abierta",
+    "runId": "ID de ejecución",
+    "task": "Tarea",
+    "tokens": "Fichas"
   },
   "team": {
     "active": "Activo",
@@ -5127,7 +5208,23 @@
     "todo": "Pendiente",
     "totalTokens": "Uso de Token",
     "viewSession": "Ver sesión",
-    "worker": "Ejecutor"
+    "worker": "Ejecutor",
+    "loading": "Cargando...",
+    "messagePlaceholder": "Equipo de mensajes... (@nombre para DM)",
+    "noTasks": "Sin tareas",
+    "panelTitle": "equipo",
+    "resizePanel": "Cambiar el tamaño del panel del equipo",
+    "role": {
+      "lead": "plomo",
+      "reviewer": "Revisor",
+      "worker": "trabajador"
+    },
+    "tab": {
+      "dashboard": "Panel de control",
+      "messages": "Mensajes",
+      "tasks": "Tareas"
+    },
+    "view": "Ver"
   },
   "theme": {
     "auto": "Automático",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "Tarea en segundo plano iniciada"
     },
     "find": "Buscar archivos",
     "get_settings": "Obtener configuración",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Error al leer la diferencia de Git",
+      "loadingDiff": "Leer diferencia",
+      "noTextDiff": "No hay texto para mostrar la diferencia"
     },
     "action": {
       "create": "Nuevo",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "Cobertura de evidencia",
+      "evidenceCoverageDetail": "{{pct}}% · Reclamaciones {{claimsWithEvidence}}/{{claims}} · Notas {{notesWithEvidence}}/{{notes}}",
+      "evidenceRebuildFailed": "No se pudo reconstruir el índice de evidencia",
+      "evidenceRebuilt": "Índice de evidencia reconstruido para notas {{notes}}, referencias {{refs}}, afirmaciones {{claims}}",
+      "missingEvidence": "evidencia faltante",
+      "missingRefs": "árbitros faltantes",
+      "needsReview": "Necesita revisión",
+      "rebuildEvidenceTip": "Reconstruir el índice de evidencia derivada",
+      "schemaIssues": "Problemas de esquema",
+      "staleRefs": "árbitros obsoletos"
     },
     "graph": {
       "toggle": "Vista de grafo",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "Las bóvedas externas son de solo lectura de forma predeterminada. Actívalo para que el editor y las herramientas de IA puedan escribir en la carpeta vinculada. El mantenimiento en segundo plano nunca escribe en bóvedas externas.",
     "result": {
       "memory": "Memoria"
+    },
+    "compile": {
+      "applied": "Propuesta aplicada",
+      "apply": "Aplicar",
+      "applyFailed": "No se pudo aplicar la propuesta",
+      "cancel": "Cancelar",
+      "cancelFailed": "No se pudo cancelar la ejecución",
+      "cancelled": "Ejecución de compilación cancelada",
+      "description": "Revise los cambios de notas generados antes de escribir algo.",
+      "empty": "Seleccione una propuesta para revisar",
+      "emptyHint": "Las propuestas generadas permanecen aquí hasta que las apliques o las rechaces.",
+      "failed": "Error al ejecutar la compilación",
+      "loadFailed": "No se pudieron cargar ejecuciones de compilación",
+      "noProposals": "No hay propuestas para esta carrera.",
+      "noRuns": "Aún no se ejecuta ninguna compilación.",
+      "proposals": "Propuestas",
+      "proposalsLoadFailed": "No se pudieron cargar las propuestas.",
+      "refresh": "Actualizar",
+      "reject": "Rechazar",
+      "rejectFailed": "No se pudo rechazar la propuesta",
+      "rejected": "Propuesta rechazada",
+      "runPending": "Pendiente de ejecución de compilación",
+      "runSources": "Fuente(s) {{count}}",
+      "running": "Recopilando fuentes…",
+      "runs": "Corre",
+      "startFailed": "No se pudieron compilar las fuentes",
+      "startSelected": "Compilar {{count}}",
+      "started": "Propuesta(s) {{n}} generadas",
+      "title": "compilar fuentes"
+    },
+    "sources": {
+      "archiveAttachment": "Archivar al conocimiento",
+      "archiveAttachmentFailed": "No se pudo archivar el archivo adjunto",
+      "archivedAttachment": "Archivado en fuentes de conocimiento",
+      "browser": "Navegador",
+      "browserAuto": "Automático",
+      "browserPage": "Página",
+      "browserSelection": "Selección",
+      "chooseFile": "Elige archivos",
+      "comparePrevious": "Comparar anterior",
+      "compileOne": "compilar",
+      "compileSelected": "Compilar fuentes seleccionadas",
+      "compiled": "compilado",
+      "compiledClaims": "Reclamaciones compiladas utilizando esta fuente",
+      "currentVersion": "Actual",
+      "delete": "Eliminar",
+      "deleteBody": "¿Eliminar {{name}} de la bandeja de entrada del código fuente sin procesar?",
+      "deleteFailed": "No se pudo eliminar la fuente",
+      "deleteTitle": "Eliminar fuente",
+      "deleted": "Fuente eliminada",
+      "diffFailed": "No se pudo cargar la diferencia fuente",
+      "diffTruncated": "Vista previa truncada",
+      "dismissSimilar": "ignorar",
+      "downloadOriginal": "Descargar original",
+      "empty": "Aún no hay fuentes.",
+      "evidenceSources": "Fuentes",
+      "externalRawPath": "Instantánea externa",
+      "file": "Archivo",
+      "import": "Importar fuente",
+      "importAction": "Importar",
+      "importDesc": "Sumar materia prima a este espacio de conocimiento.",
+      "importFailed": "No se pudo importar la fuente",
+      "importHistory": "Historial de importación",
+      "importHistoryFailed": "No se pudo abrir el historial de importación",
+      "importRunDeduped": "{{imported}} importado, duplicado {{duplicate}} omitido",
+      "importRunPartial": "{{imported}} importado, duplicado {{duplicate}} omitido, {{failed}} fallido",
+      "importRunStarted": "Importación iniciada para fuentes {{count}}",
+      "imported": "Fuente importada",
+      "importedCount": "Fuentes {{count}} importadas",
+      "keepSource": "Mantener {{name}}",
+      "loadTargetsFailed": "No se pudieron cargar los espacios de conocimiento",
+      "loading": "Cargando…",
+      "loadingClaims": "Cargando índice de evidencia...",
+      "loadingDiff": "Cargando diferencias...",
+      "mediaRetained": "Medios retenidos",
+      "missingSource": "fuente faltante",
+      "moreClaims": "+{{count}} más reclamaciones",
+      "noCompiledClaims": "Ninguna nota compilada cita esta fuente todavía.",
+      "noImportRuns": "Aún no se ejecuta ninguna importación.",
+      "noKb": "Selecciona un espacio para ver fuentes.",
+      "noKnowledgeBase": "No hay espacio de conocimiento disponible",
+      "noLocalDuplicates": "No hay fuente duplicada en este espacio para eliminar",
+      "noSimilarGroups": "No hay grupos de origen similares.",
+      "open": "Abierto",
+      "openOriginal": "Abrir original",
+      "otherKb": "Otro espacio {{id}}",
+      "readFailed": "No se pudo abrir el código fuente",
+      "reextract": "Reextraer",
+      "reextractFailed": "No se pudo volver a extraer la fuente",
+      "reextracted": "Fuente reextraída",
+      "refresh": "Actualizar",
+      "refreshChanged": "Fuente actualizada a v{{version}}",
+      "refreshFailed": "No se pudo actualizar la fuente",
+      "refreshSource": "Actualizar instantánea",
+      "refreshUnchanged": "La fuente ya está actualizada.",
+      "resolveSimilarConfirm": "¿Mantener {{name}} y eliminar las fuentes duplicadas de {{count}} de este espacio?",
+      "retainedMedia": "Medios retenidos",
+      "retryFailed": "No se pudieron reintentar importaciones fallidas",
+      "retryFailedAction": "Reintentar falló",
+      "selectImportRun": "Seleccione una ejecución de importación.",
+      "selectKnowledgeBase": "Seleccionar espacio de conocimiento",
+      "similarCount": "Grupos similares de {{count}}",
+      "similarDismissFailed": "No se pudo ocultar la sugerencia de similitud",
+      "similarDismissed": "Sugerencia de similitud oculta",
+      "similarGroups": "Fuentes similares",
+      "similarResolveFailed": "No se pudieron resolver fuentes duplicadas",
+      "similarResolved": "Fuentes duplicadas {{count}} eliminadas",
+      "sourceDiff": "Diferencia de fuente",
+      "staleSource": "Fuente cambiada después de la compilación.",
+      "supersededSource": "Nueva versión fuente disponible",
+      "text": "Texto",
+      "textPlaceholder": "Pegar texto fuente…",
+      "thumbnailOnly": "Solo miniatura",
+      "title": "Fuentes",
+      "titlePlaceholder": "Título",
+      "uncompiled": "sin compilar",
+      "url": "URL",
+      "urlKindAudio": "Transcripción de audio",
+      "urlKindImage": "OCR de imagen",
+      "urlKindPage": "pagina web",
+      "urlKindVideo": "Transcripción del vídeo",
+      "versionHistory": "Historial de versiones",
+      "versionHistoryDesc": "Instantáneas archivadas de {{count}}. Actual: {{current}}",
+      "versionsFailed": "No se pudieron cargar las versiones fuente",
+      "itemStatus": {
+        "duplicate": "Duplicar",
+        "failed": "Fallido",
+        "imported": "Importado",
+        "pending": "Pendiente",
+        "running": "corriendo"
+      },
+      "kind": {
+        "audioTranscript": "Transcripción de audio",
+        "browserSnapshot": "Navegador",
+        "docx": "DOCX",
+        "imageOcr": "OCR de imagen",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "Texto",
+        "urlSnapshot": "URL",
+        "videoTranscript": "Transcripción del vídeo"
+      },
+      "runStatus": {
+        "completed": "Completado",
+        "completedWithErrors": "Completado con errores.",
+        "failed": "Fallido",
+        "running": "corriendo"
+      },
+      "similarKind": {
+        "exactDuplicate": "Duplicado exacto",
+        "similar": "similares"
+      },
+      "similarScope": {
+        "crossKb": "Espacio cruzado",
+        "sameKb": "este espacio"
+      }
+    },
+    "queryFile": {
+      "action": "Archivo",
+      "applied": "Archivado en el espacio del conocimiento.",
+      "apply": "Aplicar",
+      "applyFailed": "No se pudo aplicar la presentación",
+      "description": "Cree una revisión de diferencias antes de escribir.",
+      "empty": "Elija dónde debería aterrizar esta respuesta.",
+      "generateFailed": "No se pudo crear la propuesta de presentación",
+      "reject": "Rechazar",
+      "rejected": "Presentación descartada",
+      "rejectFailed": "No se pudo descartar la presentación",
+      "review": "Revisión",
+      "title": "respuesta del archivo",
+      "titlePlaceholder": "Título",
+      "mode": {
+        "createNote": "Nueva nota",
+        "updateCurrentNote": "Actualizar nota actual",
+        "appendToMoc": "Añadir a MOC",
+        "openQuestions": "Preguntas abiertas"
+      },
+      "defaultTitle": "Conversación archivada",
+      "currentNotePlaceholder": "Ruta de nota actual",
+      "openQuestionsPlaceholder": "Nota con preguntas abiertas",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "Interrumpida",
       "timed_out": "Tiempo agotado",
       "cancelled": "Cancelada"
+    },
+    "errorOutput": "error",
+    "liveOutput": "salida en tiempo real",
+    "outputFile": "resultados completos",
+    "resultPreview": "Vista previa de resultados"
+  },
+  "browser": {
+    "panelTitle": "Navegador"
+  },
+  "error": {
+    "appCrash": "algo salió mal",
+    "retry": "Inténtalo de nuevo",
+    "unknown": "Ocurrió un error inesperado"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Descargar"
     }
+  },
+  "macControl": {
+    "panelTitle": "Control de Mac"
   }
 }

@@ -1,4 +1,5 @@
 import { Check, FileArchive, Loader2, X } from "lucide-react"
+import type { TFunction } from "i18next"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -36,11 +37,19 @@ interface Props {
   onAfterApply?: () => void
 }
 
-const MODE_OPTIONS: Array<{ value: QueryFileMode; label: string }> = [
-  { value: "create_note", label: "New note" },
-  { value: "update_current_note", label: "Update current note" },
-  { value: "append_to_moc", label: "Add to MOC" },
-  { value: "append_open_questions", label: "Open Questions" },
+const MODE_OPTIONS: Array<{ value: QueryFileMode; labelKey: string; fallback: string }> = [
+  { value: "create_note", labelKey: "knowledge.queryFile.mode.createNote", fallback: "New note" },
+  {
+    value: "update_current_note",
+    labelKey: "knowledge.queryFile.mode.updateCurrentNote",
+    fallback: "Update current note",
+  },
+  { value: "append_to_moc", labelKey: "knowledge.queryFile.mode.appendToMoc", fallback: "Add to MOC" },
+  {
+    value: "append_open_questions",
+    labelKey: "knowledge.queryFile.mode.openQuestions",
+    fallback: "Open Questions",
+  },
 ]
 
 export default function KnowledgeQueryFilingDialog({
@@ -71,12 +80,15 @@ export default function KnowledgeQueryFilingDialog({
 
   useEffect(() => {
     if (!open || !message) return
-    const nextTitle = titleFromMessage(message.content)
+    const nextTitle = titleFromMessage(
+      message.content,
+      t("knowledge.queryFile.defaultTitle", "Filed conversation"),
+    )
     setMode("create_note")
     setTitle(nextTitle)
     setTargetPath(defaultTargetPath("create_note", nextTitle, currentNotePath, message.dbId ?? null))
     setProposal(null)
-  }, [currentNotePath, message, open])
+  }, [currentNotePath, message, open, t])
 
   function changeMode(next: QueryFileMode) {
     setMode(next)
@@ -159,7 +171,7 @@ export default function KnowledgeQueryFilingDialog({
             <SelectContent>
               {MODE_OPTIONS.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
-                  {item.label}
+                  {t(item.labelKey, item.fallback)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -178,7 +190,7 @@ export default function KnowledgeQueryFilingDialog({
               setTargetPath(e.target.value)
               setProposal(null)
             }}
-            placeholder={targetPlaceholder(mode, currentNotePath)}
+            placeholder={targetPlaceholder(mode, currentNotePath, t)}
           />
           <Button
             type="button"
@@ -242,12 +254,12 @@ export default function KnowledgeQueryFilingDialog({
   )
 }
 
-function titleFromMessage(content: string): string {
+function titleFromMessage(content: string, fallback: string): string {
   const first = content
     .split("\n")
     .map((line) => line.replace(/^#+\s*/, "").trim())
     .find(Boolean)
-  return truncate(first || "Filed conversation", 80)
+  return truncate(first || fallback, 80)
 }
 
 function defaultTargetPath(
@@ -268,17 +280,17 @@ function defaultTargetPath(
   }
 }
 
-function targetPlaceholder(mode: QueryFileMode, currentNotePath: string | null): string {
+function targetPlaceholder(mode: QueryFileMode, currentNotePath: string | null, t: TFunction): string {
   switch (mode) {
     case "update_current_note":
-      return currentNotePath || "Current note path"
+      return currentNotePath || t("knowledge.queryFile.currentNotePlaceholder", "Current note path")
     case "append_open_questions":
-      return currentNotePath || "Note with Open Questions"
+      return currentNotePath || t("knowledge.queryFile.openQuestionsPlaceholder", "Note with Open Questions")
     case "append_to_moc":
-      return "MOCs/Conversation Filings.md"
+      return t("knowledge.queryFile.mocPlaceholder", "MOCs/Conversation Filings.md")
     case "create_note":
     default:
-      return "Filed Conversations/example.md"
+      return t("knowledge.queryFile.createNotePlaceholder", "Filed Conversations/example.md")
   }
 }
 

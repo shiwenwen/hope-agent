@@ -148,7 +148,9 @@
     "reattach": "パネルに戻す",
     "refresh": "更新",
     "snapshot": "スナップショット",
-    "versions": "バージョン履歴"
+    "versions": "バージョン履歴",
+    "panelTitle": "キャンバス",
+    "resizePanel": "キャンバスパネルのサイズを変更する"
   },
   "channels": {
     "accountLabel": "アカウント名",
@@ -304,7 +306,8 @@
       "refresh": "今すぐ更新",
       "resumeMirror": "ミラーを再開",
       "takeOver": "操作を引き継ぐ",
-      "takeOverHint": "1Hz の自動更新を停止し、Chrome を直接操作します"
+      "takeOverHint": "1Hz の自動更新を停止し、Chrome を直接操作します",
+      "resizePanel": "ブラウザパネルのサイズを変更する"
     },
     "asyncToolJobFallbackName": "バックグラウンドタスク",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "インストール済みの拡張機能がホストと一致しません。再読み込みすると実際の Chrome の操作を復元できます。",
       "openSettings": "設定を開く",
       "dismiss": "今後表示しない"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "次のアクション: {{nextAction}}",
+      "openSettings": "[設定] > [ブラウザ] を開いて、拡張機能をインストールまたは有効にします。",
+      "title": "Chrome拡張機能が必要です"
+    },
+    "conversationEmpty": "この会話にはメッセージがありません",
+    "pendingCancelForceInsert": "このラウンドの挿入をキャンセルします",
+    "pendingFallbackAfterReply": "返信後に送信",
+    "pendingFallbackAfterReplyTip": "ツールの完了ポイントに到達していないため、現在の応答が終了した後に送信されます。",
+    "pendingForceInsertTip": "実行中のツールが完了するまで待機し、現在のツールを中断することなくモデルにツールを挿入します。",
+    "pendingInserted": "挿入された",
+    "pendingInsertedTip": "このラウンドのツーリングが完了した後、モデルに挿入されています。",
+    "pendingQueuedShort": "キューイング",
+    "pendingQueuedTip": "これは待機キューに追加されており、現在の応答が終了した後に送信されます。",
+    "pendingQueueTitle": "送信予定",
+    "pendingWaitingToolBoundary": "ツールの完了ポイントを待ちます",
+    "pendingWaitingToolBoundaryTip": "最新のツール呼び出しが完了するまで待ちます。このラウンドでツールが呼び出されなくなった場合、応答が完了した後にツールが送信されます。",
+    "processNotification": "プロセスが終了しました",
+    "rightPanel": {
+      "collapse": "右パネルを折りたたむ",
+      "expand": "右側のパネルを展開します",
+      "switch": "右パネルを切り替えます"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "テスト中...",
     "create": "作成",
     "clear": "クリア",
-    "on": "オン"
+    "on": "オン",
+    "available": "利用可能",
+    "collapse": "閉じる",
+    "expand": "拡大する",
+    "retry": "再試行",
+    "unavailable": "利用不可"
   },
   "context": {
     "ago": "前",
@@ -1185,7 +1216,9 @@
       "total": "合計",
       "trend": "トークン使用量推移",
       "ttft": "TTFT",
-      "ttftTrend": "初回トークン到達時間 (TTFT)"
+      "ttftTrend": "初回トークン到達時間 (TTFT)",
+      "inputTokens": "入力トークン",
+      "outputTokens": "出力トークン"
     },
     "tool": {
       "avgDuration": "平均所要時間",
@@ -1343,7 +1376,23 @@
     "noDiffData": "差分データがありません",
     "openDiff": "差分を表示",
     "resizePanel": "差分パネルのサイズを変更",
-    "title": "ファイルの変更"
+    "title": "ファイルの変更",
+    "actionCreate": "作成する",
+    "actionDelete": "削除する",
+    "actionEdit": "改訂",
+    "copyLocation": "現在の場所をコピーする",
+    "expandHiddenLines": "内容を変更せずに行 {{count}} を展開します",
+    "ignoreWhitespace": "空白の変更を無視する",
+    "locationCopied": "ターゲティングがコピーされました",
+    "locationCopyFailed": "コピー位置決めに失敗しました",
+    "matchingFiles": "{{shown}} / {{total}} ファイル",
+    "nextHunk": "次の変更",
+    "noMatchingFiles": "一致するファイルがありません",
+    "openLocation": "現在の行までプレビュー",
+    "prevHunk": "最終変更",
+    "renderMore": "残りの {{count}} 行を表示",
+    "searchFiles": "ファイルの検索",
+    "toggleContext": "変更されていないコンテキストを折りたたむ"
   },
   "effort": {
     "high": "高",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "プランを提出中…",
     "toggleLabel": "計画",
     "versionHistory": "プランバージョン",
-    "versions": "バージョン履歴"
+    "versions": "バージョン履歴",
+    "resizePanel": "プランパネルのサイズ変更"
   },
   "project": {
     "addProject": "プロジェクトを追加",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "ナレッジ空間",
       "hint": "添付した空間のノートを、このプロジェクトの会話が検索・引用できます。"
-    }
+    },
+    "projectEmojiPlaceholder": "オプション"
   },
   "provider": {
     "addProvider": "プロバイダーを追加",
@@ -2433,7 +2484,13 @@
       "days": "最近 {{n}} 日",
       "incremental": "前回のレポート以降"
     },
-    "selectReport": "履歴ドロップダウンからレポートを選択してください。"
+    "selectReport": "履歴ドロップダウンからレポートを選択してください。",
+    "chatCard": {
+      "missingId": "要約レポート ID がありません。",
+      "open": "概要を開く",
+      "title": "総括レポート",
+      "waiting": "要約の進捗を待っています..."
+    }
   },
   "settings": {
     "about": "概要",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "推奨",
     "webSearchSaved": "保存しました",
     "webSearchTimeout": "タイムアウト（秒）",
-    "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)"
+    "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)",
+    "devVisualTest": "UIアニメーションのテスト",
+    "permLoading": "権限を確認しています...",
+    "uiEffects": "背景アニメーション",
+    "uiEffectsDesc": "全天候背景と天候効果の連携を有効にする",
+    "uiEffectsToggle": "エフェクトをオンにする"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -4957,7 +5019,18 @@
       "draftCreated": "ドラフトスキルが自動作成されました：{{name}}。クリックして確認。",
       "review": "確認",
       "unnamedSkill": "(無名スキル)"
-    }
+    },
+    "chatFork": {
+      "completed": "完成しました。結果はこのチャットに挿入されました。",
+      "error": "失敗した。",
+      "killed": "キャンセル。",
+      "missingRunId": "スキル実行IDがありません。",
+      "running": "スキルサブエージェントが実行中です。結果はここに注入されます。",
+      "spawning": "スキルサブエージェントを開始しています...",
+      "timeout": "タイムアウトになりました。",
+      "title": "スキル{{skill}}"
+    },
+    "defaultName": "スキル"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "起動中",
       "timeout": "タイムアウト"
     },
-    "viewChildSession": "サブエージェントのセッションを開く"
+    "viewChildSession": "サブエージェントのセッションを開く",
+    "agentId": "エージェントID",
+    "childSessionId": "子セッション",
+    "duration": "期間",
+    "model": "モデル",
+    "openSession": "オープンセッション",
+    "runId": "実行ID",
+    "task": "タスク",
+    "tokens": "トークン"
   },
   "team": {
     "active": "アクティブ",
@@ -5127,7 +5208,23 @@
     "todo": "未着手",
     "totalTokens": "Token 使用量",
     "viewSession": "セッションを表示",
-    "worker": "ワーカー"
+    "worker": "ワーカー",
+    "loading": "読み込み中...",
+    "messagePlaceholder": "メッセージ チーム... (DM の @name)",
+    "noTasks": "タスクがありません",
+    "panelTitle": "チーム",
+    "resizePanel": "チームパネルのサイズを変更する",
+    "role": {
+      "lead": "リード",
+      "reviewer": "査読者",
+      "worker": "労働者"
+    },
+    "tab": {
+      "dashboard": "ダッシュボード",
+      "messages": "メッセージ",
+      "tasks": "タスク"
+    },
+    "view": "見る"
   },
   "theme": {
     "auto": "自動",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "バックグラウンドタスクが開始されました"
     },
     "find": "ファイル検索",
     "get_settings": "設定を取得",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Git diff の読み取りに失敗しました",
+      "loadingDiff": "差分の読み取り",
+      "noTextDiff": "差分を表示するテキストがありません"
     },
     "action": {
       "create": "新規",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "証拠の網羅性",
+      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} クレーム · {{notesWithEvidence}}/{{notes}} メモ",
+      "evidenceRebuildFailed": "証拠インデックスを再構築できませんでした",
+      "evidenceRebuilt": "{{notes}} メモ、{{refs}} 参照、{{claims}} クレームの再構築された証拠インデックス",
+      "missingEvidence": "不足している証拠",
+      "missingRefs": "参照がありません",
+      "needsReview": "見直しが必要",
+      "rebuildEvidenceTip": "派生した証拠インデックスを再構築する",
+      "schemaIssues": "スキーマの問題",
+      "staleRefs": "古い参照"
     },
     "graph": {
       "toggle": "グラフ表示",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "外部保管庫は既定で読み取り専用です。有効にすると、エディタと AI ツールが連携フォルダーへ書き込めます。バックグラウンドの自動メンテナンスは外部保管庫に書き込みません。",
     "result": {
       "memory": "メモリ"
+    },
+    "compile": {
+      "applied": "提案が適用されました",
+      "apply": "申し込む",
+      "applyFailed": "プロポーザルを適用できませんでした",
+      "cancel": "キャンセル",
+      "cancelFailed": "実行をキャンセルできませんでした",
+      "cancelled": "コンパイル実行がキャンセルされました",
+      "description": "何かを書き込む前に、生成されたノートの変更を確認します。",
+      "empty": "レビューする提案を選択してください",
+      "emptyHint": "生成された提案は、申請または拒否されるまでここに残ります。",
+      "failed": "コンパイル実行に失敗しました",
+      "loadFailed": "コンパイル実行をロードできませんでした",
+      "noProposals": "この実行に対する提案はありません。",
+      "noRuns": "まだコンパイルは実行されません。",
+      "proposals": "提案",
+      "proposalsLoadFailed": "提案を読み込めませんでした",
+      "refresh": "リフレッシュ",
+      "reject": "拒否する",
+      "rejectFailed": "提案を拒否できませんでした",
+      "rejected": "提案は拒否されました",
+      "runPending": "コンパイル実行が保留中",
+      "runSources": "{{count}} ソース",
+      "running": "ソースをコンパイル中…",
+      "runs": "走る",
+      "startFailed": "ソースをコンパイルできませんでした",
+      "startSelected": "{{count}} をコンパイルする",
+      "started": "生成された {{n}} プロポーザル",
+      "title": "ソースをコンパイルする"
+    },
+    "sources": {
+      "archiveAttachment": "知識へのアーカイブ",
+      "archiveAttachmentFailed": "添付ファイルのアーカイブに失敗しました",
+      "archivedAttachment": "ナレッジソースにアーカイブされる",
+      "browser": "ブラウザ",
+      "browserAuto": "自動",
+      "browserPage": "ページ",
+      "browserSelection": "選択",
+      "chooseFile": "ファイルの選択",
+      "comparePrevious": "以前と比較する",
+      "compileOne": "コンパイル",
+      "compileSelected": "選択したソースをコンパイルする",
+      "compiled": "コンパイル済み",
+      "compiledClaims": "このソースを使用してコンパイルされたクレーム",
+      "currentVersion": "現在",
+      "delete": "削除",
+      "deleteBody": "{{name}} を生ソースの受信箱から削除しますか?",
+      "deleteFailed": "ソースを削除できませんでした",
+      "deleteTitle": "ソースの削除",
+      "deleted": "ソースが削除されました",
+      "diffFailed": "ソースの差分をロードできませんでした",
+      "diffTruncated": "プレビューが切り詰められました",
+      "dismissSimilar": "無視する",
+      "downloadOriginal": "オリジナルをダウンロード",
+      "empty": "まだソースがありません。",
+      "evidenceSources": "情報源",
+      "externalRawPath": "外部スナップショット",
+      "file": "ファイル",
+      "import": "輸入元",
+      "importAction": "インポート",
+      "importDesc": "この知識空間に原材料を追加します。",
+      "importFailed": "ソースをインポートできませんでした",
+      "importHistory": "インポート履歴",
+      "importHistoryFailed": "インポート履歴を開けませんでした",
+      "importRunDeduped": "{{imported}} をインポートし、{{duplicate}} の重複をスキップ",
+      "importRunPartial": "{{imported}} をインポートし、{{duplicate}} の重複をスキップし、{{failed}} を失敗しました",
+      "importRunStarted": "{{count}} ソースのインポートが開始されました",
+      "imported": "インポートされたソース",
+      "importedCount": "インポートされた {{count}} ソース",
+      "keepSource": "{{name}} を維持する",
+      "loadTargetsFailed": "ナレッジスペースのロードに失敗しました",
+      "loading": "読み込み中…",
+      "loadingClaims": "証拠インデックスを読み込んでいます...",
+      "loadingDiff": "差分を読み込み中...",
+      "mediaRetained": "メディアの保持",
+      "missingSource": "ソースがありません",
+      "moreClaims": "+{{count}} 件の申し立てが増加",
+      "noCompiledClaims": "この情報源を引用した編集ノートの主張はまだありません。",
+      "noImportRuns": "インポートはまだ実行されていません。",
+      "noKb": "スペースを選択してソースを表示します。",
+      "noKnowledgeBase": "利用可能な知識スペースがありません",
+      "noLocalDuplicates": "このスペースには削除できる重複したソースはありません",
+      "noSimilarGroups": "類似のソース グループはありません。",
+      "open": "開く",
+      "openOriginal": "オリジナルを開く",
+      "otherKb": "その他の空間 {{id}}",
+      "readFailed": "オープンソースできなかった",
+      "reextract": "再抽出",
+      "reextractFailed": "ソースを再抽出できませんでした",
+      "reextracted": "ソースを再抽出しました",
+      "refresh": "リフレッシュ",
+      "refreshChanged": "ソースが v{{version}} に更新されました",
+      "refreshFailed": "ソースを更新できませんでした",
+      "refreshSource": "スナップショットを更新する",
+      "refreshUnchanged": "ソースはすでに最新です",
+      "resolveSimilarConfirm": "{{name}} を保持し、{{count}} の重複ソースをこのスペースから削除しますか?",
+      "retainedMedia": "保存されたメディア",
+      "retryFailed": "失敗したインポートを再試行できませんでした",
+      "retryFailedAction": "再試行に失敗しました",
+      "selectImportRun": "インポート実行を選択します。",
+      "selectKnowledgeBase": "ナレッジスペースの選択",
+      "similarCount": "{{count}} 類似グループ",
+      "similarDismissFailed": "類似性の提案を非表示にできませんでした",
+      "similarDismissed": "類似性の提案が非表示になりました",
+      "similarGroups": "同様の情報源",
+      "similarResolveFailed": "重複したソースを解決できませんでした",
+      "similarResolved": "{{count}} 重複ソースを削除しました",
+      "sourceDiff": "ソースの差分",
+      "staleSource": "コンパイル後にソースが変更されました",
+      "supersededSource": "新しいソースバージョンが利用可能",
+      "text": "テキスト",
+      "textPlaceholder": "ソーステキストを貼り付け…",
+      "thumbnailOnly": "サムネイルのみ",
+      "title": "情報源",
+      "titlePlaceholder": "タイトル",
+      "uncompiled": "未コンパイル",
+      "url": "URL",
+      "urlKindAudio": "音声トランスクリプト",
+      "urlKindImage": "画像OCR",
+      "urlKindPage": "ウェブページ",
+      "urlKindVideo": "ビデオトランスクリプト",
+      "versionHistory": "バージョン履歴",
+      "versionHistoryDesc": "{{count}} アーカイブされたスナップショット。現在: {{current}}",
+      "versionsFailed": "ソースバージョンをロードできませんでした",
+      "itemStatus": {
+        "duplicate": "重複",
+        "failed": "失敗しました",
+        "imported": "輸入品",
+        "pending": "保留中",
+        "running": "ランニング"
+      },
+      "kind": {
+        "audioTranscript": "音声トランスクリプト",
+        "browserSnapshot": "ブラウザ",
+        "docx": "DOCX",
+        "imageOcr": "画像OCR",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "テキスト",
+        "urlSnapshot": "URL",
+        "videoTranscript": "ビデオトランスクリプト"
+      },
+      "runStatus": {
+        "completed": "完了",
+        "completedWithErrors": "エラーありで完了しました",
+        "failed": "失敗しました",
+        "running": "ランニング"
+      },
+      "similarKind": {
+        "exactDuplicate": "完全な重複",
+        "similar": "同様の"
+      },
+      "similarScope": {
+        "crossKb": "クロススペース",
+        "sameKb": "この空間"
+      }
+    },
+    "queryFile": {
+      "action": "ファイル",
+      "applied": "ナレッジスペースにファイルされました",
+      "apply": "申し込む",
+      "applyFailed": "ファイリングを適用できませんでした",
+      "description": "書く前にレビューの差分を作成してください。",
+      "empty": "この答えがどこに着地するかを選択してください。",
+      "generateFailed": "提出提案書を作成できませんでした",
+      "reject": "拒否する",
+      "rejected": "ファイリングは破棄されました",
+      "rejectFailed": "ファイリングを破棄できませんでした",
+      "review": "レビュー",
+      "title": "回答をファイルする",
+      "titlePlaceholder": "タイトル",
+      "mode": {
+        "createNote": "新しいメモ",
+        "updateCurrentNote": "現在のメモを更新する",
+        "appendToMoc": "MOC に追加",
+        "openQuestions": "未解決の質問"
+      },
+      "defaultTitle": "ファイルされた会話",
+      "currentNotePlaceholder": "現在のノートのパス",
+      "openQuestionsPlaceholder": "未解決の質問を含むメモ",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "中断",
       "timed_out": "タイムアウト",
       "cancelled": "キャンセル済み"
+    },
+    "errorOutput": "間違い",
+    "liveOutput": "リアルタイム出力",
+    "outputFile": "完全な結果",
+    "resultPreview": "結果のプレビュー"
+  },
+  "browser": {
+    "panelTitle": "ブラウザ"
+  },
+  "error": {
+    "appCrash": "何か問題が発生しました",
+    "retry": "もう一度試してください",
+    "unknown": "予期しないエラーが発生しました"
+  },
+  "localModels": {
+    "actions": {
+      "download": "ダウンロード"
     }
+  },
+  "macControl": {
+    "panelTitle": "マックコントロール"
   }
 }

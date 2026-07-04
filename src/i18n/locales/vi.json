@@ -148,7 +148,9 @@
     "reattach": "Quay lại bảng điều khiển",
     "refresh": "Làm mới",
     "snapshot": "Ảnh chụp",
-    "versions": "Lịch sử phiên bản"
+    "versions": "Lịch sử phiên bản",
+    "panelTitle": "Vải bạt",
+    "resizePanel": "Thay đổi kích thước bảng canvas"
   },
   "channels": {
     "accountLabel": "Tên tài khoản",
@@ -304,7 +306,8 @@
       "refresh": "Làm mới ngay",
       "resumeMirror": "Tiếp tục phản chiếu",
       "takeOver": "Tiếp quản",
-      "takeOverHint": "Tạm dừng làm mới 1Hz để bạn tự thao tác Chrome"
+      "takeOverHint": "Tạm dừng làm mới 1Hz để bạn tự thao tác Chrome",
+      "resizePanel": "Thay đổi kích thước bảng trình duyệt"
     },
     "asyncToolJobFallbackName": "Tác vụ nền",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
       "openSettings": "Mở cài đặt",
       "dismiss": "Không hiển thị lại"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Hành động tiếp theo: {{nextAction}}",
+      "openSettings": "Mở Cài đặt > Trình duyệt để cài đặt hoặc bật tiện ích mở rộng.",
+      "title": "Cần có tiện ích mở rộng của Chrome"
+    },
+    "conversationEmpty": "Không có tin nhắn trong cuộc trò chuyện này",
+    "pendingCancelForceInsert": "Hủy chèn vòng này",
+    "pendingFallbackAfterReply": "Gửi sau khi trả lời",
+    "pendingFallbackAfterReplyTip": "Chưa gặp điểm hoàn thành công cụ và sẽ được gửi sau khi phản hồi hiện tại kết thúc.",
+    "pendingForceInsertTip": "Nó sẽ đợi cho đến khi công cụ đang được thực thi hoàn tất rồi chèn nó vào mô hình mà không làm gián đoạn công cụ hiện tại.",
+    "pendingInserted": "chèn vào",
+    "pendingInsertedTip": "Nó đã được chèn vào mô hình sau khi hoàn thành vòng công cụ này.",
+    "pendingQueuedShort": "Xếp hàng",
+    "pendingQueuedTip": "Nó đã được thêm vào hàng đợi và sẽ được gửi sau khi trả lời hiện tại kết thúc.",
+    "pendingQueueTitle": "Sẽ được gửi",
+    "pendingWaitingToolBoundary": "Chờ điểm hoàn thành công cụ",
+    "pendingWaitingToolBoundaryTip": "Đợi lệnh gọi công cụ mới nhất hoàn tất; nếu công cụ này không còn được gọi ở vòng này nữa, nó sẽ được gửi sau khi phản hồi hoàn tất.",
+    "processNotification": "quá trình kết thúc",
+    "rightPanel": {
+      "collapse": "Thu gọn bảng bên phải",
+      "expand": "Mở rộng bảng bên phải",
+      "switch": "Chuyển bảng bên phải"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "Đang kiểm tra...",
     "create": "Tạo",
     "clear": "Xóa",
-    "on": "Bật"
+    "on": "Bật",
+    "available": "Có sẵn",
+    "collapse": "đóng",
+    "expand": "Mở rộng",
+    "retry": "Thử lại",
+    "unavailable": "Không có sẵn"
   },
   "context": {
     "ago": "trước",
@@ -1185,7 +1216,9 @@
       "total": "Tổng",
       "trend": "Xu hướng sử dụng token",
       "ttft": "TTFT",
-      "ttftTrend": "Thời gian đến token đầu tiên (TTFT)"
+      "ttftTrend": "Thời gian đến token đầu tiên (TTFT)",
+      "inputTokens": "Mã thông báo đầu vào",
+      "outputTokens": "Mã thông báo đầu ra"
     },
     "tool": {
       "avgDuration": "Thời lượng trung bình",
@@ -1343,7 +1376,23 @@
     "noDiffData": "Không có dữ liệu diff",
     "openDiff": "Mở diff",
     "resizePanel": "Thay đổi kích thước bảng diff",
-    "title": "Thay đổi tệp"
+    "title": "Thay đổi tệp",
+    "actionCreate": "tạo ra",
+    "actionDelete": "xóa",
+    "actionEdit": "Sửa lại",
+    "copyLocation": "Sao chép vị trí hiện tại",
+    "expandHiddenLines": "Mở rộng hàng {{count}} với nội dung không thay đổi",
+    "ignoreWhitespace": "Bỏ qua những thay đổi về khoảng trắng",
+    "locationCopied": "Đã sao chép nhắm mục tiêu",
+    "locationCopyFailed": "Sao chép định vị không thành công",
+    "matchingFiles": "Tệp {{shown}} / {{total}}",
+    "nextHunk": "Thay đổi tiếp theo",
+    "noMatchingFiles": "Không có tập tin phù hợp",
+    "openLocation": "Xem trước dòng hiện tại",
+    "prevHunk": "Thay đổi cuối cùng",
+    "renderMore": "Hiển thị các hàng {{count}} còn lại",
+    "searchFiles": "Tìm kiếm tập tin",
+    "toggleContext": "Thu gọn bối cảnh không thay đổi"
   },
   "effort": {
     "high": "Cao",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "Đang gửi kế hoạch…",
     "toggleLabel": "Kế hoạch",
     "versionHistory": "Phiên bản kế hoạch",
-    "versions": "Lịch sử phiên bản"
+    "versions": "Lịch sử phiên bản",
+    "resizePanel": "Thay đổi kích thước bảng kế hoạch"
   },
   "project": {
     "addProject": "Thêm dự án",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "Không gian kiến thức",
       "hint": "Các không gian đã đính kèm cho phép các cuộc trò chuyện của dự án này tìm kiếm và trích dẫn ghi chú."
-    }
+    },
+    "projectEmojiPlaceholder": "Tùy chọn"
   },
   "provider": {
     "addProvider": "Thêm nhà cung cấp",
@@ -2433,7 +2484,13 @@
       "days": "{{n}} ngày qua",
       "incremental": "Từ báo cáo cuối"
     },
-    "selectReport": "Chọn một báo cáo từ danh sách lịch sử."
+    "selectReport": "Chọn một báo cáo từ danh sách lịch sử.",
+    "chatCard": {
+      "missingId": "Thiếu id báo cáo tóm tắt.",
+      "open": "Tóm tắt mở",
+      "title": "Báo cáo tóm tắt",
+      "waiting": "Đang chờ tiến độ tóm tắt..."
+    }
   },
   "settings": {
     "about": "Giới thiệu",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "Khuyến nghị",
     "webSearchSaved": "Đã lưu",
     "webSearchTimeout": "Hết thời gian (giây)",
-    "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)"
+    "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)",
+    "devVisualTest": "Kiểm tra hoạt ảnh UI",
+    "permLoading": "Đang kiểm tra quyền...",
+    "uiEffects": "Hoạt hình nền",
+    "uiEffectsDesc": "Cho phép liên kết nền mọi thời tiết và hiệu ứng thời tiết",
+    "uiEffectsToggle": "Bật hiệu ứng"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -4957,7 +5019,18 @@
       "draftCreated": "Đã tự động tạo kỹ năng nháp: {{name}}. Nhấp để xem xét.",
       "review": "Xem xét",
       "unnamedSkill": "(kỹ năng không tên)"
-    }
+    },
+    "chatFork": {
+      "completed": "Đã hoàn thành. Kết quả đã được đưa vào cuộc trò chuyện này.",
+      "error": "Thất bại.",
+      "killed": "Đã hủy.",
+      "missingRunId": "Thiếu id chạy kỹ năng.",
+      "running": "Đại lý phụ kỹ năng đang chạy. Kết quả sẽ được tiêm vào đây.",
+      "spawning": "Bắt đầu kỹ năng phụ...",
+      "timeout": "Đã hết thời gian.",
+      "title": "Kỹ năng {{skill}}"
+    },
+    "defaultName": "kỹ năng"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "Đang khởi chạy",
       "timeout": "Hết thời gian"
     },
-    "viewChildSession": "Mở phiên của sub-agent"
+    "viewChildSession": "Mở phiên của sub-agent",
+    "agentId": "ID đại lý",
+    "childSessionId": "Phiên con",
+    "duration": "Thời lượng",
+    "model": "người mẫu",
+    "openSession": "Phiên mở",
+    "runId": "ID chạy",
+    "task": "Nhiệm vụ",
+    "tokens": "Mã thông báo"
   },
   "team": {
     "active": "Hoạt động",
@@ -5127,7 +5208,23 @@
     "todo": "Cần làm",
     "totalTokens": "Dùng Token",
     "viewSession": "Xem phiên",
-    "worker": "Người thực hiện"
+    "worker": "Người thực hiện",
+    "loading": "Đang tải...",
+    "messagePlaceholder": "Nhóm tin nhắn... (@tên cho DM)",
+    "noTasks": "Không có nhiệm vụ",
+    "panelTitle": "đội",
+    "resizePanel": "Thay đổi kích thước bảng điều khiển nhóm",
+    "role": {
+      "lead": "Chì",
+      "reviewer": "Người đánh giá",
+      "worker": "công nhân"
+    },
+    "tab": {
+      "dashboard": "Trang tổng quan",
+      "messages": "Tin nhắn",
+      "tasks": "Nhiệm vụ"
+    },
+    "view": "Xem"
   },
   "theme": {
     "auto": "Tự động",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "Tác vụ nền đã bắt đầu"
     },
     "find": "Tìm tệp",
     "get_settings": "Lấy cài đặt",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Đọc khác biệt Git không thành công",
+      "loadingDiff": "Đọc khác biệt",
+      "noTextDiff": "Không có văn bản để hiển thị khác biệt"
     },
     "action": {
       "create": "Mới",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "Bảo hiểm bằng chứng",
+      "evidenceCoverageDetail": "{{pct}}% · Yêu cầu {{claimsWithEvidence}}/{{claims}} · Ghi chú {{notesWithEvidence}}/{{notes}}",
+      "evidenceRebuildFailed": "Không thể xây dựng lại chỉ số bằng chứng",
+      "evidenceRebuilt": "Chỉ mục bằng chứng được xây dựng lại cho các ghi chú {{notes}}, giới thiệu {{refs}}, khiếu nại {{claims}}",
+      "missingEvidence": "Thiếu bằng chứng",
+      "missingRefs": "Thiếu giới thiệu",
+      "needsReview": "Cần xem xét",
+      "rebuildEvidenceTip": "Xây dựng lại chỉ số bằng chứng dẫn xuất",
+      "schemaIssues": "Các vấn đề về lược đồ",
+      "staleRefs": "Giới thiệu cũ"
     },
     "graph": {
       "toggle": "Xem dạng đồ thị",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "Kho ngoài mặc định chỉ đọc. Bật để cho phép trình soạn thảo và công cụ AI ghi vào thư mục đã liên kết. Bảo trì nền không bao giờ ghi vào kho ngoài.",
     "result": {
       "memory": "Bộ nhớ"
+    },
+    "compile": {
+      "applied": "Đã áp dụng đề xuất",
+      "apply": "Áp dụng",
+      "applyFailed": "Không thể áp dụng đề xuất",
+      "cancel": "Hủy bỏ",
+      "cancelFailed": "Không thể hủy cuộc chạy",
+      "cancelled": "Quá trình biên dịch bị hủy",
+      "description": "Xem lại các thay đổi ghi chú đã tạo trước khi viết bất cứ điều gì.",
+      "empty": "Chọn một đề xuất để xem xét",
+      "emptyHint": "Các đề xuất đã tạo vẫn ở đây cho đến khi bạn áp dụng hoặc từ chối chúng.",
+      "failed": "Chạy biên dịch không thành công",
+      "loadFailed": "Không thể tải các lần chạy biên dịch",
+      "noProposals": "Không có đề xuất nào cho lần chạy này.",
+      "noRuns": "Chưa có biên dịch chạy nào.",
+      "proposals": "Đề xuất",
+      "proposalsLoadFailed": "Không thể tải đề xuất",
+      "refresh": "Làm mới",
+      "reject": "Từ chối",
+      "rejectFailed": "Không thể từ chối đề xuất",
+      "rejected": "Đề xuất bị từ chối",
+      "runPending": "Biên dịch đang chờ xử lý",
+      "runSources": "(Các) nguồn {{count}}",
+      "running": "Tổng hợp nguồn…",
+      "runs": "Chạy",
+      "startFailed": "Không thể biên dịch nguồn",
+      "startSelected": "Biên dịch {{count}}",
+      "started": "(Các) đề xuất {{n}} đã tạo",
+      "title": "Biên dịch nguồn"
+    },
+    "sources": {
+      "archiveAttachment": "Lưu trữ kiến thức",
+      "archiveAttachmentFailed": "Không thể lưu trữ tệp đính kèm",
+      "archivedAttachment": "Đã lưu trữ vào các nguồn kiến thức",
+      "browser": "Trình duyệt",
+      "browserAuto": "Tự động",
+      "browserPage": "Trang",
+      "browserSelection": "Lựa chọn",
+      "chooseFile": "Chọn tập tin",
+      "comparePrevious": "So sánh trước đó",
+      "compileOne": "Biên dịch",
+      "compileSelected": "Biên soạn các nguồn đã chọn",
+      "compiled": "biên soạn",
+      "compiledClaims": "Các xác nhận quyền sở hữu được tổng hợp bằng cách sử dụng nguồn này",
+      "currentVersion": "hiện tại",
+      "delete": "Xóa",
+      "deleteBody": "Xóa {{name}} khỏi hộp thư đến nguồn thô?",
+      "deleteFailed": "Không thể xóa nguồn",
+      "deleteTitle": "Xóa nguồn",
+      "deleted": "Đã xóa nguồn",
+      "diffFailed": "Không thể tải nguồn khác biệt",
+      "diffTruncated": "Bản xem trước bị cắt bớt",
+      "dismissSimilar": "Bỏ qua",
+      "downloadOriginal": "Tải xuống bản gốc",
+      "empty": "Chưa có nguồn.",
+      "evidenceSources": "Nguồn",
+      "externalRawPath": "Ảnh chụp nhanh bên ngoài",
+      "file": "Tập tin",
+      "import": "Nguồn nhập khẩu",
+      "importAction": "Nhập khẩu",
+      "importDesc": "Thêm nguyên liệu thô vào không gian kiến thức này.",
+      "importFailed": "Không thể nhập nguồn",
+      "importHistory": "Lịch sử nhập khẩu",
+      "importHistoryFailed": "Không thể mở lịch sử nhập",
+      "importRunDeduped": "Đã nhập {{imported}}, bỏ qua bản sao {{duplicate}}",
+      "importRunPartial": "Đã nhập {{imported}}, bỏ qua bản sao {{duplicate}}, {{failed}} không thành công",
+      "importRunStarted": "Đã bắt đầu nhập cho (các) nguồn {{count}}",
+      "imported": "Nguồn đã nhập",
+      "importedCount": "Nguồn {{count}} đã nhập",
+      "keepSource": "Giữ {{name}}",
+      "loadTargetsFailed": "Không tải được không gian kiến thức",
+      "loading": "Đang tải…",
+      "loadingClaims": "Đang tải chỉ mục bằng chứng...",
+      "loadingDiff": "Đang tải khác biệt...",
+      "mediaRetained": "Phương tiện được giữ lại",
+      "missingSource": "Thiếu nguồn",
+      "moreClaims": "+{{count}} nhiều yêu cầu hơn",
+      "noCompiledClaims": "Chưa có yêu cầu ghi chú tổng hợp nào trích dẫn nguồn này.",
+      "noImportRuns": "Chưa có thao tác nhập nào.",
+      "noKb": "Chọn một không gian để xem các nguồn.",
+      "noKnowledgeBase": "Không có không gian kiến thức",
+      "noLocalDuplicates": "Không có nguồn trùng lặp trong không gian này để xóa",
+      "noSimilarGroups": "Không có nhóm nguồn tương tự.",
+      "open": "Mở",
+      "openOriginal": "Mở bản gốc",
+      "otherKb": "Không gian khác {{id}}",
+      "readFailed": "Không thể mở nguồn",
+      "reextract": "Giải nén lại",
+      "reextractFailed": "Không thể trích xuất lại nguồn",
+      "reextracted": "Đã trích xuất lại nguồn",
+      "refresh": "Làm mới",
+      "refreshChanged": "Nguồn được làm mới thành v{{version}}",
+      "refreshFailed": "Không thể làm mới nguồn",
+      "refreshSource": "Làm mới ảnh chụp nhanh",
+      "refreshUnchanged": "Nguồn đã được cập nhật",
+      "resolveSimilarConfirm": "Giữ {{name}} và xóa (các) nguồn trùng lặp {{count}} khỏi không gian này?",
+      "retainedMedia": "Phương tiện được giữ lại",
+      "retryFailed": "Không thể thử lại quá trình nhập không thành công",
+      "retryFailedAction": "Thử lại không thành công",
+      "selectImportRun": "Chọn một lần nhập.",
+      "selectKnowledgeBase": "Lựa chọn không gian kiến ​​thức",
+      "similarCount": "Nhóm tương tự {{count}}",
+      "similarDismissFailed": "Không thể ẩn đề xuất tương tự",
+      "similarDismissed": "Đã ẩn đề xuất tương đồng",
+      "similarGroups": "Nguồn tương tự",
+      "similarResolveFailed": "Không thể giải quyết các nguồn trùng lặp",
+      "similarResolved": "Đã xóa (các) nguồn trùng lặp {{count}}",
+      "sourceDiff": "Nguồn khác biệt",
+      "staleSource": "Nguồn đã thay đổi sau khi biên dịch",
+      "supersededSource": "Đã có phiên bản nguồn mới hơn",
+      "text": "văn bản",
+      "textPlaceholder": "Dán văn bản nguồn…",
+      "thumbnailOnly": "Chỉ hình thu nhỏ",
+      "title": "Nguồn",
+      "titlePlaceholder": "Tiêu đề",
+      "uncompiled": "Chưa biên dịch",
+      "url": "URL",
+      "urlKindAudio": "Bản ghi âm",
+      "urlKindImage": "OCR hình ảnh",
+      "urlKindPage": "trang web",
+      "urlKindVideo": "Bản ghi video",
+      "versionHistory": "Lịch sử phiên bản",
+      "versionHistoryDesc": "Ảnh chụp nhanh được lưu trữ {{count}}. Hiện tại: {{current}}",
+      "versionsFailed": "Không thể tải phiên bản nguồn",
+      "itemStatus": {
+        "duplicate": "trùng lặp",
+        "failed": "thất bại",
+        "imported": "Đã nhập",
+        "pending": "Đang chờ xử lý",
+        "running": "Đang chạy"
+      },
+      "kind": {
+        "audioTranscript": "Bản ghi âm",
+        "browserSnapshot": "Trình duyệt",
+        "docx": "DOCX",
+        "imageOcr": "OCR hình ảnh",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "văn bản",
+        "urlSnapshot": "URL",
+        "videoTranscript": "Bản ghi video"
+      },
+      "runStatus": {
+        "completed": "Đã hoàn thành",
+        "completedWithErrors": "Đã hoàn thành với lỗi",
+        "failed": "thất bại",
+        "running": "Đang chạy"
+      },
+      "similarKind": {
+        "exactDuplicate": "trùng lặp chính xác",
+        "similar": "Tương tự"
+      },
+      "similarScope": {
+        "crossKb": "Xuyên không gian",
+        "sameKb": "Không gian này"
+      }
+    },
+    "queryFile": {
+      "action": "Tập tin",
+      "applied": "Nộp vào không gian kiến thức",
+      "apply": "Áp dụng",
+      "applyFailed": "Không thể nộp hồ sơ",
+      "description": "Tạo một đánh giá khác biệt trước khi viết.",
+      "empty": "Chọn nơi câu trả lời này sẽ hạ cánh.",
+      "generateFailed": "Không thể tạo đề xuất nộp hồ sơ",
+      "reject": "Từ chối",
+      "rejected": "Đã hủy hồ sơ",
+      "rejectFailed": "Không thể hủy hồ sơ",
+      "review": "Xem lại",
+      "title": "Tập tin trả lời",
+      "titlePlaceholder": "Tiêu đề",
+      "mode": {
+        "createNote": "Ghi chú mới",
+        "updateCurrentNote": "Cập nhật ghi chú hiện tại",
+        "appendToMoc": "Thêm vào MOC",
+        "openQuestions": "Câu hỏi mở"
+      },
+      "defaultTitle": "cuộc trò chuyện đã lưu",
+      "currentNotePlaceholder": "Đường dẫn ghi chú hiện tại",
+      "openQuestionsPlaceholder": "Lưu ý với câu hỏi mở",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "Bị gián đoạn",
       "timed_out": "Hết thời gian",
       "cancelled": "Đã hủy"
+    },
+    "errorOutput": "sai lầm",
+    "liveOutput": "đầu ra thời gian thực",
+    "outputFile": "kết quả đầy đủ",
+    "resultPreview": "Xem trước kết quả"
+  },
+  "browser": {
+    "panelTitle": "Trình duyệt"
+  },
+  "error": {
+    "appCrash": "Đã xảy ra lỗi",
+    "retry": "Thử lại",
+    "unknown": "Đã xảy ra lỗi không mong muốn"
+  },
+  "localModels": {
+    "actions": {
+      "download": "Tải xuống"
     }
+  },
+  "macControl": {
+    "panelTitle": "Điều khiển máy Mac"
   }
 }

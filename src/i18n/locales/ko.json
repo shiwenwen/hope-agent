@@ -148,7 +148,9 @@
     "reattach": "패널로 되돌리기",
     "refresh": "새로 고침",
     "snapshot": "스냅샷",
-    "versions": "버전 기록"
+    "versions": "버전 기록",
+    "panelTitle": "캔버스",
+    "resizePanel": "캔버스 패널 크기 조정"
   },
   "channels": {
     "accountLabel": "계정 이름",
@@ -304,7 +306,8 @@
       "refresh": "지금 새로고침",
       "resumeMirror": "미러 다시 시작",
       "takeOver": "직접 조작",
-      "takeOverHint": "1Hz 자동 새로고침을 일시 중지하고 Chrome을 직접 조작합니다"
+      "takeOverHint": "1Hz 자동 새로고침을 일시 중지하고 Chrome을 직접 조작합니다",
+      "resizePanel": "브라우저 패널 크기 조정"
     },
     "asyncToolJobFallbackName": "백그라운드 작업",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "설치된 확장 프로그램이 호스트와 일치하지 않습니다. 다시 로드하면 실제 Chrome 제어가 복원됩니다.",
       "openSettings": "설정 열기",
       "dismiss": "다시 표시 안 함"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "다음 작업: {{nextAction}}",
+      "openSettings": "설정 > 브라우저를 열어 확장 기능을 설치하거나 활성화하세요.",
+      "title": "Chrome 확장 프로그램이 필요합니다."
+    },
+    "conversationEmpty": "이 대화에는 메시지가 없습니다.",
+    "pendingCancelForceInsert": "이 라운드 삽입 취소",
+    "pendingFallbackAfterReply": "답장 후 보내기",
+    "pendingFallbackAfterReplyTip": "도구 완료 지점이 발견되지 않았으며 현재 응답이 끝난 후에 전송됩니다.",
+    "pendingForceInsertTip": "실행 중인 도구가 완료될 때까지 기다렸다가 현재 도구를 중단하지 않고 모델에 삽입합니다.",
+    "pendingInserted": "삽입됨",
+    "pendingInsertedTip": "이 툴링 라운드가 완료된 후 모델에 삽입되었습니다.",
+    "pendingQueuedShort": "대기열",
+    "pendingQueuedTip": "대기 대기열에 추가되었으며 현재 응답이 끝난 후 전송됩니다.",
+    "pendingQueueTitle": "발송 예정",
+    "pendingWaitingToolBoundary": "도구 완료 지점을 기다립니다.",
+    "pendingWaitingToolBoundaryTip": "최신 도구 호출이 완료될 때까지 기다리십시오. 이번 라운드에서 도구가 더 이상 호출되지 않으면 응답이 완료된 후 전송됩니다.",
+    "processNotification": "프로세스가 종료되었습니다",
+    "rightPanel": {
+      "collapse": "오른쪽 패널 접기",
+      "expand": "오른쪽 패널 펼치기",
+      "switch": "오른쪽 패널 전환"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "테스트 중...",
     "create": "만들기",
     "clear": "지우기",
-    "on": "켜짐"
+    "on": "켜짐",
+    "available": "가능",
+    "collapse": "닫기",
+    "expand": "펼치기",
+    "retry": "재시도",
+    "unavailable": "이용 불가"
   },
   "context": {
     "ago": "전",
@@ -1185,7 +1216,9 @@
       "total": "합계",
       "trend": "토큰 사용 추세",
       "ttft": "TTFT",
-      "ttftTrend": "첫 토큰 도달 시간 (TTFT)"
+      "ttftTrend": "첫 토큰 도달 시간 (TTFT)",
+      "inputTokens": "입력 토큰",
+      "outputTokens": "출력 토큰"
     },
     "tool": {
       "avgDuration": "평균 소요",
@@ -1343,7 +1376,23 @@
     "noDiffData": "diff 데이터 없음",
     "openDiff": "diff 보기",
     "resizePanel": "diff 패널 크기 조절",
-    "title": "파일 변경 사항"
+    "title": "파일 변경 사항",
+    "actionCreate": "창조하다",
+    "actionDelete": "삭제",
+    "actionEdit": "수정하다",
+    "copyLocation": "현재 위치 복사",
+    "expandHiddenLines": "내용을 변경하지 않고 행 {{count}} 확장",
+    "ignoreWhitespace": "공백 변경 무시",
+    "locationCopied": "타겟팅이 복사되었습니다.",
+    "locationCopyFailed": "복사 위치 지정 실패",
+    "matchingFiles": "{{shown}}/{{total}} 파일",
+    "nextHunk": "다음 변경사항",
+    "noMatchingFiles": "일치하는 파일이 없습니다.",
+    "openLocation": "현재 줄 미리보기",
+    "prevHunk": "마지막 변경",
+    "renderMore": "나머지 {{count}} 행 표시",
+    "searchFiles": "파일 검색",
+    "toggleContext": "변경되지 않은 컨텍스트 접기"
   },
   "effort": {
     "high": "높음",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "계획 제출 중…",
     "toggleLabel": "계획",
     "versionHistory": "계획 버전",
-    "versions": "버전 기록"
+    "versions": "버전 기록",
+    "resizePanel": "계획 패널 크기 조정"
   },
   "project": {
     "addProject": "프로젝트 추가",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "지식 공간",
       "hint": "첨부한 공간의 노트를 이 프로젝트의 대화에서 검색하고 인용할 수 있습니다."
-    }
+    },
+    "projectEmojiPlaceholder": "선택사항"
   },
   "provider": {
     "addProvider": "공급자 추가",
@@ -2433,7 +2484,13 @@
       "days": "최근 {{n}} 일",
       "incremental": "마지막 리포트 이후"
     },
-    "selectReport": "기록 드롭다운에서 리포트를 선택하세요."
+    "selectReport": "기록 드롭다운에서 리포트를 선택하세요.",
+    "chatCard": {
+      "missingId": "요약 보고서 ID가 누락되었습니다.",
+      "open": "요약 열기",
+      "title": "요약 보고서",
+      "waiting": "요약 진행을 기다리는 중..."
+    }
   },
   "settings": {
     "about": "정보",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "권장",
     "webSearchSaved": "저장됨",
     "webSearchTimeout": "시간 초과 (초)",
-    "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)"
+    "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)",
+    "devVisualTest": "UI 애니메이션 테스트",
+    "permLoading": "권한 확인 중...",
+    "uiEffects": "배경 애니메이션",
+    "uiEffectsDesc": "전천후 배경 및 날씨 효과 연동 활성화",
+    "uiEffectsToggle": "효과 켜기"
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -4957,7 +5019,18 @@
       "draftCreated": "초안 스킬이 자동 생성되었습니다: {{name}}. 클릭하여 검토하세요.",
       "review": "검토",
       "unnamedSkill": "(이름 없는 스킬)"
-    }
+    },
+    "chatFork": {
+      "completed": "완료되었습니다. 결과가 이 채팅에 주입되었습니다.",
+      "error": "실패한.",
+      "killed": "취소.",
+      "missingRunId": "스킬 실행 ID가 누락되었습니다.",
+      "running": "스킬 하위 에이전트가 실행 중입니다. 결과가 여기에 주입됩니다.",
+      "spawning": "스킬 하위 에이전트 시작 중...",
+      "timeout": "시간이 초과되었습니다.",
+      "title": "스킬 {{skill}}"
+    },
+    "defaultName": "기술"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "시작 중",
       "timeout": "시간 초과"
     },
-    "viewChildSession": "하위 에이전트 세션 열기"
+    "viewChildSession": "하위 에이전트 세션 열기",
+    "agentId": "에이전트 ID",
+    "childSessionId": "하위 세션",
+    "duration": "기간",
+    "model": "모델",
+    "openSession": "세션 열기",
+    "runId": "실행 ID",
+    "task": "작업",
+    "tokens": "토큰"
   },
   "team": {
     "active": "활성",
@@ -5127,7 +5208,23 @@
     "todo": "할 일",
     "totalTokens": "Token 사용량",
     "viewSession": "세션 보기",
-    "worker": "작업자"
+    "worker": "작업자",
+    "loading": "로드 중...",
+    "messagePlaceholder": "메시지 팀... (DM의 경우 @이름)",
+    "noTasks": "작업 없음",
+    "panelTitle": "팀",
+    "resizePanel": "팀 패널 크기 조정",
+    "role": {
+      "lead": "납",
+      "reviewer": "리뷰어",
+      "worker": "노동자"
+    },
+    "tab": {
+      "dashboard": "대시보드",
+      "messages": "메시지",
+      "tasks": "작업"
+    },
+    "view": "보기"
   },
   "theme": {
     "auto": "자동",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "백그라운드 작업이 시작되었습니다."
     },
     "find": "파일 찾기",
     "get_settings": "설정 가져오기",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Git diff를 읽는 데 실패했습니다.",
+      "loadingDiff": "차이점 읽기",
+      "noTextDiff": "차이점을 표시할 텍스트가 없습니다."
     },
     "action": {
       "create": "생성",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "증거 범위",
+      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 주장 · {{notesWithEvidence}}/{{notes}} 참고",
+      "evidenceRebuildFailed": "증거 색인을 다시 작성할 수 없습니다.",
+      "evidenceRebuilt": "{{notes}} 메모, {{refs}} 참조, {{claims}} 주장에 대한 증거 색인 재구성",
+      "missingEvidence": "누락된 증거",
+      "missingRefs": "참조가 누락되었습니다.",
+      "needsReview": "검토 필요",
+      "rebuildEvidenceTip": "파생 증거 인덱스 다시 작성",
+      "schemaIssues": "스키마 문제",
+      "staleRefs": "오래된 심판"
     },
     "graph": {
       "toggle": "그래프 보기",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "외부 보관함은 기본적으로 읽기 전용입니다. 활성화하면 편집기와 AI 도구가 연결된 폴더에 쓸 수 있습니다. 백그라운드 자동 유지관리는 외부 보관함에 쓰지 않습니다.",
     "result": {
       "memory": "기억"
+    },
+    "compile": {
+      "applied": "제안이 적용되었습니다.",
+      "apply": "적용",
+      "applyFailed": "제안을 적용할 수 없습니다.",
+      "cancel": "취소",
+      "cancelFailed": "실행을 취소할 수 없습니다.",
+      "cancelled": "컴파일 실행이 취소되었습니다.",
+      "description": "무언가를 작성하기 전에 생성된 메모 변경 사항을 검토하세요.",
+      "empty": "검토할 제안을 선택하세요.",
+      "emptyHint": "생성된 제안은 적용하거나 거부할 때까지 여기에 유지됩니다.",
+      "failed": "컴파일 실행 실패",
+      "loadFailed": "컴파일 실행을 로드할 수 없습니다.",
+      "noProposals": "이번 실행에 대한 제안이 없습니다.",
+      "noRuns": "아직 컴파일이 실행되지 않습니다.",
+      "proposals": "제안",
+      "proposalsLoadFailed": "제안을 로드할 수 없습니다.",
+      "refresh": "새로고침",
+      "reject": "거부",
+      "rejectFailed": "제안을 거부할 수 없습니다.",
+      "rejected": "제안이 거부됨",
+      "runPending": "컴파일 실행 보류 중",
+      "runSources": "{{count}} 소스",
+      "running": "소스 컴파일 중…",
+      "runs": "실행",
+      "startFailed": "소스를 컴파일할 수 없습니다.",
+      "startSelected": "{{count}} 컴파일",
+      "started": "생성된 {{n}} 제안",
+      "title": "소스 컴파일"
+    },
+    "sources": {
+      "archiveAttachment": "지식으로 아카이브",
+      "archiveAttachmentFailed": "첨부파일을 보관하지 못했습니다.",
+      "archivedAttachment": "지식 소스에 보관됨",
+      "browser": "브라우저",
+      "browserAuto": "자동",
+      "browserPage": "페이지",
+      "browserSelection": "선택",
+      "chooseFile": "파일 선택",
+      "comparePrevious": "이전 비교",
+      "compileOne": "컴파일",
+      "compileSelected": "선택한 소스 컴파일",
+      "compiled": "컴파일됨",
+      "compiledClaims": "이 소스를 사용하여 컴파일된 소유권 주장",
+      "currentVersion": "현재",
+      "delete": "삭제",
+      "deleteBody": "원시 소스 받은 편지함에서 {{name}}를 삭제하시겠습니까?",
+      "deleteFailed": "소스를 삭제할 수 없습니다.",
+      "deleteTitle": "소스 삭제",
+      "deleted": "소스가 삭제되었습니다.",
+      "diffFailed": "소스 차이점을 로드할 수 없습니다.",
+      "diffTruncated": "잘린 미리보기",
+      "dismissSimilar": "무시",
+      "downloadOriginal": "원본 다운로드",
+      "empty": "아직 소스가 없습니다.",
+      "evidenceSources": "출처",
+      "externalRawPath": "외부 스냅샷",
+      "file": "파일",
+      "import": "수입원",
+      "importAction": "가져오기",
+      "importDesc": "이 지식 공간에 원자재를 추가하세요.",
+      "importFailed": "소스를 가져올 수 없습니다.",
+      "importHistory": "수입 내역",
+      "importHistoryFailed": "가져오기 기록을 열 수 없습니다.",
+      "importRunDeduped": "{{imported}} 가져오기, {{duplicate}} 중복 건너뛰기",
+      "importRunPartial": "{{imported}} 가져오기, {{duplicate}} 중복 건너뛰기, {{failed}} 실패",
+      "importRunStarted": "{{count}} 소스에 대한 가져오기가 시작되었습니다.",
+      "imported": "가져온 소스",
+      "importedCount": "가져온 {{count}} 소스",
+      "keepSource": "{{name}} 유지",
+      "loadTargetsFailed": "지식 공간을 로드하지 못했습니다.",
+      "loading": "로드 중…",
+      "loadingClaims": "증거 색인 로드 중...",
+      "loadingDiff": "차이점 로드 중...",
+      "mediaRetained": "미디어 보유",
+      "missingSource": "소스 누락",
+      "moreClaims": "+{{count}}개 이상의 주장",
+      "noCompiledClaims": "아직 이 출처를 인용한 컴파일된 메모 주장이 없습니다.",
+      "noImportRuns": "아직 가져오기가 실행되지 않습니다.",
+      "noKb": "소스를 보려면 스페이스를 선택하세요.",
+      "noKnowledgeBase": "지식 공간이 없습니다.",
+      "noLocalDuplicates": "이 공간에는 삭제할 중복 소스가 없습니다.",
+      "noSimilarGroups": "유사한 소스 그룹이 없습니다.",
+      "open": "열기",
+      "openOriginal": "원본 열기",
+      "otherKb": "다른 공간 {{id}}",
+      "readFailed": "소스를 오픈할 수 없습니다",
+      "reextract": "재추출",
+      "reextractFailed": "소스를 다시 추출할 수 없습니다.",
+      "reextracted": "소스를 다시 추출했습니다.",
+      "refresh": "새로고침",
+      "refreshChanged": "소스가 v{{version}}로 새로 고쳐졌습니다.",
+      "refreshFailed": "소스를 새로고침할 수 없습니다.",
+      "refreshSource": "스냅샷 새로고침",
+      "refreshUnchanged": "소스가 이미 최신 상태입니다.",
+      "resolveSimilarConfirm": "{{name}}를 유지하고 이 공간에서 {{count}} 중복 소스를 삭제하시겠습니까?",
+      "retainedMedia": "보유 미디어",
+      "retryFailed": "실패한 가져오기를 다시 시도할 수 없습니다.",
+      "retryFailedAction": "재시도 실패",
+      "selectImportRun": "가져오기 실행을 선택합니다.",
+      "selectKnowledgeBase": "지식 공간 선택",
+      "similarCount": "{{count}} 유사한 그룹",
+      "similarDismissFailed": "유사성 제안을 숨길 수 없습니다.",
+      "similarDismissed": "유사성 제안이 숨겨졌습니다.",
+      "similarGroups": "유사한 소스",
+      "similarResolveFailed": "중복된 소스를 해결할 수 없습니다.",
+      "similarResolved": "{{count}} 중복 소스가 삭제되었습니다.",
+      "sourceDiff": "소스 차이",
+      "staleSource": "컴파일 후 소스가 변경됨",
+      "supersededSource": "최신 소스 버전 사용 가능",
+      "text": "텍스트",
+      "textPlaceholder": "원본 텍스트 붙여넣기…",
+      "thumbnailOnly": "썸네일만",
+      "title": "출처",
+      "titlePlaceholder": "제목",
+      "uncompiled": "컴파일되지 않은",
+      "url": "URL",
+      "urlKindAudio": "오디오 대본",
+      "urlKindImage": "이미지 OCR",
+      "urlKindPage": "웹페이지",
+      "urlKindVideo": "비디오 대본",
+      "versionHistory": "버전 기록",
+      "versionHistoryDesc": "{{count}} 보관된 스냅샷. 현재: {{current}}",
+      "versionsFailed": "소스 버전을 로드할 수 없습니다.",
+      "itemStatus": {
+        "duplicate": "중복",
+        "failed": "실패",
+        "imported": "수입됨",
+        "pending": "보류 중",
+        "running": "달리기"
+      },
+      "kind": {
+        "audioTranscript": "오디오 대본",
+        "browserSnapshot": "브라우저",
+        "docx": "DOCX",
+        "imageOcr": "이미지 OCR",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "텍스트",
+        "urlSnapshot": "URL",
+        "videoTranscript": "비디오 대본"
+      },
+      "runStatus": {
+        "completed": "완료됨",
+        "completedWithErrors": "오류가 있지만 완료됨",
+        "failed": "실패",
+        "running": "달리기"
+      },
+      "similarKind": {
+        "exactDuplicate": "정확히 중복됨",
+        "similar": "유사한"
+      },
+      "similarScope": {
+        "crossKb": "교차 공간",
+        "sameKb": "이 공간"
+      }
+    },
+    "queryFile": {
+      "action": "파일",
+      "applied": "지식공간에 출원",
+      "apply": "적용",
+      "applyFailed": "파일링을 적용할 수 없습니다.",
+      "description": "글을 쓰기 전에 리뷰 차이점을 만드세요.",
+      "empty": "이 답변이 어디에 도착해야 하는지 선택하세요.",
+      "generateFailed": "제출 제안서를 생성할 수 없습니다.",
+      "reject": "거부",
+      "rejected": "제출이 삭제되었습니다.",
+      "rejectFailed": "파일링을 삭제할 수 없습니다.",
+      "review": "검토",
+      "title": "파일 답변",
+      "titlePlaceholder": "제목",
+      "mode": {
+        "createNote": "새 메모",
+        "updateCurrentNote": "현재 메모 업데이트",
+        "appendToMoc": "MOC에 추가",
+        "openQuestions": "공개 질문"
+      },
+      "defaultTitle": "제출된 대화",
+      "currentNotePlaceholder": "현재 노트 경로",
+      "openQuestionsPlaceholder": "공개 질문이 있는 메모",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "중단됨",
       "timed_out": "시간 초과",
       "cancelled": "취소됨"
+    },
+    "errorOutput": "실수",
+    "liveOutput": "실시간 출력",
+    "outputFile": "전체 결과",
+    "resultPreview": "결과 미리보기"
+  },
+  "browser": {
+    "panelTitle": "브라우저"
+  },
+  "error": {
+    "appCrash": "문제가 발생했습니다.",
+    "retry": "다시 시도",
+    "unknown": "예상치 못한 오류가 발생했습니다."
+  },
+  "localModels": {
+    "actions": {
+      "download": "다운로드"
     }
+  },
+  "macControl": {
+    "panelTitle": "맥 컨트롤"
   }
 }

@@ -148,7 +148,9 @@
     "reattach": "Panele geri al",
     "refresh": "Yenile",
     "snapshot": "Anlık görüntü",
-    "versions": "Sürüm geçmişi"
+    "versions": "Sürüm geçmişi",
+    "panelTitle": "Kanvas",
+    "resizePanel": "Kanvas panelini yeniden boyutlandır"
   },
   "channels": {
     "accountLabel": "Hesap adı",
@@ -304,7 +306,8 @@
       "refresh": "Şimdi yenile",
       "resumeMirror": "Aynayı sürdür",
       "takeOver": "Devral",
-      "takeOverHint": "1Hz otomatik yenilemeyi duraklatın ve Chrome'u kendiniz kontrol edin"
+      "takeOverHint": "1Hz otomatik yenilemeyi duraklatın ve Chrome'u kendiniz kontrol edin",
+      "resizePanel": "Tarayıcı panelini yeniden boyutlandır"
     },
     "asyncToolJobFallbackName": "Arka plan görevi",
     "asyncToolJobNames": {
@@ -661,6 +664,29 @@
       "reloadBody": "Yüklü uzantı ana bilgisayarla eşleşmiyor. Gerçek Chrome'unuzun denetimini geri kazanmak için yeniden yükleyin.",
       "openSettings": "Ayarları aç",
       "dismiss": "Tekrar gösterme"
+    },
+    "browserExtensionRequired": {
+      "nextAction": "Sonraki eylem: {{nextAction}}",
+      "openSettings": "Uzantıyı yüklemek veya etkinleştirmek için Ayarlar > Tarayıcı'yı açın.",
+      "title": "Chrome uzantısı gerekli"
+    },
+    "conversationEmpty": "Bu görüşmede mesaj yok",
+    "pendingCancelForceInsert": "Bu turun eklenmesini iptal et",
+    "pendingFallbackAfterReply": "Cevaptan sonra gönder",
+    "pendingFallbackAfterReplyTip": "Araç tamamlama noktasıyla karşılaşılmadı ve mevcut yanıt sona erdikten sonra gönderilecek.",
+    "pendingForceInsertTip": "Yürütülen takım tamamlanana kadar bekleyecek ve ardından mevcut takımı kesintiye uğratmadan onu modele yerleştirecektir.",
+    "pendingInserted": "yerleştirildi",
+    "pendingInsertedTip": "Bu takımlama turu tamamlandıktan sonra modele eklenmiştir.",
+    "pendingQueuedShort": "Sıraya girme",
+    "pendingQueuedTip": "Bekleme kuyruğuna eklendi ve mevcut yanıt bittikten sonra gönderilecek.",
+    "pendingQueueTitle": "Gönderilecek",
+    "pendingWaitingToolBoundary": "Takım tamamlanma noktasını bekleyin",
+    "pendingWaitingToolBoundaryTip": "En son araç çağrısının tamamlanmasını bekleyin; Araç artık bu turda çağrılmazsa, yanıt tamamlandıktan sonra gönderilecektir.",
+    "processNotification": "süreç sona erdi",
+    "rightPanel": {
+      "collapse": "Sağ paneli daralt",
+      "expand": "Sağ paneli genişlet",
+      "switch": "Sağ paneli değiştir"
     }
   },
   "codexAuth": {
@@ -699,7 +725,12 @@
     "testing": "Test ediliyor...",
     "create": "Oluştur",
     "clear": "Temizle",
-    "on": "Açık"
+    "on": "Açık",
+    "available": "Mevcut",
+    "collapse": "kapat",
+    "expand": "Genişlet",
+    "retry": "Yeniden dene",
+    "unavailable": "Kullanılamıyor"
   },
   "context": {
     "ago": "önce",
@@ -1185,7 +1216,9 @@
       "total": "Toplam",
       "trend": "Token kullanım trendi",
       "ttft": "TTFT",
-      "ttftTrend": "İlk Token Süresi (TTFT)"
+      "ttftTrend": "İlk Token Süresi (TTFT)",
+      "inputTokens": "Giriş jetonları",
+      "outputTokens": "Çıkış jetonları"
     },
     "tool": {
       "avgDuration": "Ort. süre",
@@ -1343,7 +1376,23 @@
     "noDiffData": "Diff verisi yok",
     "openDiff": "Diff'i aç",
     "resizePanel": "Diff panelini yeniden boyutlandır",
-    "title": "Dosya değişiklikleri"
+    "title": "Dosya değişiklikleri",
+    "actionCreate": "yarat",
+    "actionDelete": "sil",
+    "actionEdit": "Revize",
+    "copyLocation": "Geçerli konumu kopyala",
+    "expandHiddenLines": "{{count}} satırını değişmeyen içerikle genişlet",
+    "ignoreWhitespace": "Boşluk değişikliklerini yoksay",
+    "locationCopied": "Hedefleme kopyalandı",
+    "locationCopyFailed": "Kopyalama konumlandırması başarısız oldu",
+    "matchingFiles": "{{shown}} / {{total}} dosyaları",
+    "nextHunk": "Sonraki değişiklik",
+    "noMatchingFiles": "Eşleşen dosya yok",
+    "openLocation": "Geçerli satırın önizlemesi",
+    "prevHunk": "Son değişiklik",
+    "renderMore": "Kalan {{count}} satırlarını göster",
+    "searchFiles": "Dosyaları arayın",
+    "toggleContext": "Değişmeyen bağlamı daralt"
   },
   "effort": {
     "high": "Yüksek",
@@ -2163,7 +2212,8 @@
     "submittingPlan": "Plan gönderiliyor…",
     "toggleLabel": "Plan",
     "versionHistory": "Plan sürümleri",
-    "versions": "Sürüm geçmişi"
+    "versions": "Sürüm geçmişi",
+    "resizePanel": "Plan panelini yeniden boyutlandır"
   },
   "project": {
     "addProject": "Proje ekle",
@@ -2246,7 +2296,8 @@
     "knowledge": {
       "label": "Bilgi alanları",
       "hint": "Eklenen alanlar, bu projenin sohbetlerinin notlarını aramasına ve alıntılamasına olanak tanır."
-    }
+    },
+    "projectEmojiPlaceholder": "İsteğe bağlı"
   },
   "provider": {
     "addProvider": "Sağlayıcı Ekle",
@@ -2433,7 +2484,13 @@
       "days": "Son {{n}} gün",
       "incremental": "Son rapordan beri"
     },
-    "selectReport": "Geçmiş açılır menüsünden bir rapor seçin."
+    "selectReport": "Geçmiş açılır menüsünden bir rapor seçin.",
+    "chatCard": {
+      "missingId": "Özet raporu kimliği eksik.",
+      "open": "Özeti Aç",
+      "title": "Özet raporu",
+      "waiting": "Özet ilerlemesi bekleniyor..."
+    }
   },
   "settings": {
     "about": "Hakkında",
@@ -4936,7 +4993,12 @@
     "webSearchRecommended": "Önerilen",
     "webSearchSaved": "Kaydedildi",
     "webSearchTimeout": "Zaman aşımı (saniye)",
-    "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)"
+    "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)",
+    "devVisualTest": "Kullanıcı arayüzü animasyon testi",
+    "permLoading": "İzinler kontrol ediliyor...",
+    "uiEffects": "Arka plan animasyonu",
+    "uiEffectsDesc": "Tüm hava koşullarına uygun arka plan ve hava durumu efektleri bağlantısını etkinleştirin",
+    "uiEffectsToggle": "Efekti aç"
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -4957,7 +5019,18 @@
       "draftCreated": "Taslak yetenek otomatik oluşturuldu: {{name}}. İncelemek için tıklayın.",
       "review": "İncele",
       "unnamedSkill": "(adsız yetenek)"
-    }
+    },
+    "chatFork": {
+      "completed": "Tamamlandı. Sonuç bu sohbete enjekte edildi.",
+      "error": "Arızalı.",
+      "killed": "İptal edildi.",
+      "missingRunId": "Beceri çalıştırması kimliği eksik.",
+      "running": "Beceri alt aracısı çalışıyor. Sonuç buraya enjekte edilecektir.",
+      "spawning": "Beceri alt aracısı başlatılıyor...",
+      "timeout": "Zaman aşımına uğradı.",
+      "title": "Beceri {{skill}}"
+    },
+    "defaultName": "beceri"
   },
   "slashCommands": {
     "agent": {
@@ -5090,7 +5163,15 @@
       "spawning": "Başlatılıyor",
       "timeout": "Zaman aşımı"
     },
-    "viewChildSession": "Alt ajan oturumunu aç"
+    "viewChildSession": "Alt ajan oturumunu aç",
+    "agentId": "Temsilci Kimliği",
+    "childSessionId": "Çocuk oturumu",
+    "duration": "Süre",
+    "model": "Modeli",
+    "openSession": "Açık Oturum",
+    "runId": "Çalıştırma kimliği",
+    "task": "Görev",
+    "tokens": "Jetonlar"
   },
   "team": {
     "active": "Aktif",
@@ -5127,7 +5208,23 @@
     "todo": "Yapılacak",
     "totalTokens": "Token Kullanımı",
     "viewSession": "Oturumu görüntüle",
-    "worker": "İşçi"
+    "worker": "İşçi",
+    "loading": "Yükleniyor...",
+    "messagePlaceholder": "Mesaj ekibi... (@DM için isim)",
+    "noTasks": "Görev yok",
+    "panelTitle": "Takım",
+    "resizePanel": "Ekip panelini yeniden boyutlandır",
+    "role": {
+      "lead": "Kurşun",
+      "reviewer": "İnceleyen",
+      "worker": "İşçi"
+    },
+    "tab": {
+      "dashboard": "Kontrol Paneli",
+      "messages": "Mesajlar",
+      "tasks": "Görevler"
+    },
+    "view": "Görüntüle"
   },
   "theme": {
     "auto": "Otomatik",
@@ -5172,7 +5269,8 @@
     "execPanel": {
       "noOutput": "无输出",
       "running": "运行中...",
-      "title": "Shell"
+      "title": "Shell",
+      "asyncStarted": "Arka plan görevi başlatıldı"
     },
     "find": "Dosya bul",
     "get_settings": "Ayarları al",
@@ -5445,7 +5543,10 @@
         "noWorkingDir": "No dir",
         "nonGit": "Non-Git",
         "unknown": "Unknown"
-      }
+      },
+      "gitDiffFailed": "Git farkını okuma işlemi başarısız oldu",
+      "loadingDiff": "Farkı oku",
+      "noTextDiff": "Farkı gösterecek metin yok"
     },
     "action": {
       "create": "Yeni",
@@ -5650,7 +5751,17 @@
         "source_conflict": "Conflict",
         "open_questions_moc": "Questions",
         "for_agent_summary": "Summary"
-      }
+      },
+      "evidenceCoverage": "Kanıt kapsamı",
+      "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} iddiaları · {{notesWithEvidence}}/{{notes}} notları",
+      "evidenceRebuildFailed": "Kanıt dizini yeniden oluşturulamadı",
+      "evidenceRebuilt": "{{notes}} notları, {{refs}} referansları ve {{claims}} iddiaları için yeniden oluşturulmuş kanıt dizini",
+      "missingEvidence": "Eksik kanıt",
+      "missingRefs": "Eksik referanslar",
+      "needsReview": "İncelenmesi gerekiyor",
+      "rebuildEvidenceTip": "Türetilmiş kanıt dizinini yeniden oluşturun",
+      "schemaIssues": "Şema sorunları",
+      "staleRefs": "Eski referanslar"
     },
     "graph": {
       "toggle": "Grafik görünümü",
@@ -5678,6 +5789,188 @@
     "allowExternalWritesHint": "Dış kasalar varsayılan olarak salt okunurdur. Etkinleştirdiğinizde düzenleyici ve yapay zeka araçları bağlı klasöre yazabilir. Arka plan bakımı dış kasalara asla yazmaz.",
     "result": {
       "memory": "Bellek"
+    },
+    "compile": {
+      "applied": "Teklif uygulandı",
+      "apply": "Uygula",
+      "applyFailed": "Teklif uygulanamadı",
+      "cancel": "İptal",
+      "cancelFailed": "Çalıştırma iptal edilemedi",
+      "cancelled": "Derleme çalıştırması iptal edildi",
+      "description": "Herhangi bir şey yazılmadan önce oluşturulan not değişikliklerini inceleyin.",
+      "empty": "İncelenecek teklifi seçin",
+      "emptyHint": "Oluşturulan teklifler, siz uygulayana veya reddedene kadar burada kalır.",
+      "failed": "Derleme çalıştırması başarısız oldu",
+      "loadFailed": "Derleme çalıştırmaları yüklenemedi",
+      "noProposals": "Bu çalıştırma için teklif yok.",
+      "noRuns": "Henüz derleme çalışması yok.",
+      "proposals": "Teklifler",
+      "proposalsLoadFailed": "Teklifler yüklenemedi",
+      "refresh": "Yenile",
+      "reject": "Reddet",
+      "rejectFailed": "Teklif reddedilemedi",
+      "rejected": "Teklif reddedildi",
+      "runPending": "Derleme çalıştırması beklemede",
+      "runSources": "{{count}} kaynak(lar)ı",
+      "running": "Kaynaklar derleniyor…",
+      "runs": "Koşular",
+      "startFailed": "Kaynaklar derlenemedi",
+      "startSelected": "{{count}}'i derleyin",
+      "started": "{{n}} teklif(ler)i oluşturuldu",
+      "title": "Kaynakları derleyin"
+    },
+    "sources": {
+      "archiveAttachment": "Bilgiye arşivle",
+      "archiveAttachmentFailed": "Ek arşivlenemedi",
+      "archivedAttachment": "Bilgi kaynaklarına arşivlendi",
+      "browser": "Tarayıcı",
+      "browserAuto": "Otomatik",
+      "browserPage": "Sayfa",
+      "browserSelection": "Seçim",
+      "chooseFile": "Dosyaları seçin",
+      "comparePrevious": "Öncekini karşılaştır",
+      "compileOne": "Derle",
+      "compileSelected": "Seçilen kaynakları derle",
+      "compiled": "Derlenmiş",
+      "compiledClaims": "Bu kaynağı kullanarak derlenmiş hak talepleri",
+      "currentVersion": "Mevcut",
+      "delete": "Sil",
+      "deleteBody": "{{name}} ham kaynak gelen kutusundan silinsin mi?",
+      "deleteFailed": "Kaynak silinemedi",
+      "deleteTitle": "Kaynağı sil",
+      "deleted": "Kaynak silindi",
+      "diffFailed": "Kaynak farkı yüklenemedi",
+      "diffTruncated": "Önizleme kesildi",
+      "dismissSimilar": "Yoksay",
+      "downloadOriginal": "Orijinali indir",
+      "empty": "Henüz kaynak yok.",
+      "evidenceSources": "Kaynaklar",
+      "externalRawPath": "Harici anlık görüntü",
+      "file": "Dosya",
+      "import": "Kaynağı içe aktar",
+      "importAction": "İthalat",
+      "importDesc": "Bu bilgi alanına ham madde ekleyin.",
+      "importFailed": "Kaynak içe aktarılamadı",
+      "importHistory": "İçe aktarma geçmişi",
+      "importHistoryFailed": "İçe aktarma geçmişi açılamadı",
+      "importRunDeduped": "{{imported}} içe aktarıldı, {{duplicate}} kopyası atlandı",
+      "importRunPartial": "{{imported}} içe aktarıldı, {{duplicate}} kopyası atlandı, {{failed}} başarısız oldu",
+      "importRunStarted": "{{count}} kaynakları için içe aktarma başladı",
+      "imported": "Kaynak içe aktarıldı",
+      "importedCount": "İçe aktarılan {{count}} kaynakları",
+      "keepSource": "{{name}}'i koruyun",
+      "loadTargetsFailed": "Bilgi alanları yüklenemedi",
+      "loading": "Yükleniyor…",
+      "loadingClaims": "Kanıt dizini yükleniyor...",
+      "loadingDiff": "Fark yükleniyor...",
+      "mediaRetained": "Medya tutuldu",
+      "missingSource": "Kaynak eksik",
+      "moreClaims": "+{{count}} daha fazla hak talebi",
+      "noCompiledClaims": "Henüz hiçbir derlenmiş not iddiasında bu kaynaktan bahsedilmiyor.",
+      "noImportRuns": "Henüz içe aktarma işlemi gerçekleştirilmiyor.",
+      "noKb": "Kaynakları görmek için bir alan seçin.",
+      "noKnowledgeBase": "Bilgi alanı yok",
+      "noLocalDuplicates": "Bu alanda silinecek yinelenen kaynak yok",
+      "noSimilarGroups": "Benzer kaynak grubu yok.",
+      "open": "Açık",
+      "openOriginal": "Orijinali aç",
+      "otherKb": "Diğer alan {{id}}",
+      "readFailed": "Kaynak açılamadı",
+      "reextract": "Yeniden çıkart",
+      "reextractFailed": "Kaynak yeniden çıkarılamadı",
+      "reextracted": "Kaynak yeniden çıkarıldı",
+      "refresh": "Yenile",
+      "refreshChanged": "Kaynak v{{version}} olarak yenilendi",
+      "refreshFailed": "Kaynak yenilenemedi",
+      "refreshSource": "Anlık görüntüyü yenile",
+      "refreshUnchanged": "Kaynak zaten güncel",
+      "resolveSimilarConfirm": "{{name}} saklansın ve {{count}} yinelenen kaynak(lar)ı bu alandan silinsin mi?",
+      "retainedMedia": "Saklanan medya",
+      "retryFailed": "Başarısız olan içe aktarma işlemleri yeniden denenemedi",
+      "retryFailedAction": "Yeniden deneme başarısız oldu",
+      "selectImportRun": "Bir içe aktarma çalıştırması seçin.",
+      "selectKnowledgeBase": "Bilgi alanını seçin",
+      "similarCount": "{{count}} benzer gruplar",
+      "similarDismissFailed": "Benzerlik önerisi gizlenemedi",
+      "similarDismissed": "Benzerlik önerisi gizlendi",
+      "similarGroups": "Benzer kaynaklar",
+      "similarResolveFailed": "Yinelenen kaynaklar çözülemedi",
+      "similarResolved": "{{count}} kopya kaynak(lar)ı silindi",
+      "sourceDiff": "Kaynak farkı",
+      "staleSource": "Kaynak derlemeden sonra değiştirildi",
+      "supersededSource": "Daha yeni kaynak sürümü mevcut",
+      "text": "Metin",
+      "textPlaceholder": "Kaynak metni yapıştırın…",
+      "thumbnailOnly": "Yalnızca küçük resim",
+      "title": "Kaynaklar",
+      "titlePlaceholder": "Başlık",
+      "uncompiled": "derlenmemiş",
+      "url": "URL",
+      "urlKindAudio": "Ses metni",
+      "urlKindImage": "Görüntü OCR'si",
+      "urlKindPage": "Web sayfası",
+      "urlKindVideo": "Video transkripti",
+      "versionHistory": "Sürüm geçmişi",
+      "versionHistoryDesc": "{{count}} arşivlenmiş anlık görüntüler. Güncel: {{current}}",
+      "versionsFailed": "Kaynak sürümleri yüklenemedi",
+      "itemStatus": {
+        "duplicate": "Çoğalt",
+        "failed": "Başarısız",
+        "imported": "İthal",
+        "pending": "Beklemede",
+        "running": "Koşu"
+      },
+      "kind": {
+        "audioTranscript": "Ses metni",
+        "browserSnapshot": "Tarayıcı",
+        "docx": "DOCX",
+        "imageOcr": "Görüntü OCR'si",
+        "markdown": "Markdown",
+        "pdf": "PDF",
+        "text": "Metin",
+        "urlSnapshot": "URL",
+        "videoTranscript": "Video transkripti"
+      },
+      "runStatus": {
+        "completed": "Tamamlandı",
+        "completedWithErrors": "Hatalarla tamamlandı",
+        "failed": "Başarısız",
+        "running": "Koşu"
+      },
+      "similarKind": {
+        "exactDuplicate": "Tam kopya",
+        "similar": "Benzer"
+      },
+      "similarScope": {
+        "crossKb": "Çapraz alan",
+        "sameKb": "Bu alan"
+      }
+    },
+    "queryFile": {
+      "action": "Dosya",
+      "applied": "Bilgi alanına dosyalandı",
+      "apply": "Uygula",
+      "applyFailed": "Dosyalama uygulanamadı",
+      "description": "Yazmadan önce bir inceleme farkı oluşturun.",
+      "empty": "Bu yanıtın nereye ulaşması gerektiğini seçin.",
+      "generateFailed": "Başvuru teklifi oluşturulamadı",
+      "reject": "Reddet",
+      "rejected": "Dosyalama iptal edildi",
+      "rejectFailed": "Dosyalama silinemedi",
+      "review": "İncele",
+      "title": "Dosya yanıtı",
+      "titlePlaceholder": "Başlık",
+      "mode": {
+        "createNote": "Yeni not",
+        "updateCurrentNote": "Mevcut notu güncelle",
+        "appendToMoc": "MOC'ye ekle",
+        "openQuestions": "Açık Sorular"
+      },
+      "defaultTitle": "Dosyalanmış görüşme",
+      "currentNotePlaceholder": "Geçerli not yolu",
+      "openQuestionsPlaceholder": "Açık Sorularla Not",
+      "mocPlaceholder": "MOCs/Conversation Filings.md",
+      "createNotePlaceholder": "Filed Conversations/example.md"
     }
   },
   "backgroundJobs": {
@@ -5703,6 +5996,26 @@
       "interrupted": "Kesildi",
       "timed_out": "Zaman aşımı",
       "cancelled": "İptal edildi"
+    },
+    "errorOutput": "hata",
+    "liveOutput": "gerçek zamanlı çıktı",
+    "outputFile": "tam sonuçlar",
+    "resultPreview": "Sonuçların önizlemesi"
+  },
+  "browser": {
+    "panelTitle": "Tarayıcı"
+  },
+  "error": {
+    "appCrash": "Bir şeyler ters gitti",
+    "retry": "Tekrar Deneyin",
+    "unknown": "Beklenmeyen bir hata oluştu"
+  },
+  "localModels": {
+    "actions": {
+      "download": "İndir"
     }
+  },
+  "macControl": {
+    "panelTitle": "Mac Kontrolü"
   }
 }

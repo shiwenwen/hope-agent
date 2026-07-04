@@ -12,7 +12,8 @@
         "refresh": "今すぐ更新",
         "resumeMirror": "ミラーを再開",
         "takeOver": "操作を引き継ぐ",
-        "takeOverHint": "1Hz の自動更新を停止し、Chrome を直接操作します"
+        "takeOverHint": "1Hz の自動更新を停止し、Chrome を直接操作します",
+        "resizePanel": "ブラウザパネルのサイズを変更する"
       },
       "copy": "コピー",
       "details": "詳細",
@@ -85,7 +86,30 @@
       "profileRotationTitle": "プロファイル切替",
       "contextCompactedTitle": "コンテキスト圧縮",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} 件"
+      "contextCompactedMsgs": "{{count}} 件",
+      "browserExtensionRequired": {
+        "nextAction": "次のアクション: {{nextAction}}",
+        "openSettings": "[設定] > [ブラウザ] を開いて、拡張機能をインストールまたは有効にします。",
+        "title": "Chrome拡張機能が必要です"
+      },
+      "conversationEmpty": "この会話にはメッセージがありません",
+      "pendingCancelForceInsert": "このラウンドの挿入をキャンセルします",
+      "pendingFallbackAfterReply": "返信後に送信",
+      "pendingFallbackAfterReplyTip": "ツールの完了ポイントに到達していないため、現在の応答が終了した後に送信されます。",
+      "pendingForceInsertTip": "実行中のツールが完了するまで待機し、現在のツールを中断することなくモデルにツールを挿入します。",
+      "pendingInserted": "挿入された",
+      "pendingInsertedTip": "このラウンドのツーリングが完了した後、モデルに挿入されています。",
+      "pendingQueuedShort": "キューイング",
+      "pendingQueuedTip": "これは待機キューに追加されており、現在の応答が終了した後に送信されます。",
+      "pendingQueueTitle": "送信予定",
+      "pendingWaitingToolBoundary": "ツールの完了ポイントを待ちます",
+      "pendingWaitingToolBoundaryTip": "最新のツール呼び出しが完了するまで待ちます。このラウンドでツールが呼び出されなくなった場合、応答が完了した後にツールが送信されます。",
+      "processNotification": "プロセスが終了しました",
+      "rightPanel": {
+        "collapse": "右パネルを折りたたむ",
+        "expand": "右側のパネルを展開します",
+        "switch": "右パネルを切り替えます"
+      }
     },
     "effort": {
       "none": "オフ"
@@ -744,7 +768,12 @@
       },
       "serverKnowledgeAgentReadToken": "Knowledge Agent 読み取りトークン",
       "serverKnowledgeAgentReadTokenPlaceholder": "読み取り専用 Agent アクセスを無効にするには空欄",
-      "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。owner API キーも設定されている場合のみ有効になり、有効時は読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。"
+      "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。owner API キーも設定されている場合のみ有効になり、有効時は読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。",
+      "devVisualTest": "UIアニメーションのテスト",
+      "permLoading": "権限を確認しています...",
+      "uiEffects": "背景アニメーション",
+      "uiEffectsDesc": "全天候背景と天候効果の連携を有効にする",
+      "uiEffectsToggle": "エフェクトをオンにする"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -760,7 +789,15 @@
         "error": "エラー",
         "timeout": "タイムアウト",
         "killed": "終了済み"
-      }
+      },
+      "agentId": "エージェントID",
+      "childSessionId": "子セッション",
+      "duration": "期間",
+      "model": "モデル",
+      "openSession": "オープンセッション",
+      "runId": "実行ID",
+      "task": "タスク",
+      "tokens": "トークン"
     },
     "project": {
       "projects": "プロジェクト",
@@ -828,7 +865,8 @@
         "openHome": "プロジェクトホームを開く"
       },
       "openProjectSettings": "プロジェクト設定",
-      "noSessionsHint": "クリックして最初のセッションを作成"
+      "noSessionsHint": "クリックして最初のセッションを作成",
+      "projectEmojiPlaceholder": "オプション"
     },
     "provider": {
       "allowPrivateNetwork": "プライベートネットワークを許可",
@@ -876,7 +914,10 @@
       "note_distill": "ノート抽出",
       "note_moc": "コンテンツマップ",
       "session_to_note": "会話をノート化",
-      "knowledge_recall": "ナレッジ呼出"
+      "knowledge_recall": "ナレッジ呼出",
+      "execPanel": {
+        "asyncStarted": "バックグラウンドタスクが開始されました"
+      }
     },
     "cron": {
       "deliveryTargets": "結果を IM チャネルに送信",
@@ -1035,6 +1076,10 @@
             "memory_reembed": "メモリ再埋め込み"
           }
         }
+      },
+      "token": {
+        "inputTokens": "入力トークン",
+        "outputTokens": "出力トークン"
       }
     },
     "team": {
@@ -1072,7 +1117,23 @@
       "reviewer": "レビュアー",
       "noMessages": "メッセージはまだありません",
       "indicator": "チーム",
-      "indicatorMembers": "{{count}} 名のメンバー"
+      "indicatorMembers": "{{count}} 名のメンバー",
+      "loading": "読み込み中...",
+      "messagePlaceholder": "メッセージ チーム... (DM の @name)",
+      "noTasks": "タスクがありません",
+      "panelTitle": "チーム",
+      "resizePanel": "チームパネルのサイズを変更する",
+      "role": {
+        "lead": "リード",
+        "reviewer": "査読者",
+        "worker": "労働者"
+      },
+      "tab": {
+        "dashboard": "ダッシュボード",
+        "messages": "メッセージ",
+        "tasks": "タスク"
+      },
+      "view": "見る"
     },
     "about": {
       "description": "デスクトップ、本地サーバー、IMチャネルで動作し、日常の会話だけでなく、文脈保持、ツール利用、継続的な稼働にも対応します。",
@@ -1154,7 +1215,23 @@
       "layoutSplit": "分割",
       "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
       "noDiffData": "差分データがありません",
-      "resizePanel": "差分パネルのサイズを変更"
+      "resizePanel": "差分パネルのサイズを変更",
+      "actionCreate": "作成する",
+      "actionDelete": "削除する",
+      "actionEdit": "改訂",
+      "copyLocation": "現在の場所をコピーする",
+      "expandHiddenLines": "内容を変更せずに行 {{count}} を展開します",
+      "ignoreWhitespace": "空白の変更を無視する",
+      "locationCopied": "ターゲティングがコピーされました",
+      "locationCopyFailed": "コピー位置決めに失敗しました",
+      "matchingFiles": "{{shown}} / {{total}} ファイル",
+      "nextHunk": "次の変更",
+      "noMatchingFiles": "一致するファイルがありません",
+      "openLocation": "現在の行までプレビュー",
+      "prevHunk": "最終変更",
+      "renderMore": "残りの {{count}} 行を表示",
+      "searchFiles": "ファイルの検索",
+      "toggleContext": "変更されていないコンテキストを折りたたむ"
     },
     "notification": {
       "approvalRequired": "ツール承認が必要",
@@ -1235,7 +1312,10 @@
       "sessionShowMore": "もっと見る",
       "sessionShowLess": "折りたたむ",
       "environment": {
-        "version": "バージョン"
+        "version": "バージョン",
+        "gitDiffFailed": "Git diff の読み取りに失敗しました",
+        "loadingDiff": "差分の読み取り",
+        "noTextDiff": "差分を表示するテキストがありません"
       }
     },
     "fileActions": {
@@ -1306,7 +1386,17 @@
           "auto_tag": "タグ",
           "moc_upkeep": "MOC",
           "memory_to_note": "メモリ"
-        }
+        },
+        "evidenceCoverage": "証拠の網羅性",
+        "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} クレーム · {{notesWithEvidence}}/{{notes}} メモ",
+        "evidenceRebuildFailed": "証拠インデックスを再構築できませんでした",
+        "evidenceRebuilt": "{{notes}} メモ、{{refs}} 参照、{{claims}} クレームの再構築された証拠インデックス",
+        "missingEvidence": "不足している証拠",
+        "missingRefs": "参照がありません",
+        "needsReview": "見直しが必要",
+        "rebuildEvidenceTip": "派生した証拠インデックスを再構築する",
+        "schemaIssues": "スキーマの問題",
+        "staleRefs": "古い参照"
       },
       "graph": {
         "toggle": "グラフ表示",
@@ -1438,13 +1528,250 @@
       "externalRawSyncNow": "今すぐ同期",
       "externalRawSyncPartial": "{{synced}} 件のスナップショットを同期しました。{{failed}} 件が失敗しました。",
       "externalRawSyncDone": "{{count}} 件のソーススナップショットを同期しました",
-      "externalRawSyncFailed": "ソーススナップショットを同期できませんでした"
+      "externalRawSyncFailed": "ソーススナップショットを同期できませんでした",
+      "compile": {
+        "applied": "提案が適用されました",
+        "apply": "申し込む",
+        "applyFailed": "プロポーザルを適用できませんでした",
+        "cancel": "キャンセル",
+        "cancelFailed": "実行をキャンセルできませんでした",
+        "cancelled": "コンパイル実行がキャンセルされました",
+        "description": "何かを書き込む前に、生成されたノートの変更を確認します。",
+        "empty": "レビューする提案を選択してください",
+        "emptyHint": "生成された提案は、申請または拒否されるまでここに残ります。",
+        "failed": "コンパイル実行に失敗しました",
+        "loadFailed": "コンパイル実行をロードできませんでした",
+        "noProposals": "この実行に対する提案はありません。",
+        "noRuns": "まだコンパイルは実行されません。",
+        "proposals": "提案",
+        "proposalsLoadFailed": "提案を読み込めませんでした",
+        "refresh": "リフレッシュ",
+        "reject": "拒否する",
+        "rejectFailed": "提案を拒否できませんでした",
+        "rejected": "提案は拒否されました",
+        "runPending": "コンパイル実行が保留中",
+        "runSources": "{{count}} ソース",
+        "running": "ソースをコンパイル中…",
+        "runs": "走る",
+        "startFailed": "ソースをコンパイルできませんでした",
+        "startSelected": "{{count}} をコンパイルする",
+        "started": "生成された {{n}} プロポーザル",
+        "title": "ソースをコンパイルする"
+      },
+      "sources": {
+        "archiveAttachment": "知識へのアーカイブ",
+        "archiveAttachmentFailed": "添付ファイルのアーカイブに失敗しました",
+        "archivedAttachment": "ナレッジソースにアーカイブされる",
+        "browser": "ブラウザ",
+        "browserAuto": "自動",
+        "browserPage": "ページ",
+        "browserSelection": "選択",
+        "chooseFile": "ファイルの選択",
+        "comparePrevious": "以前と比較する",
+        "compileOne": "コンパイル",
+        "compileSelected": "選択したソースをコンパイルする",
+        "compiled": "コンパイル済み",
+        "compiledClaims": "このソースを使用してコンパイルされたクレーム",
+        "currentVersion": "現在",
+        "delete": "削除",
+        "deleteBody": "{{name}} を生ソースの受信箱から削除しますか?",
+        "deleteFailed": "ソースを削除できませんでした",
+        "deleteTitle": "ソースの削除",
+        "deleted": "ソースが削除されました",
+        "diffFailed": "ソースの差分をロードできませんでした",
+        "diffTruncated": "プレビューが切り詰められました",
+        "dismissSimilar": "無視する",
+        "downloadOriginal": "オリジナルをダウンロード",
+        "empty": "まだソースがありません。",
+        "evidenceSources": "情報源",
+        "externalRawPath": "外部スナップショット",
+        "file": "ファイル",
+        "import": "輸入元",
+        "importAction": "インポート",
+        "importDesc": "この知識空間に原材料を追加します。",
+        "importFailed": "ソースをインポートできませんでした",
+        "importHistory": "インポート履歴",
+        "importHistoryFailed": "インポート履歴を開けませんでした",
+        "importRunDeduped": "{{imported}} をインポートし、{{duplicate}} の重複をスキップ",
+        "importRunPartial": "{{imported}} をインポートし、{{duplicate}} の重複をスキップし、{{failed}} を失敗しました",
+        "importRunStarted": "{{count}} ソースのインポートが開始されました",
+        "imported": "インポートされたソース",
+        "importedCount": "インポートされた {{count}} ソース",
+        "keepSource": "{{name}} を維持する",
+        "loadTargetsFailed": "ナレッジスペースのロードに失敗しました",
+        "loading": "読み込み中…",
+        "loadingClaims": "証拠インデックスを読み込んでいます...",
+        "loadingDiff": "差分を読み込み中...",
+        "mediaRetained": "メディアの保持",
+        "missingSource": "ソースがありません",
+        "moreClaims": "+{{count}} 件の申し立てが増加",
+        "noCompiledClaims": "この情報源を引用した編集ノートの主張はまだありません。",
+        "noImportRuns": "インポートはまだ実行されていません。",
+        "noKb": "スペースを選択してソースを表示します。",
+        "noKnowledgeBase": "利用可能な知識スペースがありません",
+        "noLocalDuplicates": "このスペースには削除できる重複したソースはありません",
+        "noSimilarGroups": "類似のソース グループはありません。",
+        "open": "開く",
+        "openOriginal": "オリジナルを開く",
+        "otherKb": "その他の空間 {{id}}",
+        "readFailed": "オープンソースできなかった",
+        "reextract": "再抽出",
+        "reextractFailed": "ソースを再抽出できませんでした",
+        "reextracted": "ソースを再抽出しました",
+        "refresh": "リフレッシュ",
+        "refreshChanged": "ソースが v{{version}} に更新されました",
+        "refreshFailed": "ソースを更新できませんでした",
+        "refreshSource": "スナップショットを更新する",
+        "refreshUnchanged": "ソースはすでに最新です",
+        "resolveSimilarConfirm": "{{name}} を保持し、{{count}} の重複ソースをこのスペースから削除しますか?",
+        "retainedMedia": "保存されたメディア",
+        "retryFailed": "失敗したインポートを再試行できませんでした",
+        "retryFailedAction": "再試行に失敗しました",
+        "selectImportRun": "インポート実行を選択します。",
+        "selectKnowledgeBase": "ナレッジスペースの選択",
+        "similarCount": "{{count}} 類似グループ",
+        "similarDismissFailed": "類似性の提案を非表示にできませんでした",
+        "similarDismissed": "類似性の提案が非表示になりました",
+        "similarGroups": "同様の情報源",
+        "similarResolveFailed": "重複したソースを解決できませんでした",
+        "similarResolved": "{{count}} 重複ソースを削除しました",
+        "sourceDiff": "ソースの差分",
+        "staleSource": "コンパイル後にソースが変更されました",
+        "supersededSource": "新しいソースバージョンが利用可能",
+        "text": "テキスト",
+        "textPlaceholder": "ソーステキストを貼り付け…",
+        "thumbnailOnly": "サムネイルのみ",
+        "title": "情報源",
+        "titlePlaceholder": "タイトル",
+        "uncompiled": "未コンパイル",
+        "url": "URL",
+        "urlKindAudio": "音声トランスクリプト",
+        "urlKindImage": "画像OCR",
+        "urlKindPage": "ウェブページ",
+        "urlKindVideo": "ビデオトランスクリプト",
+        "versionHistory": "バージョン履歴",
+        "versionHistoryDesc": "{{count}} アーカイブされたスナップショット。現在: {{current}}",
+        "versionsFailed": "ソースバージョンをロードできませんでした",
+        "itemStatus": {
+          "duplicate": "重複",
+          "failed": "失敗しました",
+          "imported": "輸入品",
+          "pending": "保留中",
+          "running": "ランニング"
+        },
+        "kind": {
+          "audioTranscript": "音声トランスクリプト",
+          "browserSnapshot": "ブラウザ",
+          "docx": "DOCX",
+          "imageOcr": "画像OCR",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "テキスト",
+          "urlSnapshot": "URL",
+          "videoTranscript": "ビデオトランスクリプト"
+        },
+        "runStatus": {
+          "completed": "完了",
+          "completedWithErrors": "エラーありで完了しました",
+          "failed": "失敗しました",
+          "running": "ランニング"
+        },
+        "similarKind": {
+          "exactDuplicate": "完全な重複",
+          "similar": "同様の"
+        },
+        "similarScope": {
+          "crossKb": "クロススペース",
+          "sameKb": "この空間"
+        }
+      },
+      "queryFile": {
+        "action": "ファイル",
+        "applied": "ナレッジスペースにファイルされました",
+        "apply": "申し込む",
+        "applyFailed": "ファイリングを適用できませんでした",
+        "description": "書く前にレビューの差分を作成してください。",
+        "empty": "この答えがどこに着地するかを選択してください。",
+        "generateFailed": "提出提案書を作成できませんでした",
+        "reject": "拒否する",
+        "rejected": "ファイリングは破棄されました",
+        "rejectFailed": "ファイリングを破棄できませんでした",
+        "review": "レビュー",
+        "title": "回答をファイルする",
+        "titlePlaceholder": "タイトル",
+        "mode": {
+          "createNote": "新しいメモ",
+          "updateCurrentNote": "現在のメモを更新する",
+          "appendToMoc": "MOC に追加",
+          "openQuestions": "未解決の質問"
+        },
+        "defaultTitle": "ファイルされた会話",
+        "currentNotePlaceholder": "現在のノートのパス",
+        "openQuestionsPlaceholder": "未解決の質問を含むメモ",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "作成",
       "clear": "クリア",
       "on": "オン",
-      "rename": "名前を変更"
+      "rename": "名前を変更",
+      "available": "利用可能",
+      "collapse": "閉じる",
+      "expand": "拡大する",
+      "retry": "再試行",
+      "unavailable": "利用不可"
+    },
+    "backgroundJobs": {
+      "errorOutput": "間違い",
+      "liveOutput": "リアルタイム出力",
+      "outputFile": "完全な結果",
+      "resultPreview": "結果のプレビュー"
+    },
+    "browser": {
+      "panelTitle": "ブラウザ"
+    },
+    "canvas": {
+      "panelTitle": "キャンバス",
+      "resizePanel": "キャンバスパネルのサイズを変更する"
+    },
+    "error": {
+      "appCrash": "何か問題が発生しました",
+      "retry": "もう一度試してください",
+      "unknown": "予期しないエラーが発生しました"
+    },
+    "localModels": {
+      "actions": {
+        "download": "ダウンロード"
+      }
+    },
+    "macControl": {
+      "panelTitle": "マックコントロール"
+    },
+    "planMode": {
+      "resizePanel": "プランパネルのサイズ変更"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "要約レポート ID がありません。",
+        "open": "概要を開く",
+        "title": "総括レポート",
+        "waiting": "要約の進捗を待っています..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "完成しました。結果はこのチャットに挿入されました。",
+        "error": "失敗した。",
+        "killed": "キャンセル。",
+        "missingRunId": "スキル実行IDがありません。",
+        "running": "スキルサブエージェントが実行中です。結果はここに注入されます。",
+        "spawning": "スキルサブエージェントを開始しています...",
+        "timeout": "タイムアウトになりました。",
+        "title": "スキル{{skill}}"
+      },
+      "defaultName": "スキル"
     }
   },
   "ko": {
@@ -1460,7 +1787,8 @@
         "refresh": "지금 새로고침",
         "resumeMirror": "미러 다시 시작",
         "takeOver": "직접 조작",
-        "takeOverHint": "1Hz 자동 새로고침을 일시 중지하고 Chrome을 직접 조작합니다"
+        "takeOverHint": "1Hz 자동 새로고침을 일시 중지하고 Chrome을 직접 조작합니다",
+        "resizePanel": "브라우저 패널 크기 조정"
       },
       "copy": "복사",
       "details": "상세",
@@ -1533,7 +1861,30 @@
       "profileRotationTitle": "프로필 전환",
       "contextCompactedTitle": "컨텍스트 압축됨",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "메시지 {{count}}개"
+      "contextCompactedMsgs": "메시지 {{count}}개",
+      "browserExtensionRequired": {
+        "nextAction": "다음 작업: {{nextAction}}",
+        "openSettings": "설정 > 브라우저를 열어 확장 기능을 설치하거나 활성화하세요.",
+        "title": "Chrome 확장 프로그램이 필요합니다."
+      },
+      "conversationEmpty": "이 대화에는 메시지가 없습니다.",
+      "pendingCancelForceInsert": "이 라운드 삽입 취소",
+      "pendingFallbackAfterReply": "답장 후 보내기",
+      "pendingFallbackAfterReplyTip": "도구 완료 지점이 발견되지 않았으며 현재 응답이 끝난 후에 전송됩니다.",
+      "pendingForceInsertTip": "실행 중인 도구가 완료될 때까지 기다렸다가 현재 도구를 중단하지 않고 모델에 삽입합니다.",
+      "pendingInserted": "삽입됨",
+      "pendingInsertedTip": "이 툴링 라운드가 완료된 후 모델에 삽입되었습니다.",
+      "pendingQueuedShort": "대기열",
+      "pendingQueuedTip": "대기 대기열에 추가되었으며 현재 응답이 끝난 후 전송됩니다.",
+      "pendingQueueTitle": "발송 예정",
+      "pendingWaitingToolBoundary": "도구 완료 지점을 기다립니다.",
+      "pendingWaitingToolBoundaryTip": "최신 도구 호출이 완료될 때까지 기다리십시오. 이번 라운드에서 도구가 더 이상 호출되지 않으면 응답이 완료된 후 전송됩니다.",
+      "processNotification": "프로세스가 종료되었습니다",
+      "rightPanel": {
+        "collapse": "오른쪽 패널 접기",
+        "expand": "오른쪽 패널 펼치기",
+        "switch": "오른쪽 패널 전환"
+      }
     },
     "effort": {
       "none": "끄기"
@@ -2192,7 +2543,12 @@
       },
       "serverKnowledgeAgentReadToken": "Knowledge Agent 읽기 토큰",
       "serverKnowledgeAgentReadTokenPlaceholder": "읽기 전용 Agent 접근을 비활성화하려면 비워두기",
-      "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. owner API 키가 함께 설정된 경우에만 동작하며, 동작 시 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있고 owner API 권한은 부여하지 않습니다."
+      "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. owner API 키가 함께 설정된 경우에만 동작하며, 동작 시 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있고 owner API 권한은 부여하지 않습니다.",
+      "devVisualTest": "UI 애니메이션 테스트",
+      "permLoading": "권한 확인 중...",
+      "uiEffects": "배경 애니메이션",
+      "uiEffectsDesc": "전천후 배경 및 날씨 효과 연동 활성화",
+      "uiEffectsToggle": "효과 켜기"
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -2208,7 +2564,15 @@
         "error": "오류",
         "timeout": "시간 초과",
         "killed": "종료됨"
-      }
+      },
+      "agentId": "에이전트 ID",
+      "childSessionId": "하위 세션",
+      "duration": "기간",
+      "model": "모델",
+      "openSession": "세션 열기",
+      "runId": "실행 ID",
+      "task": "작업",
+      "tokens": "토큰"
     },
     "project": {
       "projects": "프로젝트",
@@ -2276,7 +2640,8 @@
         "openHome": "프로젝트 홈 열기"
       },
       "openProjectSettings": "프로젝트 설정",
-      "noSessionsHint": "클릭하여 첫 세션 만들기"
+      "noSessionsHint": "클릭하여 첫 세션 만들기",
+      "projectEmojiPlaceholder": "선택사항"
     },
     "provider": {
       "allowPrivateNetwork": "사설 네트워크 허용",
@@ -2324,7 +2689,10 @@
       "note_distill": "노트 정제",
       "note_moc": "주제 지도",
       "session_to_note": "대화를 노트로",
-      "knowledge_recall": "지식 호출"
+      "knowledge_recall": "지식 호출",
+      "execPanel": {
+        "asyncStarted": "백그라운드 작업이 시작되었습니다."
+      }
     },
     "cron": {
       "deliveryTargets": "결과를 IM 채널로 전송",
@@ -2483,6 +2851,10 @@
             "memory_reembed": "메모리 재임베딩"
           }
         }
+      },
+      "token": {
+        "inputTokens": "입력 토큰",
+        "outputTokens": "출력 토큰"
       }
     },
     "team": {
@@ -2520,7 +2892,23 @@
       "reviewer": "검토자",
       "noMessages": "아직 메시지가 없습니다",
       "indicator": "팀",
-      "indicatorMembers": "멤버 {{count}}명"
+      "indicatorMembers": "멤버 {{count}}명",
+      "loading": "로드 중...",
+      "messagePlaceholder": "메시지 팀... (DM의 경우 @이름)",
+      "noTasks": "작업 없음",
+      "panelTitle": "팀",
+      "resizePanel": "팀 패널 크기 조정",
+      "role": {
+        "lead": "납",
+        "reviewer": "리뷰어",
+        "worker": "노동자"
+      },
+      "tab": {
+        "dashboard": "대시보드",
+        "messages": "메시지",
+        "tasks": "작업"
+      },
+      "view": "보기"
     },
     "about": {
       "description": "데스크톱, 로컬 서버, IM 채널에서 실행되며, 일상적인 대화뿐 아니라 문맥 유지, 도구 호출, 지속적인 동작까지 지원합니다.",
@@ -2602,7 +2990,23 @@
       "layoutSplit": "분할",
       "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",
       "noDiffData": "diff 데이터 없음",
-      "resizePanel": "diff 패널 크기 조절"
+      "resizePanel": "diff 패널 크기 조절",
+      "actionCreate": "창조하다",
+      "actionDelete": "삭제",
+      "actionEdit": "수정하다",
+      "copyLocation": "현재 위치 복사",
+      "expandHiddenLines": "내용을 변경하지 않고 행 {{count}} 확장",
+      "ignoreWhitespace": "공백 변경 무시",
+      "locationCopied": "타겟팅이 복사되었습니다.",
+      "locationCopyFailed": "복사 위치 지정 실패",
+      "matchingFiles": "{{shown}}/{{total}} 파일",
+      "nextHunk": "다음 변경사항",
+      "noMatchingFiles": "일치하는 파일이 없습니다.",
+      "openLocation": "현재 줄 미리보기",
+      "prevHunk": "마지막 변경",
+      "renderMore": "나머지 {{count}} 행 표시",
+      "searchFiles": "파일 검색",
+      "toggleContext": "변경되지 않은 컨텍스트 접기"
     },
     "notification": {
       "approvalRequired": "도구 승인이 필요합니다",
@@ -2683,7 +3087,10 @@
       "sessionShowMore": "더 보기",
       "sessionShowLess": "접기",
       "environment": {
-        "version": "버전"
+        "version": "버전",
+        "gitDiffFailed": "Git diff를 읽는 데 실패했습니다.",
+        "loadingDiff": "차이점 읽기",
+        "noTextDiff": "차이점을 표시할 텍스트가 없습니다."
       }
     },
     "fileActions": {
@@ -2754,7 +3161,17 @@
           "auto_tag": "태그",
           "moc_upkeep": "MOC",
           "memory_to_note": "메모리"
-        }
+        },
+        "evidenceCoverage": "증거 범위",
+        "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 주장 · {{notesWithEvidence}}/{{notes}} 참고",
+        "evidenceRebuildFailed": "증거 색인을 다시 작성할 수 없습니다.",
+        "evidenceRebuilt": "{{notes}} 메모, {{refs}} 참조, {{claims}} 주장에 대한 증거 색인 재구성",
+        "missingEvidence": "누락된 증거",
+        "missingRefs": "참조가 누락되었습니다.",
+        "needsReview": "검토 필요",
+        "rebuildEvidenceTip": "파생 증거 인덱스 다시 작성",
+        "schemaIssues": "스키마 문제",
+        "staleRefs": "오래된 심판"
       },
       "graph": {
         "toggle": "그래프 보기",
@@ -2886,13 +3303,250 @@
       "externalRawSyncNow": "지금 동기화",
       "externalRawSyncPartial": "스냅샷 {{synced}}개 동기화됨, {{failed}}개 실패.",
       "externalRawSyncDone": "소스 스냅샷 {{count}}개 동기화됨",
-      "externalRawSyncFailed": "소스 스냅샷을 동기화할 수 없습니다"
+      "externalRawSyncFailed": "소스 스냅샷을 동기화할 수 없습니다",
+      "compile": {
+        "applied": "제안이 적용되었습니다.",
+        "apply": "적용",
+        "applyFailed": "제안을 적용할 수 없습니다.",
+        "cancel": "취소",
+        "cancelFailed": "실행을 취소할 수 없습니다.",
+        "cancelled": "컴파일 실행이 취소되었습니다.",
+        "description": "무언가를 작성하기 전에 생성된 메모 변경 사항을 검토하세요.",
+        "empty": "검토할 제안을 선택하세요.",
+        "emptyHint": "생성된 제안은 적용하거나 거부할 때까지 여기에 유지됩니다.",
+        "failed": "컴파일 실행 실패",
+        "loadFailed": "컴파일 실행을 로드할 수 없습니다.",
+        "noProposals": "이번 실행에 대한 제안이 없습니다.",
+        "noRuns": "아직 컴파일이 실행되지 않습니다.",
+        "proposals": "제안",
+        "proposalsLoadFailed": "제안을 로드할 수 없습니다.",
+        "refresh": "새로고침",
+        "reject": "거부",
+        "rejectFailed": "제안을 거부할 수 없습니다.",
+        "rejected": "제안이 거부됨",
+        "runPending": "컴파일 실행 보류 중",
+        "runSources": "{{count}} 소스",
+        "running": "소스 컴파일 중…",
+        "runs": "실행",
+        "startFailed": "소스를 컴파일할 수 없습니다.",
+        "startSelected": "{{count}} 컴파일",
+        "started": "생성된 {{n}} 제안",
+        "title": "소스 컴파일"
+      },
+      "sources": {
+        "archiveAttachment": "지식으로 아카이브",
+        "archiveAttachmentFailed": "첨부파일을 보관하지 못했습니다.",
+        "archivedAttachment": "지식 소스에 보관됨",
+        "browser": "브라우저",
+        "browserAuto": "자동",
+        "browserPage": "페이지",
+        "browserSelection": "선택",
+        "chooseFile": "파일 선택",
+        "comparePrevious": "이전 비교",
+        "compileOne": "컴파일",
+        "compileSelected": "선택한 소스 컴파일",
+        "compiled": "컴파일됨",
+        "compiledClaims": "이 소스를 사용하여 컴파일된 소유권 주장",
+        "currentVersion": "현재",
+        "delete": "삭제",
+        "deleteBody": "원시 소스 받은 편지함에서 {{name}}를 삭제하시겠습니까?",
+        "deleteFailed": "소스를 삭제할 수 없습니다.",
+        "deleteTitle": "소스 삭제",
+        "deleted": "소스가 삭제되었습니다.",
+        "diffFailed": "소스 차이점을 로드할 수 없습니다.",
+        "diffTruncated": "잘린 미리보기",
+        "dismissSimilar": "무시",
+        "downloadOriginal": "원본 다운로드",
+        "empty": "아직 소스가 없습니다.",
+        "evidenceSources": "출처",
+        "externalRawPath": "외부 스냅샷",
+        "file": "파일",
+        "import": "수입원",
+        "importAction": "가져오기",
+        "importDesc": "이 지식 공간에 원자재를 추가하세요.",
+        "importFailed": "소스를 가져올 수 없습니다.",
+        "importHistory": "수입 내역",
+        "importHistoryFailed": "가져오기 기록을 열 수 없습니다.",
+        "importRunDeduped": "{{imported}} 가져오기, {{duplicate}} 중복 건너뛰기",
+        "importRunPartial": "{{imported}} 가져오기, {{duplicate}} 중복 건너뛰기, {{failed}} 실패",
+        "importRunStarted": "{{count}} 소스에 대한 가져오기가 시작되었습니다.",
+        "imported": "가져온 소스",
+        "importedCount": "가져온 {{count}} 소스",
+        "keepSource": "{{name}} 유지",
+        "loadTargetsFailed": "지식 공간을 로드하지 못했습니다.",
+        "loading": "로드 중…",
+        "loadingClaims": "증거 색인 로드 중...",
+        "loadingDiff": "차이점 로드 중...",
+        "mediaRetained": "미디어 보유",
+        "missingSource": "소스 누락",
+        "moreClaims": "+{{count}}개 이상의 주장",
+        "noCompiledClaims": "아직 이 출처를 인용한 컴파일된 메모 주장이 없습니다.",
+        "noImportRuns": "아직 가져오기가 실행되지 않습니다.",
+        "noKb": "소스를 보려면 스페이스를 선택하세요.",
+        "noKnowledgeBase": "지식 공간이 없습니다.",
+        "noLocalDuplicates": "이 공간에는 삭제할 중복 소스가 없습니다.",
+        "noSimilarGroups": "유사한 소스 그룹이 없습니다.",
+        "open": "열기",
+        "openOriginal": "원본 열기",
+        "otherKb": "다른 공간 {{id}}",
+        "readFailed": "소스를 오픈할 수 없습니다",
+        "reextract": "재추출",
+        "reextractFailed": "소스를 다시 추출할 수 없습니다.",
+        "reextracted": "소스를 다시 추출했습니다.",
+        "refresh": "새로고침",
+        "refreshChanged": "소스가 v{{version}}로 새로 고쳐졌습니다.",
+        "refreshFailed": "소스를 새로고침할 수 없습니다.",
+        "refreshSource": "스냅샷 새로고침",
+        "refreshUnchanged": "소스가 이미 최신 상태입니다.",
+        "resolveSimilarConfirm": "{{name}}를 유지하고 이 공간에서 {{count}} 중복 소스를 삭제하시겠습니까?",
+        "retainedMedia": "보유 미디어",
+        "retryFailed": "실패한 가져오기를 다시 시도할 수 없습니다.",
+        "retryFailedAction": "재시도 실패",
+        "selectImportRun": "가져오기 실행을 선택합니다.",
+        "selectKnowledgeBase": "지식 공간 선택",
+        "similarCount": "{{count}} 유사한 그룹",
+        "similarDismissFailed": "유사성 제안을 숨길 수 없습니다.",
+        "similarDismissed": "유사성 제안이 숨겨졌습니다.",
+        "similarGroups": "유사한 소스",
+        "similarResolveFailed": "중복된 소스를 해결할 수 없습니다.",
+        "similarResolved": "{{count}} 중복 소스가 삭제되었습니다.",
+        "sourceDiff": "소스 차이",
+        "staleSource": "컴파일 후 소스가 변경됨",
+        "supersededSource": "최신 소스 버전 사용 가능",
+        "text": "텍스트",
+        "textPlaceholder": "원본 텍스트 붙여넣기…",
+        "thumbnailOnly": "썸네일만",
+        "title": "출처",
+        "titlePlaceholder": "제목",
+        "uncompiled": "컴파일되지 않은",
+        "url": "URL",
+        "urlKindAudio": "오디오 대본",
+        "urlKindImage": "이미지 OCR",
+        "urlKindPage": "웹페이지",
+        "urlKindVideo": "비디오 대본",
+        "versionHistory": "버전 기록",
+        "versionHistoryDesc": "{{count}} 보관된 스냅샷. 현재: {{current}}",
+        "versionsFailed": "소스 버전을 로드할 수 없습니다.",
+        "itemStatus": {
+          "duplicate": "중복",
+          "failed": "실패",
+          "imported": "수입됨",
+          "pending": "보류 중",
+          "running": "달리기"
+        },
+        "kind": {
+          "audioTranscript": "오디오 대본",
+          "browserSnapshot": "브라우저",
+          "docx": "DOCX",
+          "imageOcr": "이미지 OCR",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "텍스트",
+          "urlSnapshot": "URL",
+          "videoTranscript": "비디오 대본"
+        },
+        "runStatus": {
+          "completed": "완료됨",
+          "completedWithErrors": "오류가 있지만 완료됨",
+          "failed": "실패",
+          "running": "달리기"
+        },
+        "similarKind": {
+          "exactDuplicate": "정확히 중복됨",
+          "similar": "유사한"
+        },
+        "similarScope": {
+          "crossKb": "교차 공간",
+          "sameKb": "이 공간"
+        }
+      },
+      "queryFile": {
+        "action": "파일",
+        "applied": "지식공간에 출원",
+        "apply": "적용",
+        "applyFailed": "파일링을 적용할 수 없습니다.",
+        "description": "글을 쓰기 전에 리뷰 차이점을 만드세요.",
+        "empty": "이 답변이 어디에 도착해야 하는지 선택하세요.",
+        "generateFailed": "제출 제안서를 생성할 수 없습니다.",
+        "reject": "거부",
+        "rejected": "제출이 삭제되었습니다.",
+        "rejectFailed": "파일링을 삭제할 수 없습니다.",
+        "review": "검토",
+        "title": "파일 답변",
+        "titlePlaceholder": "제목",
+        "mode": {
+          "createNote": "새 메모",
+          "updateCurrentNote": "현재 메모 업데이트",
+          "appendToMoc": "MOC에 추가",
+          "openQuestions": "공개 질문"
+        },
+        "defaultTitle": "제출된 대화",
+        "currentNotePlaceholder": "현재 노트 경로",
+        "openQuestionsPlaceholder": "공개 질문이 있는 메모",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "만들기",
       "clear": "지우기",
       "on": "켜짐",
-      "rename": "이름 변경"
+      "rename": "이름 변경",
+      "available": "가능",
+      "collapse": "닫기",
+      "expand": "펼치기",
+      "retry": "재시도",
+      "unavailable": "이용 불가"
+    },
+    "backgroundJobs": {
+      "errorOutput": "실수",
+      "liveOutput": "실시간 출력",
+      "outputFile": "전체 결과",
+      "resultPreview": "결과 미리보기"
+    },
+    "browser": {
+      "panelTitle": "브라우저"
+    },
+    "canvas": {
+      "panelTitle": "캔버스",
+      "resizePanel": "캔버스 패널 크기 조정"
+    },
+    "error": {
+      "appCrash": "문제가 발생했습니다.",
+      "retry": "다시 시도",
+      "unknown": "예상치 못한 오류가 발생했습니다."
+    },
+    "localModels": {
+      "actions": {
+        "download": "다운로드"
+      }
+    },
+    "macControl": {
+      "panelTitle": "맥 컨트롤"
+    },
+    "planMode": {
+      "resizePanel": "계획 패널 크기 조정"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "요약 보고서 ID가 누락되었습니다.",
+        "open": "요약 열기",
+        "title": "요약 보고서",
+        "waiting": "요약 진행을 기다리는 중..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "완료되었습니다. 결과가 이 채팅에 주입되었습니다.",
+        "error": "실패한.",
+        "killed": "취소.",
+        "missingRunId": "스킬 실행 ID가 누락되었습니다.",
+        "running": "스킬 하위 에이전트가 실행 중입니다. 결과가 여기에 주입됩니다.",
+        "spawning": "스킬 하위 에이전트 시작 중...",
+        "timeout": "시간이 초과되었습니다.",
+        "title": "스킬 {{skill}}"
+      },
+      "defaultName": "기술"
     }
   },
   "zh-TW": {
@@ -2908,7 +3562,8 @@
         "refresh": "立即重新整理",
         "resumeMirror": "繼續鏡像",
         "takeOver": "我來操作",
-        "takeOverHint": "暫停 1Hz 自動重新整理，你在 Chrome 中手動操作"
+        "takeOverHint": "暫停 1Hz 自動重新整理，你在 Chrome 中手動操作",
+        "resizePanel": "調整瀏覽器面板大小"
       },
       "copy": "複製",
       "details": "詳情",
@@ -2981,7 +3636,30 @@
       "profileRotationTitle": "設定切換",
       "contextCompactedTitle": "上下文已壓縮",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} 則"
+      "contextCompactedMsgs": "{{count}} 則",
+      "browserExtensionRequired": {
+        "nextAction": "下一步行動：{{nextAction}}",
+        "openSettings": "開啟“設定”>“瀏覽器”以安裝或啟用擴充功能。",
+        "title": "需要 Chrome 擴充功能"
+      },
+      "conversationEmpty": "此對話中沒有消息",
+      "pendingCancelForceInsert": "取消本輪插入",
+      "pendingFallbackAfterReply": "回覆後發送",
+      "pendingFallbackAfterReplyTip": "尚未遇到工具完成點，將在當前回覆結束後發送。",
+      "pendingForceInsertTip": "它將等待正在執行的刀具完成，然後將其插入到模型中，而不中斷當前的刀具。",
+      "pendingInserted": "插入",
+      "pendingInsertedTip": "本輪加工完成後已將其插入模型中。",
+      "pendingQueuedShort": "排隊",
+      "pendingQueuedTip": "已加入等待佇列，當前回覆結束後發送。",
+      "pendingQueueTitle": "待發送",
+      "pendingWaitingToolBoundary": "等待工具完成點",
+      "pendingWaitingToolBoundaryTip": "等待最新的工具呼叫完成；如果本輪不再呼叫該工具，則會在回覆完成後發送。",
+      "processNotification": "行程結束",
+      "rightPanel": {
+        "collapse": "折疊右側面板",
+        "expand": "展開右側面板",
+        "switch": "切換右側面板"
+      }
     },
     "effort": {
       "none": "關閉"
@@ -3640,7 +4318,12 @@
       },
       "serverKnowledgeAgentReadToken": "知識空間 Agent 唯讀 Token",
       "serverKnowledgeAgentReadTokenPlaceholder": "留空則關閉唯讀 Agent 存取",
-      "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。"
+      "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。",
+      "devVisualTest": "UI動畫測試",
+      "permLoading": "正在檢查權限...",
+      "uiEffects": "背景動畫",
+      "uiEffectsDesc": "啟用全天候背景和天氣效果連動",
+      "uiEffectsToggle": "開啟效果"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -3656,7 +4339,15 @@
         "error": "發生錯誤",
         "timeout": "逾時",
         "killed": "已終止"
-      }
+      },
+      "agentId": "代理 ID",
+      "childSessionId": "兒童會議",
+      "duration": "持續時間",
+      "model": "型號",
+      "openSession": "公開會議",
+      "runId": "運行ID",
+      "task": "任務",
+      "tokens": "代幣"
     },
     "project": {
       "projects": "專案",
@@ -3724,7 +4415,8 @@
         "openHome": "開啟專案首頁"
       },
       "openProjectSettings": "專案設定",
-      "noSessionsHint": "點擊建立第一個對話"
+      "noSessionsHint": "點擊建立第一個對話",
+      "projectEmojiPlaceholder": "可選"
     },
     "provider": {
       "allowPrivateNetwork": "允許私有網路",
@@ -3772,7 +4464,10 @@
       "note_distill": "提煉筆記",
       "note_moc": "主題地圖",
       "session_to_note": "對話存為筆記",
-      "knowledge_recall": "知識召回"
+      "knowledge_recall": "知識召回",
+      "execPanel": {
+        "asyncStarted": "後台任務開始"
+      }
     },
     "cron": {
       "deliveryTargets": "將結果傳送至 IM 頻道",
@@ -3931,6 +4626,10 @@
             "memory_reembed": "記憶重嵌入"
           }
         }
+      },
+      "token": {
+        "inputTokens": "輸入令牌",
+        "outputTokens": "輸出代幣"
       }
     },
     "team": {
@@ -3968,7 +4667,23 @@
       "reviewer": "審查者",
       "noMessages": "尚無訊息",
       "indicator": "團隊",
-      "indicatorMembers": "{{count}} 名成員"
+      "indicatorMembers": "{{count}} 名成員",
+      "loading": "正在加載...",
+      "messagePlaceholder": "訊息團隊...（DM 的@name）",
+      "noTasks": "沒有任務",
+      "panelTitle": "團隊",
+      "resizePanel": "調整團隊面板大小",
+      "role": {
+        "lead": "鉛",
+        "reviewer": "審稿人",
+        "worker": "勞工"
+      },
+      "tab": {
+        "dashboard": "儀表板",
+        "messages": "留言",
+        "tasks": "任務"
+      },
+      "view": "查看"
     },
     "about": {
       "description": "它可以運行在桌面、本地伺服器和 IM 渠道裡，既能日常聊天，也能保留上下文、調用工具並持續工作。",
@@ -4050,7 +4765,23 @@
       "layoutSplit": "拆分",
       "fileTooLarge": "檔案過大，僅渲染前 256KB",
       "noDiffData": "無 diff 資料",
-      "resizePanel": "調整 diff 面板寬度"
+      "resizePanel": "調整 diff 面板寬度",
+      "actionCreate": "創造",
+      "actionDelete": "刪除",
+      "actionEdit": "修改",
+      "copyLocation": "複製目前位置",
+      "expandHiddenLines": "展開{{count}}行，內容不變",
+      "ignoreWhitespace": "忽略空格變化",
+      "locationCopied": "定位已複製",
+      "locationCopyFailed": "複製定位失敗",
+      "matchingFiles": "{{shown}} / {{total}} 文件",
+      "nextHunk": "下一步更改",
+      "noMatchingFiles": "沒有匹配的文件",
+      "openLocation": "預覽到目前行",
+      "prevHunk": "最後更改",
+      "renderMore": "顯示剩餘的 {{count}} 行",
+      "searchFiles": "搜尋文件",
+      "toggleContext": "折疊未更改的上下文"
     },
     "notification": {
       "approvalRequired": "需要工具審批",
@@ -4171,7 +4902,17 @@
           "auto_tag": "標籤",
           "moc_upkeep": "MOC",
           "memory_to_note": "記憶"
-        }
+        },
+        "evidenceCoverage": "證據覆蓋範圍",
+        "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 聲明 · {{notesWithEvidence}}/{{notes}} 註釋",
+        "evidenceRebuildFailed": "無法重建證據索引",
+        "evidenceRebuilt": "重建 {{notes}} 票據、{{refs}} 參考文獻、{{claims}} 聲明的證據索引",
+        "missingEvidence": "證據缺失",
+        "missingRefs": "缺少裁判",
+        "needsReview": "需要審查",
+        "rebuildEvidenceTip": "重建派生證據索引",
+        "schemaIssues": "架構問題",
+        "staleRefs": "過時的參考文獻"
       },
       "graph": {
         "toggle": "圖譜檢視",
@@ -4303,13 +5044,200 @@
       "externalRawSyncNow": "立即同步",
       "externalRawSyncPartial": "已同步 {{synced}} 個快照；{{failed}} 個失敗。",
       "externalRawSyncDone": "已同步 {{count}} 個資料快照",
-      "externalRawSyncFailed": "無法同步資料快照"
+      "externalRawSyncFailed": "無法同步資料快照",
+      "compile": {
+        "applied": "已套用建議",
+        "apply": "套用",
+        "applyFailed": "無法套用建議",
+        "cancel": "取消",
+        "cancelFailed": "無法取消執行",
+        "cancelled": "編譯執行已取消",
+        "description": "在寫入任何內容前先審閱產生的筆記變更。",
+        "empty": "選擇一個建議進行審閱",
+        "emptyHint": "產生的建議會保留在這裡，直到你套用或忽略。",
+        "failed": "編譯執行失敗",
+        "loadFailed": "無法載入編譯執行",
+        "noProposals": "本次執行沒有建議。",
+        "noRuns": "還沒有編譯執行。",
+        "proposals": "建議",
+        "proposalsLoadFailed": "無法載入建議",
+        "refresh": "重新整理",
+        "reject": "忽略",
+        "rejectFailed": "無法忽略建議",
+        "rejected": "已忽略建議",
+        "runPending": "編譯執行等待中",
+        "runSources": "{{count}} 個資料",
+        "running": "正在編譯資料…",
+        "runs": "執行",
+        "startFailed": "無法編譯資料",
+        "startSelected": "編譯 {{count}} 個",
+        "started": "已產生 {{n}} 條建議",
+        "title": "編譯資料"
+      },
+      "sources": {
+        "archiveAttachment": "歸檔到知識空間",
+        "archiveAttachmentFailed": "附件歸檔失敗",
+        "archivedAttachment": "已歸檔到知識資料",
+        "browser": "瀏覽器",
+        "browserAuto": "自動",
+        "browserPage": "整頁",
+        "browserSelection": "選取範圍",
+        "chooseFile": "選擇檔案",
+        "comparePrevious": "比較上一版",
+        "compileOne": "編譯",
+        "compileSelected": "編譯所選資料",
+        "compiled": "已編譯",
+        "compiledClaims": "使用此資料的已編譯結論",
+        "currentVersion": "目前",
+        "delete": "刪除",
+        "deleteBody": "要從原始資料艙刪除「{{name}}」嗎？",
+        "deleteFailed": "無法刪除資料",
+        "deleteTitle": "刪除資料",
+        "deleted": "資料已刪除",
+        "diffFailed": "無法載入資料差異",
+        "diffTruncated": "預覽已截斷",
+        "dismissSimilar": "忽略",
+        "downloadOriginal": "下載原件",
+        "empty": "還沒有資料。",
+        "evidenceSources": "資料來源",
+        "externalRawPath": "外部快照",
+        "file": "檔案",
+        "import": "匯入資料",
+        "importAction": "匯入",
+        "importDesc": "向這個知識空間加入原始資料。",
+        "importFailed": "無法匯入資料",
+        "importHistory": "匯入歷史",
+        "importHistoryFailed": "無法開啟匯入歷史",
+        "importRunDeduped": "已匯入 {{imported}} 個，略過 {{duplicate}} 個重複項",
+        "importRunPartial": "已匯入 {{imported}} 個，略過 {{duplicate}} 個重複項，失敗 {{failed}} 個",
+        "importRunStarted": "已開始匯入 {{count}} 個資料",
+        "imported": "資料已匯入",
+        "importedCount": "已匯入 {{count}} 個資料",
+        "keepSource": "保留「{{name}}」",
+        "loadTargetsFailed": "無法載入知識空間",
+        "loading": "正在載入…",
+        "loadingClaims": "正在載入證據索引…",
+        "loadingDiff": "正在載入差異…",
+        "mediaRetained": "已留存媒體",
+        "missingSource": "資料缺失",
+        "moreClaims": "還有 {{count}} 條結論",
+        "noCompiledClaims": "還沒有已編譯筆記結論引用此資料。",
+        "noImportRuns": "還沒有匯入執行。",
+        "noKb": "選擇一個空間以查看資料。",
+        "noKnowledgeBase": "沒有可用的知識空間",
+        "noLocalDuplicates": "此空間中沒有可刪除的重複資料",
+        "noSimilarGroups": "沒有相似資料分組。",
+        "open": "開啟",
+        "openOriginal": "開啟原件",
+        "otherKb": "其他空間 {{id}}",
+        "readFailed": "無法開啟資料",
+        "reextract": "重新擷取",
+        "reextractFailed": "無法重新擷取資料",
+        "reextracted": "資料已重新擷取",
+        "refresh": "重新整理",
+        "refreshChanged": "資料已重新整理到 v{{version}}",
+        "refreshFailed": "無法重新整理資料",
+        "refreshSource": "重新整理快照",
+        "refreshUnchanged": "資料已是最新",
+        "resolveSimilarConfirm": "保留「{{name}}」並從此空間刪除 {{count}} 個重複資料嗎？",
+        "retainedMedia": "已留存媒體",
+        "retryFailed": "無法重試失敗匯入",
+        "retryFailedAction": "重試失敗項",
+        "selectImportRun": "選擇一次匯入執行。",
+        "selectKnowledgeBase": "選擇知識空間",
+        "similarCount": "{{count}} 個相似分組",
+        "similarDismissFailed": "無法隱藏相似建議",
+        "similarDismissed": "已隱藏相似建議",
+        "similarGroups": "相似資料",
+        "similarResolveFailed": "無法處理重複資料",
+        "similarResolved": "已刪除 {{count}} 個重複資料",
+        "sourceDiff": "資料差異",
+        "staleSource": "編譯後資料已變更",
+        "supersededSource": "有更新的資料版本",
+        "text": "文字",
+        "textPlaceholder": "貼上資料文字…",
+        "thumbnailOnly": "僅縮圖",
+        "title": "資料",
+        "titlePlaceholder": "標題",
+        "uncompiled": "未編譯",
+        "url": "URL",
+        "urlKindAudio": "音訊轉錄",
+        "urlKindImage": "圖片 OCR",
+        "urlKindPage": "網頁",
+        "urlKindVideo": "影片轉錄",
+        "versionHistory": "版本歷史",
+        "versionHistoryDesc": "{{count}} 個已歸檔快照。目前：{{current}}",
+        "versionsFailed": "無法載入資料版本",
+        "itemStatus": {
+          "duplicate": "重複",
+          "failed": "失敗",
+          "imported": "已匯入",
+          "pending": "等待中",
+          "running": "執行中"
+        },
+        "kind": {
+          "audioTranscript": "音訊轉錄",
+          "browserSnapshot": "瀏覽器",
+          "docx": "DOCX",
+          "imageOcr": "圖片 OCR",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "文字",
+          "urlSnapshot": "URL",
+          "videoTranscript": "影片轉錄"
+        },
+        "runStatus": {
+          "completed": "已完成",
+          "completedWithErrors": "完成但有錯誤",
+          "failed": "失敗",
+          "running": "執行中"
+        },
+        "similarKind": {
+          "exactDuplicate": "完全重複",
+          "similar": "相似"
+        },
+        "similarScope": {
+          "crossKb": "跨空間",
+          "sameKb": "此空間"
+        }
+      },
+      "queryFile": {
+        "action": "文件",
+        "applied": "提交至知識空間",
+        "apply": "申請",
+        "applyFailed": "無法申請備案",
+        "description": "在寫作之前創建一個審查差異。",
+        "empty": "選擇這個答案應該落在哪裡。",
+        "generateFailed": "無法建立歸檔提案",
+        "reject": "拒絕",
+        "rejected": "歸檔被放棄",
+        "rejectFailed": "無法放棄歸檔",
+        "review": "評論",
+        "title": "歸檔答案",
+        "titlePlaceholder": "標題",
+        "mode": {
+          "createNote": "新建筆記",
+          "updateCurrentNote": "更新目前筆記",
+          "appendToMoc": "加入 MOC",
+          "openQuestions": "開放問題"
+        },
+        "defaultTitle": "歸檔對話",
+        "currentNotePlaceholder": "目前筆記路徑",
+        "openQuestionsPlaceholder": "帶開放問題的筆記",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "建立",
       "clear": "清除",
       "on": "開",
-      "rename": "重新命名"
+      "rename": "重新命名",
+      "available": "可用",
+      "collapse": "關閉",
+      "expand": "展開",
+      "retry": "重試",
+      "unavailable": "不可用"
     },
     "workspace": {
       "sectionKnowledge": "知識空間",
@@ -4322,8 +5250,61 @@
       "sessionShowMore": "展開更多",
       "sessionShowLess": "收起",
       "environment": {
-        "version": "版本"
+        "version": "版本",
+        "gitDiffFailed": "讀取 Git diff 失敗",
+        "loadingDiff": "讀取差異",
+        "noTextDiff": "沒有文字可顯示差異"
       }
+    },
+    "backgroundJobs": {
+      "errorOutput": "錯誤",
+      "liveOutput": "即時輸出",
+      "outputFile": "完整結果",
+      "resultPreview": "結果預覽"
+    },
+    "browser": {
+      "panelTitle": "瀏覽器"
+    },
+    "canvas": {
+      "panelTitle": "帆布",
+      "resizePanel": "調整畫布面板大小"
+    },
+    "error": {
+      "appCrash": "出了點問題",
+      "retry": "再試一次",
+      "unknown": "發生意外錯誤"
+    },
+    "localModels": {
+      "actions": {
+        "download": "下載"
+      }
+    },
+    "macControl": {
+      "panelTitle": "蘋果電腦控制"
+    },
+    "planMode": {
+      "resizePanel": "調整計劃面板的大小"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "缺少回顧報告 ID。",
+        "open": "打開回顧",
+        "title": "報告回顧",
+        "waiting": "等待回顧進展..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "已完成。結果已被注入到此聊天中。",
+        "error": "失敗的。",
+        "killed": "取消。",
+        "missingRunId": "技能運作 ID 遺失。",
+        "running": "技能子代理正在運作。結果將被注入此處。",
+        "spawning": "啟動技能子代理程式...",
+        "timeout": "超時了。",
+        "title": "技能{{skill}}"
+      },
+      "defaultName": "技能"
     }
   },
   "tr": {
@@ -4339,7 +5320,8 @@
         "refresh": "Şimdi yenile",
         "resumeMirror": "Aynayı sürdür",
         "takeOver": "Devral",
-        "takeOverHint": "1Hz otomatik yenilemeyi duraklatın ve Chrome'u kendiniz kontrol edin"
+        "takeOverHint": "1Hz otomatik yenilemeyi duraklatın ve Chrome'u kendiniz kontrol edin",
+        "resizePanel": "Tarayıcı panelini yeniden boyutlandır"
       },
       "copy": "Kopyala",
       "details": "Ayrıntılar",
@@ -4412,7 +5394,30 @@
       "profileRotationTitle": "Profil değişimi",
       "contextCompactedTitle": "Bağlam sıkıştırıldı",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} mesaj"
+      "contextCompactedMsgs": "{{count}} mesaj",
+      "browserExtensionRequired": {
+        "nextAction": "Sonraki eylem: {{nextAction}}",
+        "openSettings": "Uzantıyı yüklemek veya etkinleştirmek için Ayarlar > Tarayıcı'yı açın.",
+        "title": "Chrome uzantısı gerekli"
+      },
+      "conversationEmpty": "Bu görüşmede mesaj yok",
+      "pendingCancelForceInsert": "Bu turun eklenmesini iptal et",
+      "pendingFallbackAfterReply": "Cevaptan sonra gönder",
+      "pendingFallbackAfterReplyTip": "Araç tamamlama noktasıyla karşılaşılmadı ve mevcut yanıt sona erdikten sonra gönderilecek.",
+      "pendingForceInsertTip": "Yürütülen takım tamamlanana kadar bekleyecek ve ardından mevcut takımı kesintiye uğratmadan onu modele yerleştirecektir.",
+      "pendingInserted": "yerleştirildi",
+      "pendingInsertedTip": "Bu takımlama turu tamamlandıktan sonra modele eklenmiştir.",
+      "pendingQueuedShort": "Sıraya girme",
+      "pendingQueuedTip": "Bekleme kuyruğuna eklendi ve mevcut yanıt bittikten sonra gönderilecek.",
+      "pendingQueueTitle": "Gönderilecek",
+      "pendingWaitingToolBoundary": "Takım tamamlanma noktasını bekleyin",
+      "pendingWaitingToolBoundaryTip": "En son araç çağrısının tamamlanmasını bekleyin; Araç artık bu turda çağrılmazsa, yanıt tamamlandıktan sonra gönderilecektir.",
+      "processNotification": "süreç sona erdi",
+      "rightPanel": {
+        "collapse": "Sağ paneli daralt",
+        "expand": "Sağ paneli genişlet",
+        "switch": "Sağ paneli değiştir"
+      }
     },
     "effort": {
       "none": "Kapalı"
@@ -5071,7 +6076,12 @@
       },
       "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
       "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
-      "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez."
+      "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez.",
+      "devVisualTest": "Kullanıcı arayüzü animasyon testi",
+      "permLoading": "İzinler kontrol ediliyor...",
+      "uiEffects": "Arka plan animasyonu",
+      "uiEffectsDesc": "Tüm hava koşullarına uygun arka plan ve hava durumu efektleri bağlantısını etkinleştirin",
+      "uiEffectsToggle": "Efekti aç"
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -5087,7 +6097,15 @@
         "error": "Hata",
         "timeout": "Zaman aşımı",
         "killed": "Sonlandırıldı"
-      }
+      },
+      "agentId": "Temsilci Kimliği",
+      "childSessionId": "Çocuk oturumu",
+      "duration": "Süre",
+      "model": "Modeli",
+      "openSession": "Açık Oturum",
+      "runId": "Çalıştırma kimliği",
+      "task": "Görev",
+      "tokens": "Jetonlar"
     },
     "project": {
       "projects": "Projeler",
@@ -5155,7 +6173,8 @@
         "openHome": "Proje ana sayfasını aç"
       },
       "openProjectSettings": "Proje ayarları",
-      "noSessionsHint": "İlk oturumu oluşturmak için tıklayın"
+      "noSessionsHint": "İlk oturumu oluşturmak için tıklayın",
+      "projectEmojiPlaceholder": "İsteğe bağlı"
     },
     "provider": {
       "allowPrivateNetwork": "Özel ağa izin ver",
@@ -5203,7 +6222,10 @@
       "note_distill": "Notları Damıt",
       "note_moc": "İçerik Haritası",
       "session_to_note": "Oturumu Nota Çevir",
-      "knowledge_recall": "Bilgi Çağırma"
+      "knowledge_recall": "Bilgi Çağırma",
+      "execPanel": {
+        "asyncStarted": "Arka plan görevi başlatıldı"
+      }
     },
     "cron": {
       "deliveryTargets": "Sonucu IM kanalına gönder",
@@ -5362,6 +6384,10 @@
             "memory_reembed": "Bellek yeniden embedding"
           }
         }
+      },
+      "token": {
+        "inputTokens": "Giriş jetonları",
+        "outputTokens": "Çıkış jetonları"
       }
     },
     "team": {
@@ -5399,7 +6425,23 @@
       "reviewer": "İnceleyici",
       "noMessages": "Henüz mesaj yok",
       "indicator": "Ekip",
-      "indicatorMembers": "{{count}} üye"
+      "indicatorMembers": "{{count}} üye",
+      "loading": "Yükleniyor...",
+      "messagePlaceholder": "Mesaj ekibi... (@DM için isim)",
+      "noTasks": "Görev yok",
+      "panelTitle": "Takım",
+      "resizePanel": "Ekip panelini yeniden boyutlandır",
+      "role": {
+        "lead": "Kurşun",
+        "reviewer": "İnceleyen",
+        "worker": "İşçi"
+      },
+      "tab": {
+        "dashboard": "Kontrol Paneli",
+        "messages": "Mesajlar",
+        "tasks": "Görevler"
+      },
+      "view": "Görüntüle"
     },
     "about": {
       "description": "Masaüstünde, yerel bir sunucuda ve IM kanallarında çalışabilir; günlük sohbetin yanında bağlamı korur, araçları kullanır ve zaman içinde çalışmaya devam eder.",
@@ -5481,7 +6523,23 @@
       "layoutSplit": "Bölünmüş",
       "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
       "noDiffData": "Diff verisi yok",
-      "resizePanel": "Diff panelini yeniden boyutlandır"
+      "resizePanel": "Diff panelini yeniden boyutlandır",
+      "actionCreate": "yarat",
+      "actionDelete": "sil",
+      "actionEdit": "Revize",
+      "copyLocation": "Geçerli konumu kopyala",
+      "expandHiddenLines": "{{count}} satırını değişmeyen içerikle genişlet",
+      "ignoreWhitespace": "Boşluk değişikliklerini yoksay",
+      "locationCopied": "Hedefleme kopyalandı",
+      "locationCopyFailed": "Kopyalama konumlandırması başarısız oldu",
+      "matchingFiles": "{{shown}} / {{total}} dosyaları",
+      "nextHunk": "Sonraki değişiklik",
+      "noMatchingFiles": "Eşleşen dosya yok",
+      "openLocation": "Geçerli satırın önizlemesi",
+      "prevHunk": "Son değişiklik",
+      "renderMore": "Kalan {{count}} satırlarını göster",
+      "searchFiles": "Dosyaları arayın",
+      "toggleContext": "Değişmeyen bağlamı daralt"
     },
     "notification": {
       "approvalRequired": "Araç onayı gerekiyor",
@@ -5562,7 +6620,10 @@
       "sessionShowMore": "Daha fazla göster",
       "sessionShowLess": "Daha az göster",
       "environment": {
-        "version": "Sürüm"
+        "version": "Sürüm",
+        "gitDiffFailed": "Git farkını okuma işlemi başarısız oldu",
+        "loadingDiff": "Farkı oku",
+        "noTextDiff": "Farkı gösterecek metin yok"
       }
     },
     "fileActions": {
@@ -5633,7 +6694,17 @@
           "auto_tag": "Etiket",
           "moc_upkeep": "MOC",
           "memory_to_note": "Bellek"
-        }
+        },
+        "evidenceCoverage": "Kanıt kapsamı",
+        "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} iddiaları · {{notesWithEvidence}}/{{notes}} notları",
+        "evidenceRebuildFailed": "Kanıt dizini yeniden oluşturulamadı",
+        "evidenceRebuilt": "{{notes}} notları, {{refs}} referansları ve {{claims}} iddiaları için yeniden oluşturulmuş kanıt dizini",
+        "missingEvidence": "Eksik kanıt",
+        "missingRefs": "Eksik referanslar",
+        "needsReview": "İncelenmesi gerekiyor",
+        "rebuildEvidenceTip": "Türetilmiş kanıt dizinini yeniden oluşturun",
+        "schemaIssues": "Şema sorunları",
+        "staleRefs": "Eski referanslar"
       },
       "graph": {
         "toggle": "Grafik görünümü",
@@ -5765,13 +6836,250 @@
       "externalRawSyncNow": "Şimdi eşitle",
       "externalRawSyncPartial": "{{synced}} anlık görüntü eşitlendi; {{failed}} başarısız.",
       "externalRawSyncDone": "{{count}} kaynak anlık görüntüsü eşitlendi",
-      "externalRawSyncFailed": "Kaynak anlık görüntüleri eşitlenemedi"
+      "externalRawSyncFailed": "Kaynak anlık görüntüleri eşitlenemedi",
+      "compile": {
+        "applied": "Teklif uygulandı",
+        "apply": "Uygula",
+        "applyFailed": "Teklif uygulanamadı",
+        "cancel": "İptal",
+        "cancelFailed": "Çalıştırma iptal edilemedi",
+        "cancelled": "Derleme çalıştırması iptal edildi",
+        "description": "Herhangi bir şey yazılmadan önce oluşturulan not değişikliklerini inceleyin.",
+        "empty": "İncelenecek teklifi seçin",
+        "emptyHint": "Oluşturulan teklifler, siz uygulayana veya reddedene kadar burada kalır.",
+        "failed": "Derleme çalıştırması başarısız oldu",
+        "loadFailed": "Derleme çalıştırmaları yüklenemedi",
+        "noProposals": "Bu çalıştırma için teklif yok.",
+        "noRuns": "Henüz derleme çalışması yok.",
+        "proposals": "Teklifler",
+        "proposalsLoadFailed": "Teklifler yüklenemedi",
+        "refresh": "Yenile",
+        "reject": "Reddet",
+        "rejectFailed": "Teklif reddedilemedi",
+        "rejected": "Teklif reddedildi",
+        "runPending": "Derleme çalıştırması beklemede",
+        "runSources": "{{count}} kaynak(lar)ı",
+        "running": "Kaynaklar derleniyor…",
+        "runs": "Koşular",
+        "startFailed": "Kaynaklar derlenemedi",
+        "startSelected": "{{count}}'i derleyin",
+        "started": "{{n}} teklif(ler)i oluşturuldu",
+        "title": "Kaynakları derleyin"
+      },
+      "sources": {
+        "archiveAttachment": "Bilgiye arşivle",
+        "archiveAttachmentFailed": "Ek arşivlenemedi",
+        "archivedAttachment": "Bilgi kaynaklarına arşivlendi",
+        "browser": "Tarayıcı",
+        "browserAuto": "Otomatik",
+        "browserPage": "Sayfa",
+        "browserSelection": "Seçim",
+        "chooseFile": "Dosyaları seçin",
+        "comparePrevious": "Öncekini karşılaştır",
+        "compileOne": "Derle",
+        "compileSelected": "Seçilen kaynakları derle",
+        "compiled": "Derlenmiş",
+        "compiledClaims": "Bu kaynağı kullanarak derlenmiş hak talepleri",
+        "currentVersion": "Mevcut",
+        "delete": "Sil",
+        "deleteBody": "{{name}} ham kaynak gelen kutusundan silinsin mi?",
+        "deleteFailed": "Kaynak silinemedi",
+        "deleteTitle": "Kaynağı sil",
+        "deleted": "Kaynak silindi",
+        "diffFailed": "Kaynak farkı yüklenemedi",
+        "diffTruncated": "Önizleme kesildi",
+        "dismissSimilar": "Yoksay",
+        "downloadOriginal": "Orijinali indir",
+        "empty": "Henüz kaynak yok.",
+        "evidenceSources": "Kaynaklar",
+        "externalRawPath": "Harici anlık görüntü",
+        "file": "Dosya",
+        "import": "Kaynağı içe aktar",
+        "importAction": "İthalat",
+        "importDesc": "Bu bilgi alanına ham madde ekleyin.",
+        "importFailed": "Kaynak içe aktarılamadı",
+        "importHistory": "İçe aktarma geçmişi",
+        "importHistoryFailed": "İçe aktarma geçmişi açılamadı",
+        "importRunDeduped": "{{imported}} içe aktarıldı, {{duplicate}} kopyası atlandı",
+        "importRunPartial": "{{imported}} içe aktarıldı, {{duplicate}} kopyası atlandı, {{failed}} başarısız oldu",
+        "importRunStarted": "{{count}} kaynakları için içe aktarma başladı",
+        "imported": "Kaynak içe aktarıldı",
+        "importedCount": "İçe aktarılan {{count}} kaynakları",
+        "keepSource": "{{name}}'i koruyun",
+        "loadTargetsFailed": "Bilgi alanları yüklenemedi",
+        "loading": "Yükleniyor…",
+        "loadingClaims": "Kanıt dizini yükleniyor...",
+        "loadingDiff": "Fark yükleniyor...",
+        "mediaRetained": "Medya tutuldu",
+        "missingSource": "Kaynak eksik",
+        "moreClaims": "+{{count}} daha fazla hak talebi",
+        "noCompiledClaims": "Henüz hiçbir derlenmiş not iddiasında bu kaynaktan bahsedilmiyor.",
+        "noImportRuns": "Henüz içe aktarma işlemi gerçekleştirilmiyor.",
+        "noKb": "Kaynakları görmek için bir alan seçin.",
+        "noKnowledgeBase": "Bilgi alanı yok",
+        "noLocalDuplicates": "Bu alanda silinecek yinelenen kaynak yok",
+        "noSimilarGroups": "Benzer kaynak grubu yok.",
+        "open": "Açık",
+        "openOriginal": "Orijinali aç",
+        "otherKb": "Diğer alan {{id}}",
+        "readFailed": "Kaynak açılamadı",
+        "reextract": "Yeniden çıkart",
+        "reextractFailed": "Kaynak yeniden çıkarılamadı",
+        "reextracted": "Kaynak yeniden çıkarıldı",
+        "refresh": "Yenile",
+        "refreshChanged": "Kaynak v{{version}} olarak yenilendi",
+        "refreshFailed": "Kaynak yenilenemedi",
+        "refreshSource": "Anlık görüntüyü yenile",
+        "refreshUnchanged": "Kaynak zaten güncel",
+        "resolveSimilarConfirm": "{{name}} saklansın ve {{count}} yinelenen kaynak(lar)ı bu alandan silinsin mi?",
+        "retainedMedia": "Saklanan medya",
+        "retryFailed": "Başarısız olan içe aktarma işlemleri yeniden denenemedi",
+        "retryFailedAction": "Yeniden deneme başarısız oldu",
+        "selectImportRun": "Bir içe aktarma çalıştırması seçin.",
+        "selectKnowledgeBase": "Bilgi alanını seçin",
+        "similarCount": "{{count}} benzer gruplar",
+        "similarDismissFailed": "Benzerlik önerisi gizlenemedi",
+        "similarDismissed": "Benzerlik önerisi gizlendi",
+        "similarGroups": "Benzer kaynaklar",
+        "similarResolveFailed": "Yinelenen kaynaklar çözülemedi",
+        "similarResolved": "{{count}} kopya kaynak(lar)ı silindi",
+        "sourceDiff": "Kaynak farkı",
+        "staleSource": "Kaynak derlemeden sonra değiştirildi",
+        "supersededSource": "Daha yeni kaynak sürümü mevcut",
+        "text": "Metin",
+        "textPlaceholder": "Kaynak metni yapıştırın…",
+        "thumbnailOnly": "Yalnızca küçük resim",
+        "title": "Kaynaklar",
+        "titlePlaceholder": "Başlık",
+        "uncompiled": "derlenmemiş",
+        "url": "URL",
+        "urlKindAudio": "Ses metni",
+        "urlKindImage": "Görüntü OCR'si",
+        "urlKindPage": "Web sayfası",
+        "urlKindVideo": "Video transkripti",
+        "versionHistory": "Sürüm geçmişi",
+        "versionHistoryDesc": "{{count}} arşivlenmiş anlık görüntüler. Güncel: {{current}}",
+        "versionsFailed": "Kaynak sürümleri yüklenemedi",
+        "itemStatus": {
+          "duplicate": "Çoğalt",
+          "failed": "Başarısız",
+          "imported": "İthal",
+          "pending": "Beklemede",
+          "running": "Koşu"
+        },
+        "kind": {
+          "audioTranscript": "Ses metni",
+          "browserSnapshot": "Tarayıcı",
+          "docx": "DOCX",
+          "imageOcr": "Görüntü OCR'si",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "Metin",
+          "urlSnapshot": "URL",
+          "videoTranscript": "Video transkripti"
+        },
+        "runStatus": {
+          "completed": "Tamamlandı",
+          "completedWithErrors": "Hatalarla tamamlandı",
+          "failed": "Başarısız",
+          "running": "Koşu"
+        },
+        "similarKind": {
+          "exactDuplicate": "Tam kopya",
+          "similar": "Benzer"
+        },
+        "similarScope": {
+          "crossKb": "Çapraz alan",
+          "sameKb": "Bu alan"
+        }
+      },
+      "queryFile": {
+        "action": "Dosya",
+        "applied": "Bilgi alanına dosyalandı",
+        "apply": "Uygula",
+        "applyFailed": "Dosyalama uygulanamadı",
+        "description": "Yazmadan önce bir inceleme farkı oluşturun.",
+        "empty": "Bu yanıtın nereye ulaşması gerektiğini seçin.",
+        "generateFailed": "Başvuru teklifi oluşturulamadı",
+        "reject": "Reddet",
+        "rejected": "Dosyalama iptal edildi",
+        "rejectFailed": "Dosyalama silinemedi",
+        "review": "İncele",
+        "title": "Dosya yanıtı",
+        "titlePlaceholder": "Başlık",
+        "mode": {
+          "createNote": "Yeni not",
+          "updateCurrentNote": "Mevcut notu güncelle",
+          "appendToMoc": "MOC'ye ekle",
+          "openQuestions": "Açık Sorular"
+        },
+        "defaultTitle": "Dosyalanmış görüşme",
+        "currentNotePlaceholder": "Geçerli not yolu",
+        "openQuestionsPlaceholder": "Açık Sorularla Not",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "Oluştur",
       "clear": "Temizle",
       "on": "Açık",
-      "rename": "Yeniden adlandır"
+      "rename": "Yeniden adlandır",
+      "available": "Mevcut",
+      "collapse": "kapat",
+      "expand": "Genişlet",
+      "retry": "Yeniden dene",
+      "unavailable": "Kullanılamıyor"
+    },
+    "backgroundJobs": {
+      "errorOutput": "hata",
+      "liveOutput": "gerçek zamanlı çıktı",
+      "outputFile": "tam sonuçlar",
+      "resultPreview": "Sonuçların önizlemesi"
+    },
+    "browser": {
+      "panelTitle": "Tarayıcı"
+    },
+    "canvas": {
+      "panelTitle": "Kanvas",
+      "resizePanel": "Kanvas panelini yeniden boyutlandır"
+    },
+    "error": {
+      "appCrash": "Bir şeyler ters gitti",
+      "retry": "Tekrar Deneyin",
+      "unknown": "Beklenmeyen bir hata oluştu"
+    },
+    "localModels": {
+      "actions": {
+        "download": "İndir"
+      }
+    },
+    "macControl": {
+      "panelTitle": "Mac Kontrolü"
+    },
+    "planMode": {
+      "resizePanel": "Plan panelini yeniden boyutlandır"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "Özet raporu kimliği eksik.",
+        "open": "Özeti Aç",
+        "title": "Özet raporu",
+        "waiting": "Özet ilerlemesi bekleniyor..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "Tamamlandı. Sonuç bu sohbete enjekte edildi.",
+        "error": "Arızalı.",
+        "killed": "İptal edildi.",
+        "missingRunId": "Beceri çalıştırması kimliği eksik.",
+        "running": "Beceri alt aracısı çalışıyor. Sonuç buraya enjekte edilecektir.",
+        "spawning": "Beceri alt aracısı başlatılıyor...",
+        "timeout": "Zaman aşımına uğradı.",
+        "title": "Beceri {{skill}}"
+      },
+      "defaultName": "beceri"
     }
   },
   "vi": {
@@ -5787,7 +7095,8 @@
         "refresh": "Làm mới ngay",
         "resumeMirror": "Tiếp tục phản chiếu",
         "takeOver": "Tiếp quản",
-        "takeOverHint": "Tạm dừng làm mới 1Hz để bạn tự thao tác Chrome"
+        "takeOverHint": "Tạm dừng làm mới 1Hz để bạn tự thao tác Chrome",
+        "resizePanel": "Thay đổi kích thước bảng trình duyệt"
       },
       "copy": "Sao chép",
       "details": "Chi tiết",
@@ -5860,7 +7169,30 @@
       "profileRotationTitle": "Đổi profile",
       "contextCompactedTitle": "Đã nén context",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} tin"
+      "contextCompactedMsgs": "{{count}} tin",
+      "browserExtensionRequired": {
+        "nextAction": "Hành động tiếp theo: {{nextAction}}",
+        "openSettings": "Mở Cài đặt > Trình duyệt để cài đặt hoặc bật tiện ích mở rộng.",
+        "title": "Cần có tiện ích mở rộng của Chrome"
+      },
+      "conversationEmpty": "Không có tin nhắn trong cuộc trò chuyện này",
+      "pendingCancelForceInsert": "Hủy chèn vòng này",
+      "pendingFallbackAfterReply": "Gửi sau khi trả lời",
+      "pendingFallbackAfterReplyTip": "Chưa gặp điểm hoàn thành công cụ và sẽ được gửi sau khi phản hồi hiện tại kết thúc.",
+      "pendingForceInsertTip": "Nó sẽ đợi cho đến khi công cụ đang được thực thi hoàn tất rồi chèn nó vào mô hình mà không làm gián đoạn công cụ hiện tại.",
+      "pendingInserted": "chèn vào",
+      "pendingInsertedTip": "Nó đã được chèn vào mô hình sau khi hoàn thành vòng công cụ này.",
+      "pendingQueuedShort": "Xếp hàng",
+      "pendingQueuedTip": "Nó đã được thêm vào hàng đợi và sẽ được gửi sau khi trả lời hiện tại kết thúc.",
+      "pendingQueueTitle": "Sẽ được gửi",
+      "pendingWaitingToolBoundary": "Chờ điểm hoàn thành công cụ",
+      "pendingWaitingToolBoundaryTip": "Đợi lệnh gọi công cụ mới nhất hoàn tất; nếu công cụ này không còn được gọi ở vòng này nữa, nó sẽ được gửi sau khi phản hồi hoàn tất.",
+      "processNotification": "quá trình kết thúc",
+      "rightPanel": {
+        "collapse": "Thu gọn bảng bên phải",
+        "expand": "Mở rộng bảng bên phải",
+        "switch": "Chuyển bảng bên phải"
+      }
     },
     "effort": {
       "none": "Tắt"
@@ -6519,7 +7851,12 @@
       },
       "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
-      "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
+      "devVisualTest": "Kiểm tra hoạt ảnh UI",
+      "permLoading": "Đang kiểm tra quyền...",
+      "uiEffects": "Hoạt hình nền",
+      "uiEffectsDesc": "Cho phép liên kết nền mọi thời tiết và hiệu ứng thời tiết",
+      "uiEffectsToggle": "Bật hiệu ứng"
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -6535,7 +7872,15 @@
         "error": "Lỗi",
         "timeout": "Hết thời gian",
         "killed": "Đã chấm dứt"
-      }
+      },
+      "agentId": "ID đại lý",
+      "childSessionId": "Phiên con",
+      "duration": "Thời lượng",
+      "model": "người mẫu",
+      "openSession": "Phiên mở",
+      "runId": "ID chạy",
+      "task": "Nhiệm vụ",
+      "tokens": "Mã thông báo"
     },
     "project": {
       "projects": "Dự án",
@@ -6603,7 +7948,8 @@
         "openHome": "Mở trang chủ dự án"
       },
       "openProjectSettings": "Cài đặt dự án",
-      "noSessionsHint": "Nhấp để tạo phiên đầu tiên"
+      "noSessionsHint": "Nhấp để tạo phiên đầu tiên",
+      "projectEmojiPlaceholder": "Tùy chọn"
     },
     "provider": {
       "allowPrivateNetwork": "Cho phép mạng nội bộ",
@@ -6651,7 +7997,10 @@
       "note_distill": "Chắt lọc ghi chú",
       "note_moc": "Bản đồ nội dung",
       "session_to_note": "Lưu hội thoại thành ghi chú",
-      "knowledge_recall": "Truy hồi tri thức"
+      "knowledge_recall": "Truy hồi tri thức",
+      "execPanel": {
+        "asyncStarted": "Tác vụ nền đã bắt đầu"
+      }
     },
     "cron": {
       "deliveryTargets": "Gửi kết quả đến kênh IM",
@@ -6810,6 +8159,10 @@
             "memory_reembed": "Re-embedding bộ nhớ"
           }
         }
+      },
+      "token": {
+        "inputTokens": "Mã thông báo đầu vào",
+        "outputTokens": "Mã thông báo đầu ra"
       }
     },
     "team": {
@@ -6847,7 +8200,23 @@
       "reviewer": "Người kiểm tra",
       "noMessages": "Chưa có tin nhắn",
       "indicator": "Đội",
-      "indicatorMembers": "{{count}} thành viên"
+      "indicatorMembers": "{{count}} thành viên",
+      "loading": "Đang tải...",
+      "messagePlaceholder": "Nhóm tin nhắn... (@tên cho DM)",
+      "noTasks": "Không có nhiệm vụ",
+      "panelTitle": "đội",
+      "resizePanel": "Thay đổi kích thước bảng điều khiển nhóm",
+      "role": {
+        "lead": "Chì",
+        "reviewer": "Người đánh giá",
+        "worker": "công nhân"
+      },
+      "tab": {
+        "dashboard": "Trang tổng quan",
+        "messages": "Tin nhắn",
+        "tasks": "Nhiệm vụ"
+      },
+      "view": "Xem"
     },
     "about": {
       "description": "Nó có thể chạy trên desktop, máy chủ cục bộ và các kênh IM, không chỉ để trò chuyện hằng ngày mà còn để giữ ngữ cảnh, dùng công cụ và hoạt động liên tục theo thời gian.",
@@ -6929,7 +8298,23 @@
       "layoutSplit": "Tách đôi",
       "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
       "noDiffData": "Không có dữ liệu diff",
-      "resizePanel": "Thay đổi kích thước bảng diff"
+      "resizePanel": "Thay đổi kích thước bảng diff",
+      "actionCreate": "tạo ra",
+      "actionDelete": "xóa",
+      "actionEdit": "Sửa lại",
+      "copyLocation": "Sao chép vị trí hiện tại",
+      "expandHiddenLines": "Mở rộng hàng {{count}} với nội dung không thay đổi",
+      "ignoreWhitespace": "Bỏ qua những thay đổi về khoảng trắng",
+      "locationCopied": "Đã sao chép nhắm mục tiêu",
+      "locationCopyFailed": "Sao chép định vị không thành công",
+      "matchingFiles": "Tệp {{shown}} / {{total}}",
+      "nextHunk": "Thay đổi tiếp theo",
+      "noMatchingFiles": "Không có tập tin phù hợp",
+      "openLocation": "Xem trước dòng hiện tại",
+      "prevHunk": "Thay đổi cuối cùng",
+      "renderMore": "Hiển thị các hàng {{count}} còn lại",
+      "searchFiles": "Tìm kiếm tập tin",
+      "toggleContext": "Thu gọn bối cảnh không thay đổi"
     },
     "notification": {
       "approvalRequired": "Cần phê duyệt công cụ",
@@ -7010,7 +8395,10 @@
       "sessionShowMore": "Xem thêm",
       "sessionShowLess": "Thu gọn",
       "environment": {
-        "version": "Phiên bản"
+        "version": "Phiên bản",
+        "gitDiffFailed": "Đọc khác biệt Git không thành công",
+        "loadingDiff": "Đọc khác biệt",
+        "noTextDiff": "Không có văn bản để hiển thị khác biệt"
       }
     },
     "fileActions": {
@@ -7081,7 +8469,17 @@
           "auto_tag": "Thẻ",
           "moc_upkeep": "MOC",
           "memory_to_note": "Bộ nhớ"
-        }
+        },
+        "evidenceCoverage": "Bảo hiểm bằng chứng",
+        "evidenceCoverageDetail": "{{pct}}% · Yêu cầu {{claimsWithEvidence}}/{{claims}} · Ghi chú {{notesWithEvidence}}/{{notes}}",
+        "evidenceRebuildFailed": "Không thể xây dựng lại chỉ số bằng chứng",
+        "evidenceRebuilt": "Chỉ mục bằng chứng được xây dựng lại cho các ghi chú {{notes}}, giới thiệu {{refs}}, khiếu nại {{claims}}",
+        "missingEvidence": "Thiếu bằng chứng",
+        "missingRefs": "Thiếu giới thiệu",
+        "needsReview": "Cần xem xét",
+        "rebuildEvidenceTip": "Xây dựng lại chỉ số bằng chứng dẫn xuất",
+        "schemaIssues": "Các vấn đề về lược đồ",
+        "staleRefs": "Giới thiệu cũ"
       },
       "graph": {
         "toggle": "Xem dạng đồ thị",
@@ -7213,13 +8611,250 @@
       "externalRawSyncNow": "Đồng bộ ngay",
       "externalRawSyncPartial": "Đã đồng bộ {{synced}} snapshot; {{failed}} thất bại.",
       "externalRawSyncDone": "Đã đồng bộ {{count}} snapshot nguồn",
-      "externalRawSyncFailed": "Không thể đồng bộ snapshot nguồn"
+      "externalRawSyncFailed": "Không thể đồng bộ snapshot nguồn",
+      "compile": {
+        "applied": "Đã áp dụng đề xuất",
+        "apply": "Áp dụng",
+        "applyFailed": "Không thể áp dụng đề xuất",
+        "cancel": "Hủy bỏ",
+        "cancelFailed": "Không thể hủy cuộc chạy",
+        "cancelled": "Quá trình biên dịch bị hủy",
+        "description": "Xem lại các thay đổi ghi chú đã tạo trước khi viết bất cứ điều gì.",
+        "empty": "Chọn một đề xuất để xem xét",
+        "emptyHint": "Các đề xuất đã tạo vẫn ở đây cho đến khi bạn áp dụng hoặc từ chối chúng.",
+        "failed": "Chạy biên dịch không thành công",
+        "loadFailed": "Không thể tải các lần chạy biên dịch",
+        "noProposals": "Không có đề xuất nào cho lần chạy này.",
+        "noRuns": "Chưa có biên dịch chạy nào.",
+        "proposals": "Đề xuất",
+        "proposalsLoadFailed": "Không thể tải đề xuất",
+        "refresh": "Làm mới",
+        "reject": "Từ chối",
+        "rejectFailed": "Không thể từ chối đề xuất",
+        "rejected": "Đề xuất bị từ chối",
+        "runPending": "Biên dịch đang chờ xử lý",
+        "runSources": "(Các) nguồn {{count}}",
+        "running": "Tổng hợp nguồn…",
+        "runs": "Chạy",
+        "startFailed": "Không thể biên dịch nguồn",
+        "startSelected": "Biên dịch {{count}}",
+        "started": "(Các) đề xuất {{n}} đã tạo",
+        "title": "Biên dịch nguồn"
+      },
+      "sources": {
+        "archiveAttachment": "Lưu trữ kiến thức",
+        "archiveAttachmentFailed": "Không thể lưu trữ tệp đính kèm",
+        "archivedAttachment": "Đã lưu trữ vào các nguồn kiến thức",
+        "browser": "Trình duyệt",
+        "browserAuto": "Tự động",
+        "browserPage": "Trang",
+        "browserSelection": "Lựa chọn",
+        "chooseFile": "Chọn tập tin",
+        "comparePrevious": "So sánh trước đó",
+        "compileOne": "Biên dịch",
+        "compileSelected": "Biên soạn các nguồn đã chọn",
+        "compiled": "biên soạn",
+        "compiledClaims": "Các xác nhận quyền sở hữu được tổng hợp bằng cách sử dụng nguồn này",
+        "currentVersion": "hiện tại",
+        "delete": "Xóa",
+        "deleteBody": "Xóa {{name}} khỏi hộp thư đến nguồn thô?",
+        "deleteFailed": "Không thể xóa nguồn",
+        "deleteTitle": "Xóa nguồn",
+        "deleted": "Đã xóa nguồn",
+        "diffFailed": "Không thể tải nguồn khác biệt",
+        "diffTruncated": "Bản xem trước bị cắt bớt",
+        "dismissSimilar": "Bỏ qua",
+        "downloadOriginal": "Tải xuống bản gốc",
+        "empty": "Chưa có nguồn.",
+        "evidenceSources": "Nguồn",
+        "externalRawPath": "Ảnh chụp nhanh bên ngoài",
+        "file": "Tập tin",
+        "import": "Nguồn nhập khẩu",
+        "importAction": "Nhập khẩu",
+        "importDesc": "Thêm nguyên liệu thô vào không gian kiến thức này.",
+        "importFailed": "Không thể nhập nguồn",
+        "importHistory": "Lịch sử nhập khẩu",
+        "importHistoryFailed": "Không thể mở lịch sử nhập",
+        "importRunDeduped": "Đã nhập {{imported}}, bỏ qua bản sao {{duplicate}}",
+        "importRunPartial": "Đã nhập {{imported}}, bỏ qua bản sao {{duplicate}}, {{failed}} không thành công",
+        "importRunStarted": "Đã bắt đầu nhập cho (các) nguồn {{count}}",
+        "imported": "Nguồn đã nhập",
+        "importedCount": "Nguồn {{count}} đã nhập",
+        "keepSource": "Giữ {{name}}",
+        "loadTargetsFailed": "Không tải được không gian kiến thức",
+        "loading": "Đang tải…",
+        "loadingClaims": "Đang tải chỉ mục bằng chứng...",
+        "loadingDiff": "Đang tải khác biệt...",
+        "mediaRetained": "Phương tiện được giữ lại",
+        "missingSource": "Thiếu nguồn",
+        "moreClaims": "+{{count}} nhiều yêu cầu hơn",
+        "noCompiledClaims": "Chưa có yêu cầu ghi chú tổng hợp nào trích dẫn nguồn này.",
+        "noImportRuns": "Chưa có thao tác nhập nào.",
+        "noKb": "Chọn một không gian để xem các nguồn.",
+        "noKnowledgeBase": "Không có không gian kiến thức",
+        "noLocalDuplicates": "Không có nguồn trùng lặp trong không gian này để xóa",
+        "noSimilarGroups": "Không có nhóm nguồn tương tự.",
+        "open": "Mở",
+        "openOriginal": "Mở bản gốc",
+        "otherKb": "Không gian khác {{id}}",
+        "readFailed": "Không thể mở nguồn",
+        "reextract": "Giải nén lại",
+        "reextractFailed": "Không thể trích xuất lại nguồn",
+        "reextracted": "Đã trích xuất lại nguồn",
+        "refresh": "Làm mới",
+        "refreshChanged": "Nguồn được làm mới thành v{{version}}",
+        "refreshFailed": "Không thể làm mới nguồn",
+        "refreshSource": "Làm mới ảnh chụp nhanh",
+        "refreshUnchanged": "Nguồn đã được cập nhật",
+        "resolveSimilarConfirm": "Giữ {{name}} và xóa (các) nguồn trùng lặp {{count}} khỏi không gian này?",
+        "retainedMedia": "Phương tiện được giữ lại",
+        "retryFailed": "Không thể thử lại quá trình nhập không thành công",
+        "retryFailedAction": "Thử lại không thành công",
+        "selectImportRun": "Chọn một lần nhập.",
+        "selectKnowledgeBase": "Lựa chọn không gian kiến ​​thức",
+        "similarCount": "Nhóm tương tự {{count}}",
+        "similarDismissFailed": "Không thể ẩn đề xuất tương tự",
+        "similarDismissed": "Đã ẩn đề xuất tương đồng",
+        "similarGroups": "Nguồn tương tự",
+        "similarResolveFailed": "Không thể giải quyết các nguồn trùng lặp",
+        "similarResolved": "Đã xóa (các) nguồn trùng lặp {{count}}",
+        "sourceDiff": "Nguồn khác biệt",
+        "staleSource": "Nguồn đã thay đổi sau khi biên dịch",
+        "supersededSource": "Đã có phiên bản nguồn mới hơn",
+        "text": "văn bản",
+        "textPlaceholder": "Dán văn bản nguồn…",
+        "thumbnailOnly": "Chỉ hình thu nhỏ",
+        "title": "Nguồn",
+        "titlePlaceholder": "Tiêu đề",
+        "uncompiled": "Chưa biên dịch",
+        "url": "URL",
+        "urlKindAudio": "Bản ghi âm",
+        "urlKindImage": "OCR hình ảnh",
+        "urlKindPage": "trang web",
+        "urlKindVideo": "Bản ghi video",
+        "versionHistory": "Lịch sử phiên bản",
+        "versionHistoryDesc": "Ảnh chụp nhanh được lưu trữ {{count}}. Hiện tại: {{current}}",
+        "versionsFailed": "Không thể tải phiên bản nguồn",
+        "itemStatus": {
+          "duplicate": "trùng lặp",
+          "failed": "thất bại",
+          "imported": "Đã nhập",
+          "pending": "Đang chờ xử lý",
+          "running": "Đang chạy"
+        },
+        "kind": {
+          "audioTranscript": "Bản ghi âm",
+          "browserSnapshot": "Trình duyệt",
+          "docx": "DOCX",
+          "imageOcr": "OCR hình ảnh",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "văn bản",
+          "urlSnapshot": "URL",
+          "videoTranscript": "Bản ghi video"
+        },
+        "runStatus": {
+          "completed": "Đã hoàn thành",
+          "completedWithErrors": "Đã hoàn thành với lỗi",
+          "failed": "thất bại",
+          "running": "Đang chạy"
+        },
+        "similarKind": {
+          "exactDuplicate": "trùng lặp chính xác",
+          "similar": "Tương tự"
+        },
+        "similarScope": {
+          "crossKb": "Xuyên không gian",
+          "sameKb": "Không gian này"
+        }
+      },
+      "queryFile": {
+        "action": "Tập tin",
+        "applied": "Nộp vào không gian kiến thức",
+        "apply": "Áp dụng",
+        "applyFailed": "Không thể nộp hồ sơ",
+        "description": "Tạo một đánh giá khác biệt trước khi viết.",
+        "empty": "Chọn nơi câu trả lời này sẽ hạ cánh.",
+        "generateFailed": "Không thể tạo đề xuất nộp hồ sơ",
+        "reject": "Từ chối",
+        "rejected": "Đã hủy hồ sơ",
+        "rejectFailed": "Không thể hủy hồ sơ",
+        "review": "Xem lại",
+        "title": "Tập tin trả lời",
+        "titlePlaceholder": "Tiêu đề",
+        "mode": {
+          "createNote": "Ghi chú mới",
+          "updateCurrentNote": "Cập nhật ghi chú hiện tại",
+          "appendToMoc": "Thêm vào MOC",
+          "openQuestions": "Câu hỏi mở"
+        },
+        "defaultTitle": "cuộc trò chuyện đã lưu",
+        "currentNotePlaceholder": "Đường dẫn ghi chú hiện tại",
+        "openQuestionsPlaceholder": "Lưu ý với câu hỏi mở",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "Tạo",
       "clear": "Xóa",
       "on": "Bật",
-      "rename": "Đổi tên"
+      "rename": "Đổi tên",
+      "available": "Có sẵn",
+      "collapse": "đóng",
+      "expand": "Mở rộng",
+      "retry": "Thử lại",
+      "unavailable": "Không có sẵn"
+    },
+    "backgroundJobs": {
+      "errorOutput": "sai lầm",
+      "liveOutput": "đầu ra thời gian thực",
+      "outputFile": "kết quả đầy đủ",
+      "resultPreview": "Xem trước kết quả"
+    },
+    "browser": {
+      "panelTitle": "Trình duyệt"
+    },
+    "canvas": {
+      "panelTitle": "Vải bạt",
+      "resizePanel": "Thay đổi kích thước bảng canvas"
+    },
+    "error": {
+      "appCrash": "Đã xảy ra lỗi",
+      "retry": "Thử lại",
+      "unknown": "Đã xảy ra lỗi không mong muốn"
+    },
+    "localModels": {
+      "actions": {
+        "download": "Tải xuống"
+      }
+    },
+    "macControl": {
+      "panelTitle": "Điều khiển máy Mac"
+    },
+    "planMode": {
+      "resizePanel": "Thay đổi kích thước bảng kế hoạch"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "Thiếu id báo cáo tóm tắt.",
+        "open": "Tóm tắt mở",
+        "title": "Báo cáo tóm tắt",
+        "waiting": "Đang chờ tiến độ tóm tắt..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "Đã hoàn thành. Kết quả đã được đưa vào cuộc trò chuyện này.",
+        "error": "Thất bại.",
+        "killed": "Đã hủy.",
+        "missingRunId": "Thiếu id chạy kỹ năng.",
+        "running": "Đại lý phụ kỹ năng đang chạy. Kết quả sẽ được tiêm vào đây.",
+        "spawning": "Bắt đầu kỹ năng phụ...",
+        "timeout": "Đã hết thời gian.",
+        "title": "Kỹ năng {{skill}}"
+      },
+      "defaultName": "kỹ năng"
     }
   },
   "pt": {
@@ -7235,7 +8870,8 @@
         "refresh": "Atualizar agora",
         "resumeMirror": "Retomar espelho",
         "takeOver": "Assumir",
-        "takeOverHint": "Pausa a atualização de 1Hz enquanto você opera o Chrome"
+        "takeOverHint": "Pausa a atualização de 1Hz enquanto você opera o Chrome",
+        "resizePanel": "Redimensionar painel do navegador"
       },
       "copy": "Copiar",
       "details": "Detalhes",
@@ -7308,7 +8944,30 @@
       "profileRotationTitle": "Rotação de perfil",
       "contextCompactedTitle": "Contexto compactado",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} msgs"
+      "contextCompactedMsgs": "{{count}} msgs",
+      "browserExtensionRequired": {
+        "nextAction": "Próxima ação: {{nextAction}}",
+        "openSettings": "Abra Configurações > Navegador para instalar ou ativar a extensão.",
+        "title": "Extensão do Chrome necessária"
+      },
+      "conversationEmpty": "Nenhuma mensagem nesta conversa",
+      "pendingCancelForceInsert": "Cancelar inserção desta rodada",
+      "pendingFallbackAfterReply": "Enviar após resposta",
+      "pendingFallbackAfterReplyTip": "O ponto de conclusão da ferramenta não foi encontrado e será enviado após o término da resposta atual.",
+      "pendingForceInsertTip": "Ele irá esperar até que a ferramenta que está sendo executada seja concluída e então inseri-la no modelo sem interromper a ferramenta atual.",
+      "pendingInserted": "inserido",
+      "pendingInsertedTip": "Ele foi inserido no modelo após a conclusão desta rodada de ferramentas.",
+      "pendingQueuedShort": "Na fila",
+      "pendingQueuedTip": "Ele foi adicionado à fila de espera e será enviado após o término da resposta atual.",
+      "pendingQueueTitle": "Para ser enviado",
+      "pendingWaitingToolBoundary": "Aguarde o ponto de conclusão da ferramenta",
+      "pendingWaitingToolBoundaryTip": "Aguarde até que a última chamada da ferramenta seja concluída; caso a ferramenta não seja mais convocada nesta rodada, ela será enviada após a conclusão da resposta.",
+      "processNotification": "processo finalizado",
+      "rightPanel": {
+        "collapse": "Recolher painel direito",
+        "expand": "Expandir painel direito",
+        "switch": "Alternar painel direito"
+      }
     },
     "effort": {
       "none": "Desligado"
@@ -7967,7 +9626,12 @@
       },
       "serverKnowledgeAgentReadToken": "Token de leitura do Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Deixe vazio para desativar o acesso de agent somente leitura",
-      "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner."
+      "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner.",
+      "devVisualTest": "Teste de animação de UI",
+      "permLoading": "Verificando permissões...",
+      "uiEffects": "Animação de fundo",
+      "uiEffectsDesc": "Ative a vinculação de plano de fundo para qualquer clima e efeitos climáticos",
+      "uiEffectsToggle": "Ativar efeito"
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -7983,7 +9647,15 @@
         "error": "Erro",
         "timeout": "Tempo esgotado",
         "killed": "Encerrado"
-      }
+      },
+      "agentId": "ID do agente",
+      "childSessionId": "Sessão infantil",
+      "duration": "Duração",
+      "model": "Modelo",
+      "openSession": "Sessão aberta",
+      "runId": "ID de execução",
+      "task": "Tarefa",
+      "tokens": "Fichas"
     },
     "project": {
       "projects": "Projetos",
@@ -8051,7 +9723,8 @@
         "openHome": "Abrir página do projeto"
       },
       "openProjectSettings": "Configurações do projeto",
-      "noSessionsHint": "Clique para criar a primeira sessão"
+      "noSessionsHint": "Clique para criar a primeira sessão",
+      "projectEmojiPlaceholder": "Opcional"
     },
     "provider": {
       "allowPrivateNetwork": "Permitir rede privada",
@@ -8099,7 +9772,10 @@
       "note_distill": "Destilar Notas",
       "note_moc": "Mapa de Conteúdo",
       "session_to_note": "Conversa para Nota",
-      "knowledge_recall": "Recuperar Conhecimento"
+      "knowledge_recall": "Recuperar Conhecimento",
+      "execPanel": {
+        "asyncStarted": "Tarefa em segundo plano iniciada"
+      }
     },
     "cron": {
       "deliveryTargets": "Enviar resultado para canal IM",
@@ -8258,6 +9934,10 @@
             "memory_reembed": "Re-embedding de memória"
           }
         }
+      },
+      "token": {
+        "inputTokens": "Tokens de entrada",
+        "outputTokens": "Tokens de saída"
       }
     },
     "team": {
@@ -8295,7 +9975,23 @@
       "reviewer": "Revisor",
       "noMessages": "Ainda não há mensagens",
       "indicator": "Equipe",
-      "indicatorMembers": "{{count}} membros"
+      "indicatorMembers": "{{count}} membros",
+      "loading": "Carregando...",
+      "messagePlaceholder": "Equipe de mensagens... (@nome para DM)",
+      "noTasks": "Nenhuma tarefa",
+      "panelTitle": "Equipe",
+      "resizePanel": "Redimensionar painel da equipe",
+      "role": {
+        "lead": "Liderar",
+        "reviewer": "Revisor",
+        "worker": "Trabalhador"
+      },
+      "tab": {
+        "dashboard": "Painel",
+        "messages": "Mensagens",
+        "tasks": "Tarefas"
+      },
+      "view": "Ver"
     },
     "about": {
       "description": "Ele pode rodar no desktop, em um servidor local e em canais de IM, fazendo conversas do dia a dia enquanto mantém contexto, usa ferramentas e continua disponível ao longo do tempo.",
@@ -8377,7 +10073,23 @@
       "layoutSplit": "Dividido",
       "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",
       "noDiffData": "Sem dados de diff",
-      "resizePanel": "Redimensionar painel de diff"
+      "resizePanel": "Redimensionar painel de diff",
+      "actionCreate": "criar",
+      "actionDelete": "excluir",
+      "actionEdit": "Revisar",
+      "copyLocation": "Copiar localização atual",
+      "expandHiddenLines": "Expanda a linha {{count}} com conteúdo inalterado",
+      "ignoreWhitespace": "Ignorar alterações de espaço em branco",
+      "locationCopied": "Segmentação copiada",
+      "locationCopyFailed": "Falha no posicionamento da cópia",
+      "matchingFiles": "Arquivos {{shown}}/{{total}}",
+      "nextHunk": "Próxima mudança",
+      "noMatchingFiles": "Nenhum arquivo correspondente",
+      "openLocation": "Visualizar a linha atual",
+      "prevHunk": "Última alteração",
+      "renderMore": "Mostrar linhas {{count}} restantes",
+      "searchFiles": "Pesquisar arquivos",
+      "toggleContext": "Recolher contexto inalterado"
     },
     "notification": {
       "approvalRequired": "Aprovação de ferramenta necessária",
@@ -8458,7 +10170,10 @@
       "sessionShowMore": "Mostrar mais",
       "sessionShowLess": "Mostrar menos",
       "environment": {
-        "version": "Versão"
+        "version": "Versão",
+        "gitDiffFailed": "Falha na leitura da comparação do Git",
+        "loadingDiff": "Ler diferença",
+        "noTextDiff": "Nenhum texto para exibir a diferença"
       }
     },
     "fileActions": {
@@ -8529,7 +10244,17 @@
           "auto_tag": "Etiqueta",
           "moc_upkeep": "MOC",
           "memory_to_note": "Memória"
-        }
+        },
+        "evidenceCoverage": "Cobertura de evidências",
+        "evidenceCoverageDetail": "{{pct}}% · Reivindicações {{claimsWithEvidence}}/{{claims}} · Notas {{notesWithEvidence}}/{{notes}}",
+        "evidenceRebuildFailed": "Não foi possível reconstruir o índice de evidências",
+        "evidenceRebuilt": "Índice de evidências reconstruído para notas {{notes}}, referências {{refs}}, reivindicações {{claims}}",
+        "missingEvidence": "Evidências ausentes",
+        "missingRefs": "Faltam árbitros",
+        "needsReview": "Precisa de revisão",
+        "rebuildEvidenceTip": "Reconstrua o índice de evidências derivado",
+        "schemaIssues": "Problemas de esquema",
+        "staleRefs": "Referências obsoletas"
       },
       "graph": {
         "toggle": "Vista de grafo",
@@ -8661,13 +10386,250 @@
       "externalRawSyncNow": "Sincronizar agora",
       "externalRawSyncPartial": "{{synced}} snapshots sincronizados; {{failed}} falharam.",
       "externalRawSyncDone": "{{count}} snapshots de fontes sincronizados",
-      "externalRawSyncFailed": "Não foi possível sincronizar os snapshots de fontes"
+      "externalRawSyncFailed": "Não foi possível sincronizar os snapshots de fontes",
+      "compile": {
+        "applied": "Proposta aplicada",
+        "apply": "Aplicar",
+        "applyFailed": "Não foi possível aplicar a proposta",
+        "cancel": "Cancelar",
+        "cancelFailed": "Não foi possível cancelar a execução",
+        "cancelled": "Execução de compilação cancelada",
+        "description": "Revise as alterações nas notas geradas antes de qualquer coisa ser escrita.",
+        "empty": "Selecione uma proposta para analisar",
+        "emptyHint": "As propostas geradas permanecem aqui até que você as aplique ou rejeite.",
+        "failed": "Falha na execução da compilação",
+        "loadFailed": "Não foi possível carregar execuções de compilação",
+        "noProposals": "Não há propostas para esta corrida.",
+        "noRuns": "Nenhuma compilação foi executada ainda.",
+        "proposals": "Propostas",
+        "proposalsLoadFailed": "Não foi possível carregar as propostas",
+        "refresh": "Atualizar",
+        "reject": "Rejeitar",
+        "rejectFailed": "Não foi possível rejeitar a proposta",
+        "rejected": "Proposta rejeitada",
+        "runPending": "Execução de compilação pendente",
+        "runSources": "Fonte(s) {{count}}",
+        "running": "Compilando fontes…",
+        "runs": "Corre",
+        "startFailed": "Não foi possível compilar fontes",
+        "startSelected": "Compilar {{count}}",
+        "started": "Proposta(s) {{n}} gerada(s)",
+        "title": "Compilar fontes"
+      },
+      "sources": {
+        "archiveAttachment": "Arquivar para conhecimento",
+        "archiveAttachmentFailed": "Falha ao arquivar o anexo",
+        "archivedAttachment": "Arquivado em fontes de conhecimento",
+        "browser": "Navegador",
+        "browserAuto": "Automático",
+        "browserPage": "Página",
+        "browserSelection": "Seleção",
+        "chooseFile": "Escolha os arquivos",
+        "comparePrevious": "Comparar anterior",
+        "compileOne": "Compilar",
+        "compileSelected": "Compilar fontes selecionadas",
+        "compiled": "Compilado",
+        "compiledClaims": "Declarações compiladas usando esta fonte",
+        "currentVersion": "Atual",
+        "delete": "Excluir",
+        "deleteBody": "Excluir {{name}} da caixa de entrada de origem bruta?",
+        "deleteFailed": "Não foi possível excluir a fonte",
+        "deleteTitle": "Excluir fonte",
+        "deleted": "Fonte excluída",
+        "diffFailed": "Não foi possível carregar a diferença de origem",
+        "diffTruncated": "Visualização truncada",
+        "dismissSimilar": "Ignorar",
+        "downloadOriginal": "Baixar original",
+        "empty": "Nenhuma fonte ainda.",
+        "evidenceSources": "Fontes",
+        "externalRawPath": "Instantâneo externo",
+        "file": "Arquivo",
+        "import": "Fonte de importação",
+        "importAction": "Importar",
+        "importDesc": "Adicione matéria-prima a este espaço de conhecimento.",
+        "importFailed": "Não foi possível importar a origem",
+        "importHistory": "Histórico de importação",
+        "importHistoryFailed": "Não foi possível abrir o histórico de importação",
+        "importRunDeduped": "{{imported}} importado, duplicado {{duplicate}} ignorado",
+        "importRunPartial": "{{imported}} importado, duplicado {{duplicate}} ignorado, {{failed}} com falha",
+        "importRunStarted": "Importação iniciada para fontes {{count}}",
+        "imported": "Fonte importada",
+        "importedCount": "Fontes {{count}} importadas",
+        "keepSource": "Mantenha {{name}}",
+        "loadTargetsFailed": "Falha ao carregar espaços de conhecimento",
+        "loading": "Carregando…",
+        "loadingClaims": "Carregando índice de evidências...",
+        "loadingDiff": "Carregando diferenças...",
+        "mediaRetained": "Mídia retida",
+        "missingSource": "Fonte ausente",
+        "moreClaims": "+{{count}} mais reivindicações",
+        "noCompiledClaims": "Nenhuma reivindicação de nota compilada cita esta fonte ainda.",
+        "noImportRuns": "Nenhuma importação foi executada ainda.",
+        "noKb": "Selecione um espaço para ver as fontes.",
+        "noKnowledgeBase": "Nenhum espaço de conhecimento disponível",
+        "noLocalDuplicates": "Nenhuma fonte duplicada neste espaço para excluir",
+        "noSimilarGroups": "Nenhum grupo de origem semelhante.",
+        "open": "Abrir",
+        "openOriginal": "Abrir original",
+        "otherKb": "Outro espaço {{id}}",
+        "readFailed": "Não foi possível abrir o código-fonte",
+        "reextract": "Extrair novamente",
+        "reextractFailed": "Não foi possível extrair novamente a fonte",
+        "reextracted": "Fonte reextraída",
+        "refresh": "Atualizar",
+        "refreshChanged": "Fonte atualizada para v{{version}}",
+        "refreshFailed": "Não foi possível atualizar a fonte",
+        "refreshSource": "Atualizar instantâneo",
+        "refreshUnchanged": "A fonte já está atualizada",
+        "resolveSimilarConfirm": "Manter {{name}} e excluir fontes duplicadas {{count}} deste espaço?",
+        "retainedMedia": "Mídia retida",
+        "retryFailed": "Não foi possível tentar novamente as importações com falha",
+        "retryFailedAction": "Falha na nova tentativa",
+        "selectImportRun": "Selecione uma execução de importação.",
+        "selectKnowledgeBase": "Selecione o espaço de conhecimento",
+        "similarCount": "Grupos semelhantes {{count}}",
+        "similarDismissFailed": "Não foi possível ocultar a sugestão de similaridade",
+        "similarDismissed": "Sugestão de similaridade oculta",
+        "similarGroups": "Fontes semelhantes",
+        "similarResolveFailed": "Não foi possível resolver fontes duplicadas",
+        "similarResolved": "Fonte(s) duplicada(s) {{count}} excluída(s)",
+        "sourceDiff": "Diferença de origem",
+        "staleSource": "Fonte alterada após compilação",
+        "supersededSource": "Versão de origem mais recente disponível",
+        "text": "Texto",
+        "textPlaceholder": "Colar o texto fonte…",
+        "thumbnailOnly": "Somente miniatura",
+        "title": "Fontes",
+        "titlePlaceholder": "Título",
+        "uncompiled": "Não compilado",
+        "url": "URL",
+        "urlKindAudio": "Transcrição de áudio",
+        "urlKindImage": "OCR de imagem",
+        "urlKindPage": "Página da web",
+        "urlKindVideo": "Transcrição do vídeo",
+        "versionHistory": "Histórico de versões",
+        "versionHistoryDesc": "Instantâneos arquivados {{count}}. Atual: {{current}}",
+        "versionsFailed": "Não foi possível carregar as versões de origem",
+        "itemStatus": {
+          "duplicate": "Duplicar",
+          "failed": "Falha",
+          "imported": "Importado",
+          "pending": "Pendente",
+          "running": "Correndo"
+        },
+        "kind": {
+          "audioTranscript": "Transcrição de áudio",
+          "browserSnapshot": "Navegador",
+          "docx": "DOCX",
+          "imageOcr": "OCR de imagem",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "Texto",
+          "urlSnapshot": "URL",
+          "videoTranscript": "Transcrição do vídeo"
+        },
+        "runStatus": {
+          "completed": "Concluído",
+          "completedWithErrors": "Concluído com erros",
+          "failed": "Falha",
+          "running": "Correndo"
+        },
+        "similarKind": {
+          "exactDuplicate": "Duplicata exata",
+          "similar": "Semelhante"
+        },
+        "similarScope": {
+          "crossKb": "Espaço cruzado",
+          "sameKb": "Este espaço"
+        }
+      },
+      "queryFile": {
+        "action": "Arquivo",
+        "applied": "Arquivado no espaço de conhecimento",
+        "apply": "Aplicar",
+        "applyFailed": "Não foi possível aplicar o arquivamento",
+        "description": "Crie uma comparação de revisão antes de escrever.",
+        "empty": "Escolha onde esta resposta deve chegar.",
+        "generateFailed": "Não foi possível criar a proposta de arquivamento",
+        "reject": "Rejeitar",
+        "rejected": "Arquivo descartado",
+        "rejectFailed": "Não foi possível descartar o arquivamento",
+        "review": "Revisão",
+        "title": "Resposta do arquivo",
+        "titlePlaceholder": "Título",
+        "mode": {
+          "createNote": "Nova nota",
+          "updateCurrentNote": "Atualizar nota atual",
+          "appendToMoc": "Adicionar ao MOC",
+          "openQuestions": "Perguntas abertas"
+        },
+        "defaultTitle": "Conversa arquivada",
+        "currentNotePlaceholder": "Caminho da nota atual",
+        "openQuestionsPlaceholder": "Nota com perguntas abertas",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "Criar",
       "clear": "Limpar",
       "on": "Ligado",
-      "rename": "Renomear"
+      "rename": "Renomear",
+      "available": "Disponível",
+      "collapse": "fechar",
+      "expand": "Expandir",
+      "retry": "Tentar novamente",
+      "unavailable": "Indisponível"
+    },
+    "backgroundJobs": {
+      "errorOutput": "erro",
+      "liveOutput": "saída em tempo real",
+      "outputFile": "resultados completos",
+      "resultPreview": "Visualização dos resultados"
+    },
+    "browser": {
+      "panelTitle": "Navegador"
+    },
+    "canvas": {
+      "panelTitle": "Tela",
+      "resizePanel": "Redimensionar painel de tela"
+    },
+    "error": {
+      "appCrash": "Algo deu errado",
+      "retry": "Tente novamente",
+      "unknown": "Ocorreu um erro inesperado"
+    },
+    "localModels": {
+      "actions": {
+        "download": "Baixar"
+      }
+    },
+    "macControl": {
+      "panelTitle": "Controle Mac"
+    },
+    "planMode": {
+      "resizePanel": "Redimensionar painel do plano"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "O ID do relatório de recapitulação está ausente.",
+        "open": "Abrir recapitulação",
+        "title": "Relatório de recapitulação",
+        "waiting": "Aguardando o progresso da recapitulação..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "Concluído. O resultado foi injetado neste chat.",
+        "error": "Fracassado.",
+        "killed": "Cancelado.",
+        "missingRunId": "O ID da execução da habilidade está faltando.",
+        "running": "O subagente de habilidade está em execução. O resultado será injetado aqui.",
+        "spawning": "Iniciando subagente de habilidade...",
+        "timeout": "Tempo limite esgotado.",
+        "title": "Habilidade {{skill}}"
+      },
+      "defaultName": "habilidade"
     }
   },
   "ru": {
@@ -8683,7 +10645,8 @@
         "refresh": "Обновить сейчас",
         "resumeMirror": "Возобновить зеркало",
         "takeOver": "Взять управление",
-        "takeOverHint": "Приостановить автообновление 1 Гц, пока вы управляете Chrome сами"
+        "takeOverHint": "Приостановить автообновление 1 Гц, пока вы управляете Chrome сами",
+        "resizePanel": "Изменить размер панели браузера"
       },
       "copy": "Копировать",
       "details": "Подробности",
@@ -8756,7 +10719,30 @@
       "profileRotationTitle": "Смена профиля",
       "contextCompactedTitle": "Контекст сжат",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} сообщ."
+      "contextCompactedMsgs": "{{count}} сообщ.",
+      "browserExtensionRequired": {
+        "nextAction": "Следующее действие: {{nextAction}}",
+        "openSettings": "Откройте «Настройки» > «Браузер», чтобы установить или включить расширение.",
+        "title": "Требуется расширение Chrome"
+      },
+      "conversationEmpty": "В этом разговоре нет сообщений",
+      "pendingCancelForceInsert": "Отменить вставку этого раунда",
+      "pendingFallbackAfterReply": "Отправить после ответа",
+      "pendingFallbackAfterReplyTip": "Точка завершения инструмента не обнаружена и будет отправлена после завершения текущего ответа.",
+      "pendingForceInsertTip": "Он будет ждать завершения выполнения выполняемого инструмента, а затем вставит его в модель, не прерывая работу текущего инструмента.",
+      "pendingInserted": "вставлен",
+      "pendingInsertedTip": "Он был вставлен в модель после завершения этого этапа оснастки.",
+      "pendingQueuedShort": "Очередь",
+      "pendingQueuedTip": "Оно добавлено в очередь ожидания и будет отправлено после завершения текущего ответа.",
+      "pendingQueueTitle": "Для отправки",
+      "pendingWaitingToolBoundary": "Дождитесь завершения работы инструмента",
+      "pendingWaitingToolBoundaryTip": "Дождитесь завершения последнего вызова инструмента; если инструмент больше не вызывается в этом раунде, он будет отправлен после завершения ответа.",
+      "processNotification": "процесс завершен",
+      "rightPanel": {
+        "collapse": "Свернуть правую панель",
+        "expand": "Развернуть правую панель",
+        "switch": "Переключить правую панель"
+      }
     },
     "effort": {
       "none": "Выкл"
@@ -9415,7 +11401,12 @@
       },
       "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
-      "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API.",
+      "devVisualTest": "Тестирование пользовательской анимации",
+      "permLoading": "Проверяем разрешения...",
+      "uiEffects": "Фоновая анимация",
+      "uiEffectsDesc": "Включить всепогодный фон и связь с погодными эффектами.",
+      "uiEffectsToggle": "Включить эффект"
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -9431,7 +11422,15 @@
         "error": "Ошибка",
         "timeout": "Таймаут",
         "killed": "Прервано"
-      }
+      },
+      "agentId": "Идентификатор агента",
+      "childSessionId": "Детская сессия",
+      "duration": "Продолжительность",
+      "model": "Модель",
+      "openSession": "Открытая сессия",
+      "runId": "Идентификатор запуска",
+      "task": "Задача",
+      "tokens": "Токены"
     },
     "project": {
       "projects": "Проекты",
@@ -9499,7 +11498,8 @@
         "openHome": "Открыть главную проекта"
       },
       "openProjectSettings": "Настройки проекта",
-      "noSessionsHint": "Нажмите, чтобы создать первую сессию"
+      "noSessionsHint": "Нажмите, чтобы создать первую сессию",
+      "projectEmojiPlaceholder": "Необязательно"
     },
     "provider": {
       "allowPrivateNetwork": "Разрешить частную сеть",
@@ -9547,7 +11547,10 @@
       "note_distill": "Извлечь суть",
       "note_moc": "Карта содержания",
       "session_to_note": "Диалог в заметку",
-      "knowledge_recall": "Вызов знаний"
+      "knowledge_recall": "Вызов знаний",
+      "execPanel": {
+        "asyncStarted": "Фоновая задача запущена"
+      }
     },
     "cron": {
       "deliveryTargets": "Отправить результат в IM-канал",
@@ -9706,6 +11709,10 @@
             "memory_reembed": "Переиндексация памяти"
           }
         }
+      },
+      "token": {
+        "inputTokens": "Входные токены",
+        "outputTokens": "Выходные токены"
       }
     },
     "team": {
@@ -9743,7 +11750,23 @@
       "reviewer": "Рецензент",
       "noMessages": "Сообщений пока нет",
       "indicator": "Команда",
-      "indicatorMembers": "{{count}} участников"
+      "indicatorMembers": "{{count}} участников",
+      "loading": "Загрузка...",
+      "messagePlaceholder": "Сообщение команде... (@имя для DM)",
+      "noTasks": "Нет задач",
+      "panelTitle": "Команда",
+      "resizePanel": "Изменение размера панели команды",
+      "role": {
+        "lead": "Ведущий",
+        "reviewer": "Рецензент",
+        "worker": "Рабочий"
+      },
+      "tab": {
+        "dashboard": "Панель управления",
+        "messages": "Сообщения",
+        "tasks": "Задачи"
+      },
+      "view": "Посмотреть"
     },
     "about": {
       "description": "Он может работать на рабочем столе, на локальном сервере и в IM-каналах: не только вести диалог, но и сохранять контекст, использовать инструменты и оставаться доступным постоянно.",
@@ -9825,7 +11848,23 @@
       "layoutSplit": "Раздельный",
       "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",
       "noDiffData": "Нет данных diff",
-      "resizePanel": "Изменить размер панели diff"
+      "resizePanel": "Изменить размер панели diff",
+      "actionCreate": "создавать",
+      "actionDelete": "удалить",
+      "actionEdit": "Пересмотреть",
+      "copyLocation": "Копировать текущее местоположение",
+      "expandHiddenLines": "Развернуть строку {{count}} с неизмененным содержимым",
+      "ignoreWhitespace": "Игнорировать изменения пробелов",
+      "locationCopied": "Таргетинг скопирован.",
+      "locationCopyFailed": "Копировать позиционирование не удалось",
+      "matchingFiles": "Файлы {{shown}}/{{total}}",
+      "nextHunk": "Следующее изменение",
+      "noMatchingFiles": "Нет подходящих файлов",
+      "openLocation": "Предварительный просмотр текущей строки",
+      "prevHunk": "Последнее изменение",
+      "renderMore": "Показать оставшиеся строки {{count}}",
+      "searchFiles": "Поиск файлов",
+      "toggleContext": "Свернуть неизмененный контекст"
     },
     "notification": {
       "approvalRequired": "Требуется подтверждение инструмента",
@@ -9906,7 +11945,10 @@
       "sessionShowMore": "Показать больше",
       "sessionShowLess": "Свернуть",
       "environment": {
-        "version": "Версия"
+        "version": "Версия",
+        "gitDiffFailed": "Не удалось прочитать разницу в Git",
+        "loadingDiff": "Читать разницу",
+        "noTextDiff": "Нет текста для отображения различий"
       }
     },
     "fileActions": {
@@ -9977,7 +12019,17 @@
           "auto_tag": "Тег",
           "moc_upkeep": "MOC",
           "memory_to_note": "Память"
-        }
+        },
+        "evidenceCoverage": "Охват доказательств",
+        "evidenceCoverageDetail": "{{pct}}% · Претензии {{claimsWithEvidence}}/{{claims}} · Примечания к {{notesWithEvidence}}/{{notes}}",
+        "evidenceRebuildFailed": "Не удалось восстановить индекс доказательств.",
+        "evidenceRebuilt": "Перестроенный индекс доказательств для примечаний {{notes}}, ссылок на {{refs}}, заявлений {{claims}}.",
+        "missingEvidence": "Недостающие доказательства",
+        "missingRefs": "Отсутствующие ссылки",
+        "needsReview": "Требуется проверка",
+        "rebuildEvidenceTip": "Восстановить индекс производных доказательств",
+        "schemaIssues": "Проблемы со схемой",
+        "staleRefs": "Устаревшие ссылки"
       },
       "graph": {
         "toggle": "Граф связей",
@@ -10109,13 +12161,250 @@
       "externalRawSyncNow": "Синхронизировать сейчас",
       "externalRawSyncPartial": "Синхронизировано снимков: {{synced}}; ошибок: {{failed}}.",
       "externalRawSyncDone": "Синхронизировано снимков источников: {{count}}",
-      "externalRawSyncFailed": "Не удалось синхронизировать снимки источников"
+      "externalRawSyncFailed": "Не удалось синхронизировать снимки источников",
+      "compile": {
+        "applied": "Предложение применено",
+        "apply": "Применить",
+        "applyFailed": "Не удалось применить предложение",
+        "cancel": "Отмена",
+        "cancelFailed": "Не удалось отменить запуск.",
+        "cancelled": "Запуск компиляции отменен",
+        "description": "Просматривайте изменения в созданных заметках, прежде чем что-либо писать.",
+        "empty": "Выберите предложение для рассмотрения",
+        "emptyHint": "Сгенерированные предложения остаются здесь до тех пор, пока вы их не примените или не отклоните.",
+        "failed": "Компиляция не удалась",
+        "loadFailed": "Не удалось загрузить запуски компиляции",
+        "noProposals": "Нет предложений по данному запуску.",
+        "noRuns": "Компиляция пока не выполняется.",
+        "proposals": "Предложения",
+        "proposalsLoadFailed": "Не удалось загрузить предложения.",
+        "refresh": "Обновить",
+        "reject": "Отклонить",
+        "rejectFailed": "Не удалось отклонить предложение",
+        "rejected": "Предложение отклонено",
+        "runPending": "Ожидается выполнение компиляции",
+        "runSources": "Источник(и) {{count}}",
+        "running": "Собираем исходники…",
+        "runs": "Бежит",
+        "startFailed": "Не удалось скомпилировать исходники",
+        "startSelected": "Скомпилировать {{count}}",
+        "started": "Сгенерированные предложения {{n}}",
+        "title": "Компилировать исходники"
+      },
+      "sources": {
+        "archiveAttachment": "Архивировать к знаниям",
+        "archiveAttachmentFailed": "Не удалось заархивировать вложение.",
+        "archivedAttachment": "Архивировано в источники знаний",
+        "browser": "Браузер",
+        "browserAuto": "Авто",
+        "browserPage": "Страница",
+        "browserSelection": "Выбор",
+        "chooseFile": "Выберите файлы",
+        "comparePrevious": "Сравнить предыдущие",
+        "compileOne": "Скомпилировать",
+        "compileSelected": "Компилировать выбранные источники",
+        "compiled": "Скомпилировано",
+        "compiledClaims": "Составленные претензии с использованием этого источника",
+        "currentVersion": "Текущий",
+        "delete": "Удалить",
+        "deleteBody": "Удалить {{name}} из папки «Входящие» с исходным кодом?",
+        "deleteFailed": "Не удалось удалить источник",
+        "deleteTitle": "Удалить источник",
+        "deleted": "Источник удален.",
+        "diffFailed": "Не удалось загрузить исходный код",
+        "diffTruncated": "Предварительный просмотр усечен",
+        "dismissSimilar": "игнорировать",
+        "downloadOriginal": "Скачать оригинал",
+        "empty": "Источников пока нет.",
+        "evidenceSources": "Источники",
+        "externalRawPath": "Внешний снимок",
+        "file": "Файл",
+        "import": "Источник импорта",
+        "importAction": "Импорт",
+        "importDesc": "Добавьте исходный материал в это пространство знаний.",
+        "importFailed": "Не удалось импортировать источник",
+        "importHistory": "История импорта",
+        "importHistoryFailed": "Не удалось открыть историю импорта",
+        "importRunDeduped": "Импортирован {{imported}}, пропущен дубликат {{duplicate}}.",
+        "importRunPartial": "Импортирован {{imported}}, пропущен дубликат {{duplicate}}, ошибка {{failed}}.",
+        "importRunStarted": "Начался импорт источников {{count}}.",
+        "imported": "Источник импортирован",
+        "importedCount": "Импортированные источники {{count}}",
+        "keepSource": "Сохранить {{name}}",
+        "loadTargetsFailed": "Не удалось загрузить области знаний.",
+        "loading": "Загрузка…",
+        "loadingClaims": "Загрузка индекса доказательств...",
+        "loadingDiff": "Загрузка разницы...",
+        "mediaRetained": "СМИ сохранены",
+        "missingSource": "Отсутствует источник",
+        "moreClaims": "+{{count}} больше претензий",
+        "noCompiledClaims": "Ни одна составленная записка пока не ссылается на этот источник.",
+        "noImportRuns": "Импорт пока не выполняется.",
+        "noKb": "Выберите пространство, чтобы увидеть источники.",
+        "noKnowledgeBase": "Нет места для знаний",
+        "noLocalDuplicates": "В этом пространстве нет повторяющегося источника, который можно было бы удалить.",
+        "noSimilarGroups": "Нет похожих групп источников.",
+        "open": "Открыть",
+        "openOriginal": "Открыть оригинал",
+        "otherKb": "Другое пространство {{id}}",
+        "readFailed": "Не удалось открыть исходный код",
+        "reextract": "Повторное извлечение",
+        "reextractFailed": "Не удалось повторно извлечь исходный код",
+        "reextracted": "Источник повторно извлечен",
+        "refresh": "Обновить",
+        "refreshChanged": "Исходный код обновлен до v{{version}}.",
+        "refreshFailed": "Не удалось обновить источник",
+        "refreshSource": "Обновить снимок",
+        "refreshUnchanged": "Источник уже актуален",
+        "resolveSimilarConfirm": "Сохранить {{name}} и удалить повторяющиеся источники {{count}} из этого места?",
+        "retainedMedia": "Сохраненные медиа",
+        "retryFailed": "Не удалось повторить неудачный импорт.",
+        "retryFailedAction": "Повторная попытка не удалась",
+        "selectImportRun": "Выберите запуск импорта.",
+        "selectKnowledgeBase": "Выберите пространство знаний",
+        "similarCount": "{{count}} аналогичные группы",
+        "similarDismissFailed": "Не удалось скрыть предложение о сходстве.",
+        "similarDismissed": "Предположение о сходстве скрыто",
+        "similarGroups": "Похожие источники",
+        "similarResolveFailed": "Не удалось устранить повторяющиеся источники",
+        "similarResolved": "Удалены повторяющиеся источники {{count}}.",
+        "sourceDiff": "Разница в исходном коде",
+        "staleSource": "Исходный код изменен после компиляции",
+        "supersededSource": "Доступна более новая исходная версия",
+        "text": "Текст",
+        "textPlaceholder": "Вставить исходный текст…",
+        "thumbnailOnly": "Только миниатюра",
+        "title": "Источники",
+        "titlePlaceholder": "Название",
+        "uncompiled": "Некомпилированный",
+        "url": "URL",
+        "urlKindAudio": "Аудио расшифровка",
+        "urlKindImage": "Распознавание изображений",
+        "urlKindPage": "Веб-страница",
+        "urlKindVideo": "Стенограмма видео",
+        "versionHistory": "История версий",
+        "versionHistoryDesc": "Архивированные снимки {{count}}. Текущий: {{current}}",
+        "versionsFailed": "Не удалось загрузить исходные версии.",
+        "itemStatus": {
+          "duplicate": "Дублировать",
+          "failed": "Не удалось",
+          "imported": "Импортировано",
+          "pending": "Ожидается",
+          "running": "Бег"
+        },
+        "kind": {
+          "audioTranscript": "Аудио расшифровка",
+          "browserSnapshot": "Браузер",
+          "docx": "DOCX",
+          "imageOcr": "Распознавание изображений",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "Текст",
+          "urlSnapshot": "URL",
+          "videoTranscript": "Стенограмма видео"
+        },
+        "runStatus": {
+          "completed": "Завершено",
+          "completedWithErrors": "Завершено с ошибками",
+          "failed": "Не удалось",
+          "running": "Бег"
+        },
+        "similarKind": {
+          "exactDuplicate": "Точный дубликат",
+          "similar": "Похожие"
+        },
+        "similarScope": {
+          "crossKb": "Перекрестное пространство",
+          "sameKb": "Это пространство"
+        }
+      },
+      "queryFile": {
+        "action": "Файл",
+        "applied": "Отправлено в пространство знаний",
+        "apply": "Применить",
+        "applyFailed": "Не удалось подать заявку",
+        "description": "Прежде чем писать, создайте обзор различий.",
+        "empty": "Выберите, куда должен попасть этот ответ.",
+        "generateFailed": "Не удалось создать предложение о подаче заявки.",
+        "reject": "Отклонить",
+        "rejected": "Заявка отклонена",
+        "rejectFailed": "Не удалось отменить регистрацию.",
+        "review": "Обзор",
+        "title": "Файл ответа",
+        "titlePlaceholder": "Название",
+        "mode": {
+          "createNote": "Новая заметка",
+          "updateCurrentNote": "Обновить текущую заметку",
+          "appendToMoc": "Добавить в МОК",
+          "openQuestions": "Открытые вопросы"
+        },
+        "defaultTitle": "Сохраненный разговор",
+        "currentNotePlaceholder": "Текущий путь заметки",
+        "openQuestionsPlaceholder": "Примечание с открытыми вопросами",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "Создать",
       "clear": "Очистить",
       "on": "Вкл",
-      "rename": "Переименовать"
+      "rename": "Переименовать",
+      "available": "Доступно",
+      "collapse": "закрыть",
+      "expand": "Развернуть",
+      "retry": "Повторить попытку",
+      "unavailable": "Недоступно"
+    },
+    "backgroundJobs": {
+      "errorOutput": "ошибка",
+      "liveOutput": "вывод в реальном времени",
+      "outputFile": "полные результаты",
+      "resultPreview": "Предварительный просмотр результатов"
+    },
+    "browser": {
+      "panelTitle": "Браузер"
+    },
+    "canvas": {
+      "panelTitle": "Холст",
+      "resizePanel": "Изменение размера панели холста"
+    },
+    "error": {
+      "appCrash": "Что-то пошло не так",
+      "retry": "Попробуйте еще раз",
+      "unknown": "Произошла непредвиденная ошибка"
+    },
+    "localModels": {
+      "actions": {
+        "download": "Скачать"
+      }
+    },
+    "macControl": {
+      "panelTitle": "Управление Mac"
+    },
+    "planMode": {
+      "resizePanel": "Изменение размера панели плана"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "Идентификатор сводного отчета отсутствует.",
+        "open": "Открыть резюме",
+        "title": "Итоговый отчет",
+        "waiting": "Ждём прогресса в подведении итогов..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "Завершено. Результат был добавлен в этот чат.",
+        "error": "Неуспешный.",
+        "killed": "Отменено.",
+        "missingRunId": "Идентификатор выполнения навыка отсутствует.",
+        "running": "Субагент навыка запущен. Результат будет введен сюда.",
+        "spawning": "Стартовый субагент по навыкам...",
+        "timeout": "Время истекло.",
+        "title": "Навык {{skill}}"
+      },
+      "defaultName": "умение"
     }
   },
   "ar": {
@@ -10131,7 +12420,8 @@
         "refresh": "تحديث الآن",
         "resumeMirror": "استئناف المرآة",
         "takeOver": "تولّى التحكم",
-        "takeOverHint": "إيقاف التحديث التلقائي 1 هرتز أثناء تشغيل Chrome بنفسك"
+        "takeOverHint": "إيقاف التحديث التلقائي 1 هرتز أثناء تشغيل Chrome بنفسك",
+        "resizePanel": "تغيير حجم لوحة المتصفح"
       },
       "copy": "نسخ",
       "details": "التفاصيل",
@@ -10204,7 +12494,30 @@
       "profileRotationTitle": "تغيير الملف الشخصي",
       "contextCompactedTitle": "تم ضغط السياق",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} رسالة"
+      "contextCompactedMsgs": "{{count}} رسالة",
+      "browserExtensionRequired": {
+        "nextAction": "الإجراء التالي: {{nextAction}}",
+        "openSettings": "افتح الإعدادات > المتصفح لتثبيت الامتداد أو تمكينه.",
+        "title": "ملحق كروم مطلوب"
+      },
+      "conversationEmpty": "لا توجد رسائل في هذه المحادثة",
+      "pendingCancelForceInsert": "إلغاء إدراج هذه الجولة",
+      "pendingFallbackAfterReply": "أرسل بعد الرد",
+      "pendingFallbackAfterReplyTip": "لم تتم مواجهة نقطة اكتمال الأداة وسيتم إرسالها بعد انتهاء الرد الحالي.",
+      "pendingForceInsertTip": "سوف ينتظر حتى اكتمال تنفيذ الأداة ثم يقوم بإدراجها في النموذج دون مقاطعة الأداة الحالية.",
+      "pendingInserted": "تم إدراجها",
+      "pendingInsertedTip": "وقد تم إدراجه في النموذج بعد اكتمال هذه الجولة من الأدوات.",
+      "pendingQueuedShort": "الطابور",
+      "pendingQueuedTip": "تمت إضافته إلى قائمة انتظار الانتظار وسيتم إرساله بعد انتهاء الرد الحالي.",
+      "pendingQueueTitle": "ليتم إرسالها",
+      "pendingWaitingToolBoundary": "انتظر حتى نقطة اكتمال الأداة",
+      "pendingWaitingToolBoundaryTip": "انتظر حتى يكتمل استدعاء الأداة الأخير؛ إذا لم تعد الأداة تسمى هذه الجولة، فسيتم إرسالها بعد اكتمال الرد.",
+      "processNotification": "انتهت العملية",
+      "rightPanel": {
+        "collapse": "طي اللوحة اليمنى",
+        "expand": "قم بتوسيع اللوحة اليمنى",
+        "switch": "تبديل اللوحة اليمنى"
+      }
     },
     "effort": {
       "none": "إيقاف"
@@ -10863,7 +13176,12 @@
       },
       "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
-      "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API."
+      "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
+      "devVisualTest": "اختبار الرسوم المتحركة لواجهة المستخدم",
+      "permLoading": "جارٍ التحقق من الأذونات...",
+      "uiEffects": "الرسوم المتحركة الخلفية",
+      "uiEffectsDesc": "تمكين ربط الخلفية وتأثيرات الطقس في جميع الأحوال الجوية",
+      "uiEffectsToggle": "تفعيل التأثير"
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -10879,7 +13197,15 @@
         "error": "خطأ",
         "timeout": "انتهت المهلة",
         "killed": "تم إنهاؤه"
-      }
+      },
+      "agentId": "معرف الوكيل",
+      "childSessionId": "جلسة الطفل",
+      "duration": "المدة",
+      "model": "نموذج",
+      "openSession": "جلسة مفتوحة",
+      "runId": "تشغيل معرف",
+      "task": "المهمة",
+      "tokens": "الرموز"
     },
     "project": {
       "projects": "المشاريع",
@@ -10947,7 +13273,8 @@
         "openHome": "فتح الصفحة الرئيسية للمشروع"
       },
       "openProjectSettings": "إعدادات المشروع",
-      "noSessionsHint": "انقر لإنشاء الجلسة الأولى"
+      "noSessionsHint": "انقر لإنشاء الجلسة الأولى",
+      "projectEmojiPlaceholder": "اختياري"
     },
     "provider": {
       "allowPrivateNetwork": "السماح بالشبكة الخاصة",
@@ -10995,7 +13322,10 @@
       "note_distill": "تقطير الملاحظات",
       "note_moc": "خريطة المحتوى",
       "session_to_note": "الجلسة إلى ملاحظة",
-      "knowledge_recall": "استرجاع المعرفة"
+      "knowledge_recall": "استرجاع المعرفة",
+      "execPanel": {
+        "asyncStarted": "بدأت مهمة الخلفية"
+      }
     },
     "cron": {
       "deliveryTargets": "إرسال النتيجة إلى قناة IM",
@@ -11154,6 +13484,10 @@
             "memory_reembed": "إعادة تضمين الذاكرة"
           }
         }
+      },
+      "token": {
+        "inputTokens": "رموز الإدخال",
+        "outputTokens": "رموز الإخراج"
       }
     },
     "team": {
@@ -11191,7 +13525,23 @@
       "reviewer": "المراجِع",
       "noMessages": "لا توجد رسائل بعد",
       "indicator": "الفريق",
-      "indicatorMembers": "{{count}} عضو"
+      "indicatorMembers": "{{count}} عضو",
+      "loading": "جار التحميل...",
+      "messagePlaceholder": "فريق الرسائل... (@اسم الرسالة المباشرة)",
+      "noTasks": "لا توجد مهام",
+      "panelTitle": "فريق",
+      "resizePanel": "تغيير حجم لوحة الفريق",
+      "role": {
+        "lead": "الرصاص",
+        "reviewer": "المراجع",
+        "worker": "عامل"
+      },
+      "tab": {
+        "dashboard": "لوحة القيادة",
+        "messages": "الرسائل",
+        "tasks": "المهام"
+      },
+      "view": "عرض"
     },
     "about": {
       "description": "يمكنه العمل على سطح المكتب، وعلى خادم محلي، وعبر قنوات المراسلة، ليس فقط للدردشة اليومية بل أيضًا للاحتفاظ بالسياق واستخدام الأدوات والاستمرار في العمل مع الوقت.",
@@ -11273,7 +13623,23 @@
       "layoutSplit": "مقسم",
       "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
       "noDiffData": "لا توجد بيانات للفرق",
-      "resizePanel": "تغيير حجم لوحة الفرق"
+      "resizePanel": "تغيير حجم لوحة الفرق",
+      "actionCreate": "إنشاء",
+      "actionDelete": "حذف",
+      "actionEdit": "مراجعة",
+      "copyLocation": "نسخ الموقع الحالي",
+      "expandHiddenLines": "قم بتوسيع الصف {{count}} مع عدم تغيير المحتوى",
+      "ignoreWhitespace": "تجاهل تغييرات المسافة البيضاء",
+      "locationCopied": "تم نسخ الاستهداف",
+      "locationCopyFailed": "فشل تحديد موضع النسخ",
+      "matchingFiles": "ملفات {{shown}}/{{total}}",
+      "nextHunk": "التغيير التالي",
+      "noMatchingFiles": "لا توجد ملفات مطابقة",
+      "openLocation": "معاينة السطر الحالي",
+      "prevHunk": "التغيير الأخير",
+      "renderMore": "إظهار صفوف {{count}} المتبقية",
+      "searchFiles": "البحث في الملفات",
+      "toggleContext": "طي السياق دون تغيير"
     },
     "notification": {
       "approvalRequired": "مطلوب الموافقة على الأداة",
@@ -11354,7 +13720,10 @@
       "sessionShowMore": "عرض المزيد",
       "sessionShowLess": "عرض أقل",
       "environment": {
-        "version": "الإصدار"
+        "version": "الإصدار",
+        "gitDiffFailed": "فشلت قراءة فرق Git",
+        "loadingDiff": "قراءة الفرق",
+        "noTextDiff": "لا يوجد نص لعرض الفرق"
       }
     },
     "fileActions": {
@@ -11425,7 +13794,17 @@
           "auto_tag": "وسم",
           "moc_upkeep": "MOC",
           "memory_to_note": "ذاكرة"
-        }
+        },
+        "evidenceCoverage": "تغطية الأدلة",
+        "evidenceCoverageDetail": "{{pct}}% · مطالبات {{claimsWithEvidence}}/{{claims}} · ملاحظات {{notesWithEvidence}}/{{notes}}",
+        "evidenceRebuildFailed": "لا يمكن إعادة بناء فهرس الأدلة",
+        "evidenceRebuilt": "تم إعادة بناء فهرس الأدلة لملاحظات {{notes}}، ومراجع {{refs}}، ومطالبات {{claims}}",
+        "missingEvidence": "أدلة مفقودة",
+        "missingRefs": "مراجع مفقودة",
+        "needsReview": "يحتاج إلى مراجعة",
+        "rebuildEvidenceTip": "إعادة بناء فهرس الأدلة المشتقة",
+        "schemaIssues": "قضايا المخطط",
+        "staleRefs": "المراجع التي لا معنى لها"
       },
       "graph": {
         "toggle": "عرض الرسم البياني",
@@ -11557,13 +13936,250 @@
       "externalRawSyncNow": "المزامنة الآن",
       "externalRawSyncPartial": "تمت مزامنة {{synced}} لقطة؛ فشل {{failed}}.",
       "externalRawSyncDone": "تمت مزامنة {{count}} لقطة مصدر",
-      "externalRawSyncFailed": "تعذرت مزامنة لقطات المصادر"
+      "externalRawSyncFailed": "تعذرت مزامنة لقطات المصادر",
+      "compile": {
+        "applied": "تم تطبيق الاقتراح",
+        "apply": "تطبيق",
+        "applyFailed": "تعذر تطبيق الاقتراح",
+        "cancel": "إلغاء",
+        "cancelFailed": "تعذر إلغاء التشغيل",
+        "cancelled": "تم إلغاء تشغيل الترجمة",
+        "description": "قم بمراجعة تغييرات الملاحظة التي تم إنشاؤها قبل كتابة أي شيء.",
+        "empty": "حدد اقتراحًا للمراجعة",
+        "emptyHint": "تظل المقترحات التي تم إنشاؤها هنا حتى تقوم بتقديمها أو رفضها.",
+        "failed": "فشل تشغيل الترجمة",
+        "loadFailed": "تعذر تحميل عمليات الترجمة",
+        "noProposals": "لا توجد مقترحات لهذا المدى.",
+        "noRuns": "لا يتم تشغيل التجميع حتى الآن.",
+        "proposals": "المقترحات",
+        "proposalsLoadFailed": "تعذر تحميل المقترحات",
+        "refresh": "تحديث",
+        "reject": "رفض",
+        "rejectFailed": "لا يمكن رفض الاقتراح",
+        "rejected": "تم رفض الاقتراح",
+        "runPending": "ترجمة التشغيل معلقة",
+        "runSources": "مصدر (مصادر) {{count}}",
+        "running": "جارٍ تجميع المصادر…",
+        "runs": "أشواط",
+        "startFailed": "لا يمكن تجميع المصادر",
+        "startSelected": "تجميع {{count}}",
+        "started": "الاقتراح (المقترحات) التي تم إنشاؤها {{n}}",
+        "title": "تجميع المصادر"
+      },
+      "sources": {
+        "archiveAttachment": "الأرشيف للمعرفة",
+        "archiveAttachmentFailed": "فشل في أرشفة المرفق",
+        "archivedAttachment": "مؤرشفة في مصادر المعرفة",
+        "browser": "المتصفح",
+        "browserAuto": "تلقائي",
+        "browserPage": "الصفحة",
+        "browserSelection": "التحديد",
+        "chooseFile": "اختر الملفات",
+        "comparePrevious": "قارن السابقة",
+        "compileOne": "تجميع",
+        "compileSelected": "تجميع المصادر المختارة",
+        "compiled": "تم تجميعها",
+        "compiledClaims": "المطالبات المجمعة باستخدام هذا المصدر",
+        "currentVersion": "الحالي",
+        "delete": "حذف",
+        "deleteBody": "هل تريد حذف {{name}} من صندوق الوارد المصدر الأولي؟",
+        "deleteFailed": "تعذر حذف المصدر",
+        "deleteTitle": "حذف المصدر",
+        "deleted": "تم حذف المصدر",
+        "diffFailed": "تعذر تحميل اختلاف المصدر",
+        "diffTruncated": "تم اقتطاع المعاينة",
+        "dismissSimilar": "تجاهل",
+        "downloadOriginal": "تحميل الأصلي",
+        "empty": "لا توجد مصادر حتى الآن.",
+        "evidenceSources": "المصادر",
+        "externalRawPath": "لقطة خارجية",
+        "file": "ملف",
+        "import": "مصدر الاستيراد",
+        "importAction": "استيراد",
+        "importDesc": "أضف مادة خام إلى مساحة المعرفة هذه.",
+        "importFailed": "تعذر استيراد المصدر",
+        "importHistory": "تاريخ الاستيراد",
+        "importHistoryFailed": "تعذر فتح سجل الاستيراد",
+        "importRunDeduped": "تم استيراد {{imported}}، وتم تخطي نسخة {{duplicate}} المكررة",
+        "importRunPartial": "تم استيراد {{imported}}، وتم تخطي نسخة {{duplicate}} المكررة، وفشل {{failed}}",
+        "importRunStarted": "بدأ الاستيراد لمصدر (مصادر) {{count}}",
+        "imported": "المصدر مستورد",
+        "importedCount": "مصادر {{count}} المستوردة",
+        "keepSource": "احتفظ بـ {{name}}",
+        "loadTargetsFailed": "فشل تحميل مساحات المعرفة",
+        "loading": "جارٍ التحميل…",
+        "loadingClaims": "جارٍ تحميل فهرس الأدلة...",
+        "loadingDiff": "تحميل الفرق...",
+        "mediaRetained": "تم الاحتفاظ بالوسائط",
+        "missingSource": "المصدر مفقود",
+        "moreClaims": "+{{count}} المزيد من المطالبات",
+        "noCompiledClaims": "لا توجد مطالبة بالملاحظة المجمعة تستشهد بهذا المصدر حتى الآن.",
+        "noImportRuns": "لم يتم تشغيل أي استيراد حتى الآن.",
+        "noKb": "حدد مساحة لرؤية المصادر.",
+        "noKnowledgeBase": "لا توجد مساحة معرفية متاحة",
+        "noLocalDuplicates": "لا يوجد مصدر مكرر في هذه المساحة لحذفه",
+        "noSimilarGroups": "لا توجد مجموعات مصدر مماثلة.",
+        "open": "مفتوح",
+        "openOriginal": "فتح الأصلي",
+        "otherKb": "مساحة أخرى {{id}}",
+        "readFailed": "لا يمكن فتح المصدر",
+        "reextract": "إعادة استخراج",
+        "reextractFailed": "لا يمكن إعادة استخراج المصدر",
+        "reextracted": "تم إعادة استخراج المصدر",
+        "refresh": "تحديث",
+        "refreshChanged": "تم تحديث المصدر إلى v{{version}}",
+        "refreshFailed": "تعذر تحديث المصدر",
+        "refreshSource": "تحديث اللقطة",
+        "refreshUnchanged": "المصدر محدث بالفعل",
+        "resolveSimilarConfirm": "هل تريد الاحتفاظ بـ {{name}} وحذف المصدر (المصادر) المكررة لـ {{count}} من هذه المساحة؟",
+        "retainedMedia": "الوسائط المحتجزة",
+        "retryFailed": "تعذرت إعادة محاولة عمليات الاستيراد الفاشلة",
+        "retryFailedAction": "فشلت إعادة المحاولة",
+        "selectImportRun": "حدد تشغيل الاستيراد.",
+        "selectKnowledgeBase": "اختر مساحة المعرفة",
+        "similarCount": "مجموعات مماثلة {{count}}",
+        "similarDismissFailed": "لا يمكن إخفاء اقتراح التشابه",
+        "similarDismissed": "اقتراح التشابه مخفي",
+        "similarGroups": "مصادر مماثلة",
+        "similarResolveFailed": "لا يمكن حل المصادر المكررة",
+        "similarResolved": "تم حذف المصدر (المصادر) المكررة لـ {{count}}",
+        "sourceDiff": "اختلاف المصدر",
+        "staleSource": "تم تغيير المصدر بعد التجميع",
+        "supersededSource": "يتوفر إصدار مصدر أحدث",
+        "text": "نص",
+        "textPlaceholder": "لصق النص المصدر...",
+        "thumbnailOnly": "الصورة المصغرة فقط",
+        "title": "المصادر",
+        "titlePlaceholder": "العنوان",
+        "uncompiled": "غير مجمعة",
+        "url": "URL",
+        "urlKindAudio": "نسخة صوتية",
+        "urlKindImage": "صورة التعرف الضوئي على الحروف",
+        "urlKindPage": "صفحة ويب",
+        "urlKindVideo": "نص الفيديو",
+        "versionHistory": "تاريخ الإصدار",
+        "versionHistoryDesc": "اللقطات المؤرشفة {{count}}. الحالي: {{current}}",
+        "versionsFailed": "تعذر تحميل الإصدارات المصدر",
+        "itemStatus": {
+          "duplicate": "مكررة",
+          "failed": "فشل",
+          "imported": "مستورد",
+          "pending": "في انتظار",
+          "running": "الجري"
+        },
+        "kind": {
+          "audioTranscript": "نسخة صوتية",
+          "browserSnapshot": "المتصفح",
+          "docx": "DOCX",
+          "imageOcr": "صورة التعرف الضوئي على الحروف",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "نص",
+          "urlSnapshot": "URL",
+          "videoTranscript": "نص الفيديو"
+        },
+        "runStatus": {
+          "completed": "مكتمل",
+          "completedWithErrors": "اكتمل مع وجود أخطاء",
+          "failed": "فشل",
+          "running": "الجري"
+        },
+        "similarKind": {
+          "exactDuplicate": "مكررة بالضبط",
+          "similar": "مماثل"
+        },
+        "similarScope": {
+          "crossKb": "عبر الفضاء",
+          "sameKb": "هذه المساحة"
+        }
+      },
+      "queryFile": {
+        "action": "ملف",
+        "applied": "قدمت إلى فضاء المعرفة",
+        "apply": "تطبيق",
+        "applyFailed": "تعذر تطبيق التسجيل",
+        "description": "إنشاء فرق المراجعة قبل الكتابة.",
+        "empty": "اختر المكان الذي يجب أن تصل إليه هذه الإجابة.",
+        "generateFailed": "تعذر إنشاء اقتراح حفظ",
+        "reject": "رفض",
+        "rejected": "تم تجاهل الإيداع",
+        "rejectFailed": "تعذر تجاهل التسجيل",
+        "review": "مراجعة",
+        "title": "إجابة الملف",
+        "titlePlaceholder": "العنوان",
+        "mode": {
+          "createNote": "ملاحظة جديدة",
+          "updateCurrentNote": "تحديث الملاحظة الحالية",
+          "appendToMoc": "أضف إلى MOC",
+          "openQuestions": "أسئلة مفتوحة"
+        },
+        "defaultTitle": "محادثة ملفوفة",
+        "currentNotePlaceholder": "مسار الملاحظة الحالية",
+        "openQuestionsPlaceholder": "ملاحظة مع الأسئلة المفتوحة",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "إنشاء",
       "clear": "مسح",
       "on": "تشغيل",
-      "rename": "إعادة تسمية"
+      "rename": "إعادة تسمية",
+      "available": "متاح",
+      "collapse": "قريب",
+      "expand": "توسيع",
+      "retry": "أعد المحاولة",
+      "unavailable": "غير متاح"
+    },
+    "backgroundJobs": {
+      "errorOutput": "خطأ",
+      "liveOutput": "الإخراج في الوقت الحقيقي",
+      "outputFile": "النتائج الكاملة",
+      "resultPreview": "معاينة النتائج"
+    },
+    "browser": {
+      "panelTitle": "المتصفح"
+    },
+    "canvas": {
+      "panelTitle": "قماش",
+      "resizePanel": "تغيير حجم لوحة قماش"
+    },
+    "error": {
+      "appCrash": "حدث خطأ ما",
+      "retry": "حاول مرة أخرى",
+      "unknown": "حدث خطأ غير متوقع"
+    },
+    "localModels": {
+      "actions": {
+        "download": "تحميل"
+      }
+    },
+    "macControl": {
+      "panelTitle": "تحكم ماك"
+    },
+    "planMode": {
+      "resizePanel": "تغيير حجم لوحة الخطة"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "معرف تقرير التلخيص مفقود.",
+        "open": "افتح الخلاصة",
+        "title": "تقرير التلخيص",
+        "waiting": "في انتظار تلخيص التقدم..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "مكتمل. تم إدخال النتيجة في هذه الدردشة.",
+        "error": "فشل.",
+        "killed": "تم الإلغاء.",
+        "missingRunId": "معرف تشغيل المهارة مفقود.",
+        "running": "وكيل المهارة الفرعي قيد التشغيل. سيتم حقن النتيجة هنا.",
+        "spawning": "بدء تشغيل الوكيل الفرعي للمهارة...",
+        "timeout": "انتهت المهلة.",
+        "title": "المهارة {{skill}}"
+      },
+      "defaultName": "مهارة"
     }
   },
   "es": {
@@ -11579,7 +14195,8 @@
         "refresh": "Refrescar ahora",
         "resumeMirror": "Reanudar espejo",
         "takeOver": "Tomar el control",
-        "takeOverHint": "Pausa la actualización automática de 1Hz mientras tú controlas Chrome"
+        "takeOverHint": "Pausa la actualización automática de 1Hz mientras tú controlas Chrome",
+        "resizePanel": "Cambiar el tamaño del panel del navegador"
       },
       "copy": "Copiar",
       "details": "Detalles",
@@ -11652,7 +14269,30 @@
       "profileRotationTitle": "Rotación de perfil",
       "contextCompactedTitle": "Contexto compactado",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} msgs"
+      "contextCompactedMsgs": "{{count}} msgs",
+      "browserExtensionRequired": {
+        "nextAction": "Siguiente acción: {{nextAction}}",
+        "openSettings": "Abra Configuración> Navegador para instalar o habilitar la extensión.",
+        "title": "Se requiere extensión de Chrome"
+      },
+      "conversationEmpty": "No hay mensajes en esta conversación.",
+      "pendingCancelForceInsert": "Cancelar la inserción de esta ronda",
+      "pendingFallbackAfterReply": "Enviar después de la respuesta",
+      "pendingFallbackAfterReplyTip": "No se ha encontrado el punto de finalización de la herramienta y se enviará una vez que finalice la respuesta actual.",
+      "pendingForceInsertTip": "Esperará hasta que se complete la herramienta que se está ejecutando y luego la insertará en el modelo sin interrumpir la herramienta actual.",
+      "pendingInserted": "insertado",
+      "pendingInsertedTip": "Se insertó en el modelo una vez completada esta ronda de herramientas.",
+      "pendingQueuedShort": "hacer cola",
+      "pendingQueuedTip": "Se ha agregado a la cola de espera y se enviará una vez que finalice la respuesta actual.",
+      "pendingQueueTitle": "Para ser enviado",
+      "pendingWaitingToolBoundary": "Espere hasta el punto de finalización de la herramienta",
+      "pendingWaitingToolBoundaryTip": "Espere a que se complete la última llamada a la herramienta; Si la herramienta ya no se llama en esta ronda, se enviará una vez completada la respuesta.",
+      "processNotification": "proceso finalizado",
+      "rightPanel": {
+        "collapse": "Contraer panel derecho",
+        "expand": "Expandir el panel derecho",
+        "switch": "Cambiar panel derecho"
+      }
     },
     "effort": {
       "none": "Apagado"
@@ -12311,7 +14951,12 @@
       },
       "serverKnowledgeAgentReadToken": "Token de lectura de Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Déjalo vacío para desactivar el acceso de agent de solo lectura",
-      "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo funciona cuando también hay una API key owner configurada; entonces solo puede llamar endpoints de solo lectura del knowledge agent y nunca concede acceso owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo funciona cuando también hay una API key owner configurada; entonces solo puede llamar endpoints de solo lectura del knowledge agent y nunca concede acceso owner API.",
+      "devVisualTest": "Pruebas de animación de UI",
+      "permLoading": "Comprobando permisos...",
+      "uiEffects": "Animación de fondo",
+      "uiEffectsDesc": "Habilite la vinculación de efectos climáticos y fondos para todo clima",
+      "uiEffectsToggle": "Activar efecto"
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -12327,7 +14972,15 @@
         "error": "Error",
         "timeout": "Tiempo agotado",
         "killed": "Terminado"
-      }
+      },
+      "agentId": "ID del agente",
+      "childSessionId": "Sesión infantil",
+      "duration": "Duración",
+      "model": "modelo",
+      "openSession": "Sesión abierta",
+      "runId": "ID de ejecución",
+      "task": "Tarea",
+      "tokens": "Fichas"
     },
     "project": {
       "projects": "Proyectos",
@@ -12395,7 +15048,8 @@
         "openHome": "Abrir página del proyecto"
       },
       "openProjectSettings": "Configuración del proyecto",
-      "noSessionsHint": "Haz clic para crear la primera sesión"
+      "noSessionsHint": "Haz clic para crear la primera sesión",
+      "projectEmojiPlaceholder": "Opcional"
     },
     "provider": {
       "allowPrivateNetwork": "Permitir red privada",
@@ -12443,7 +15097,10 @@
       "note_distill": "Destilar notas",
       "note_moc": "Mapa de contenido",
       "session_to_note": "Sesión a nota",
-      "knowledge_recall": "Recuperar conocimiento"
+      "knowledge_recall": "Recuperar conocimiento",
+      "execPanel": {
+        "asyncStarted": "Tarea en segundo plano iniciada"
+      }
     },
     "cron": {
       "deliveryTargets": "Enviar resultado a canal IM",
@@ -12602,6 +15259,10 @@
             "memory_reembed": "Re-embedding de memoria"
           }
         }
+      },
+      "token": {
+        "inputTokens": "Fichas de entrada",
+        "outputTokens": "Fichas de salida"
       }
     },
     "team": {
@@ -12639,7 +15300,23 @@
       "reviewer": "Revisor",
       "noMessages": "Aún no hay mensajes",
       "indicator": "Equipo",
-      "indicatorMembers": "{{count}} miembros"
+      "indicatorMembers": "{{count}} miembros",
+      "loading": "Cargando...",
+      "messagePlaceholder": "Equipo de mensajes... (@nombre para DM)",
+      "noTasks": "Sin tareas",
+      "panelTitle": "equipo",
+      "resizePanel": "Cambiar el tamaño del panel del equipo",
+      "role": {
+        "lead": "plomo",
+        "reviewer": "Revisor",
+        "worker": "trabajador"
+      },
+      "tab": {
+        "dashboard": "Panel de control",
+        "messages": "Mensajes",
+        "tasks": "Tareas"
+      },
+      "view": "Ver"
     },
     "about": {
       "description": "Puede ejecutarse en el escritorio, en un servidor local y en canales de mensajería, no solo para chatear, sino también para conservar contexto, usar herramientas y seguir trabajando con el tiempo.",
@@ -12721,7 +15398,23 @@
       "layoutSplit": "Dividido",
       "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
       "noDiffData": "Sin datos de diff",
-      "resizePanel": "Redimensionar panel de diff"
+      "resizePanel": "Redimensionar panel de diff",
+      "actionCreate": "crear",
+      "actionDelete": "eliminar",
+      "actionEdit": "Revisar",
+      "copyLocation": "Copiar ubicación actual",
+      "expandHiddenLines": "Expandir la fila {{count}} con contenido sin cambios",
+      "ignoreWhitespace": "Ignorar los cambios de espacios en blanco",
+      "locationCopied": "Orientación copiada",
+      "locationCopyFailed": "Error en el posicionamiento de la copia",
+      "matchingFiles": "Archivos {{shown}} / {{total}}",
+      "nextHunk": "Próximo cambio",
+      "noMatchingFiles": "No hay archivos coincidentes",
+      "openLocation": "Vista previa a la línea actual",
+      "prevHunk": "último cambio",
+      "renderMore": "Mostrar filas {{count}} restantes",
+      "searchFiles": "Buscar archivos",
+      "toggleContext": "Contraer el contexto sin cambios"
     },
     "notification": {
       "approvalRequired": "Se requiere aprobación de herramienta",
@@ -12802,7 +15495,10 @@
       "sessionShowMore": "Mostrar más",
       "sessionShowLess": "Mostrar menos",
       "environment": {
-        "version": "Versión"
+        "version": "Versión",
+        "gitDiffFailed": "Error al leer la diferencia de Git",
+        "loadingDiff": "Leer diferencia",
+        "noTextDiff": "No hay texto para mostrar la diferencia"
       }
     },
     "fileActions": {
@@ -12873,7 +15569,17 @@
           "auto_tag": "Etiqueta",
           "moc_upkeep": "MOC",
           "memory_to_note": "Memoria"
-        }
+        },
+        "evidenceCoverage": "Cobertura de evidencia",
+        "evidenceCoverageDetail": "{{pct}}% · Reclamaciones {{claimsWithEvidence}}/{{claims}} · Notas {{notesWithEvidence}}/{{notes}}",
+        "evidenceRebuildFailed": "No se pudo reconstruir el índice de evidencia",
+        "evidenceRebuilt": "Índice de evidencia reconstruido para notas {{notes}}, referencias {{refs}}, afirmaciones {{claims}}",
+        "missingEvidence": "evidencia faltante",
+        "missingRefs": "árbitros faltantes",
+        "needsReview": "Necesita revisión",
+        "rebuildEvidenceTip": "Reconstruir el índice de evidencia derivada",
+        "schemaIssues": "Problemas de esquema",
+        "staleRefs": "árbitros obsoletos"
       },
       "graph": {
         "toggle": "Vista de grafo",
@@ -13005,13 +15711,250 @@
       "externalRawSyncNow": "Sincronizar ahora",
       "externalRawSyncPartial": "Se sincronizaron {{synced}} instantáneas; {{failed}} fallaron.",
       "externalRawSyncDone": "Se sincronizaron {{count}} instantáneas de fuentes",
-      "externalRawSyncFailed": "No se pudieron sincronizar las instantáneas de fuentes"
+      "externalRawSyncFailed": "No se pudieron sincronizar las instantáneas de fuentes",
+      "compile": {
+        "applied": "Propuesta aplicada",
+        "apply": "Aplicar",
+        "applyFailed": "No se pudo aplicar la propuesta",
+        "cancel": "Cancelar",
+        "cancelFailed": "No se pudo cancelar la ejecución",
+        "cancelled": "Ejecución de compilación cancelada",
+        "description": "Revise los cambios de notas generados antes de escribir algo.",
+        "empty": "Seleccione una propuesta para revisar",
+        "emptyHint": "Las propuestas generadas permanecen aquí hasta que las apliques o las rechaces.",
+        "failed": "Error al ejecutar la compilación",
+        "loadFailed": "No se pudieron cargar ejecuciones de compilación",
+        "noProposals": "No hay propuestas para esta carrera.",
+        "noRuns": "Aún no se ejecuta ninguna compilación.",
+        "proposals": "Propuestas",
+        "proposalsLoadFailed": "No se pudieron cargar las propuestas.",
+        "refresh": "Actualizar",
+        "reject": "Rechazar",
+        "rejectFailed": "No se pudo rechazar la propuesta",
+        "rejected": "Propuesta rechazada",
+        "runPending": "Pendiente de ejecución de compilación",
+        "runSources": "Fuente(s) {{count}}",
+        "running": "Recopilando fuentes…",
+        "runs": "Corre",
+        "startFailed": "No se pudieron compilar las fuentes",
+        "startSelected": "Compilar {{count}}",
+        "started": "Propuesta(s) {{n}} generadas",
+        "title": "compilar fuentes"
+      },
+      "sources": {
+        "archiveAttachment": "Archivar al conocimiento",
+        "archiveAttachmentFailed": "No se pudo archivar el archivo adjunto",
+        "archivedAttachment": "Archivado en fuentes de conocimiento",
+        "browser": "Navegador",
+        "browserAuto": "Automático",
+        "browserPage": "Página",
+        "browserSelection": "Selección",
+        "chooseFile": "Elige archivos",
+        "comparePrevious": "Comparar anterior",
+        "compileOne": "compilar",
+        "compileSelected": "Compilar fuentes seleccionadas",
+        "compiled": "compilado",
+        "compiledClaims": "Reclamaciones compiladas utilizando esta fuente",
+        "currentVersion": "Actual",
+        "delete": "Eliminar",
+        "deleteBody": "¿Eliminar {{name}} de la bandeja de entrada del código fuente sin procesar?",
+        "deleteFailed": "No se pudo eliminar la fuente",
+        "deleteTitle": "Eliminar fuente",
+        "deleted": "Fuente eliminada",
+        "diffFailed": "No se pudo cargar la diferencia fuente",
+        "diffTruncated": "Vista previa truncada",
+        "dismissSimilar": "ignorar",
+        "downloadOriginal": "Descargar original",
+        "empty": "Aún no hay fuentes.",
+        "evidenceSources": "Fuentes",
+        "externalRawPath": "Instantánea externa",
+        "file": "Archivo",
+        "import": "Importar fuente",
+        "importAction": "Importar",
+        "importDesc": "Sumar materia prima a este espacio de conocimiento.",
+        "importFailed": "No se pudo importar la fuente",
+        "importHistory": "Historial de importación",
+        "importHistoryFailed": "No se pudo abrir el historial de importación",
+        "importRunDeduped": "{{imported}} importado, duplicado {{duplicate}} omitido",
+        "importRunPartial": "{{imported}} importado, duplicado {{duplicate}} omitido, {{failed}} fallido",
+        "importRunStarted": "Importación iniciada para fuentes {{count}}",
+        "imported": "Fuente importada",
+        "importedCount": "Fuentes {{count}} importadas",
+        "keepSource": "Mantener {{name}}",
+        "loadTargetsFailed": "No se pudieron cargar los espacios de conocimiento",
+        "loading": "Cargando…",
+        "loadingClaims": "Cargando índice de evidencia...",
+        "loadingDiff": "Cargando diferencias...",
+        "mediaRetained": "Medios retenidos",
+        "missingSource": "fuente faltante",
+        "moreClaims": "+{{count}} más reclamaciones",
+        "noCompiledClaims": "Ninguna nota compilada cita esta fuente todavía.",
+        "noImportRuns": "Aún no se ejecuta ninguna importación.",
+        "noKb": "Selecciona un espacio para ver fuentes.",
+        "noKnowledgeBase": "No hay espacio de conocimiento disponible",
+        "noLocalDuplicates": "No hay fuente duplicada en este espacio para eliminar",
+        "noSimilarGroups": "No hay grupos de origen similares.",
+        "open": "Abierto",
+        "openOriginal": "Abrir original",
+        "otherKb": "Otro espacio {{id}}",
+        "readFailed": "No se pudo abrir el código fuente",
+        "reextract": "Reextraer",
+        "reextractFailed": "No se pudo volver a extraer la fuente",
+        "reextracted": "Fuente reextraída",
+        "refresh": "Actualizar",
+        "refreshChanged": "Fuente actualizada a v{{version}}",
+        "refreshFailed": "No se pudo actualizar la fuente",
+        "refreshSource": "Actualizar instantánea",
+        "refreshUnchanged": "La fuente ya está actualizada.",
+        "resolveSimilarConfirm": "¿Mantener {{name}} y eliminar las fuentes duplicadas de {{count}} de este espacio?",
+        "retainedMedia": "Medios retenidos",
+        "retryFailed": "No se pudieron reintentar importaciones fallidas",
+        "retryFailedAction": "Reintentar falló",
+        "selectImportRun": "Seleccione una ejecución de importación.",
+        "selectKnowledgeBase": "Seleccionar espacio de conocimiento",
+        "similarCount": "Grupos similares de {{count}}",
+        "similarDismissFailed": "No se pudo ocultar la sugerencia de similitud",
+        "similarDismissed": "Sugerencia de similitud oculta",
+        "similarGroups": "Fuentes similares",
+        "similarResolveFailed": "No se pudieron resolver fuentes duplicadas",
+        "similarResolved": "Fuentes duplicadas {{count}} eliminadas",
+        "sourceDiff": "Diferencia de fuente",
+        "staleSource": "Fuente cambiada después de la compilación.",
+        "supersededSource": "Nueva versión fuente disponible",
+        "text": "Texto",
+        "textPlaceholder": "Pegar texto fuente…",
+        "thumbnailOnly": "Solo miniatura",
+        "title": "Fuentes",
+        "titlePlaceholder": "Título",
+        "uncompiled": "sin compilar",
+        "url": "URL",
+        "urlKindAudio": "Transcripción de audio",
+        "urlKindImage": "OCR de imagen",
+        "urlKindPage": "pagina web",
+        "urlKindVideo": "Transcripción del vídeo",
+        "versionHistory": "Historial de versiones",
+        "versionHistoryDesc": "Instantáneas archivadas de {{count}}. Actual: {{current}}",
+        "versionsFailed": "No se pudieron cargar las versiones fuente",
+        "itemStatus": {
+          "duplicate": "Duplicar",
+          "failed": "Fallido",
+          "imported": "Importado",
+          "pending": "Pendiente",
+          "running": "corriendo"
+        },
+        "kind": {
+          "audioTranscript": "Transcripción de audio",
+          "browserSnapshot": "Navegador",
+          "docx": "DOCX",
+          "imageOcr": "OCR de imagen",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "Texto",
+          "urlSnapshot": "URL",
+          "videoTranscript": "Transcripción del vídeo"
+        },
+        "runStatus": {
+          "completed": "Completado",
+          "completedWithErrors": "Completado con errores.",
+          "failed": "Fallido",
+          "running": "corriendo"
+        },
+        "similarKind": {
+          "exactDuplicate": "Duplicado exacto",
+          "similar": "similares"
+        },
+        "similarScope": {
+          "crossKb": "Espacio cruzado",
+          "sameKb": "este espacio"
+        }
+      },
+      "queryFile": {
+        "action": "Archivo",
+        "applied": "Archivado en el espacio del conocimiento.",
+        "apply": "Aplicar",
+        "applyFailed": "No se pudo aplicar la presentación",
+        "description": "Cree una revisión de diferencias antes de escribir.",
+        "empty": "Elija dónde debería aterrizar esta respuesta.",
+        "generateFailed": "No se pudo crear la propuesta de presentación",
+        "reject": "Rechazar",
+        "rejected": "Presentación descartada",
+        "rejectFailed": "No se pudo descartar la presentación",
+        "review": "Revisión",
+        "title": "respuesta del archivo",
+        "titlePlaceholder": "Título",
+        "mode": {
+          "createNote": "Nueva nota",
+          "updateCurrentNote": "Actualizar nota actual",
+          "appendToMoc": "Añadir a MOC",
+          "openQuestions": "Preguntas abiertas"
+        },
+        "defaultTitle": "Conversación archivada",
+        "currentNotePlaceholder": "Ruta de nota actual",
+        "openQuestionsPlaceholder": "Nota con preguntas abiertas",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "Crear",
       "clear": "Borrar",
       "on": "Activado",
-      "rename": "Renombrar"
+      "rename": "Renombrar",
+      "available": "Disponible",
+      "collapse": "cerrar",
+      "expand": "Expandir",
+      "retry": "Reintentar",
+      "unavailable": "No disponible"
+    },
+    "backgroundJobs": {
+      "errorOutput": "error",
+      "liveOutput": "salida en tiempo real",
+      "outputFile": "resultados completos",
+      "resultPreview": "Vista previa de resultados"
+    },
+    "browser": {
+      "panelTitle": "Navegador"
+    },
+    "canvas": {
+      "panelTitle": "Lienzo",
+      "resizePanel": "Cambiar el tamaño del panel de lienzo"
+    },
+    "error": {
+      "appCrash": "algo salió mal",
+      "retry": "Inténtalo de nuevo",
+      "unknown": "Ocurrió un error inesperado"
+    },
+    "localModels": {
+      "actions": {
+        "download": "Descargar"
+      }
+    },
+    "macControl": {
+      "panelTitle": "Control de Mac"
+    },
+    "planMode": {
+      "resizePanel": "Cambiar el tamaño del panel del plan"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "Falta la identificación del informe de resumen.",
+        "open": "Resumen abierto",
+        "title": "Informe recapitulativo",
+        "waiting": "Esperando el progreso del resumen..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "Completado. El resultado ha sido inyectado en este chat.",
+        "error": "Fallido.",
+        "killed": "Cancelado.",
+        "missingRunId": "Falta la identificación de ejecución de habilidad.",
+        "running": "El subagente de habilidades se está ejecutando. El resultado se inyectará aquí.",
+        "spawning": "Sub-agente de habilidades iniciales...",
+        "timeout": "Se agotó el tiempo.",
+        "title": "Habilidad {{skill}}"
+      },
+      "defaultName": "habilidad"
     }
   },
   "ms": {
@@ -13027,7 +15970,8 @@
         "refresh": "Muat semula sekarang",
         "resumeMirror": "Sambung semula cermin",
         "takeOver": "Ambil alih",
-        "takeOverHint": "Jeda penyegaran automatik 1Hz semasa anda mengawal Chrome sendiri"
+        "takeOverHint": "Jeda penyegaran automatik 1Hz semasa anda mengawal Chrome sendiri",
+        "resizePanel": "Ubah saiz panel penyemak imbas"
       },
       "copy": "Salin",
       "details": "Butiran",
@@ -13100,7 +16044,30 @@
       "profileRotationTitle": "Tukar profil",
       "contextCompactedTitle": "Konteks dipadatkan",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} mesej"
+      "contextCompactedMsgs": "{{count}} mesej",
+      "browserExtensionRequired": {
+        "nextAction": "Tindakan seterusnya: {{nextAction}}",
+        "openSettings": "Buka Tetapan > Penyemak Imbas untuk memasang atau mendayakan sambungan.",
+        "title": "Sambungan Chrome diperlukan"
+      },
+      "conversationEmpty": "Tiada mesej dalam perbualan ini",
+      "pendingCancelForceInsert": "Batalkan sisipan pusingan ini",
+      "pendingFallbackAfterReply": "Hantar selepas balasan",
+      "pendingFallbackAfterReplyTip": "Titik penyelesaian alat belum ditemui dan akan dihantar selepas balasan semasa tamat.",
+      "pendingForceInsertTip": "Ia akan menunggu sehingga alat yang sedang dilaksanakan selesai dan kemudian memasukkannya ke dalam model tanpa mengganggu alat semasa.",
+      "pendingInserted": "dimasukkan",
+      "pendingInsertedTip": "Ia telah dimasukkan ke dalam model selepas pusingan alatan ini selesai.",
+      "pendingQueuedShort": "Beratur",
+      "pendingQueuedTip": "Ia telah ditambahkan pada baris gilir menunggu dan akan dihantar selepas balasan semasa tamat.",
+      "pendingQueueTitle": "Untuk dihantar",
+      "pendingWaitingToolBoundary": "Tunggu titik penyiapan alat",
+      "pendingWaitingToolBoundaryTip": "Tunggu panggilan alat terkini selesai; jika alat itu tidak lagi dipanggil pusingan ini, ia akan dihantar selepas balasan selesai.",
+      "processNotification": "proses tamat",
+      "rightPanel": {
+        "collapse": "Runtuhkan panel kanan",
+        "expand": "Kembangkan panel kanan",
+        "switch": "Tukar panel kanan"
+      }
     },
     "effort": {
       "none": "Mati"
@@ -13759,7 +16726,12 @@
       },
       "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
       "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
-      "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API."
+      "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
+      "devVisualTest": "Ujian animasi UI",
+      "permLoading": "Menyemak kebenaran...",
+      "uiEffects": "Animasi latar belakang",
+      "uiEffectsDesc": "Dayakan pautan latar belakang semua cuaca dan kesan cuaca",
+      "uiEffectsToggle": "Hidupkan kesan"
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -13775,7 +16747,15 @@
         "error": "Ralat",
         "timeout": "Tamat masa",
         "killed": "Dihentikan"
-      }
+      },
+      "agentId": "ID ejen",
+      "childSessionId": "Sesi kanak-kanak",
+      "duration": "Tempoh",
+      "model": "Model",
+      "openSession": "Sesi Terbuka",
+      "runId": "Jalankan ID",
+      "task": "Tugasan",
+      "tokens": "Token"
     },
     "project": {
       "projects": "Projek",
@@ -13843,7 +16823,8 @@
         "openHome": "Buka laman projek"
       },
       "openProjectSettings": "Tetapan projek",
-      "noSessionsHint": "Klik untuk membuat sesi pertama"
+      "noSessionsHint": "Klik untuk membuat sesi pertama",
+      "projectEmojiPlaceholder": "Pilihan"
     },
     "provider": {
       "allowPrivateNetwork": "Benarkan rangkaian peribadi",
@@ -13891,7 +16872,10 @@
       "note_distill": "Saring Nota",
       "note_moc": "Peta Kandungan",
       "session_to_note": "Sesi ke Nota",
-      "knowledge_recall": "Imbas Kembali Pengetahuan"
+      "knowledge_recall": "Imbas Kembali Pengetahuan",
+      "execPanel": {
+        "asyncStarted": "Tugas latar belakang dimulakan"
+      }
     },
     "cron": {
       "deliveryTargets": "Hantar hasil ke saluran IM",
@@ -14050,6 +17034,10 @@
             "memory_reembed": "Embed semula memori"
           }
         }
+      },
+      "token": {
+        "inputTokens": "Token input",
+        "outputTokens": "Token keluaran"
       }
     },
     "team": {
@@ -14087,7 +17075,23 @@
       "reviewer": "Penyemak",
       "noMessages": "Tiada mesej lagi",
       "indicator": "Pasukan",
-      "indicatorMembers": "{{count}} ahli"
+      "indicatorMembers": "{{count}} ahli",
+      "loading": "Memuatkan...",
+      "messagePlaceholder": "Pasukan mesej... (@nama untuk DM)",
+      "noTasks": "Tiada tugasan",
+      "panelTitle": "Pasukan",
+      "resizePanel": "Ubah saiz panel pasukan",
+      "role": {
+        "lead": "memimpin",
+        "reviewer": "Penyemak",
+        "worker": "Pekerja"
+      },
+      "tab": {
+        "dashboard": "Papan pemuka",
+        "messages": "Mesej",
+        "tasks": "Tugasan"
+      },
+      "view": "Lihat"
     },
     "about": {
       "description": "Ia boleh berjalan di desktop, pelayan tempatan dan saluran IM, bukan sekadar bersembang harian tetapi juga mengekalkan konteks, menggunakan alat dan terus bekerja dari semasa ke semasa.",
@@ -14169,7 +17173,23 @@
       "layoutSplit": "Pisah",
       "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
       "noDiffData": "Tiada data diff",
-      "resizePanel": "Saiz semula panel diff"
+      "resizePanel": "Saiz semula panel diff",
+      "actionCreate": "cipta",
+      "actionDelete": "padam",
+      "actionEdit": "Semak semula",
+      "copyLocation": "Salin lokasi semasa",
+      "expandHiddenLines": "Kembangkan baris {{count}} dengan kandungan yang tidak berubah",
+      "ignoreWhitespace": "Abaikan perubahan ruang putih",
+      "locationCopied": "Penyasaran disalin",
+      "locationCopyFailed": "Salin kedudukan gagal",
+      "matchingFiles": "Fail {{shown}} / {{total}}",
+      "nextHunk": "Perubahan seterusnya",
+      "noMatchingFiles": "Tiada fail yang sepadan",
+      "openLocation": "Pratonton ke baris semasa",
+      "prevHunk": "Perubahan terakhir",
+      "renderMore": "Tunjukkan baris {{count}} yang tinggal",
+      "searchFiles": "Cari fail",
+      "toggleContext": "Runtuhkan konteks yang tidak berubah"
     },
     "notification": {
       "approvalRequired": "Kelulusan alat diperlukan",
@@ -14250,7 +17270,10 @@
       "sessionShowMore": "Tunjuk lagi",
       "sessionShowLess": "Tunjuk kurang",
       "environment": {
-        "version": "Versi"
+        "version": "Versi",
+        "gitDiffFailed": "Membaca Git diff gagal",
+        "loadingDiff": "Baca diff",
+        "noTextDiff": "Tiada teks untuk memaparkan perbezaan"
       }
     },
     "fileActions": {
@@ -14321,7 +17344,17 @@
           "auto_tag": "Tag",
           "moc_upkeep": "MOC",
           "memory_to_note": "Memori"
-        }
+        },
+        "evidenceCoverage": "Liputan bukti",
+        "evidenceCoverageDetail": "{{pct}}% · Tuntutan {{claimsWithEvidence}}/{{claims}} · nota {{notesWithEvidence}}/{{notes}}",
+        "evidenceRebuildFailed": "Tidak dapat membina semula indeks bukti",
+        "evidenceRebuilt": "Indeks bukti yang dibina semula untuk nota {{notes}}, rujukan {{refs}}, tuntutan {{claims}}",
+        "missingEvidence": "Tiada bukti",
+        "missingRefs": "Rujukan tiada",
+        "needsReview": "Perlu semakan",
+        "rebuildEvidenceTip": "Bina semula indeks bukti terbitan",
+        "schemaIssues": "Isu skema",
+        "staleRefs": "Rujukan basi"
       },
       "graph": {
         "toggle": "Paparan graf",
@@ -14453,13 +17486,250 @@
       "externalRawSyncNow": "Segerakkan sekarang",
       "externalRawSyncPartial": "{{synced}} syot kilat disegerakkan; {{failed}} gagal.",
       "externalRawSyncDone": "{{count}} syot kilat sumber disegerakkan",
-      "externalRawSyncFailed": "Tidak dapat menyegerakkan syot kilat sumber"
+      "externalRawSyncFailed": "Tidak dapat menyegerakkan syot kilat sumber",
+      "compile": {
+        "applied": "Cadangan digunakan",
+        "apply": "Mohon",
+        "applyFailed": "Tidak dapat memohon cadangan",
+        "cancel": "Batal",
+        "cancelFailed": "Tidak dapat membatalkan larian",
+        "cancelled": "Jalan kompil dibatalkan",
+        "description": "Semak perubahan nota yang dijana sebelum apa-apa ditulis.",
+        "empty": "Pilih cadangan untuk disemak",
+        "emptyHint": "Cadangan yang dijana kekal di sini sehingga anda memohon atau menolaknya.",
+        "failed": "Jalan kompil gagal",
+        "loadFailed": "Tidak dapat memuatkan larian kompilasi",
+        "noProposals": "Tiada cadangan untuk larian ini.",
+        "noRuns": "Tiada kompilasi dijalankan lagi.",
+        "proposals": "Cadangan",
+        "proposalsLoadFailed": "Tidak dapat memuatkan cadangan",
+        "refresh": "Segarkan semula",
+        "reject": "Tolak",
+        "rejectFailed": "Tidak dapat menolak cadangan",
+        "rejected": "Cadangan ditolak",
+        "runPending": "Larian kompilasi belum selesai",
+        "runSources": "Sumber {{count}}",
+        "running": "Menyusun sumber…",
+        "runs": "Berlari",
+        "startFailed": "Tidak dapat menyusun sumber",
+        "startSelected": "Susun {{count}}",
+        "started": "Cadangan {{n}} yang dijana",
+        "title": "Susun sumber"
+      },
+      "sources": {
+        "archiveAttachment": "Arkibkan kepada pengetahuan",
+        "archiveAttachmentFailed": "Gagal mengarkibkan lampiran",
+        "archivedAttachment": "Diarkibkan kepada sumber pengetahuan",
+        "browser": "pelayar",
+        "browserAuto": "Automatik",
+        "browserPage": "Halaman",
+        "browserSelection": "Pemilihan",
+        "chooseFile": "Pilih fail",
+        "comparePrevious": "Bandingkan sebelumnya",
+        "compileOne": "Susun",
+        "compileSelected": "Susun sumber yang dipilih",
+        "compiled": "Disusun",
+        "compiledClaims": "Tuntutan yang disusun menggunakan sumber ini",
+        "currentVersion": "semasa",
+        "delete": "Padam",
+        "deleteBody": "Padamkan {{name}} daripada peti masuk sumber mentah?",
+        "deleteFailed": "Tidak dapat memadamkan sumber",
+        "deleteTitle": "Padamkan sumber",
+        "deleted": "Sumber dipadamkan",
+        "diffFailed": "Tidak dapat memuatkan perbezaan sumber",
+        "diffTruncated": "Pratonton dipenggal",
+        "dismissSimilar": "abaikan",
+        "downloadOriginal": "Muat turun asal",
+        "empty": "Tiada sumber lagi.",
+        "evidenceSources": "Sumber",
+        "externalRawPath": "Gambar luaran",
+        "file": "Fail",
+        "import": "Sumber import",
+        "importAction": "Import masuk",
+        "importDesc": "Tambahkan bahan mentah ke ruang pengetahuan ini.",
+        "importFailed": "Tidak dapat mengimport sumber",
+        "importHistory": "Sejarah import",
+        "importHistoryFailed": "Tidak dapat membuka sejarah import",
+        "importRunDeduped": "{{imported}} yang diimport, melangkau pendua {{duplicate}}",
+        "importRunPartial": "{{imported}} yang diimport, melangkau pendua {{duplicate}}, {{failed}} gagal",
+        "importRunStarted": "Import dimulakan untuk sumber {{count}}",
+        "imported": "Sumber diimport",
+        "importedCount": "Sumber {{count}} yang diimport",
+        "keepSource": "Simpan {{name}}",
+        "loadTargetsFailed": "Gagal memuatkan ruang pengetahuan",
+        "loading": "Memuatkan…",
+        "loadingClaims": "Memuatkan indeks bukti...",
+        "loadingDiff": "Memuatkan perbezaan...",
+        "mediaRetained": "Media dikekalkan",
+        "missingSource": "Sumber hilang",
+        "moreClaims": "+{{count}} lagi tuntutan",
+        "noCompiledClaims": "Tiada tuntutan nota terkumpul yang memetik sumber ini lagi.",
+        "noImportRuns": "Tiada import dijalankan lagi.",
+        "noKb": "Pilih ruang untuk melihat sumber.",
+        "noKnowledgeBase": "Tiada ruang pengetahuan tersedia",
+        "noLocalDuplicates": "Tiada sumber pendua dalam ruang ini untuk dipadamkan",
+        "noSimilarGroups": "Tiada kumpulan sumber yang serupa.",
+        "open": "Buka",
+        "openOriginal": "Buka asal",
+        "otherKb": "Ruang lain {{id}}",
+        "readFailed": "Tidak dapat membuka sumber",
+        "reextract": "Ekstrak semula",
+        "reextractFailed": "Tidak dapat mengekstrak semula sumber",
+        "reextracted": "Sumber diekstrak semula",
+        "refresh": "Segarkan semula",
+        "refreshChanged": "Sumber dimuatkan semula kepada v{{version}}",
+        "refreshFailed": "Tidak dapat memuat semula sumber",
+        "refreshSource": "Muat semula gambar",
+        "refreshUnchanged": "Sumber sudah dikemas kini",
+        "resolveSimilarConfirm": "Simpan {{name}} dan padamkan sumber pendua {{count}} daripada ruang ini?",
+        "retainedMedia": "Media yang dikekalkan",
+        "retryFailed": "Tidak dapat mencuba semula import yang gagal",
+        "retryFailedAction": "Cuba semula gagal",
+        "selectImportRun": "Pilih larian import.",
+        "selectKnowledgeBase": "Pilih ruang pengetahuan",
+        "similarCount": "{{count}} kumpulan serupa",
+        "similarDismissFailed": "Tidak dapat menyembunyikan cadangan persamaan",
+        "similarDismissed": "Cadangan persamaan disembunyikan",
+        "similarGroups": "Sumber yang serupa",
+        "similarResolveFailed": "Tidak dapat menyelesaikan sumber pendua",
+        "similarResolved": "Sumber pendua {{count}} dipadamkan",
+        "sourceDiff": "Perbezaan sumber",
+        "staleSource": "Sumber berubah selepas disusun",
+        "supersededSource": "Versi sumber yang lebih baharu tersedia",
+        "text": "Teks",
+        "textPlaceholder": "Tampal teks sumber…",
+        "thumbnailOnly": "Thumbnail sahaja",
+        "title": "Sumber",
+        "titlePlaceholder": "Tajuk",
+        "uncompiled": "Tidak tersusun",
+        "url": "URL",
+        "urlKindAudio": "Transkrip audio",
+        "urlKindImage": "OCR imej",
+        "urlKindPage": "laman web",
+        "urlKindVideo": "Transkrip video",
+        "versionHistory": "Sejarah versi",
+        "versionHistoryDesc": "Gambar arkib {{count}}. Semasa: {{current}}",
+        "versionsFailed": "Tidak dapat memuatkan versi sumber",
+        "itemStatus": {
+          "duplicate": "Pendua",
+          "failed": "gagal",
+          "imported": "Diimport",
+          "pending": "Belum selesai",
+          "running": "Berlari"
+        },
+        "kind": {
+          "audioTranscript": "Transkrip audio",
+          "browserSnapshot": "pelayar",
+          "docx": "DOCX",
+          "imageOcr": "OCR imej",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "Teks",
+          "urlSnapshot": "URL",
+          "videoTranscript": "Transkrip video"
+        },
+        "runStatus": {
+          "completed": "Selesai",
+          "completedWithErrors": "Lengkap dengan ralat",
+          "failed": "gagal",
+          "running": "Berlari"
+        },
+        "similarKind": {
+          "exactDuplicate": "Pendua tepat",
+          "similar": "serupa"
+        },
+        "similarScope": {
+          "crossKb": "Ruang silang",
+          "sameKb": "Ruang ini"
+        }
+      },
+      "queryFile": {
+        "action": "Fail",
+        "applied": "Difailkan ke ruang pengetahuan",
+        "apply": "Mohon",
+        "applyFailed": "Tidak dapat memohon pemfailan",
+        "description": "Buat perbezaan ulasan sebelum menulis.",
+        "empty": "Pilih di mana jawapan ini harus mendarat.",
+        "generateFailed": "Tidak dapat membuat cadangan pemfailan",
+        "reject": "Tolak",
+        "rejected": "Pemfailan dibuang",
+        "rejectFailed": "Tidak dapat membuang pemfailan",
+        "review": "Semakan",
+        "title": "Jawapan fail",
+        "titlePlaceholder": "Tajuk",
+        "mode": {
+          "createNote": "Nota baharu",
+          "updateCurrentNote": "Kemas kini nota semasa",
+          "appendToMoc": "Tambahkan pada MOC",
+          "openQuestions": "Soalan Terbuka"
+        },
+        "defaultTitle": "Perbualan yang difailkan",
+        "currentNotePlaceholder": "Laluan nota semasa",
+        "openQuestionsPlaceholder": "Nota dengan Soalan Terbuka",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "Cipta",
       "clear": "Kosongkan",
       "on": "Hidup",
-      "rename": "Namakan semula"
+      "rename": "Namakan semula",
+      "available": "Tersedia",
+      "collapse": "dekat",
+      "expand": "Kembangkan",
+      "retry": "Cuba semula",
+      "unavailable": "Tidak tersedia"
+    },
+    "backgroundJobs": {
+      "errorOutput": "kesilapan",
+      "liveOutput": "output masa nyata",
+      "outputFile": "keputusan penuh",
+      "resultPreview": "Pratonton keputusan"
+    },
+    "browser": {
+      "panelTitle": "pelayar"
+    },
+    "canvas": {
+      "panelTitle": "Kanvas",
+      "resizePanel": "Ubah saiz panel kanvas"
+    },
+    "error": {
+      "appCrash": "Sesuatu telah berlaku",
+      "retry": "Cuba Lagi",
+      "unknown": "Ralat yang tidak dijangka berlaku"
+    },
+    "localModels": {
+      "actions": {
+        "download": "Muat turun"
+      }
+    },
+    "macControl": {
+      "panelTitle": "Kawalan Mac"
+    },
+    "planMode": {
+      "resizePanel": "Ubah saiz panel pelan"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "Id laporan ringkasan tiada.",
+        "open": "Buka Rekap",
+        "title": "Laporan ringkasan",
+        "waiting": "Menunggu kemajuan rekap..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "Selesai. Hasilnya telah disuntik ke dalam sembang ini.",
+        "error": "gagal.",
+        "killed": "Dibatalkan.",
+        "missingRunId": "Id larian kemahiran tiada.",
+        "running": "Sub-agen kemahiran sedang berjalan. Hasilnya akan disuntik di sini.",
+        "spawning": "Memulakan sub-ejen kemahiran...",
+        "timeout": "Tamat masa.",
+        "title": "Kemahiran {{skill}}"
+      },
+      "defaultName": "kemahiran"
     }
   },
   "zh": {
@@ -14518,7 +17788,23 @@
       "layoutSplit": "拆分",
       "fileTooLarge": "文件过大，仅渲染前 256KB",
       "noDiffData": "无 diff 数据",
-      "resizePanel": "调整 diff 面板宽度"
+      "resizePanel": "调整 diff 面板宽度",
+      "actionCreate": "创造",
+      "actionDelete": "删除",
+      "actionEdit": "修改",
+      "copyLocation": "复制当前位置",
+      "expandHiddenLines": "展开{{count}}行，内容不变",
+      "ignoreWhitespace": "忽略空格变化",
+      "locationCopied": "定位已复制",
+      "locationCopyFailed": "复制定位失败",
+      "matchingFiles": "{{shown}} / {{total}} 文件",
+      "nextHunk": "下一步更改",
+      "noMatchingFiles": "没有匹配的文件",
+      "openLocation": "预览到当前行",
+      "prevHunk": "最后更改",
+      "renderMore": "显示剩余的 {{count}} 行",
+      "searchFiles": "搜索文件",
+      "toggleContext": "折叠未更改的上下文"
     },
     "settings": {
       "memoryTabs": {
@@ -14590,7 +17876,12 @@
       },
       "serverKnowledgeAgentReadToken": "知识空间 Agent 只读 Token",
       "serverKnowledgeAgentReadTokenPlaceholder": "留空则关闭只读 Agent 访问",
-      "serverKnowledgeAgentReadTokenDesc": "给外部 Agent 使用的受限 Token。只有同时设置 owner API Key 时才生效；生效后只能调用知识空间只读接口，不授予 owner API 权限。"
+      "serverKnowledgeAgentReadTokenDesc": "给外部 Agent 使用的受限 Token。只有同时设置 owner API Key 时才生效；生效后只能调用知识空间只读接口，不授予 owner API 权限。",
+      "devVisualTest": "UI动画测试",
+      "permLoading": "正在检查权限...",
+      "uiEffects": "背景动画",
+      "uiEffectsDesc": "启用全天候背景和天气效果联动",
+      "uiEffectsToggle": "开启效果"
     },
     "chat": {
       "handover": {
@@ -14623,7 +17914,33 @@
       "profileRotationTitle": "配置切换",
       "contextCompactedTitle": "上下文已压缩",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} 条"
+      "contextCompactedMsgs": "{{count}} 条",
+      "browserExtensionRequired": {
+        "nextAction": "下一步行动：{{nextAction}}",
+        "openSettings": "打开“设置”>“浏览器”以安装或启用扩展。",
+        "title": "需要 Chrome 扩展程序"
+      },
+      "browserPanel": {
+        "resizePanel": "调整浏览器面板大小"
+      },
+      "conversationEmpty": "此对话中没有消息",
+      "pendingCancelForceInsert": "取消本轮插入",
+      "pendingFallbackAfterReply": "回复后发送",
+      "pendingFallbackAfterReplyTip": "尚未遇到工具完成点，将在当前回复结束后发送。",
+      "pendingForceInsertTip": "它将等待正在执行的刀具完成，然后将其插入到模型中，而不中断当前的刀具。",
+      "pendingInserted": "插入",
+      "pendingInsertedTip": "本轮加工完成后已将其插入模型中。",
+      "pendingQueuedShort": "排队",
+      "pendingQueuedTip": "已加入等待队列，当前回复结束后发送。",
+      "pendingQueueTitle": "待发送",
+      "pendingWaitingToolBoundary": "等待工具完成点",
+      "pendingWaitingToolBoundaryTip": "等待最新的工具调用完成；如果本轮不再调用该工具，则会在回复完成后发送。",
+      "processNotification": "进程结束",
+      "rightPanel": {
+        "collapse": "折叠右侧面板",
+        "expand": "展开右侧面板",
+        "switch": "切换右侧面板"
+      }
     },
     "slashCommands": {
       "sessions": {
@@ -14691,12 +18008,211 @@
       "externalRawSyncNow": "立即同步",
       "externalRawSyncPartial": "已同步 {{synced}} 个快照；{{failed}} 个失败。",
       "externalRawSyncDone": "已同步 {{count}} 个资料快照",
-      "externalRawSyncFailed": "无法同步资料快照"
+      "externalRawSyncFailed": "无法同步资料快照",
+      "compile": {
+        "applied": "已应用建议",
+        "apply": "应用",
+        "applyFailed": "无法应用建议",
+        "cancel": "取消",
+        "cancelFailed": "无法取消运行",
+        "cancelled": "编译运行已取消",
+        "description": "在写入任何内容前先审阅生成的笔记变更。",
+        "empty": "选择一个建议进行审阅",
+        "emptyHint": "生成的建议会保留在这里，直到你应用或忽略。",
+        "failed": "编译运行失败",
+        "loadFailed": "无法加载编译运行",
+        "noProposals": "本次运行没有建议。",
+        "noRuns": "还没有编译运行。",
+        "proposals": "建议",
+        "proposalsLoadFailed": "无法加载建议",
+        "refresh": "刷新",
+        "reject": "忽略",
+        "rejectFailed": "无法忽略建议",
+        "rejected": "已忽略建议",
+        "runPending": "编译运行等待中",
+        "runSources": "{{count}} 个资料",
+        "running": "正在编译资料…",
+        "runs": "运行",
+        "startFailed": "无法编译资料",
+        "startSelected": "编译 {{count}} 个",
+        "started": "已生成 {{n}} 条建议",
+        "title": "编译资料"
+      },
+      "sources": {
+        "archiveAttachment": "归档到知识空间",
+        "archiveAttachmentFailed": "附件归档失败",
+        "archivedAttachment": "已归档到知识资料",
+        "browser": "浏览器",
+        "browserAuto": "自动",
+        "browserPage": "整页",
+        "browserSelection": "选区",
+        "chooseFile": "选择文件",
+        "comparePrevious": "对比上一版",
+        "compileOne": "编译",
+        "compileSelected": "编译所选资料",
+        "compiled": "已编译",
+        "compiledClaims": "使用此资料的已编译结论",
+        "currentVersion": "当前",
+        "delete": "删除",
+        "deleteBody": "要从原始资料舱删除「{{name}}」吗？",
+        "deleteFailed": "无法删除资料",
+        "deleteTitle": "删除资料",
+        "deleted": "资料已删除",
+        "diffFailed": "无法加载资料差异",
+        "diffTruncated": "预览已截断",
+        "dismissSimilar": "忽略",
+        "downloadOriginal": "下载原件",
+        "empty": "还没有资料。",
+        "evidenceSources": "资料来源",
+        "externalRawPath": "外部快照",
+        "file": "文件",
+        "import": "导入资料",
+        "importAction": "导入",
+        "importDesc": "向这个知识空间加入原始资料。",
+        "importFailed": "无法导入资料",
+        "importHistory": "导入历史",
+        "importHistoryFailed": "无法打开导入历史",
+        "importRunDeduped": "已导入 {{imported}} 个，跳过 {{duplicate}} 个重复项",
+        "importRunPartial": "已导入 {{imported}} 个，跳过 {{duplicate}} 个重复项，失败 {{failed}} 个",
+        "importRunStarted": "已开始导入 {{count}} 个资料",
+        "imported": "资料已导入",
+        "importedCount": "已导入 {{count}} 个资料",
+        "keepSource": "保留「{{name}}」",
+        "loadTargetsFailed": "无法加载知识空间",
+        "loading": "正在加载…",
+        "loadingClaims": "正在加载证据索引…",
+        "loadingDiff": "正在加载差异…",
+        "mediaRetained": "已留存媒体",
+        "missingSource": "资料缺失",
+        "moreClaims": "还有 {{count}} 条结论",
+        "noCompiledClaims": "还没有已编译笔记结论引用此资料。",
+        "noImportRuns": "还没有导入运行。",
+        "noKb": "选择一个空间以查看资料。",
+        "noKnowledgeBase": "没有可用的知识空间",
+        "noLocalDuplicates": "此空间中没有可删除的重复资料",
+        "noSimilarGroups": "没有相似资料分组。",
+        "open": "打开",
+        "openOriginal": "打开原件",
+        "otherKb": "其他空间 {{id}}",
+        "readFailed": "无法打开资料",
+        "reextract": "重新提取",
+        "reextractFailed": "无法重新提取资料",
+        "reextracted": "资料已重新提取",
+        "refresh": "刷新",
+        "refreshChanged": "资料已刷新到 v{{version}}",
+        "refreshFailed": "无法刷新资料",
+        "refreshSource": "刷新快照",
+        "refreshUnchanged": "资料已是最新",
+        "resolveSimilarConfirm": "保留「{{name}}」并从此空间删除 {{count}} 个重复资料吗？",
+        "retainedMedia": "已留存媒体",
+        "retryFailed": "无法重试失败导入",
+        "retryFailedAction": "重试失败项",
+        "selectImportRun": "选择一次导入运行。",
+        "selectKnowledgeBase": "选择知识空间",
+        "similarCount": "{{count}} 个相似分组",
+        "similarDismissFailed": "无法隐藏相似建议",
+        "similarDismissed": "已隐藏相似建议",
+        "similarGroups": "相似资料",
+        "similarResolveFailed": "无法处理重复资料",
+        "similarResolved": "已删除 {{count}} 个重复资料",
+        "sourceDiff": "资料差异",
+        "staleSource": "编译后资料已变更",
+        "supersededSource": "有更新的资料版本",
+        "text": "文本",
+        "textPlaceholder": "粘贴资料文本…",
+        "thumbnailOnly": "仅缩略图",
+        "title": "资料",
+        "titlePlaceholder": "标题",
+        "uncompiled": "未编译",
+        "url": "URL",
+        "urlKindAudio": "音频转录",
+        "urlKindImage": "图片 OCR",
+        "urlKindPage": "网页",
+        "urlKindVideo": "视频转录",
+        "versionHistory": "版本历史",
+        "versionHistoryDesc": "{{count}} 个已归档快照。当前：{{current}}",
+        "versionsFailed": "无法加载资料版本",
+        "itemStatus": {
+          "duplicate": "重复",
+          "failed": "失败",
+          "imported": "已导入",
+          "pending": "等待中",
+          "running": "运行中"
+        },
+        "kind": {
+          "audioTranscript": "音频转录",
+          "browserSnapshot": "浏览器",
+          "docx": "DOCX",
+          "imageOcr": "图片 OCR",
+          "markdown": "Markdown",
+          "pdf": "PDF",
+          "text": "文本",
+          "urlSnapshot": "URL",
+          "videoTranscript": "视频转录"
+        },
+        "runStatus": {
+          "completed": "已完成",
+          "completedWithErrors": "完成但有错误",
+          "failed": "失败",
+          "running": "运行中"
+        },
+        "similarKind": {
+          "exactDuplicate": "完全重复",
+          "similar": "相似"
+        },
+        "similarScope": {
+          "crossKb": "跨空间",
+          "sameKb": "此空间"
+        }
+      },
+      "maintenance": {
+        "evidenceCoverage": "证据覆盖范围",
+        "evidenceCoverageDetail": "{{pct}}% · {{claimsWithEvidence}}/{{claims}} 声明 · {{notesWithEvidence}}/{{notes}} 注释",
+        "evidenceRebuildFailed": "无法重建证据索引",
+        "evidenceRebuilt": "重建 {{notes}} 票据、{{refs}} 参考文献、{{claims}} 声明的证据索引",
+        "missingEvidence": "证据缺失",
+        "missingRefs": "缺少裁判",
+        "needsReview": "需要审查",
+        "rebuildEvidenceTip": "重建派生证据索引",
+        "schemaIssues": "架构问题",
+        "staleRefs": "过时的参考文献"
+      },
+      "queryFile": {
+        "action": "文件",
+        "applied": "提交至知识空间",
+        "apply": "申请",
+        "applyFailed": "无法申请备案",
+        "description": "在写作之前创建一个审查差异。",
+        "empty": "选择这个答案应该落在哪里。",
+        "generateFailed": "无法创建归档提案",
+        "reject": "拒绝",
+        "rejected": "归档被放弃",
+        "rejectFailed": "无法放弃归档",
+        "review": "评论",
+        "title": "归档答案",
+        "titlePlaceholder": "标题",
+        "mode": {
+          "createNote": "新建笔记",
+          "updateCurrentNote": "更新当前笔记",
+          "appendToMoc": "加入 MOC",
+          "openQuestions": "开放问题"
+        },
+        "defaultTitle": "归档对话",
+        "currentNotePlaceholder": "当前笔记路径",
+        "openQuestionsPlaceholder": "带开放问题的笔记",
+        "mocPlaceholder": "MOCs/Conversation Filings.md",
+        "createNotePlaceholder": "Filed Conversations/example.md"
+      }
     },
     "common": {
       "create": "创建",
       "clear": "清除",
-      "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。"
+      "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。",
+      "available": "可用",
+      "collapse": "关闭",
+      "expand": "展开",
+      "retry": "重试",
+      "unavailable": "不可用"
     },
     "about": {
       "updateAndRestart": "更新并重启",
@@ -14715,12 +18231,107 @@
       "sessionShowMore": "展开更多",
       "sessionShowLess": "收起",
       "environment": {
-        "version": "版本"
+        "version": "版本",
+        "gitDiffFailed": "读取 Git diff 失败",
+        "loadingDiff": "读取差异",
+        "noTextDiff": "没有文字可显示差异"
       }
     },
     "fileBrowser": {
       "pptSwitchToPaged": "翻页阅读",
       "pptSwitchToContinuous": "连续阅读"
+    },
+    "backgroundJobs": {
+      "errorOutput": "错误",
+      "liveOutput": "实时输出",
+      "outputFile": "完整结果",
+      "resultPreview": "结果预览"
+    },
+    "browser": {
+      "panelTitle": "浏览器"
+    },
+    "canvas": {
+      "panelTitle": "帆布",
+      "resizePanel": "调整画布面板大小"
+    },
+    "dashboard": {
+      "token": {
+        "inputTokens": "输入令牌",
+        "outputTokens": "输出代币"
+      }
+    },
+    "error": {
+      "appCrash": "出了点问题",
+      "retry": "再试一次",
+      "unknown": "发生意外错误"
+    },
+    "localModels": {
+      "actions": {
+        "download": "下载"
+      }
+    },
+    "macControl": {
+      "panelTitle": "苹果电脑控制"
+    },
+    "planMode": {
+      "resizePanel": "调整计划面板的大小"
+    },
+    "project": {
+      "projectEmojiPlaceholder": "可选"
+    },
+    "recap": {
+      "chatCard": {
+        "missingId": "缺少回顾报告 ID。",
+        "open": "打开回顾",
+        "title": "报告回顾",
+        "waiting": "等待回顾进展..."
+      }
+    },
+    "skills": {
+      "chatFork": {
+        "completed": "已完成。结果已被注入到此聊天中。",
+        "error": "失败的。",
+        "killed": "取消。",
+        "missingRunId": "技能运行 ID 丢失。",
+        "running": "技能子代理正在运行。结果将被注入此处。",
+        "spawning": "启动技能子代理...",
+        "timeout": "超时了。",
+        "title": "技能{{skill}}"
+      },
+      "defaultName": "技能"
+    },
+    "subagent": {
+      "agentId": "代理 ID",
+      "childSessionId": "儿童会议",
+      "duration": "持续时间",
+      "model": "型号",
+      "openSession": "公开会议",
+      "runId": "运行ID",
+      "task": "任务",
+      "tokens": "代币"
+    },
+    "team": {
+      "loading": "正在加载...",
+      "messagePlaceholder": "消息团队...（DM 的@name）",
+      "noTasks": "没有任务",
+      "panelTitle": "团队",
+      "resizePanel": "调整团队面板大小",
+      "role": {
+        "lead": "铅",
+        "reviewer": "审稿人",
+        "worker": "工人"
+      },
+      "tab": {
+        "dashboard": "仪表板",
+        "messages": "留言",
+        "tasks": "任务"
+      },
+      "view": "查看"
+    },
+    "tools": {
+      "execPanel": {
+        "asyncStarted": "后台任务开始"
+      }
     }
   }
 }

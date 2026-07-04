@@ -20,6 +20,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react"
+import type { TFunction } from "i18next"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -790,7 +791,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                     <span className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
                       <span>{formatBytes(source.size)}</span>
                       <span>·</span>
-                      <span>{sourceKindLabel(source.kind)}</span>
+                      <span>{sourceKindLabel(source.kind, t)}</span>
                       {(source.versionIndex ?? 1) > 1 ? (
                         <>
                           <span>·</span>
@@ -988,7 +989,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-medium">{draft.file.name}</div>
                           <div className="mt-0.5 text-muted-foreground">
-                            {sourceKindLabel(draft.kind)} · {formatBytes(draft.file.size)}
+                            {sourceKindLabel(draft.kind, t)} · {formatBytes(draft.file.size)}
                           </div>
                         </div>
                       </div>
@@ -1246,7 +1247,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                     onClick={() => void openRunDetail(run)}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{runStatusLabel(run.status)}</span>
+                      <span className="font-medium">{runStatusLabel(run.status, t)}</span>
                       <span className="text-[10px] text-muted-foreground">
                         {formatDateTime(run.createdAt)}
                       </span>
@@ -1294,11 +1295,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                           {item.label || item.sourceId || `#${item.position + 1}`}
                         </span>
                         <span className={cn("shrink-0 text-[10px]", item.status === "failed" && "text-destructive")}>
-                          {itemStatusLabel(item.status)}
+                          {itemStatusLabel(item.status, t)}
                         </span>
                       </div>
                       <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
-                        {item.kind ? <span>{sourceKindLabel(item.kind)}</span> : null}
+                        {item.kind ? <span>{sourceKindLabel(item.kind, t)}</span> : null}
                         {item.sourceId ? (
                           <>
                             <span>·</span>
@@ -1345,9 +1346,9 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
               <div key={group.id} className="rounded-md border border-border-soft/60 p-2 text-xs">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="font-medium">{groupKindLabel(group.kind)}</span>
+                    <span className="font-medium">{groupKindLabel(group.kind, t)}</span>
                     <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                      {groupScopeLabel(group.scope)}
+                      {groupScopeLabel(group.scope, t)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1398,7 +1399,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                         ) : null}
                       </span>
                       <span className="shrink-0 text-[10px] text-muted-foreground">
-                        {sourceKindLabel(source.kind)} · {formatBytes(source.size)}
+                        {sourceKindLabel(source.kind, t)} · {formatBytes(source.size)}
                       </span>
                     </button>
                   ))}
@@ -1556,27 +1557,27 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(chunks.join(""))
 }
 
-function sourceKindLabel(kind: KnowledgeSourceKind): string {
+function sourceKindLabel(kind: KnowledgeSourceKind, t: TFunction): string {
   switch (kind) {
     case "markdown":
-      return "Markdown"
+      return t("knowledge.sources.kind.markdown", "Markdown")
     case "pdf":
-      return "PDF"
+      return t("knowledge.sources.kind.pdf", "PDF")
     case "docx":
-      return "DOCX"
+      return t("knowledge.sources.kind.docx", "DOCX")
     case "audio_transcript":
-      return "Audio transcript"
+      return t("knowledge.sources.kind.audioTranscript", "Audio transcript")
     case "video_transcript":
-      return "Video transcript"
+      return t("knowledge.sources.kind.videoTranscript", "Video transcript")
     case "image_ocr":
-      return "Image OCR"
+      return t("knowledge.sources.kind.imageOcr", "Image OCR")
     case "browser_snapshot":
-      return "Browser"
+      return t("knowledge.sources.kind.browserSnapshot", "Browser")
     case "url_snapshot":
-      return "URL"
+      return t("knowledge.sources.kind.urlSnapshot", "URL")
     case "text":
     default:
-      return "Text"
+      return t("knowledge.sources.kind.text", "Text")
   }
 }
 
@@ -1836,48 +1837,50 @@ function hasExt(fileName: string, exts: string[]): boolean {
   return exts.some((ext) => fileName.endsWith(ext))
 }
 
-function runStatusLabel(status: KnowledgeSourceImportRun["status"]): string {
+function runStatusLabel(status: KnowledgeSourceImportRun["status"], t: TFunction): string {
   switch (status) {
     case "completed":
-      return "Completed"
+      return t("knowledge.sources.runStatus.completed", "Completed")
     case "completed_with_errors":
-      return "Completed with errors"
+      return t("knowledge.sources.runStatus.completedWithErrors", "Completed with errors")
     case "failed":
-      return "Failed"
+      return t("knowledge.sources.runStatus.failed", "Failed")
     case "running":
     default:
-      return "Running"
+      return t("knowledge.sources.runStatus.running", "Running")
   }
 }
 
-function itemStatusLabel(status: KnowledgeSourceImportRunDetail["items"][number]["status"]): string {
+function itemStatusLabel(status: KnowledgeSourceImportRunDetail["items"][number]["status"], t: TFunction): string {
   switch (status) {
     case "imported":
-      return "Imported"
+      return t("knowledge.sources.itemStatus.imported", "Imported")
     case "duplicate":
-      return "Duplicate"
+      return t("knowledge.sources.itemStatus.duplicate", "Duplicate")
     case "failed":
-      return "Failed"
+      return t("knowledge.sources.itemStatus.failed", "Failed")
     case "running":
-      return "Running"
+      return t("knowledge.sources.itemStatus.running", "Running")
     case "pending":
     default:
-      return "Pending"
+      return t("knowledge.sources.itemStatus.pending", "Pending")
   }
 }
 
-function groupKindLabel(kind: KnowledgeSourceSimilarityGroup["kind"]): string {
+function groupKindLabel(kind: KnowledgeSourceSimilarityGroup["kind"], t: TFunction): string {
   switch (kind) {
     case "exact_duplicate":
-      return "Exact duplicate"
+      return t("knowledge.sources.similarKind.exactDuplicate", "Exact duplicate")
     case "similar":
     default:
-      return "Similar"
+      return t("knowledge.sources.similarKind.similar", "Similar")
   }
 }
 
-function groupScopeLabel(scope: KnowledgeSourceSimilarityGroup["scope"]): string {
-  return scope === "cross_kb" ? "Cross-space" : "This space"
+function groupScopeLabel(scope: KnowledgeSourceSimilarityGroup["scope"], t: TFunction): string {
+  return scope === "cross_kb"
+    ? t("knowledge.sources.similarScope.crossKb", "Cross-space")
+    : t("knowledge.sources.similarScope.sameKb", "This space")
 }
 
 function localDuplicateDeleteCount(
