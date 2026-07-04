@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-04
 >
-> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard、Phase 7.13 Domain Campaign Learning Closure、Phase 7.14 Domain Readiness Gate、Phase 7.15 Domain Artifact Export Guard、Phase 7.16 Domain Connector Action Guard 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard、Phase 7.13 Domain Campaign Learning Closure、Phase 7.14 Domain Readiness Gate、Phase 7.15 Domain Artifact Export Guard、Phase 7.16 Domain Connector Action Guard 已完成第一版；Phase 8.1 Domain Operational Gate 已完成第一版。相关事实已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
 ## 1. 背景
 
@@ -330,6 +330,7 @@ DomainWorkflow
 - 已落地：Dashboard Learning 展示 Domain smoke runs，按 `sourceType=fixture_*` 与 `SessionKind::EvalFixture` 隔离合成回归样本。
 - 已落地：Dashboard Learning 展示 Domain campaigns，可运行 deterministic trace pack 或 external model agent campaign、观察 durable item 进度、取消和 retry 失败 / 中断 / 已取消 item、查看 Domain model leaderboard，并从失败 campaign item 生成可审查学习草稿。
 - 已落地：Dashboard Learning 展示 Domain readiness，把 live quality、campaign、leaderboard 与 learning closure 合成一个可交付三态，并给出 blockers / next steps。
+- 已落地：Dashboard Learning 展示 Domain operations，把 workflow / loop / campaign 的完成、活跃、失败残留和下一步收口建议合成运行稳定性三态。
 - 已落地：Workspace「领域复核」内展示「交付守门」，把报告、文档、表格、邮件草稿等最终交付前的产物/复核/脱敏证据合成可操作三态。
 - 已落地：Workspace「领域复核」内展示「外部动作守门」，把 Gmail / Calendar / Drive / Sheets / Feishu / Lark 等真实外部动作的动作证据、用户批准、回滚提示和交付守门结果合成可操作三态。
 - Workspace 增加通用面板：Sources、Evidence、Drafts、Review、Verification、Decisions。
@@ -380,9 +381,51 @@ Gold task pack -> Domain eval task pack
 
 - 真实外部账号的端到端演练需要在具备 Gmail / Calendar / Drive / Sheets / Feishu / Lark 等可用测试账号后继续做，当前 worktree 主要用 deterministic / mock / fail-closed 证据覆盖。
 - GUI 仍可继续把 Sources / Evidence / Drafts / Review / Verification / Decisions 做成更完整的通用任务工作台，而不是只集中在 Workspace「领域复核」和 Dashboard Learning。
-- 长期运行稳定性还需要跨天 loop、campaign 和真实连接器动作的 soak run 数据，当前已有 durable run、cancel、retry、readiness、guard 和 history 底座，但尚未把真实长周期运行报告产品化。
+- 长期运行稳定性还需要跨天 loop、campaign 和真实连接器动作的 soak run 数据；Phase 8.1 已先把 workflow / loop / campaign 运行残留产品化为 Operational Gate，但真实跨天 soak report 仍需继续积累样本。
 
-## 12. 推荐顺序
+## 12. Phase 8：真实场景产品级验收
+
+Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放进更接近真实用户的验收层，重点回答：
+
+- 长任务是否真的能持续稳定运行，而不是只在单次 deterministic fixture 中通过？
+- 用户是否能在 GUI 里看懂当前是否可交付、是否稳定、卡在哪里、下一步该做什么？
+- 真实连接器动作是否能在批准、回滚、交付复核和失败恢复上保持 fail-closed？
+
+### Phase 8.1 Domain Operational Gate（已完成第一版）
+
+目标：把长期运行稳定性从“感觉上应该稳”变成一个可查询、可展示、可审计的运行门禁。
+
+已完成：
+
+- 新增 `evaluate_domain_operational_gate` owner API，Tauri / HTTP / transport 已接通。
+- Gate 只读 `workflow_runs`、`loop_schedules`、`loop_runs`、`domain_eval_campaigns` 和 `domain_eval_campaign_items`，不调用 LLM、不启动任务、不访问连接器、不自动 retry/cancel。
+- Checks 覆盖 workflow sample、workflow failed/blocked/cancelled、active workflow drain、loop sample、loop failures、active campaign drain、campaign failed/cancelled/interrupted item。
+- 输出 `passed` / `failed` / `insufficient_data`、summary、checks、blockers 和 recommended next steps；active workflow/campaign 不误报 failed，只让 gate 保持 `insufficient_data`。
+- Dashboard Learning 新增「Domain operations」卡片，展示 workflow / loop / campaign 的完成、活跃、失败残留和下一步建议。
+- 新增核心单测覆盖：已完成 workflow 且无失败残留时 passed；failed workflow + cancelled campaign item 时 failed。
+
+验收：
+
+- 用户无需读 DB 或 raw trace，即可在 Dashboard 看到通用长任务运行面是否稳定。
+- 运行中 workflow / campaign 只表达“尚未 drain”，不会被当成失败；真正 failed / blocked / cancelled / interrupted 会阻断。
+- Gate 只读，不替用户自动 approve / cancel / retry，保持可观察可控制。
+
+### Phase 8.2 真实连接器 E2E（待做）
+
+- 用测试账号覆盖 Gmail / Calendar / Drive / Sheets / Feishu / Lark 的真实 approve -> execute -> evidence -> export/action guard -> rollback note 流程。
+- 不把外部账号缺失伪装成通过；没有真实账号时只保留 deterministic / mock / fail-closed 证据。
+
+### Phase 8.3 跨天 Soak Report（待做）
+
+- 把 loop / workflow / campaign 的跨天运行历史导出成 Markdown / JSON / Dashboard snapshot。
+- 报告要包含 drain 时间、失败分类、审批等待、取消/恢复、重试、预算和用户干预次数。
+
+### Phase 8.4 通用任务工作台（待做）
+
+- 把 Sources、Evidence、Drafts、Review、Verification、Decisions 从路线图概念做成更完整的 Workspace 用户面。
+- 重点不是更漂亮，而是让用户能在非编程任务里完成“看证据 -> 补缺口 -> 审查产物 -> 批准交付/外部动作”的闭环。
+
+## 13. 推荐顺序
 
 P6 完成后，建议按下列顺序推进：
 
@@ -398,3 +441,4 @@ P6 完成后，建议按下列顺序推进：
 10. Phase 7.14：已补 Domain Readiness Gate，把质量、campaign、leaderboard 和学习闭环合成当前可交付判断。
 11. Phase 7.15：已补 Domain Artifact Export Guard，把报告、文档、表格、邮件草稿等非 coding 产物的最终交付审查做成 Workspace 可操作 GUI。
 12. Phase 7.16：已补 Domain Connector Action Guard，把 Gmail / Calendar / Drive / Sheets / Feishu / Lark 等真实外部动作接入同一套证据、审批和回滚提示语义。
+13. Phase 8.1：已补 Domain Operational Gate，把 workflow / loop / campaign 的运行稳定性合成 Dashboard 可见门禁。

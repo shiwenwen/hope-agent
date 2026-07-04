@@ -48,6 +48,15 @@ const DEFAULT_DOMAIN_READINESS_MIN_CAMPAIGN_ITEMS: usize = 1;
 const DEFAULT_DOMAIN_READINESS_MIN_LEADERBOARD_ROWS: usize = 1;
 const DEFAULT_DOMAIN_READINESS_MAX_FAILED_CAMPAIGN_ITEMS: usize = 0;
 const DEFAULT_DOMAIN_READINESS_MAX_OPEN_LEARNING_PROPOSALS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MIN_WORKFLOW_RUNS: usize = 1;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_WORKFLOW_RUNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_BLOCKED_WORKFLOW_RUNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_CANCELLED_WORKFLOW_RUNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_ACTIVE_WORKFLOW_RUNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MIN_LOOP_RUNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_LOOP_RUNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_ACTIVE_CAMPAIGNS: usize = 0;
+const DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_CAMPAIGN_ITEMS: usize = 0;
 const DOMAIN_EVAL_SOURCE_LIVE: &str = "live";
 const DOMAIN_EVAL_SOURCE_FIXTURE_TRACE: &str = "fixture_trace";
 const DOMAIN_EVAL_SOURCE_FIXTURE_AGENT: &str = "fixture_agent";
@@ -988,6 +997,114 @@ pub struct DomainReadinessGateReport {
     pub checks: Vec<DomainReadinessGateCheck>,
     pub quality_gate: DomainQualityGateReport,
     pub campaign_leaderboard: DomainEvalCampaignLeaderboardReport,
+    #[serde(default)]
+    pub blockers: Vec<String>,
+    #[serde(default)]
+    pub recommended_next_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainOperationalGateInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_workflow_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_failed_workflow_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_blocked_workflow_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cancelled_workflow_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_active_workflow_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_loop_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_failed_loop_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_active_campaigns: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_failed_campaign_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainOperationalGateThresholds {
+    pub window_days: u32,
+    pub min_workflow_runs: usize,
+    pub max_failed_workflow_runs: usize,
+    pub max_blocked_workflow_runs: usize,
+    pub max_cancelled_workflow_runs: usize,
+    pub max_active_workflow_runs: usize,
+    pub min_loop_runs: usize,
+    pub max_failed_loop_runs: usize,
+    pub max_active_campaigns: usize,
+    pub max_failed_campaign_items: usize,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainOperationalGateSummary {
+    pub workflow_runs: usize,
+    pub completed_workflow_runs: usize,
+    pub failed_workflow_runs: usize,
+    pub blocked_workflow_runs: usize,
+    pub cancelled_workflow_runs: usize,
+    pub active_workflow_runs: usize,
+    pub paused_workflow_runs: usize,
+    pub awaiting_approval_workflow_runs: usize,
+    pub loop_schedules: usize,
+    pub active_loop_schedules: usize,
+    pub loop_runs: usize,
+    pub succeeded_loop_runs: usize,
+    pub failed_loop_runs: usize,
+    pub active_loop_runs: usize,
+    pub campaigns: usize,
+    pub active_campaigns: usize,
+    pub campaign_items: usize,
+    pub passed_campaign_items: usize,
+    pub failed_campaign_items: usize,
+    pub cancelled_campaign_items: usize,
+    pub interrupted_campaign_items: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_activity_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainOperationalGateCheck {
+    pub name: String,
+    pub status: String,
+    pub severity: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainOperationalGateReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub since: String,
+    pub thresholds: DomainOperationalGateThresholds,
+    pub summary: DomainOperationalGateSummary,
+    #[serde(default)]
+    pub checks: Vec<DomainOperationalGateCheck>,
     #[serde(default)]
     pub blockers: Vec<String>,
     #[serde(default)]
@@ -2784,6 +2901,394 @@ impl SessionDB {
         })
     }
 
+    pub fn evaluate_domain_operational_gate(
+        &self,
+        input: DomainOperationalGateInput,
+    ) -> Result<DomainOperationalGateReport> {
+        let thresholds = domain_operational_gate_thresholds(&input);
+        let scope = self.resolve_domain_operational_gate_scope(&input, thresholds.window_days)?;
+        let summary = self.domain_operational_summary(&scope)?;
+        let campaign_failures = summary.failed_campaign_items
+            + summary.cancelled_campaign_items
+            + summary.interrupted_campaign_items;
+        let mut checks = Vec::new();
+        push_operational_check(
+            &mut checks,
+            "workflow_sample",
+            if summary.workflow_runs >= thresholds.min_workflow_runs {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "blocking",
+            format!("at least {} workflow run(s)", thresholds.min_workflow_runs),
+            format!("{} workflow run(s)", summary.workflow_runs),
+            "Operational readiness needs durable workflow evidence, not only eval or final text.",
+        );
+        push_operational_check(
+            &mut checks,
+            "workflow_failures",
+            if summary.failed_workflow_runs <= thresholds.max_failed_workflow_runs
+                && summary.blocked_workflow_runs <= thresholds.max_blocked_workflow_runs
+                && summary.cancelled_workflow_runs <= thresholds.max_cancelled_workflow_runs
+            {
+                "passed"
+            } else {
+                "failed"
+            },
+            "blocking",
+            format!(
+                "<= {} failed, <= {} blocked, <= {} cancelled workflow run(s)",
+                thresholds.max_failed_workflow_runs,
+                thresholds.max_blocked_workflow_runs,
+                thresholds.max_cancelled_workflow_runs
+            ),
+            format!(
+                "{} failed, {} blocked, {} cancelled",
+                summary.failed_workflow_runs,
+                summary.blocked_workflow_runs,
+                summary.cancelled_workflow_runs
+            ),
+            "Failed or blocked workflow runs must be repaired, retried, or allowed to age out before calling the scope operationally ready.",
+        );
+        push_operational_check(
+            &mut checks,
+            "workflow_active_drain",
+            if summary.active_workflow_runs <= thresholds.max_active_workflow_runs {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "blocking",
+            format!(
+                "<= {} active workflow run(s)",
+                thresholds.max_active_workflow_runs
+            ),
+            format!(
+                "{} active ({} paused, {} awaiting approval)",
+                summary.active_workflow_runs,
+                summary.paused_workflow_runs,
+                summary.awaiting_approval_workflow_runs
+            ),
+            "Active workflow runs are observable, but an operational gate should wait for them to finish or be explicitly paused/cancelled.",
+        );
+        push_operational_check(
+            &mut checks,
+            "loop_sample",
+            if summary.loop_runs >= thresholds.min_loop_runs {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "advisory",
+            format!("at least {} loop run(s)", thresholds.min_loop_runs),
+            format!("{} loop run(s)", summary.loop_runs),
+            "Loop evidence is optional by default, but raises confidence for recurring long tasks.",
+        );
+        push_operational_check(
+            &mut checks,
+            "loop_failures",
+            if summary.failed_loop_runs <= thresholds.max_failed_loop_runs {
+                "passed"
+            } else {
+                "failed"
+            },
+            "blocking",
+            format!("<= {} failed loop run(s)", thresholds.max_failed_loop_runs),
+            format!(
+                "{} failed, {} active, {} schedule(s) active",
+                summary.failed_loop_runs, summary.active_loop_runs, summary.active_loop_schedules
+            ),
+            "Recurring loops should not accumulate failed ticks without user-visible recovery.",
+        );
+        push_operational_check(
+            &mut checks,
+            "campaign_active_drain",
+            if summary.active_campaigns <= thresholds.max_active_campaigns {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "blocking",
+            format!("<= {} active campaign(s)", thresholds.max_active_campaigns),
+            format!("{} active campaign(s)", summary.active_campaigns),
+            "Active campaigns prove observability, but final operational readiness should wait for terminal results.",
+        );
+        push_operational_check(
+            &mut checks,
+            "campaign_failures",
+            if campaign_failures <= thresholds.max_failed_campaign_items {
+                "passed"
+            } else {
+                "failed"
+            },
+            "blocking",
+            format!(
+                "<= {} failed/cancelled/interrupted campaign item(s)",
+                thresholds.max_failed_campaign_items
+            ),
+            format!("{campaign_failures} failed/cancelled/interrupted item(s)"),
+            "Campaign failures should be retried or turned into learning evidence before treating long-run behavior as stable.",
+        );
+
+        let blockers = checks
+            .iter()
+            .filter(|check| check.status != "passed" && check.severity != "advisory")
+            .map(|check| check.name.clone())
+            .collect::<Vec<_>>();
+        let status = operational_status(&checks);
+        let recommended_next_steps = domain_operational_recommendations(&checks);
+
+        Ok(DomainOperationalGateReport {
+            generated_at: now_rfc3339(),
+            status,
+            scope: scope.scope,
+            session_id: scope.session_id,
+            project_id: scope.project_id,
+            domain: scope.domain,
+            since: scope.since,
+            thresholds,
+            summary,
+            checks,
+            blockers,
+            recommended_next_steps,
+        })
+    }
+
+    fn domain_operational_summary(
+        &self,
+        scope: &DomainGateScope,
+    ) -> Result<DomainOperationalGateSummary> {
+        let mut summary = DomainOperationalGateSummary::default();
+        self.fill_domain_operational_workflows(scope, &mut summary)?;
+        self.fill_domain_operational_loops(scope, &mut summary)?;
+        self.fill_domain_operational_campaigns(scope, &mut summary)?;
+        Ok(summary)
+    }
+
+    fn fill_domain_operational_workflows(
+        &self,
+        scope: &DomainGateScope,
+        summary: &mut DomainOperationalGateSummary,
+    ) -> Result<()> {
+        let mut clauses = vec![
+            "wr.created_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+        ];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("s.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("wr.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("(wr.kind = ? OR g.domain = ?)".to_string());
+            params.push(format!("domain:{domain}"));
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT wr.state, wr.updated_at
+             FROM workflow_runs wr
+             JOIN sessions s ON s.id = wr.session_id
+             LEFT JOIN goals g ON g.id = wr.goal_id
+             WHERE {}",
+            clauses.join(" AND ")
+        );
+        let rows = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for (state, updated_at) in rows {
+            summary.workflow_runs += 1;
+            max_timestamp(&mut summary.latest_activity_at, updated_at);
+            match state.as_str() {
+                "completed" => summary.completed_workflow_runs += 1,
+                "failed" => summary.failed_workflow_runs += 1,
+                "blocked" => summary.blocked_workflow_runs += 1,
+                "cancelled" => summary.cancelled_workflow_runs += 1,
+                "paused" => {
+                    summary.paused_workflow_runs += 1;
+                    summary.active_workflow_runs += 1;
+                }
+                "awaiting_approval" => {
+                    summary.awaiting_approval_workflow_runs += 1;
+                    summary.active_workflow_runs += 1;
+                }
+                "running" | "recovering" | "awaiting_user" => {
+                    summary.active_workflow_runs += 1;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn fill_domain_operational_loops(
+        &self,
+        scope: &DomainGateScope,
+        summary: &mut DomainOperationalGateSummary,
+    ) -> Result<()> {
+        let mut schedule_clauses = vec![
+            "ls.created_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+        ];
+        let mut schedule_params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            schedule_clauses.push("s.project_id = ?".to_string());
+            schedule_params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            schedule_clauses.push("ls.session_id = ?".to_string());
+            schedule_params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            schedule_clauses.push("g.domain = ?".to_string());
+            schedule_params.push(domain.clone());
+        }
+        let schedule_sql = format!(
+            "SELECT ls.state, ls.updated_at
+             FROM loop_schedules ls
+             JOIN sessions s ON s.id = ls.session_id
+             LEFT JOIN goals g ON g.id = ls.goal_id
+             WHERE {}",
+            schedule_clauses.join(" AND ")
+        );
+        let schedules = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(&schedule_sql)?;
+            let rows = stmt.query_map(params_from_iter(schedule_params.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for (state, updated_at) in schedules {
+            summary.loop_schedules += 1;
+            max_timestamp(&mut summary.latest_activity_at, updated_at);
+            if matches!(state.as_str(), "active" | "paused" | "blocked") {
+                summary.active_loop_schedules += 1;
+            }
+        }
+
+        let mut run_clauses = vec![
+            "lr.started_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+        ];
+        let mut run_params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            run_clauses.push("s.project_id = ?".to_string());
+            run_params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            run_clauses.push("lr.session_id = ?".to_string());
+            run_params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            run_clauses.push("g.domain = ?".to_string());
+            run_params.push(domain.clone());
+        }
+        let run_sql = format!(
+            "SELECT lr.state, COALESCE(lr.finished_at, lr.started_at)
+             FROM loop_runs lr
+             JOIN loop_schedules ls ON ls.id = lr.loop_id
+             JOIN sessions s ON s.id = lr.session_id
+             LEFT JOIN goals g ON g.id = ls.goal_id
+             WHERE {}",
+            run_clauses.join(" AND ")
+        );
+        let runs = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(&run_sql)?;
+            let rows = stmt.query_map(params_from_iter(run_params.iter()), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for (state, activity_at) in runs {
+            summary.loop_runs += 1;
+            max_timestamp(&mut summary.latest_activity_at, activity_at);
+            match state.as_str() {
+                "succeeded" => summary.succeeded_loop_runs += 1,
+                "failed" | "cancelled" => summary.failed_loop_runs += 1,
+                "running" | "queued" | "injected" => summary.active_loop_runs += 1,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn fill_domain_operational_campaigns(
+        &self,
+        scope: &DomainGateScope,
+        summary: &mut DomainOperationalGateSummary,
+    ) -> Result<()> {
+        let mut clauses = vec!["c.created_at >= ?".to_string()];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("c.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("c.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("(c.domain = ? OR i.domain = ?)".to_string());
+            params.push(domain.clone());
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT c.id, c.status, c.updated_at, i.id, i.status
+             FROM domain_eval_campaigns c
+             LEFT JOIN domain_eval_campaign_items i ON i.campaign_id = c.id
+             WHERE {}",
+            clauses.join(" AND ")
+        );
+        let rows = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut campaign_ids = BTreeSet::new();
+        for (campaign_id, campaign_status, updated_at, item_id, item_status) in rows {
+            if campaign_ids.insert(campaign_id) {
+                summary.campaigns += 1;
+                max_timestamp(&mut summary.latest_activity_at, updated_at);
+                if matches!(
+                    campaign_status.as_str(),
+                    "queued" | "running" | "cancel_requested"
+                ) {
+                    summary.active_campaigns += 1;
+                }
+            }
+            let Some(item_status) = item_status else {
+                continue;
+            };
+            if item_id.is_some() {
+                summary.campaign_items += 1;
+            }
+            match item_status.as_str() {
+                "passed" => summary.passed_campaign_items += 1,
+                "failed" => summary.failed_campaign_items += 1,
+                "cancelled" => summary.cancelled_campaign_items += 1,
+                "interrupted" => summary.interrupted_campaign_items += 1,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     fn domain_readiness_campaign_summary(
         &self,
         session_id: Option<&str>,
@@ -3291,6 +3796,56 @@ impl SessionDB {
             window_days,
             since,
             include_synthetic: input.include_synthetic,
+        })
+    }
+
+    fn resolve_domain_operational_gate_scope(
+        &self,
+        input: &DomainOperationalGateInput,
+        window_days: u32,
+    ) -> Result<DomainGateScope> {
+        let since = since_timestamp(window_days);
+        let domain = input
+            .domain
+            .as_deref()
+            .and_then(non_empty)
+            .map(normalize_domain);
+        if let Some(session_id) = input.session_id.as_deref().and_then(non_empty) {
+            let session = self
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+            if session.incognito {
+                bail!("domain operational gate is disabled for incognito sessions");
+            }
+            return Ok(DomainGateScope {
+                scope: "session".to_string(),
+                session_id: Some(session.id),
+                project_id: session.project_id,
+                domain,
+                window_days,
+                since,
+                include_synthetic: false,
+            });
+        }
+        if let Some(project_id) = input.project_id.as_deref().and_then(non_empty) {
+            return Ok(DomainGateScope {
+                scope: "project".to_string(),
+                session_id: None,
+                project_id: Some(project_id.to_string()),
+                domain,
+                window_days,
+                since,
+                include_synthetic: false,
+            });
+        }
+        Ok(DomainGateScope {
+            scope: "global".to_string(),
+            session_id: None,
+            project_id: None,
+            domain,
+            window_days,
+            since,
+            include_synthetic: false,
         })
     }
 
@@ -5730,6 +6285,53 @@ fn domain_readiness_gate_thresholds(
     }
 }
 
+fn domain_operational_gate_thresholds(
+    input: &DomainOperationalGateInput,
+) -> DomainOperationalGateThresholds {
+    DomainOperationalGateThresholds {
+        window_days: input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS),
+        min_workflow_runs: input
+            .min_workflow_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MIN_WORKFLOW_RUNS)
+            .clamp(1, 500),
+        max_failed_workflow_runs: input
+            .max_failed_workflow_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_WORKFLOW_RUNS)
+            .min(500),
+        max_blocked_workflow_runs: input
+            .max_blocked_workflow_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_BLOCKED_WORKFLOW_RUNS)
+            .min(500),
+        max_cancelled_workflow_runs: input
+            .max_cancelled_workflow_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_CANCELLED_WORKFLOW_RUNS)
+            .min(500),
+        max_active_workflow_runs: input
+            .max_active_workflow_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_ACTIVE_WORKFLOW_RUNS)
+            .min(500),
+        min_loop_runs: input
+            .min_loop_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MIN_LOOP_RUNS)
+            .min(500),
+        max_failed_loop_runs: input
+            .max_failed_loop_runs
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_LOOP_RUNS)
+            .min(500),
+        max_active_campaigns: input
+            .max_active_campaigns
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_ACTIVE_CAMPAIGNS)
+            .min(100),
+        max_failed_campaign_items: input
+            .max_failed_campaign_items
+            .unwrap_or(DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_CAMPAIGN_ITEMS)
+            .min(500),
+    }
+}
+
 fn push_gate_check(
     checks: &mut Vec<DomainQualityGateCheck>,
     name: &str,
@@ -5768,6 +6370,25 @@ fn push_readiness_check(
     });
 }
 
+fn push_operational_check(
+    checks: &mut Vec<DomainOperationalGateCheck>,
+    name: &str,
+    status: &str,
+    severity: &str,
+    expected: String,
+    actual: String,
+    detail: &str,
+) {
+    checks.push(DomainOperationalGateCheck {
+        name: name.to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        expected,
+        actual,
+        detail: detail.to_string(),
+    });
+}
+
 fn gate_status(checks: &[DomainQualityGateCheck]) -> String {
     if checks.iter().any(|check| check.status == "failed") {
         "failed".to_string()
@@ -5782,6 +6403,19 @@ fn gate_status(checks: &[DomainQualityGateCheck]) -> String {
 }
 
 fn readiness_status(checks: &[DomainReadinessGateCheck]) -> String {
+    if checks.iter().any(|check| check.status == "failed") {
+        "failed".to_string()
+    } else if checks
+        .iter()
+        .any(|check| check.status == "insufficient_data")
+    {
+        "insufficient_data".to_string()
+    } else {
+        "passed".to_string()
+    }
+}
+
+fn operational_status(checks: &[DomainOperationalGateCheck]) -> String {
     if checks.iter().any(|check| check.status == "failed") {
         "failed".to_string()
     } else if checks
@@ -5823,6 +6457,50 @@ fn domain_readiness_recommendations(checks: &[DomainReadinessGateCheck]) -> Vec<
         }
     }
     recommendations
+}
+
+fn domain_operational_recommendations(checks: &[DomainOperationalGateCheck]) -> Vec<String> {
+    let mut recommendations = Vec::new();
+    for check in checks.iter().filter(|check| check.status != "passed") {
+        let recommendation = match check.name.as_str() {
+            "workflow_sample" => {
+                "Run at least one durable domain workflow so operational readiness has real control-plane evidence."
+            }
+            "workflow_failures" => {
+                "Repair or retry failed/blocked/cancelled workflow runs before treating the scope as stable."
+            }
+            "workflow_active_drain" => {
+                "Wait for active workflows to finish, approve waiting runs, or explicitly pause/cancel stale work."
+            }
+            "loop_sample" => {
+                "Run a loop tick when recurring behavior matters for this scope."
+            }
+            "loop_failures" => {
+                "Inspect failed loop ticks and update the loop strategy or workflow draft before continuing unattended."
+            }
+            "campaign_active_drain" => {
+                "Wait for active domain campaigns to finish, or cancel and retry them if they are stuck."
+            }
+            "campaign_failures" => {
+                "Retry failed/cancelled/interrupted campaign items or convert them into learning proposals."
+            }
+            _ => "Resolve the failing Domain Operational check.",
+        };
+        if !recommendations.iter().any(|item| item == recommendation) {
+            recommendations.push(recommendation.to_string());
+        }
+    }
+    recommendations
+}
+
+fn max_timestamp(slot: &mut Option<String>, candidate: String) {
+    if slot
+        .as_ref()
+        .map(|current| candidate > *current)
+        .unwrap_or(true)
+    {
+        *slot = Some(candidate);
+    }
 }
 
 fn since_timestamp(window_days: u32) -> String {
@@ -5952,6 +6630,7 @@ mod tests {
     use crate::domain_quality::RunDomainQualityInput;
     use crate::domain_workflow::RecordDomainEvidenceInput;
     use crate::provider::{ApiType, ModelConfig, ProviderConfig};
+    use crate::workflow::WorkflowRunState;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -6494,6 +7173,106 @@ mod tests {
         assert_eq!(leaderboard.rows[0].passed_items, 1);
         assert!(leaderboard.rows[0].average_score.unwrap_or_default() >= DEFAULT_MIN_AVERAGE_SCORE);
         assert_eq!(leaderboard.rows[0].evidence.len(), 1);
+    }
+
+    #[test]
+    fn domain_operational_gate_passes_with_completed_workflow() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("operational-gate-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Completed, None)
+            .unwrap();
+
+        let report = db
+            .evaluate_domain_operational_gate(DomainOperationalGateInput {
+                session_id: Some(session.id),
+                domain: Some("research".to_string()),
+                window_days: Some(1),
+                min_workflow_runs: Some(1),
+                min_loop_runs: Some(0),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(report.status, "passed", "{report:?}");
+        assert_eq!(report.summary.workflow_runs, 1);
+        assert_eq!(report.summary.completed_workflow_runs, 1);
+        assert_eq!(report.summary.failed_workflow_runs, 0);
+        assert!(report.blockers.is_empty());
+    }
+
+    #[test]
+    fn domain_operational_gate_blocks_failed_workflow_and_campaign_item() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("operational-gate-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Failed, Some("validation failed"))
+            .unwrap();
+        let campaign = db
+            .create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+                session_id: Some(session.id.clone()),
+                domain: Some("research".to_string()),
+                task_ids: vec!["research-source-backed-brief".to_string()],
+                max_tasks: Some(1),
+                execution_mode: Some("trace_fixture".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        db.cancel_domain_eval_campaign(&campaign.id).unwrap();
+
+        let report = db
+            .evaluate_domain_operational_gate(DomainOperationalGateInput {
+                session_id: Some(session.id),
+                domain: Some("research".to_string()),
+                window_days: Some(1),
+                min_workflow_runs: Some(1),
+                min_loop_runs: Some(0),
+                max_active_campaigns: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(report.status, "failed", "{report:?}");
+        assert_eq!(report.summary.failed_workflow_runs, 1);
+        assert_eq!(report.summary.cancelled_campaign_items, 1);
+        assert!(report
+            .blockers
+            .iter()
+            .any(|item| item == "workflow_failures"));
+        assert!(report
+            .blockers
+            .iter()
+            .any(|item| item == "campaign_failures"));
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.14 已实现。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace / agent fixture runner、fixture run history、Domain Eval Campaign、Domain Campaign Leaderboard、Domain Campaign Learning Closure、Domain Readiness Gate、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块 / Smoke Run Center / Campaign Center。
+> 状态：Phase 7.14 已实现；Phase 8.1 已补 Domain Operational Gate。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace / agent fixture runner、fixture run history、Domain Eval Campaign、Domain Campaign Leaderboard、Domain Campaign Learning Closure、Domain Readiness Gate、Domain Operational Gate、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块 / Smoke Run Center / Campaign Center / Operational Gate。
 
 ## 目标
 
@@ -13,6 +13,7 @@ Domain Eval 把非 coding 场景的质量判断从“感觉不错”变成可审
 - 评分读取 Goal、Workflow、Domain Evidence、Domain Quality trace，不读取或混入 coding benchmark 表。
 - Quality Gate 聚合 domain eval run、domain quality run/check 和 evidence coverage，输出 `passed` / `failed` / `insufficient_data`。
 - Readiness Gate 再把 Quality Gate、Domain Campaign、Leaderboard 和 Campaign Learning Closure 合成可交付三态，回答“这个通用领域能力现在能不能作为可控长任务使用”。
+- Operational Gate 聚合 WorkflowRun、LoopRun 和 Domain Campaign 的运行稳定性，回答“这套通用长任务控制面最近是否跑得稳、是否仍有未收口长任务或失败残留”。
 
 这套控制面只证明通用领域任务质量，不代表 coding 能力；coding benchmark 仍由 [Coding Eval 控制面评测](coding-eval.md) 和 [Coding Improvement Loop](coding-improvement-loop.md) 承载。
 
@@ -298,6 +299,56 @@ Readiness status：
 - 无 failed 但有 `insufficient_data` -> `insufficient_data`
 - 全部 passed -> `passed`
 
+## Operational Gate
+
+`evaluate_domain_operational_gate(input)` 是 Phase 8.1 的 owner-plane 运行稳定性门禁。它只读 `workflow_runs`、`loop_schedules`、`loop_runs`、`domain_eval_campaigns` 和 `domain_eval_campaign_items`，不调用 LLM、不启动 workflow、不运行 loop、不 retry campaign、不访问连接器。
+
+它与 Readiness Gate 分工不同：
+
+- Readiness Gate 看“质量证据是否足够、是否可交付”。
+- Operational Gate 看“长任务运行面是否稳定、是否还有未 drain 的运行中任务或失败残留”。
+
+输入支持 `sessionId` / `projectId` / 全局 scope、`domain` 和 `windowDays`；session scope 会拒绝 incognito session。domain 过滤会同时看 `workflow_runs.kind='domain:<domain>'` 与绑定 Goal 的 `goals.domain`，loop 通过绑定 Goal 过滤，campaign 通过 campaign/item domain 过滤。
+
+默认阈值：
+
+| Threshold | 默认 |
+| --- | --- |
+| `minWorkflowRuns` | 1 |
+| `maxFailedWorkflowRuns` | 0 |
+| `maxBlockedWorkflowRuns` | 0 |
+| `maxCancelledWorkflowRuns` | 0 |
+| `maxActiveWorkflowRuns` | 0 |
+| `minLoopRuns` | 0 |
+| `maxFailedLoopRuns` | 0 |
+| `maxActiveCampaigns` | 0 |
+| `maxFailedCampaignItems` | 0 |
+
+Operational checks：
+
+| Check | 说明 |
+| --- | --- |
+| `workflow_sample` | 至少有 durable workflow run 证据；缺样本为 `insufficient_data`。 |
+| `workflow_failures` | failed / blocked / cancelled workflow run 必须低于阈值，默认 0。 |
+| `workflow_active_drain` | running / recovering / awaiting_user / awaiting_approval / paused workflow run 默认不算失败，但让 gate 保持 `insufficient_data`，直到完成、暂停处理或取消。 |
+| `loop_sample` | loop run 样本默认可选；设置 `minLoopRuns` 后可要求 recurring long-task 证据。 |
+| `loop_failures` | failed / cancelled loop tick 必须低于阈值，默认 0。 |
+| `campaign_active_drain` | running / queued / cancel_requested campaign 默认不算失败，但让 gate 保持 `insufficient_data`。 |
+| `campaign_failures` | failed / cancelled / interrupted campaign item 必须低于阈值，默认 0。 |
+
+输出包含：
+
+- `summary`：workflow、loop schedule/run、campaign/item 的完成、失败、阻塞、取消、活跃和最近活动时间计数。
+- `checks`：运行稳定性检查结果。
+- `blockers`：非 passed 且非 advisory 的 check 名。
+- `recommendedNextSteps`：按失败 check 给出下一步，如 approve waiting workflow、retry failed campaign、处理 loop failure。
+
+Operational status：
+
+- 任一 check `failed` -> `failed`
+- 无 failed 但有 `insufficient_data` -> `insufficient_data`
+- 全部 passed -> `passed`
+
 ## Owner API
 
 Tauri / HTTP / transport 均已注册：
@@ -320,6 +371,7 @@ Tauri / HTTP / transport 均已注册：
 | `list_domain_eval_runs` | `POST /api/domain-eval/runs` | 列出 domain eval run history。 |
 | `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | 计算通用领域 quality gate。 |
 | `evaluate_domain_readiness_gate` | `POST /api/domain-readiness-gate/evaluate` | 计算通用领域 readiness gate：Quality Gate + Campaign + Leaderboard + Learning Closure。 |
+| `evaluate_domain_operational_gate` | `POST /api/domain-operational-gate/evaluate` | 计算通用领域运行稳定性 gate：Workflow + Loop + Campaign drain / failure evidence。 |
 
 ## Dashboard 交互
 
@@ -333,6 +385,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - 展示「Domain campaigns」卡片：可运行 deterministic trace pack，也可选择 provider/model 运行 external agent campaign；可查看 durable campaign / item 状态、item pass rate、平均分、check 数、fixture/eval run 关联；failed / interrupted / cancelled campaign 可 retry，queued / running campaign 可 cancel，含失败 item 且有 session scope 的 campaign 可显式生成 learning drafts。
 - 展示「Domain model leaderboard」：按模型 / execution 聚合最近 campaign item，显示 rank、平均分、item 通过数、trace evidence 数和 warning。
 - 展示「Domain readiness」卡片：直接调用 `evaluate_domain_readiness_gate`，显示总体 readiness 三态、quality/eval/campaign/leaderboard/learning proposal 核心计数、阻塞 check 和 recommended next steps。
+- 展示「Domain operations」卡片：直接调用 `evaluate_domain_operational_gate`，显示 workflow / loop / campaign 的完成、活跃、失败残留和 recommended next steps。
 - 展示已校准 task 数；最近 eval run 支持点击「Mark reviewed」记录人工复核 calibration。
 - 与 Release Gate / Continuous Benchmark Gate 分开展示，不生成综合分。
 
@@ -349,6 +402,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - Leaderboard 必须可追溯：每一行要保留 campaign/item/task/status/score evidence，不能只给不可审计的平均值。
 - Learning closure 不自动改规则：campaign failure 只能生成 draft proposal，后续 apply / promotion 必须由用户显式触发。
 - Readiness Gate 只读事实：不能自动生成 learning proposal、不能自动 retry campaign、不能把运行中的 campaign 标成 failed；active campaign 只能让 readiness 保持 `insufficient_data`。
+- Operational Gate 只读事实：不能自动 cancel / approve / resume workflow，不能自动 retry campaign，不能把 active workflow / campaign 标成 failed；active long task 只能让 gate 保持 `insufficient_data`。
 - Retry 必须真实重跑：`retryFailedOnly=true` 清掉 item 的旧 fixture/eval run 指针和 check 统计，再把 failed/interrupted/cancelled item 放回 `queued`。
 - 不写无痕：incognito session 拒绝 run / gate。
 - 不替代 Domain Quality：eval 使用 quality snapshot，quality run 本身仍由 `domain_quality.rs` 管理。
@@ -371,6 +425,7 @@ cargo test -p ha-core domain_eval --locked
 - Domain Eval Campaign 可创建 deterministic trace pack、cancel queued item、retry cancelled item，并在 item 上写回最新 fixture/eval run、score 和 check 统计；leaderboard 能按模型/execution 聚合并保留 evidence。
 - External model campaign 缺少 provider secret 时 item failed 且进入 leaderboard warning，不写 eval run、不静默成功。
 - Domain Readiness Gate 在 live quality + campaign evidence 齐全时 passed；失败 campaign 且未闭环学习时 failed，并指出 `campaign_failures` / `learning_closure` blockers。
+- Domain Operational Gate 在已完成 workflow 且没有失败残留时 passed；failed workflow + cancelled campaign item 时 failed，并指出 `workflow_failures` / `campaign_failures` blockers。
 - Agent fixture runner 会创建真实 user message / chat turn，调用 mock Responses provider，经 `run_chat_engine` 产生 response，并默认打开 Workflow Mode Ultracode。
 - Agent fixture 不会自动 materialize trace fixture seed，避免 evidence/workflow 被确定性 fixture 托过关。
 - 缺少 provider/modelChain 的 agent fixture fail-fast，不写 eval run。

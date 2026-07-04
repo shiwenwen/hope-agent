@@ -1545,6 +1545,84 @@ export interface DomainReadinessGateReport {
   recommendedNextSteps: string[];
 }
 
+export interface DomainOperationalGateInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays?: number | null;
+  minWorkflowRuns?: number | null;
+  maxFailedWorkflowRuns?: number | null;
+  maxBlockedWorkflowRuns?: number | null;
+  maxCancelledWorkflowRuns?: number | null;
+  maxActiveWorkflowRuns?: number | null;
+  minLoopRuns?: number | null;
+  maxFailedLoopRuns?: number | null;
+  maxActiveCampaigns?: number | null;
+  maxFailedCampaignItems?: number | null;
+}
+
+export interface DomainOperationalGateThresholds {
+  windowDays: number;
+  minWorkflowRuns: number;
+  maxFailedWorkflowRuns: number;
+  maxBlockedWorkflowRuns: number;
+  maxCancelledWorkflowRuns: number;
+  maxActiveWorkflowRuns: number;
+  minLoopRuns: number;
+  maxFailedLoopRuns: number;
+  maxActiveCampaigns: number;
+  maxFailedCampaignItems: number;
+}
+
+export interface DomainOperationalGateSummary {
+  workflowRuns: number;
+  completedWorkflowRuns: number;
+  failedWorkflowRuns: number;
+  blockedWorkflowRuns: number;
+  cancelledWorkflowRuns: number;
+  activeWorkflowRuns: number;
+  pausedWorkflowRuns: number;
+  awaitingApprovalWorkflowRuns: number;
+  loopSchedules: number;
+  activeLoopSchedules: number;
+  loopRuns: number;
+  succeededLoopRuns: number;
+  failedLoopRuns: number;
+  activeLoopRuns: number;
+  campaigns: number;
+  activeCampaigns: number;
+  campaignItems: number;
+  passedCampaignItems: number;
+  failedCampaignItems: number;
+  cancelledCampaignItems: number;
+  interruptedCampaignItems: number;
+  latestActivityAt?: string | null;
+}
+
+export interface DomainOperationalGateCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface DomainOperationalGateReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  since: string;
+  thresholds: DomainOperationalGateThresholds;
+  summary: DomainOperationalGateSummary;
+  checks: DomainOperationalGateCheck[];
+  blockers: string[];
+  recommendedNextSteps: string[];
+}
+
 export interface CodingTrendOverview {
   sessions: number;
   goals: number;
