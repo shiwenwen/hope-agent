@@ -85,7 +85,13 @@
       "profileRotationTitle": "プロファイル切替",
       "contextCompactedTitle": "コンテキスト圧縮",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} 件"
+      "contextCompactedMsgs": "{{count}} 件",
+      "sandboxMode": {
+        "menuLabel": "サンドボックス"
+      },
+      "permissionMode": {
+        "menuLabel": "権限モード"
+      }
     },
     "effort": {
       "none": "オフ"
@@ -1510,7 +1516,13 @@
       "profileRotationTitle": "프로필 전환",
       "contextCompactedTitle": "컨텍스트 압축됨",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "메시지 {{count}}개"
+      "contextCompactedMsgs": "메시지 {{count}}개",
+      "sandboxMode": {
+        "menuLabel": "샌드박스"
+      },
+      "permissionMode": {
+        "menuLabel": "권한 모드"
+      }
     },
     "effort": {
       "none": "끄기"
@@ -2935,7 +2947,13 @@
       "profileRotationTitle": "設定切換",
       "contextCompactedTitle": "上下文已壓縮",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} 則"
+      "contextCompactedMsgs": "{{count}} 則",
+      "sandboxMode": {
+        "menuLabel": "沙箱"
+      },
+      "permissionMode": {
+        "menuLabel": "權限模式"
+      }
     },
     "effort": {
       "none": "關閉"
@@ -4343,7 +4361,13 @@
       "profileRotationTitle": "Profil değişimi",
       "contextCompactedTitle": "Bağlam sıkıştırıldı",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} mesaj"
+      "contextCompactedMsgs": "{{count}} mesaj",
+      "sandboxMode": {
+        "menuLabel": "Kum havuzu"
+      },
+      "permissionMode": {
+        "menuLabel": "İzin modu"
+      }
     },
     "effort": {
       "none": "Kapalı"
@@ -5768,7 +5792,13 @@
       "profileRotationTitle": "Đổi profile",
       "contextCompactedTitle": "Đã nén context",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} tin"
+      "contextCompactedMsgs": "{{count}} tin",
+      "sandboxMode": {
+        "menuLabel": "Hộp cát"
+      },
+      "permissionMode": {
+        "menuLabel": "Chế độ quyền"
+      }
     },
     "effort": {
       "none": "Tắt"
@@ -7193,7 +7223,13 @@
       "profileRotationTitle": "Rotação de perfil",
       "contextCompactedTitle": "Contexto compactado",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} msgs"
+      "contextCompactedMsgs": "{{count}} msgs",
+      "sandboxMode": {
+        "menuLabel": "Sandbox"
+      },
+      "permissionMode": {
+        "menuLabel": "Modo de permissão"
+      }
     },
     "effort": {
       "none": "Desligado"
@@ -8618,7 +8654,13 @@
       "profileRotationTitle": "Смена профиля",
       "contextCompactedTitle": "Контекст сжат",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} сообщ."
+      "contextCompactedMsgs": "{{count}} сообщ.",
+      "sandboxMode": {
+        "menuLabel": "Песочница"
+      },
+      "permissionMode": {
+        "menuLabel": "Режим разрешений"
+      }
     },
     "effort": {
       "none": "Выкл"
@@ -10043,7 +10085,13 @@
       "profileRotationTitle": "تغيير الملف الشخصي",
       "contextCompactedTitle": "تم ضغط السياق",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} رسالة"
+      "contextCompactedMsgs": "{{count}} رسالة",
+      "sandboxMode": {
+        "menuLabel": "صندوق العزل"
+      },
+      "permissionMode": {
+        "menuLabel": "وضع الأذونات"
+      }
     },
     "effort": {
       "none": "إيقاف"
@@ -11468,7 +11516,13 @@
       "profileRotationTitle": "Rotación de perfil",
       "contextCompactedTitle": "Contexto compactado",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} msgs"
+      "contextCompactedMsgs": "{{count}} msgs",
+      "sandboxMode": {
+        "menuLabel": "Sandbox"
+      },
+      "permissionMode": {
+        "menuLabel": "Modo de permisos"
+      }
     },
     "effort": {
       "none": "Apagado"
@@ -12893,7 +12947,13 @@
       "profileRotationTitle": "Tukar profil",
       "contextCompactedTitle": "Konteks dipadatkan",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} mesej"
+      "contextCompactedMsgs": "{{count}} mesej",
+      "sandboxMode": {
+        "menuLabel": "Kotak pasir"
+      },
+      "permissionMode": {
+        "menuLabel": "Mod kebenaran"
+      }
     },
     "effort": {
       "none": "Mati"
@@ -14380,7 +14440,13 @@
       "profileRotationTitle": "配置切换",
       "contextCompactedTitle": "上下文已压缩",
       "contextCompactedTier": "tier {{tier}}",
-      "contextCompactedMsgs": "{{count}} 条"
+      "contextCompactedMsgs": "{{count}} 条",
+      "sandboxMode": {
+        "menuLabel": "沙箱"
+      },
+      "permissionMode": {
+        "menuLabel": "权限模式"
+      }
     },
     "slashCommands": {
       "sessions": {

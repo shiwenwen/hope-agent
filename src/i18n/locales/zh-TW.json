@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "本會話內所有工具直接執行（保護路徑仍記稽核日誌）",
         "label": "完全放行"
-      }
+      },
+      "menuLabel": "權限模式"
     },
     "pickSession": "選擇工作階段",
     "profileRotationTitle": "設定切換",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "掛載目前工作區，減少編輯命令審批",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "沙箱"
     }
   },
   "codexAuth": {

@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "Semua alat dalam sesi ini berjalan tanpa kelulusan (laluan dilindungi tetap diaudit).",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "Mod kebenaran"
     },
     "pickSession": "Pilih sesi",
     "profileRotationTitle": "Tukar profil",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "Kotak pasir"
     }
   },
   "codexAuth": {

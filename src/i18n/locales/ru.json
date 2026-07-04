@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "Все инструменты в этой сессии запускаются без одобрения (защищённые пути логируются).",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "Режим разрешений"
     },
     "pickSession": "Выбрать сессию",
     "profileRotationTitle": "Смена профиля",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "Песочница"
     }
   },
   "codexAuth": {

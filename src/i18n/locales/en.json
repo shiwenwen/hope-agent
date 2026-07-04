@@ -490,6 +490,7 @@
         "desc": "Edit-class tools and high-risk commands need approval; everything else runs.",
         "label": "Default"
       },
+      "menuLabel": "Permission mode",
       "smart": {
         "desc": "Defer approval decisions to a judge model or the model's self-confidence tag.",
         "label": "Smart Approval"
@@ -504,6 +505,7 @@
         "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
         "label": "Isolated Sandbox"
       },
+      "menuLabel": "Sandbox",
       "off": {
         "desc": "Run on the host; approval behavior is unchanged.",
         "label": "Sandbox Off"

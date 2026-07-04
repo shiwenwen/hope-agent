@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "このセッションのツールはすべて承認なしで実行（保護パスは監査ログ）",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "権限モード"
     },
     "pickSession": "セッションを選択",
     "profileRotationTitle": "プロファイル切替",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "サンドボックス"
     }
   },
   "codexAuth": {

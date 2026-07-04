@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "Mọi công cụ trong phiên này chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log).",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "Chế độ quyền"
     },
     "pickSession": "Chọn phiên",
     "profileRotationTitle": "Đổi profile",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "Hộp cát"
     }
   },
   "codexAuth": {

@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "Bu oturumda tüm araçlar onaysız çalışır (korunan yollar hâlâ denetlenir).",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "İzin modu"
     },
     "pickSession": "Bir oturum seç",
     "profileRotationTitle": "Profil değişimi",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "Kum havuzu"
     }
   },
   "codexAuth": {

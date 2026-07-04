@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "이 세션의 모든 도구는 승인 없이 실행 (보호 경로는 감사 로그)",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "권한 모드"
     },
     "pickSession": "세션 선택",
     "profileRotationTitle": "프로필 전환",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "샌드박스"
     }
   },
   "codexAuth": {

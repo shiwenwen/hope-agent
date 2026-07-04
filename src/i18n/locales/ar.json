@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "جميع الأدوات في هذه الجلسة تعمل بدون موافقة (المسارات المحمية لا تزال تُسجّل).",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "وضع الأذونات"
     },
     "pickSession": "اختر جلسة",
     "profileRotationTitle": "تغيير الملف الشخصي",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "صندوق العزل"
     }
   },
   "codexAuth": {

@@ -1443,7 +1443,7 @@ export default function MessageList({
           isTimelineMode && "px-5 sm:px-6",
         )}
       >
-        <div ref={contentRef} className={cn("mx-auto w-full", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
+        <div ref={contentRef} className={cn("mx-auto w-full pt-4", CHAT_CONTENT_MAX_WIDTH_CLASS)}>
           {hasMore && displayedStart === 0 && (
             <div className="pt-6">
               <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />

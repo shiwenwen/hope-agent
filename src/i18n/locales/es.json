@@ -497,7 +497,8 @@
       "yolo": {
         "desc": "Todas las herramientas se ejecutan sin aprobación (las rutas protegidas se auditan).",
         "label": "YOLO"
-      }
+      },
+      "menuLabel": "Modo de permisos"
     },
     "pickSession": "Elegir una sesión",
     "profileRotationTitle": "Rotación de perfil",
@@ -660,7 +661,8 @@
       "workspace": {
         "desc": "Mount this workspace and reduce edit-command approvals.",
         "label": "Workspace Sandbox"
-      }
+      },
+      "menuLabel": "Sandbox"
     }
   },
   "codexAuth": {

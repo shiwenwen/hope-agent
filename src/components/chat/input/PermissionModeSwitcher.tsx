@@ -15,6 +15,10 @@ export interface PermissionModeChangeOptions {
 interface PermissionModeSwitcherProps {
   permissionMode: SessionMode
   onPermissionModeChange: (mode: SessionMode, options?: PermissionModeChangeOptions) => void
+  /** "toolbar" (default) = compact button + floating popover in the composer
+   *  toolbar; "menu" = full-width accordion row for the composer "+" overflow
+   *  when space is tight (expands inline instead of floating). */
+  variant?: "toolbar" | "menu"
 }
 
 interface ModeTheme {
@@ -44,6 +48,7 @@ const MODE_THEME: Record<SessionMode, ModeTheme> = {
 export default function PermissionModeSwitcher({
   permissionMode,
   onPermissionModeChange,
+  variant = "toolbar",
 }: PermissionModeSwitcherProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -58,29 +63,10 @@ export default function PermissionModeSwitcher({
   const activeTheme = MODE_THEME[permissionMode]
   const ActiveIcon = activeTheme.Icon
   const activeLabel = t(`chat.permissionMode.${permissionMode}.label`)
+  const isMenu = variant === "menu"
 
-  return (
-    <div className="relative" ref={menuRef}>
-      <button
-        type="button"
-        aria-label={`${activeLabel} (Shift+Tab)`}
-        title={`${activeLabel} (Shift+Tab)`}
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-          activeTheme.buttonTone,
-        )}
-      >
-        <ActiveIcon className="h-4 w-4 shrink-0" />
-        <span>{activeLabel}</span>
-      </button>
-
-      <FloatingMenu
-        open={open}
-        className="min-w-[240px] p-1.5"
-        onEscapeKeyDown={() => setOpen(false)}
-      >
-        <div className="flex flex-col gap-0.5">
+  const modeListBody = (
+    <div className="flex flex-col gap-0.5">
           {SESSION_PERMISSION_MODE_ORDER.map((mode) => {
             const theme = MODE_THEME[mode]
             const Icon = theme.Icon
@@ -127,7 +113,57 @@ export default function PermissionModeSwitcher({
             />
           </div>
         </div>
-      </FloatingMenu>
+  )
+
+  return (
+    <div className={cn("relative", isMenu && "w-full")} ref={menuRef}>
+      {isMenu ? (
+        <button
+          type="button"
+          aria-label={`${activeLabel} (Shift+Tab)`}
+          onClick={() => setOpen(!open)}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground",
+            activeTheme.buttonTone,
+          )}
+        >
+          <ActiveIcon className="h-4 w-4 shrink-0" />
+          <span className="truncate">
+            {t("chat.permissionMode.menuLabel", { defaultValue: "权限模式" })}
+          </span>
+          <span className="ml-auto truncate text-xs text-muted-foreground">{activeLabel}</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          aria-label={`${activeLabel} (Shift+Tab)`}
+          title={`${activeLabel} (Shift+Tab)`}
+          onClick={() => setOpen(!open)}
+          className={cn(
+            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+            activeTheme.buttonTone,
+          )}
+        >
+          <ActiveIcon className="h-4 w-4 shrink-0" />
+          <span>{activeLabel}</span>
+        </button>
+      )}
+
+      {isMenu ? (
+        open && (
+          <div className="mt-1 rounded-lg border border-border/50 bg-background/40 p-1.5 animate-in fade-in-0 slide-in-from-top-1 duration-150">
+            {modeListBody}
+          </div>
+        )
+      ) : (
+        <FloatingMenu
+          open={open}
+          className="min-w-[240px] p-1.5"
+          onEscapeKeyDown={() => setOpen(false)}
+        >
+          {modeListBody}
+        </FloatingMenu>
+      )}
     </div>
   )
 }

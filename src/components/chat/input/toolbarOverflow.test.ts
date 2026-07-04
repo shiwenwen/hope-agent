@@ -5,7 +5,8 @@ import {
   CHAT_INPUT_OVERFLOW_ACTION_IDS,
   CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
-  CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX,
+  CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX,
+  CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX,
   CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
 } from "./toolbarOverflow.ts"
 import * as toolbarOverflow from "./toolbarOverflow.ts"
@@ -19,11 +20,21 @@ test("keeps overflow visibility classes static for Tailwind scanning", () => {
   expect(CHAT_INPUT_OVERFLOW_MENU_CLASS).toBe("hidden")
   // JS-side breakpoint is measured against the input container width, so
   // right-side panels can trigger the compact toolbar without resizing window.
-  expect(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX).toBe(900)
+  // Values are derived from a per-control width budget (see toolbarOverflow.ts).
+  expect(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX).toBe(810)
   // Knowledge + Plan stay inline down to a narrower width than the add-actions.
-  expect(CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX).toBe(640)
-  expect(CHAT_INPUT_STACKED_TOOLBAR_BREAKPOINT_PX).toBe(440)
+  expect(CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX).toBe(730)
+  // Sandbox then Permission collapse at progressively narrower widths.
+  expect(CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX).toBe(620)
+  expect(CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX).toBe(470)
+  // Monotonic subset ordering: 810 ⊃ 730 ⊃ 620 ⊃ 470.
   expect(CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX).toBeLessThan(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
+  expect(CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX).toBeLessThan(
+    CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
+  )
+  expect(CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX).toBeLessThan(
+    CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX,
+  )
 })
 
 test("returns overflow actions for the compact input toolbar", () => {
