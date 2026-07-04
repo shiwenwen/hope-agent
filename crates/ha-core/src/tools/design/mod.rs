@@ -31,7 +31,7 @@ pub(crate) async fn tool_design(
         "list_projects" => action_list_projects(),
         "list_artifacts" => action_list_artifacts(args, session_id),
         "get_artifact" => action_get_artifact(args),
-        "create_artifact" => action_create_artifact(args, session_id, agent_id),
+        "create_artifact" => action_create_artifact(args, session_id, agent_id).await,
         "update_artifact" => action_update_artifact(args),
         "delete_artifact" => action_delete_artifact(args),
         "versions" => action_versions(args),
@@ -98,6 +98,7 @@ async fn action_extract_system(args: &Value) -> Result<String> {
         from: from.to_string(),
         brief: str_arg(args, "brief").map(str::to_string),
         path: str_arg(args, "path").map(str::to_string),
+        url: str_arg(args, "url").map(str::to_string),
     })
     .await?;
     ok(json!({ "status": "extracted", "systemId": meta.id, "name": meta.name }))
@@ -127,13 +128,14 @@ fn action_get_artifact(args: &Value) -> Result<String> {
     }
 }
 
-fn action_create_artifact(
+async fn action_create_artifact(
     args: &Value,
     session_id: Option<&str>,
     agent_id: Option<&str>,
 ) -> Result<String> {
     let kind = require_str(args, "kind")?;
-    ArtifactKind::from_str(kind).with_context(|| format!("unknown kind: {kind}"))?;
+    let kind_enum =
+        ArtifactKind::from_str(kind).with_context(|| format!("unknown kind: {kind}"))?;
 
     // 项目：显式 > 会话默认（自动创建草稿项目）。
     let project_id = match str_arg(args, "project_id") {
@@ -142,12 +144,23 @@ fn action_create_artifact(
     };
 
     let title = str_arg(args, "title").unwrap_or("未命名产物").to_string();
+    let mut body_html = str_arg(args, "body_html").map(str::to_string);
+
+    // image 形态：无显式 body 时，用 prompt/brief/title 调 image_generate 生成并内嵌。
+    if kind_enum == ArtifactKind::Image && body_html.as_deref().unwrap_or("").trim().is_empty() {
+        let prompt = str_arg(args, "prompt")
+            .or_else(|| str_arg(args, "brief"))
+            .unwrap_or(&title);
+        let parts = crate::design::image::generate_image_parts(prompt, &title).await?;
+        body_html = Some(parts.body_html);
+    }
+
     let input = CreateArtifactInput {
         project_id: project_id.clone(),
         title,
         kind: kind.to_string(),
         system_id: str_arg(args, "system_id").map(str::to_string),
-        body_html: str_arg(args, "body_html").map(str::to_string),
+        body_html,
         css: str_arg(args, "css").map(str::to_string),
         js: str_arg(args, "js").map(str::to_string),
         session_id: session_id.map(str::to_string),

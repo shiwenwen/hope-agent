@@ -7,12 +7,15 @@
 
 pub mod critique;
 pub mod db;
+pub mod export;
 pub mod extract;
+pub mod image;
 pub mod patch;
 pub mod recipe;
 pub mod renderer;
 pub mod service;
 pub mod system;
+pub mod vision;
 
 pub use critique::CritiqueResult;
 pub use db::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};

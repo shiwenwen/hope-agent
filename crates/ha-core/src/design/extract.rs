@@ -5,6 +5,7 @@
 //! 做不到的本地能力。截图 / URL 多模态提取列后续迭代。见 design-space.md §6.4。
 
 use anyhow::{Context, Result};
+use base64::Engine;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -134,6 +135,70 @@ font stacks): {vocab}\n\nBRIEF:\n{brief}",
     Ok(wrap.directions)
 }
 
+/// 从 URL 提取：抓**原始 HTML**（含 `<style>`/inline style，不走 Readability 清洗）
+/// 后交 LLM 归纳。出站必过 SSRF（红线）。
+pub async fn from_url(url: &str) -> Result<ExtractedSystem> {
+    let html = fetch_raw_html(url).await?;
+    if html.trim().is_empty() {
+        anyhow::bail!("fetched empty page from {url}");
+    }
+    run_extract("web page raw HTML (with inline styles)", &html).await
+}
+
+/// 抓取页面**原始 HTML**（不做正文抽取）。复用 web_fetch 的 SSRF + 浏览器头 + 代理
+/// + 防 DNS-rebinding 重定向策略。上限 512KB。
+async fn fetch_raw_html(url: &str) -> Result<String> {
+    use futures_util::StreamExt;
+
+    const MAX_BYTES: usize = 512 * 1024;
+    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let policy = ssrf_cfg.web_fetch();
+    let trusted = ssrf_cfg.trusted_hosts.clone();
+    let parsed = crate::security::ssrf::check_url(url, policy, &trusted).await?;
+
+    let redirect_hosts = trusted.clone();
+    let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.error("too many redirects");
+        }
+        if let Some(host) = attempt.url().host_str() {
+            if crate::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
+                return attempt.stop();
+            }
+        }
+        attempt.follow()
+    });
+
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(redirect_policy),
+    )
+    .build()
+    .map_err(|e| anyhow::anyhow!("http client error: {e}"))?;
+
+    let rb = crate::tools::web_fetch_common::apply_browser_headers(client.get(parsed));
+    let resp = rb
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("fetch failed: {e}"))?;
+    if !resp.status().is_success() {
+        anyhow::bail!("fetch failed with status {}", resp.status().as_u16());
+    }
+
+    let mut bytes = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| anyhow::anyhow!("stream error: {e}"))?;
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > MAX_BYTES {
+            bytes.truncate(MAX_BYTES);
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 /// 从本地代码库提取：读样本样式文件后交 LLM 归纳。
 pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
     let sample = collect_style_samples(dir)
@@ -145,6 +210,40 @@ pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
         );
     }
     run_extract("codebase style files", &sample).await
+}
+
+/// 从**截图 / 设计图**提取（D2 视觉通道）。读本地图片文件 → 视觉模型分析 → 归纳
+/// 品牌设计契约。走 design 层自包含视觉调用（不改主对话链路），支持 Anthropic /
+/// OpenAI-Chat 两种格式的 vision 模型。
+pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("failed to read image {}", path.display()))?;
+    if bytes.is_empty() {
+        anyhow::bail!("image file is empty");
+    }
+    let mime = sniff_image_mime(&bytes);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let prompt = build_prompt(
+        "screenshot/design image",
+        "(the design to analyze is provided as the attached image)",
+    );
+    let text = super::vision::vision_extract(&prompt, mime, &b64).await?;
+    parse(&text)
+}
+
+/// 从图片魔数嗅探 mime（默认 png）。
+fn sniff_image_mime(b: &[u8]) -> &'static str {
+    if b.len() >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF {
+        "image/jpeg"
+    } else if b.len() >= 8 && &b[0..8] == b"\x89PNG\r\n\x1a\n" {
+        "image/png"
+    } else if b.len() >= 6 && (&b[0..6] == b"GIF87a" || &b[0..6] == b"GIF89a") {
+        "image/gif"
+    } else if b.len() >= 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        "image/png"
+    }
 }
 
 /// 采集样式样本：CSS / tailwind config / theme 文件内容（有界深度/数量/大小）。

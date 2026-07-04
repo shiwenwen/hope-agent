@@ -723,6 +723,25 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
     }
 }
 
+/// 由前端栅格化的整页 PNG（base64，可带 data-uri 前缀）组装 PPTX，返回 base64。
+/// PNG/PDF 走前端客户端栅格化；PPTX 因需 zip 打包由此后端构建（见 design/export.rs）。
+pub fn export_pptx(slides_b64: &[String], title: &str) -> Result<String> {
+    use base64::Engine;
+    let mut slides = Vec::with_capacity(slides_b64.len());
+    for raw in slides_b64 {
+        let b64 = raw
+            .split_once(",")
+            .map(|(_, rest)| rest)
+            .unwrap_or(raw.as_str());
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .context("invalid base64 slide image")?;
+        slides.push(super::export::SlideImage { png });
+    }
+    let bytes = super::export::build_pptx(&slides, title)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// 列出设计系统（首次调用懒 seed 内置系统）。
@@ -803,17 +822,19 @@ pub fn delete_system(id: &str) -> Result<()> {
     Ok(())
 }
 
-/// 反向提取设计系统（D2）。`from = brief | codebase`。
+/// 反向提取设计系统（D2）。`from = brief | codebase | url | image`。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractSystemInput {
     pub name: String,
-    /// brief | codebase
+    /// brief | codebase | url | image
     pub from: String,
     #[serde(default)]
     pub brief: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
 }
 
 /// 设计方向选择器：为无品牌 brief 提 N 个候选方向（不落盘）。
@@ -831,6 +852,22 @@ pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMet
                 .filter(|s| !s.trim().is_empty())
                 .context("'path' required for from=codebase")?;
             super::extract::from_codebase(std::path::Path::new(p)).await?
+        }
+        "url" => {
+            let u = input
+                .url
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .context("'url' required for from=url")?;
+            super::extract::from_url(u).await?
+        }
+        "image" => {
+            let p = input
+                .path
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .context("'path' (image file) required for from=image")?;
+            super::extract::from_image(std::path::Path::new(p)).await?
         }
         other => anyhow::bail!("unsupported extract source: {other}"),
     };

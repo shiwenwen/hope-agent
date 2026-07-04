@@ -18,6 +18,7 @@ pub enum ArtifactKind {
     Document,
     Email,
     Image,
+    Motion,
 }
 
 impl ArtifactKind {
@@ -31,6 +32,7 @@ impl ArtifactKind {
             "document" => Self::Document,
             "email" => Self::Email,
             "image" => Self::Image,
+            "motion" => Self::Motion,
             _ => return None,
         })
     }
@@ -45,6 +47,7 @@ impl ArtifactKind {
             Self::Document => "document",
             Self::Email => "email",
             Self::Image => "image",
+            Self::Motion => "motion",
         }
     }
 
@@ -59,6 +62,7 @@ impl ArtifactKind {
             Self::Document => (820, 0),
             Self::Email => (600, 0),
             Self::Image => (0, 0),
+            Self::Motion => (1280, 720),
         }
     }
 }
@@ -176,10 +180,16 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
             "body{background:#f0f0f0}\n\
              .ds-frame{max-width:600px;margin:0 auto;background:var(--ds-color-bg,#fff)}"
         }
+        ArtifactKind::Motion => {
+            "body{display:flex;align-items:center;justify-content:center;min-height:100vh;\
+             margin:0;background:#0b0b0c}\n\
+             .ds-stage{width:1280px;height:720px;overflow:hidden;position:relative;\
+             background:var(--ds-color-bg,#0b0b0c)}"
+        }
         _ => "",
     };
 
-    // body 包裹：mobile/poster/document/email 套 .ds-frame；web/dashboard 直接放。
+    // body 包裹：mobile/poster/document/email 套 .ds-frame；motion 套 .ds-stage；其余直接放。
     let wrapped_body = match kind {
         ArtifactKind::Mobile
         | ArtifactKind::Poster
@@ -187,6 +197,7 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
         | ArtifactKind::Email => {
             format!("<div class=\"ds-frame\">{annotated_body}</div>")
         }
+        ArtifactKind::Motion => format!("<div class=\"ds-stage\">{annotated_body}</div>"),
         _ => annotated_body,
     };
 
@@ -319,6 +330,7 @@ mod tests {
             ArtifactKind::Document,
             ArtifactKind::Email,
             ArtifactKind::Image,
+            ArtifactKind::Motion,
         ] {
             assert_eq!(ArtifactKind::from_str(k.as_str()), Some(k));
         }

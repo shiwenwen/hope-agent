@@ -119,6 +119,22 @@ pub fn builtin_recipes() -> Vec<Recipe> {
             "table 布局的营销邮件",
             "用 table 布局（邮件客户端兼容）。600 宽。头图 + 标题 + 正文 + 主按钮 + 页脚。内联样式，避免复杂 CSS。",
         ),
+        r(
+            "motion-kinetic",
+            "动态标题",
+            "motion",
+            "marketing",
+            "1280×720 动态排版短片（纯 CSS/JS 动画）",
+            "在 .ds-stage（1280×720）内用**纯 CSS/JS 动画**做动态排版：文字/形状依次入场、位移、淡入淡出，形成 5–10 秒循环短片。用 CSS @keyframes / transform / opacity（60fps），可选 requestAnimationFrame 编排时间线。零外部依赖。适合可导出为 HTML 播放或（若环境有 ffmpeg）录制为 MP4。",
+        ),
+        r(
+            "motion-reveal",
+            "产品揭示动画",
+            "motion",
+            "product",
+            "1280×720 产品/功能揭示动画",
+            "在 .ds-stage 内做产品揭示：背景渐变缓动 + 主体元素缩放/滑入 + 标语逐字打出 + 收尾定格。全程 transform/opacity 动画（60fps），时间线 6–12 秒。零外部依赖、自包含。",
+        ),
     ]
 }
 
