@@ -432,11 +432,13 @@ function goalSnapshotWithDomainEvidence(): GoalSnapshot {
           title: "Official documentation cited",
           summary: "Source supports the research brief.",
           confidence: 0.92,
-          accessScope: "public",
-          redactionStatus: "none",
+          accessScope: "connector",
+          redactionStatus: "sensitive",
           source: {
             title: "Official docs",
             uri: "https://example.com/docs",
+            connector: "gmail",
+            account: "user@example.com",
             retrievedAt: "2026-07-04T00:00:00Z",
             workflow: {
               runId: "wf-domain",
@@ -517,6 +519,10 @@ describe("WorkspacePanel goal section", () => {
     expect(screen.getAllByText("source_cited").length).toBeGreaterThan(0)
     expect(screen.getByText("research")).toBeTruthy()
     expect(screen.getByText("https://example.com/docs")).toBeTruthy()
+    expect(screen.getByText("gmail · user@example.com")).toBeTruthy()
+    expect(screen.getByText("sensitive")).toBeTruthy()
+    expect(screen.getByText("导出前复核")).toBeTruthy()
+    expect(screen.getByText("connector")).toBeTruthy()
     expect(screen.getByText("92%")).toBeTruthy()
     expect(screen.getByText("main/op#1(evidence.record)")).toBeTruthy()
   })

@@ -7726,6 +7726,8 @@ interface GoalDomainEvidence {
   confidence: number | null
   accessScope: string | null
   redactionStatus: string | null
+  connectorLabel: string | null
+  needsExportReview: boolean
   workflowRunId: string | null
   workflowOpKey: string | null
 }
@@ -7741,6 +7743,8 @@ function goalDomainEvidenceFromItem(item: GoalEvidenceItem): GoalDomainEvidence 
   const metadata = asRecord(item.metadata)
   const source = asRecord(metadata?.source)
   const workflow = asRecord(source?.workflow)
+  const accessScope = stringField(metadata, "accessScope")
+  const redactionStatus = stringField(metadata, "redactionStatus")
   return {
     item,
     domain: stringField(metadata, "domain") ?? stringField(source, "domain") ?? "-",
@@ -7748,8 +7752,10 @@ function goalDomainEvidenceFromItem(item: GoalEvidenceItem): GoalDomainEvidence 
     source,
     sourceLabel: domainEvidenceSourceLabel(source),
     confidence: numberField(metadata, "confidence"),
-    accessScope: stringField(metadata, "accessScope"),
-    redactionStatus: stringField(metadata, "redactionStatus"),
+    accessScope,
+    redactionStatus,
+    connectorLabel: domainEvidenceConnectorLabel(source),
+    needsExportReview: domainEvidenceNeedsExportReview(accessScope, redactionStatus),
     workflowRunId: stringField(workflow, "runId"),
     workflowOpKey: stringField(workflow, "opKey"),
   }
@@ -7768,6 +7774,44 @@ function domainEvidenceSourceLabel(source: Record<string, unknown> | null): stri
     stringField(source, "eventId") ??
     stringField(source, "title")
   )
+}
+
+function domainEvidenceConnectorLabel(source: Record<string, unknown> | null): string | null {
+  if (!source) return null
+  const connector =
+    stringField(source, "connector") ??
+    stringField(source, "connectorName") ??
+    stringField(source, "provider") ??
+    stringField(source, "app") ??
+    stringField(source, "sourceConnector")
+  const account =
+    stringField(source, "account") ??
+    stringField(source, "accountId") ??
+    stringField(source, "email") ??
+    stringField(source, "calendarId") ??
+    stringField(source, "driveId")
+  if (connector && account) return `${connector} · ${account}`
+  return connector ?? account ?? null
+}
+
+function domainEvidenceNeedsExportReview(
+  accessScope: string | null,
+  redactionStatus: string | null,
+): boolean {
+  return (
+    accessScope === "private" ||
+    accessScope === "connector" ||
+    redactionStatus === "sensitive" ||
+    redactionStatus === "pending" ||
+    redactionStatus === "redacted"
+  )
+}
+
+function domainEvidenceRedactionTone(redactionStatus: string | null): StatusTone {
+  if (redactionStatus === "sensitive") return "danger"
+  if (redactionStatus === "pending" || redactionStatus === "redacted") return "warn"
+  if (redactionStatus === "none") return "good"
+  return "muted"
 }
 
 function domainEvidenceConfidenceLabel(confidence: number | null): string {
@@ -8417,6 +8461,27 @@ function GoalDetailSection({
                     {evidenceItem.item.summary ? (
                       <div className="mt-1 truncate text-[10px] opacity-80">
                         {evidenceItem.item.summary}
+                      </div>
+                    ) : null}
+                    {evidenceItem.connectorLabel ||
+                    evidenceItem.redactionStatus ||
+                    evidenceItem.needsExportReview ? (
+                      <div className="mt-1 flex min-w-0 flex-wrap gap-1">
+                        {evidenceItem.connectorLabel ? (
+                          <StatusPill label={evidenceItem.connectorLabel} tone="info" />
+                        ) : null}
+                        {evidenceItem.redactionStatus ? (
+                          <StatusPill
+                            label={evidenceItem.redactionStatus}
+                            tone={domainEvidenceRedactionTone(evidenceItem.redactionStatus)}
+                          />
+                        ) : null}
+                        {evidenceItem.needsExportReview ? (
+                          <StatusPill
+                            label={t("workspace.goal.domainExportReview", "导出前复核")}
+                            tone="warn"
+                          />
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">

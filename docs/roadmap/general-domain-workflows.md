@@ -136,12 +136,12 @@ DomainWorkflow
 - Workflow runtime 已支持 `workflow.evidence.record(...)` 脚本内 sugar，scope 绑定当前 session / workflow goal / project，并把 run/op provenance 写入 `sourceMetadata.workflow`。
 - Goal evidence relation 白名单扩展到通用 evidence，记录时可通过 `goal_links` 进入 Goal snapshot。
 - Evidence 支持 source metadata、confidence、access scope、redaction status。
-- Goal detail GUI 已有「领域证据」分组，展示 domain evidence 的来源、置信度、access scope 与 workflow run/op provenance。
+- Goal detail GUI 已有「领域证据」分组，展示 domain evidence 的来源、置信度、access scope、connector/account、redaction status、导出前复核提示与 workflow run/op provenance。
 - Incognito session fail-closed；goal/session 关联路径避免跨 session 伪造 evidence。
 
 后续待补：
 
-- 更细的 connector access provenance 与导出时敏感来源提示。
+- 独立导出流程若后续产品化，需要在导出动作本身再加敏感来源确认门。
 
 验收：
 
