@@ -656,6 +656,22 @@ export default async function main(workflow) {
             "missing state transition reason {reason}"
         );
     }
+    for (action, state) in [
+        ("approve", "running"),
+        ("pause", "paused"),
+        ("resume", "running"),
+        ("cancel", "cancelled"),
+    ] {
+        assert!(
+            events.iter().any(|event| {
+                event.event_type == "run_control_action"
+                    && event.payload.get("action").and_then(Value::as_str) == Some(action)
+                    && event.payload.get("resultState").and_then(Value::as_str) == Some(state)
+                    && event.payload.get("accepted").and_then(Value::as_bool) == Some(true)
+            }),
+            "missing control action {action}"
+        );
+    }
 }
 
 #[test]

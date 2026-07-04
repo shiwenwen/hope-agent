@@ -901,6 +901,20 @@ describe("WorkspacePanel workflow section", () => {
           },
           createdAt: "2026-01-01T00:01:30Z",
         },
+        {
+          id: 4,
+          runId: run.id,
+          seq: 4,
+          eventType: "run_control_action",
+          payload: {
+            action: "approve",
+            reason: "approval_granted",
+            resultState: "running",
+            accepted: true,
+            surface: "user_control",
+          },
+          createdAt: "2026-01-01T00:01:31Z",
+        },
       ],
     }
     transportMock.call.mockImplementation((name: string) => {
@@ -916,6 +930,8 @@ describe("WorkspacePanel workflow section", () => {
     expect(await screen.findByText("审批审计")).toBeTruthy()
     expect(screen.getByText("已批准")).toBeTruthy()
     expect(screen.getByText("已通过")).toBeTruthy()
+    expect(screen.getAllByText("控制动作").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("approve · running · approval_granted").length).toBeGreaterThan(0)
   })
 
   it("shows the bound worktree runtime in workflow overview", async () => {

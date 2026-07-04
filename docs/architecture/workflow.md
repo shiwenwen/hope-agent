@@ -396,23 +396,27 @@ Guarded repair stop guard：
 Pause：
 
 - `pause_workflow_run()` 只做状态转换到 `paused`，同时清空 owner。
+- 成功后追加 `run_control_action(action='pause', resultState='paused')` 审计事件。
 - `ensure_workflow_run_allows_new_op()` 会拒绝 paused run 启动新 op。
 
 Resume：
 
 - `resume_workflow_run()` 转回 `running`。
 - Tauri / HTTP owner API 会调用 `spawn_workflow_run_if_primary()` 重新启动 runtime。
+- 成功后追加 `run_control_action(action='resume', resultState='running')` 审计事件。
 
 Approve：
 
 - 只允许 `awaiting_approval -> running`。
 - approve 后同样 kick runtime。
+- 成功后追加 `run_control_action(action='approve', resultState='running')` 审计事件。
 
 Cancel：
 
 - `cancel_workflow_run_with_children()` 先把 run 转 `cancelled`。
 - 再 best-effort 取消 workflow-owned async tool / validation / subagent child。
 - 子任务取消请求写 `run_child_cancel_requested` event。
+- 状态转换成功后追加 `run_control_action(action='cancel', resultState='cancelled')` 审计事件。
 
 ## 14. Owner API 与事件
 
@@ -470,6 +474,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - Run overview 会展示绑定 worktree 的运行位置卡片：优先读取 managed worktree live row，缺失时从 `run_worktree_attached` trace event 兜底显示 path/state/source，避免历史 run 失去执行环境上下文。
 - Run overview 会展示“运行时间线”卡片：从已有 trace event 中浮出最近关键事件（审批、权限预览、恢复、验证、预算、派生 run、worktree 绑定等），用户无需切到 Trace tab 也能快速判断长任务当前卡点和最近动作。
 - Run overview 会展示“审批审计”卡片：串联权限预检、等待批准、批准恢复、阻塞/取消等事件，用户能直接看出审批链路当前状态和历史结果。
+- Run overview 时间线会显示 `run_control_action`，用于追踪 approve / pause / resume / cancel 的请求已接收、结果状态和原因。
 - Goal strip：创建 active Goal、展示目标摘要/状态/证据指标、手动 audit、暂停/恢复/清除。
 - Execution Mode 常驻控制。
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。

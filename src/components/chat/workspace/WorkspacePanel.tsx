@@ -5123,6 +5123,7 @@ function workflowEventNeedsAttention(event: WorkflowEvent): boolean {
 const WORKFLOW_OVERVIEW_EVENT_TYPES = new Set([
   "run_created",
   "run_state_changed",
+  "run_control_action",
   "run_recovery_claimed",
   "run_worktree_attached",
   "script_permission_preview",
@@ -5151,6 +5152,13 @@ function workflowOverviewEvents(events: WorkflowEvent[]): WorkflowEvent[] {
 function workflowEventTone(event: WorkflowEvent): StatusTone {
   const payload = asRecord(event.payload)
   const to = stringField(payload, "to")
+  if (event.eventType === "run_control_action") {
+    const action = stringField(payload, "action")
+    if (action === "approve" || action === "resume") return "good"
+    if (action === "pause") return "warn"
+    if (action === "cancel") return "muted"
+    return "info"
+  }
   if (
     event.eventType === "op_failed" ||
     event.eventType === "guarded_repair_validation_failed" ||
@@ -5200,6 +5208,8 @@ function workflowEventTitle(
       return t("workspace.workflow.eventRunCreated", "工作流已创建")
     case "run_state_changed":
       return t("workspace.workflow.eventRunStateChanged", "状态已更新")
+    case "run_control_action":
+      return t("workspace.workflow.eventRunControlAction", "控制动作")
     case "run_recovery_claimed":
       return t("workspace.workflow.eventRecoveryClaimed", "恢复接管")
     case "run_worktree_attached":
@@ -5249,6 +5259,12 @@ function workflowEventDetail(
       const to = stringField(payload, "to")
       const reason = stringField(payload, "reason")
       return [from && to ? `${from} → ${to}` : null, reason].filter(Boolean).join(" · ")
+    }
+    case "run_control_action": {
+      const action = stringField(payload, "action")
+      const resultState = stringField(payload, "resultState")
+      const reason = stringField(payload, "reason")
+      return [action, resultState, reason].filter(Boolean).join(" · ")
     }
     case "script_permission_preview":
     case "script_permission_preview_blocked":

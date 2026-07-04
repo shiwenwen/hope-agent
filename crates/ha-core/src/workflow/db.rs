@@ -476,11 +476,23 @@ impl SessionDB {
     }
 
     pub fn pause_workflow_run(&self, run_id: &str) -> Result<WorkflowRun> {
-        self.transition_workflow_run(run_id, WorkflowRunState::Paused, Some("pause_requested"))
+        let run = self.transition_workflow_run(
+            run_id,
+            WorkflowRunState::Paused,
+            Some("pause_requested"),
+        )?;
+        self.append_workflow_control_action(&run, "pause", "pause_requested")?;
+        Ok(run)
     }
 
     pub fn resume_workflow_run(&self, run_id: &str) -> Result<WorkflowRun> {
-        self.transition_workflow_run(run_id, WorkflowRunState::Running, Some("resume_requested"))
+        let run = self.transition_workflow_run(
+            run_id,
+            WorkflowRunState::Running,
+            Some("resume_requested"),
+        )?;
+        self.append_workflow_control_action(&run, "resume", "resume_requested")?;
+        Ok(run)
     }
 
     pub fn approve_workflow_run(&self, run_id: &str) -> Result<WorkflowRun> {
@@ -494,15 +506,43 @@ impl SessionDB {
                 run.state.as_str()
             ));
         }
-        self.transition_workflow_run(run_id, WorkflowRunState::Running, Some("approval_granted"))
+        let run = self.transition_workflow_run(
+            run_id,
+            WorkflowRunState::Running,
+            Some("approval_granted"),
+        )?;
+        self.append_workflow_control_action(&run, "approve", "approval_granted")?;
+        Ok(run)
     }
 
     pub fn cancel_workflow_run(&self, run_id: &str) -> Result<WorkflowRun> {
-        self.transition_workflow_run(
+        let run = self.transition_workflow_run(
             run_id,
             WorkflowRunState::Cancelled,
             Some("cancel_requested"),
-        )
+        )?;
+        self.append_workflow_control_action(&run, "cancel", "cancel_requested")?;
+        Ok(run)
+    }
+
+    fn append_workflow_control_action(
+        &self,
+        run: &WorkflowRun,
+        action: &str,
+        reason: &str,
+    ) -> Result<()> {
+        self.append_workflow_event(
+            &run.id,
+            "run_control_action",
+            json!({
+                "action": action,
+                "reason": reason,
+                "resultState": run.state.as_str(),
+                "accepted": true,
+                "surface": "user_control",
+            }),
+        )?;
+        Ok(())
     }
 
     pub fn claim_workflow_run_for_recovery(
