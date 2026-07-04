@@ -8,6 +8,7 @@ import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
 import type { WorkspaceEnvironmentSnapshot } from "@/lib/transport"
 import type { BackgroundJobSnapshot } from "@/types/background-jobs"
 import WorkspacePanel from "./WorkspacePanel"
+import type { GoalSnapshot } from "./useGoal"
 import type { WorkflowRun, WorkflowRunSnapshot, WorkflowScriptPreview } from "./useWorkflowRuns"
 
 const envMock = vi.hoisted(() => ({
@@ -293,6 +294,106 @@ function workflowScriptPreview(patch: Partial<WorkflowScriptPreview> = {}): Work
     ...patch,
   }
 }
+
+function goalSnapshotWithWorktreeEvidence(): GoalSnapshot {
+  return {
+    goal: {
+      id: "goal-1",
+      sessionId: "s1",
+      objective: "Ship isolated worktree",
+      completionCriteria: "Worktree evidence is visible",
+      state: "active",
+      modeSnapshot: null,
+      budgetTokenLimit: null,
+      budgetTimeLimitSecs: null,
+      budgetTurnLimit: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:02:00Z",
+      completedAt: null,
+      finalSummary: null,
+      finalEvidence: {},
+      blockedReason: null,
+      lastEvaluatorResult: {},
+    },
+    links: [],
+    events: [],
+    criteria: [],
+    evidence: [
+      {
+        id: "worktree:wt_goal:worktree_attached",
+        sourceType: "worktree",
+        sourceId: "wt_goal",
+        relation: "worktree_attached",
+        title: "Worktree attached: feature-goal",
+        summary: "handoff at /repo-worktrees/wt_goal",
+        metadata: {
+          worktreeId: "wt_goal",
+          runId: "wf-goal-1",
+          label: "feature-goal",
+          state: "handoff",
+          path: "/repo-worktrees/wt_goal",
+          pathExists: true,
+          baseBranch: "main",
+          baseSha: "abcdef123456",
+          dirtySnapshot: {
+            clean: false,
+            stagedFiles: 1,
+            unstagedFiles: 1,
+            untrackedFiles: 1,
+            conflictedFiles: 0,
+            changedFiles: 3,
+          },
+          handedOffAt: "2026-01-01T00:02:00Z",
+        },
+        createdAt: "2026-01-01T00:02:00Z",
+      },
+    ],
+    timeline: [],
+    budget: {
+      tokenLimit: null,
+      timeLimitSecs: null,
+      turnLimit: null,
+      tokensUsed: 0,
+      elapsedSecs: 120,
+      turnsUsed: 0,
+      tokenRatio: null,
+      timeRatio: null,
+      turnRatio: null,
+      warning: false,
+      exhausted: false,
+      warnings: [],
+      exceeded: [],
+    },
+    workflowRuns: [],
+    tasks: [],
+  }
+}
+
+describe("WorkspacePanel goal section", () => {
+  it("surfaces worktree evidence in goal detail", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorktreeEvidence())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByText("Ship isolated worktree"))
+
+    expect(screen.getByText("Worktrees")).toBeTruthy()
+    expect(screen.getByText("feature-goal")).toBeTruthy()
+    expect(screen.getByText("/repo-worktrees/wt_goal")).toBeTruthy()
+    expect(screen.getByText("main · abcdef12")).toBeTruthy()
+    expect(screen.getByText("3 个变更")).toBeTruthy()
+    expect(screen.getAllByText("handoff at /repo-worktrees/wt_goal").length).toBeGreaterThan(0)
+  })
+})
 
 describe("WorkspacePanel environment section", () => {
   it("renders the no-working-dir state", () => {

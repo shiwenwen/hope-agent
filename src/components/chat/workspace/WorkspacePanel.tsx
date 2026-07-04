@@ -7465,10 +7465,96 @@ function goalEvidenceTone(relation: string): StatusTone {
   if (relation.includes("passed") || relation.includes("completed")) {
     return "good"
   }
-  if (relation.includes("diff") || relation.includes("file") || relation.includes("artifact")) {
+  if (
+    relation.includes("diff") ||
+    relation.includes("file") ||
+    relation.includes("artifact") ||
+    relation.includes("worktree")
+  ) {
     return "info"
   }
   return "muted"
+}
+
+interface GoalWorktreeEvidence {
+  item: GoalEvidenceItem
+  worktreeId: string
+  runId: string | null
+  label: string | null
+  state: ManagedWorktree["state"]
+  path: string
+  pathExists: boolean
+  baseRef: string | null
+  baseBranch: string | null
+  baseSha: string | null
+  dirtySnapshot: ManagedWorktree["dirtySnapshot"]
+  handedOffAt: string | null
+  summary: string | null
+}
+
+function goalWorktreeEvidenceItems(evidence: GoalEvidenceItem[]): GoalWorktreeEvidence[] {
+  return evidence
+    .filter((item) => item.relation === "worktree_attached")
+    .map(goalWorktreeEvidenceFromItem)
+    .filter((item): item is GoalWorktreeEvidence => Boolean(item))
+}
+
+function goalWorktreeEvidenceFromItem(item: GoalEvidenceItem): GoalWorktreeEvidence | null {
+  const metadata = asRecord(item.metadata)
+  const worktreeId = stringField(metadata, "worktreeId") ?? item.sourceId
+  const path = stringField(metadata, "path") ?? item.sourceId
+  if (!worktreeId || !path) return null
+  return {
+    item,
+    worktreeId,
+    runId: stringField(metadata, "runId"),
+    label: stringField(metadata, "label"),
+    state: parseManagedWorktreeState(stringField(metadata, "state")),
+    path,
+    pathExists: boolField(metadata, "pathExists") ?? true,
+    baseRef: stringField(metadata, "baseRef"),
+    baseBranch: stringField(metadata, "baseBranch"),
+    baseSha: stringField(metadata, "baseSha"),
+    dirtySnapshot: goalWorktreeDirtySnapshotFromMetadata(asRecord(metadata?.dirtySnapshot)),
+    handedOffAt: stringField(metadata, "handedOffAt"),
+    summary: stringField(metadata, "summary") ?? item.summary ?? null,
+  }
+}
+
+function parseManagedWorktreeState(value: string | null): ManagedWorktree["state"] {
+  return value === "archived" || value === "handoff" ? value : "active"
+}
+
+function goalWorktreeDirtySnapshotFromMetadata(
+  record: Record<string, unknown> | null,
+): ManagedWorktree["dirtySnapshot"] {
+  if (!record) return null
+  return {
+    clean: boolField(record, "clean") ?? false,
+    stagedFiles: numberField(record, "stagedFiles") ?? 0,
+    unstagedFiles: numberField(record, "unstagedFiles") ?? 0,
+    untrackedFiles: numberField(record, "untrackedFiles") ?? 0,
+    conflictedFiles: numberField(record, "conflictedFiles") ?? 0,
+    changedFiles: numberField(record, "changedFiles") ?? 0,
+  }
+}
+
+function goalWorktreeBaseLabel(worktree: GoalWorktreeEvidence): string {
+  if (worktree.baseBranch && worktree.baseSha) {
+    return `${worktree.baseBranch} · ${worktree.baseSha.slice(0, 8)}`
+  }
+  return worktree.baseBranch ?? worktree.baseRef ?? worktree.baseSha?.slice(0, 8) ?? "-"
+}
+
+function goalWorktreeDirtyLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  worktree: GoalWorktreeEvidence,
+): string {
+  if (!worktree.pathExists) return t("workspace.worktree.pathMissing", "路径已清理")
+  const dirty = worktree.dirtySnapshot
+  if (!dirty) return t("workspace.goal.worktreeNoSnapshot", "未记录变更快照")
+  if (dirty.clean) return t("workspace.worktree.clean", "无本地变更")
+  return t("workspace.worktree.changed", "{{count}} 个变更", { count: dirty.changedFiles })
 }
 
 function goalBudgetTone(budget: GoalBudgetSnapshot): StatusTone {
@@ -7917,6 +8003,7 @@ function GoalDetailSection({
   const tasks = snapshot.tasks
   const latestTimeline = timeline.slice(-8).reverse()
   const latestEvidence = evidence.slice(-8).reverse()
+  const worktreeEvidence = goalWorktreeEvidenceItems(evidence).slice(-4).reverse()
   const audit = asRecord(snapshot.goal.finalEvidence)
   const nextEvidence = recordArrayField(audit, "nextEvidenceNeeded").slice(0, 6)
   const budget = snapshot.budget
@@ -7925,6 +8012,69 @@ function GoalDetailSection({
     <AnimatedCollapse open={open}>
       <div className="space-y-2 rounded-md border border-border/55 bg-background/45 p-2">
         {budget ? <GoalBudgetCard budget={budget} /> : null}
+
+        {worktreeEvidence.length > 0 ? (
+          <GoalDetailBlock
+            title={t("workspace.goal.detailWorktrees", "Worktrees")}
+            count={worktreeEvidence.length}
+          >
+            <div className="space-y-1">
+              {worktreeEvidence.map((worktree) => (
+                <IconTip
+                  key={worktree.item.id}
+                  label={compactJson(worktree.item.metadata, worktree.path)}
+                >
+                  <div className="min-w-0 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1.5 text-blue-700 dark:text-blue-300">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                        {worktree.label || basename(worktree.path)}
+                      </span>
+                      <StatusPill
+                        label={managedWorktreeStateLabel(t, worktree.state)}
+                        tone={managedWorktreeStateTone(worktree.state)}
+                      />
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] opacity-85">
+                      <span className="min-w-0 flex-1 truncate font-mono">
+                        {truncateMiddle(worktree.path, 120)}
+                      </span>
+                      {!worktree.pathExists ? (
+                        <StatusPill
+                          label={t("workspace.worktree.pathMissing", "路径已清理")}
+                          tone="warn"
+                        />
+                      ) : null}
+                    </div>
+                    <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
+                      <GoalWorktreeMetric
+                        label={t("workspace.goal.worktreeBase", "Base")}
+                        value={goalWorktreeBaseLabel(worktree)}
+                      />
+                      <GoalWorktreeMetric
+                        label={t("workspace.goal.worktreeDirty", "Changes")}
+                        value={goalWorktreeDirtyLabel(t, worktree)}
+                      />
+                      <GoalWorktreeMetric
+                        label={t("workspace.goal.worktreeHandoff", "Handoff")}
+                        value={
+                          worktree.handedOffAt
+                            ? formatMessageTime(worktree.handedOffAt)
+                            : worktree.runId
+                              ? truncateMiddle(worktree.runId, 18)
+                              : "-"
+                        }
+                      />
+                    </div>
+                    {worktree.summary ? (
+                      <div className="mt-1 truncate text-[10px] opacity-80">{worktree.summary}</div>
+                    ) : null}
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          </GoalDetailBlock>
+        ) : null}
 
         <GoalDetailBlock title={t("workspace.goal.detailCriteria", "标准")} count={criteria.length}>
           {criteria.length > 0 ? (
@@ -8141,6 +8291,15 @@ function GoalBudgetMetric({
       <div className="truncate font-medium">{value}</div>
       <div className="truncate opacity-75">{label}</div>
       <div className="truncate font-mono opacity-65">{ratio}</div>
+    </div>
+  )
+}
+
+function GoalWorktreeMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-md bg-background/45 px-1.5 py-1">
+      <div className="truncate font-medium">{value}</div>
+      <div className="truncate opacity-70">{label}</div>
     </div>
   )
 }

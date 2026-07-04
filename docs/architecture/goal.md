@@ -232,6 +232,7 @@ Workspace / Workflow Control Center 内有 Goal strip：
 - 无 active Goal：可直接创建 objective + completion criteria。
 - 有 active Goal：展示目标摘要、状态、workflow/task/evidence 指标，并支持编辑 objective / completion criteria。
 - 点击 active Goal strip 可展开 Goal detail，查看 criteria 覆盖、预算、下一步证据、结构化 evidence、timeline、workflow/task 摘要。
+- 若存在 `worktree_attached` evidence，Goal detail 会显示 Worktrees 区块，直接展示改动落点、worktree state、path 是否存在、base、dirty snapshot 与 handoff / run 关联。
 - audit 后展示 final summary、blocked reason、missing/blocker/achieved 摘要。
 - 操作按钮：编辑、评估、暂停/恢复、清除。
 - 新建 workflow 默认绑定当前 active Goal；repair draft 会提示“同一 Goal 下的修复 run”。

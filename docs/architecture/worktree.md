@@ -122,6 +122,11 @@ runtime 构造 `WorkflowSessionContext` 时，如果 run 绑定 `worktree_id`：
 - 它不是 strong completion evidence，不能单独让 Goal completed。
 - archived / missing path 不在 Goal evaluator 里一概判 blocker；真正执行时仍由 Workflow runtime 对不可用 worktree fail closed / block。
 
+GUI 上有两层展示：
+
+- Workspace Environment 面板展示当前 session 相关 managed worktrees，可创建、恢复、交接、归档。
+- Goal detail 的 Worktrees 区块只展示 `worktree_attached` evidence，服务目标审计：state、path、base、dirty snapshot、handoff / run 关联一眼可见。
+
 ## Subagent 集成
 
 `SpawnParams.isolate_worktree` 控制 child session 是否尝试创建 managed worktree。
