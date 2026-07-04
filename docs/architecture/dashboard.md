@@ -339,7 +339,7 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 
 - 通用领域质量门与 coding benchmark 分表、分路径、分 UI 区块展示。
 - 无 domain eval 或 domain quality 历史时必须显示 `insufficient_data`，不能用 coding release gate 替代。
-- Dashboard 默认只读历史，不生成 proposal、不运行 eval、不触发连接器动作；唯一写动作是用户点击「Mark reviewed」时记录 `domain_eval_calibrations` 人工复核。
+- Dashboard 默认只读历史，不生成 proposal、不运行 eval、不触发连接器动作；唯一写动作是用户点击「Mark reviewed」时记录 `domain_eval_calibrations` 人工复核。`trace_fixture` runner 仅作为 owner API / 测试能力保留，不直接挂在质量门按钮上，避免合成样本污染真实质量判断。
 
 ## Plan 统计（plan_stats.rs）
 

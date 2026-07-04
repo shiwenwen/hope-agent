@@ -1026,6 +1026,81 @@ export interface RunDomainEvalTaskInput {
   sourceQualityRunId?: string | null;
 }
 
+export interface RunDomainEvalFixtureInput {
+  fixture: DomainEvalFixture;
+}
+
+export interface DomainEvalFixture {
+  name: string;
+  description?: string;
+  taskId: string;
+  label?: string | null;
+  executionMode?: string;
+  domain?: string | null;
+  goal?: DomainEvalFixtureGoal;
+  evidence?: DomainEvalFixtureEvidence[];
+  workflow?: DomainEvalFixtureWorkflow | null;
+  quality?: DomainEvalFixtureQuality | null;
+  checks?: DomainEvalFixtureChecks;
+}
+
+export interface DomainEvalFixtureGoal {
+  objective?: string | null;
+  completionCriteria?: string | null;
+  workflowTemplateId?: string | null;
+  workflowTemplateVersion?: string | null;
+  workflowTaskType?: string | null;
+}
+
+export interface DomainEvalFixtureEvidence {
+  evidenceType: string;
+  title: string;
+  summary?: string | null;
+  sourceMetadata?: Record<string, unknown>;
+  confidence?: number | null;
+}
+
+export interface DomainEvalFixtureWorkflow {
+  kind?: string;
+  scriptSource?: string;
+  executionMode?: string;
+}
+
+export interface DomainEvalFixtureQuality {
+  run?: boolean;
+  sourceMetadata?: Record<string, unknown>;
+  explicitUserApproval?: boolean;
+}
+
+export interface DomainEvalFixtureChecks {
+  expectedStatus?: string | null;
+  minScore?: number | null;
+  expectedPassedChecks?: string[];
+  expectedFailedChecks?: string[];
+}
+
+export interface DomainEvalFixtureReport {
+  name: string;
+  executionMode: string;
+  status: string;
+  passed: boolean;
+  sessionId: string;
+  goalId?: string | null;
+  workflowRunId?: string | null;
+  qualityRunId?: string | null;
+  evalRun?: DomainEvalRunRecord | null;
+  checks: DomainEvalFixtureCheck[];
+  error?: string | null;
+}
+
+export interface DomainEvalFixtureCheck {
+  name: string;
+  status: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
 export interface ImportDomainEvalCaseInput {
   proposalId: string;
   overwrite?: boolean;

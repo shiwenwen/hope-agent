@@ -2,9 +2,9 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 更新时间：2026-07-03
+> 更新时间：2026-07-04
 >
-> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地，Agent Execution Runner 已作为 Phase 5.2 落地，Gold Task Pack v1 已作为 Phase 5.3 落地，Strategy Effect Evaluator 已作为 Phase 5.4 落地，Gold Task Pack 全量自动化已作为 Phase 5.5 落地，Mock Tool-call 基线与执行指标已作为 Phase 5.6 落地，Strategy Effect 趋势持久化 / Dashboard 已作为 Phase 5.7 落地，Release Gate 已作为 Phase 5.8 落地，外部模型基线 runner 已作为 Phase 5.9 落地，Learning Generalization Gate 已作为 Phase 5.10 落地，Benchmark Run Center v1 已作为 Phase 6.1 落地，Benchmark Campaign Runner 已作为 Phase 6.2 落地，Cross-model Leaderboard 已作为 Phase 6.3 落地，Real Task Corpus Expansion 已作为 Phase 6.4 落地，Benchmark Report Export 已作为 Phase 6.5 落地，Continuous Benchmark Gate & Improvement Backlog 已作为 Phase 6.6 落地，沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md) 与 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已落地并沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)，Phase 7.3 Domain Context Retrieval 已沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)，Phase 7.4 Domain Verification & Review 已沉淀到 [Domain Quality 控制平面](../architecture/domain-quality.md)，Phase 7.5 Domain Learning Loop 已沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)，Phase 7.6 General Eval & Quality Gate 与 Phase 7.7 Domain Eval Calibration 已沉淀到 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)，详见 [通用场景层与 Domain Workflow 路线图](general-domain-workflows.md)。
+> 状态：路线调整与方案设计。`/goal` 第一版已落地并沉淀到 [Goal 控制平面](../architecture/goal.md)；`/loop` 第一版已落地并沉淀到 [Loop 控制平面](../architecture/loop.md)；Managed Worktree 已作为 Phase 3.1 落地并沉淀到 [Managed Worktree 控制平面](../architecture/worktree.md)；LSP / Diagnostics 已作为 Phase 3.2 落地并沉淀到 [LSP 与语义代码智能](../architecture/lsp.md)；Review Engine 已作为 Phase 3.3 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md)；Smart Verification 已作为 Phase 3.4 落地并沉淀到 [Smart Verification 控制平面](../architecture/verification-engine.md)；Context Retrieval v2 与 Actionable Context Loop 已作为 Phase 3.5-3.6 落地并沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)；Coding Eval 控制面评测已作为 Phase 3.7 落地并沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md)；Deep Review / Profiles / IDE Context 已作为 Phase 3.10 落地并沉淀到 [Review Engine 控制平面](../architecture/review-engine.md) 与 [Context Retrieval v2](../architecture/context-retrieval.md)；Trend Report / Improvement Loop 已作为 Phase 3.11 落地，Proposal-to-Action Learning Loop 已作为 Phase 4.1 落地，Draft Promotion + Workflow Retro Loop 已作为 Phase 4.2 落地，Dashboard 全局学习视图已作为 Phase 4.3 落地，Transcript Distillation + Failure Feedback 已作为 Phase 4.4 落地，均沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Task-level Eval Runner 已作为 Phase 5.1 落地，Agent Execution Runner 已作为 Phase 5.2 落地，Gold Task Pack v1 已作为 Phase 5.3 落地，Strategy Effect Evaluator 已作为 Phase 5.4 落地，Gold Task Pack 全量自动化已作为 Phase 5.5 落地，Mock Tool-call 基线与执行指标已作为 Phase 5.6 落地，Strategy Effect 趋势持久化 / Dashboard 已作为 Phase 5.7 落地，Release Gate 已作为 Phase 5.8 落地，外部模型基线 runner 已作为 Phase 5.9 落地，Learning Generalization Gate 已作为 Phase 5.10 落地，Benchmark Run Center v1 已作为 Phase 6.1 落地，Benchmark Campaign Runner 已作为 Phase 6.2 落地，Cross-model Leaderboard 已作为 Phase 6.3 落地，Real Task Corpus Expansion 已作为 Phase 6.4 落地，Benchmark Report Export 已作为 Phase 6.5 落地，Continuous Benchmark Gate & Improvement Backlog 已作为 Phase 6.6 落地，沉淀到 [Coding Eval 控制面评测](../architecture/coding-eval.md) 与 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)；Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已落地并沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)，Phase 7.3 Domain Context Retrieval 已沉淀到 [Context Retrieval v2](../architecture/context-retrieval.md)，Phase 7.4 Domain Verification & Review 已沉淀到 [Domain Quality 控制平面](../architecture/domain-quality.md)，Phase 7.5 Domain Learning Loop 已沉淀到 [Coding Improvement Loop](../architecture/coding-improvement-loop.md)，Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration 与 Phase 7.8 Domain Eval Fixture Runner 已沉淀到 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)，详见 [通用场景层与 Domain Workflow 路线图](general-domain-workflows.md)。
 
 ## 1. 路线调整结论
 
@@ -75,6 +75,7 @@ Phase 7.4  Domain Verification & Review（已完成第一版）
 Phase 7.5  Domain Learning Loop（已完成第一版）
 Phase 7.6  General Eval & Quality Gate（已完成第一版）
 Phase 7.7  Domain Eval Calibration（已完成第一版）
+Phase 7.8  Domain Eval Fixture Runner（已完成第一版）
 ```
 
 旧主线里“Coding Mode -> Workflow/Loop -> Worktree/LSP/Review”的顺序需要改成：
@@ -103,7 +104,7 @@ Phase 7.7  Domain Eval Calibration（已完成第一版）
 | Coding Eval | coding-first 质量闸，harness 可复用于通用控制面 | 已实现 Phase 6.6 | 控制面协同是否可回归，关键上下文是否被召回，focused action 是否真实收窄，Agent 是否能从 prompt 生成候选结果，候选 diff 是否满足任务级成功标准；20 个 active gold tasks 是否可批量回放；mock tool-call 是否真实调用写文件工具；策略改动前后是否真的改善质量；持久化历史是否满足发布质量门禁；真实 provider 是否能在受控 Gold Pack 中从 prompt 产出可评分候选 diff；promoted learning 是否有跨项目泛化证据；Dashboard 是否能以 Benchmark Run Center / Campaign Runner / Leaderboard / Report History / Continuous Gate / Improvement Backlog 形式展示、运行、取消、重试、对标、归档、守门和审计当前 benchmark readiness。 |
 | Coding Improvement | coding-first 改进回路，报告形态可复用于通用控制面 | 已实现 Phase 3.11 | 最近任务为什么完成/阻塞，下一步应补 eval、workflow、guidance 还是 skill。 |
 | Learning Loop | coding-first，后续可通用化 | 已实现 Phase 4.4 | 把改进 proposal 安全落成 eval / workflow / guidance / skill 草稿产物，把已应用草稿显式晋升为正式 eval fixture / project guidance / active skill，并支持用户显式从 transcript / workflow / failure feedback 提炼更高质量候选。 |
-| Domain Workflow / Quality | 通用场景层 | Phase 7.1-7.7 已完成第一版 | 把 Goal / Mode / Workflow / Loop / Evidence / Review / Verification / Learning Loop / Eval Gate 产品化到调研、写作、数据分析、会议准备、知识整理、邮件沟通和项目运营等非编程任务；已具备模板 registry、workflow draft preview、通用 evidence 持久化、Goal evidence 链接、domain context retrieval、Workspace 领域复核质量门、domain learning proposal、general domain quality gate 和 user/project calibration。 |
+| Domain Workflow / Quality | 通用场景层 | Phase 7.1-7.8 已完成第一版 | 把 Goal / Mode / Workflow / Loop / Evidence / Review / Verification / Learning Loop / Eval Gate 产品化到调研、写作、数据分析、会议准备、知识整理、邮件沟通和项目运营等非编程任务；已具备模板 registry、workflow draft preview、通用 evidence 持久化、Goal evidence 链接、domain context retrieval、Workspace 领域复核质量门、domain learning proposal、general domain quality gate、user/project calibration 和 trace fixture runner。 |
 
 用户视角应稳定成：
 
@@ -769,6 +770,14 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 已新增 `domain_eval_calibrations`，记录 user/project scope 的人工校准与复核结论。
 - `list_domain_eval_tasks` 与 `run_domain_eval_task` 会把相关 calibration 附加到 task/report，避免内置 rubric 被误当成已校准能力证据。
 - Dashboard Learning 的 General domain quality 卡片显示已校准 task 数，并允许对最近 eval run 点击「Mark reviewed」写入幂等 calibration。
+
+### Phase 7.8 Domain Eval Fixture Runner（已完成第一版）
+
+- 已新增 `run_domain_eval_fixture` owner API，Tauri / HTTP / transport 已接通。
+- `trace_fixture` 模式创建真实 session / Goal / Domain Evidence / WorkflowRun / Domain Quality run，再调用同一 domain eval scorer 写入 `domain_eval_runs`。
+- Fixture checks 支持 expected status、最低 score、指定 scorer check 通过/失败断言。
+- 第一版仅作为 owner API / 回归测试能力，不直接挂在 Dashboard quality gate 上，避免合成 smoke 样本污染真实质量判断。
+- 非 `trace_fixture` 模式当前 fail-fast；真实 agent-backed fixture execution 后续再接 provider/model chain，不能把 deterministic trace 样本当作真实模型能力。
 
 ## 9. 体验与性能红线
 

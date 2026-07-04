@@ -881,6 +881,7 @@ pub fn run() {
             commands::domain_workflow::list_domain_evidence,
             commands::domain_eval::list_domain_eval_tasks,
             commands::domain_eval::run_domain_eval_task,
+            commands::domain_eval::run_domain_eval_fixture,
             commands::domain_eval::import_domain_eval_case,
             commands::domain_eval::record_domain_eval_calibration,
             commands::domain_eval::list_domain_eval_calibrations,

@@ -486,13 +486,14 @@ Domain Quality owner API 管理 durable non-coding review / verification run。`
 |---|---|---|
 | `list_domain_eval_tasks` | `POST /api/domain-eval/tasks` | ✅ |
 | `run_domain_eval_task` | `POST /api/domain-eval/runs/run` | ✅ |
+| `run_domain_eval_fixture` | `POST /api/domain-eval/fixtures/run` | ✅ |
 | `import_domain_eval_case` | `POST /api/domain-eval/cases/import` | ✅ |
 | `record_domain_eval_calibration` | `POST /api/domain-eval/calibrations/record` | ✅ |
 | `list_domain_eval_calibrations` | `POST /api/domain-eval/calibrations` | ✅ |
 | `list_domain_eval_runs` | `POST /api/domain-eval/runs` | ✅ |
 | `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | ✅ |
 
-Domain Eval owner API 管理 non-coding eval / gate。`list_domain_eval_tasks` 返回内置 15 个 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task 以及显式导入的 active task，并附加 user/project calibration；`import_domain_eval_case` 把已晋升 `domain_eval_case` proposal 的 JSON artifact 导入 `domain_eval_tasks`；`record_domain_eval_calibration` / `list_domain_eval_calibrations` 记录与查询人工校准 / 复核历史；`run_domain_eval_task` 读取 Goal、Workflow、Domain Evidence 与 Domain Quality trace 做 deterministic scoring，并写入 `domain_eval_runs`；`evaluate_domain_quality_gate` 只读 `domain_eval_runs`、`domain_quality_runs/checks` 与 evidence coverage，输出 `passed` / `failed` / `insufficient_data` 三态。该 API 与 coding benchmark 分表、分路径、分 Dashboard 区块展示；无痕会话 fail-closed。完整契约见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
+Domain Eval owner API 管理 non-coding eval / gate。`list_domain_eval_tasks` 返回内置 15 个 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation task 以及显式导入的 active task，并附加 user/project calibration；`import_domain_eval_case` 把已晋升 `domain_eval_case` proposal 的 JSON artifact 导入 `domain_eval_tasks`；`record_domain_eval_calibration` / `list_domain_eval_calibrations` 记录与查询人工校准 / 复核历史；`run_domain_eval_task` 读取 Goal、Workflow、Domain Evidence 与 Domain Quality trace 做 deterministic scoring，并写入 `domain_eval_runs`；`run_domain_eval_fixture` 第一版支持 `executionMode="trace_fixture"`，创建真实 session / goal / evidence / workflow / quality trace 后调用同一 scorer，非 trace fixture 模式 fail-fast；`evaluate_domain_quality_gate` 只读 `domain_eval_runs`、`domain_quality_runs/checks` 与 evidence coverage，输出 `passed` / `failed` / `insufficient_data` 三态。该 API 与 coding benchmark 分表、分路径、分 Dashboard 区块展示；无痕会话 fail-closed。完整契约见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
 
 ### Coding Eval
 

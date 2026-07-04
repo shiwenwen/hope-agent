@@ -1,9 +1,10 @@
 use axum::Json;
 use ha_core::domain_eval::{
-    DomainEvalCalibrationRecord, DomainEvalRunRecord, DomainEvalTask, DomainQualityGateInput,
-    DomainQualityGateReport, ImportDomainEvalCaseInput, ImportDomainEvalCaseResult,
-    ListDomainEvalCalibrationsInput, ListDomainEvalRunsInput, ListDomainEvalTasksInput,
-    RecordDomainEvalCalibrationInput, RunDomainEvalTaskInput,
+    DomainEvalCalibrationRecord, DomainEvalFixtureReport, DomainEvalRunRecord, DomainEvalTask,
+    DomainQualityGateInput, DomainQualityGateReport, ImportDomainEvalCaseInput,
+    ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput, ListDomainEvalRunsInput,
+    ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput, RunDomainEvalFixtureInput,
+    RunDomainEvalTaskInput,
 };
 use serde::Deserialize;
 
@@ -20,6 +21,12 @@ pub struct ListDomainEvalTasksBody {
 #[serde(rename_all = "camelCase")]
 pub struct RunDomainEvalTaskBody {
     pub input: RunDomainEvalTaskInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDomainEvalFixtureBody {
+    pub input: RunDomainEvalFixtureInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +69,12 @@ pub async fn run_domain_eval_task(
     Json(body): Json<RunDomainEvalTaskBody>,
 ) -> Result<Json<DomainEvalRunRecord>, AppError> {
     Ok(Json(session_db()?.run_domain_eval_task(body.input)?))
+}
+
+pub async fn run_domain_eval_fixture(
+    Json(body): Json<RunDomainEvalFixtureBody>,
+) -> Result<Json<DomainEvalFixtureReport>, AppError> {
+    Ok(Json(session_db()?.run_domain_eval_fixture(body.input)?))
 }
 
 pub async fn import_domain_eval_case(

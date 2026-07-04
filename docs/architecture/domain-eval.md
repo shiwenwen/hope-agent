@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.7 已实现。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块。
+> 状态：Phase 7.8 已实现。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace fixture runner、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块。
 
 ## 目标
 
@@ -110,6 +110,22 @@ Run status：
 - `insufficient_data`：无 failed，但存在缺少 trace/evidence 的不充分项。
 - `passed`：无 failed/insufficient，且加权 score 达到默认阈值。
 
+## Fixture Runner
+
+`run_domain_eval_fixture(input)` 是 Phase 7.8 的第一版半确定性 runner，用于把一份 fixture materialize 成真实控制面 trace，再交给同一个 scorer 判分：
+
+1. 创建真实 session。
+2. 创建 Goal，objective / completion criteria 默认来自 task。
+3. 写入 fixture evidence，进入 `domain_evidence`。
+4. 默认创建一个 `origin='domain_eval_fixture'` 的 WorkflowRun。
+5. 默认运行 Domain Quality，得到 `domain_quality_runs/checks` snapshot。
+6. 调用 `run_domain_eval_task`，把 scorer 输出写入 `domain_eval_runs`。
+7. 按 fixture `checks` 输出 runner 自身通过/失败状态。
+
+当前只支持 `executionMode='trace_fixture'`。如果 fixture 请求 `agent` 或其它模式，runner 会创建 session 后返回 failed report，并写明“agent-backed domain fixture execution 尚未接 provider/model execution”。这条 fail-fast 是红线：不能把 deterministic trace fixture 伪装成真实模型执行能力。
+
+Trace fixture runner 当前是 owner API / 回归测试能力，不挂到 Dashboard quality gate 的普通按钮上。原因是 fixture 会写入真实 `domain_eval_runs` 与 `domain_quality_runs`，如果把合成 smoke 样本当成日常质量历史展示，会污染用户对真实通用任务质量的判断。后续若要产品化展示，应单独做 fixture/smoke run 面板和来源过滤。
+
 ## Quality Gate
 
 `evaluate_domain_quality_gate(input)` 只读历史，不调用 LLM、不运行工具、不生成 proposal。
@@ -159,6 +175,7 @@ Tauri / HTTP / transport 均已注册：
 | --- | --- | --- |
 | `list_domain_eval_tasks` | `POST /api/domain-eval/tasks` | 列出内置通用 eval tasks，可按 domain 过滤。 |
 | `run_domain_eval_task` | `POST /api/domain-eval/runs/run` | 对一个 session 运行确定性 domain eval 并持久化。 |
+| `run_domain_eval_fixture` | `POST /api/domain-eval/fixtures/run` | 运行 trace fixture，创建 session/goal/evidence/workflow/quality trace 后用同一 scorer 判分。 |
 | `import_domain_eval_case` | `POST /api/domain-eval/cases/import` | 把已晋升的 `domain_eval_case` proposal 导入 active task registry。 |
 | `record_domain_eval_calibration` | `POST /api/domain-eval/calibrations/record` | 记录 task 的 user/project 人工校准或一次 eval run 的复核结论。 |
 | `list_domain_eval_calibrations` | `POST /api/domain-eval/calibrations` | 查询 calibration history，可按 task/domain/project 过滤。 |
@@ -183,6 +200,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - 不越权运行工具：eval 只读既有 trace/evidence，不调用连接器，不发送、不发布、不改外部系统。
 - 不隐式学习上线：`domain_eval_case` 必须先走 proposal preview / apply draft / explicit promotion，再由用户显式导入 task registry。
 - 不让模型自校准：calibration 只暴露 owner API / GUI，不提供 agent tool 面。
+- 不伪造 agent 能力：`run_domain_eval_fixture` 当前只支持 `trace_fixture`，`agent` 模式必须 fail-fast，直到真实 provider/model execution 接入。
 - 不写无痕：incognito session 拒绝 run / gate。
 - 不替代 Domain Quality：eval 使用 quality snapshot，quality run 本身仍由 `domain_quality.rs` 管理。
 
@@ -199,6 +217,8 @@ cargo test -p ha-core domain_eval --locked
 - 内置 15 个 task 覆盖 5 个领域。
 - 已晋升 `domain_eval_case` JSON artifact 可导入 task registry，重复导入幂等。
 - Eval run 可记录幂等人工 calibration，task registry 与后续 report 能看到 user/project calibration。
+- Trace fixture runner 会创建真实 session、Goal、Evidence、WorkflowRun、Domain Quality run 和 Domain Eval run。
+- 非 `trace_fixture` 执行模式不会被伪报为成功。
 - Research 缺少来源会被 eval 标成 failed。
 - 有 Goal、Workflow、Evidence、Domain Quality 的 Research run 可通过 eval，并让 Quality Gate passed。
 

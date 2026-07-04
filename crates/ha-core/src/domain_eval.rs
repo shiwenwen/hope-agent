@@ -15,10 +15,12 @@ use std::path::PathBuf;
 
 use crate::domain_quality::{
     DomainQualityCheckStatus, DomainQualityRunSnapshot, DomainQualityRunState,
+    RunDomainQualityInput,
 };
-use crate::domain_workflow::ListDomainEvidenceInput;
+use crate::domain_workflow::{ListDomainEvidenceInput, RecordDomainEvidenceInput};
 use crate::session::SessionDB;
 use crate::util::now_rfc3339;
+use crate::workflow::CreateWorkflowRunInput;
 
 const DEFAULT_WINDOW_DAYS: u32 = 30;
 const MAX_WINDOW_DAYS: u32 = 180;
@@ -166,6 +168,152 @@ pub struct RunDomainEvalTaskInput {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_quality_run_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunDomainEvalFixtureInput {
+    pub fixture: DomainEvalFixture,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixture {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub task_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default = "default_domain_eval_fixture_execution_mode")]
+    pub execution_mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub goal: DomainEvalFixtureGoal,
+    #[serde(default)]
+    pub evidence: Vec<DomainEvalFixtureEvidence>,
+    #[serde(default)]
+    pub workflow: Option<DomainEvalFixtureWorkflow>,
+    #[serde(default)]
+    pub quality: Option<DomainEvalFixtureQuality>,
+    #[serde(default)]
+    pub checks: DomainEvalFixtureChecks,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureGoal {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub objective: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_criteria: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_template_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_task_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureEvidence {
+    pub evidence_type: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub source_metadata: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureWorkflow {
+    #[serde(default = "default_domain_workflow_kind")]
+    pub kind: String,
+    #[serde(default = "default_domain_workflow_script")]
+    pub script_source: String,
+    #[serde(default = "default_execution_mode")]
+    pub execution_mode: String,
+}
+
+impl Default for DomainEvalFixtureWorkflow {
+    fn default() -> Self {
+        Self {
+            kind: default_domain_workflow_kind(),
+            script_source: default_domain_workflow_script(),
+            execution_mode: default_execution_mode(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureQuality {
+    #[serde(default = "default_true")]
+    pub run: bool,
+    #[serde(default)]
+    pub source_metadata: Value,
+    #[serde(default)]
+    pub explicit_user_approval: bool,
+}
+
+impl Default for DomainEvalFixtureQuality {
+    fn default() -> Self {
+        Self {
+            run: true,
+            source_metadata: Value::Null,
+            explicit_user_approval: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureChecks {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_score: Option<f64>,
+    #[serde(default)]
+    pub expected_passed_checks: Vec<String>,
+    #[serde(default)]
+    pub expected_failed_checks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureReport {
+    pub name: String,
+    pub execution_mode: String,
+    pub status: String,
+    pub passed: bool,
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eval_run: Option<DomainEvalRunRecord>,
+    #[serde(default)]
+    pub checks: Vec<DomainEvalFixtureCheck>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureCheck {
+    pub name: String,
+    pub status: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -529,6 +677,164 @@ impl SessionDB {
         drop(conn);
         self.get_domain_eval_run(&id)?
             .ok_or_else(|| anyhow!("domain eval run vanished after insert: {id}"))
+    }
+
+    pub fn run_domain_eval_fixture(
+        &self,
+        input: RunDomainEvalFixtureInput,
+    ) -> Result<DomainEvalFixtureReport> {
+        let fixture = input.fixture;
+        let name = non_empty(&fixture.name)
+            .ok_or_else(|| anyhow!("fixture.name is required"))?
+            .to_string();
+        let execution_mode = non_empty(&fixture.execution_mode)
+            .unwrap_or("trace_fixture")
+            .to_string();
+        let task_id = non_empty(&fixture.task_id)
+            .ok_or_else(|| anyhow!("fixture.task_id is required"))?
+            .to_string();
+        let task = self
+            .resolve_domain_eval_task(&task_id)?
+            .ok_or_else(|| anyhow!("domain eval task not found: {task_id}"))?;
+        let session = self.create_session(crate::agent_loader::DEFAULT_AGENT_ID)?;
+        let mut report = DomainEvalFixtureReport {
+            name: name.clone(),
+            execution_mode: execution_mode.clone(),
+            status: "failed".to_string(),
+            passed: false,
+            session_id: session.id.clone(),
+            goal_id: None,
+            workflow_run_id: None,
+            quality_run_id: None,
+            eval_run: None,
+            checks: Vec::new(),
+            error: None,
+        };
+
+        if execution_mode != "trace_fixture" {
+            report.error = Some(format!(
+                "unsupported domain eval fixture execution mode {execution_mode:?}; expected trace_fixture"
+            ));
+            report.checks.push(DomainEvalFixtureCheck {
+                name: "execution_mode".to_string(),
+                status: "failed".to_string(),
+                expected: "trace_fixture".to_string(),
+                actual: execution_mode,
+                detail: "Agent-backed domain fixture execution is intentionally not reported as passing until provider/model execution is wired.".to_string(),
+            });
+            return Ok(report);
+        }
+
+        let domain = fixture
+            .domain
+            .as_deref()
+            .and_then(non_empty)
+            .map(normalize_domain)
+            .unwrap_or_else(|| task.domain.clone());
+        let goal = self.create_goal(crate::goal::CreateGoalInput {
+            session_id: session.id.clone(),
+            objective: fixture
+                .goal
+                .objective
+                .as_deref()
+                .and_then(non_empty)
+                .unwrap_or(&task.input.prompt)
+                .to_string(),
+            completion_criteria: fixture
+                .goal
+                .completion_criteria
+                .as_deref()
+                .and_then(non_empty)
+                .unwrap_or_else(|| {
+                    task.success_criteria
+                        .first()
+                        .map(String::as_str)
+                        .unwrap_or("Domain eval fixture criteria must pass.")
+                })
+                .to_string(),
+            domain: Some(domain.clone()),
+            workflow_template_id: fixture.goal.workflow_template_id.clone(),
+            workflow_template_version: fixture.goal.workflow_template_version.clone(),
+            workflow_task_type: fixture
+                .goal
+                .workflow_task_type
+                .clone()
+                .or_else(|| Some(task.task_type.clone())),
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })?;
+        report.goal_id = Some(goal.goal.id.clone());
+
+        for evidence in &fixture.evidence {
+            self.record_domain_evidence(RecordDomainEvidenceInput {
+                goal_id: Some(goal.goal.id.clone()),
+                session_id: Some(session.id.clone()),
+                project_id: session.project_id.clone(),
+                domain: domain.clone(),
+                evidence_type: evidence.evidence_type.clone(),
+                title: evidence.title.clone(),
+                summary: evidence.summary.clone(),
+                source_metadata: evidence.source_metadata.clone(),
+                confidence: evidence.confidence.or(Some(0.95)),
+                access_scope: Some("fixture".to_string()),
+                redaction_status: Some("not_required".to_string()),
+            })?;
+        }
+
+        if let Some(workflow) = fixture.workflow.clone() {
+            let run = self.create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: workflow.kind,
+                execution_mode: workflow.execution_mode,
+                script_source: workflow.script_source,
+                budget: json!({ "fixture": name }),
+                parent_run_id: None,
+                origin: Some("domain_eval_fixture".to_string()),
+                goal_id: Some(goal.goal.id.clone()),
+                worktree_id: None,
+            })?;
+            report.workflow_run_id = Some(run.id);
+        }
+
+        let source_quality_run_id = if fixture
+            .quality
+            .as_ref()
+            .map(|quality| quality.run)
+            .unwrap_or(true)
+        {
+            let quality = fixture.quality.unwrap_or_default();
+            let snapshot = self.run_domain_quality_for_session(RunDomainQualityInput {
+                session_id: session.id.clone(),
+                goal_id: Some(goal.goal.id.clone()),
+                domain: Some(domain),
+                template_id: fixture.goal.workflow_template_id.clone(),
+                template_version: fixture.goal.workflow_template_version.clone(),
+                profiles: Vec::new(),
+                artifact_title: Some(task.title.clone()),
+                artifact_kind: Some(task.task_type.clone()),
+                source_metadata: quality.source_metadata,
+                explicit_user_approval: quality.explicit_user_approval,
+            })?;
+            let quality_run_id = snapshot.run.id;
+            report.quality_run_id = Some(quality_run_id.clone());
+            Some(quality_run_id)
+        } else {
+            None
+        };
+
+        let eval_run = self.run_domain_eval_task(RunDomainEvalTaskInput {
+            session_id: session.id.clone(),
+            task_id: task.id,
+            label: fixture.label.clone().or_else(|| Some(name.clone())),
+            source_quality_run_id,
+        })?;
+        report.checks = domain_eval_fixture_checks(&fixture.checks, &eval_run);
+        let passed = report.checks.iter().all(|check| check.status == "passed");
+        report.status = if passed { "passed" } else { "failed" }.to_string();
+        report.passed = passed;
+        report.eval_run = Some(eval_run);
+        Ok(report)
     }
 
     pub fn import_domain_eval_case(
@@ -1608,6 +1914,95 @@ fn row_to_domain_eval_calibration(
     })
 }
 
+fn domain_eval_fixture_checks(
+    checks: &DomainEvalFixtureChecks,
+    run: &DomainEvalRunRecord,
+) -> Vec<DomainEvalFixtureCheck> {
+    let mut out = Vec::new();
+    if let Some(expected) = checks.expected_status.as_deref().and_then(non_empty) {
+        push_fixture_check(
+            &mut out,
+            "expected_status",
+            run.status == expected,
+            expected.to_string(),
+            run.status.clone(),
+            "Domain eval fixture expected a specific scorer status.",
+        );
+    }
+    if let Some(min_score) = checks.min_score {
+        push_fixture_check(
+            &mut out,
+            "min_score",
+            run.score >= min_score,
+            format!("score >= {min_score:.2}"),
+            format!("{:.2}", run.score),
+            "Domain eval fixture expected a minimum scorer confidence.",
+        );
+    }
+    for name in &checks.expected_passed_checks {
+        let status = run
+            .report
+            .checks
+            .iter()
+            .find(|check| check.name == *name || check.category == *name)
+            .map(|check| check.status.as_str())
+            .unwrap_or("missing");
+        push_fixture_check(
+            &mut out,
+            &format!("check_passed:{name}"),
+            status == "passed",
+            "passed".to_string(),
+            status.to_string(),
+            "Domain eval fixture expected this scorer check to pass.",
+        );
+    }
+    for name in &checks.expected_failed_checks {
+        let status = run
+            .report
+            .checks
+            .iter()
+            .find(|check| check.name == *name || check.category == *name)
+            .map(|check| check.status.as_str())
+            .unwrap_or("missing");
+        push_fixture_check(
+            &mut out,
+            &format!("check_failed:{name}"),
+            status == "failed",
+            "failed".to_string(),
+            status.to_string(),
+            "Domain eval fixture expected this scorer check to fail.",
+        );
+    }
+    if out.is_empty() {
+        push_fixture_check(
+            &mut out,
+            "eval_run_created",
+            true,
+            "domain eval run created".to_string(),
+            run.id.clone(),
+            "Fixture executed the trace and persisted a domain eval run.",
+        );
+    }
+    out
+}
+
+fn push_fixture_check(
+    out: &mut Vec<DomainEvalFixtureCheck>,
+    name: &str,
+    passed: bool,
+    expected: String,
+    actual: String,
+    detail: &str,
+) {
+    out.push(DomainEvalFixtureCheck {
+        name: name.to_string(),
+        status: if passed { "passed" } else { "failed" }.to_string(),
+        expected,
+        actual,
+        detail: detail.to_string(),
+    });
+}
+
 fn built_in_domain_eval_tasks() -> Vec<DomainEvalTask> {
     vec![
         task(
@@ -2660,6 +3055,26 @@ fn since_timestamp(window_days: u32) -> String {
     (Utc::now() - Duration::days(window_days as i64)).to_rfc3339()
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_execution_mode() -> String {
+    "guarded".to_string()
+}
+
+fn default_domain_eval_fixture_execution_mode() -> String {
+    "trace_fixture".to_string()
+}
+
+fn default_domain_workflow_kind() -> String {
+    "domain:fixture".to_string()
+}
+
+fn default_domain_workflow_script() -> String {
+    "export default async function main(workflow) { await workflow.finish({ summary: 'domain eval fixture trace' }); }".to_string()
+}
+
 fn normalize_domain(value: &str) -> String {
     let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
     if normalized.is_empty() {
@@ -2971,6 +3386,104 @@ mod tests {
             .calibration
             .iter()
             .any(|record| record.id == calibration.id));
+    }
+
+    #[test]
+    fn domain_eval_fixture_runner_scores_trace_fixture() {
+        let (_dir, db) = test_db();
+        let report = db
+            .run_domain_eval_fixture(RunDomainEvalFixtureInput {
+                fixture: DomainEvalFixture {
+                    name: "research-trace-fixture".to_string(),
+                    task_id: "research-source-backed-brief".to_string(),
+                    goal: DomainEvalFixtureGoal {
+                        objective: Some("Prepare a sourced research brief.".to_string()),
+                        completion_criteria: Some(
+                            "Sources, claims, citation audit and workflow trace are present."
+                                .to_string(),
+                        ),
+                        ..Default::default()
+                    },
+                    evidence: vec![
+                        DomainEvalFixtureEvidence {
+                            evidence_type: "source_cited".to_string(),
+                            title: "Source A".to_string(),
+                            source_metadata: json!({"uri": "https://example.com/a", "retrievedAt": "2026-07-04"}),
+                            ..Default::default()
+                        },
+                        DomainEvalFixtureEvidence {
+                            evidence_type: "source_cited".to_string(),
+                            title: "Source B".to_string(),
+                            source_metadata: json!({"uri": "https://example.com/b", "retrievedAt": "2026-07-04"}),
+                            ..Default::default()
+                        },
+                        DomainEvalFixtureEvidence {
+                            evidence_type: "source_cited".to_string(),
+                            title: "Source C".to_string(),
+                            source_metadata: json!({"uri": "https://example.com/c", "publishedAt": "2026-07-03"}),
+                            ..Default::default()
+                        },
+                        DomainEvalFixtureEvidence {
+                            evidence_type: "claim_checked".to_string(),
+                            title: "Claim A checked".to_string(),
+                            source_metadata: json!({"claim": "claim A", "verdict": "supported"}),
+                            ..Default::default()
+                        },
+                        DomainEvalFixtureEvidence {
+                            evidence_type: "claim_checked".to_string(),
+                            title: "Claim B checked".to_string(),
+                            source_metadata: json!({"claim": "claim B", "verdict": "supported"}),
+                            ..Default::default()
+                        },
+                        DomainEvalFixtureEvidence {
+                            evidence_type: "citation_audited".to_string(),
+                            title: "Citation audit".to_string(),
+                            source_metadata: json!({"coverage": "all key claims"}),
+                            ..Default::default()
+                        },
+                    ],
+                    workflow: Some(DomainEvalFixtureWorkflow::default()),
+                    quality: Some(DomainEvalFixtureQuality::default()),
+                    checks: DomainEvalFixtureChecks {
+                        expected_status: Some("passed".to_string()),
+                        min_score: Some(0.8),
+                        expected_passed_checks: vec![
+                            "evidence_completeness".to_string(),
+                            "citation_quality".to_string(),
+                            "workflow_trace".to_string(),
+                        ],
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+
+        assert!(report.passed, "{report:?}");
+        assert_eq!(report.status, "passed");
+        assert!(report.eval_run.is_some());
+        assert!(report.quality_run_id.is_some());
+        assert!(report.workflow_run_id.is_some());
+    }
+
+    #[test]
+    fn domain_eval_fixture_runner_does_not_fake_agent_mode() {
+        let (_dir, db) = test_db();
+        let report = db
+            .run_domain_eval_fixture(RunDomainEvalFixtureInput {
+                fixture: DomainEvalFixture {
+                    name: "agent-not-wired".to_string(),
+                    task_id: "research-source-backed-brief".to_string(),
+                    execution_mode: "agent".to_string(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+
+        assert!(!report.passed);
+        assert_eq!(report.status, "failed");
+        assert!(report.eval_run.is_none());
+        assert!(report.error.unwrap().contains("unsupported"));
     }
 
     #[test]
