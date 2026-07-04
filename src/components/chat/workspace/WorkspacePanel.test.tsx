@@ -851,6 +851,40 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("最近信号")).toBeTruthy()
   })
 
+  it("shows the bound worktree runtime in workflow overview", async () => {
+    const run = workflowRun({ worktreeId: "wt-run" })
+    const snapshot: WorkflowRunSnapshot = {
+      ...workflowSnapshot(run),
+      events: [
+        {
+          id: 1,
+          runId: run.id,
+          seq: 1,
+          eventType: "run_worktree_attached",
+          payload: {
+            worktreeId: "wt-run",
+            path: "/repo-worktrees/wt-run",
+            state: "handoff",
+          },
+          createdAt: "2026-01-01T00:00:30Z",
+        },
+      ],
+    }
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "list_workflow_runs") return Promise.resolve([run])
+      if (name === "get_workflow_run") return Promise.resolve(snapshot)
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel(null)
+
+    expect(await screen.findByText("运行位置 · wt-run")).toBeTruthy()
+    expect(await screen.findByText("/repo-worktrees/wt-run")).toBeTruthy()
+    expect(screen.getAllByText("Trace").length).toBeGreaterThan(0)
+  })
+
   it("surfaces the active workflow focus and jumps to the relevant detail tab", async () => {
     const run = workflowRun({ state: "running" })
     const snapshot: WorkflowRunSnapshot = {

@@ -6498,6 +6498,13 @@ ${repairPrompt}`
                       run={detailRun}
                       snapshot={snapshot}
                       latestEvent={latestEvent}
+                      worktree={
+                        detailRun.worktreeId
+                          ? (managedWorktreesState.worktrees.find(
+                              (worktree) => worktree.id === detailRun.worktreeId,
+                            ) ?? null)
+                          : null
+                      }
                       actions={renderDetailActions(detailRun)}
                       onSelectDetailTab={setDetailTab}
                       onCreateRepairDraft={generateRepairDraft}
@@ -7540,10 +7547,18 @@ function goalWorktreeDirtySnapshotFromMetadata(
 }
 
 function goalWorktreeBaseLabel(worktree: GoalWorktreeEvidence): string {
-  if (worktree.baseBranch && worktree.baseSha) {
-    return `${worktree.baseBranch} · ${worktree.baseSha.slice(0, 8)}`
+  return worktreeBaseLabel(worktree.baseBranch, worktree.baseRef, worktree.baseSha)
+}
+
+function worktreeBaseLabel(
+  baseBranch: string | null | undefined,
+  baseRef: string | null | undefined,
+  baseSha: string | null | undefined,
+): string {
+  if (baseBranch && baseSha) {
+    return `${baseBranch} · ${baseSha.slice(0, 8)}`
   }
-  return worktree.baseBranch ?? worktree.baseRef ?? worktree.baseSha?.slice(0, 8) ?? "-"
+  return baseBranch ?? baseRef ?? baseSha?.slice(0, 8) ?? "-"
 }
 
 function goalWorktreeDirtyLabel(
@@ -8304,6 +8319,52 @@ function GoalWorktreeMetric({ label, value }: { label: string; value: string }) 
   )
 }
 
+interface WorkflowRunWorktreeInfo {
+  label: string | null
+  state: ManagedWorktree["state"]
+  path: string
+  pathExists: boolean
+  baseLabel: string | null
+  dirtyLabel: string | null
+  source: "managed" | "trace"
+}
+
+function workflowRunWorktreeInfo(
+  t: ReturnType<typeof useTranslation>["t"],
+  run: WorkflowRun,
+  snapshot: WorkflowRunSnapshot | null,
+  worktree?: ManagedWorktree | null,
+): WorkflowRunWorktreeInfo | null {
+  const worktreeId = run.worktreeId
+  if (!worktreeId) return null
+  if (worktree) {
+    return {
+      label: worktree.label ?? null,
+      state: worktree.state,
+      path: worktree.path,
+      pathExists: worktree.pathExists,
+      baseLabel: worktreeBaseLabel(worktree.baseBranch, worktree.baseRef, worktree.baseSha),
+      dirtyLabel: worktreeDirtySummary(t, worktree),
+      source: "managed",
+    }
+  }
+  const event = snapshot?.events
+    .slice()
+    .reverse()
+    .find((event) => event.eventType === "run_worktree_attached")
+  const payload = asRecord(event?.payload)
+  const path = stringField(payload, "path") ?? worktreeId
+  return {
+    label: null,
+    state: parseManagedWorktreeState(stringField(payload, "state")),
+    path,
+    pathExists: true,
+    baseLabel: null,
+    dirtyLabel: null,
+    source: "trace",
+  }
+}
+
 function GoalDetailBlock({
   title,
   count,
@@ -8348,6 +8409,7 @@ function WorkflowRunOverview({
   run,
   snapshot,
   latestEvent,
+  worktree,
   actions,
   onSelectDetailTab,
   onCreateRepairDraft,
@@ -8355,12 +8417,14 @@ function WorkflowRunOverview({
   run: WorkflowRun
   snapshot: WorkflowRunSnapshot | null
   latestEvent?: WorkflowEvent
+  worktree?: ManagedWorktree | null
   actions?: ReactNode
   onSelectDetailTab?: (tab: WorkflowDetailTab) => void
   onCreateRepairDraft?: (repairPrompt: string, run: WorkflowRun) => void
 }) {
   const { t } = useTranslation()
   const ops = snapshot?.ops ?? []
+  const worktreeInfo = workflowRunWorktreeInfo(t, run, snapshot, worktree)
   const completed = ops.filter((op) => op.state === "completed").length
   const failed = ops.filter((op) => op.state === "failed").length
   const validationCount = ops.filter((op) => op.opType === "validate").length
@@ -8497,6 +8561,7 @@ function WorkflowRunOverview({
       ) : null}
 
       <WorkflowRunFocusCard run={run} snapshot={snapshot} onSelectDetailTab={onSelectDetailTab} />
+      {worktreeInfo ? <WorkflowRunWorktreeCard info={worktreeInfo} /> : null}
       <WorkflowApprovalPreview snapshot={snapshot} />
       <WorkflowRecoveryHint
         run={run}
@@ -8514,6 +8579,51 @@ function WorkflowMetric({ label, value }: { label: string; value: string }) {
       <div className="truncate font-medium text-foreground/85">{value}</div>
       <div className="truncate text-muted-foreground/70">{label}</div>
     </div>
+  )
+}
+
+function WorkflowRunWorktreeCard({ info }: { info: WorkflowRunWorktreeInfo }) {
+  const { t } = useTranslation()
+  return (
+    <IconTip label={info.path}>
+      <div className="space-y-1 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1.5 text-blue-700 dark:text-blue-300">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <FolderGit2 className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+            {t("workspace.workflow.worktreeRuntime", "运行位置")} ·{" "}
+            {info.label || basename(info.path)}
+          </span>
+          <StatusPill
+            label={managedWorktreeStateLabel(t, info.state)}
+            tone={managedWorktreeStateTone(info.state)}
+          />
+        </div>
+        <div className="flex min-w-0 items-center gap-1.5 text-[10px] opacity-85">
+          <span className="min-w-0 flex-1 truncate font-mono">{truncateMiddle(info.path, 120)}</span>
+          {!info.pathExists ? (
+            <StatusPill label={t("workspace.worktree.pathMissing", "路径已清理")} tone="warn" />
+          ) : null}
+        </div>
+        <div className="grid grid-cols-3 gap-1 text-[10px]">
+          <GoalWorktreeMetric
+            label={t("workspace.workflow.worktreeBase", "Base")}
+            value={info.baseLabel ?? "-"}
+          />
+          <GoalWorktreeMetric
+            label={t("workspace.workflow.worktreeChanges", "Changes")}
+            value={info.dirtyLabel ?? "-"}
+          />
+          <GoalWorktreeMetric
+            label={t("workspace.workflow.worktreeSource", "Source")}
+            value={
+              info.source === "managed"
+                ? t("workspace.workflow.worktreeSourceManaged", "Managed")
+                : t("workspace.workflow.worktreeSourceTrace", "Trace")
+            }
+          />
+        </div>
+      </div>
+    </IconTip>
   )
 }
 
