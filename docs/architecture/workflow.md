@@ -473,7 +473,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - 若当前仍是草稿新会话，输入框和 Workspace / Workflow Control Center 的 Workflow Mode / Execution Mode 控件都会先走 ChatScreen 的会话物化路径创建真实 session，再写入 session-scoped mode，避免用户必须先发送一条占位消息。
 - 输入框内直接执行 `/workflow on`、`/mode guarded` 或 `/goal <objective>` 这类会写 session 状态的 slash command 时，也复用同一物化路径。
 - Workspace / Workflow Control Center 顶部提供 Workflow Mode 控制；与输入框入口实时同步。
-- Workspace / Workflow Control Center 顶部展示「自主推进就绪」卡片，聚合当前 Goal、Workflow Mode、Execution Mode、WorkflowRun、Loop schedule、Operational Gate 与 Soak Report 状态，给出 `自主就绪 / 观察中 / 待配置 / 需处理`。该卡片可触发用户显式 setup 动作：展开 Goal 创建/编辑、开启 Workflow Mode、把 Execution Mode 设为 guarded、打开工作流 Loop 创建器；当存在 failed / blocked WorkflowRun 或 blocked Loop 时，卡片优先展示“查看工作流 / 查看 Loop”定位入口，直接选中问题 run 或打开 loop 运行记录。它不自动创建 run、不自动启动 loop、不自动 approve/retry/cancel。
+- Workspace / Workflow Control Center 顶部展示「自主推进就绪」卡片，聚合当前 Goal、Workflow Mode、Execution Mode、WorkflowRun、Loop schedule、Operational Gate 与 Soak Report 状态，给出 `自主就绪 / 观察中 / 待配置 / 需处理`。该卡片可触发用户显式 setup 动作：展开 Goal 创建/编辑、开启 Workflow Mode、把 Execution Mode 设为 guarded、打开工作流 Loop 创建器；当存在 failed / blocked WorkflowRun、blocked Loop、Operational Gate 非通过或 Soak Report 非通过时，卡片优先展示“查看工作流 / 查看 Loop / 查看稳定性 / 查看长跑”定位入口，直接选中问题 run、打开 loop 运行记录，或滚动展开通用任务工作台中的运行稳定性 / 长跑审计卡片。它不自动创建 run、不自动启动 loop、不自动 approve/retry/cancel。
 - 标题栏 `Workflow`/Workspace 入口与 active / waiting / failed badge。
 - Workflow 创建区提供“运行位置”：当前目录、新隔离工作树、已有 managed worktree。默认当前目录，用户显式选择后才创建或绑定 worktree。
 - Run 列表会标记已绑定 `worktreeId` 的 workflow，便于用户区分普通运行和隔离运行。

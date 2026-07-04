@@ -3041,6 +3041,7 @@ function DomainTaskWorkbenchSection({
   verificationRunsState,
   domainQualityRunsState,
   domainWorkbenchState,
+  focusRequest,
 }: {
   sessionId?: string | null
   incognito?: boolean
@@ -3049,6 +3050,7 @@ function DomainTaskWorkbenchSection({
   verificationRunsState: VerificationRunsState
   domainQualityRunsState: DomainQualityRunsState
   domainWorkbenchState: DomainTaskWorkbenchState
+  focusRequest?: { target: "operational" | "soak"; nonce: number } | null
 }) {
   const { t } = useTranslation()
   const {
@@ -3152,6 +3154,8 @@ function DomainTaskWorkbenchSection({
     (operationalGate?.checks?.length ?? 0) +
     (soakReport?.incidents?.length ?? 0)
 
+  const focusSignal = focusRequest?.nonce ?? 0
+
   const handleRefresh = () => {
     void refreshAll()
     reviewRunsState.refresh()
@@ -3195,6 +3199,7 @@ function DomainTaskWorkbenchSection({
       title={t("workspace.domainWorkbench.title", "通用任务工作台")}
       count={count}
       icon={Layers}
+      expandSignal={focusSignal}
       meta={
         <StatusPill
           label={domainWorkbenchOverallLabel(t, tone, loading)}
@@ -7268,6 +7273,8 @@ function AutonomousReadinessCard({
   onOpenLoopCreate,
   onOpenWorkflowProblem,
   onOpenLoopProblem,
+  onOpenOperationalGate,
+  onOpenSoakReport,
 }: {
   activeGoal: Goal | null
   workflowMode: WorkflowAutonomyMode
@@ -7288,6 +7295,8 @@ function AutonomousReadinessCard({
   onOpenLoopCreate?: () => void
   onOpenWorkflowProblem?: (runId: string) => void
   onOpenLoopProblem?: (loopId: string) => void
+  onOpenOperationalGate?: () => void
+  onOpenSoakReport?: () => void
 }) {
   const { t } = useTranslation()
   const problemWorkflow = workflowRunsState.runs.find(workflowRunHasHardProblem) ?? null
@@ -7350,6 +7359,32 @@ function AutonomousReadinessCard({
       label: t("workspace.autonomousReadiness.actionViewLoop", "查看 Loop"),
       icon: Radio,
       onClick: () => onOpenLoopProblem(problemLoop.id),
+    })
+  }
+  if (
+    !incognito &&
+    domainWorkbenchState.operationalGate?.status &&
+    domainWorkbenchState.operationalGate.status !== "passed" &&
+    onOpenOperationalGate
+  ) {
+    quickActions.push({
+      key: "operational-gate",
+      label: t("workspace.autonomousReadiness.actionViewOperational", "查看稳定性"),
+      icon: Gauge,
+      onClick: onOpenOperationalGate,
+    })
+  }
+  if (
+    !incognito &&
+    domainWorkbenchState.soakReport?.status &&
+    domainWorkbenchState.soakReport.status !== "passed" &&
+    onOpenSoakReport
+  ) {
+    quickActions.push({
+      key: "soak-report",
+      label: t("workspace.autonomousReadiness.actionViewSoak", "查看长跑"),
+      icon: Clock,
+      onClick: onOpenSoakReport,
     })
   }
   if (!incognito && !activeGoal && onOpenGoalCreate) {
@@ -9110,6 +9145,7 @@ function WorkflowRunsSection({
   onViewSubagentSession,
   onOpenLoopCreate,
   onOpenLoopProblem,
+  onOpenDomainWorkbench,
   workflowRunsState,
   loopSchedulesState,
   goalState,
@@ -9124,6 +9160,7 @@ function WorkflowRunsSection({
   onViewSubagentSession?: (sessionId: string) => void
   onOpenLoopCreate?: () => void
   onOpenLoopProblem?: (loopId: string) => void
+  onOpenDomainWorkbench?: (target: "operational" | "soak") => void
   workflowRunsState?: WorkflowRunsState
   loopSchedulesState: LoopSchedulesState
   goalState: GoalStateSnapshot
@@ -10189,6 +10226,8 @@ ${repairPrompt}`
               onOpenLoopCreate={onOpenLoopCreate}
               onOpenWorkflowProblem={focusWorkflowRun}
               onOpenLoopProblem={onOpenLoopProblem}
+              onOpenOperationalGate={() => onOpenDomainWorkbench?.("operational")}
+              onOpenSoakReport={() => onOpenDomainWorkbench?.("soak")}
             />
             <WorkflowAutonomyModeControl
               mode={workflowMode}
@@ -14465,15 +14504,29 @@ export default function WorkspacePanel({
   const verificationRunsState = useVerificationRuns(sessionId, { incognito, turnActive })
   const domainQualityRunsState = useDomainQualityRuns(sessionId, { incognito, turnActive })
   const domainTaskWorkbenchState = useDomainTaskWorkbench(sessionId, { incognito, turnActive })
+  const domainWorkbenchRef = useRef<HTMLDivElement | null>(null)
+  const [domainWorkbenchFocusRequest, setDomainWorkbenchFocusRequest] = useState<{
+    target: "operational" | "soak"
+    nonce: number
+  } | null>(null)
   const workflowSectionRef = useRef<HTMLDivElement | null>(null)
   const [workflowFocusTarget, setWorkflowFocusTarget] = useState<WorkflowFocusTarget | null>(null)
+  const focusDomainWorkbench = useCallback((target: "operational" | "soak") => {
+    setDomainWorkbenchFocusRequest((current) => ({
+      target,
+      nonce: (current?.nonce ?? 0) + 1,
+    }))
+    window.setTimeout(() => {
+      domainWorkbenchRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" })
+    }, 0)
+  }, [])
   const focusWorkflowRun = useCallback((runId: string) => {
     setWorkflowFocusTarget((current) => ({
       runId,
       nonce: (current?.nonce ?? 0) + 1,
     }))
     window.setTimeout(() => {
-      workflowSectionRef.current?.scrollIntoView({ block: "start", behavior: "smooth" })
+      workflowSectionRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" })
     }, 0)
   }, [])
 
@@ -14548,15 +14601,18 @@ export default function WorkspacePanel({
           onDomainEvidenceRecorded={domainTaskWorkbenchState.refreshAll}
         />
 
-        <DomainTaskWorkbenchSection
-          sessionId={sessionId}
-          incognito={incognito}
-          workingDir={effectiveWorkingDir}
-          reviewRunsState={reviewRunsState}
-          verificationRunsState={verificationRunsState}
-          domainQualityRunsState={domainQualityRunsState}
-          domainWorkbenchState={domainTaskWorkbenchState}
-        />
+        <div ref={domainWorkbenchRef}>
+          <DomainTaskWorkbenchSection
+            sessionId={sessionId}
+            incognito={incognito}
+            workingDir={effectiveWorkingDir}
+            reviewRunsState={reviewRunsState}
+            verificationRunsState={verificationRunsState}
+            domainQualityRunsState={domainQualityRunsState}
+            domainWorkbenchState={domainTaskWorkbenchState}
+            focusRequest={domainWorkbenchFocusRequest}
+          />
+        </div>
 
         <LspDiagnosticsSection
           sessionId={sessionId}
@@ -14623,6 +14679,7 @@ export default function WorkspacePanel({
                 nonce: (current?.nonce ?? 0) + 1,
               }))
             }
+            onOpenDomainWorkbench={focusDomainWorkbench}
             workflowRunsState={sharedWorkflowRunsState}
             loopSchedulesState={loopSchedulesState}
             goalState={goalState}

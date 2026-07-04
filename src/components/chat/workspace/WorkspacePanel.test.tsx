@@ -10,7 +10,9 @@ import type {
   CodingTrendReport,
   ContextRetrievalSnapshot,
   DomainEvidenceItem,
+  DomainOperationalGateReport,
   DomainQualityRunSnapshot,
+  DomainSoakReport,
   DomainWorkflowDraft,
   DomainWorkflowTemplate,
   ManagedWorktree,
@@ -712,6 +714,152 @@ function managedWorktree(patch: Partial<ManagedWorktree> = {}): ManagedWorktree 
     archivedAt: null,
     restoredAt: null,
     handedOffAt: null,
+    ...patch,
+  }
+}
+
+function domainOperationalGateReport(
+  patch: Partial<DomainOperationalGateReport> = {},
+): DomainOperationalGateReport {
+  return {
+    generatedAt: "2026-01-01T00:05:00Z",
+    status: "failed",
+    scope: "session",
+    sessionId: "s1",
+    projectId: null,
+    domain: "research",
+    since: "2025-12-18T00:00:00Z",
+    thresholds: {
+      windowDays: 14,
+      minWorkflowRuns: 1,
+      maxFailedWorkflowRuns: 0,
+      maxBlockedWorkflowRuns: 0,
+      maxCancelledWorkflowRuns: 0,
+      maxActiveWorkflowRuns: 0,
+      minLoopRuns: 0,
+      maxFailedLoopRuns: 0,
+      maxActiveCampaigns: 0,
+      maxFailedCampaignItems: 0,
+    },
+    summary: {
+      workflowRuns: 2,
+      completedWorkflowRuns: 1,
+      failedWorkflowRuns: 1,
+      blockedWorkflowRuns: 0,
+      cancelledWorkflowRuns: 0,
+      activeWorkflowRuns: 0,
+      pausedWorkflowRuns: 0,
+      awaitingApprovalWorkflowRuns: 0,
+      loopSchedules: 1,
+      activeLoopSchedules: 0,
+      loopRuns: 1,
+      succeededLoopRuns: 1,
+      failedLoopRuns: 0,
+      activeLoopRuns: 0,
+      campaigns: 0,
+      activeCampaigns: 0,
+      campaignItems: 0,
+      passedCampaignItems: 0,
+      failedCampaignItems: 0,
+      cancelledCampaignItems: 0,
+      interruptedCampaignItems: 0,
+      latestActivityAt: "2026-01-01T00:04:00Z",
+    },
+    checks: [
+      {
+        name: "workflow_failed_residue",
+        status: "failed",
+        severity: "critical",
+        expected: "0 failed workflow runs",
+        actual: "1",
+        detail: "A workflow run failed in the active window.",
+      },
+    ],
+    blockers: ["failed workflow residue"],
+    recommendedNextSteps: ["Open the failed workflow and repair it."],
+    ...patch,
+  }
+}
+
+function domainSoakReport(patch: Partial<DomainSoakReport> = {}): DomainSoakReport {
+  const operationalGate = domainOperationalGateReport()
+  return {
+    generatedAt: "2026-01-01T00:06:00Z",
+    status: "failed",
+    scope: "session",
+    sessionId: "s1",
+    projectId: null,
+    domain: "research",
+    windowDays: 14,
+    since: "2025-12-18T00:00:00Z",
+    until: "2026-01-01T00:06:00Z",
+    summary: {
+      workflowRuns: 2,
+      completedWorkflowRuns: 1,
+      failedWorkflowRuns: 1,
+      blockedWorkflowRuns: 0,
+      cancelledWorkflowRuns: 0,
+      activeWorkflowRuns: 0,
+      awaitingApprovalWorkflowRuns: 0,
+      repairWorkflowRuns: 0,
+      approvalEvents: 0,
+      pauseEvents: 0,
+      resumeEvents: 0,
+      cancelEvents: 0,
+      recoveryEvents: 0,
+      averageWorkflowDrainSecs: 120,
+      maxWorkflowDrainSecs: 240,
+      loopRuns: 1,
+      succeededLoopRuns: 1,
+      failedLoopRuns: 0,
+      activeLoopRuns: 0,
+      averageLoopDurationSecs: 30,
+      maxLoopDurationSecs: 30,
+      campaigns: 0,
+      activeCampaigns: 0,
+      campaignItems: 0,
+      passedCampaignItems: 0,
+      failedCampaignItems: 0,
+      cancelledCampaignItems: 0,
+      interruptedCampaignItems: 0,
+      retriedCampaignItems: 0,
+      averageCampaignItemDurationSecs: null,
+      maxCampaignItemDurationSecs: null,
+      connectorE2eEvidence: 0,
+      connectorExecutionEvidence: 0,
+      connectorVerificationEvidence: 0,
+      incidents: 1,
+      criticalIncidents: 1,
+      warningIncidents: 0,
+      totalRecords: 3,
+    },
+    incidents: [
+      {
+        source: "workflow",
+        id: "wf-failed",
+        title: "Workflow failed",
+        status: "failed",
+        severity: "critical",
+        startedAt: "2026-01-01T00:00:00Z",
+        finishedAt: "2026-01-01T00:04:00Z",
+        durationSecs: 240,
+        reason: "validation failed",
+        recommendation: "Repair the workflow before continuing the loop.",
+      },
+    ],
+    timeline: [
+      {
+        source: "workflow",
+        id: "wf-failed",
+        label: "Workflow failed",
+        status: "failed",
+        at: "2026-01-01T00:04:00Z",
+        durationSecs: 240,
+      },
+    ],
+    recommendedNextSteps: ["Repair the failed workflow."],
+    markdown: "Workflow failed",
+    operationalGate,
     ...patch,
   }
 }
@@ -1548,6 +1696,36 @@ describe("WorkspacePanel workflow section", () => {
         loopId: "loop-blocked",
       })
     })
+  })
+
+  it("opens operational and soak evidence from readiness actions", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([])
+      if (name === "get_workflow_mode") return Promise.resolve({ mode: "on" })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "evaluate_domain_operational_gate")
+        return Promise.resolve(domainOperationalGateReport())
+      if (name === "generate_domain_soak_report") return Promise.resolve(domainSoakReport())
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    expect(await screen.findByText("需处理")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "查看稳定性" }))
+    expect(await screen.findByText("运行稳定性")).toBeTruthy()
+    expect(screen.getByText("workflow_failed_residue")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "查看长跑" }))
+    expect(await screen.findByText("长跑审计")).toBeTruthy()
+    expect(screen.getByText("Workflow failed")).toBeTruthy()
   })
 
   it("links workflow loop rows to their derived workflow run", async () => {

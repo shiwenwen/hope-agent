@@ -108,6 +108,7 @@ Phase 8.4 在 `src/components/chat/workspace/WorkspacePanel.tsx` 新增「通用
 - 「刷新工作台」同时刷新 domain evidence、Artifact Export Guard、Connector Action Guard、Operational Gate、Soak Report、review、verification 与 domain quality state。
 - 「运行稳定性」卡片调用 `evaluate_domain_operational_gate({ sessionId, windowDays: 14 })`，显示 workflow 完成/活跃、loop 成功/失败、campaign 活跃和阻塞 check。
 - 「长跑审计」卡片调用 `generate_domain_soak_report({ sessionId, windowDays: 14, maxItems: 8 })`，显示样本数、critical/warning incidents、最长 workflow drain 和最近事故建议。
+- Workflow 区块顶部的「自主推进就绪」卡片读取同一份通用任务工作台 state；当 Operational Gate 或 Soak Report 非通过时，`查看稳定性` / `查看长跑` 会滚动并展开通用任务工作台，定位到运行稳定性和长跑审计证据。该入口只做定位，不自动刷新、不自动重试、不自动修改 gate 结果。
 - Context Retrieval 候选行的「摘要」按钮调用既有 `record_domain_evidence`，把候选确定性整理为 `artifact_created` context summary evidence；成功后刷新推荐上下文和通用任务工作台。
 - Context Retrieval 候选行的「确认」按钮调用 `create_owner_ask_user_question`，复用 ask_user UI 创建 durable 用户确认；用户回答后由 `respond_ask_user_question` 写入 `user_decision` evidence，回答内容并入 `sourceMetadata.answers`。
 - Context Retrieval 候选行的「证据」按钮调用既有 `record_domain_evidence`，把候选来源/文档/会议/表格/决策等落成当前 session 的 domain evidence；成功后刷新推荐上下文和通用任务工作台。
