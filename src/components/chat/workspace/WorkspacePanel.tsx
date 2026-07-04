@@ -108,6 +108,7 @@ import type {
   ContextCandidateKind,
   DomainApprovalGate,
   DomainArtifactExportGuardReport,
+  DomainConnectorActionGuardReport,
   DomainEvidenceRequirement,
   DomainQualityCheck,
   DomainQualityCheckStatus,
@@ -3195,6 +3196,10 @@ function DomainQualitySection({
   const [exportGuard, setExportGuard] = useState<DomainArtifactExportGuardReport | null>(null)
   const [exportGuardLoading, setExportGuardLoading] = useState(false)
   const [exportGuardError, setExportGuardError] = useState<string | null>(null)
+  const [connectorGuard, setConnectorGuard] =
+    useState<DomainConnectorActionGuardReport | null>(null)
+  const [connectorGuardLoading, setConnectorGuardLoading] = useState(false)
+  const [connectorGuardError, setConnectorGuardError] = useState<string | null>(null)
   const { runs, snapshot, loading, running, error, refresh, runDomainQuality } =
     useDomainQualityRuns(sessionId, { incognito, turnActive })
   const latest = snapshot?.run ?? runs[0]
@@ -3267,15 +3272,56 @@ function DomainQualitySection({
     }
   }, [incognito, sessionId])
 
+  const refreshConnectorGuard = useCallback(async () => {
+    if (!sessionId || incognito) {
+      setConnectorGuard(null)
+      setConnectorGuardError(null)
+      setConnectorGuardLoading(false)
+      return null
+    }
+    setConnectorGuardLoading(true)
+    setConnectorGuardError(null)
+    try {
+      const report = await getTransport().call<DomainConnectorActionGuardReport>(
+        "evaluate_domain_connector_action_guard",
+        {
+          input: {
+            sessionId,
+            requireExplicitApproval: true,
+            requireRollbackPlan: true,
+            requireExportGuardForDelivery: true,
+          },
+        },
+      )
+      setConnectorGuard(report)
+      return report
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error(
+        "ui",
+        "DomainQualitySection::refreshConnectorGuard",
+        "Failed to evaluate connector action guard",
+        e,
+      )
+      setConnectorGuardError(message)
+      return null
+    } finally {
+      setConnectorGuardLoading(false)
+    }
+  }, [incognito, sessionId])
+
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
-      if (!cancelled) void refreshExportGuard()
+      if (!cancelled) {
+        void refreshExportGuard()
+        void refreshConnectorGuard()
+      }
     })
     return () => {
       cancelled = true
     }
-  }, [refreshExportGuard])
+  }, [refreshConnectorGuard, refreshExportGuard])
 
   const prevExportGuardTurnActive = useRef(turnActive)
   useEffect(() => {
@@ -3284,13 +3330,16 @@ function DomainQualitySection({
     prevExportGuardTurnActive.current = turnActive
     if (was && !turnActive) {
       queueMicrotask(() => {
-        if (!cancelled) void refreshExportGuard()
+        if (!cancelled) {
+          void refreshExportGuard()
+          void refreshConnectorGuard()
+        }
       })
     }
     return () => {
       cancelled = true
     }
-  }, [refreshExportGuard, turnActive])
+  }, [refreshConnectorGuard, refreshExportGuard, turnActive])
 
   const handleRun = async () => {
     const next = await runDomainQuality()
@@ -3303,6 +3352,7 @@ function DomainQualitySection({
         toast.error(t("workspace.domainQuality.runBlocked", "领域复核发现阻塞项"))
       }
       void refreshExportGuard()
+      void refreshConnectorGuard()
     }
   }
 
@@ -3416,13 +3466,22 @@ function DomainQualitySection({
         </div>
 
         {!incognito ? (
-          <DomainArtifactExportGuardPanel
-            report={exportGuard}
-            loading={exportGuardLoading}
-            error={exportGuardError}
-            disabled={!sessionId || exportGuardLoading}
-            onRefresh={refreshExportGuard}
-          />
+          <>
+            <DomainConnectorActionGuardPanel
+              report={connectorGuard}
+              loading={connectorGuardLoading}
+              error={connectorGuardError}
+              disabled={!sessionId || connectorGuardLoading}
+              onRefresh={refreshConnectorGuard}
+            />
+            <DomainArtifactExportGuardPanel
+              report={exportGuard}
+              loading={exportGuardLoading}
+              error={exportGuardError}
+              disabled={!sessionId || exportGuardLoading}
+              onRefresh={refreshExportGuard}
+            />
+          </>
         ) : null}
 
         {incognito ? (
@@ -3602,6 +3661,171 @@ function DomainArtifactExportGuardPanel({
       ) : null}
     </div>
   )
+}
+
+function DomainConnectorActionGuardPanel({
+  report,
+  loading,
+  error,
+  disabled,
+  onRefresh,
+}: {
+  report: DomainConnectorActionGuardReport | null
+  loading: boolean
+  error: string | null
+  disabled: boolean
+  onRefresh: () => Promise<DomainConnectorActionGuardReport | null>
+}) {
+  const { t } = useTranslation()
+  const issueChecks = (report?.checks ?? []).filter((check) => check.status !== "passed")
+  const summary = report?.summary
+  const clean = report?.status === "passed"
+
+  return (
+    <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium text-foreground/90">
+            {t("workspace.domainConnectorGuard.title", "外部动作守门")}
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {report
+              ? t("workspace.domainConnectorGuard.generated", "最近评估 {{time}}", {
+                  time: formatMessageTime(report.generatedAt),
+                })
+              : t("workspace.domainConnectorGuard.emptyHint", "检查连接器动作、用户批准和回滚提示")}
+          </div>
+        </div>
+        <StatusPill
+          label={domainConnectorActionGuardLabel(t, report?.status, loading)}
+          tone={domainConnectorActionGuardTone(report?.status, loading)}
+          loading={loading}
+        />
+        <IconTip label={t("workspace.domainConnectorGuard.refresh", "刷新外部动作守门")}>
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            disabled={disabled}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-secondary/25 text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:opacity-55"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </IconTip>
+      </div>
+
+      {summary ? (
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          {[
+            [t("workspace.domainConnectorGuard.action", "动作"), summary.actionEvidence, "info"],
+            [t("workspace.domainConnectorGuard.approval", "批准"), summary.approvalEvidence, summary.approvalEvidence > 0 ? "good" : "danger"],
+            [t("workspace.domainConnectorGuard.rollback", "回滚"), summary.rollbackEvidence, summary.rollbackEvidence > 0 ? "good" : "warn"],
+            [t("workspace.domainConnectorGuard.sensitive", "敏感"), summary.sensitiveEvidence, summary.sensitiveEvidence > 0 ? "warn" : "muted"],
+          ].map(([label, count, tone]) => (
+            <div
+              key={label as string}
+              className={cn("rounded-md border px-2 py-1.5", STATUS_TONE_CLASS[tone as StatusTone])}
+            >
+              <div className="truncate text-[10px]">{label as string}</div>
+              <div className="text-xs font-semibold tabular-nums">{count as number}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {report?.connector || report?.action || report?.toolName ? (
+        <div className="mt-2 flex min-w-0 flex-wrap gap-1">
+          {report.connector ? <StatusPill label={report.connector} tone="info" /> : null}
+          {report.action ? <StatusPill label={report.action} tone="muted" /> : null}
+          {report.toolName ? <StatusPill label={report.toolName} tone="muted" /> : null}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+          {error}
+        </div>
+      ) : clean ? (
+        <div className="mt-2 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+          {t("workspace.domainConnectorGuard.clean", "外部动作证据通过，真正执行前仍会逐次弹出确认。")}
+        </div>
+      ) : issueChecks.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {issueChecks.slice(0, 3).map((check) => (
+            <div
+              key={check.name}
+              className={cn(
+                "rounded-md px-2 py-1.5 text-[11px]",
+                check.status === "failed"
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <CircleAlert className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                <span className="shrink-0 tabular-nums">{check.actual}</span>
+              </div>
+              <div className="mt-0.5 truncate opacity-85">{check.detail}</div>
+            </div>
+          ))}
+        </div>
+      ) : !loading ? (
+        <EmptyHint>{t("workspace.domainConnectorGuard.empty", "还没有外部动作守门结果")}</EmptyHint>
+      ) : null}
+
+      {report?.relatedEvidence.length ? (
+        <div className="mt-2 space-y-1">
+          {report.relatedEvidence.slice(0, 2).map((item) => (
+            <div
+              key={item.id}
+              className="min-w-0 rounded-md border border-border/40 bg-secondary/25 px-2 py-1.5 text-[11px] text-muted-foreground"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Shield className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">
+                  {item.title}
+                </span>
+                <StatusPill label={item.reason} tone="muted" />
+              </div>
+              <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
+                {item.accessScope} · {item.redactionStatus}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function domainConnectorActionGuardTone(
+  status?: string | null,
+  loading?: boolean,
+): StatusTone {
+  if (loading) return "info"
+  if (status === "passed") return "good"
+  if (status === "failed") return "danger"
+  if (status === "insufficient_data") return "warn"
+  return "muted"
+}
+
+function domainConnectorActionGuardLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  status?: string | null,
+  loading?: boolean,
+): string {
+  if (loading) return t("workspace.domainConnectorGuard.loading", "评估中")
+  if (status === "passed") return t("workspace.domainConnectorGuard.passed", "可执行")
+  if (status === "failed") return t("workspace.domainConnectorGuard.failed", "阻塞")
+  if (status === "insufficient_data") {
+    return t("workspace.domainConnectorGuard.insufficient", "缺证据")
+  }
+  return t("workspace.domainConnectorGuard.idle", "未评估")
 }
 
 function domainArtifactExportGuardTone(

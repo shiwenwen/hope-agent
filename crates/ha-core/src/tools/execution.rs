@@ -989,6 +989,11 @@ fn needs_permission_engine(
     let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
     let auto_approve_blocked_by_plan = effective_auto_approve && plan_requires_ask;
     let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
+    let connector_action_requires_approval = !ctx.external_pre_approved
+        && crate::permission::engine::classify_external_connector_action(name, args).is_some();
+    if connector_action_requires_approval && !is_skill_read(name, args) {
+        return true;
+    }
     (!effective_auto_approve || auto_approve_blocked_by_plan)
         && !is_skill_read(name, args)
         && (name != TOOL_EXEC || exec_skip_blocked_by_plan)
@@ -2790,6 +2795,40 @@ export default async function main(workflow) {
             &json!({}),
             &ctx,
             true
+        ));
+    }
+
+    #[test]
+    fn auto_approved_connector_action_still_runs_engine() {
+        let ctx = ToolExecContext {
+            auto_approve_tools: true,
+            ..ToolExecContext::default()
+        };
+        assert!(needs_permission_engine(
+            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            &json!({"summary": "Customer call"}),
+            &ctx,
+            ctx.local_auto_approve()
+        ));
+        assert!(needs_permission_engine(
+            "mcp__gmail__send_email",
+            &json!({"to": "user@example.com", "body": "hello"}),
+            &ctx,
+            true
+        ));
+    }
+
+    #[test]
+    fn external_pre_approved_connector_action_skips_engine_reentry() {
+        let ctx = ToolExecContext {
+            external_pre_approved: true,
+            ..ToolExecContext::default()
+        };
+        assert!(!needs_permission_engine(
+            crate::tools::feishu::TOOL_CALENDAR_CREATE_EVENT,
+            &json!({"summary": "Customer call"}),
+            &ctx,
+            ctx.local_auto_approve()
         ));
     }
 

@@ -480,6 +480,9 @@ fn render_ask_reason(reason: &AskReason) -> String {
         AskReason::MacControlDangerousAction { action } => {
             format!("dangerous macOS control action `{action}` requires approval")
         }
+        AskReason::ExternalConnectorAction { connector, action } => {
+            format!("external connector action `{connector}: {action}` requires per-call approval")
+        }
         AskReason::PlanModeAsk => "Plan Mode requires explicit approval".to_string(),
         AskReason::CronDelete => "cron deletion requires approval".to_string(),
     }

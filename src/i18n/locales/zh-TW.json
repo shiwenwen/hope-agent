@@ -99,7 +99,11 @@
       },
       "browser_raw_cdp": {
         "title": "進階瀏覽器 CDP 命令",
-        "body": "這次瀏覽器操作會向真實 Chrome 分頁傳送原始 Chrome DevTools Protocol 命令。它走正常工具審批流；始終允許、Smart 模式和 YOLO 都按目前會話策略生效。"
+        "body": "這次瀏覽器操作會向真實 Chrome 分頁傳送原始 Chrome DevTools Protocol 命令。必須逐次確認，不能使用始終允許。"
+      },
+      "external_connector_action": {
+        "title": "外部連接器動作",
+        "body": "這次呼叫會修改外部系統中的郵件、日曆、文件、試算表或業務紀錄。必須逐次確認，不能使用始終允許。"
       },
       "browser_download_action": {
         "title": "瀏覽器下載操作",

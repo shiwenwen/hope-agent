@@ -99,7 +99,11 @@
       },
       "browser_raw_cdp": {
         "title": "高级浏览器 CDP 命令",
-        "body": "这次浏览器操作会向真实 Chrome 标签页发送原始 Chrome DevTools Protocol 命令。它走正常工具审批流；始终允许、Smart 模式和 YOLO 都按当前会话策略生效。"
+        "body": "这次浏览器操作会向真实 Chrome 标签页发送原始 Chrome DevTools Protocol 命令。必须逐次确认，不能使用始终允许。"
+      },
+      "external_connector_action": {
+        "title": "外部连接器动作",
+        "body": "这次调用会修改外部系统中的邮件、日程、文档、表格或业务记录。必须逐次确认，不能使用始终允许。"
       },
       "browser_download_action": {
         "title": "浏览器下载操作",

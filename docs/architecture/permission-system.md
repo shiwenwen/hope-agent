@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-06-19
+> 更新时间：2026-07-04
 
 ## 目录
 
@@ -32,7 +32,7 @@ Hope Agent 的权限/审批系统决定**每一次工具调用是否需要弹审
 1. **单入口判定**：所有工具调用走 `permission::engine::resolve_async(ctx) -> Decision`，返回 `Allow / Ask { reason } / Deny { reason }`
 2. **一根信任度轴**：从最严格到最宽松——Plan Mode > Default 模式 > Smart 模式 > Yolo 模式（session 级）+ 全局 YOLO（process 级）
 3. **Plan Mode 正交**：Plan Mode 是一种"工作模式"而非权限模式，能强行覆盖任何 YOLO 与 Smart override
-4. **保护层不可绕过**：保护路径 + 危险命令 + 高风险 macOS 控制在非 YOLO 模式下强制弹审批且不能 AllowAlways；YOLO 模式只 warn 不弹
+4. **保护层不可绕过**：保护路径 + 危险命令 + 高风险 macOS 控制 + raw CDP + 外部连接器写动作在非 YOLO 模式下强制弹审批且不能 AllowAlways；YOLO 模式只 warn 不弹
 5. **无痕禁持久化 AllowAlways**（Epic E / INCOG-6）：无痕会话的 AllowAlways 被 `allowlist::choose_scope` 强制为内存 `Session` scope（焚毁随 `clear_session_rules` 清除），绝不落 project / agent-home / global 磁盘；`exec` 走同一 `add_allow_always_for_call` 故自动覆盖。前端按 `ApprovalRequest.incognito` 隐藏「始终允许」按钮（UX 半），后端 `choose_scope` 是不可绕过的红线半。无痕「四旁路守卫」全貌见 [session.md](session.md#四旁路守卫epic-e)
 6. **clean break，不做迁移**：老的 `ToolPermissionMode` / `exec-approvals.json` / `auto_approve_tools` 等字段全部删除，老用户审批规则需要重新设置
 
@@ -42,7 +42,7 @@ graph TD
     Engine["permission::engine::resolve_async"]
     Plan{"Plan Mode<br/>active?"}
     Yolo{"Global / Session<br/>YOLO?"}
-    Strict{"Protected Path /<br/>Dangerous Command?"}
+    Strict{"Protected Path /<br/>Dangerous Command /<br/>External Connector?"}
     Mode{"session_mode"}
     Default["Default 模式<br/>edit-class + edit-command<br/>browser control<br/>+ custom_approval_tools"]
     Smart["Smart 模式<br/>_confidence + judge_model<br/>+ soft approval floor"]
@@ -88,13 +88,13 @@ graph TD
 | `standard` | Docker 沙箱执行 | 审批不放松，兼容旧 `capabilities.sandbox=true` |
 | `isolated` | Docker 内执行，工作区先复制到临时隔离副本 | v1 不放松审批；隔离 diff 写回落地后再开放 |
 | `workspace` | Docker 直接挂载当前工作区 | workspace 内 `exec` 编辑命令可放松；直接文件工具仍审批 |
-| `trusted` | 沙箱内 exec 最大自治 | 同 `workspace`，strict 项仍每次审批：保护路径、危险命令、raw CDP、macOS 高危控制等 |
+| `trusted` | 沙箱内 exec 最大自治 | 同 `workspace`，strict 项仍每次审批：保护路径、危险命令、raw CDP、macOS 高危控制、外部连接器写动作等 |
 
 切换入口：聊天输入区的 `SandboxModeSwitcher`。会话首次创建时按 `AgentConfig.capabilities.default_sandbox_mode` 解析；该字段缺失时兼容旧布尔 `AgentConfig.capabilities.sandbox`（`true → standard`，`false → off`）。非 `off` 但 Docker 不可用时，工具执行 fail-closed 返回 `SandboxUnavailable`，不得静默回落到宿主机执行。
 
 ### Global YOLO（进程级）
 
-`AppConfig.permission.global_yolo: bool` + CLI flag `--dangerously-skip-all-approvals`（OR 关系）。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍可拦截。命中保护路径 / 危险命令 / macOS 控制动作时落 `app_warn!` 审计日志、不弹窗（语义：用户既然开了全局 YOLO 就是接受全部风险）。
+`AppConfig.permission.global_yolo: bool` + CLI flag `--dangerously-skip-all-approvals`（OR 关系）。开启时**所有会话**都视作 YOLO，仅 Plan Mode 仍可拦截。命中保护路径 / 危险命令 / macOS 控制动作 / raw CDP / 外部连接器写动作时落 `app_warn!` 审计日志、不弹窗（语义：用户既然开了全局 YOLO 就是接受全部风险）。
 
 ### Plan Mode（独立工作模式）
 
@@ -139,7 +139,7 @@ Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,f
 |---|------|------|------------|
 | 1 | **Plan Mode** | 不在白名单 → `Deny`；在白名单 → 继续过 Internal / strict / ask_tools / soft approval 门禁，跳过 YOLO / AllowAlways / Session fallback | ❌ 最高 |
 | 2 | **Internal Tools** | `ToolDefinition.internal=true` 的工具直接 `Allow` | 仅次于 Plan |
-| 3 | **YOLO**（global / session） | 全部 `Allow`；保护路径/危险命令/macOS 控制动作/browser.evaluate/browser.raw_cdp/browser.real_chrome_access/browser.download_cancel 命中只 warn | 仅 Plan 能压 |
+| 3 | **YOLO**（global / session） | 全部 `Allow`；保护路径/危险命令/macOS 控制动作/browser.evaluate/browser.raw_cdp/browser.real_chrome_access/browser.download_cancel/外部连接器写动作命中只 warn | 仅 Plan 能压 |
 | 4 | **保护路径** | 非 YOLO 时强制 `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
 | 5 | **危险命令** | 非 YOLO 时强制 `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
 | 6 | **macOS 控制动作** | `mac_control` 普通/隐私动作 → `Ask`；高风险动作 → `Ask` + `forbids_allow_always=true` | 仅 YOLO / Plan |
@@ -149,7 +149,7 @@ Unattended 时按 `permission.unattended_approval_action` 处理:`Deny`(默认,f
 
 **Default 模式展开**：edit-class 工具（`write/edit/apply_patch`）→ `Ask`；`exec` 命中编辑命令 → `Ask`；`browser.control.evaluate/raw_cdp/download_cancel`、`browser.tabs.open_user_tabs/claim/select(数字 extension tab id)`、`browser.observe.downloads` → 对应浏览器 AskReason；`agent_custom_approval_enabled && tool ∈ custom_approval_tools` → `Ask`。
 
-**Smart 模式展开**：① `_confidence:"high"`（仅 SelfConfidence/Both 策略） → `Allow`；② **确定性信任范围**——`write/edit/apply_patch` 的所有目标路径都是本会话已编辑过的文件 → `Allow`（与策略无关，不依赖模型自报；工作目录**不**单独给确定性放行）；③ 否则走"soft approval floor"（edit-class / edit-command / browser.evaluate/raw_cdp/real_chrome_access/download_cancel，与 Default 共享但**不消费 custom_approval_tools**）→ `Ask`；async wrapper 在非 strict Ask 时调 judge_model 看是否升级为 Allow / Deny。保护路径 / 危险命令在模式分发**之前**已拦截，故工作目录内的 `.env` 写入等仍强制弹窗。
+**Smart 模式展开**：① `_confidence:"high"`（仅 SelfConfidence/Both 策略） → `Allow`；② **确定性信任范围**——`write/edit/apply_patch` 的所有目标路径都是本会话已编辑过的文件 → `Allow`（与策略无关，不依赖模型自报；工作目录**不**单独给确定性放行）；③ 否则走"soft approval floor"（edit-class / edit-command / browser.evaluate/real_chrome_access/download_cancel，与 Default 共享但**不消费 custom_approval_tools**）→ `Ask`；async wrapper 只在非 strict Ask 时调 judge_model 看是否升级为 Allow / Deny。保护路径 / 危险命令 / raw CDP / 外部连接器写动作在模式分发或 smart judge 之前已拦截，故工作目录内的 `.env` 写入和真实外部系统修改等仍强制弹窗。
 
 ---
 
@@ -202,7 +202,7 @@ pub enum AskReason {
 }
 
 impl AskReason {
-    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制 / raw CDP / Plan-ask），AllowAlways 按钮置灰；
+    /// 强制每次手动确认（保护路径 / 危险命令 / 高风险 macOS 控制 / raw CDP / 外部连接器写动作 / Plan-ask），AllowAlways 按钮置灰；
     /// 这也是无人值守 fail-closed 的真相源——strict 原因即便配 Proceed 也强制 deny
     pub fn forbids_allow_always(&self) -> bool {
         matches!(
@@ -253,7 +253,7 @@ pub struct PermissionGlobalConfig {
 
 #### 审批超时 × strict 原因（Epic F / TIMEOUT-1）
 
-`approval_timeout_action=proceed` **只对非 strict 原因生效**。strict 原因(`AskReason::forbids_allow_always`:保护路径 / 危险命令 / 高危 macOS 控制 / Plan-ask)超时**强制 deny**,无视 `proceed`——否则无人值守下危险操作会被超时自动放行。落点三处共用同一谓词:
+`approval_timeout_action=proceed` **只对非 strict 原因生效**。strict 原因(`AskReason::forbids_allow_always`:保护路径 / 危险命令 / 高危 macOS 控制 / raw CDP / 外部连接器写动作 / Plan-ask)超时**强制 deny**,无视 `proceed`——否则无人值守下危险操作会被超时自动放行。落点三处共用同一谓词:
 
 - `ApprovalCheckError::TimedOut { timeout_secs, strict }`:`check_and_request_approval` 在 `reason` 被移动前算出 `strict`(`ApprovalReasonKind::is_strict()`,镜像 `forbids_allow_always` 单一真相源,`reason_kind_is_strict_matches_ask_reason` 穷举断言一致)。
 - `run_tool_approval`(非 exec 工具)+ `exec_approval_timeout_outcome`(exec):strict + `proceed` → deny + `app_warn('permission','strict_timeout_deny')`。
@@ -262,7 +262,8 @@ pub struct PermissionGlobalConfig {
 #### 审批授权来源审计(Epic F / TIMEOUT-2 + IMYOLO-1)
 
 - **`approval_origin`**:每个后台 job 的 `async_jobs.approval_origin` 列记录授权方式(`ApprovalOrigin`:`user` / `timeout_proceed` / `unattended_proceed` / `yolo` / `auto_approve` / `external_pre_approved` / `policy_allow`)。审批闸单点算出写入 spawn ctx:`run_tool_approval` 返回 origin(批准→`User`、非 strict 超时放行→`TimeoutProceed`、非 strict 无人值守放行→`UnattendedProceed`),exec 走 reorder,其余 bypass 由 spawn 前兜底(`external_pre_approved` / `auto_approve` / `policy_allow_origin` 区分 PolicyAllow 与 Yolo)。
-- **`auto_approve_bypass` 探测**:`auto_approve_tools`(IM auto-approve 账号 / skill 斜杠)跳过引擎门时,若被跳过的调用本会命中 strict 原因,跑一次 no-enforce `resolve_tool_permission` 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截(IM auto-approve 是 opt-in);显式排除 `external_pre_approved`(async 重入已在外层门审计)防重复告警。
+- **外部连接器写动作不被 auto-approve 静默绕过**:`auto_approve_tools`(IM auto-approve 账号 / skill 斜杠)和 trusted MCP `autoApprove` 对普通工具仍可跳过引擎，但 mutating connector tools 会由 `needs_permission_engine` 强制进入权限引擎，弹出 strict `ExternalConnectorAction`。只有 `external_pre_approved`(async 重入已在外层门审计)可跳过重复弹窗。
+- **`auto_approve_bypass` 探测**:`auto_approve_tools` 跳过普通引擎门时,若被跳过的调用本会命中其它 strict 原因,跑一次 no-enforce `resolve_tool_permission` 探测并 `app_warn('permission','auto_approve_bypass')`——纯审计不拦截(IM auto-approve 是 opt-in);显式排除 `external_pre_approved` 防重复告警。
 
 #### 多端审批一致性(Epic G / SURFACE-1~5 + MISC-11)
 
@@ -343,8 +344,8 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision
 - **保护路径 / 危险命令在 sync 路径**：让 hot path 在 LLM 不可用时仍能正确强制审批
 - **macOS 控制动作在 sync 路径**：`mac_control` 的风险由 `action/op/path` 纯参数判断；普通/隐私动作弹审批，高风险动作禁用 AllowAlways
 - **浏览器控制在 soft approval floor**：`browser` 的 `action=control && op=evaluate/raw_cdp/download_cancel`、`action=tabs && op=open_user_tabs|claim|select(数字 extension tab id)`、`action=observe && kind=downloads` 进入对应 AskReason；Smart 的 `_confidence` / judge_model 可以自动放行这些 soft Ask；`evaluate` 的 SSRF 扫描仍由浏览器工具内部执行，不受审批模式影响
-- **浏览器强能力不再自建 strict 硬闸**：raw CDP 和 download cancel 走普通审批、AllowAlways、Smart、Yolo、timeout/unattended policy，与其它工具能力一致。
-- **YOLO 内仍跑风险检查**：保护路径 / 危险命令 / macOS 控制 / browser.evaluate / browser.raw_cdp / browser.real_chrome_access / browser.download_cancel 只为打 `app_warn!` 审计日志，不改决策
+- **raw CDP 与外部连接器写动作是 strict**：raw CDP 逐次确认且禁止 AllowAlways；外部连接器 mutating tools 逐次确认且禁止 AllowAlways。download cancel / real Chrome access 仍是普通软审批。
+- **YOLO 内仍跑风险检查**：保护路径 / 危险命令 / macOS 控制 / browser.evaluate / browser.raw_cdp / browser.real_chrome_access / browser.download_cancel / 外部连接器写动作只为打 `app_warn!` 审计日志，不改决策。
 
 ---
 
@@ -419,8 +420,11 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision
 | **危险命令** | `exec` | 命令字符串 ASCII case-insensitive substring | ✅ 非 YOLO 强制 | ❌ 按钮置灰 |
 | **编辑命令** | `exec` | 命令字符串 substring | 仅 Default 模式触发；Smart/YOLO 不消费 | ✅ 可 AllowAlways |
 | **macOS 控制** | `mac_control` | `action/op/path` 纯参数分类 | ✅ 普通/隐私/高风险动作 | 普通/隐私动作可；高风险置灰 |
+| **外部连接器写动作** | 内置 `feishu_*` 写工具 + 保守 MCP mutating tool 名 | `tool_name` + args 中的连接器/动作关键词 | ✅ 非 YOLO 强制 | ❌ 按钮置灰 |
 
 `mac_control` 的只读动作（`status` / `permissions` / `snapshot` / `visual.*` / `elements.find` / `wait` / `apps.list` / `apps.frontmost` / `apps.installed` / `apps.search` / `dock.list` / `spaces.list` / `windows.list` / `act.dry_run` / `menu.list` / `menu.popover` / `dialog.inspect/list`）直接放行；普通突变和隐私敏感动作（例如 `act.perform_action`、`clipboard.get/set/clear`、安全 `dock.select_menu menuItem`）弹审批；高风险突变（例如 `apps.quit`、`windows.close`、危险菜单/dialog 词、`act.perform_action AXConfirm`、危险或 index-only `dock.select_menu`）禁用 AllowAlways。
+
+外部连接器写动作由 `permission::engine::classify_external_connector_action` 识别。内置 Feishu / Lark 写工具走精确匹配；MCP / plugin 工具走保守启发，必须同时命中连接器名（如 Gmail、Calendar、Drive、Sheets、Slack、Notion、Jira、GitHub、Linear、Airtable、Salesforce、HubSpot、Feishu/Lark）和 mutating verb（send/create/update/delete/share/upload/submit/cancel/merge 等）。读类工具如 search/list/get 不命中。
 
 ### 默认值
 
@@ -496,7 +500,7 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 | `mac_control` 普通/隐私动作 | macOS 桌面控制 |
 | `mac_control` 高风险动作 | macOS 桌面控制（禁用 AllowAlways） |
 
-额外（连 YOLO 都覆盖不了的暂只有 Plan Mode）：保护路径 + 危险命令 + 高风险 macOS 控制在非 YOLO 下强制弹，其中高风险 macOS 控制包括 `apps.quit`、`windows.close`、`dialog.accept` 和命中危险词的 `menu.click`。
+额外（连 YOLO 都覆盖不了的暂只有 Plan Mode）：保护路径 + 危险命令 + 高风险 macOS 控制 + raw CDP + 外部连接器写动作在非 YOLO 下强制弹，其中高风险 macOS 控制包括 `apps.quit`、`windows.close`、`dialog.accept` 和命中危险词的 `menu.click`。
 
 #### 自定义勾选可加（Agent 配置「自定义工具审批」开启后展示）
 
@@ -528,7 +532,7 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 
 | 元素 | 来源 |
 |------|------|
-| 顶部图标（红 / 橙） | `isStrict = reason.kind ∈ {protected_path, dangerous_command, mac_control_dangerous_action, plan_mode_ask}` 切红色 ShieldAlert |
+| 顶部图标（红 / 橙） | `isStrict = reason.kind ∈ {protected_path, dangerous_command, browser_raw_cdp, mac_control_dangerous_action, external_connector_action, plan_mode_ask}` 切红色 ShieldAlert |
 | 倒计时圆环（右上） | 读 `get_approval_timeout` + `get_approval_timeout_action` 配置；剩 ≤30s 变红 |
 | Reason banner（红 / 琥珀） | 后端经 `ApprovalRequest.reason: { kind, detail }` 透传，对 14 种 `AskReason` 渲染 i18n 文案 |
 | 工作目录 | `current.cwd`，等宽字体 |
@@ -541,7 +545,9 @@ pub fn reset_to_defaults(cache: &Cache, file: &Path, defaults: &[&str]) -> Resul
 const isStrict =
   reason?.kind === "protected_path" ||
   reason?.kind === "dangerous_command" ||
+  reason?.kind === "browser_raw_cdp" ||
   reason?.kind === "mac_control_dangerous_action" ||
+  reason?.kind === "external_connector_action" ||
   reason?.kind === "plan_mode_ask"
 ```
 

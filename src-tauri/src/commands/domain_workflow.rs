@@ -1,6 +1,7 @@
 use crate::commands::CmdError;
 use ha_core::domain_workflow::{
-    DomainArtifactExportGuardInput, DomainArtifactExportGuardReport, DomainEvidenceItem,
+    DomainArtifactExportGuardInput, DomainArtifactExportGuardReport,
+    DomainConnectorActionGuardInput, DomainConnectorActionGuardReport, DomainEvidenceItem,
     DomainWorkflowDraft, DomainWorkflowTemplate, ListDomainEvidenceInput,
     ListDomainWorkflowTemplatesInput, PreviewDomainWorkflowInput, RecordDomainEvidenceInput,
     SaveDomainWorkflowTemplateInput,
@@ -69,5 +70,16 @@ pub async fn evaluate_domain_artifact_export_guard(
     app_state
         .session_db
         .evaluate_domain_artifact_export_guard(input)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn evaluate_domain_connector_action_guard(
+    input: DomainConnectorActionGuardInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<DomainConnectorActionGuardReport, CmdError> {
+    app_state
+        .session_db
+        .evaluate_domain_connector_action_guard(input)
         .map_err(Into::into)
 }

@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.4 已实现，Phase 7.5 已接入 Domain Learning，Phase 7.6 已接入 Domain Eval / Quality Gate，Phase 7.15 已在 Workspace 侧和 Domain Workflow owner API 上补充最终交付守门。本文记录 `ha-core::domain_quality` 的最终技术事实：通用领域 review / verification run、check、event、Goal evidence 阻塞语义、Domain Learning 与 Domain Eval 输入信号、owner API 与 Workspace「领域复核」交互。
+> 状态：Phase 7.4 已实现，Phase 7.5 已接入 Domain Learning，Phase 7.6 已接入 Domain Eval / Quality Gate，Phase 7.15 已在 Workspace 侧和 Domain Workflow owner API 上补充最终交付守门，Phase 7.16 已补外部动作守门。本文记录 `ha-core::domain_quality` 的最终技术事实：通用领域 review / verification run、check、event、Goal evidence 阻塞语义、Domain Learning 与 Domain Eval 输入信号、owner API 与 Workspace「领域复核」交互。
 
 ## 目标
 

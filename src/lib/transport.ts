@@ -2997,6 +2997,78 @@ export interface DomainArtifactExportGuardReport {
   evidenceRequiringReview: DomainArtifactExportGuardEvidence[];
 }
 
+export interface DomainConnectorActionGuardInput {
+  goalId?: string | null;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  toolName?: string | null;
+  connector?: string | null;
+  action?: string | null;
+  requireExplicitApproval?: boolean;
+  requireRollbackPlan?: boolean;
+  requireExportGuardForDelivery?: boolean;
+}
+
+export interface DomainConnectorActionGuardThresholds {
+  requireExplicitApproval: boolean;
+  requireRollbackPlan: boolean;
+  requireExportGuardForDelivery: boolean;
+}
+
+export interface DomainConnectorActionGuardScope {
+  scope: string;
+  goalId?: string | null;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+}
+
+export interface DomainConnectorActionGuardSummary {
+  evidenceItems: number;
+  actionEvidence: number;
+  approvalEvidence: number;
+  rollbackEvidence: number;
+  sensitiveEvidence: number;
+  deliveryAction: boolean;
+  exportGuardStatus?: string | null;
+}
+
+export interface DomainConnectorActionGuardCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface DomainConnectorActionGuardEvidence {
+  id: string;
+  evidenceType: string;
+  title: string;
+  accessScope: string;
+  redactionStatus: string;
+  createdAt: string;
+  reason: string;
+}
+
+export interface DomainConnectorActionGuardReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: DomainConnectorActionGuardScope;
+  toolName?: string | null;
+  connector?: string | null;
+  action?: string | null;
+  risk?: string | null;
+  thresholds: DomainConnectorActionGuardThresholds;
+  summary: DomainConnectorActionGuardSummary;
+  checks: DomainConnectorActionGuardCheck[];
+  blockers: string[];
+  recommendedNextSteps: string[];
+  relatedEvidence: DomainConnectorActionGuardEvidence[];
+}
+
 export interface CodingEvalFixture {
   name: string;
   description?: string;

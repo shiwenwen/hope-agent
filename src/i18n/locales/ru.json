@@ -99,7 +99,11 @@
       },
       "browser_raw_cdp": {
         "title": "Advanced browser CDP command",
-        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. It uses the normal tool approval flow; AllowAlways, Smart mode, and YOLO follow the active session policy."
+        "body": "This browser action will send a raw Chrome DevTools Protocol command to a real Chrome tab. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "external_connector_action": {
+        "title": "External connector action",
+        "body": "This call will mutate mail, calendar, document, spreadsheet, or business records in an external system. Per-call confirmation required; AllowAlways unavailable."
       },
       "browser_download_action": {
         "title": "Browser download action",
