@@ -183,6 +183,19 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - **块级引用（仅 Obsidian `^block-id`，Logseq 不做）/ 原生大纲只读视图**：见架构文档；大纲红线**只读、永不替代 CM6 底座**
 - **新增 KB 工具 / 端点**：工具走 `tools/note.rs` + `core_tools.rs` + `execution.rs`；Tauri / HTTP owner 薄壳调 `knowledge::service`；逻辑全在 ha-core（红线）
 
+### 设计空间（Design Space）
+
+详见 [`design-space.md`](docs/architecture/design-space.md)（架构）+ [`design-space-roadmap.md`](docs/architecture/design-space-roadmap.md)（迭代计划/决策账本）。对外名「设计空间」（侧边栏「知识空间」正下方），代码标识 `design`（模块 `design/`、agent 工具 `design`、库 `design.db`、视图 `DesignView`）。**本节只列跨 PR 红线，实现细节一律在架构文档**。
+
+- **轻量自包含 HTML（红线）**：产物是 agent 直接产出的自包含 HTML，iframe 直载渲染——**绝不在浏览器里编译 React/JSX/Tailwind**（这是"不白屏、启动快"的根本；旧版 `feat/atelier` 因重型运行时被推倒重做，勿引入 esbuild-wasm 类方案）
+- **产物墙非画布（红线）**：主编辑面是产物库缩略图墙 + 单产物稳定 iframe 预览（纯 CSS 缩放），**刻意不做无限画布**（旧版卡顿之源）
+- **可视化微调确定性回写**：纯 HTML → 渲染期注入 `data-ds-oid` + 产出 oidmap（映射源码字节范围），`patch::apply_{style,text}_patch` 走单一命中 + `expected_hash`（磁盘 body BLAKE3）stale-write 守卫；预览态注入 dormant inspector bridge（收 `ds_activate` 才启用），**导出态 `editable=false` 不注入 bridge/oid**（干净产物）
+- **文件即真相源**：产物 `index.html`/`source/`/`versions/`、设计系统 `SYSTEM.md`/`tokens.json` 都是磁盘真实文件；`design.db` 是可重建元数据注册表
+- **原创设计系统**：内置 6 套**原创原型化**设计语言（非品牌克隆，规避商标 + 消除抄袭）；token 编译注入产物 `:root`，产物 CSS 引用 `var(--ds-*)`
+- **两鉴权平面**：owner 平面（Tauri/HTTP `service.rs`）本机/API key 信任、不经 access 检查；agent 平面（`design` 工具）；写盘走 `platform::write_atomic`，静态托管三闸（id 白名单 + `validate_safe_rest_path` + `contained_canonical`），iframe `sandbox="allow-scripts"`
+- **设置三件套**：`AppConfig.design`（MEDIUM，含 `auto_critique` 成本项）+ `DesignSettingsPanel`（Tools 设置页 tab）+ `ha-settings` `design` category + SKILL.md 登记
+- **新增 design 工具 action / 端点**：工具全在 `tools/design/mod.rs`（复用 `design::service`）；owner 薄壳 Tauri `commands/design.rs` + HTTP `routes/design.rs`，逻辑全在 ha-core（红线）
+
 ### 工具 & 审批
 
 详见 [`permission-system.md`](docs/architecture/permission-system.md) / [`tool-system.md`](docs/architecture/tool-system.md) / [`sandbox.md`](docs/architecture/sandbox.md) / [`browser.md`](docs/architecture/browser.md)（浏览器 8-action 表面 + 双 backend）。

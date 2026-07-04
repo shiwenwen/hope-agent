@@ -136,6 +136,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 |---|---|
 | `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` | 画布面板 |
 | `canvas_snapshot_request` / `canvas_eval_request` | 画布工具流 |
+| `design:show` / `design:reload` / `design:artifact_ready` / `design:artifact_deleted` / `design:project_changed` / `design:system_changed` / `design:critiqued` | 设计空间（产物生成 / 预览刷新 / 系统变更 / 质量评审） |
 | `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底 |
 
 ### MCP
@@ -406,6 +407,32 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `list_canvas_projects` | `GET /api/canvas/projects` | ✅ |
 | `get_canvas_project` | `GET /api/canvas/projects/{projectId}` | ✅ |
 | `delete_canvas_project` | `DELETE /api/canvas/projects/{projectId}` | ✅ |
+
+### Design Space（设计空间）
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `list_design_projects_cmd` | `GET /api/design/projects` | ✅ |
+| `create_design_project_cmd` | `POST /api/design/projects` | ✅ |
+| `update_design_project_cmd` | `PUT /api/design/projects` | ✅ |
+| `get_design_project_cmd` | `GET /api/design/projects/{id}` | ✅ |
+| `delete_design_project_cmd` | `DELETE /api/design/projects/{id}` | ✅ |
+| `list_design_artifacts_cmd` | `GET /api/design/projects/{projectId}/artifacts` | ✅ |
+| `create_design_artifact_cmd` | `POST /api/design/artifacts` | ✅ |
+| `list_all_design_artifacts_cmd` | `GET /api/design/artifacts` | ✅ |
+| `get_design_artifact_cmd` | `GET /api/design/artifacts/{id}` | ✅ |
+| `delete_design_artifact_cmd` | `DELETE /api/design/artifacts/{id}` | ✅ |
+| `list_design_artifact_versions_cmd` | `GET /api/design/artifacts/{id}/versions` | ✅ |
+| `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
+| `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export` | ✅ |
+| `critique_design_artifact_cmd` | `POST /api/design/artifacts/{id}/critique` | ✅ |
+| `list_design_systems_cmd` | `GET /api/design/systems` | ✅ |
+| `get_design_system_cmd` | `GET /api/design/systems/{id}` | ✅ |
+| `save_design_system_cmd` | `POST /api/design/systems` | ✅ |
+| `delete_design_system_cmd` | `DELETE /api/design/systems/{id}` | ✅ |
+| `get_design_config_cmd` | `GET /api/config/design` | ✅ |
+| `save_design_config_cmd` | `PUT /api/config/design` | ✅ |
+| （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
 
 ### Models
 

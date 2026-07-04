@@ -48,6 +48,13 @@ gotcha that most often explains a failure. Open every DB read-only.
 - Grep: `category='knowledge'` (sources: `service` / `index` / `reembed` / `embedding` / `maintenance::cycle`).
 - Gotcha: access is deny-by-default via `effective_kb_access`; an agent that "can't see notes" usually has no attach — `SELECT kb_id,access FROM session_knowledge_bases WHERE session_id=?`. Empty search results → check `knowledge_embedding.enabled` (vector search degrades to FTS-only, never falls back to memory). Index drift → compare on-disk `.md` count vs `SELECT count(*) FROM note WHERE kb_id=?`.
 
+### Design Space (设计空间) — `design-space.md`
+
+- Entry: `design/service.rs` (owner plane), `design/renderer.rs` (self-contained HTML), `design/patch.rs` (oid writeback), `design/system.rs` (design systems), `design/critique.rs` (quality gate), `tools/design/mod.rs` (agent tool).
+- State: `design/design.db` (rebuildable metadata registry); truth on disk under `design/{systems,projects}/` (`SYSTEM.md`/`tokens.json`, `index.html`/`source/`/`versions/`/`oidmap.json`). Config: `design.*` (MEDIUM).
+- Grep: `category='design'` (source: `service`); agent tool traces `category='tool'` source `design`.
+- Gotcha: artifacts are **self-contained HTML rendered directly** (no in-browser JSX compile) — a blank preview usually means a bad `resolveAssetUrl` rewrite or the static-serve gate rejecting the path, not a runtime crash. Visual edits failing → `oidmap.json` stale vs current `body.html` (BLAKE3 mismatch → `patch_element` rejects as stale-write, by design; reload to resync). Tokens not applying → the artifact's `system_id` / project `default_system_id` is null or points at a missing `systems/{id}/tokens.json`.
+
 ### Hooks — `hooks.md`
 
 - Entry: `hooks/mod.rs` (`HookDispatcher::dispatch`), `hooks/scopes.rs`, `hooks/runner/`, `hooks/parse.rs`; block points `agent/preflight.rs` (UserPromptSubmit) and `tools/execution.rs::fire_pre_tool_use_hook` (PreToolUse).
