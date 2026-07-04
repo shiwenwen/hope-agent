@@ -999,6 +999,19 @@ export interface RunDomainEvalTaskInput {
   sourceQualityRunId?: string | null;
 }
 
+export interface ImportDomainEvalCaseInput {
+  proposalId: string;
+  overwrite?: boolean;
+}
+
+export interface ImportDomainEvalCaseResult {
+  imported: boolean;
+  task: DomainEvalTask;
+  projectId?: string | null;
+  sourcePath: string;
+  importedAt: string;
+}
+
 export interface ListDomainEvalRunsInput {
   sessionId?: string | null;
   projectId?: string | null;

@@ -446,6 +446,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_domain_evidence: { method: "POST", path: "/api/domain-evidence" },
   list_domain_eval_tasks: { method: "POST", path: "/api/domain-eval/tasks" },
   run_domain_eval_task: { method: "POST", path: "/api/domain-eval/runs/run" },
+  import_domain_eval_case: { method: "POST", path: "/api/domain-eval/cases/import" },
   list_domain_eval_runs: { method: "POST", path: "/api/domain-eval/runs" },
   evaluate_domain_quality_gate: { method: "POST", path: "/api/domain-quality-gate/evaluate" },
   list_domain_quality_runs: { method: "GET", path: "/api/sessions/{sessionId}/domain-quality-runs" },

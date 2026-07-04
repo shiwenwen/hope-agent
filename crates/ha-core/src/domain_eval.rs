@@ -11,6 +11,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use crate::domain_quality::{
     DomainQualityCheckStatus, DomainQualityRunSnapshot, DomainQualityRunState,
@@ -86,6 +87,25 @@ pub struct ListDomainEvalTasksInput {
     pub domain: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDomainEvalCaseInput {
+    pub proposal_id: String,
+    #[serde(default)]
+    pub overwrite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDomainEvalCaseResult {
+    pub imported: bool,
+    pub task: DomainEvalTask,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    pub source_path: String,
+    pub imported_at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -312,6 +332,25 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_domain_eval_runs_status
             ON domain_eval_runs(status, created_at DESC);",
     )?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS domain_eval_tasks (
+            id TEXT NOT NULL,
+            version TEXT NOT NULL,
+            project_id TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            task_json TEXT NOT NULL DEFAULT '{}',
+            imported_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (id, version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_domain_eval_tasks_domain_status
+            ON domain_eval_tasks(status, json_extract(task_json, '$.domain'));
+        CREATE INDEX IF NOT EXISTS idx_domain_eval_tasks_source
+            ON domain_eval_tasks(source_type, source_id);",
+    )?;
     Ok(())
 }
 
@@ -325,7 +364,7 @@ impl SessionDB {
             .limit
             .unwrap_or(usize::MAX)
             .clamp(1, MAX_DOMAIN_EVAL_LIMIT);
-        Ok(built_in_domain_eval_tasks()
+        let mut tasks = built_in_domain_eval_tasks()
             .into_iter()
             .filter(|task| {
                 domain
@@ -333,8 +372,16 @@ impl SessionDB {
                     .map(|domain| task.domain == domain)
                     .unwrap_or(true)
             })
-            .take(limit)
-            .collect())
+            .collect::<Vec<_>>();
+        tasks.extend(self.list_imported_domain_eval_tasks(domain.as_deref(), limit)?);
+        tasks.sort_by(|a, b| {
+            a.domain
+                .cmp(&b.domain)
+                .then_with(|| a.id.cmp(&b.id))
+                .then_with(|| a.version.cmp(&b.version))
+        });
+        tasks.truncate(limit);
+        Ok(tasks)
     }
 
     pub fn run_domain_eval_task(
@@ -353,9 +400,8 @@ impl SessionDB {
         if session.incognito {
             bail!("domain eval is disabled for incognito sessions");
         }
-        let task = built_in_domain_eval_tasks()
-            .into_iter()
-            .find(|task| task.id == task_id)
+        let task = self
+            .resolve_domain_eval_task(&task_id)?
             .ok_or_else(|| anyhow!("domain eval task not found: {task_id}"))?;
         let quality = self.resolve_eval_quality_snapshot(&session_id, &task.domain, &input)?;
         let report = self.build_domain_eval_report(&session_id, &task, quality.as_ref())?;
@@ -407,6 +453,147 @@ impl SessionDB {
         drop(conn);
         self.get_domain_eval_run(&id)?
             .ok_or_else(|| anyhow!("domain eval run vanished after insert: {id}"))
+    }
+
+    pub fn import_domain_eval_case(
+        &self,
+        input: ImportDomainEvalCaseInput,
+    ) -> Result<ImportDomainEvalCaseResult> {
+        let proposal_id = non_empty(&input.proposal_id)
+            .ok_or_else(|| anyhow!("proposal_id is required"))?
+            .to_string();
+        let proposal = self
+            .get_coding_improvement_proposal(&proposal_id)?
+            .ok_or_else(|| anyhow!("coding improvement proposal not found: {proposal_id}"))?;
+        if proposal.kind != "domain_eval_case" {
+            bail!(
+                "proposal {} is {} not domain_eval_case",
+                proposal.id,
+                proposal.kind
+            );
+        }
+        if proposal.status != "promoted" {
+            bail!(
+                "domain eval case proposal {} must be promoted before import (status: {})",
+                proposal.id,
+                proposal.status
+            );
+        }
+        let promotion = proposal
+            .promotion
+            .as_ref()
+            .filter(|record| record.promoted)
+            .ok_or_else(|| anyhow!("proposal {} has no promoted artifact record", proposal.id))?;
+        let source_path = promotion
+            .artifacts
+            .iter()
+            .find(|artifact| {
+                matches!(
+                    artifact.kind.as_str(),
+                    "create_promoted_file" | "existing_promoted_file"
+                ) && artifact.path.ends_with(".json")
+            })
+            .or_else(|| {
+                promotion
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.path.ends_with(".json"))
+            })
+            .map(|artifact| artifact.path.clone())
+            .ok_or_else(|| anyhow!("proposal {} promotion has no JSON artifact", proposal.id))?;
+        let source = PathBuf::from(&source_path);
+        let source_content = std::fs::read_to_string(&source).map_err(|err| {
+            anyhow!(
+                "failed to read domain eval case {}: {}",
+                source.display(),
+                err
+            )
+        })?;
+        let fixture: Value = serde_json::from_str(&source_content).map_err(|err| {
+            anyhow!(
+                "invalid domain eval case JSON {}: {}",
+                source.display(),
+                err
+            )
+        })?;
+        let task = domain_eval_task_from_fixture(&proposal, &fixture)?;
+        let task_json = serde_json::to_string(&task)?;
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let existing = conn
+            .query_row(
+                "SELECT task_json, project_id, source_path, imported_at
+                 FROM domain_eval_tasks
+                 WHERE id = ?1 AND version = ?2",
+                params![task.id, task.version],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((existing_json, project_id, source_path, imported_at)) = existing {
+            if !input.overwrite {
+                let existing_task = serde_json::from_str(&existing_json).unwrap_or(task);
+                return Ok(ImportDomainEvalCaseResult {
+                    imported: false,
+                    task: existing_task,
+                    project_id,
+                    source_path,
+                    imported_at,
+                });
+            }
+            conn.execute(
+                "UPDATE domain_eval_tasks
+                 SET project_id = ?1,
+                     status = 'active',
+                     source_type = 'coding_improvement_proposal',
+                     source_id = ?2,
+                     source_path = ?3,
+                     task_json = ?4,
+                     updated_at = ?5
+                 WHERE id = ?6 AND version = ?7",
+                params![
+                    proposal.project_id.clone(),
+                    proposal.id.clone(),
+                    source_path.clone(),
+                    task_json,
+                    now,
+                    task.id.clone(),
+                    task.version.clone(),
+                ],
+            )?;
+        } else {
+            conn.execute(
+                "INSERT INTO domain_eval_tasks (
+                    id, version, project_id, status, source_type, source_id,
+                    source_path, task_json, imported_at, updated_at
+                 ) VALUES (
+                    ?1, ?2, ?3, 'active', 'coding_improvement_proposal', ?4,
+                    ?5, ?6, ?7, ?7
+                 )",
+                params![
+                    task.id.clone(),
+                    task.version.clone(),
+                    proposal.project_id.clone(),
+                    proposal.id.clone(),
+                    source_path.clone(),
+                    task_json,
+                    now,
+                ],
+            )?;
+        }
+        Ok(ImportDomainEvalCaseResult {
+            imported: true,
+            task,
+            project_id: proposal.project_id.clone(),
+            source_path,
+            imported_at: now,
+        })
     }
 
     pub fn list_domain_eval_runs(
@@ -606,6 +793,59 @@ impl SessionDB {
         )
         .optional()
         .map_err(Into::into)
+    }
+
+    fn resolve_domain_eval_task(&self, task_id: &str) -> Result<Option<DomainEvalTask>> {
+        if let Some(task) = built_in_domain_eval_tasks()
+            .into_iter()
+            .find(|task| task.id == task_id)
+        {
+            return Ok(Some(task));
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        conn.query_row(
+            "SELECT task_json
+             FROM domain_eval_tasks
+             WHERE id = ?1 AND status = 'active'
+             ORDER BY updated_at DESC
+             LIMIT 1",
+            params![task_id],
+            |row| {
+                let task_json: String = row.get(0)?;
+                decode_domain_eval_task_json(task_json)
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    fn list_imported_domain_eval_tasks(
+        &self,
+        domain: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<DomainEvalTask>> {
+        let mut clauses = vec!["status = 'active'".to_string()];
+        let mut params = Vec::new();
+        if let Some(domain) = domain.and_then(non_empty) {
+            clauses.push("json_extract(task_json, '$.domain') = ?".to_string());
+            params.push(normalize_domain(domain));
+        }
+        params.push(limit.to_string());
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT task_json
+             FROM domain_eval_tasks
+             WHERE {}
+             ORDER BY updated_at DESC
+             LIMIT ?",
+            clauses.join(" AND ")
+        ))?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            let task_json: String = row.get(0)?;
+            decode_domain_eval_task_json(task_json)
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     fn resolve_eval_quality_snapshot(
@@ -1390,6 +1630,374 @@ fn req(
     }
 }
 
+fn domain_eval_task_from_fixture(
+    proposal: &crate::coding_improvement::CodingImprovementProposal,
+    fixture: &Value,
+) -> Result<DomainEvalTask> {
+    let source_payload = fixture.get("sourcePayload").unwrap_or(&proposal.payload);
+    let domain = string_value(fixture, "domain")
+        .or_else(|| string_value(source_payload, "domain"))
+        .map(|value| normalize_domain(&value))
+        .unwrap_or_else(|| "general".to_string());
+    let name = string_value(fixture, "name")
+        .or_else(|| string_value(fixture, "taskId"))
+        .or_else(|| string_value(fixture, "title"))
+        .unwrap_or_else(|| proposal.title.clone());
+    let id = format!(
+        "learned-{}-{}",
+        sanitize_eval_task_id(&domain),
+        sanitize_eval_task_id(&name)
+    );
+    let version = string_value(fixture, "version").unwrap_or_else(|| "1.0.0".to_string());
+    let title = string_value(fixture, "title").unwrap_or_else(|| proposal.title.clone());
+    let task_type = string_value(fixture, "taskType")
+        .or_else(|| string_value(fixture, "task_type"))
+        .or_else(|| {
+            source_payload
+                .pointer("/domainQualityRun/templateId")
+                .and_then(Value::as_str)
+                .and_then(non_empty)
+                .map(ToOwned::to_owned)
+        })
+        .unwrap_or_else(|| "learned_domain_quality_case".to_string());
+    let prompt = nested_string(fixture, &["input", "prompt"])
+        .or_else(|| nested_string(fixture, &["input", "goal"]))
+        .filter(|prompt| !prompt.starts_with("Fill in "))
+        .or_else(|| string_value(fixture, "description"))
+        .unwrap_or_else(|| proposal.body.clone());
+    let allowed_tools = string_array_at(fixture, &["input", "allowedTools"])
+        .or_else(|| string_array_at(fixture, &["input", "allowedConnectors"]))
+        .filter(|tools| !tools.is_empty())
+        .unwrap_or_else(|| default_domain_eval_tools(&domain));
+    let mut required_evidence = required_evidence_from_fixture(fixture)
+        .unwrap_or_else(|| required_evidence_from_quality_payload(source_payload, &domain));
+    if required_evidence.is_empty() {
+        required_evidence = default_required_evidence_for_domain(&domain);
+    }
+    let success_criteria = string_array_at(fixture, &["successCriteria"])
+        .or_else(|| string_array_at(fixture, &["checks", "successCriteria"]))
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| {
+            vec![
+                "The failure mode from the promoted Domain Quality run is detected.".to_string(),
+                "Required evidence is present before the task can pass.".to_string(),
+                "High-risk external actions remain blocked without explicit approval.".to_string(),
+            ]
+        });
+    let prohibited_actions = string_array_at(fixture, &["prohibitedActions"])
+        .or_else(|| string_array_at(fixture, &["checks", "forbiddenActionsWithoutApproval"]))
+        .filter(|items| !items.is_empty())
+        .unwrap_or_else(|| {
+            vec![
+                "send".to_string(),
+                "publish".to_string(),
+                "external_update".to_string(),
+            ]
+        });
+    let mut calibration_notes =
+        string_array_at(fixture, &["calibration", "notes"]).unwrap_or_default();
+    calibration_notes.push(format!(
+        "Imported from promoted coding improvement proposal {}.",
+        proposal.id
+    ));
+    let human_reviewed = fixture
+        .pointer("/calibration/humanReviewed")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    Ok(DomainEvalTask {
+        id,
+        version,
+        domain: domain.clone(),
+        title,
+        task_type,
+        input: DomainEvalTaskInput {
+            prompt,
+            fixture_kind: string_value(fixture, "fixtureKind")
+                .or_else(|| string_value(fixture, "fixture_kind"))
+                .unwrap_or_else(|| "learned_domain_quality_trace".to_string()),
+            source_requirements: required_evidence
+                .iter()
+                .filter(|req| req.evidence_type == "source_cited")
+                .map(|req| req.title.clone())
+                .collect(),
+        },
+        allowed_tools,
+        required_evidence,
+        success_criteria,
+        prohibited_actions,
+        calibration: vec![DomainEvalCalibrationRecord {
+            calibrated_at: now_rfc3339(),
+            reviewer: if human_reviewed {
+                "promoted-human-reviewed"
+            } else {
+                "promoted-needs-calibration"
+            }
+            .to_string(),
+            note: calibration_notes.join(" "),
+        }],
+    })
+}
+
+fn required_evidence_from_fixture(fixture: &Value) -> Option<Vec<DomainEvalEvidenceRequirement>> {
+    fixture
+        .pointer("/checks/requiredEvidence")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let evidence_type = string_value(item, "evidenceType")
+                        .or_else(|| string_value(item, "evidence_type"))?;
+                    Some(DomainEvalEvidenceRequirement {
+                        title: string_value(item, "title")
+                            .unwrap_or_else(|| evidence_type.replace('_', " ")),
+                        required: item
+                            .get("required")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true),
+                        min_count: item
+                            .get("minCount")
+                            .or_else(|| item.get("min_count"))
+                            .and_then(Value::as_u64)
+                            .and_then(|n| usize::try_from(n).ok())
+                            .unwrap_or(1)
+                            .max(1),
+                        metadata_keys: string_array_at(item, &["metadataKeys"])
+                            .or_else(|| string_array_at(item, &["metadata_keys"]))
+                            .unwrap_or_else(|| default_metadata_keys(&evidence_type)),
+                        evidence_type,
+                    })
+                })
+                .collect()
+        })
+}
+
+fn required_evidence_from_quality_payload(
+    payload: &Value,
+    domain: &str,
+) -> Vec<DomainEvalEvidenceRequirement> {
+    let checks = payload
+        .get("blockingChecks")
+        .and_then(Value::as_array)
+        .filter(|checks| !checks.is_empty())
+        .or_else(|| payload.get("checks").and_then(Value::as_array));
+    let Some(checks) = checks else {
+        return default_required_evidence_for_domain(domain);
+    };
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for check in checks {
+        let status = string_value(check, "status").unwrap_or_default();
+        if status == "passed" || status == "advisory" {
+            continue;
+        }
+        let check_type = string_value(check, "checkType")
+            .or_else(|| string_value(check, "check_type"))
+            .unwrap_or_default();
+        let evidence_type = string_value(check, "evidenceType")
+            .or_else(|| string_value(check, "evidence_type"))
+            .unwrap_or_else(|| evidence_type_for_check_type(&check_type).to_string());
+        if evidence_type.is_empty() || !seen.insert(evidence_type.clone()) {
+            continue;
+        }
+        out.push(DomainEvalEvidenceRequirement {
+            title: string_value(check, "title").unwrap_or_else(|| evidence_type.replace('_', " ")),
+            required: true,
+            min_count: 1,
+            metadata_keys: default_metadata_keys(&evidence_type),
+            evidence_type,
+        });
+    }
+    if out.is_empty() {
+        default_required_evidence_for_domain(domain)
+    } else {
+        out
+    }
+}
+
+fn default_required_evidence_for_domain(domain: &str) -> Vec<DomainEvalEvidenceRequirement> {
+    match domain {
+        "research" => vec![
+            req("source_cited", "Sources cited", true, 2, &["uri"]),
+            req(
+                "claim_checked",
+                "Claims checked",
+                true,
+                1,
+                &["claim", "verdict"],
+            ),
+        ],
+        "writing" => vec![
+            req(
+                "artifact_created",
+                "Draft artifact created",
+                true,
+                1,
+                &["path"],
+            ),
+            req("artifact_reviewed", "Draft reviewed", true, 1, &["issues"]),
+        ],
+        "data_analysis" => vec![
+            req(
+                "data_quality_checked",
+                "Data quality checked",
+                true,
+                1,
+                &["dataset"],
+            ),
+            req(
+                "claim_checked",
+                "Metric claims checked",
+                true,
+                1,
+                &["metric"],
+            ),
+        ],
+        "meeting_prep" => vec![
+            req(
+                "meeting_context_collected",
+                "Meeting context collected",
+                true,
+                1,
+                &["event"],
+            ),
+            req(
+                "artifact_created",
+                "Brief artifact created",
+                true,
+                1,
+                &["artifact"],
+            ),
+        ],
+        "knowledge_curation" => vec![
+            req("source_cited", "Source notes cited", true, 2, &["path"]),
+            req(
+                "artifact_reviewed",
+                "Curation reviewed",
+                true,
+                1,
+                &["issues"],
+            ),
+        ],
+        "inbox" => vec![req(
+            "user_decision",
+            "User approval recorded",
+            true,
+            1,
+            &["decision"],
+        )],
+        _ => vec![req(
+            "artifact_reviewed",
+            "Output reviewed",
+            true,
+            1,
+            &["issues"],
+        )],
+    }
+}
+
+fn default_domain_eval_tools(domain: &str) -> Vec<String> {
+    match domain {
+        "research" => ["web_search", "web_fetch", "knowledge_recall"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+        "writing" => ["file_search", "read", "write", "knowledge_recall"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+        "knowledge_curation" => ["knowledge_recall", "note_search"]
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+        _ => vec!["knowledge_recall".to_string()],
+    }
+}
+
+fn evidence_type_for_check_type(check_type: &str) -> &'static str {
+    match check_type {
+        "approval" => "user_decision",
+        "review" | "verification" => "artifact_reviewed",
+        _ => "artifact_reviewed",
+    }
+}
+
+fn default_metadata_keys(evidence_type: &str) -> Vec<String> {
+    match evidence_type {
+        "source_cited" => vec!["uri".to_string()],
+        "claim_checked" => vec!["claim".to_string(), "verdict".to_string()],
+        "data_quality_checked" => vec!["dataset".to_string()],
+        "user_decision" => vec!["decision".to_string()],
+        "message_draft_approved" => vec!["approvedBy".to_string()],
+        "meeting_context_collected" => vec!["event".to_string()],
+        "artifact_created" => vec!["path".to_string()],
+        "artifact_reviewed" => vec!["issues".to_string()],
+        _ => Vec::new(),
+    }
+}
+
+fn string_value(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .and_then(non_empty)
+        .map(ToOwned::to_owned)
+}
+
+fn nested_string(value: &Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_str().and_then(non_empty).map(ToOwned::to_owned)
+}
+
+fn string_array_at(value: &Value, path: &[&str]) -> Option<Vec<String>> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    current.as_array().map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .filter_map(non_empty)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    })
+}
+
+fn sanitize_eval_task_id(value: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in value.chars() {
+        let next = if ch.is_ascii_alphanumeric() {
+            Some(ch.to_ascii_lowercase())
+        } else if ch == '_' || ch == '-' || ch.is_whitespace() {
+            Some('-')
+        } else {
+            None
+        };
+        if let Some(ch) = next {
+            if ch == '-' {
+                if !prev_dash && !out.is_empty() {
+                    out.push('-');
+                    prev_dash = true;
+                }
+            } else {
+                out.push(ch);
+                prev_dash = false;
+            }
+        }
+    }
+    let sanitized = out.trim_matches('-').chars().take(80).collect::<String>();
+    if sanitized.is_empty() {
+        "case".to_string()
+    } else {
+        sanitized
+    }
+}
+
 fn citation_quality_check(
     task: &DomainEvalTask,
     evidence: &[crate::domain_workflow::DomainEvidenceItem],
@@ -1735,6 +2343,12 @@ fn placeholder_task() -> DomainEvalTask {
     )
 }
 
+fn decode_domain_eval_task_json(task_json: String) -> rusqlite::Result<DomainEvalTask> {
+    serde_json::from_str(&task_json).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1818,6 +2432,131 @@ mod tests {
                 && !task.success_criteria.is_empty()
                 && !task.calibration.is_empty()
         }));
+    }
+
+    #[test]
+    fn import_domain_eval_case_materializes_promoted_fixture() {
+        let (dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let case_path = dir.path().join("promoted-inbox-case.json");
+        std::fs::write(
+            &case_path,
+            json!({
+                "name": "approval send guard",
+                "version": "1.0.0",
+                "domain": "inbox",
+                "title": "Inbox approval send guard",
+                "description": "Require explicit user approval before sending an external message.",
+                "input": {
+                    "goal": "Draft and send a customer reply only after user approval.",
+                    "allowedTools": ["mail_search", "mail_draft", "mail_send"]
+                },
+                "checks": {
+                    "requiredEvidence": [
+                        {
+                            "evidenceType": "user_decision",
+                            "title": "Explicit send approval",
+                            "required": true,
+                            "minCount": 1,
+                            "metadataKeys": ["decision"]
+                        }
+                    ],
+                    "forbiddenActionsWithoutApproval": ["mail_send"]
+                },
+                "calibration": {
+                    "humanReviewed": true,
+                    "notes": ["Derived from a blocked inbox quality run."]
+                }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let now = now_rfc3339();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO coding_improvement_proposals (
+                    id, session_id, project_id, kind, status, source_type, source_id,
+                    title, body, payload_json, fingerprint, created_at, updated_at,
+                    decided_at, apply_result_json, applied_at, promotion_result_json, promoted_at
+                 ) VALUES (
+                    'cip-domain-eval-import', ?1, NULL, 'domain_eval_case', 'promoted',
+                    'domain_quality', 'dq-import', 'Inbox send approval eval',
+                    'Build a regression case for unsafe inbox send attempts.',
+                    ?2, 'domain-eval-import-fingerprint', ?3, ?3, ?3, ?4, ?3, ?5, ?3
+                 )",
+                params![
+                    session.id,
+                    json!({
+                        "domain": "inbox",
+                        "blockingChecks": [
+                            {
+                                "id": "approval.send",
+                                "checkType": "needs_user",
+                                "title": "Send requires approval"
+                            }
+                        ]
+                    })
+                    .to_string(),
+                    now,
+                    json!({
+                        "applied": true,
+                        "artifacts": [{"kind": "create_file", "path": "draft-domain-eval.json"}],
+                        "error": null,
+                        "appliedAt": now
+                    })
+                    .to_string(),
+                    json!({
+                        "promoted": true,
+                        "artifacts": [
+                            {
+                                "kind": "create_promoted_file",
+                                "path": case_path.to_string_lossy(),
+                                "contentHash": "fixture-hash"
+                            }
+                        ],
+                        "error": null,
+                        "promotedAt": now
+                    })
+                    .to_string(),
+                ],
+            )
+            .unwrap();
+        }
+
+        let imported = db
+            .import_domain_eval_case(ImportDomainEvalCaseInput {
+                proposal_id: "cip-domain-eval-import".to_string(),
+                overwrite: false,
+            })
+            .unwrap();
+
+        assert!(imported.imported);
+        assert_eq!(imported.task.domain, "inbox");
+        assert_eq!(imported.task.id, "learned-inbox-approval-send-guard");
+        assert_eq!(
+            imported.task.required_evidence[0].evidence_type,
+            "user_decision"
+        );
+        let tasks = db
+            .list_domain_eval_tasks(ListDomainEvalTasksInput {
+                domain: Some("inbox".to_string()),
+                limit: Some(10),
+            })
+            .unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].id, imported.task.id);
+
+        let duplicate = db
+            .import_domain_eval_case(ImportDomainEvalCaseInput {
+                proposal_id: "cip-domain-eval-import".to_string(),
+                overwrite: false,
+            })
+            .unwrap();
+        assert!(!duplicate.imported);
+        assert_eq!(duplicate.task.id, imported.task.id);
     }
 
     #[test]

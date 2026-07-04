@@ -1,7 +1,8 @@
 use crate::commands::CmdError;
 use ha_core::domain_eval::{
     DomainEvalRunRecord, DomainEvalTask, DomainQualityGateInput, DomainQualityGateReport,
-    ListDomainEvalRunsInput, ListDomainEvalTasksInput, RunDomainEvalTaskInput,
+    ImportDomainEvalCaseInput, ImportDomainEvalCaseResult, ListDomainEvalRunsInput,
+    ListDomainEvalTasksInput, RunDomainEvalTaskInput,
 };
 
 #[tauri::command]
@@ -23,6 +24,17 @@ pub async fn run_domain_eval_task(
     app_state
         .session_db
         .run_domain_eval_task(input)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn import_domain_eval_case(
+    input: ImportDomainEvalCaseInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<ImportDomainEvalCaseResult, CmdError> {
+    app_state
+        .session_db
+        .import_domain_eval_case(input)
         .map_err(Into::into)
 }
 

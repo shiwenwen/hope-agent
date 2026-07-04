@@ -229,10 +229,10 @@ DomainWorkflow
 - 建立 `domain_eval_runs` history，和 `coding_eval_runs` 物理分表。
 - 建立通用 quality gate：evidence completeness、citation quality、data quality、approval safety、completion criteria match、workflow trace、domain coverage。
 - Dashboard Learning 增加「General domain trends」历史趋势区块和「General domain quality」Gate 区块：前者显示完成率、blocked 原因、用户确认卡点、eval pass rate、average score、学习候选和最近 quality runs；后者显示 gate 三态、quality blockers、domain coverage 与最近 eval run，不与 coding benchmark 混排。
+- 已晋升的 `domain_eval_case` proposal 可通过 owner API / Workspace 质量趋势卡片显式导入 `domain_eval_tasks`，后续被 `list_domain_eval_tasks` / `run_domain_eval_task` 使用；重复导入默认幂等。
 
 后续待补：
 
-- 把 promoted `domain_eval_case` 草稿自动导入 task registry 的 owner action。
 - 接项目/用户级 calibration 与人工复核记录。
 - 支持半确定性 fixture runner 驱动真实 agent 执行，再用同一 scorer 判分。
 

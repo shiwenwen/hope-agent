@@ -6,6 +6,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
 import type {
+  CodingImprovementProposal,
+  CodingTrendReport,
   DomainQualityRunSnapshot,
   DomainWorkflowDraft,
   DomainWorkflowTemplate,
@@ -383,6 +385,99 @@ function domainQualitySnapshot(
       },
     ],
     events: [],
+    ...patch,
+  }
+}
+
+function codingImprovementProposal(
+  patch: Partial<CodingImprovementProposal> = {},
+): CodingImprovementProposal {
+  return {
+    id: "proposal-1",
+    sessionId: "s1",
+    projectId: "p1",
+    kind: "domain_eval_case",
+    status: "promoted",
+    sourceType: "domain_quality",
+    sourceId: "dq-1",
+    title: "Inbox send approval eval",
+    body: "Regression case for requiring user approval before external sends.",
+    payload: { domain: "inbox" },
+    fingerprint: "fingerprint-1",
+    action: {
+      applied: true,
+      artifacts: [{ kind: "create_file", path: "draft-domain-eval.json" }],
+      error: null,
+      appliedAt: "2026-01-01T00:02:00Z",
+    },
+    promotion: {
+      promoted: true,
+      artifacts: [{ kind: "create_promoted_file", path: "domain-eval/inbox/send.json" }],
+      error: null,
+      promotedAt: "2026-01-01T00:03:00Z",
+    },
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:03:00Z",
+    decidedAt: "2026-01-01T00:03:00Z",
+    ...patch,
+  }
+}
+
+function codingTrendReport(
+  patch: Partial<CodingTrendReport> = {},
+  proposals: CodingImprovementProposal[] = [codingImprovementProposal()],
+): CodingTrendReport {
+  return {
+    sessionId: "s1",
+    projectId: "p1",
+    scope: "project",
+    windowDays: 30,
+    generatedAt: "2026-01-01T00:05:00Z",
+    overview: {
+      sessions: 1,
+      goals: 1,
+      completedGoals: 1,
+      blockedGoals: 0,
+      workflowRuns: 1,
+      completedWorkflows: 1,
+      blockedWorkflows: 0,
+      failedWorkflows: 0,
+      goalCompletionRate: 1,
+      workflowCompletionRate: 1,
+    },
+    eval: { runs: 1, passed: 1, failed: 0, successRate: 1, backlogCandidates: 0 },
+    review: {
+      runs: 0,
+      findings: 0,
+      blockingFindings: 0,
+      resolvedFindings: 0,
+      falsePositiveFindings: 0,
+      byCategory: [],
+    },
+    verification: {
+      runs: 0,
+      steps: 0,
+      passedSteps: 0,
+      failedSteps: 0,
+      timedOutSteps: 0,
+      plannedOnlyRuns: 0,
+      executedSuccessRate: null,
+      recommendationCoverage: null,
+    },
+    repairLoop: { runs: 0, completed: 0, blocked: 0, exhausted: 0, successRate: null },
+    retro: {
+      total: 0,
+      completed: 0,
+      blocked: 0,
+      failed: 0,
+      cancelled: 0,
+      recommendations: 0,
+      latestSummary: null,
+    },
+    failures: [],
+    recentRuns: [],
+    retros: [],
+    proposals,
     ...patch,
   }
 }
@@ -932,6 +1027,74 @@ describe("WorkspacePanel domain quality section", () => {
         windowDays: 30,
         sourceType: "domain_quality",
         sourceId: "dq-1",
+      })
+    })
+  })
+
+  it("imports promoted domain eval proposals from the coding trend section", async () => {
+    const proposal = codingImprovementProposal()
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "get_coding_trend_report") {
+        return Promise.resolve(codingTrendReport({}, [proposal]))
+      }
+      if (name === "import_domain_eval_case") {
+        return Promise.resolve({
+          imported: true,
+          task: {
+            id: "learned-inbox-approval-send-guard",
+            version: "1.0.0",
+            domain: "inbox",
+            title: "Inbox approval send guard",
+            taskType: "learned_domain_quality_case",
+            input: {
+              prompt: "Draft and send only after approval.",
+              fixtureKind: "learned_domain_quality_trace",
+              sourceRequirements: [],
+            },
+            allowedTools: ["mail_search", "mail_draft", "mail_send"],
+            requiredEvidence: [
+              {
+                evidenceType: "user_decision",
+                title: "Explicit send approval",
+                required: true,
+                minCount: 1,
+                metadataKeys: ["decision"],
+              },
+            ],
+            successCriteria: ["Approval is required"],
+            prohibitedActions: ["mail_send"],
+            calibration: [
+              {
+                calibratedAt: "2026-01-01T00:04:00Z",
+                reviewer: "promoted-human-reviewed",
+                note: "Imported from proposal",
+              },
+            ],
+          },
+          projectId: "p1",
+          sourcePath: "domain-eval/inbox/send.json",
+          importedAt: "2026-01-01T00:04:00Z",
+        })
+      }
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve(args ?? [])
+    })
+
+    renderPanel({
+      workingDir: { path: null, source: "none", exists: false, name: null },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: /质量趋势/ }))
+    expect(await screen.findByText("Inbox send approval eval")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "导入评测" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("import_domain_eval_case", {
+        input: { proposalId: proposal.id },
       })
     })
   })

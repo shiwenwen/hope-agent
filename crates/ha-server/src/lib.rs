@@ -1600,6 +1600,10 @@ fn build_router_with_cors(
             post(routes::domain_eval::run_domain_eval_task),
         )
         .route(
+            "/domain-eval/cases/import",
+            post(routes::domain_eval::import_domain_eval_case),
+        )
+        .route(
             "/domain-eval/runs",
             post(routes::domain_eval::list_domain_eval_runs),
         )

@@ -7090,7 +7090,7 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
-    fn get_coding_improvement_proposal(
+    pub(crate) fn get_coding_improvement_proposal(
         &self,
         id: &str,
     ) -> Result<Option<CodingImprovementProposal>> {

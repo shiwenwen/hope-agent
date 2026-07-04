@@ -119,6 +119,7 @@ GUI 侧的产品语义：
 
 - 「重跑复核」只重新执行 Domain Quality，不生成学习候选。
 - 「提炼经验」只生成 draft proposal，不写正式模板 / guidance / skill；用户仍需在 Coding Improvement proposal 队列里预览、应用草稿、显式晋升。
+- 已晋升的 `domain_eval_case` proposal 会在质量趋势候选卡片中显示「导入评测」；点击后调用 owner API 把 JSON artifact 导入 `domain_eval_tasks`，后续可被 `list_domain_eval_tasks` / `run_domain_eval_task` 使用。
 - 无痕会话禁用「提炼经验」，保持关闭即焚。
 
 ## Domain Eval / Gate 输入
@@ -129,7 +130,7 @@ Phase 7.6 后，`domain_eval::run_domain_eval_task()` 会读取显式 `sourceQua
 - `blocked` / `failed` / `needs_user` quality run 计入 gate blocker。
 - `approval` check 的 `needs_user` / `failed` / `blocked` 计入 approval safety blocker。
 
-Domain Quality 仍是复核事实源；Domain Eval / Gate 只读这些事实，不反向修改 quality run。
+Domain Quality 仍是复核事实源；Domain Eval / Gate 只读这些事实，不反向修改 quality run。被显式晋升并导入的 `domain_eval_case` 只扩展 eval task registry，不修改历史 quality run/check。
 
 ## Dashboard 趋势输入
 

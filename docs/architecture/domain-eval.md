@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.6 已实现第一版。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、deterministic trace scoring、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块。
+> 状态：Phase 7.6 已实现。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、deterministic trace scoring、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块。
 
 ## 目标
 
@@ -22,14 +22,17 @@ Domain Eval 把非 coding 场景的质量判断从“感觉不错”变成可审
 | 表 | 说明 |
 | --- | --- |
 | `domain_eval_runs` | 一次通用领域 eval 评分结果，字段包括 session/project、task id/version、domain、label、status、score、report JSON、source quality run、created_at。 |
+| `domain_eval_tasks` | 从已晋升 `domain_eval_case` 学习产物导入的自定义 eval task。字段包括 task id/version、project、source proposal、source path、task JSON、imported_at、updated_at。 |
 
 索引：
 
 - `idx_domain_eval_runs_scope(project_id, session_id, domain, created_at DESC)`
 - `idx_domain_eval_runs_task(task_id, created_at DESC)`
 - `idx_domain_eval_runs_status(status, created_at DESC)`
+- `idx_domain_eval_tasks_domain_status(status, json_extract(task_json, '$.domain'))`
+- `idx_domain_eval_tasks_source(source_type, source_id)`
 
-## 内置 Task Registry
+## Task Registry
 
 内置 15 个 task：
 
@@ -54,12 +57,21 @@ Task schema：
 | `prohibitedActions` | 未经批准不得执行的 send/share/publish/external update/delete 等动作。 |
 | `calibration` | 人工校准记录；首版为 built-in rubric，后续可接用户/项目校准。 |
 
+此外，`import_domain_eval_case(input)` 可以把已晋升的 `coding_improvement_proposals(kind='domain_eval_case', status='promoted')` 导入 `domain_eval_tasks`：
+
+- 只接受 promotion record 中 `promoted=true` 且存在 JSON artifact 的 proposal。
+- JSON artifact 会被规范化为 `DomainEvalTask`：读取 domain、name/title、input prompt、allowed tools、required evidence、success criteria、prohibited actions 和 calibration notes。
+- 生成的 task id 采用 `learned-{domain}-{name}`，version 默认 `1.0.0`。
+- 重复导入默认幂等返回 `imported=false`；`overwrite=true` 才更新既有 task JSON 和 source metadata。
+- `list_domain_eval_tasks` 会合并内置 task 与 active imported task；`run_domain_eval_task` 先查内置 task，再查 imported task。
+- 这是 owner-plane 显式动作，不由模型自动执行；GUI 在 Coding Trend proposal 列表中仅对已晋升的领域评测候选显示「导入评测」。
+
 ## Run Scoring
 
 `run_domain_eval_task(input)` 执行同步确定性评分：
 
 1. 读取 session，incognito 直接拒绝。
-2. 读取内置 task manifest。
+2. 读取内置或导入的 task manifest。
 3. 读取同 session/domain 的 Domain Evidence。
 4. 读取显式 `sourceQualityRunId` 或最近同 domain 的 Domain Quality snapshot。
 5. 读取 active/latest Goal snapshot 与其 workflow trace。
@@ -131,6 +143,7 @@ Tauri / HTTP / transport 均已注册：
 | --- | --- | --- |
 | `list_domain_eval_tasks` | `POST /api/domain-eval/tasks` | 列出内置通用 eval tasks，可按 domain 过滤。 |
 | `run_domain_eval_task` | `POST /api/domain-eval/runs/run` | 对一个 session 运行确定性 domain eval 并持久化。 |
+| `import_domain_eval_case` | `POST /api/domain-eval/cases/import` | 把已晋升的 `domain_eval_case` proposal 导入 active task registry。 |
 | `list_domain_eval_runs` | `POST /api/domain-eval/runs` | 列出 domain eval run history。 |
 | `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | 计算通用领域 quality gate。 |
 
@@ -149,6 +162,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - 不混排 coding benchmark：`domain_eval_runs` 与 `coding_eval_runs` 物理分表。
 - 不伪造通用能力：没有 domain eval run 或 quality run 时 gate 必须 `insufficient_data`。
 - 不越权运行工具：eval 只读既有 trace/evidence，不调用连接器，不发送、不发布、不改外部系统。
+- 不隐式学习上线：`domain_eval_case` 必须先走 proposal preview / apply draft / explicit promotion，再由用户显式导入 task registry。
 - 不写无痕：incognito session 拒绝 run / gate。
 - 不替代 Domain Quality：eval 使用 quality snapshot，quality run 本身仍由 `domain_quality.rs` 管理。
 
@@ -163,6 +177,7 @@ cargo test -p ha-core domain_eval --locked
 覆盖：
 
 - 内置 15 个 task 覆盖 5 个领域。
+- 已晋升 `domain_eval_case` JSON artifact 可导入 task registry，重复导入幂等。
 - Research 缺少来源会被 eval 标成 failed。
 - 有 Goal、Workflow、Evidence、Domain Quality 的 Research run 可通过 eval，并让 Quality Gate passed。
 

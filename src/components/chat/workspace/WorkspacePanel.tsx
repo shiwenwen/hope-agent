@@ -3558,11 +3558,13 @@ function CodingProposalDetail({
   applying,
   previewingPromotion,
   promoting,
+  importingDomainEvalCase,
   updating,
   onPreview,
   onApply,
   onPreviewPromotion,
   onPromote,
+  onImportDomainEvalCase,
   onReject,
 }: {
   proposal: CodingImprovementProposal
@@ -3572,11 +3574,13 @@ function CodingProposalDetail({
   applying?: boolean
   previewingPromotion?: boolean
   promoting?: boolean
+  importingDomainEvalCase?: boolean
   updating?: boolean
   onPreview: (proposalId: string) => void
   onApply: (proposalId: string) => void
   onPreviewPromotion: (proposalId: string) => void
   onPromote: (proposalId: string) => void
+  onImportDomainEvalCase: (proposalId: string) => void
   onReject: (proposalId: string) => void
 }) {
   const { t } = useTranslation()
@@ -3589,6 +3593,8 @@ function CodingProposalDetail({
     (proposal.status === "applied" || proposal.status === "promotion_failed") &&
     !previewingPromotion &&
     !promoting
+  const canImportDomainEvalCase =
+    proposal.kind === "domain_eval_case" && proposal.status === "promoted" && !importingDomainEvalCase
   return (
     <div className="mt-2 space-y-2 border-t border-border/50 pt-2 pl-5">
       <div className="flex min-w-0 items-center gap-1.5">
@@ -3803,6 +3809,24 @@ function CodingProposalDetail({
               {promotionRecord.error}
             </div>
           ) : null}
+
+          {proposal.kind === "domain_eval_case" && proposal.status === "promoted" ? (
+            <button
+              type="button"
+              disabled={!canImportDomainEvalCase}
+              onClick={() => onImportDomainEvalCase(proposal.id)}
+              className="inline-flex w-full min-w-0 items-center justify-center gap-1.5 rounded-md border border-violet-500/35 bg-violet-500/10 px-2 py-1.5 text-[11px] font-medium text-violet-700 transition-colors hover:bg-violet-500/15 disabled:cursor-not-allowed disabled:opacity-55 dark:text-violet-300"
+            >
+              {importingDomainEvalCase ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Database className="h-3.5 w-3.5" />
+              )}
+              <span className="truncate">
+                {t("workspace.codingTrend.importDomainEval", "导入评测")}
+              </span>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -3818,12 +3842,14 @@ function CodingProposalRow({
   applying,
   previewingPromotion,
   promoting,
+  importingDomainEvalCase,
   updating,
   onToggle,
   onPreview,
   onApply,
   onPreviewPromotion,
   onPromote,
+  onImportDomainEvalCase,
   onReject,
 }: {
   proposal: CodingImprovementProposal
@@ -3834,12 +3860,14 @@ function CodingProposalRow({
   applying?: boolean
   previewingPromotion?: boolean
   promoting?: boolean
+  importingDomainEvalCase?: boolean
   updating?: boolean
   onToggle: (proposalId: string) => void
   onPreview: (proposalId: string) => void
   onApply: (proposalId: string) => void
   onPreviewPromotion: (proposalId: string) => void
   onPromote: (proposalId: string) => void
+  onImportDomainEvalCase: (proposalId: string) => void
   onReject: (proposalId: string) => void
 }) {
   const { t } = useTranslation()
@@ -3937,6 +3965,26 @@ function CodingProposalRow({
               )}
             </button>
           </IconTip>
+          {proposal.kind === "domain_eval_case" && proposal.status === "promoted" ? (
+            <IconTip label={t("workspace.codingTrend.importDomainEval", "导入评测")}>
+              <button
+                type="button"
+                disabled={importingDomainEvalCase}
+                className="rounded p-1 text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-violet-600 disabled:opacity-45"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onImportDomainEvalCase(proposal.id)
+                }}
+                aria-label={t("workspace.codingTrend.importDomainEval", "导入评测")}
+              >
+                {importingDomainEvalCase ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Database className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </IconTip>
+          ) : null}
         </div>
         {selected ? (
           <CodingProposalDetail
@@ -3947,11 +3995,13 @@ function CodingProposalRow({
             applying={applying}
             previewingPromotion={previewingPromotion}
             promoting={promoting}
+            importingDomainEvalCase={importingDomainEvalCase}
             updating={updating}
             onPreview={onPreview}
             onApply={onApply}
             onPreviewPromotion={onPreviewPromotion}
             onPromote={onPromote}
+            onImportDomainEvalCase={onImportDomainEvalCase}
             onReject={onReject}
           />
         ) : null}
@@ -3998,6 +4048,7 @@ function CodingTrendSection({
     applyingProposalId,
     previewingPromotionId,
     promotingProposalId,
+    importingDomainEvalCaseId,
     actionPlan,
     promotionPlan,
     error,
@@ -4009,6 +4060,7 @@ function CodingTrendSection({
     applyProposal,
     previewProposalPromotion,
     promoteProposal,
+    importDomainEvalCase,
   } = useCodingTrendReport(sessionId, { incognito, turnActive })
   const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
   const trendReport = isCodingTrendReport(report) ? report : null
@@ -4132,6 +4184,22 @@ function CodingTrendSection({
       )
     } else if (result?.error) {
       toast.error(result.error)
+    }
+  }
+
+  const handleImportDomainEvalCase = async (proposalId: string) => {
+    setSelectedProposalId(proposalId)
+    const result = await importDomainEvalCase(proposalId)
+    if (result?.imported) {
+      toast.success(
+        t("workspace.codingTrend.importedDomainEval", "已导入领域评测：{{title}}", {
+          title: result.task.title,
+        }),
+      )
+    } else if (result) {
+      toast.success(
+        t("workspace.codingTrend.domainEvalAlreadyImported", "领域评测已在任务库中"),
+      )
     }
   }
 
@@ -4331,12 +4399,14 @@ function CodingTrendSection({
                 applying={applyingProposalId === proposal.id}
                 previewingPromotion={previewingPromotionId === proposal.id}
                 promoting={promotingProposalId === proposal.id}
+                importingDomainEvalCase={importingDomainEvalCaseId === proposal.id}
                 updating={updatingProposalId === proposal.id}
                 onToggle={handleToggleProposal}
                 onPreview={handlePreviewProposal}
                 onApply={handleApplyProposal}
                 onPreviewPromotion={handlePreviewPromotion}
                 onPromote={handlePromoteProposal}
+                onImportDomainEvalCase={handleImportDomainEvalCase}
                 onReject={handleRejectProposal}
               />
             ))}

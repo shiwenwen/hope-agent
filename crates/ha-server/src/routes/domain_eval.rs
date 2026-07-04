@@ -1,7 +1,8 @@
 use axum::Json;
 use ha_core::domain_eval::{
     DomainEvalRunRecord, DomainEvalTask, DomainQualityGateInput, DomainQualityGateReport,
-    ListDomainEvalRunsInput, ListDomainEvalTasksInput, RunDomainEvalTaskInput,
+    ImportDomainEvalCaseInput, ImportDomainEvalCaseResult, ListDomainEvalRunsInput,
+    ListDomainEvalTasksInput, RunDomainEvalTaskInput,
 };
 use serde::Deserialize;
 
@@ -18,6 +19,12 @@ pub struct ListDomainEvalTasksBody {
 #[serde(rename_all = "camelCase")]
 pub struct RunDomainEvalTaskBody {
     pub input: RunDomainEvalTaskInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDomainEvalCaseBody {
+    pub input: ImportDomainEvalCaseInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42,6 +49,12 @@ pub async fn run_domain_eval_task(
     Json(body): Json<RunDomainEvalTaskBody>,
 ) -> Result<Json<DomainEvalRunRecord>, AppError> {
     Ok(Json(session_db()?.run_domain_eval_task(body.input)?))
+}
+
+pub async fn import_domain_eval_case(
+    Json(body): Json<ImportDomainEvalCaseBody>,
+) -> Result<Json<ImportDomainEvalCaseResult>, AppError> {
+    Ok(Json(session_db()?.import_domain_eval_case(body.input)?))
 }
 
 pub async fn list_domain_eval_runs(

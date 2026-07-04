@@ -9,6 +9,7 @@ import type {
   CodingTrendReport,
   DistillCodingImprovementResult,
   GenerateCodingImprovementProposalsResult,
+  ImportDomainEvalCaseResult,
   PromoteCodingImprovementProposalResult,
 } from "@/lib/transport"
 
@@ -22,6 +23,7 @@ export interface CodingTrendReportState {
   applyingProposalId: string | null
   previewingPromotionId: string | null
   promotingProposalId: string | null
+  importingDomainEvalCaseId: string | null
   actionPlan: CodingImprovementActionPlan | null
   promotionPlan: CodingImprovementPromotionPlan | null
   error: string | null
@@ -36,6 +38,7 @@ export interface CodingTrendReportState {
   applyProposal: (proposalId: string) => Promise<ApplyCodingImprovementProposalResult | null>
   previewProposalPromotion: (proposalId: string) => Promise<CodingImprovementPromotionPlan | null>
   promoteProposal: (proposalId: string) => Promise<PromoteCodingImprovementProposalResult | null>
+  importDomainEvalCase: (proposalId: string) => Promise<ImportDomainEvalCaseResult | null>
 }
 
 const CODING_TREND_WINDOW_DAYS = 30
@@ -62,6 +65,7 @@ export function useCodingTrendReport(
   const [applyingProposalId, setApplyingProposalId] = useState<string | null>(null)
   const [previewingPromotionId, setPreviewingPromotionId] = useState<string | null>(null)
   const [promotingProposalId, setPromotingProposalId] = useState<string | null>(null)
+  const [importingDomainEvalCaseId, setImportingDomainEvalCaseId] = useState<string | null>(null)
   const [actionPlan, setActionPlan] = useState<CodingImprovementActionPlan | null>(null)
   const [promotionPlan, setPromotionPlan] = useState<CodingImprovementPromotionPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -338,6 +342,30 @@ export function useCodingTrendReport(
     [disabled, fetchReport, incognito, sessionId],
   )
 
+  const importDomainEvalCase = useCallback(
+    async (proposalId: string) => {
+      if (!sessionId || disabled || incognito) return null
+      setImportingDomainEvalCaseId(proposalId)
+      setError(null)
+      try {
+        const result = await getTransport().call<ImportDomainEvalCaseResult>(
+          "import_domain_eval_case",
+          { input: { proposalId } },
+        )
+        fetchReport()
+        return result
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "useCodingTrendReport", "Failed to import domain eval case", e)
+        setError(message)
+        return null
+      } finally {
+        setImportingDomainEvalCaseId(null)
+      }
+    },
+    [disabled, fetchReport, incognito, sessionId],
+  )
+
   return {
     report,
     loading,
@@ -348,6 +376,7 @@ export function useCodingTrendReport(
     applyingProposalId,
     previewingPromotionId,
     promotingProposalId,
+    importingDomainEvalCaseId,
     actionPlan,
     promotionPlan,
     error,
@@ -359,5 +388,6 @@ export function useCodingTrendReport(
     applyProposal,
     previewProposalPromotion,
     promoteProposal,
+    importDomainEvalCase,
   }
 }
