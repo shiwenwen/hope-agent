@@ -638,6 +638,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `save_attachment` | `POST /api/chat/attachment` | ✅ (multipart) |
 | `list_builtin_tools` | `GET /api/chat/tools` | ✅ |
 | `list_session_tasks` | `GET /api/sessions/{sessionId}/tasks` | ✅ TaskProgressPanel 用户控件 |
+| `create_session_task` | `POST /api/sessions/{sessionId}/tasks` | ✅ Workspace Context 候选转任务 |
 | `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
 | `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 

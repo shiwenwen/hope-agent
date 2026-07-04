@@ -1,6 +1,9 @@
 use axum::extract::Path;
 use axum::Json;
-use ha_core::session::{delete_task_and_snapshot, set_task_status_and_snapshot, Task, TaskStatus};
+use ha_core::session::{
+    create_task_and_snapshot, delete_task_and_snapshot, set_task_status_and_snapshot, Task,
+    TaskStatus,
+};
 use serde::Deserialize;
 
 use crate::error::AppError;
@@ -24,6 +27,27 @@ pub async fn list_session_tasks(
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<Task>>, AppError> {
     Ok(Json(db()?.list_tasks(&session_id)?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSessionTaskBody {
+    pub content: String,
+    #[serde(default)]
+    pub active_form: Option<String>,
+}
+
+pub async fn create_session_task(
+    Path(session_id): Path<String>,
+    Json(body): Json<CreateSessionTaskBody>,
+) -> Result<Json<Vec<Task>>, AppError> {
+    let db = db()?;
+    Ok(Json(create_task_and_snapshot(
+        &db,
+        &session_id,
+        &body.content,
+        body.active_form.as_deref(),
+    )?))
 }
 
 #[derive(Debug, Deserialize)]

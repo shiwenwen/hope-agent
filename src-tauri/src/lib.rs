@@ -200,6 +200,7 @@ pub fn run() {
             commands::runtime_tasks::cancel_runtime_task,
             // Session-scoped task list (user-actionable controls in TaskProgressPanel)
             commands::tasks::list_session_tasks,
+            commands::tasks::create_session_task,
             commands::tasks::update_task_status,
             commands::tasks::delete_task,
             commands::chat::set_permission_mode,

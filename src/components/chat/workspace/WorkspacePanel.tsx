@@ -157,6 +157,7 @@ import type {
   Message,
   SessionMeta,
   SessionMode,
+  Task,
 } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import { FileMimeIcon } from "@/components/chat/message/FileCard"
@@ -1851,18 +1852,42 @@ function contextCanAddEvidence(candidate: ContextCandidate): boolean {
   return contextCandidateStringMetadata(candidate, "origin") !== "domain_evidence"
 }
 
+function contextCanCreateTask(candidate: ContextCandidate): boolean {
+  const actions = contextDomainActions(candidate)
+  return Boolean(actions?.canCreateTask)
+}
+
+function contextCandidateTaskContent(candidate: ContextCandidate): string {
+  const location = contextLocationLabel(candidate)
+  const evidenceType = contextCandidateEvidenceType(candidate).replace(/_/g, " ")
+  if (location) {
+    return `处理上下文：${candidate.title} (${location})`
+  }
+  if (candidate.subtitle) {
+    return `处理上下文：${candidate.title} - ${candidate.subtitle}`
+  }
+  return `处理上下文：${candidate.title} (${evidenceType})`
+}
+
+function contextCandidateTaskActiveForm(candidate: ContextCandidate): string {
+  const location = candidate.url ?? candidate.path ?? candidate.subtitle ?? candidate.title
+  return `正在处理上下文：${location}`
+}
+
 function DomainContextActionChips({
   candidate,
   sessionId,
   disabled,
   actionKey,
   onAddEvidence,
+  onCreateTask,
 }: {
   candidate: ContextCandidate
   sessionId?: string | null
   disabled?: boolean
   actionKey?: string | null
   onAddEvidence?: (candidate: ContextCandidate) => void
+  onCreateTask?: (candidate: ContextCandidate) => void
 }) {
   const { t } = useTranslation()
   const actions = contextDomainActions(candidate)
@@ -1871,12 +1896,14 @@ function DomainContextActionChips({
   if (actions.canSummarize) chips.push(t("workspace.context.actionSummarize", "摘要"))
   if (actions.canAskUser) chips.push(t("workspace.context.actionAsk", "确认"))
   if (actions.canMarkConflict) chips.push(t("workspace.context.actionConflict", "冲突"))
-  if (actions.canCreateTask) chips.push(t("workspace.context.actionTask", "转任务"))
   const canCite = Boolean(actions.canCite)
   const canAddEvidence = contextCanAddEvidence(candidate)
-  if (!canCite && !canAddEvidence && chips.length === 0) return null
+  const canCreateTask = contextCanCreateTask(candidate)
+  if (!canCite && !canAddEvidence && !canCreateTask && chips.length === 0) return null
   const evidenceKey = `${candidate.id}:evidence`
   const evidenceBusy = actionKey === evidenceKey
+  const taskKey = `${candidate.id}:task`
+  const taskBusy = actionKey === taskKey
 
   const copyCitation = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
@@ -1919,6 +1946,24 @@ function DomainContextActionChips({
           <span>{t("workspace.context.actionEvidence", "证据")}</span>
         </button>
       ) : null}
+      {canCreateTask ? (
+        <button
+          type="button"
+          disabled={disabled || !sessionId || !onCreateTask || Boolean(actionKey)}
+          onClick={(event) => {
+            event.stopPropagation()
+            onCreateTask?.(candidate)
+          }}
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {taskBusy ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Plus className="h-3 w-3" />
+          )}
+          <span>{t("workspace.context.actionTask", "转任务")}</span>
+        </button>
+      ) : null}
       {chips.slice(0, 4).map((chip) => (
         <span
           key={chip}
@@ -1939,6 +1984,7 @@ function ContextFileCandidateRow({
   actionsDisabled,
   onAction,
   onAddEvidence,
+  onCreateTask,
 }: {
   candidate: ContextCandidate
   sessionId?: string | null
@@ -1947,6 +1993,7 @@ function ContextFileCandidateRow({
   actionsDisabled?: boolean
   onAction?: (candidate: ContextCandidate, action: ContextFocusedAction) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
+  onCreateTask?: (candidate: ContextCandidate) => void
 }) {
   const { t } = useTranslation()
   const Icon = contextKindIcon(candidate.kind)
@@ -1997,6 +2044,7 @@ function ContextFileCandidateRow({
               disabled={actionsDisabled}
               actionKey={actionKey}
               onAddEvidence={onAddEvidence}
+              onCreateTask={onCreateTask}
             />
           </div>
         </div>
@@ -2019,12 +2067,14 @@ function ContextGenericCandidateRow({
   actionKey,
   actionsDisabled,
   onAddEvidence,
+  onCreateTask,
 }: {
   candidate: ContextCandidate
   sessionId?: string | null
   actionKey?: string | null
   actionsDisabled?: boolean
   onAddEvidence?: (candidate: ContextCandidate) => void
+  onCreateTask?: (candidate: ContextCandidate) => void
 }) {
   const { t } = useTranslation()
   const Icon = contextKindIcon(candidate.kind)
@@ -2055,6 +2105,7 @@ function ContextGenericCandidateRow({
           disabled={actionsDisabled}
           actionKey={actionKey}
           onAddEvidence={onAddEvidence}
+          onCreateTask={onCreateTask}
         />
       </div>
     </>
@@ -2179,6 +2230,39 @@ function ContextRetrievalSection({
       }
     },
     [disabled, onDomainEvidenceRecorded, refresh, sessionId, t],
+  )
+
+  const createContextCandidateTask = useCallback(
+    async (candidate: ContextCandidate) => {
+      if (!sessionId || disabled || !contextCanCreateTask(candidate)) return
+      const actionKey = `${candidate.id}:task`
+      setContextActionKey(actionKey)
+      try {
+        await getTransport().call<Task[]>("create_session_task", {
+          sessionId,
+          content: contextCandidateTaskContent(candidate),
+          activeForm: contextCandidateTaskActiveForm(candidate),
+        })
+        toast.success(
+          t("workspace.context.taskCreated", "已创建任务：{{title}}", {
+            title: candidate.title,
+          }),
+        )
+        refresh()
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error(
+          "ui",
+          "ContextRetrievalSection",
+          "Create context candidate task failed",
+          e,
+        )
+        toast.error(message)
+      } finally {
+        setContextActionKey(null)
+      }
+    },
+    [disabled, refresh, sessionId, t],
   )
 
   const meta =
@@ -2333,6 +2417,7 @@ function ContextRetrievalSection({
                   actionsDisabled={disabled || Boolean(contextActionKey)}
                   onAction={runFocusedContextAction}
                   onAddEvidence={recordContextCandidateEvidence}
+                  onCreateTask={createContextCandidateTask}
                 />
               ) : (
                 <ContextGenericCandidateRow
@@ -2342,6 +2427,7 @@ function ContextRetrievalSection({
                   actionKey={contextActionKey}
                   actionsDisabled={disabled || Boolean(contextActionKey)}
                   onAddEvidence={recordContextCandidateEvidence}
+                  onCreateTask={createContextCandidateTask}
                 />
               ),
             )}

@@ -877,6 +877,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - 工作台复用现有 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review、Verification 与 Domain Quality 状态；不新增权限语义、不新增后端表、不绕过审批。
 - 用户可直接运行领域复核、推荐验证、运行验证和刷新全部守门状态。
 - Context Retrieval 候选行的「证据」按钮已接到 `record_domain_evidence`，可把推荐来源/文档/会议/表格/决策显式落成当前 session 的 domain evidence，并刷新工作台。
+- Context Retrieval 候选行的「转任务」按钮已接到 `create_session_task`，可把候选显式落成当前 session task，并通过 `task_updated` 刷新进度面板。
 - 面板根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门和外部动作守门生成下一步提示。
 - 最近 evidence 行展示 type、domain、access scope、redaction status 和时间，帮助用户判断非编程任务是否已有真实可审计证据。
 

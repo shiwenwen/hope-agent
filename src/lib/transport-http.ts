@@ -178,6 +178,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Session-scoped tasks (TaskProgressPanel user controls) --
   list_session_tasks:              { method: "GET",    path: "/api/sessions/{sessionId}/tasks" },
+  create_session_task:             { method: "POST",   path: "/api/sessions/{sessionId}/tasks" },
   update_task_status:              { method: "PATCH",  path: "/api/tasks/{id}/status" },
   delete_task:                     { method: "DELETE", path: "/api/tasks/{id}" },
   set_permission_mode:             { method: "POST",   path: "/api/chat/permission-mode" },

@@ -455,7 +455,7 @@ fn build_router_with_cors(
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
             "/sessions/{sessionId}/tasks",
-            get(routes::tasks::list_session_tasks),
+            get(routes::tasks::list_session_tasks).post(routes::tasks::create_session_task),
         )
         .route(
             "/tasks/{id}/status",

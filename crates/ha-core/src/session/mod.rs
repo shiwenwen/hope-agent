@@ -36,7 +36,8 @@ pub use ide_context::{
 };
 pub use pending::enrich_pending_interactions;
 pub use tasks::{
-    delete_task_and_snapshot, emit_task_snapshot, set_task_status_and_snapshot, Task, TaskStatus,
+    create_task_and_snapshot, delete_task_and_snapshot, emit_task_snapshot,
+    set_task_status_and_snapshot, Task, TaskStatus,
 };
 pub use turns::{ChatTurn, ChatTurnInterruptReason, ChatTurnStatus};
 pub use types::{
