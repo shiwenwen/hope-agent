@@ -35,6 +35,7 @@ pub(crate) async fn tool_design(
         "versions" => action_versions(args),
         "restore" => action_restore(args),
         "critique" => action_critique(args).await,
+        "save_to_knowledge" => action_save_to_knowledge(args),
         "show" => action_show(args, session_id),
         other => Err(anyhow::anyhow!("Unknown design action: '{}'", other)),
     }
@@ -192,6 +193,12 @@ async fn action_critique(args: &Value) -> Result<String> {
     let id = require_str(args, "artifact_id")?;
     let result = service::critique_artifact(id).await?;
     ok(serde_json::to_value(result)?)
+}
+
+fn action_save_to_knowledge(args: &Value) -> Result<String> {
+    let id = require_str(args, "artifact_id")?;
+    let path = service::save_to_knowledge(id, str_arg(args, "kb_id"))?;
+    ok(json!({ "status": "saved", "artifactId": id, "note": path }))
 }
 
 fn action_show(args: &Value, session_id: Option<&str>) -> Result<String> {

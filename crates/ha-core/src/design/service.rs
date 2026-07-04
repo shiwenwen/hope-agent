@@ -595,6 +595,50 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .context("artifact gone after update")
 }
 
+// ── Knowledge integration (D4) ─────────────────────────────────────
+
+/// 把产物沉淀为知识空间笔记（进第二大脑可检索）。`kb_id` 缺省用默认 KB。
+pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<String> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir);
+
+    let kb = match kb_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(k) => k.to_string(),
+        None => {
+            crate::knowledge::service::ensure_default_knowledge_base();
+            crate::knowledge::service::list_kb_meta(false)?
+                .into_iter()
+                .next()
+                .map(|m| m.kb.id)
+                .context("no knowledge base available")?
+        }
+    };
+
+    let rel = format!("设计/{}.md", safe_filename(&a.title));
+    let content = format!(
+        "---\ntitle: {title}\nkind: {kind}\nsource: design-space\nartifactId: {aid}\n---\n\n\
+# {title}\n\n> 来自设计空间的产物（{kind}）。\n\n\
+```html\n{body}\n```\n",
+        title = a.title,
+        kind = a.kind,
+        aid = a.id,
+        body = parts.body_html,
+    );
+    let hash = crate::knowledge::service::note_save(&kb, &rel, &content, None, false)?;
+    crate::app_info!(
+        "design",
+        "service",
+        "saved artifact {} to knowledge base {}",
+        a.id,
+        kb
+    );
+    Ok(hash)
+}
+
 // ── Quality gate ───────────────────────────────────────────────────
 
 /// 对产物跑 5 维质量评审门，落总分到产物行。

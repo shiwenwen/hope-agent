@@ -180,7 +180,7 @@ pub fn get_design_tool() -> ToolDefinition {
                         "list_recipes", "get_recipe", "list_systems", "get_system",
                         "list_projects", "list_artifacts", "get_artifact",
                         "create_artifact", "update_artifact", "delete_artifact",
-                        "versions", "restore", "critique", "show"
+                        "versions", "restore", "critique", "save_to_knowledge", "show"
                     ],
                     "description": "Design operation to perform"
                 },
@@ -193,6 +193,7 @@ pub fn get_design_tool() -> ToolDefinition {
                 "project_id": { "type": "string", "description": "Design project id (optional; defaults to the session's draft project)" },
                 "artifact_id": { "type": "string", "description": "Artifact id (for get/update/delete/versions/restore/show)" },
                 "system_id": { "type": "string", "description": "Design system id to apply (injects brand tokens)" },
+                "kb_id": { "type": "string", "description": "Knowledge base id for save_to_knowledge (optional; defaults to the primary KB)" },
                 "title": { "type": "string", "description": "Artifact title" },
                 "body_html": { "type": "string", "description": "Artifact body HTML (structure). For deck, use multiple <section class=\"ds-slide\">…</section>." },
                 "css": { "type": "string", "description": "Artifact CSS (inline). Reference var(--ds-*) design tokens." },
