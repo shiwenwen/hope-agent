@@ -477,6 +477,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - run list、历史展开、总览、当前焦点、下一步跳转。
 - Trace / Validation / Agents 三视图；Validation 命令行可展开完整输出并复制详情，失败恢复不依赖截断预览。
 - blocked / failed 恢复建议、复制修复提示、生成 repair draft。
+- repair draft 默认继承原 run 的 `worktreeId`（若有），创建修复 run 时继续落在同一个隔离运行位置。
 - draft / approve / pause / resume / cancel 操作；cancel 前确认。
 - 窄屏内部面板走 overlay，不被桌面 split-pane 挤出视口。
 

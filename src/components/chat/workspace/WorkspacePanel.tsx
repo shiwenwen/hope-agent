@@ -5724,10 +5724,13 @@ function WorkflowRunsSection({
 
   useEffect(() => {
     if (draftWorktreeMode === "new" || draftWorktreeMode === "session") return
-    if (!draftWorktrees.some((worktree) => worktree.id === draftWorktreeMode)) {
+    if (draftOrigin?.type === "repair") return
+    const referencedByRun = runs.some((run) => run.worktreeId === draftWorktreeMode)
+    const listedWorktree = draftWorktrees.some((worktree) => worktree.id === draftWorktreeMode)
+    if (!referencedByRun && !listedWorktree) {
       setDraftWorktreeMode(workingDir ? "new" : "session")
     }
-  }, [draftWorktreeMode, draftWorktrees, workingDir])
+  }, [draftOrigin?.type, draftWorktreeMode, draftWorktrees, runs, workingDir])
 
   const ensureWorkflowSession = useCallback(async () => {
     if (sessionId) return sessionId
@@ -6146,10 +6149,11 @@ ${repairPrompt}`
         runKind: run.kind,
         runState: run.state,
       })
+      setDraftWorktreeMode(run.worktreeId ?? "session")
       const script = buildGoalDrivenWorkflowScript(objective)
       setDraftScript(script)
-      setDraftRunImmediately(Boolean(workingDir))
-      if (workingDir) {
+      setDraftRunImmediately(Boolean(workingDir || run.worktreeId))
+      if (workingDir || run.worktreeId) {
         toast.success(t("workspace.workflow.repairDraftReady", "已生成修复工作流草稿"))
       } else {
         toast.warning(

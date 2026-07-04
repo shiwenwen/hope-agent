@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
-import type { WorkspaceEnvironmentSnapshot } from "@/lib/transport"
+import type { ManagedWorktree, WorkspaceEnvironmentSnapshot } from "@/lib/transport"
 import type { BackgroundJobSnapshot } from "@/types/background-jobs"
 import WorkspacePanel from "./WorkspacePanel"
 import type { GoalSnapshot } from "./useGoal"
@@ -291,6 +291,33 @@ function workflowScriptPreview(patch: Partial<WorkflowScriptPreview> = {}): Work
     canRunImmediately: true,
     requiresApproval: true,
     hasDenials: false,
+    ...patch,
+  }
+}
+
+function managedWorktree(patch: Partial<ManagedWorktree> = {}): ManagedWorktree {
+  return {
+    id: "wt-repair",
+    sessionId: "s1",
+    childSessionId: null,
+    workflowRunId: "wf-1",
+    purpose: "workflow",
+    state: "active",
+    label: "repair-wt",
+    repoRoot: "/repo",
+    sourceWorkingDir: "/repo",
+    path: "/repo-worktrees/wt-repair",
+    baseRef: "main",
+    baseBranch: "main",
+    baseSha: "abcdef123456",
+    gitBranch: "repair/wt",
+    dirtySnapshot: null,
+    pathExists: true,
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:01:00Z",
+    archivedAt: null,
+    restoredAt: null,
+    handedOffAt: null,
     ...patch,
   }
 }
@@ -1215,7 +1242,7 @@ describe("WorkspacePanel workflow section", () => {
       value: { writeText },
       configurable: true,
     })
-    const run = workflowRun({ state: "failed" })
+    const run = workflowRun({ state: "failed", worktreeId: "wt-repair" })
     const snapshot: WorkflowRunSnapshot = {
       run,
       ops: [
@@ -1278,6 +1305,7 @@ describe("WorkspacePanel workflow section", () => {
       if (name === "list_workflow_runs") return Promise.resolve([run])
       if (name === "get_workflow_run") return Promise.resolve(snapshot)
       if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "list_managed_worktrees") return Promise.resolve([managedWorktree()])
       if (name === "preview_workflow_script") {
         previewedRepairScript = String(args?.scriptSource ?? "")
         return Promise.resolve(workflowScriptPreview())
@@ -1324,7 +1352,8 @@ describe("WorkspacePanel workflow section", () => {
     expect(script.value).toContain("workflow.spawnAgent")
     expect(screen.getByText("修复自 wf-1")).toBeTruthy()
     expect(screen.getByText(/不会覆盖原运行/)).toBeTruthy()
-    expect(screen.getByRole("button", { name: "创建修复运行" })).toBeTruthy()
+    expect(screen.getByText("repair-wt")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "创建并运行修复" })).toBeTruthy()
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith(
@@ -1351,7 +1380,7 @@ describe("WorkspacePanel workflow section", () => {
     expect(prompt).toContain("pnpm test")
     expect(prompt).toContain("expected value to be true")
 
-    fireEvent.click(screen.getByRole("button", { name: "创建修复运行" }))
+    fireEvent.click(screen.getByRole("button", { name: "创建并运行修复" }))
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith(
@@ -1362,7 +1391,8 @@ describe("WorkspacePanel workflow section", () => {
           executionMode: "guarded",
           parentRunId: "wf-1",
           origin: "repair",
-          runImmediately: false,
+          worktreeId: "wt-repair",
+          runImmediately: true,
         }),
       )
     })
