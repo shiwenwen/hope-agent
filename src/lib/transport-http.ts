@@ -208,6 +208,21 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_canvas_project:              { method: "GET",    path: "/api/canvas/projects/{projectId}" },
   delete_canvas_project:           { method: "DELETE", path: "/api/canvas/projects/{projectId}" },
 
+  // -- Design Space --
+  list_design_projects_cmd:          { method: "GET",    path: "/api/design/projects" },
+  create_design_project_cmd:         { method: "POST",   path: "/api/design/projects" },
+  update_design_project_cmd:         { method: "PUT",    path: "/api/design/projects" },
+  get_design_project_cmd:            { method: "GET",    path: "/api/design/projects/{id}" },
+  delete_design_project_cmd:         { method: "DELETE", path: "/api/design/projects/{id}" },
+  list_design_artifacts_cmd:         { method: "GET",    path: "/api/design/projects/{projectId}/artifacts" },
+  create_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts" },
+  list_all_design_artifacts_cmd:     { method: "GET",    path: "/api/design/artifacts" },
+  get_design_artifact_cmd:           { method: "GET",    path: "/api/design/artifacts/{id}" },
+  delete_design_artifact_cmd:        { method: "DELETE", path: "/api/design/artifacts/{id}" },
+  list_design_artifact_versions_cmd: { method: "GET",    path: "/api/design/artifacts/{id}/versions" },
+  get_design_config_cmd:             { method: "GET",    path: "/api/config/design" },
+  save_design_config_cmd:            { method: "PUT",    path: "/api/config/design" },
+
   // -- MCP servers --
   mcp_list_servers:                { method: "GET",    path: "/api/mcp/servers" },
   mcp_add_server:                  { method: "POST",   path: "/api/mcp/servers" },
@@ -1317,6 +1332,25 @@ export class HttpTransport implements Transport {
         .map((seg) => encodeURIComponent(seg))
         .join("/");
       return stamped(`${this.baseUrl}/api/canvas/projects/${pid}/${rest}`);
+    }
+
+    // Design artifacts:
+    // `~/.hope-agent/design/projects/{pid}/artifacts/{aid}/{...rest}` →
+    // `/api/design/projects/{pid}/artifacts/{aid}/{...rest}`. Preserves
+    // sub-paths so the preview iframe loads index.html plus relative assets.
+    const designMatch = path.match(
+      /[\\/]design[\\/]projects[\\/]([^\\/]+)[\\/]artifacts[\\/]([^\\/]+)[\\/](.+)$/,
+    );
+    if (designMatch) {
+      const pid = encodeURIComponent(designMatch[1]);
+      const aid = encodeURIComponent(designMatch[2]);
+      const rest = designMatch[3]
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/");
+      return stamped(
+        `${this.baseUrl}/api/design/projects/${pid}/artifacts/${aid}/${rest}`,
+      );
     }
 
     return null;

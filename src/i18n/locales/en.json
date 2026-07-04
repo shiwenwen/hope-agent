@@ -150,6 +150,35 @@
     "snapshot": "Snapshot",
     "versions": "Version History"
   },
+  "design": {
+    "title": "Design Space",
+    "projects": "Design Projects",
+    "projectsSub": "Your second design brain — ship deliverable designs from a single sentence.",
+    "newProject": "New Project",
+    "newArtifact": "New Artifact",
+    "backToProjects": "Back to projects",
+    "untitledProject": "Untitled Project",
+    "projectTitlePlaceholder": "Project name",
+    "emptyProjects": "No design projects yet — click to create your first",
+    "emptyArtifacts": "No artifacts yet. Click \"New Artifact\" to start.",
+    "selectArtifact": "Select an artifact on the left to preview",
+    "artifactCount": "{{count}} artifacts",
+    "zoomFit": "Fit",
+    "reload": "Reload",
+    "deleteTitle": "Confirm delete?",
+    "deleteProjectDesc": "This permanently deletes the project and all its artifacts. This cannot be undone.",
+    "deleteArtifactDesc": "This permanently deletes the artifact and all its versions. This cannot be undone.",
+    "kind": {
+      "web": "Web Page",
+      "mobile": "Mobile",
+      "deck": "Presentation",
+      "dashboard": "Dashboard",
+      "poster": "Poster",
+      "document": "Document",
+      "email": "Email",
+      "image": "Image"
+    }
+  },
   "channels": {
     "accountLabel": "Account Name",
     "accountLabelPlaceholder": "e.g. My WeChat Assistant",

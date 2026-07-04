@@ -150,6 +150,35 @@
     "snapshot": "截图",
     "versions": "版本历史"
   },
+  "design": {
+    "title": "设计空间",
+    "projects": "设计项目",
+    "projectsSub": "你的第二设计大脑：从一句话产出可交付的设计。",
+    "newProject": "新建项目",
+    "newArtifact": "新建产物",
+    "backToProjects": "返回项目",
+    "untitledProject": "未命名项目",
+    "projectTitlePlaceholder": "项目名称",
+    "emptyProjects": "还没有设计项目，点此创建第一个",
+    "emptyArtifacts": "还没有产物。点右上角「新建产物」开始。",
+    "selectArtifact": "从左侧选择一个产物预览",
+    "artifactCount": "{{count}} 个产物",
+    "zoomFit": "适应",
+    "reload": "刷新",
+    "deleteTitle": "确认删除？",
+    "deleteProjectDesc": "将永久删除该项目及其全部产物，无法恢复。",
+    "deleteArtifactDesc": "将永久删除该产物及其全部版本，无法恢复。",
+    "kind": {
+      "web": "网页",
+      "mobile": "移动端",
+      "deck": "演示文稿",
+      "dashboard": "仪表盘",
+      "poster": "海报",
+      "document": "文档",
+      "email": "邮件",
+      "image": "图像"
+    }
+  },
   "channels": {
     "accountLabel": "账户名称",
     "accountLabelPlaceholder": "例如：我的微信助手",

@@ -48,6 +48,7 @@ const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 const PlansView = lazy(() => import("@/components/plans/PlansView"))
 const KnowledgeView = lazy(() => import("@/components/knowledge/KnowledgeView"))
+const DesignView = lazy(() => import("@/components/design/DesignView"))
 const SettingsView = lazy(() => import("@/components/settings/SettingsView"))
 
 export default function App() {
@@ -69,6 +70,7 @@ export default function App() {
     | "dashboard"
     | "plans"
     | "knowledge"
+    | "design"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
@@ -532,6 +534,7 @@ export default function App() {
                 onOpenDashboard={() => handleOpenDashboard()}
                 onOpenPlans={() => setView("plans")}
                 onOpenKnowledge={() => setView("knowledge")}
+                onOpenDesign={() => setView("design")}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -670,6 +673,20 @@ export default function App() {
                   <KnowledgeView
                     onBack={() => setView("chat")}
                     onOpenSettings={() => handleOpenSettings("knowledge")}
+                  />
+                </Suspense>
+              )}
+              {view === "design" && (
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                    </div>
+                  }
+                >
+                  <DesignView
+                    onBack={() => setView("chat")}
+                    onOpenSettings={() => handleOpenSettings()}
                   />
                 </Suspense>
               )}
