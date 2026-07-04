@@ -2923,6 +2923,80 @@ export interface DomainEvidenceItem {
   updatedAt: string;
 }
 
+export interface DomainArtifactExportGuardInput {
+  goalId?: string | null;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  artifactPath?: string | null;
+  artifactTitle?: string | null;
+  artifactKind?: string | null;
+  requireArtifactCreated?: boolean;
+  requireArtifactReviewed?: boolean;
+  maxSensitiveUnreviewed?: number | null;
+  maxRedactionPending?: number | null;
+}
+
+export interface DomainArtifactExportGuardThresholds {
+  requireArtifactCreated: boolean;
+  requireArtifactReviewed: boolean;
+  maxSensitiveUnreviewed: number;
+  maxRedactionPending: number;
+}
+
+export interface DomainArtifactExportGuardScope {
+  scope: string;
+  goalId?: string | null;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+}
+
+export interface DomainArtifactExportGuardSummary {
+  evidenceItems: number;
+  artifactCreated: number;
+  artifactReviewed: number;
+  exportReviewed: number;
+  sensitiveEvidence: number;
+  sensitiveUnreviewed: number;
+  redactionPending: number;
+  privateOrConnectorEvidence: number;
+}
+
+export interface DomainArtifactExportGuardCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface DomainArtifactExportGuardEvidence {
+  id: string;
+  evidenceType: string;
+  title: string;
+  accessScope: string;
+  redactionStatus: string;
+  createdAt: string;
+  reason: string;
+}
+
+export interface DomainArtifactExportGuardReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: DomainArtifactExportGuardScope;
+  artifactPath?: string | null;
+  artifactTitle?: string | null;
+  artifactKind?: string | null;
+  thresholds: DomainArtifactExportGuardThresholds;
+  summary: DomainArtifactExportGuardSummary;
+  checks: DomainArtifactExportGuardCheck[];
+  blockers: string[];
+  recommendedNextSteps: string[];
+  evidenceRequiringReview: DomainArtifactExportGuardEvidence[];
+}
+
 export interface CodingEvalFixture {
   name: string;
   description?: string;

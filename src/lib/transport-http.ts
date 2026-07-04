@@ -444,6 +444,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   preview_domain_workflow: { method: "POST", path: "/api/domain-workflows/preview" },
   record_domain_evidence: { method: "POST", path: "/api/domain-evidence/record" },
   list_domain_evidence: { method: "POST", path: "/api/domain-evidence" },
+  evaluate_domain_artifact_export_guard: { method: "POST", path: "/api/domain-artifact-export-guard/evaluate" },
   list_domain_eval_tasks: { method: "POST", path: "/api/domain-eval/tasks" },
   run_domain_eval_task: { method: "POST", path: "/api/domain-eval/runs/run" },
   run_domain_eval_fixture: { method: "POST", path: "/api/domain-eval/fixtures/run" },

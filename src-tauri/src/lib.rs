@@ -879,6 +879,7 @@ pub fn run() {
             commands::domain_workflow::preview_domain_workflow,
             commands::domain_workflow::record_domain_evidence,
             commands::domain_workflow::list_domain_evidence,
+            commands::domain_workflow::evaluate_domain_artifact_export_guard,
             commands::domain_eval::list_domain_eval_tasks,
             commands::domain_eval::run_domain_eval_task,
             commands::domain_eval::run_domain_eval_fixture,

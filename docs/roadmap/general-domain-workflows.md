@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-04
 >
-> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard、Phase 7.13 Domain Campaign Learning Closure、Phase 7.14 Domain Readiness Gate 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard、Phase 7.13 Domain Campaign Learning Closure、Phase 7.14 Domain Readiness Gate、Phase 7.15 Domain Artifact Export Guard 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
 ## 1. 背景
 
@@ -301,6 +301,15 @@ DomainWorkflow
 - Dashboard Learning 新增「Domain readiness」卡片，展示 quality/eval/campaign/leaderboard/learning proposal 核心计数、阻塞 check 和建议动作。
 - 新增核心单测覆盖：live quality + campaign evidence 齐全时 passed；失败 campaign 且未学习闭环时 failed。
 
+### Phase 7.15 Domain Artifact Export Guard（已完成第一版）
+
+- 新增 `evaluate_domain_artifact_export_guard` owner API，Tauri / HTTP / transport 已接通。
+- Guard 只读 `domain_evidence_items`，不调用 LLM、不访问连接器、不发送/分享/导出任何内容。
+- 默认要求 `artifact_created` + `artifact_reviewed` evidence；private / connector / sensitive / pending / redacted evidence 需要显式 `exportReview` / `exportReady` / `redactionChecked` 复核标记。
+- 输出 `passed` / `failed` / `insufficient_data`、summary、checks、blockers、recommended next steps 和需复核 evidence 列表。
+- Workspace「领域复核」区块新增「交付守门」卡片，自动随会话加载、回合结束和手动刷新更新，让用户不用 slash 命令也能掌控最终交付风险。
+- 新增核心单测覆盖：产物 + 复核 + 脱敏检查齐全时 passed；connector evidence 仍 pending 且缺少 artifact review 时 failed。
+
 ## 8. GUI 产品形态
 
 通用场景层不应该要求用户记模板名。当前已落地和后续推荐入口：
@@ -314,6 +323,7 @@ DomainWorkflow
 - 已落地：Dashboard Learning 展示 Domain smoke runs，按 `sourceType=fixture_*` 与 `SessionKind::EvalFixture` 隔离合成回归样本。
 - 已落地：Dashboard Learning 展示 Domain campaigns，可运行 deterministic trace pack 或 external model agent campaign、观察 durable item 进度、取消和 retry 失败 / 中断 / 已取消 item、查看 Domain model leaderboard，并从失败 campaign item 生成可审查学习草稿。
 - 已落地：Dashboard Learning 展示 Domain readiness，把 live quality、campaign、leaderboard 与 learning closure 合成一个可交付三态，并给出 blockers / next steps。
+- 已落地：Workspace「领域复核」内展示「交付守门」，把报告、文档、表格、邮件草稿等最终交付前的产物/复核/脱敏证据合成可操作三态。
 - Workspace 增加通用面板：Sources、Evidence、Drafts、Review、Verification、Decisions。
 
 ## 9. 权限与隐私红线
@@ -321,6 +331,7 @@ DomainWorkflow
 - Connector 数据默认按已有连接器授权和作用域读取；domain workflow 不能扩大权限。
 - 发送邮件、改日历、分享文档、删除/移动文件、提交外部表单必须显式用户确认。
 - 私有来源写入 evidence 时要记录 access scope；导出报告时要提示敏感来源。
+- 最终发送 / 分享 / 导出 / 发布前，private / connector / sensitive / pending / redacted evidence 必须进入 Artifact Export Guard；guard 只能提示和阻断，不能替用户执行外部动作。
 - 无痕会话不持久化 domain evidence、learning proposal 或 source cache。
 - 模板不能静默启用网络、外部模型或连接器调用。
 - 任何自动化 loop 触发前必须有清晰 owner、预算、最大次数、停机条件。
@@ -358,4 +369,5 @@ P6 完成后，建议按下列顺序推进：
 8. Phase 7.11-7.12：已补 durable Domain Eval Campaign 与 external model leaderboard，让通用场景可以批跑、取消、retry、对比模型。
 9. Phase 7.13：已补 campaign failure learning closure，把失败 item 接入 draft-only proposal 队列。
 10. Phase 7.14：已补 Domain Readiness Gate，把质量、campaign、leaderboard 和学习闭环合成当前可交付判断。
-11. 下一阶段建议：进入 Domain Artifact Review / Export Guard，把报告、文档、表格、邮件草稿等非 coding 产物的最终交付审查做成可操作 GUI。
+11. Phase 7.15：已补 Domain Artifact Export Guard，把报告、文档、表格、邮件草稿等非 coding 产物的最终交付审查做成 Workspace 可操作 GUI。
+12. 下一阶段建议：进入 Domain Connector Action Guard，把 Gmail / Calendar / Drive / Sheets 等真实外部动作接入同一套证据、审批和回滚提示语义。

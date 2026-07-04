@@ -17,6 +17,7 @@ const DOMAIN_TEMPLATE_LIMIT_DEFAULT: usize = 50;
 const DOMAIN_TEMPLATE_LIMIT_MAX: usize = 200;
 const DOMAIN_EVIDENCE_LIMIT_DEFAULT: usize = 50;
 const DOMAIN_EVIDENCE_LIMIT_MAX: usize = 200;
+const DOMAIN_EXPORT_GUARD_REVIEW_ITEMS_MAX: usize = 12;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,6 +259,130 @@ pub struct DomainEvidenceItem {
     pub redaction_status: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_kind: Option<String>,
+    #[serde(default = "serde_default_true")]
+    pub require_artifact_created: bool,
+    #[serde(default = "serde_default_true")]
+    pub require_artifact_reviewed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_sensitive_unreviewed: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_redaction_pending: Option<usize>,
+}
+
+impl Default for DomainArtifactExportGuardInput {
+    fn default() -> Self {
+        Self {
+            goal_id: None,
+            session_id: None,
+            project_id: None,
+            domain: None,
+            artifact_path: None,
+            artifact_title: None,
+            artifact_kind: None,
+            require_artifact_created: true,
+            require_artifact_reviewed: true,
+            max_sensitive_unreviewed: None,
+            max_redaction_pending: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardThresholds {
+    pub require_artifact_created: bool,
+    pub require_artifact_reviewed: bool,
+    pub max_sensitive_unreviewed: usize,
+    pub max_redaction_pending: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardScope {
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardSummary {
+    pub evidence_items: usize,
+    pub artifact_created: usize,
+    pub artifact_reviewed: usize,
+    pub export_reviewed: usize,
+    pub sensitive_evidence: usize,
+    pub sensitive_unreviewed: usize,
+    pub redaction_pending: usize,
+    pub private_or_connector_evidence: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardCheck {
+    pub name: String,
+    pub status: String,
+    pub severity: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardEvidence {
+    pub id: String,
+    pub evidence_type: String,
+    pub title: String,
+    pub access_scope: String,
+    pub redaction_status: String,
+    pub created_at: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainArtifactExportGuardReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: DomainArtifactExportGuardScope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_kind: Option<String>,
+    pub thresholds: DomainArtifactExportGuardThresholds,
+    pub summary: DomainArtifactExportGuardSummary,
+    pub checks: Vec<DomainArtifactExportGuardCheck>,
+    pub blockers: Vec<String>,
+    pub recommended_next_steps: Vec<String>,
+    pub evidence_requiring_review: Vec<DomainArtifactExportGuardEvidence>,
 }
 
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
@@ -817,6 +942,260 @@ impl SessionDB {
         .optional()
         .map_err(Into::into)
     }
+
+    pub fn evaluate_domain_artifact_export_guard(
+        &self,
+        input: DomainArtifactExportGuardInput,
+    ) -> Result<DomainArtifactExportGuardReport> {
+        let goal_id = input
+            .goal_id
+            .as_deref()
+            .and_then(non_empty)
+            .map(str::to_string);
+        let requested_session_id = input
+            .session_id
+            .as_deref()
+            .and_then(non_empty)
+            .map(str::to_string);
+        let mut session_id = requested_session_id.clone();
+        if let Some(goal_id) = goal_id.as_deref() {
+            let goal = self
+                .get_goal(goal_id)?
+                .ok_or_else(|| anyhow!("goal not found: {goal_id}"))?;
+            if let Some(requested_session_id) = requested_session_id.as_deref() {
+                if requested_session_id != goal.session_id {
+                    bail!(
+                        "goal {} does not belong to session {}",
+                        goal.id,
+                        requested_session_id
+                    );
+                }
+            }
+            session_id = Some(goal.session_id.clone());
+        }
+        let Some(session_id) = session_id.as_deref() else {
+            bail!("evaluate_domain_artifact_export_guard requires goal_id or session_id");
+        };
+
+        let session = self
+            .get_session(session_id)?
+            .ok_or_else(|| anyhow!("session not found: {session_id}"))?;
+        if session.incognito {
+            bail!("artifact export guard is disabled for incognito sessions");
+        }
+
+        let mut project_id = input
+            .project_id
+            .as_deref()
+            .and_then(non_empty)
+            .map(str::to_string);
+        if let Some(session_project_id) = session.project_id.as_deref() {
+            if let Some(requested_project_id) = project_id.as_deref() {
+                if requested_project_id != session_project_id {
+                    bail!(
+                        "session {} belongs to project {}, not {}",
+                        session_id,
+                        session_project_id,
+                        requested_project_id
+                    );
+                }
+            }
+            project_id = Some(session_project_id.to_string());
+        } else if let Some(requested_project_id) = project_id.as_deref() {
+            bail!(
+                "session {} is not bound to project {}",
+                session_id,
+                requested_project_id
+            );
+        }
+
+        let domain = input
+            .domain
+            .as_deref()
+            .and_then(non_empty)
+            .map(normalize_domain);
+        let thresholds = DomainArtifactExportGuardThresholds {
+            require_artifact_created: input.require_artifact_created,
+            require_artifact_reviewed: input.require_artifact_reviewed,
+            max_sensitive_unreviewed: input.max_sensitive_unreviewed.unwrap_or(0),
+            max_redaction_pending: input.max_redaction_pending.unwrap_or(0),
+        };
+        let evidence = self.list_domain_evidence(ListDomainEvidenceInput {
+            goal_id: goal_id.clone(),
+            session_id: Some(session_id.to_string()),
+            project_id: None,
+            domain: domain.clone(),
+            evidence_type: None,
+            limit: Some(DOMAIN_EVIDENCE_LIMIT_MAX),
+        })?;
+
+        let artifact_created = evidence
+            .iter()
+            .filter(|item| item.evidence_type == "artifact_created")
+            .count();
+        let artifact_reviewed = evidence
+            .iter()
+            .filter(|item| item.evidence_type == "artifact_reviewed")
+            .count();
+        let export_reviewed = evidence
+            .iter()
+            .filter(|item| domain_evidence_has_export_review_marker(item))
+            .count();
+        let sensitive_evidence = evidence
+            .iter()
+            .filter(|item| domain_evidence_requires_export_review(item))
+            .count();
+        let sensitive_unreviewed = if sensitive_evidence > 0 && export_reviewed == 0 {
+            sensitive_evidence
+        } else {
+            0
+        };
+        let redaction_pending = evidence
+            .iter()
+            .filter(|item| {
+                item.redaction_status == "pending" || item.redaction_status == "sensitive"
+            })
+            .count();
+        let private_or_connector_evidence = evidence
+            .iter()
+            .filter(|item| item.access_scope == "private" || item.access_scope == "connector")
+            .count();
+
+        let summary = DomainArtifactExportGuardSummary {
+            evidence_items: evidence.len(),
+            artifact_created,
+            artifact_reviewed,
+            export_reviewed,
+            sensitive_evidence,
+            sensitive_unreviewed,
+            redaction_pending,
+            private_or_connector_evidence,
+        };
+
+        let mut checks = Vec::new();
+        push_export_guard_check(
+            &mut checks,
+            "evidence_scope",
+            if summary.evidence_items > 0 {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "p2",
+            "At least one domain evidence item is recorded",
+            &summary.evidence_items.to_string(),
+            "The guard needs recorded evidence before it can approve export or sharing.",
+        );
+        push_export_guard_check(
+            &mut checks,
+            "artifact_created",
+            if !thresholds.require_artifact_created || summary.artifact_created > 0 {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "p1",
+            "artifact_created evidence is present",
+            &summary.artifact_created.to_string(),
+            "A final report, document, spreadsheet, brief, or draft artifact must be recorded.",
+        );
+        push_export_guard_check(
+            &mut checks,
+            "artifact_reviewed",
+            if !thresholds.require_artifact_reviewed || summary.artifact_reviewed > 0 {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "p1",
+            "artifact_reviewed evidence is present",
+            &summary.artifact_reviewed.to_string(),
+            "The artifact needs an audience, requirement, or quality review before delivery.",
+        );
+        push_export_guard_check(
+            &mut checks,
+            "redaction_status",
+            if summary.redaction_pending <= thresholds.max_redaction_pending {
+                "passed"
+            } else {
+                "failed"
+            },
+            "p0",
+            &format!(
+                "redaction pending or sensitive evidence <= {}",
+                thresholds.max_redaction_pending
+            ),
+            &summary.redaction_pending.to_string(),
+            "Pending or sensitive evidence must be resolved before export.",
+        );
+        push_export_guard_check(
+            &mut checks,
+            "sensitive_evidence",
+            if summary.sensitive_unreviewed <= thresholds.max_sensitive_unreviewed {
+                "passed"
+            } else {
+                "failed"
+            },
+            "p0",
+            &format!(
+                "private, connector, or redacted evidence without explicit export review <= {}",
+                thresholds.max_sensitive_unreviewed
+            ),
+            &summary.sensitive_unreviewed.to_string(),
+            "Sensitive evidence requires explicit exportReview/exportReady/redactionChecked metadata on artifact_reviewed evidence.",
+        );
+
+        let status = export_guard_status(&checks);
+        let blockers = checks
+            .iter()
+            .filter(|check| check.status != "passed")
+            .map(|check| format!("{}: {}", check.name, check.detail))
+            .collect::<Vec<_>>();
+        let recommended_next_steps = export_guard_recommendations(&checks);
+        let evidence_requiring_review = evidence
+            .iter()
+            .filter(|item| domain_evidence_requires_export_review(item))
+            .take(DOMAIN_EXPORT_GUARD_REVIEW_ITEMS_MAX)
+            .map(domain_export_guard_evidence)
+            .collect();
+
+        Ok(DomainArtifactExportGuardReport {
+            generated_at: now_rfc3339(),
+            status,
+            scope: DomainArtifactExportGuardScope {
+                scope: if goal_id.is_some() {
+                    "goal".to_string()
+                } else {
+                    "session".to_string()
+                },
+                goal_id,
+                session_id: Some(session_id.to_string()),
+                project_id,
+                domain,
+            },
+            artifact_path: input
+                .artifact_path
+                .as_deref()
+                .and_then(non_empty)
+                .map(str::to_string),
+            artifact_title: input
+                .artifact_title
+                .as_deref()
+                .and_then(non_empty)
+                .map(str::to_string),
+            artifact_kind: input
+                .artifact_kind
+                .as_deref()
+                .and_then(non_empty)
+                .map(str::to_string),
+            thresholds,
+            summary,
+            checks,
+            blockers,
+            recommended_next_steps,
+            evidence_requiring_review,
+        })
+    }
 }
 
 fn built_in_domain_templates() -> Vec<DomainWorkflowTemplate> {
@@ -1354,6 +1733,131 @@ fn domain_evidence_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DomainE
     })
 }
 
+fn push_export_guard_check(
+    checks: &mut Vec<DomainArtifactExportGuardCheck>,
+    name: &str,
+    status: &str,
+    severity: &str,
+    expected: &str,
+    actual: &str,
+    detail: &str,
+) {
+    checks.push(DomainArtifactExportGuardCheck {
+        name: name.to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        expected: expected.to_string(),
+        actual: actual.to_string(),
+        detail: detail.to_string(),
+    });
+}
+
+fn export_guard_status(checks: &[DomainArtifactExportGuardCheck]) -> String {
+    if checks.iter().any(|check| check.status == "failed") {
+        "failed".to_string()
+    } else if checks
+        .iter()
+        .any(|check| check.status == "insufficient_data")
+    {
+        "insufficient_data".to_string()
+    } else {
+        "passed".to_string()
+    }
+}
+
+fn export_guard_recommendations(checks: &[DomainArtifactExportGuardCheck]) -> Vec<String> {
+    let mut steps = Vec::new();
+    for check in checks.iter().filter(|check| check.status != "passed") {
+        let step = match check.name.as_str() {
+            "evidence_scope" => {
+                "Record the final task evidence before attempting to export or share the artifact."
+            }
+            "artifact_created" => {
+                "Record artifact_created evidence with the final artifact path, title, or version."
+            }
+            "artifact_reviewed" => {
+                "Run or record artifact_reviewed evidence for audience, requirements, and quality."
+            }
+            "redaction_status" => {
+                "Resolve pending or sensitive redaction states before sharing outside the session."
+            }
+            "sensitive_evidence" => {
+                "Add an explicit exportReview/exportReady/redactionChecked marker to artifact_reviewed evidence."
+            }
+            _ => "Review the blocked export guard check and add the missing evidence.",
+        };
+        if !steps.iter().any(|existing| existing == step) {
+            steps.push(step.to_string());
+        }
+    }
+    steps
+}
+
+fn domain_evidence_requires_export_review(item: &DomainEvidenceItem) -> bool {
+    matches!(item.access_scope.as_str(), "private" | "connector")
+        || matches!(
+            item.redaction_status.as_str(),
+            "sensitive" | "pending" | "redacted"
+        )
+}
+
+fn domain_evidence_has_export_review_marker(item: &DomainEvidenceItem) -> bool {
+    if item.evidence_type != "artifact_reviewed" {
+        return false;
+    }
+    let metadata = &item.source_metadata;
+    json_bool(metadata, "exportReview")
+        || json_bool(metadata, "exportReady")
+        || json_bool(metadata, "redactionChecked")
+        || metadata
+            .get("export")
+            .is_some_and(|value| json_bool(value, "reviewed") || json_bool(value, "ready"))
+        || metadata.get("review").is_some_and(|value| {
+            json_bool(value, "exportReady") || json_bool(value, "redactionChecked")
+        })
+}
+
+fn domain_export_guard_evidence(item: &DomainEvidenceItem) -> DomainArtifactExportGuardEvidence {
+    DomainArtifactExportGuardEvidence {
+        id: item.id.clone(),
+        evidence_type: item.evidence_type.clone(),
+        title: item.title.clone(),
+        access_scope: item.access_scope.clone(),
+        redaction_status: item.redaction_status.clone(),
+        created_at: item.created_at.clone(),
+        reason: domain_export_guard_evidence_reason(item),
+    }
+}
+
+fn domain_export_guard_evidence_reason(item: &DomainEvidenceItem) -> String {
+    if item.redaction_status == "pending" {
+        "redaction pending".to_string()
+    } else if item.redaction_status == "sensitive" {
+        "sensitive evidence".to_string()
+    } else if item.redaction_status == "redacted" {
+        "redacted evidence requires export review".to_string()
+    } else if item.access_scope == "private" {
+        "private scope".to_string()
+    } else if item.access_scope == "connector" {
+        "connector scope".to_string()
+    } else {
+        "requires export review".to_string()
+    }
+}
+
+fn json_bool(value: &Value, key: &str) -> bool {
+    match value.get(key) {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::String(value)) => {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "true" | "yes" | "1"
+            )
+        }
+        _ => false,
+    }
+}
+
 fn normalize_template_id(value: &str) -> Result<String> {
     let id = value.trim().to_ascii_lowercase().replace('_', "-");
     if id.is_empty() {
@@ -1647,5 +2151,114 @@ mod tests {
             .any(|item| item.source_type == "domain_evidence"
                 && item.relation == "source_cited"
                 && item.title.contains("Official source cited")));
+    }
+
+    #[test]
+    fn domain_artifact_export_guard_passes_with_reviewed_artifact_and_redaction_check() {
+        let test = test_db();
+        let db = &test.db;
+        let session_id = create_session(&db);
+        db.record_domain_evidence(RecordDomainEvidenceInput {
+            session_id: Some(session_id.clone()),
+            domain: "writing".to_string(),
+            evidence_type: "artifact_created".to_string(),
+            title: "Decision memo draft".to_string(),
+            source_metadata: json!({ "path": "memo.md", "version": "v1" }),
+            access_scope: Some("session".to_string()),
+            redaction_status: Some("none".to_string()),
+            ..Default::default()
+        })
+        .expect("record artifact");
+        db.record_domain_evidence(RecordDomainEvidenceInput {
+            session_id: Some(session_id.clone()),
+            domain: "writing".to_string(),
+            evidence_type: "source_cited".to_string(),
+            title: "Private source summarized".to_string(),
+            source_metadata: json!({ "connector": "drive", "title": "Internal brief" }),
+            access_scope: Some("private".to_string()),
+            redaction_status: Some("redacted".to_string()),
+            ..Default::default()
+        })
+        .expect("record sensitive evidence");
+        db.record_domain_evidence(RecordDomainEvidenceInput {
+            session_id: Some(session_id.clone()),
+            domain: "writing".to_string(),
+            evidence_type: "artifact_reviewed".to_string(),
+            title: "Decision memo export review".to_string(),
+            source_metadata: json!({
+                "audience": "external stakeholder",
+                "exportReview": true,
+                "redactionChecked": true
+            }),
+            access_scope: Some("session".to_string()),
+            redaction_status: Some("none".to_string()),
+            ..Default::default()
+        })
+        .expect("record review");
+
+        let guard = db
+            .evaluate_domain_artifact_export_guard(DomainArtifactExportGuardInput {
+                session_id: Some(session_id),
+                domain: Some("writing".to_string()),
+                ..Default::default()
+            })
+            .expect("evaluate export guard");
+        assert_eq!(guard.status, "passed");
+        assert_eq!(guard.summary.artifact_created, 1);
+        assert_eq!(guard.summary.artifact_reviewed, 1);
+        assert_eq!(guard.summary.export_reviewed, 1);
+        assert_eq!(guard.summary.sensitive_evidence, 1);
+        assert_eq!(guard.summary.sensitive_unreviewed, 0);
+        assert_eq!(guard.evidence_requiring_review.len(), 1);
+    }
+
+    #[test]
+    fn domain_artifact_export_guard_blocks_pending_sensitive_evidence() {
+        let test = test_db();
+        let db = &test.db;
+        let session_id = create_session(&db);
+        db.record_domain_evidence(RecordDomainEvidenceInput {
+            session_id: Some(session_id.clone()),
+            domain: "writing".to_string(),
+            evidence_type: "artifact_created".to_string(),
+            title: "Decision memo draft".to_string(),
+            source_metadata: json!({ "path": "memo.md" }),
+            ..Default::default()
+        })
+        .expect("record artifact");
+        db.record_domain_evidence(RecordDomainEvidenceInput {
+            session_id: Some(session_id.clone()),
+            domain: "writing".to_string(),
+            evidence_type: "source_cited".to_string(),
+            title: "Connector source still pending".to_string(),
+            source_metadata: json!({ "connector": "gmail", "threadId": "thr_1" }),
+            access_scope: Some("connector".to_string()),
+            redaction_status: Some("pending".to_string()),
+            ..Default::default()
+        })
+        .expect("record pending evidence");
+
+        let guard = db
+            .evaluate_domain_artifact_export_guard(DomainArtifactExportGuardInput {
+                session_id: Some(session_id),
+                domain: Some("writing".to_string()),
+                ..Default::default()
+            })
+            .expect("evaluate export guard");
+        assert_eq!(guard.status, "failed");
+        assert!(guard
+            .checks
+            .iter()
+            .any(|check| check.name == "artifact_reviewed" && check.status == "insufficient_data"));
+        assert!(guard
+            .checks
+            .iter()
+            .any(|check| check.name == "redaction_status" && check.status == "failed"));
+        assert!(guard
+            .checks
+            .iter()
+            .any(|check| check.name == "sensitive_evidence" && check.status == "failed"));
+        assert_eq!(guard.summary.redaction_pending, 1);
+        assert_eq!(guard.summary.sensitive_unreviewed, 1);
     }
 }

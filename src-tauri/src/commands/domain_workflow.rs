@@ -1,6 +1,7 @@
 use crate::commands::CmdError;
 use ha_core::domain_workflow::{
-    DomainEvidenceItem, DomainWorkflowDraft, DomainWorkflowTemplate, ListDomainEvidenceInput,
+    DomainArtifactExportGuardInput, DomainArtifactExportGuardReport, DomainEvidenceItem,
+    DomainWorkflowDraft, DomainWorkflowTemplate, ListDomainEvidenceInput,
     ListDomainWorkflowTemplatesInput, PreviewDomainWorkflowInput, RecordDomainEvidenceInput,
     SaveDomainWorkflowTemplateInput,
 };
@@ -57,5 +58,16 @@ pub async fn list_domain_evidence(
     app_state
         .session_db
         .list_domain_evidence(input)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn evaluate_domain_artifact_export_guard(
+    input: DomainArtifactExportGuardInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<DomainArtifactExportGuardReport, CmdError> {
+    app_state
+        .session_db
+        .evaluate_domain_artifact_export_guard(input)
         .map_err(Into::into)
 }

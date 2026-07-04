@@ -107,6 +107,7 @@ import type {
   ContextCandidate,
   ContextCandidateKind,
   DomainApprovalGate,
+  DomainArtifactExportGuardReport,
   DomainEvidenceRequirement,
   DomainQualityCheck,
   DomainQualityCheckStatus,
@@ -3191,6 +3192,9 @@ function DomainQualitySection({
 }) {
   const { t } = useTranslation()
   const [learningRunId, setLearningRunId] = useState<string | null>(null)
+  const [exportGuard, setExportGuard] = useState<DomainArtifactExportGuardReport | null>(null)
+  const [exportGuardLoading, setExportGuardLoading] = useState(false)
+  const [exportGuardError, setExportGuardError] = useState<string | null>(null)
   const { runs, snapshot, loading, running, error, refresh, runDomainQuality } =
     useDomainQualityRuns(sessionId, { incognito, turnActive })
   const latest = snapshot?.run ?? runs[0]
@@ -3224,6 +3228,70 @@ function DomainQualitySection({
     <StatusPill label={t("workspace.domainQuality.idle", "待复核")} tone="muted" />
   )
 
+  const refreshExportGuard = useCallback(async () => {
+    if (!sessionId || incognito) {
+      setExportGuard(null)
+      setExportGuardError(null)
+      setExportGuardLoading(false)
+      return null
+    }
+    setExportGuardLoading(true)
+    setExportGuardError(null)
+    try {
+      const report = await getTransport().call<DomainArtifactExportGuardReport>(
+        "evaluate_domain_artifact_export_guard",
+        {
+          input: {
+            sessionId,
+            requireArtifactCreated: true,
+            requireArtifactReviewed: true,
+            maxSensitiveUnreviewed: 0,
+            maxRedactionPending: 0,
+          },
+        },
+      )
+      setExportGuard(report)
+      return report
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error(
+        "ui",
+        "DomainQualitySection::refreshExportGuard",
+        "Failed to evaluate artifact export guard",
+        e,
+      )
+      setExportGuardError(message)
+      return null
+    } finally {
+      setExportGuardLoading(false)
+    }
+  }, [incognito, sessionId])
+
+  useEffect(() => {
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void refreshExportGuard()
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshExportGuard])
+
+  const prevExportGuardTurnActive = useRef(turnActive)
+  useEffect(() => {
+    let cancelled = false
+    const was = prevExportGuardTurnActive.current
+    prevExportGuardTurnActive.current = turnActive
+    if (was && !turnActive) {
+      queueMicrotask(() => {
+        if (!cancelled) void refreshExportGuard()
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [refreshExportGuard, turnActive])
+
   const handleRun = async () => {
     const next = await runDomainQuality()
     if (next) {
@@ -3234,6 +3302,7 @@ function DomainQualitySection({
       } else {
         toast.error(t("workspace.domainQuality.runBlocked", "领域复核发现阻塞项"))
       }
+      void refreshExportGuard()
     }
   }
 
@@ -3346,6 +3415,16 @@ function DomainQualitySection({
           </IconTip>
         </div>
 
+        {!incognito ? (
+          <DomainArtifactExportGuardPanel
+            report={exportGuard}
+            loading={exportGuardLoading}
+            error={exportGuardError}
+            disabled={!sessionId || exportGuardLoading}
+            onRefresh={refreshExportGuard}
+          />
+        ) : null}
+
         {incognito ? (
           <EmptyHint>
             {t("workspace.domainQuality.incognito", "无痕会话不持久化领域复核")}
@@ -3393,6 +3472,161 @@ function DomainQualitySection({
       </div>
     </WorkspaceSection>
   )
+}
+
+function DomainArtifactExportGuardPanel({
+  report,
+  loading,
+  error,
+  disabled,
+  onRefresh,
+}: {
+  report: DomainArtifactExportGuardReport | null
+  loading: boolean
+  error: string | null
+  disabled: boolean
+  onRefresh: () => Promise<DomainArtifactExportGuardReport | null>
+}) {
+  const { t } = useTranslation()
+  const issueChecks = (report?.checks ?? []).filter((check) => check.status !== "passed")
+  const summary = report?.summary
+  const clean = report?.status === "passed"
+
+  return (
+    <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <Shield className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium text-foreground/90">
+            {t("workspace.domainExportGuard.title", "交付守门")}
+          </div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {report
+              ? t("workspace.domainExportGuard.generated", "最近评估 {{time}}", {
+                  time: formatMessageTime(report.generatedAt),
+                })
+              : t("workspace.domainExportGuard.emptyHint", "检查最终产物、复核和脱敏状态")}
+          </div>
+        </div>
+        <StatusPill
+          label={domainArtifactExportGuardLabel(t, report?.status, loading)}
+          tone={domainArtifactExportGuardTone(report?.status, loading)}
+          loading={loading}
+        />
+        <IconTip label={t("workspace.domainExportGuard.refresh", "刷新交付守门")}>
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            disabled={disabled}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-secondary/25 text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:opacity-55"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </IconTip>
+      </div>
+
+      {summary ? (
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
+          {[
+            [t("workspace.domainExportGuard.artifact", "产物"), summary.artifactCreated, "info"],
+            [t("workspace.domainExportGuard.reviewed", "复核"), summary.artifactReviewed, "good"],
+            [t("workspace.domainExportGuard.sensitive", "敏感"), summary.sensitiveEvidence, summary.sensitiveEvidence > 0 ? "warn" : "muted"],
+            [t("workspace.domainExportGuard.redaction", "待脱敏"), summary.redactionPending, summary.redactionPending > 0 ? "danger" : "muted"],
+          ].map(([label, count, tone]) => (
+            <div
+              key={label as string}
+              className={cn("rounded-md border px-2 py-1.5", STATUS_TONE_CLASS[tone as StatusTone])}
+            >
+              <div className="truncate text-[10px]">{label as string}</div>
+              <div className="text-xs font-semibold tabular-nums">{count as number}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {error ? (
+        <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+          {error}
+        </div>
+      ) : clean ? (
+        <div className="mt-2 rounded-md bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+          {t("workspace.domainExportGuard.clean", "最终交付证据通过，可以进入发送、分享或导出前的用户确认。")}
+        </div>
+      ) : issueChecks.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {issueChecks.slice(0, 3).map((check) => (
+            <div
+              key={check.name}
+              className={cn(
+                "rounded-md px-2 py-1.5 text-[11px]",
+                check.status === "failed"
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <CircleAlert className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                <span className="shrink-0 tabular-nums">{check.actual}</span>
+              </div>
+              <div className="mt-0.5 truncate opacity-85">{check.detail}</div>
+            </div>
+          ))}
+        </div>
+      ) : !loading ? (
+        <EmptyHint>{t("workspace.domainExportGuard.empty", "还没有交付守门结果")}</EmptyHint>
+      ) : null}
+
+      {report?.evidenceRequiringReview.length ? (
+        <div className="mt-2 space-y-1">
+          {report.evidenceRequiringReview.slice(0, 2).map((item) => (
+            <div
+              key={item.id}
+              className="min-w-0 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                <ShieldAlert className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
+                <StatusPill label={item.reason} tone="warn" />
+              </div>
+              <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
+                {item.accessScope} · {item.redactionStatus}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function domainArtifactExportGuardTone(
+  status?: string | null,
+  loading?: boolean,
+): StatusTone {
+  if (loading) return "info"
+  if (status === "passed") return "good"
+  if (status === "failed") return "danger"
+  if (status === "insufficient_data") return "warn"
+  return "muted"
+}
+
+function domainArtifactExportGuardLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  status?: string | null,
+  loading?: boolean,
+): string {
+  if (loading) return t("workspace.domainExportGuard.loading", "评估中")
+  if (status === "passed") return t("workspace.domainExportGuard.passed", "可交付")
+  if (status === "failed") return t("workspace.domainExportGuard.failed", "阻塞")
+  if (status === "insufficient_data") {
+    return t("workspace.domainExportGuard.insufficient", "缺证据")
+  }
+  return t("workspace.domainExportGuard.idle", "未评估")
 }
 
 function trendPercent(value?: number | null): string {

@@ -1,6 +1,7 @@
 use axum::Json;
 use ha_core::domain_workflow::{
-    DomainEvidenceItem, DomainWorkflowDraft, DomainWorkflowTemplate, ListDomainEvidenceInput,
+    DomainArtifactExportGuardInput, DomainArtifactExportGuardReport, DomainEvidenceItem,
+    DomainWorkflowDraft, DomainWorkflowTemplate, ListDomainEvidenceInput,
     ListDomainWorkflowTemplatesInput, PreviewDomainWorkflowInput, RecordDomainEvidenceInput,
     SaveDomainWorkflowTemplateInput,
 };
@@ -37,6 +38,12 @@ pub struct RecordEvidenceBody {
 #[serde(rename_all = "camelCase")]
 pub struct ListEvidenceBody {
     pub input: ListDomainEvidenceInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvaluateExportGuardBody {
+    pub input: DomainArtifactExportGuardInput,
 }
 
 pub async fn list_domain_workflow_templates(
@@ -80,6 +87,15 @@ pub async fn list_domain_evidence(
 ) -> Result<Json<Vec<DomainEvidenceItem>>, AppError> {
     session_db()?
         .list_domain_evidence(body.input)
+        .map(Json)
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+pub async fn evaluate_domain_artifact_export_guard(
+    Json(body): Json<EvaluateExportGuardBody>,
+) -> Result<Json<DomainArtifactExportGuardReport>, AppError> {
+    session_db()?
+        .evaluate_domain_artifact_export_guard(body.input)
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))
 }

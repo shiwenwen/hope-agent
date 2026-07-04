@@ -1592,6 +1592,10 @@ fn build_router_with_cors(
             post(routes::domain_workflow::list_domain_evidence),
         )
         .route(
+            "/domain-artifact-export-guard/evaluate",
+            post(routes::domain_workflow::evaluate_domain_artifact_export_guard),
+        )
+        .route(
             "/domain-eval/tasks",
             post(routes::domain_eval::list_domain_eval_tasks),
         )

@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已实现；Phase 7.3 已在 [Context Retrieval v2](context-retrieval.md) 接入 domain profile、domain evidence 候选与 access issue；Phase 7.4 已由 [Domain Quality 控制平面](domain-quality.md) 消费 template / evidence / approval gates 生成通用领域 review / verification；Phase 7.5-7.6 已把 Domain Quality / Evidence 作为 [Coding Improvement Loop](coding-improvement-loop.md) 的通用学习输入与 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md) 的评分输入。本文记录 `ha-core::domain_workflow`、owner API、通用 workflow template、通用 evidence 与 Goal evidence 链接的当前技术事实。
+> 状态：Phase 7.1 Domain Workflow Registry 与 Phase 7.2 General Evidence Model 已实现；Phase 7.3 已在 [Context Retrieval v2](context-retrieval.md) 接入 domain profile、domain evidence 候选与 access issue；Phase 7.4 已由 [Domain Quality 控制平面](domain-quality.md) 消费 template / evidence / approval gates 生成通用领域 review / verification；Phase 7.5-7.6 已把 Domain Quality / Evidence 作为 [Coding Improvement Loop](coding-improvement-loop.md) 的通用学习输入与 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md) 的评分输入；Phase 7.15 已在本模块补充 Artifact Export Guard，给报告、文档、表格、邮件草稿等最终交付动作提供只读门禁。本文记录 `ha-core::domain_workflow`、owner API、通用 workflow template、通用 evidence、Goal evidence 链接与交付守门的当前技术事实。
 
 ## 目标
 
@@ -102,6 +102,31 @@ Goal evidence relation 白名单已加法扩展这些通用 evidence type；codi
 
 Workflow runtime 也提供脚本内 sugar：`workflow.evidence.record({ domain, evidenceType, title, summary?, sourceMetadata?, confidence?, accessScope?, redactionStatus? })`。该 API 复用 `record_domain_evidence`，但 scope 由 runtime 强制改写为当前 workflow 的 `session_id`、绑定 `goal_id` 和 session project，脚本不能跨 session / goal / project 写 evidence。写入时会在 `sourceMetadata.workflow` 追加 `runId`、`opKey`、`sessionId`、`goalId`、`executionMode`，用于 Goal detail、Context Retrieval 和后续 Domain Quality 追溯来源。
 
+## Artifact Export Guard
+
+Phase 7.15 新增 `evaluate_domain_artifact_export_guard(input)`，用于最终发送、分享、导出、发布前的只读门禁。它只读 `domain_evidence_items`，不调用 LLM、不访问连接器、不创建文件、不执行外部动作。
+
+输入要求 `sessionId` 或 `goalId`；若传 `goalId`，session 从 goal 解析并校验，避免跨 session 伪造。incognito session fail closed。可选 `domain` 过滤同一领域 evidence；可选 `artifactPath/title/kind` 只进入 report 展示，当前不作为授权条件。
+
+默认阈值：
+
+| 字段 | 默认 | 说明 |
+| --- | --- | --- |
+| `requireArtifactCreated` | `true` | 必须存在 `artifact_created` evidence。 |
+| `requireArtifactReviewed` | `true` | 必须存在 `artifact_reviewed` evidence。 |
+| `maxSensitiveUnreviewed` | `0` | private / connector / sensitive / pending / redacted evidence 如果没有显式 export review，不允许放行。 |
+| `maxRedactionPending` | `0` | `redactionStatus=pending|sensitive` 默认阻断。 |
+
+判定规则：
+
+- `artifact_created` / `artifact_reviewed` 缺失时返回 `insufficient_data`，提醒用户补证据。
+- `accessScope=private|connector` 或 `redactionStatus=sensitive|pending|redacted` 会进入 `evidenceRequiringReview`。
+- 敏感 evidence 只有在同 scope 内存在 `artifact_reviewed`，且其 `sourceMetadata.exportReview=true`、`exportReady=true` 或 `redactionChecked=true` 时，才算完成导出复核。
+- `pending|sensitive` 脱敏状态默认直接 `failed`；`redacted` 不算待脱敏，但仍要求显式导出复核。
+- 输出 `status=passed|failed|insufficient_data`、`checks[]`、`blockers[]`、`recommendedNextSteps[]`、summary 计数和最多 12 条需复核 evidence。
+
+GUI 上，Workspace「领域复核」区块内新增「交付守门」卡片，自动随会话加载、回合结束和手动刷新更新。用户无需记命令即可看到最终产物是否已创建、是否复核、是否存在敏感来源或待脱敏证据。
+
 ## Context Retrieval 衔接
 
 Phase 7.3 起，`ha-core::context_retrieval` 会只读消费本模块的数据：
@@ -148,6 +173,7 @@ Tauri / HTTP / transport 均已注册：
 | `preview_domain_workflow` | `POST /api/domain-workflows/preview` | 生成 workflow draft 和 Script Gate / permission preview。 |
 | `record_domain_evidence` | `POST /api/domain-evidence/record` | 写入通用 evidence，并可链接到 Goal。 |
 | `list_domain_evidence` | `POST /api/domain-evidence` | 按 goal/session/project/domain/type 列出 evidence。 |
+| `evaluate_domain_artifact_export_guard` | `POST /api/domain-artifact-export-guard/evaluate` | 只读评估最终交付是否具备产物、复核和脱敏证据。 |
 
 ## 红线
 
@@ -155,6 +181,7 @@ Tauri / HTTP / transport 均已注册：
 - 不自动执行：preview 不创建 run、不运行脚本、不访问网络、不发邮件、不改日历、不写外部系统。
 - 不污染全局 prompt：domain hints 只进入 workflow draft 的动态 payload。
 - 不写无痕：incognito session 不可 preview durable domain workflow，也不可记录 domain evidence。
+- 不自动交付：Artifact Export Guard 只给出门禁结论，不发送邮件、不分享文档、不导出文件、不发布外部系统。
 - 不覆盖内置：自定义 template 不能覆盖 built-in 同 id/version。
 - 不破坏 coding：Goal evidence 只加通用 relation；coding review、verification、eval、benchmark 的表和行为不变。
 
@@ -170,4 +197,5 @@ cargo test -p ha-core domain_workflow --locked
 
 - 内置 Research template 可列出并生成通过 Script Gate 的 workflow draft。
 - Domain evidence 可写入 `domain_evidence_items`，并通过 `goal_links` 出现在 Goal snapshot evidence 中。
+- Artifact Export Guard 在产物、复核、敏感来源导出复核齐全时通过；缺少复核且存在 pending connector evidence 时阻断。
 - Workflow runtime 可通过 `workflow.evidence.record` 写入通用 evidence，并保留 run/op provenance。
