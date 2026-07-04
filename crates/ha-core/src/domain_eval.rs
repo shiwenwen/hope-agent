@@ -44,6 +44,10 @@ const DEFAULT_MIN_AVERAGE_SCORE: f64 = 0.8;
 const DEFAULT_MIN_QUALITY_RUNS: usize = 1;
 const DEFAULT_MAX_BLOCKED_QUALITY_RUNS: usize = 0;
 const DEFAULT_MIN_DOMAIN_COVERAGE: usize = 1;
+const DEFAULT_DOMAIN_READINESS_MIN_CAMPAIGN_ITEMS: usize = 1;
+const DEFAULT_DOMAIN_READINESS_MIN_LEADERBOARD_ROWS: usize = 1;
+const DEFAULT_DOMAIN_READINESS_MAX_FAILED_CAMPAIGN_ITEMS: usize = 0;
+const DEFAULT_DOMAIN_READINESS_MAX_OPEN_LEARNING_PROPOSALS: usize = 0;
 const DOMAIN_EVAL_SOURCE_LIVE: &str = "live";
 const DOMAIN_EVAL_SOURCE_FIXTURE_TRACE: &str = "fixture_trace";
 const DOMAIN_EVAL_SOURCE_FIXTURE_AGENT: &str = "fixture_agent";
@@ -874,6 +878,120 @@ pub struct DomainQualityGateReport {
     pub summary: DomainQualityGateSummary,
     #[serde(default)]
     pub checks: Vec<DomainQualityGateCheck>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainReadinessGateInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_eval_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_pass_rate: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_average_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_quality_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_blocked_quality_runs: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_domain_coverage: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_campaign_items: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_leaderboard_rows: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_failed_campaign_items: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_open_learning_proposals: Option<usize>,
+    #[serde(default)]
+    pub require_approval_safety: bool,
+    #[serde(default)]
+    pub include_synthetic: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainReadinessGateThresholds {
+    pub window_days: u32,
+    pub min_eval_runs: usize,
+    pub min_pass_rate: f64,
+    pub min_average_score: f64,
+    pub min_quality_runs: usize,
+    pub max_blocked_quality_runs: usize,
+    pub min_domain_coverage: usize,
+    pub min_campaign_items: usize,
+    pub min_leaderboard_rows: usize,
+    pub max_failed_campaign_items: usize,
+    pub max_open_learning_proposals: usize,
+    pub require_approval_safety: bool,
+    pub include_synthetic: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainReadinessGateSummary {
+    pub eval_runs: usize,
+    pub quality_runs: usize,
+    pub campaigns: usize,
+    pub active_campaigns: usize,
+    pub terminal_campaigns: usize,
+    pub campaign_items: usize,
+    pub terminal_campaign_items: usize,
+    pub passed_campaign_items: usize,
+    pub failed_campaign_items: usize,
+    pub cancelled_campaign_items: usize,
+    pub interrupted_campaign_items: usize,
+    pub leaderboard_rows: usize,
+    pub open_learning_proposals: usize,
+    pub pending_learning_campaigns: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_campaign_at: Option<String>,
+    pub quality_status: String,
+    pub leaderboard_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainReadinessGateCheck {
+    pub name: String,
+    pub status: String,
+    pub severity: String,
+    pub expected: String,
+    pub actual: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainReadinessGateReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub since: String,
+    pub thresholds: DomainReadinessGateThresholds,
+    pub summary: DomainReadinessGateSummary,
+    #[serde(default)]
+    pub checks: Vec<DomainReadinessGateCheck>,
+    pub quality_gate: DomainQualityGateReport,
+    pub campaign_leaderboard: DomainEvalCampaignLeaderboardReport,
+    #[serde(default)]
+    pub blockers: Vec<String>,
+    #[serde(default)]
+    pub recommended_next_steps: Vec<String>,
 }
 
 struct DomainGateScope {
@@ -2491,6 +2609,349 @@ impl SessionDB {
             summary,
             checks,
         })
+    }
+
+    pub fn evaluate_domain_readiness_gate(
+        &self,
+        input: DomainReadinessGateInput,
+    ) -> Result<DomainReadinessGateReport> {
+        let thresholds = domain_readiness_gate_thresholds(&input);
+        let quality_gate = self.evaluate_domain_quality_gate(DomainQualityGateInput {
+            session_id: input.session_id.clone(),
+            project_id: input.project_id.clone(),
+            domain: input.domain.clone(),
+            window_days: Some(thresholds.window_days),
+            min_eval_runs: Some(thresholds.min_eval_runs),
+            min_pass_rate: Some(thresholds.min_pass_rate),
+            min_average_score: Some(thresholds.min_average_score),
+            min_quality_runs: Some(thresholds.min_quality_runs),
+            max_blocked_quality_runs: Some(thresholds.max_blocked_quality_runs),
+            min_domain_coverage: Some(thresholds.min_domain_coverage),
+            require_approval_safety: thresholds.require_approval_safety,
+            include_synthetic: thresholds.include_synthetic,
+        })?;
+        let campaign_leaderboard =
+            self.get_domain_eval_campaign_leaderboard(DomainEvalCampaignLeaderboardInput {
+                session_id: quality_gate.session_id.clone(),
+                project_id: quality_gate.project_id.clone(),
+                domain: quality_gate.domain.clone(),
+                window_days: Some(thresholds.window_days),
+                limit: Some(MAX_DOMAIN_EVAL_CAMPAIGN_LIMIT),
+                campaign_ids: Vec::new(),
+            })?;
+        let mut summary = self.domain_readiness_campaign_summary(
+            quality_gate.session_id.as_deref(),
+            quality_gate.project_id.as_deref(),
+            quality_gate.domain.as_deref(),
+            &quality_gate.since,
+        )?;
+        summary.eval_runs = quality_gate.summary.eval_runs;
+        summary.quality_runs = quality_gate.summary.quality_runs;
+        summary.leaderboard_rows = campaign_leaderboard.rows.len();
+        summary.quality_status = quality_gate.status.clone();
+        summary.leaderboard_status = campaign_leaderboard.status.clone();
+
+        let campaign_failures = summary.failed_campaign_items
+            + summary.cancelled_campaign_items
+            + summary.interrupted_campaign_items;
+        let mut checks = Vec::new();
+        push_readiness_check(
+            &mut checks,
+            "domain_quality_gate",
+            &quality_gate.status,
+            "blocking",
+            "quality gate passed".to_string(),
+            quality_gate.status.clone(),
+            "Readiness keeps live domain eval and domain quality evidence as the first gate.",
+        );
+        push_readiness_check(
+            &mut checks,
+            "campaign_sample",
+            if summary.campaign_items >= thresholds.min_campaign_items {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "blocking",
+            format!(
+                "at least {} domain campaign item(s)",
+                thresholds.min_campaign_items
+            ),
+            format!("{} item(s)", summary.campaign_items),
+            "Durable campaign evidence proves the domain workflow can be replayed and compared.",
+        );
+        push_readiness_check(
+            &mut checks,
+            "campaign_completion",
+            if summary.campaign_items < thresholds.min_campaign_items {
+                "insufficient_data"
+            } else if summary.active_campaigns == 0
+                && summary.terminal_campaign_items >= summary.campaign_items
+            {
+                "passed"
+            } else {
+                "insufficient_data"
+            },
+            "blocking",
+            "no active or queued domain campaigns".to_string(),
+            format!(
+                "{} active, {}/{} terminal item(s)",
+                summary.active_campaigns, summary.terminal_campaign_items, summary.campaign_items
+            ),
+            "Running campaigns are observable long tasks, but readiness should wait for their final result.",
+        );
+        let leaderboard_status = if summary.leaderboard_rows < thresholds.min_leaderboard_rows {
+            "insufficient_data"
+        } else {
+            campaign_leaderboard.status.as_str()
+        };
+        push_readiness_check(
+            &mut checks,
+            "campaign_leaderboard",
+            leaderboard_status,
+            "blocking",
+            format!(
+                "at least {} comparable leaderboard row(s) and no failed rows",
+                thresholds.min_leaderboard_rows
+            ),
+            format!(
+                "{} row(s), status {}",
+                summary.leaderboard_rows, campaign_leaderboard.status
+            ),
+            "The same campaign evidence feeds the model/execution comparison view.",
+        );
+        push_readiness_check(
+            &mut checks,
+            "campaign_failures",
+            if campaign_failures <= thresholds.max_failed_campaign_items {
+                "passed"
+            } else {
+                "failed"
+            },
+            "blocking",
+            format!(
+                "<= {} failed/cancelled/interrupted campaign item(s)",
+                thresholds.max_failed_campaign_items
+            ),
+            format!("{campaign_failures} failed/cancelled/interrupted item(s)"),
+            "Known domain campaign failures must be retried, fixed, or allowed to age out of the gate window.",
+        );
+        push_readiness_check(
+            &mut checks,
+            "learning_closure",
+            if summary.pending_learning_campaigns > 0
+                || summary.open_learning_proposals > thresholds.max_open_learning_proposals
+            {
+                "failed"
+            } else {
+                "passed"
+            },
+            "blocking",
+            format!(
+                "no unmaterialized failures and <= {} open learning proposal(s)",
+                thresholds.max_open_learning_proposals
+            ),
+            format!(
+                "{} pending campaign(s), {} open proposal(s)",
+                summary.pending_learning_campaigns, summary.open_learning_proposals
+            ),
+            "Failed campaign evidence should become domain eval cases or guidance drafts, then be resolved by the user.",
+        );
+
+        let blockers = checks
+            .iter()
+            .filter(|check| check.status != "passed" && check.severity != "advisory")
+            .map(|check| check.name.clone())
+            .collect::<Vec<_>>();
+        let status = readiness_status(&checks);
+        let recommended_next_steps = domain_readiness_recommendations(&checks);
+
+        Ok(DomainReadinessGateReport {
+            generated_at: now_rfc3339(),
+            status,
+            scope: quality_gate.scope.clone(),
+            session_id: quality_gate.session_id.clone(),
+            project_id: quality_gate.project_id.clone(),
+            domain: quality_gate.domain.clone(),
+            since: quality_gate.since.clone(),
+            thresholds,
+            summary,
+            checks,
+            quality_gate,
+            campaign_leaderboard,
+            blockers,
+            recommended_next_steps,
+        })
+    }
+
+    fn domain_readiness_campaign_summary(
+        &self,
+        session_id: Option<&str>,
+        project_id: Option<&str>,
+        domain: Option<&str>,
+        since: &str,
+    ) -> Result<DomainReadinessGateSummary> {
+        let mut clauses = vec!["c.created_at >= ?".to_string()];
+        let mut params = vec![since.to_string()];
+        if let Some(project_id) = project_id.and_then(non_empty) {
+            clauses.push("c.project_id = ?".to_string());
+            params.push(project_id.to_string());
+        } else if let Some(session_id) = session_id.and_then(non_empty) {
+            clauses.push("c.session_id = ?".to_string());
+            params.push(session_id.to_string());
+        }
+        if let Some(domain) = domain.and_then(non_empty).map(normalize_domain) {
+            clauses.push("(c.domain = ? OR i.domain = ?)".to_string());
+            params.push(domain.clone());
+            params.push(domain);
+        }
+        let sql = format!(
+            "SELECT c.id, c.status, c.updated_at, i.id, i.status
+             FROM domain_eval_campaigns c
+             LEFT JOIN domain_eval_campaign_items i ON i.campaign_id = c.id
+             WHERE {}
+             ORDER BY c.updated_at DESC, c.id DESC, i.created_at ASC",
+            clauses.join(" AND ")
+        );
+        let rows = {
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+
+        let mut summary = DomainReadinessGateSummary::default();
+        let mut campaign_ids = BTreeSet::new();
+        let mut failed_learning_campaign_ids = BTreeSet::new();
+        for (campaign_id, campaign_status, updated_at, item_id, item_status) in rows {
+            if campaign_ids.insert(campaign_id.clone()) {
+                summary.campaigns += 1;
+                if matches!(
+                    campaign_status.as_str(),
+                    "queued" | "running" | "cancel_requested"
+                ) {
+                    summary.active_campaigns += 1;
+                } else if matches!(
+                    campaign_status.as_str(),
+                    "passed" | "failed" | "partial" | "cancelled" | "interrupted"
+                ) {
+                    summary.terminal_campaigns += 1;
+                }
+                if summary
+                    .latest_campaign_at
+                    .as_ref()
+                    .map(|current| updated_at > *current)
+                    .unwrap_or(true)
+                {
+                    summary.latest_campaign_at = Some(updated_at);
+                }
+            }
+            if item_id.is_none() {
+                continue;
+            }
+            summary.campaign_items += 1;
+            match item_status.as_deref().unwrap_or_default() {
+                "passed" => {
+                    summary.passed_campaign_items += 1;
+                    summary.terminal_campaign_items += 1;
+                }
+                "failed" => {
+                    summary.failed_campaign_items += 1;
+                    summary.terminal_campaign_items += 1;
+                    failed_learning_campaign_ids.insert(campaign_id);
+                }
+                "cancelled" => {
+                    summary.cancelled_campaign_items += 1;
+                    summary.terminal_campaign_items += 1;
+                    failed_learning_campaign_ids.insert(campaign_id);
+                }
+                "interrupted" => {
+                    summary.interrupted_campaign_items += 1;
+                    summary.terminal_campaign_items += 1;
+                    failed_learning_campaign_ids.insert(campaign_id);
+                }
+                _ => {}
+            }
+        }
+        let campaign_ids = campaign_ids.into_iter().collect::<Vec<_>>();
+        let failed_learning_campaign_ids =
+            failed_learning_campaign_ids.into_iter().collect::<Vec<_>>();
+        summary.open_learning_proposals =
+            self.count_open_domain_campaign_learning_proposals(&campaign_ids)?;
+        summary.pending_learning_campaigns =
+            self.count_pending_domain_campaign_learning_campaigns(&failed_learning_campaign_ids)?;
+        Ok(summary)
+    }
+
+    fn count_open_domain_campaign_learning_proposals(
+        &self,
+        campaign_ids: &[String],
+    ) -> Result<usize> {
+        if campaign_ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut total = 0usize;
+        for chunk in campaign_ids.chunks(500) {
+            let placeholders = std::iter::repeat("?")
+                .take(chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let count = conn.query_row(
+                &format!(
+                    "SELECT COUNT(*)
+                     FROM coding_improvement_proposals
+                     WHERE source_type = 'domain_eval_campaign'
+                       AND status NOT IN ('promoted','rejected')
+                       AND source_id IN ({placeholders})"
+                ),
+                params_from_iter(chunk.iter()),
+                |row| row.get::<_, i64>(0),
+            )?;
+            total += count.max(0) as usize;
+        }
+        Ok(total)
+    }
+
+    fn count_pending_domain_campaign_learning_campaigns(
+        &self,
+        failed_campaign_ids: &[String],
+    ) -> Result<usize> {
+        if failed_campaign_ids.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut materialized = BTreeSet::new();
+        for chunk in failed_campaign_ids.chunks(500) {
+            let placeholders = std::iter::repeat("?")
+                .take(chunk.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut stmt = conn.prepare(&format!(
+                "SELECT DISTINCT source_id
+                 FROM coding_improvement_proposals
+                 WHERE source_type = 'domain_eval_campaign'
+                   AND source_id IN ({placeholders})"
+            ))?;
+            let rows = stmt.query_map(params_from_iter(chunk.iter()), |row| {
+                row.get::<_, String>(0)
+            })?;
+            for row in rows {
+                materialized.insert(row?);
+            }
+        }
+        Ok(failed_campaign_ids
+            .iter()
+            .filter(|id| !materialized.contains(*id))
+            .count())
     }
 
     fn get_domain_eval_run(&self, run_id: &str) -> Result<Option<DomainEvalRunRecord>> {
@@ -5216,6 +5677,59 @@ fn domain_quality_gate_thresholds(input: &DomainQualityGateInput) -> DomainQuali
     }
 }
 
+fn domain_readiness_gate_thresholds(
+    input: &DomainReadinessGateInput,
+) -> DomainReadinessGateThresholds {
+    DomainReadinessGateThresholds {
+        window_days: input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS),
+        min_eval_runs: input
+            .min_eval_runs
+            .unwrap_or(DEFAULT_MIN_EVAL_RUNS)
+            .clamp(1, 100),
+        min_pass_rate: input
+            .min_pass_rate
+            .unwrap_or(DEFAULT_MIN_PASS_RATE)
+            .clamp(0.0, 1.0),
+        min_average_score: input
+            .min_average_score
+            .unwrap_or(DEFAULT_MIN_AVERAGE_SCORE)
+            .clamp(0.0, 1.0),
+        min_quality_runs: input
+            .min_quality_runs
+            .unwrap_or(DEFAULT_MIN_QUALITY_RUNS)
+            .clamp(1, 100),
+        max_blocked_quality_runs: input
+            .max_blocked_quality_runs
+            .unwrap_or(DEFAULT_MAX_BLOCKED_QUALITY_RUNS)
+            .min(100),
+        min_domain_coverage: input
+            .min_domain_coverage
+            .unwrap_or(DEFAULT_MIN_DOMAIN_COVERAGE)
+            .clamp(1, 5),
+        min_campaign_items: input
+            .min_campaign_items
+            .unwrap_or(DEFAULT_DOMAIN_READINESS_MIN_CAMPAIGN_ITEMS)
+            .clamp(1, 500),
+        min_leaderboard_rows: input
+            .min_leaderboard_rows
+            .unwrap_or(DEFAULT_DOMAIN_READINESS_MIN_LEADERBOARD_ROWS)
+            .clamp(1, MAX_DOMAIN_EVAL_CAMPAIGN_LIMIT),
+        max_failed_campaign_items: input
+            .max_failed_campaign_items
+            .unwrap_or(DEFAULT_DOMAIN_READINESS_MAX_FAILED_CAMPAIGN_ITEMS)
+            .min(500),
+        max_open_learning_proposals: input
+            .max_open_learning_proposals
+            .unwrap_or(DEFAULT_DOMAIN_READINESS_MAX_OPEN_LEARNING_PROPOSALS)
+            .min(500),
+        require_approval_safety: input.require_approval_safety,
+        include_synthetic: input.include_synthetic,
+    }
+}
+
 fn push_gate_check(
     checks: &mut Vec<DomainQualityGateCheck>,
     name: &str,
@@ -5226,6 +5740,25 @@ fn push_gate_check(
     detail: &str,
 ) {
     checks.push(DomainQualityGateCheck {
+        name: name.to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        expected,
+        actual,
+        detail: detail.to_string(),
+    });
+}
+
+fn push_readiness_check(
+    checks: &mut Vec<DomainReadinessGateCheck>,
+    name: &str,
+    status: &str,
+    severity: &str,
+    expected: String,
+    actual: String,
+    detail: &str,
+) {
+    checks.push(DomainReadinessGateCheck {
         name: name.to_string(),
         status: status.to_string(),
         severity: severity.to_string(),
@@ -5246,6 +5779,50 @@ fn gate_status(checks: &[DomainQualityGateCheck]) -> String {
     } else {
         "passed".to_string()
     }
+}
+
+fn readiness_status(checks: &[DomainReadinessGateCheck]) -> String {
+    if checks.iter().any(|check| check.status == "failed") {
+        "failed".to_string()
+    } else if checks
+        .iter()
+        .any(|check| check.status == "insufficient_data")
+    {
+        "insufficient_data".to_string()
+    } else {
+        "passed".to_string()
+    }
+}
+
+fn domain_readiness_recommendations(checks: &[DomainReadinessGateCheck]) -> Vec<String> {
+    let mut recommendations = Vec::new();
+    for check in checks.iter().filter(|check| check.status != "passed") {
+        let recommendation = match check.name.as_str() {
+            "domain_quality_gate" => {
+                "Run or review live Domain Quality / Domain Eval evidence for the current scope."
+            }
+            "campaign_sample" => {
+                "Run a trace or external Domain Eval Campaign so the domain workflow has replayable evidence."
+            }
+            "campaign_completion" => {
+                "Wait for active Domain Eval Campaigns to finish, or cancel and retry them if they are stuck."
+            }
+            "campaign_leaderboard" => {
+                "Run enough comparable campaign items to populate the Domain model leaderboard."
+            }
+            "campaign_failures" => {
+                "Retry failed/cancelled/interrupted domain campaign items before treating the scope as ready."
+            }
+            "learning_closure" => {
+                "Generate and resolve Domain Campaign Learning drafts for failed campaign evidence."
+            }
+            _ => "Resolve the failing Domain Readiness check.",
+        };
+        if !recommendations.iter().any(|item| item == recommendation) {
+            recommendations.push(recommendation.to_string());
+        }
+    }
+    recommendations
 }
 
 fn since_timestamp(window_days: u32) -> String {
@@ -6352,5 +6929,196 @@ mod tests {
         assert_eq!(gate.status, "passed");
         assert_eq!(gate.summary.eval_runs, 1);
         assert_eq!(gate.summary.completed_quality_runs, 1);
+    }
+
+    #[tokio::test]
+    async fn domain_readiness_gate_passes_with_live_quality_and_campaign_evidence() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let goal = db
+            .create_goal(crate::goal::CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Prepare research brief".to_string(),
+                completion_criteria: "Sources and claims are verified".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .unwrap();
+        db.create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "domain:research".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source:
+                "export default async function main(workflow) { await workflow.finish({ status: 'done' }); }"
+                    .to_string(),
+            budget: json!({}),
+            parent_run_id: None,
+            origin: Some("test".to_string()),
+            goal_id: Some(goal.goal.id.clone()),
+            worktree_id: None,
+        })
+        .unwrap();
+        for i in 0..3 {
+            record_evidence(
+                &db,
+                &session.id,
+                "research",
+                "source_cited",
+                &format!("Source {i}"),
+                json!({"uri": format!("https://example.com/{i}"), "retrievedAt": "2026-07-03"}),
+            );
+        }
+        for i in 0..2 {
+            record_evidence(
+                &db,
+                &session.id,
+                "research",
+                "claim_checked",
+                &format!("Claim {i}"),
+                json!({"claim": format!("claim {i}"), "verdict": "supported"}),
+            );
+        }
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "citation_audited",
+            "Citation audit",
+            json!({"coverage": "all key claims"}),
+        );
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "user_decision",
+            "Draft only",
+            json!({"decision": "draft only"}),
+        );
+        let quality = db
+            .run_domain_quality_for_session(RunDomainQualityInput {
+                session_id: session.id.clone(),
+                domain: Some("research".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        let eval = db
+            .run_domain_eval_task(RunDomainEvalTaskInput {
+                session_id: session.id.clone(),
+                task_id: "research-source-backed-brief".to_string(),
+                label: None,
+                source_quality_run_id: Some(quality.run.id),
+                source_type: None,
+            })
+            .unwrap();
+        assert_eq!(eval.status, "passed");
+
+        let db = Arc::new(db);
+        let campaign = db
+            .create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+                session_id: Some(session.id.clone()),
+                name: Some("readiness trace campaign".to_string()),
+                task_ids: vec!["research-source-backed-brief".to_string()],
+                max_tasks: Some(1),
+                execution_mode: Some("trace_fixture".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        let completed = run_domain_eval_campaign(
+            db.clone(),
+            RunDomainEvalCampaignInput {
+                campaign_id: campaign.id,
+                providers: Vec::new(),
+                retry_failed_only: false,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(completed.status, "passed");
+
+        let readiness = db
+            .evaluate_domain_readiness_gate(DomainReadinessGateInput {
+                session_id: Some(session.id),
+                min_eval_runs: Some(1),
+                min_quality_runs: Some(1),
+                min_campaign_items: Some(1),
+                min_leaderboard_rows: Some(1),
+                max_failed_campaign_items: Some(0),
+                max_open_learning_proposals: Some(0),
+                require_approval_safety: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(readiness.status, "passed", "{readiness:?}");
+        assert_eq!(readiness.summary.eval_runs, 1);
+        assert_eq!(readiness.summary.quality_runs, 1);
+        assert_eq!(readiness.summary.campaign_items, 1);
+        assert_eq!(readiness.summary.open_learning_proposals, 0);
+        assert!(readiness.blockers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn domain_readiness_gate_blocks_failed_campaign_without_learning_closure() {
+        let (_dir, db) = test_db();
+        let db = Arc::new(db);
+        let campaign = db
+            .create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+                name: Some("readiness failed campaign".to_string()),
+                task_ids: vec!["research-source-backed-brief".to_string()],
+                max_tasks: Some(1),
+                models: vec![DomainEvalCampaignModel {
+                    provider_id: Some("missing-provider".to_string()),
+                    model_id: Some("missing-model".to_string()),
+                    label: Some("Missing Model".to_string()),
+                }],
+                execution_mode: Some("agent".to_string()),
+                providers: vec![mock_responses_provider(
+                    "https://example.invalid".to_string(),
+                    "other-provider",
+                    "other-model",
+                )],
+                ..Default::default()
+            })
+            .unwrap();
+        let completed = run_domain_eval_campaign(
+            db.clone(),
+            RunDomainEvalCampaignInput {
+                campaign_id: campaign.id,
+                providers: Vec::new(),
+                retry_failed_only: false,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(completed.status, "failed");
+
+        let readiness = db
+            .evaluate_domain_readiness_gate(DomainReadinessGateInput {
+                min_eval_runs: Some(1),
+                min_quality_runs: Some(1),
+                min_campaign_items: Some(1),
+                min_leaderboard_rows: Some(1),
+                max_failed_campaign_items: Some(0),
+                max_open_learning_proposals: Some(0),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(readiness.status, "failed");
+        assert_eq!(readiness.summary.failed_campaign_items, 1);
+        assert_eq!(readiness.summary.pending_learning_campaigns, 1);
+        assert!(readiness
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "campaign_failures"));
+        assert!(readiness
+            .blockers
+            .iter()
+            .any(|blocker| blocker == "learning_closure"));
     }
 }

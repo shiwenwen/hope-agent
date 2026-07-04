@@ -1652,6 +1652,10 @@ fn build_router_with_cors(
             post(routes::domain_eval::evaluate_domain_quality_gate),
         )
         .route(
+            "/domain-readiness-gate/evaluate",
+            post(routes::domain_eval::evaluate_domain_readiness_gate),
+        )
+        .route(
             "/sessions/{sid}/domain-quality-runs",
             get(routes::domain_quality::list_domain_quality_runs),
         )

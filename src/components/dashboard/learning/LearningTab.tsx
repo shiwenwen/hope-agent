@@ -43,6 +43,7 @@ import type {
   DomainEvalCampaignLeaderboardReport,
   DomainEvalTask,
   DomainQualityGateReport,
+  DomainReadinessGateReport,
   DomainEvalCalibrationRecord,
 } from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter, DomainQualityDashboard } from "../types"
@@ -138,6 +139,8 @@ export default function LearningTab({ filter }: LearningTabProps) {
     useState<CodingLearningGeneralizationReport | null>(null)
   const [domainQualityGate, setDomainQualityGate] =
     useState<DomainQualityGateReport | null>(null)
+  const [domainReadinessGate, setDomainReadinessGate] =
+    useState<DomainReadinessGateReport | null>(null)
   const [domainEvalRuns, setDomainEvalRuns] = useState<DomainEvalRunRecord[]>([])
   const [domainFixtureRuns, setDomainFixtureRuns] = useState<DomainEvalFixtureRunRecord[]>([])
   const [domainEvalCampaigns, setDomainEvalCampaigns] = useState<DomainEvalCampaign[]>([])
@@ -179,6 +182,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         providers,
         rg,
         gen,
+        drg,
         dqg,
         der,
         dfr,
@@ -276,6 +280,19 @@ export default function LearningTab({ filter }: LearningTabProps) {
             },
           },
         ),
+        getTransport().call<DomainReadinessGateReport>("evaluate_domain_readiness_gate", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            minEvalRuns: 1,
+            minQualityRuns: 1,
+            minDomainCoverage: 1,
+            minCampaignItems: 1,
+            minLeaderboardRows: 1,
+            maxFailedCampaignItems: 0,
+            maxOpenLearningProposals: 0,
+            requireApprovalSafety: true,
+          },
+        }),
         getTransport().call<DomainQualityGateReport>("evaluate_domain_quality_gate", {
           input: {
             windowDays: releaseGateWindowDays(filter, windowDays),
@@ -331,6 +348,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setBenchmarkProviders(providers ?? [])
       setReleaseGate(rg)
       setGeneralization(gen)
+      setDomainReadinessGate(drg)
       setDomainQualityGate(dqg)
       setDomainEvalRuns(der ?? [])
       setDomainFixtureRuns(dfr ?? [])
@@ -888,6 +906,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         benchmarkBudgetUsd={benchmarkBudgetUsd}
         releaseGate={releaseGate}
         generalization={generalization}
+        domainReadinessGate={domainReadinessGate}
         domainQualityGate={domainQualityGate}
         domainEvalRuns={domainEvalRuns}
         domainFixtureRuns={domainFixtureRuns}
@@ -1104,6 +1123,7 @@ function CodingImprovementSection({
   benchmarkBudgetUsd,
   releaseGate,
   generalization,
+  domainReadinessGate,
   domainQualityGate,
   domainEvalRuns,
   domainFixtureRuns,
@@ -1163,6 +1183,7 @@ function CodingImprovementSection({
   benchmarkBudgetUsd: string
   releaseGate: CodingEvalReleaseGateReport | null
   generalization: CodingLearningGeneralizationReport | null
+  domainReadinessGate: DomainReadinessGateReport | null
   domainQualityGate: DomainQualityGateReport | null
   domainEvalRuns: DomainEvalRunRecord[]
   domainFixtureRuns: DomainEvalFixtureRunRecord[]
@@ -1365,6 +1386,8 @@ function CodingImprovementSection({
       />
 
       <DomainQualityDashboardPanel dashboard={domainQuality ?? null} />
+
+      <DomainReadinessGatePanel report={domainReadinessGate} />
 
       <DomainQualityGatePanel
         report={domainQualityGate}
@@ -2894,6 +2917,117 @@ function DomainQualityDashboardPanel({
         <EmptyLine
           label={t("dashboard.learning.domainQualityTrendsLoading", {
             defaultValue: "Loading general-domain trends",
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
+function DomainReadinessGatePanel({ report }: { report: DomainReadinessGateReport | null }) {
+  const { t } = useTranslation()
+  const attentionChecks =
+    report?.checks.filter((check) => check.status !== "passed").slice(0, 5) ?? []
+  const recommendations = report?.recommendedNextSteps.slice(0, 3) ?? []
+  const campaignFailures = report
+    ? report.summary.failedCampaignItems +
+      report.summary.cancelledCampaignItems +
+      report.summary.interruptedCampaignItems
+    : 0
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.domainReadinessGate", {
+              defaultValue: "Domain readiness",
+            })}
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            {report
+              ? t("dashboard.learning.domainReadinessGateHint", {
+                  defaultValue: "{{scope}} · since {{since}}",
+                  scope: report.scope,
+                  since: new Date(report.since).toLocaleDateString(),
+                })
+              : t("dashboard.learning.domainReadinessGateLoadingHint", {
+                  defaultValue: "Loading readiness evidence",
+                })}
+          </p>
+        </div>
+        <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
+          {report?.status ?? "loading"}
+        </span>
+      </div>
+      {report ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+            <MetricPill
+              label="QG"
+              value={report.summary.qualityStatus}
+              tone={report.summary.qualityStatus === "passed" ? "accent" : "warn"}
+            />
+            <MetricPill label="EV" value={`${report.summary.evalRuns}/${report.summary.qualityRuns}`} />
+            <MetricPill
+              label="CP"
+              value={`${report.summary.passedCampaignItems}/${report.summary.campaignItems}`}
+              tone={campaignFailures > 0 ? "warn" : report.summary.passedCampaignItems > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="LD"
+              value={report.summary.leaderboardRows}
+              tone={report.summary.leaderboardStatus === "passed" ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="FL"
+              value={campaignFailures}
+              tone={campaignFailures > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="LP"
+              value={report.summary.openLearningProposals + report.summary.pendingLearningCampaigns}
+              tone={
+                report.summary.openLearningProposals + report.summary.pendingLearningCampaigns > 0
+                  ? "warn"
+                  : "muted"
+              }
+            />
+          </div>
+          {attentionChecks.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {attentionChecks.map((check) => (
+                <span
+                  key={check.name}
+                  className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(check.status)}`}
+                  title={`${check.expected} · ${check.actual}`}
+                >
+                  {check.name}: {check.actual}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">
+              {t("dashboard.learning.domainReadinessClean", {
+                defaultValue: "Domain readiness checks passed",
+              })}
+            </span>
+          )}
+          {recommendations.length > 0 && (
+            <div className="space-y-1">
+              {recommendations.map((step) => (
+                <div key={step} className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                  <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span className="min-w-0">{step}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.domainReadinessLoading", {
+            defaultValue: "Loading domain readiness",
           })}
         />
       )}

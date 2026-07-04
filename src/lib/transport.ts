@@ -1464,6 +1464,87 @@ export interface DomainQualityGateReport {
   checks: DomainQualityGateCheck[];
 }
 
+export interface DomainReadinessGateInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays?: number | null;
+  minEvalRuns?: number | null;
+  minPassRate?: number | null;
+  minAverageScore?: number | null;
+  minQualityRuns?: number | null;
+  maxBlockedQualityRuns?: number | null;
+  minDomainCoverage?: number | null;
+  minCampaignItems?: number | null;
+  minLeaderboardRows?: number | null;
+  maxFailedCampaignItems?: number | null;
+  maxOpenLearningProposals?: number | null;
+  requireApprovalSafety?: boolean;
+  includeSynthetic?: boolean;
+}
+
+export interface DomainReadinessGateThresholds {
+  windowDays: number;
+  minEvalRuns: number;
+  minPassRate: number;
+  minAverageScore: number;
+  minQualityRuns: number;
+  maxBlockedQualityRuns: number;
+  minDomainCoverage: number;
+  minCampaignItems: number;
+  minLeaderboardRows: number;
+  maxFailedCampaignItems: number;
+  maxOpenLearningProposals: number;
+  requireApprovalSafety: boolean;
+  includeSynthetic: boolean;
+}
+
+export interface DomainReadinessGateSummary {
+  evalRuns: number;
+  qualityRuns: number;
+  campaigns: number;
+  activeCampaigns: number;
+  terminalCampaigns: number;
+  campaignItems: number;
+  terminalCampaignItems: number;
+  passedCampaignItems: number;
+  failedCampaignItems: number;
+  cancelledCampaignItems: number;
+  interruptedCampaignItems: number;
+  leaderboardRows: number;
+  openLearningProposals: number;
+  pendingLearningCampaigns: number;
+  latestCampaignAt?: string | null;
+  qualityStatus: string;
+  leaderboardStatus: string;
+}
+
+export interface DomainReadinessGateCheck {
+  name: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  severity: string;
+  expected: string;
+  actual: string;
+  detail: string;
+}
+
+export interface DomainReadinessGateReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  since: string;
+  thresholds: DomainReadinessGateThresholds;
+  summary: DomainReadinessGateSummary;
+  checks: DomainReadinessGateCheck[];
+  qualityGate: DomainQualityGateReport;
+  campaignLeaderboard: DomainEvalCampaignLeaderboardReport;
+  blockers: string[];
+  recommendedNextSteps: string[];
+}
+
 export interface CodingTrendOverview {
   sessions: number;
   goals: number;

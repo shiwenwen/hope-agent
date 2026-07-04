@@ -3,11 +3,11 @@ use ha_core::domain_eval::{
     CreateDomainEvalCampaignInput, DomainEvalCalibrationRecord, DomainEvalCampaign,
     DomainEvalCampaignLeaderboardInput, DomainEvalCampaignLeaderboardReport,
     DomainEvalFixtureReport, DomainEvalFixtureRunRecord, DomainEvalRunRecord, DomainEvalTask,
-    DomainQualityGateInput, DomainQualityGateReport, ImportDomainEvalCaseInput,
-    ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput, ListDomainEvalCampaignsInput,
-    ListDomainEvalFixtureRunsInput, ListDomainEvalRunsInput, ListDomainEvalTasksInput,
-    RecordDomainEvalCalibrationInput, RunDomainEvalCampaignInput, RunDomainEvalFixtureInput,
-    RunDomainEvalTaskInput,
+    DomainQualityGateInput, DomainQualityGateReport, DomainReadinessGateInput,
+    DomainReadinessGateReport, ImportDomainEvalCaseInput, ImportDomainEvalCaseResult,
+    ListDomainEvalCalibrationsInput, ListDomainEvalCampaignsInput, ListDomainEvalFixtureRunsInput,
+    ListDomainEvalRunsInput, ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput,
+    RunDomainEvalCampaignInput, RunDomainEvalFixtureInput, RunDomainEvalTaskInput,
 };
 use ha_core::session::SessionDB;
 use serde::Deserialize;
@@ -91,6 +91,12 @@ pub struct DomainEvalCampaignLeaderboardBody {
 #[serde(rename_all = "camelCase")]
 pub struct DomainQualityGateBody {
     pub input: DomainQualityGateInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainReadinessGateBody {
+    pub input: DomainReadinessGateInput,
 }
 
 pub async fn list_domain_eval_tasks(
@@ -230,5 +236,13 @@ pub async fn evaluate_domain_quality_gate(
 ) -> Result<Json<DomainQualityGateReport>, AppError> {
     Ok(Json(
         session_db()?.evaluate_domain_quality_gate(body.input)?,
+    ))
+}
+
+pub async fn evaluate_domain_readiness_gate(
+    Json(body): Json<DomainReadinessGateBody>,
+) -> Result<Json<DomainReadinessGateReport>, AppError> {
+    Ok(Json(
+        session_db()?.evaluate_domain_readiness_gate(body.input)?,
     ))
 }
