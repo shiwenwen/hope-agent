@@ -6,7 +6,7 @@
  *  - `mode="edit"` + `initialProject=<Project>` → prefilled form, calls onUpdate
  */
 
-import { useEffect, useRef, useState, type ChangeEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Bot,
@@ -16,6 +16,7 @@ import {
   FileText,
   FolderKanban,
   FolderOpen,
+  FolderPlus,
   ImagePlus,
   Loader2,
   Palette,
@@ -46,7 +47,6 @@ import {
 } from "@/components/common/AgentSelectDisplay"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
-import { isTauriMode } from "@/lib/transport"
 import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
 import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import ProjectKnowledgeSection from "./ProjectKnowledgeSection"
@@ -127,7 +127,6 @@ export default function ProjectDialog({
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [instructions, setInstructions] = useState("")
-  const [emoji, setEmoji] = useState("")
   const [logo, setLogo] = useState<string>("")
   const [color, setColor] = useState<string>("")
   const [defaultAgentId, setDefaultAgentId] = useState<string>("")
@@ -151,7 +150,6 @@ export default function ProjectDialog({
       setName(initialProject.name ?? "")
       setDescription(initialProject.description ?? "")
       setInstructions(initialProject.instructions ?? "")
-      setEmoji(initialProject.emoji ?? "")
       setLogo(initialProject.logo ?? "")
       setColor(initialProject.color ?? "")
       setDefaultAgentId(initialProject.defaultAgentId ?? "")
@@ -160,7 +158,6 @@ export default function ProjectDialog({
       setName("")
       setDescription("")
       setInstructions("")
-      setEmoji("")
       setLogo("")
       setColor("")
       setDefaultAgentId("")
@@ -189,13 +186,26 @@ export default function ProjectDialog({
     setLogoError("")
   }
 
+  const handleWorkingDirPicked = useCallback(
+    (path: string) => {
+      setWorkingDir(path)
+      if (mode !== "create") return
+
+      const inferredName = getDirectoryName(path)
+      if (!inferredName) return
+
+      setName((currentName) => (currentName.trim() ? currentName : inferredName))
+    },
+    [mode],
+  )
+
   const {
     pick: pickWorkingDir,
     browserOpen: dirBrowserOpen,
     setBrowserOpen: setDirBrowserOpen,
     handleBrowserSelect: handleWorkingDirSelect,
   } = useDirectoryPicker({
-    onPicked: setWorkingDir,
+    onPicked: handleWorkingDirPicked,
     errorTitle: t("project.workingDir.invalid"),
     loggerSource: "ProjectDialog::pickWorkingDir",
   })
@@ -203,6 +213,11 @@ export default function ProjectDialog({
   function handlePickWorkingDir() {
     if (saving) return
     void pickWorkingDir()
+  }
+
+  function handleCreateWorkingDir() {
+    if (saving) return
+    setDirBrowserOpen(true)
   }
 
   function clearWorkingDir() {
@@ -222,7 +237,6 @@ export default function ProjectDialog({
           name: name.trim(),
           description: description.trim() || null,
           instructions: instructions.trim() || null,
-          emoji: emoji.trim() || null,
           logo: logo || null,
           color: color || null,
           defaultAgentId: defaultAgentId || null,
@@ -239,7 +253,6 @@ export default function ProjectDialog({
           name: name.trim(),
           description: description.trim(),
           instructions: instructions.trim(),
-          emoji: emoji.trim(),
           logo: logo,
           color: color,
           defaultAgentId: defaultAgentId,
@@ -277,8 +290,6 @@ export default function ProjectDialog({
               >
                 {logo ? (
                   <img src={logo} alt="" className="h-full w-full object-cover" />
-                ) : emoji ? (
-                  <span>{emoji}</span>
                 ) : (
                   <FolderKanban className="h-5 w-5" />
                 )}
@@ -289,6 +300,66 @@ export default function ProjectDialog({
         </div>
 
         <div className="max-h-[calc(88vh-9.5rem)] overflow-y-auto px-6 py-5">
+          <div className="mb-5 border-b border-border/70 pb-5">
+            <div className="mb-3 flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/30 text-muted-foreground">
+                <FolderOpen className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <Label className="text-sm font-semibold">
+                  {t("project.workingDir.label")}
+                </Label>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t("project.workingDir.hint")}
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                id="project-working-dir"
+                value={workingDir}
+                readOnly
+                placeholder={t("project.workingDir.placeholder")}
+                className="h-10 bg-background font-mono text-xs shadow-none"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePickWorkingDir}
+                  disabled={saving}
+                  className="h-10 shadow-none"
+                >
+                  <FolderOpen className="mr-1.5 h-4 w-4" />
+                  {t("project.workingDir.pick")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCreateWorkingDir}
+                  disabled={saving}
+                  className="h-10 shadow-none"
+                >
+                  <FolderPlus className="mr-1.5 h-4 w-4" />
+                  {t("fileBrowser.newFolder", { defaultValue: "New folder" })}
+                </Button>
+                {workingDir && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={clearWorkingDir}
+                    disabled={saving}
+                    aria-label={t("project.workingDir.clear")}
+                    className="h-9 w-9"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
             <div className="space-y-4">
               <div className="space-y-2">
@@ -315,11 +386,7 @@ export default function ProjectDialog({
                             : "bg-background text-primary",
                         )}
                       >
-                        {emoji ? (
-                          <span>{emoji}</span>
-                        ) : (
-                          <ImagePlus className="h-7 w-7 text-muted-foreground" />
-                        )}
+                        <ImagePlus className="h-7 w-7 text-muted-foreground" />
                       </div>
                       <span className="text-xs font-medium text-muted-foreground">
                         {t("project.uploadLogo")}
@@ -400,29 +467,15 @@ export default function ProjectDialog({
             </div>
 
             <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_5rem]">
-                <div className="space-y-1.5">
-                  <Label htmlFor="project-name">{t("project.projectName")}</Label>
-                  <Input
-                    id="project-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder={t("project.projectNamePlaceholder")}
-                    autoFocus
-                    className="h-10"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="project-emoji">{t("project.projectEmoji")}</Label>
-                  <Input
-                    id="project-emoji"
-                    value={emoji}
-                    onChange={(e) => setEmoji(e.target.value)}
-                    placeholder={t("project.projectEmojiPlaceholder", "可选")}
-                    maxLength={4}
-                    className="h-10 text-center text-lg"
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="project-name">{t("project.projectName")}</Label>
+                <Input
+                  id="project-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("project.projectNamePlaceholder")}
+                  className="h-10"
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -473,46 +526,6 @@ export default function ProjectDialog({
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="flex items-center gap-2">
-                  <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                  {t("project.workingDir.label")}
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  {t("project.workingDir.hint")}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="project-working-dir"
-                    value={workingDir}
-                    readOnly
-                    placeholder={t("project.workingDir.placeholder")}
-                    className="h-10 flex-1 font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handlePickWorkingDir}
-                    disabled={saving}
-                  >
-                    {t("project.workingDir.pick")}
-                  </Button>
-                  {workingDir && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={clearWorkingDir}
-                      disabled={saving}
-                      aria-label={t("project.workingDir.clear")}
-                      className="h-9 w-9"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-
               {mode === "edit" && initialProject?.id && (
                 <ProjectKnowledgeSection projectId={initialProject.id} />
               )}
@@ -544,14 +557,13 @@ export default function ProjectDialog({
           </div>
         </div>
 
-        {!isTauriMode() && (
-          <ServerDirectoryBrowser
-            open={dirBrowserOpen}
-            initialPath={workingDir || null}
-            onOpenChange={setDirBrowserOpen}
-            onSelect={handleWorkingDirSelect}
-          />
-        )}
+        <ServerDirectoryBrowser
+          open={dirBrowserOpen}
+          initialPath={workingDir || null}
+          onOpenChange={setDirBrowserOpen}
+          onSelect={handleWorkingDirSelect}
+          allowCreate
+        />
 
         <DialogFooter className="border-t border-border/70 bg-background px-6 py-4">
           <Button
@@ -589,6 +601,13 @@ export default function ProjectDialog({
 /** Hard cap on raw upload size before decoding — guards against oversized
  * images crashing the canvas decoder. 8 MB is comfortable for any real logo. */
 const MAX_LOGO_SOURCE_BYTES = 8 * 1024 * 1024
+
+function getDirectoryName(path: string): string {
+  const trimmed = path.trim().replace(/[\\/]+$/, "")
+  if (!trimmed) return ""
+  const segments = trimmed.split(/[\\/]+/)
+  return segments[segments.length - 1] ?? ""
+}
 
 async function resizeImageToDataUrl(
   file: File,

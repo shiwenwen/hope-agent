@@ -2,7 +2,8 @@
 //!
 //! Desktop clients use the native directory dialog for the working-dir
 //! picker; HTTP/WS clients have no such affordance (browsers sandbox
-//! filesystem access), so the server exposes a minimal read-only listing API.
+//! filesystem access), so the server exposes minimal listing/search APIs plus
+//! an opt-in mkdir API for directory-picker flows.
 //! Auth is handled by the existing `Authorization: Bearer` middleware —
 //! anyone who can hit this endpoint already has full agent-level access to
 //! the host.
@@ -25,6 +26,19 @@ fn map_err(e: FilesystemError) -> AppError {
     }
 }
 
+fn ensure_writes_allowed() -> Result<(), AppError> {
+    if ha_core::config::cached_config()
+        .filesystem
+        .allow_remote_writes
+    {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "remote file writes are disabled; enable filesystem.allowRemoteWrites to allow them",
+        ))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ListDirQuery {
     /// Absolute path to list. When omitted, the handler returns a platform
@@ -38,6 +52,24 @@ pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppE
     let result = tokio::task::spawn_blocking(move || filesystem::list_dir(requested.as_deref()))
         .await
         .map_err(|e| AppError::internal(format!("list-dir task failed: {}", e)))?
+        .map_err(map_err)?;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateDirBody {
+    /// Absolute path to create.
+    pub path: String,
+}
+
+/// `POST /api/filesystem/create-dir` — create an absolute directory and return
+/// the created directory listing.
+pub async fn create_dir(Json(body): Json<CreateDirBody>) -> Result<Json<Value>, AppError> {
+    ensure_writes_allowed()?;
+    let path = body.path;
+    let result = tokio::task::spawn_blocking(move || filesystem::create_dir(&path))
+        .await
+        .map_err(|e| AppError::internal(format!("create-dir task failed: {}", e)))?
         .map_err(map_err)?;
     Ok(Json(serde_json::to_value(result)?))
 }
