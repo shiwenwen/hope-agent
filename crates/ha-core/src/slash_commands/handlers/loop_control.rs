@@ -62,7 +62,7 @@ fn create_every_loop(
                 prompt: prompt.to_string(),
                 trigger_kind: LoopTriggerKind::Interval,
                 trigger_spec: json!({ "intervalSecs": interval_secs }),
-                execution_strategy: LoopExecutionStrategy::Continue,
+                execution_strategy: opts.execution_strategy,
                 max_runs: opts.max_runs,
                 max_runtime_secs: opts.max_runtime_secs,
                 token_budget: opts.token_budget,
@@ -82,6 +82,12 @@ fn create_until_loop(
 ) -> Result<CommandResult, String> {
     let (condition_part, prompt) = split_head_prompt(raw);
     let (condition, interval_secs, opts) = parse_until_head(condition_part)?;
+    if opts.execution_strategy == LoopExecutionStrategy::Workflow {
+        return Err(
+            "`/loop until` does not support `--workflow` yet; use `/loop every ... --workflow`."
+                .to_string(),
+        );
+    }
     let recurring_prompt = if prompt.trim().is_empty() {
         format!(
             "Continue until this condition is true: {}. Check the condition first, stop when it is satisfied, otherwise take the next useful step.",
@@ -139,9 +145,10 @@ fn render_loop_status(
     let mut lines = vec![format!("## Loops ({})", schedules.len())];
     for schedule in schedules {
         lines.push(format!(
-            "- `{}` · **{}** · {} · runs {}/{} · {}",
+            "- `{}` · **{}** · {} · {} · runs {}/{} · {}",
             short_id(&schedule.id),
             schedule.state.as_str(),
+            schedule.execution_strategy.as_str(),
             trigger_summary(&schedule),
             schedule.run_count,
             schedule
@@ -211,9 +218,10 @@ fn resolve_loop_schedule(
 
 fn render_loop_created(schedule: &LoopSchedule) -> String {
     format!(
-        "## Loop `{}`\n\nState: **{}** · {} · runs {}/{}\n\nPrompt:\n{}",
+        "## Loop `{}`\n\nState: **{}** · Strategy: **{}** · {} · runs {}/{}\n\nPrompt:\n{}",
         short_id(&schedule.id),
         schedule.state.as_str(),
+        schedule.execution_strategy.as_str(),
         trigger_summary(schedule),
         schedule.run_count,
         schedule
@@ -234,13 +242,43 @@ fn render_loop_snapshot(snapshot: &crate::loop_control::LoopSnapshot) -> String 
     } else {
         lines.push("\nRecent runs:".into());
         for run in &snapshot.runs {
+            let mut details = Vec::new();
+            if let Some(workflow_run_id) = run
+                .trace
+                .get("workflowRunId")
+                .and_then(|value| value.as_str())
+            {
+                details.push(format!("workflow `{}`", short_id(workflow_run_id)));
+            }
+            if let Some(template_id) = run.trace.get("templateId").and_then(|value| value.as_str())
+            {
+                let template_version = run
+                    .trace
+                    .get("templateVersion")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let template = if template_version.is_empty() {
+                    template_id.to_string()
+                } else {
+                    format!("{template_id}@{template_version}")
+                };
+                details.push(format!("template `{template}`"));
+            }
+            if let Some(summary) = run.result_summary.as_deref() {
+                details.push(truncate(summary, 96).to_string());
+            }
             lines.push(format!(
-                "- #{} `{}` · {}{}",
+                "- #{} `{}` · {}{}{}",
                 run.seq,
                 run.state.as_str(),
                 run.finished_at
                     .as_deref()
                     .unwrap_or(run.started_at.as_str()),
+                if details.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", details.join(" · "))
+                },
                 run.error
                     .as_deref()
                     .map(|e| format!(" · {}", e))
@@ -278,6 +316,7 @@ struct LoopOptions {
     max_runtime_secs: Option<i64>,
     token_budget: Option<i64>,
     cost_budget_micros: Option<i64>,
+    execution_strategy: LoopExecutionStrategy,
 }
 
 fn parse_loop_options(raw: &str) -> Result<LoopOptions, String> {
@@ -305,6 +344,23 @@ fn parse_loop_options(raw: &str) -> Result<LoopOptions, String> {
                     .next()
                     .and_then(|s| s.parse::<i64>().ok())
                     .filter(|v| *v > 0);
+            }
+            "--workflow" => {
+                opts.execution_strategy = LoopExecutionStrategy::Workflow;
+            }
+            "--continue" => {
+                opts.execution_strategy = LoopExecutionStrategy::Continue;
+            }
+            "--strategy" | "--execution-strategy" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| format!("{} requires continue or workflow", flag))?;
+                opts.execution_strategy =
+                    LoopExecutionStrategy::from_str(value).ok_or_else(|| {
+                        format!(
+                            "Invalid loop execution strategy `{value}`; use continue or workflow"
+                        )
+                    })?;
             }
             "" => {}
             other => return Err(format!("Unknown loop option `{}`", other)),
@@ -405,7 +461,171 @@ fn loop_usage() -> String {
         "- `/loop status [id]`: show loop schedules or a trace",
         "- `/loop pause|resume|stop <id>`: control a loop",
         "",
-        "Options: `--max-runs N`, `--max-runtime 2h`, `--tokens N`.",
+        "Options: `--max-runs N`, `--max-runtime 2h`, `--tokens N`, `--workflow`, `--strategy workflow|continue`.",
     ]
     .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::goal::CreateGoalInput;
+
+    fn temp_dbs() -> (tempfile::TempDir, Arc<SessionDB>, Arc<CronDB>) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let session_db =
+            Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        {
+            let conn = session_db.conn.lock().expect("lock session db");
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS channel_conversations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    channel_id TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    chat_id TEXT NOT NULL,
+                    thread_id TEXT,
+                    session_id TEXT NOT NULL,
+                    sender_id TEXT,
+                    sender_name TEXT,
+                    chat_type TEXT NOT NULL DEFAULT 'dm',
+                    source TEXT NOT NULL DEFAULT 'inbound',
+                    attached_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                );",
+            )
+            .expect("channel conversations table");
+        }
+        let cron_db = Arc::new(CronDB::open(&dir.path().join("cron.db")).expect("cron db"));
+        (dir, session_db, cron_db)
+    }
+
+    #[test]
+    fn slash_every_workflow_creates_workflow_strategy_loop() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        session_db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Refresh the research brief".to_string(),
+                completion_criteria: "Latest evidence is reviewed".to_string(),
+                domain: Some("research".to_string()),
+                workflow_template_id: Some("research-brief".to_string()),
+                workflow_template_version: None,
+                workflow_task_type: Some("technical_research".to_string()),
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal");
+
+        let result = handle_loop(
+            &session_db,
+            &cron_db,
+            &session.id,
+            "every 10m --workflow: Refresh sources",
+        )
+        .expect("create workflow loop");
+
+        assert!(result.content.contains("Strategy: **workflow**"));
+        let schedules = session_db
+            .list_loop_schedules_for_session(&session.id, 10)
+            .expect("list loops");
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(
+            schedules[0].execution_strategy,
+            LoopExecutionStrategy::Workflow
+        );
+    }
+
+    #[test]
+    fn slash_loop_status_surfaces_workflow_run_trace() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let goal = session_db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Refresh the research brief".to_string(),
+                completion_criteria: "Latest evidence is reviewed".to_string(),
+                domain: Some("research".to_string()),
+                workflow_template_id: Some("research-brief".to_string()),
+                workflow_template_version: None,
+                workflow_task_type: Some("technical_research".to_string()),
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: Some(goal.goal.id),
+                    prompt: "Refresh sources".to_string(),
+                    trigger_kind: LoopTriggerKind::Interval,
+                    trigger_spec: json!({ "intervalSecs": 600 }),
+                    execution_strategy: LoopExecutionStrategy::Workflow,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    agent_id: None,
+                },
+            )
+            .expect("create loop");
+        let started_at = chrono::Utc::now().to_rfc3339();
+        let decision = session_db
+            .prepare_loop_cron_run(&schedule.cron_job_id, &session.id, &started_at)
+            .expect("prepare loop");
+        let run_id = match decision {
+            crate::loop_control::LoopRunDecision::Admit(admission) => admission.run_id,
+            other => panic!("expected admit, got {other:?}"),
+        };
+        let workflow_run_id = "wfr_loop_generated_1234567890";
+        session_db
+            .finish_loop_cron_run_with_trace(
+                &schedule.cron_job_id,
+                Some(&run_id),
+                None,
+                crate::loop_control::LoopRunState::Succeeded,
+                Some("workflow launched"),
+                None,
+                &chrono::Utc::now().to_rfc3339(),
+                Some(json!({
+                    "executionStrategy": "workflow",
+                    "workflowRunId": workflow_run_id,
+                    "templateId": "research-brief",
+                    "templateVersion": "1.0.0",
+                })),
+            )
+            .expect("finish loop");
+
+        let status = handle_loop(
+            &session_db,
+            &cron_db,
+            &session.id,
+            &format!("status {}", schedule.id),
+        )
+        .expect("loop status");
+        assert!(status.content.contains("Strategy: **workflow**"));
+        assert!(status.content.contains("workflow `wfr_loop`"));
+        assert!(status.content.contains("template `research-brief@1.0.0`"));
+        assert!(status.content.contains("workflow launched"));
+    }
+
+    #[test]
+    fn slash_until_rejects_workflow_strategy_until_condition_workflows_exist() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let err = handle_loop(
+            &session_db,
+            &cron_db,
+            &session.id,
+            "until CI is green every 5m --workflow: keep fixing",
+        )
+        .expect_err("condition workflow should be rejected");
+        assert!(err.contains("does not support `--workflow`"));
+    }
 }

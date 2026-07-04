@@ -387,6 +387,8 @@ loop_runs
 - 已落地：`max_runs` / `max_runtime_secs` / token budget hard stop；Goal 绑定时触发前复用 Goal budget hard stop。
 - 已落地：用户停止 loop 后会暂停底层 Cron job，不再唤醒。
 - 已落地：Workspace GUI 可创建 `every` / `until` loop，并提供 pause / resume / stop。
+- 已落地：`every` loop 可选择 `executionStrategy=workflow`；GUI 与 `/loop every --workflow` 都能创建，触发后基于绑定 Goal 的 Domain Workflow template 创建并启动 durable WorkflowRun。
+- 已落地：Loop GUI 与 `/loop status <id>` 都能看到派生 workflow run 线索；GUI 可一键跳到 Workflow run detail。
 - 已落地：Loop 不绕过 `/mode`、permission、hooks、incognito、Project/KB access，实际 turn 在原会话里执行。
 
 后续增强：
@@ -394,7 +396,7 @@ loop_runs
 - Event-triggered loop 接入 EventBus / file watcher / CI。
 - 独立 Loop detail 页面展示完整 run trace、cron log 与消息范围。
 - 成本预算接入 provider cost ledger，并放开 `cost_budget_micros` 创建限制。
-- Loop trigger 直接生成/运行 Goal-driven Workflow draft。
+- Condition workflow：等 Workflow terminal event 能反写 condition result 后，支持 until loop 直接创建 workflow。
 
 ## 8. Phase 3：Coding-specific 能力
 
