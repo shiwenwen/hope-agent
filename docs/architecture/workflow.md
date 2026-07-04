@@ -473,7 +473,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - 若当前仍是草稿新会话，输入框和 Workspace / Workflow Control Center 的 Workflow Mode / Execution Mode 控件都会先走 ChatScreen 的会话物化路径创建真实 session，再写入 session-scoped mode，避免用户必须先发送一条占位消息。
 - 输入框内直接执行 `/workflow on`、`/mode guarded` 或 `/goal <objective>` 这类会写 session 状态的 slash command 时，也复用同一物化路径。
 - Workspace / Workflow Control Center 顶部提供 Workflow Mode 控制；与输入框入口实时同步。
-- Workspace / Workflow Control Center 顶部展示「自主推进就绪」卡片，聚合当前 Goal、Workflow Mode、Execution Mode、WorkflowRun、Loop schedule、Operational Gate 与 Soak Report 状态，给出 `自主就绪 / 观察中 / 待配置 / 需处理`。该卡片只读，不创建 run、不启动 loop、不自动 approve/retry/cancel。
+- Workspace / Workflow Control Center 顶部展示「自主推进就绪」卡片，聚合当前 Goal、Workflow Mode、Execution Mode、WorkflowRun、Loop schedule、Operational Gate 与 Soak Report 状态，给出 `自主就绪 / 观察中 / 待配置 / 需处理`。该卡片可触发用户显式 setup 动作：展开 Goal 创建/编辑、开启 Workflow Mode、把 Execution Mode 设为 guarded、打开工作流 Loop 创建器；它不自动创建 run、不自动启动 loop、不自动 approve/retry/cancel。
 - 标题栏 `Workflow`/Workspace 入口与 active / waiting / failed badge。
 - Workflow 创建区提供“运行位置”：当前目录、新隔离工作树、已有 managed worktree。默认当前目录，用户显式选择后才创建或绑定 worktree。
 - Run 列表会标记已绑定 `worktreeId` 的 workflow，便于用户区分普通运行和隔离运行。
@@ -487,7 +487,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。
 - 目标驱动草稿：生成可预检 `workflow.js`，脚本编辑放高级区。coding 只是可选领域模板之一。
 - 领域模板草稿：创建器可直接选择 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops 等 domain workflow template，调用 `preview_domain_workflow` 生成标准 `workflow.js`、证据要求、审批门、验证策略和预检结果，再走同一 `create_workflow_run` 链路。
-- Loop 自动工作流：Loop 创建区在 active Goal 已绑定领域模板时可选择“创建工作流”，后续每次 interval tick 都创建并启动一个 `origin=loop:<loop_id>` 的 WorkflowRun；Loop 列表会标记 `Workflow`，并把最近派生 run 的 kind/state/time 直接露出。点击“查看工作流”会选中对应 Workflow run detail，具体执行进度、审批、恢复、验证、agents 和取消仍在 Workflow 控制面处理。Workspace 顶层共享同一份 `useLoopSchedules` state 给「自主推进就绪」和 Loop 区块，避免重复请求。
+- Loop 自动工作流：Loop 创建区在 active Goal 已绑定领域模板时可选择“创建工作流”，后续每次 interval tick 都创建并启动一个 `origin=loop:<loop_id>` 的 WorkflowRun；Loop 列表会标记 `Workflow`，并把最近派生 run 的 kind/state/time 直接露出。点击“查看工作流”会选中对应 Workflow run detail，具体执行进度、审批、恢复、验证、agents 和取消仍在 Workflow 控制面处理。Workspace 顶层共享同一份 `useLoopSchedules` state 给「自主推进就绪」和 Loop 区块，避免重复请求；readiness 卡片的“新建 Loop”只会展开 Loop 创建器并预选 workflow 策略，仍需用户确认创建。
 - 创建前展示 Script Gate 与 permission preview。
 - run list、历史展开、总览、当前焦点、下一步跳转。
 - Trace / Validation / Agents 三视图；Validation 命令行可展开完整输出并复制详情，失败恢复不依赖截断预览。

@@ -1439,6 +1439,49 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getAllByText("自主").length).toBeGreaterThan(0)
   })
 
+  it("offers setup actions from the autonomous readiness card", async () => {
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([])
+      if (name === "get_workflow_mode") return Promise.resolve({ mode: "off" })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "off" })
+      if (name === "set_workflow_mode") return Promise.resolve({ mode: args?.mode })
+      if (name === "set_execution_mode") return Promise.resolve({ mode: args?.mode })
+      if (name === "evaluate_domain_operational_gate") return Promise.resolve(null)
+      if (name === "generate_domain_soak_report") return Promise.resolve(null)
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    expect(await screen.findByText("待配置")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "开启编排" }))
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("set_workflow_mode", {
+        sessionId: "s1",
+        mode: "on",
+      })
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "设为守护" }))
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("set_execution_mode", {
+        sessionId: "s1",
+        mode: "guarded",
+      })
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "新建 Loop" }))
+    expect(await screen.findByRole("button", { name: "创建 Loop" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: "创建工作流" })).toBeTruthy()
+  })
+
   it("links workflow loop rows to their derived workflow run", async () => {
     const otherRun = workflowRun({
       id: "wf-other",

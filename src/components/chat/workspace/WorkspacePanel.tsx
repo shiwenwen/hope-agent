@@ -298,6 +298,7 @@ function WorkspaceSection({
   children,
   meta,
   defaultExpanded = true,
+  expandSignal,
 }: {
   title: string
   count?: number
@@ -305,8 +306,18 @@ function WorkspaceSection({
   children: ReactNode
   meta?: ReactNode
   defaultExpanded?: boolean
+  expandSignal?: number
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const lastExpandSignalRef = useRef(expandSignal ?? 0)
+
+  useEffect(() => {
+    const nextSignal = expandSignal ?? 0
+    if (nextSignal === lastExpandSignalRef.current) return
+    lastExpandSignalRef.current = nextSignal
+    setExpanded(true)
+  }, [expandSignal])
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border/80 bg-surface-floating shadow-sm">
       <button
@@ -7227,26 +7238,51 @@ function autonomousReadinessNextSteps(
     : [t("workspace.autonomousReadiness.nextReady", "自主推进基础已就绪；运行中仍可随时暂停、恢复或取消。")]
 }
 
+type AutonomousReadinessQuickAction = {
+  key: string
+  label: string
+  icon: LucideIcon
+  disabled?: boolean
+  loading?: boolean
+  onClick: () => void
+}
+
 function AutonomousReadinessCard({
   activeGoal,
   workflowMode,
   workflowModeLoading,
+  workflowModeSaving,
   executionMode,
   executionModeLoading,
+  executionModeSaving,
   workflowRunsState,
   loopSchedulesState,
   domainWorkbenchState,
   incognito,
+  canCreateLoop,
+  onChangeWorkflowMode,
+  onChangeExecutionMode,
+  onOpenGoalCreate,
+  onOpenGoalEdit,
+  onOpenLoopCreate,
 }: {
   activeGoal: Goal | null
   workflowMode: WorkflowAutonomyMode
   workflowModeLoading?: boolean
+  workflowModeSaving?: WorkflowAutonomyMode | null
   executionMode: ExecutionMode
   executionModeLoading?: boolean
+  executionModeSaving?: ExecutionMode | null
   workflowRunsState: WorkflowRunsState
   loopSchedulesState: LoopSchedulesState
   domainWorkbenchState: DomainTaskWorkbenchState
   incognito?: boolean
+  canCreateLoop?: boolean
+  onChangeWorkflowMode?: (mode: WorkflowAutonomyMode) => void
+  onChangeExecutionMode?: (mode: ExecutionMode) => void
+  onOpenGoalCreate?: () => void
+  onOpenGoalEdit?: () => void
+  onOpenLoopCreate?: () => void
 }) {
   const { t } = useTranslation()
   const workflowProblems = workflowRunsState.runs.filter(workflowRunHasHardProblem).length
@@ -7291,6 +7327,57 @@ function AutonomousReadinessCard({
   const runHealthWarning =
     domainWorkbenchState.operationalGate?.status === "failed" ||
     domainWorkbenchState.soakReport?.status === "failed"
+  const quickActions: AutonomousReadinessQuickAction[] = []
+  if (!incognito && !activeGoal && onOpenGoalCreate) {
+    quickActions.push({
+      key: "goal",
+      label: t("workspace.autonomousReadiness.actionCreateGoal", "创建目标"),
+      icon: Sparkles,
+      onClick: onOpenGoalCreate,
+    })
+  }
+  if (!incognito && activeGoal && !activeGoal.workflowTemplateId && onOpenGoalEdit) {
+    quickActions.push({
+      key: "template",
+      label: t("workspace.autonomousReadiness.actionBindTemplate", "绑定模板"),
+      icon: ClipboardCheck,
+      onClick: onOpenGoalEdit,
+    })
+  }
+  if (!incognito && workflowMode === "off" && onChangeWorkflowMode) {
+    quickActions.push({
+      key: "workflow-mode",
+      label: t("workspace.autonomousReadiness.actionEnableWorkflow", "开启编排"),
+      icon: GitPullRequest,
+      disabled: Boolean(workflowModeLoading || workflowModeSaving),
+      loading: workflowModeSaving === "on",
+      onClick: () => onChangeWorkflowMode("on"),
+    })
+  }
+  if (!incognito && executionMode === "off" && onChangeExecutionMode) {
+    quickActions.push({
+      key: "execution-mode",
+      label: t("workspace.autonomousReadiness.actionGuardedMode", "设为守护"),
+      icon: Shield,
+      disabled: Boolean(executionModeLoading || executionModeSaving),
+      loading: executionModeSaving === "guarded",
+      onClick: () => onChangeExecutionMode("guarded"),
+    })
+  }
+  if (
+    !incognito &&
+    activeGoal?.workflowTemplateId &&
+    workflowLoopCount === 0 &&
+    onOpenLoopCreate
+  ) {
+    quickActions.push({
+      key: "workflow-loop",
+      label: t("workspace.autonomousReadiness.actionCreateLoop", "新建 Loop"),
+      icon: Radio,
+      disabled: !canCreateLoop,
+      onClick: onOpenLoopCreate,
+    })
+  }
 
   return (
     <div className={cn("rounded-md border p-2", STATUS_TONE_CLASS[tone])}>
@@ -7380,6 +7467,32 @@ function AutonomousReadinessCard({
           </div>
         ))}
       </div>
+
+      {quickActions.length > 0 ? (
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
+          {quickActions.slice(0, 3).map((action) => {
+            const Icon = action.icon
+            return (
+              <Button
+                key={action.key}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 min-w-0 gap-1 px-2 text-[11px]"
+                disabled={action.disabled}
+                onClick={action.onClick}
+              >
+                {action.loading ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <Icon className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="truncate">{action.label}</span>
+              </Button>
+            )
+          })}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -8362,6 +8475,7 @@ function LoopSchedulesSection({
   workflowRuns = [],
   onSelectWorkflowRun,
   loopSchedulesState,
+  createRequest,
 }: {
   sessionId?: string | null
   incognito?: boolean
@@ -8369,6 +8483,7 @@ function LoopSchedulesSection({
   workflowRuns?: WorkflowRun[]
   onSelectWorkflowRun?: (runId: string) => void
   loopSchedulesState?: LoopSchedulesState
+  createRequest?: number
 }) {
   const { t } = useTranslation()
   const ownedLoopSchedulesState = useLoopSchedules(sessionId, {
@@ -8396,6 +8511,7 @@ function LoopSchedulesSection({
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const detailReqRef = useRef(0)
+  const lastCreateRequestRef = useRef(createRequest ?? 0)
   const activeGoal = goalState.snapshot?.goal ?? null
   const canUseWorkflowLoop =
     draftKind === "interval" && Boolean(activeGoal?.workflowTemplateId)
@@ -8424,6 +8540,18 @@ function LoopSchedulesSection({
       setDraftExecutionStrategy("continue")
     }
   }, [canUseWorkflowLoop, draftExecutionStrategy])
+
+  useEffect(() => {
+    const nextRequest = createRequest ?? 0
+    if (nextRequest === lastCreateRequestRef.current) return
+    lastCreateRequestRef.current = nextRequest
+    if (!sessionId || incognito) return
+    setCreateOpen(true)
+    setDraftKind("interval")
+    if (activeGoal?.workflowTemplateId) {
+      setDraftExecutionStrategy("workflow")
+    }
+  }, [activeGoal?.workflowTemplateId, createRequest, incognito, sessionId])
 
   const loadLoopDetail = useCallback((loopId: string) => {
     const req = ++detailReqRef.current
@@ -8578,6 +8706,7 @@ function LoopSchedulesSection({
       title={t("workspace.loop.title", "Loop")}
       count={schedules.length}
       icon={Radio}
+      expandSignal={createRequest}
       meta={
         activeCount > 0 ? (
           <StatusPill
@@ -8942,6 +9071,7 @@ function WorkflowRunsSection({
   workingDir,
   onEnsureSession,
   onViewSubagentSession,
+  onOpenLoopCreate,
   workflowRunsState,
   loopSchedulesState,
   domainWorkbenchState,
@@ -8953,6 +9083,7 @@ function WorkflowRunsSection({
   workingDir?: string | null
   onEnsureSession?: () => Promise<string | null>
   onViewSubagentSession?: (sessionId: string) => void
+  onOpenLoopCreate?: () => void
   workflowRunsState?: WorkflowRunsState
   loopSchedulesState: LoopSchedulesState
   domainWorkbenchState: DomainTaskWorkbenchState
@@ -9006,6 +9137,7 @@ function WorkflowRunsSection({
   const [goalTemplateId, setGoalTemplateId] = useState(GOAL_DOMAIN_FREE_VALUE)
   const [goalTaskType, setGoalTaskType] = useState("")
   const [goalSaving, setGoalSaving] = useState(false)
+  const [goalEditRequest, setGoalEditRequest] = useState(0)
   const snapshotReqRef = useRef(0)
   const workflowModeReqRef = useRef(0)
   const executionModeReqRef = useRef(0)
@@ -9990,12 +10122,20 @@ ${repairPrompt}`
               activeGoal={activeGoal}
               workflowMode={workflowMode}
               workflowModeLoading={workflowModeLoading}
+              workflowModeSaving={workflowModeSaving}
               executionMode={executionMode}
               executionModeLoading={executionModeLoading}
+              executionModeSaving={executionModeSaving}
               workflowRunsState={workflowRunsState ?? ownedWorkflowRuns}
               loopSchedulesState={loopSchedulesState}
               domainWorkbenchState={domainWorkbenchState}
               incognito={incognito}
+              canCreateLoop={Boolean(sessionId) && !incognito}
+              onChangeWorkflowMode={(mode) => void updateWorkflowMode(mode)}
+              onChangeExecutionMode={(mode) => void updateExecutionMode(mode)}
+              onOpenGoalCreate={() => setGoalCreateOpen(true)}
+              onOpenGoalEdit={() => setGoalEditRequest((value) => value + 1)}
+              onOpenLoopCreate={onOpenLoopCreate}
             />
             <WorkflowAutonomyModeControl
               mode={workflowMode}
@@ -10024,6 +10164,7 @@ ${repairPrompt}`
               saving={goalSaving}
               actionKey={goalActionKey}
               disabled={!canMaterializeSession}
+              editRequest={goalEditRequest}
               onCreateOpenChange={setGoalCreateOpen}
               onObjectiveChange={setGoalObjective}
               onCriteriaChange={setGoalCriteria}
@@ -11806,6 +11947,7 @@ function GoalControlStrip({
   saving,
   actionKey,
   disabled,
+  editRequest,
   onCreateOpenChange,
   onObjectiveChange,
   onCriteriaChange,
@@ -11833,6 +11975,7 @@ function GoalControlStrip({
   saving?: boolean
   actionKey?: string | null
   disabled?: boolean
+  editRequest?: number
   onCreateOpenChange: (open: boolean) => void
   onObjectiveChange: (value: string) => void
   onCriteriaChange: (value: string) => void
@@ -11857,6 +12000,7 @@ function GoalControlStrip({
   const [editCriteria, setEditCriteria] = useState("")
   const [editTemplateId, setEditTemplateId] = useState(GOAL_DOMAIN_FREE_VALUE)
   const [editTaskType, setEditTaskType] = useState("")
+  const lastEditRequestRef = useRef(editRequest ?? 0)
   const goal = snapshot?.goal ?? null
   const audit = asRecord(goal?.finalEvidence)
   const auditEvidence = recordArrayField(audit, "evidence")
@@ -11911,6 +12055,15 @@ function GoalControlStrip({
     goal?.workflowTemplateVersion,
     goal?.workflowTaskType,
   ])
+
+  useEffect(() => {
+    const nextRequest = editRequest ?? 0
+    if (nextRequest === lastEditRequestRef.current) return
+    lastEditRequestRef.current = nextRequest
+    if (!goal) return
+    setDetailOpen(true)
+    setEditOpen(true)
+  }, [editRequest, goal])
 
   useEffect(() => {
     if (editTemplateId === GOAL_DOMAIN_FREE_VALUE) {
@@ -14249,6 +14402,7 @@ export default function WorkspacePanel({
   })
   const sharedWorkflowRunsState = workflowRunsState ?? ownedWorkflowRunsState
   const loopSchedulesState = useLoopSchedules(sessionId, { incognito, turnActive })
+  const [loopCreateRequest, setLoopCreateRequest] = useState(0)
   const reviewRunsState = useReviewRuns(sessionId, { incognito, turnActive })
   const verificationRunsState = useVerificationRuns(sessionId, { incognito, turnActive })
   const domainQualityRunsState = useDomainQualityRuns(sessionId, { incognito, turnActive })
@@ -14404,6 +14558,7 @@ export default function WorkspacePanel({
             workingDir={effectiveWorkingDir}
             onEnsureSession={onEnsureSession}
             onViewSubagentSession={onViewSubagentSession}
+            onOpenLoopCreate={() => setLoopCreateRequest((value) => value + 1)}
             workflowRunsState={sharedWorkflowRunsState}
             loopSchedulesState={loopSchedulesState}
             domainWorkbenchState={domainTaskWorkbenchState}
@@ -14419,6 +14574,7 @@ export default function WorkspacePanel({
           workflowRuns={sharedWorkflowRunsState.runs}
           onSelectWorkflowRun={focusWorkflowRun}
           loopSchedulesState={loopSchedulesState}
+          createRequest={loopCreateRequest}
         />
 
         {/* 后台任务 — R4 复用独立面板的任务行能力,工作台内保留紧凑展示。 */}
