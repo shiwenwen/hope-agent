@@ -83,9 +83,21 @@ pub fn build_artifact_html(
     title: &str,
     parts: &ArtifactParts,
     tokens: &[(String, String)],
-) -> String {
+    editable: bool,
+) -> (String, Vec<super::patch::OidEntry>) {
     let (vw, _vh) = kind.default_viewport();
     let esc_title = html_escape(title);
+
+    // 注入 data-ds-oid（可视化微调锚点）+ 产出 oidmap（映射回源码）。
+    let (annotated_body, oidmap) = super::patch::annotate(&parts.body_html);
+
+    // inspector bridge（仅可编辑 kind）：dormant，收到父窗 ds_activate 才启用；
+    // 选中元素回传、样式/文本 live preview。沙箱零网络。
+    let inspector_js = if editable {
+        INSPECTOR_BRIDGE
+    } else {
+        ""
+    };
 
     // 设计系统 token → :root CSS 变量。
     let root_css = if tokens.is_empty() {
@@ -173,9 +185,9 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
         | ArtifactKind::Poster
         | ArtifactKind::Document
         | ArtifactKind::Email => {
-            format!("<div class=\"ds-frame\">{}</div>", parts.body_html)
+            format!("<div class=\"ds-frame\">{annotated_body}</div>")
         }
-        _ => parts.body_html.clone(),
+        _ => annotated_body,
     };
 
     let viewport_meta = if vw > 0 {
@@ -190,13 +202,13 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
         format!("<script>\n{}\n</script>", parts.js)
     };
 
-    format!(
+    let html = format!(
         "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"{kind}\">\n<head>\n\
 <meta charset=\"utf-8\">\n\
 <meta name=\"viewport\" content=\"{viewport}\">\n\
 <title>{title}</title>\n\
 <style>\n{root}\n{base}\n{frame}\n{user_css}\n</style>\n\
-</head>\n<body>\n{body}\n{user_js}\n{deck_js}\n</body>\n</html>\n",
+</head>\n<body>\n{body}\n{user_js}\n{deck_js}\n{inspector_js}\n</body>\n</html>\n",
         kind = kind.as_str(),
         viewport = viewport_meta,
         title = esc_title,
@@ -207,8 +219,56 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
         body = wrapped_body,
         user_js = user_js,
         deck_js = deck_js,
-    )
+        inspector_js = inspector_js,
+    );
+    (html, oidmap)
 }
+
+/// Inspector bridge：dormant，收到父窗 `ds_activate` 才启用点选；选中元素回传父窗
+/// （oid / tag / 关键样式 / 文本 / 是否叶子），支持 `ds_preview_style` / `ds_set_text`
+/// live preview。**沙箱零网络**，只通过 postMessage 通信。
+const INSPECTOR_BRIDGE: &str = r#"<script>
+(function(){
+  var active=false, hovered=null, selected=null;
+  var CSS_PROPS=['color','background-color','font-size','font-weight','text-align',
+    'padding','margin','border-radius','line-height','letter-spacing','width','height'];
+  function elByOid(oid){return document.querySelector('[data-ds-oid="'+oid+'"]')}
+  function info(el){
+    var cs=getComputedStyle(el), styles={};
+    CSS_PROPS.forEach(function(p){styles[p]=cs.getPropertyValue(p)});
+    var r=el.getBoundingClientRect();
+    return {oid:el.getAttribute('data-ds-oid'),tag:el.tagName.toLowerCase(),
+      styles:styles,text:el.textContent||'',isLeaf:el.childElementCount===0,
+      rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+  }
+  function clearHover(){if(hovered){hovered.style.outline='';hovered=null}}
+  function clearSel(){if(selected){selected.style.outline='';selected=null}}
+  document.addEventListener('mouseover',function(e){
+    if(!active)return;var el=e.target.closest('[data-ds-oid]');if(!el||el===selected)return;
+    clearHover();hovered=el;el.style.outline='1px solid rgba(37,99,235,.5)';
+  },true);
+  document.addEventListener('mouseout',function(){if(active)clearHover()},true);
+  document.addEventListener('click',function(e){
+    if(!active)return;var el=e.target.closest('[data-ds-oid]');if(!el)return;
+    e.preventDefault();e.stopPropagation();
+    clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
+    parent.postMessage({type:'ds_selected',payload:info(el)},'*');
+  },true);
+  window.addEventListener('message',function(e){
+    var d=e.data||{};
+    if(d.type==='ds_activate'){active=true}
+    else if(d.type==='ds_deactivate'){active=false;clearSel();clearHover()}
+    else if(d.type==='ds_preview_style'){
+      var el=elByOid(d.oid);if(!el)return;
+      (d.props||[]).forEach(function(kv){el.style.setProperty(kv[0],kv[1])});
+    }
+    else if(d.type==='ds_set_text'){var el=elByOid(d.oid);if(el)el.textContent=d.text}
+    else if(d.type==='ds_reselect'){var el=elByOid(d.oid);
+      if(el){clearSel();selected=el;el.style.outline='2px solid #2563eb';
+        parent.postMessage({type:'ds_selected',payload:info(el)},'*')}}
+  });
+})();
+</script>"#;
 
 /// 占位产物（新建空产物时用，让预览 iframe 有内容）。
 pub fn placeholder_parts(kind: ArtifactKind, title: &str) -> ArtifactParts {
@@ -272,11 +332,14 @@ mod tests {
             css: ".x{color:red}".into(),
             js: "console.log(1)".into(),
         };
-        let html = build_artifact_html(ArtifactKind::Web, "T", &parts, &[]);
+        let (html, map) = build_artifact_html(ArtifactKind::Web, "T", &parts, &[], true);
         assert!(html.contains("<!doctype html>"));
-        assert!(html.contains("<h1>Hi</h1>"));
+        assert!(html.contains("<h1"));
+        assert!(html.contains(">Hi</h1>"));
         assert!(html.contains(".x{color:red}"));
         assert!(html.contains("console.log(1)"));
+        assert!(html.contains("data-ds-oid=\"0\""));
+        assert_eq!(map.len(), 1);
         // 零网络：不引外链
         assert!(!html.contains("http://"));
         assert!(!html.contains("https://"));
@@ -285,7 +348,7 @@ mod tests {
     #[test]
     fn escapes_title() {
         let parts = ArtifactParts::default();
-        let html = build_artifact_html(ArtifactKind::Web, "<script>", &parts, &[]);
+        let (html, _) = build_artifact_html(ArtifactKind::Web, "<script>", &parts, &[], true);
         assert!(html.contains("&lt;script&gt;"));
     }
 }

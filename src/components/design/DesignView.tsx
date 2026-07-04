@@ -24,9 +24,11 @@ import {
   FileText,
   Mail,
   Sparkles,
+  MousePointerClick,
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
+import DesignInspector from "@/components/design/DesignInspector"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -61,6 +63,7 @@ import type {
   DesignArtifactView,
   DesignProject,
   DesignSystemMeta,
+  DesignSelectedElement,
 } from "@/types/design"
 import { ARTIFACT_KINDS } from "@/types/design"
 
@@ -105,6 +108,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  // 可视化微调（D1）
+  const [editMode, setEditMode] = useState(false)
+  const [selected, setSelected] = useState<DesignSelectedElement | null>(null)
+  const selectedRef = useRef<DesignSelectedElement | null>(null)
+  selectedRef.current = selected
+  const editModeRef = useRef(false)
+  editModeRef.current = editMode
+
+  const postToIframe = useCallback((msg: Record<string, unknown>) => {
+    iframeRef.current?.contentWindow?.postMessage(msg, "*")
+  }, [])
 
   const kindLabel = useCallback(
     (kind: ArtifactKind) => t(`design.kind.${kind}`, kind),
@@ -247,6 +262,107 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, activeProject, kindLabel, loadArtifacts, openArtifact],
   )
 
+  // ── Visual fine-tuning (D1) ──────────────────────────────────
+
+  const suppressReloadRef = useRef(false)
+
+  const refreshView = useCallback(async () => {
+    if (!activeArtifact) return
+    try {
+      const view = await tx.call<DesignArtifactView | null>("get_design_artifact_cmd", {
+        id: activeArtifact.id,
+      })
+      if (view) setActiveArtifact(view)
+    } catch {
+      /* non-fatal */
+    }
+  }, [tx, activeArtifact])
+
+  const commitPatch = useCallback(
+    async (patch: { oid: number; styles?: [string, string][]; text?: string }) => {
+      if (!activeArtifact) return
+      suppressReloadRef.current = true
+      try {
+        await tx.call("patch_design_element_cmd", {
+          input: {
+            artifactId: activeArtifact.id,
+            expectedHash: activeArtifact.bodyHash,
+            ...patch,
+          },
+        })
+        await refreshView()
+      } catch (e) {
+        // stale write or error → hard reload to resync
+        suppressReloadRef.current = false
+        setPreviewKey((k) => k + 1)
+        logger.error("design", "DesignView::commitPatch", "patch failed", e)
+      }
+    },
+    [tx, activeArtifact, refreshView],
+  )
+
+  const handleLiveStyle = useCallback(
+    (prop: string, value: string) => {
+      const oid = selectedRef.current?.oid
+      if (oid == null) return
+      postToIframe({ type: "ds_preview_style", oid, props: [[prop, value]] })
+    },
+    [postToIframe],
+  )
+  const handleCommitStyle = useCallback(
+    (prop: string, value: string) => {
+      const oid = selectedRef.current?.oid
+      if (oid == null) return
+      void commitPatch({ oid: Number(oid), styles: [[prop, value]] })
+    },
+    [commitPatch],
+  )
+  const handleLiveText = useCallback(
+    (text: string) => {
+      const oid = selectedRef.current?.oid
+      if (oid == null) return
+      postToIframe({ type: "ds_set_text", oid, text })
+    },
+    [postToIframe],
+  )
+  const handleCommitText = useCallback(
+    (text: string) => {
+      const oid = selectedRef.current?.oid
+      if (oid == null) return
+      void commitPatch({ oid: Number(oid), text })
+    },
+    [commitPatch],
+  )
+
+  // Receive selection from the iframe bridge.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data as { type?: string; payload?: DesignSelectedElement }
+      if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
+    }
+    window.addEventListener("message", onMsg)
+    return () => window.removeEventListener("message", onMsg)
+  }, [])
+
+  // Toggle bridge activation with edit mode.
+  useEffect(() => {
+    postToIframe({ type: editMode ? "ds_activate" : "ds_deactivate" })
+    if (!editMode) setSelected(null)
+  }, [editMode, postToIframe])
+
+  // Reset edit state when switching artifacts.
+  useEffect(() => {
+    setEditMode(false)
+    setSelected(null)
+  }, [activeArtifact?.id])
+
+  // Re-arm bridge + restore selection after an iframe (re)mount.
+  const handleIframeLoad = useCallback(() => {
+    if (editModeRef.current) postToIframe({ type: "ds_activate" })
+    const oid = selectedRef.current?.oid
+    if (oid != null) postToIframe({ type: "ds_reselect", oid })
+  }, [postToIframe])
+
   // ── Delete (shared confirm) ──────────────────────────────────
 
   const confirmDelete = useCallback(async () => {
@@ -281,7 +397,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       }),
       tx.listen("design:reload", (raw) => {
         const p = parsePayload<{ artifactId?: string }>(raw)
-        if (!activeArtifact || !p?.artifactId || p.artifactId === activeArtifact.id) {
+        // Self-initiated visual edits already show via live preview — skip the
+        // remount flash (source + oidmap are fresh; bodyHash refreshed separately).
+        if (suppressReloadRef.current) {
+          suppressReloadRef.current = false
+        } else if (!activeArtifact || !p?.artifactId || p.artifactId === activeArtifact.id) {
           setPreviewKey((k) => k + 1)
         }
         if (activeProject) void loadArtifacts(activeProject.id)
@@ -482,6 +602,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     {activeArtifact.title}
                   </span>
                   <div className="ml-auto flex items-center gap-1">
+                    {activeArtifact.kind !== "image" && (
+                      <IconTip
+                        label={t("design.editMode", "可视化微调：点选元素改属性")}
+                        side="bottom"
+                      >
+                        <Button
+                          variant={editMode ? "default" : "ghost"}
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setEditMode((v) => !v)}
+                        >
+                          <MousePointerClick className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
+                    )}
                     <select
                       value={String(zoom)}
                       onChange={(e) => {
@@ -507,13 +642,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto p-4">
-                  <div className="mx-auto h-full w-full overflow-hidden rounded-lg border bg-white shadow-sm">
+                  <div
+                    className={cn(
+                      "mx-auto h-full w-full overflow-hidden rounded-lg border bg-white shadow-sm",
+                      editMode && "ring-2 ring-primary/40",
+                    )}
+                  >
                     <iframe
                       ref={iframeRef}
                       key={`${activeArtifact.id}-${previewKey}`}
                       src={iframeSrc}
                       sandbox="allow-scripts"
                       title={activeArtifact.title}
+                      onLoad={handleIframeLoad}
                       className="border-0"
                       style={scaleStyle}
                     />
@@ -526,6 +667,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               </div>
             )}
           </main>
+
+          {/* Inspector (right) — visual fine-tuning */}
+          {editMode && selected && activeArtifact && (
+            <DesignInspector
+              selected={selected}
+              onLiveStyle={handleLiveStyle}
+              onCommitStyle={handleCommitStyle}
+              onLiveText={handleLiveText}
+              onCommitText={handleCommitText}
+              onClose={() => setSelected(null)}
+            />
+          )}
         </div>
       )}
 

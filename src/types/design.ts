@@ -55,6 +55,27 @@ export interface DesignArtifact {
 /** 产物 + 已解析预览路径（`get_design_artifact_cmd` 返回）。 */
 export interface DesignArtifactView extends DesignArtifact {
   artifactPath: string;
+  /** 当前 body.html 的 BLAKE3（可视化编辑 stale-write 守卫）。 */
+  bodyHash: string;
+}
+
+/** iframe bridge 回传的选中元素信息（`ds_selected`）。 */
+export interface DesignSelectedElement {
+  oid: string;
+  tag: string;
+  styles: Record<string, string>;
+  text: string;
+  isLeaf: boolean;
+  rect: { x: number; y: number; w: number; h: number };
+}
+
+/** 可视化微调回写入参（`patch_design_element_cmd`）。 */
+export interface ElementPatchInput {
+  artifactId: string;
+  oid: number;
+  text?: string;
+  styles?: [string, string][];
+  expectedHash?: string;
 }
 
 /** 产物版本快照元数据。 */

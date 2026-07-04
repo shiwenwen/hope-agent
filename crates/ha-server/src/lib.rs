@@ -1685,6 +1685,7 @@ fn build_router_with_cors(
             "/design/artifacts",
             get(routes::design::list_all_artifacts).post(routes::design::create_artifact),
         )
+        .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}",
             get(routes::design::get_artifact).delete(routes::design::delete_artifact),

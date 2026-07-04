@@ -10,6 +10,7 @@ use serde_json::json;
 use super::db::{
     DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject, DesignSystemMeta,
 };
+use super::patch;
 use super::renderer::{self, ArtifactKind, ArtifactParts};
 use super::system::{self, DesignSystemFull};
 use crate::paths;
@@ -59,12 +60,13 @@ fn resolve_tokens(system_id: Option<&str>) -> Vec<(String, String)> {
     map.into_iter().collect()
 }
 
-/// 把当前 index.html + source 快照进 `versions/{n}/`。
+/// 把当前 index.html + source + oidmap 快照进 `versions/{n}/`。
 fn write_version_snapshot(
     dir: &std::path::Path,
     n: i64,
     html: &str,
     parts: &ArtifactParts,
+    oidmap_json: &str,
 ) -> Result<()> {
     let vdir = dir.join("versions").join(n.to_string());
     std::fs::create_dir_all(vdir.join("source"))?;
@@ -72,6 +74,7 @@ fn write_version_snapshot(
     write_atomic(&vdir.join("source").join("body.html"), parts.body_html.as_bytes())?;
     write_atomic(&vdir.join("source").join("style.css"), parts.css.as_bytes())?;
     write_atomic(&vdir.join("source").join("script.js"), parts.js.as_bytes())?;
+    write_atomic(&vdir.join("oidmap.json"), oidmap_json.as_bytes())?;
     Ok(())
 }
 
@@ -85,14 +88,33 @@ fn read_source(dir: &std::path::Path) -> ArtifactParts {
     }
 }
 
-/// 写产物工作副本源 + 渲染 index.html。
-fn write_working(dir: &std::path::Path, html: &str, parts: &ArtifactParts) -> Result<()> {
+/// 写产物工作副本源 + 渲染 index.html + oidmap。
+fn write_working(
+    dir: &std::path::Path,
+    html: &str,
+    parts: &ArtifactParts,
+    oidmap_json: &str,
+) -> Result<()> {
     std::fs::create_dir_all(dir.join("source"))?;
     write_atomic(&dir.join("index.html"), html.as_bytes())?;
     write_atomic(&dir.join("source").join("body.html"), parts.body_html.as_bytes())?;
     write_atomic(&dir.join("source").join("style.css"), parts.css.as_bytes())?;
     write_atomic(&dir.join("source").join("script.js"), parts.js.as_bytes())?;
+    write_atomic(&dir.join("oidmap.json"), oidmap_json.as_bytes())?;
     Ok(())
+}
+
+/// 渲染 + 序列化 oidmap（create/update 共用）。
+fn render(
+    kind: ArtifactKind,
+    title: &str,
+    parts: &ArtifactParts,
+    tokens: &[(String, String)],
+) -> Result<(String, String)> {
+    let editable = kind != ArtifactKind::Image;
+    let (html, oidmap) = renderer::build_artifact_html(kind, title, parts, tokens, editable);
+    let oidmap_json = serde_json::to_string(&oidmap)?;
+    Ok((html, oidmap_json))
 }
 
 /// 产物目录绝对路径（前端 iframe / 事件 payload 用）。
@@ -307,9 +329,9 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     // 磁盘落地：artifact_dir / index.html / source/ / versions/1 / artifact.json
     let dir = paths::design_artifact_dir(&input.project_id, &artifact_id)?;
     let tokens = resolve_tokens(system_id.as_deref());
-    let html = renderer::build_artifact_html(kind, &title, &parts, &tokens);
-    write_working(&dir, &html, &parts)?;
-    write_version_snapshot(&dir, 1, &html, &parts)?;
+    let (html, oidmap_json) = render(kind, &title, &parts, &tokens)?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
+    write_version_snapshot(&dir, 1, &html, &parts, &oidmap_json)?;
 
     let (vw, vh) = kind.default_viewport();
     let artifact = DesignArtifact {
@@ -413,6 +435,8 @@ pub struct ArtifactView {
     pub artifact: DesignArtifact,
     /// 产物目录绝对路径（前端拼 `/index.html`）。
     pub artifact_path: String,
+    /// 当前 body.html 的 BLAKE3（可视化编辑 stale-write 守卫用）。
+    pub body_hash: String,
 }
 
 pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
@@ -420,10 +444,75 @@ pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
         return Ok(None);
     };
     let artifact_path = artifact_dir_str(&artifact.project_id, &artifact.id);
+    let body = read_source(
+        &paths::design_artifact_dir(&artifact.project_id, &artifact.id).unwrap_or_default(),
+    )
+    .body_html;
+    let body_hash = patch::body_hash(&body);
     Ok(Some(ArtifactView {
         artifact,
         artifact_path,
+        body_hash,
     }))
+}
+
+/// 可视化微调：单元素样式 / 文本回写（D1）。text 先于 style 应用（两段字节范围
+/// 不重叠且 text 在 open tag 之后，故 style 用同一 oidmap 仍有效）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElementPatch {
+    pub artifact_id: String,
+    pub oid: u32,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub styles: Option<Vec<(String, String)>>,
+    /// 可选 stale-write 守卫（load 时拿到的 bodyHash）。
+    #[serde(default)]
+    pub expected_hash: Option<String>,
+}
+
+pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(&p.artifact_id)?
+        .with_context(|| format!("artifact not found: {}", p.artifact_id))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let body = std::fs::read_to_string(dir.join("source").join("body.html")).unwrap_or_default();
+    let oidmap: Vec<patch::OidEntry> = std::fs::read_to_string(dir.join("oidmap.json"))
+        .ok()
+        .and_then(|r| serde_json::from_str(&r).ok())
+        .unwrap_or_default();
+
+    if let Some(h) = &p.expected_hash {
+        if patch::body_hash(&body) != *h {
+            anyhow::bail!("stale write: source changed, please re-select");
+        }
+    }
+
+    let mut new_body = body;
+    // 先文本（改内部内容，位于 open tag 之后），后样式（改 open tag，range 未被文本移动）。
+    if let Some(text) = &p.text {
+        let r = patch::apply_text_patch(&new_body, &oidmap, p.oid, text, None)
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        new_body = r.new_source;
+    }
+    if let Some(styles) = &p.styles {
+        if !styles.is_empty() {
+            let r = patch::apply_style_patch(&new_body, &oidmap, p.oid, styles, None)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            new_body = r.new_source;
+        }
+    }
+
+    update_artifact(UpdateArtifactInput {
+        id: a.id.clone(),
+        title: None,
+        body_html: Some(new_body),
+        css: None,
+        js: None,
+        message: Some("Visual edit".to_string()),
+    })
 }
 
 /// 更新产物：未提供的字段沿用当前源，重新渲染 + 累加版本 + 剪旧版本。
@@ -469,11 +558,11 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
     };
     let title = input.title.clone().unwrap_or_else(|| a.title.clone());
     let tokens = resolve_tokens(a.system_id.as_deref());
-    let html = renderer::build_artifact_html(kind, &title, &parts, &tokens);
-    write_working(&dir, &html, &parts)?;
+    let (html, oidmap_json) = render(kind, &title, &parts, &tokens)?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
 
     let next = a.current_version + 1;
-    write_version_snapshot(&dir, next, &html, &parts)?;
+    write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
 
     let ts = now();
     db.update_artifact(

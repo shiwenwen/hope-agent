@@ -13,7 +13,8 @@ use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
 use ha_core::design::service::{
-    self, CreateArtifactInput, CreateProjectInput, SaveSystemInput, UpdateProjectInput,
+    self, CreateArtifactInput, CreateProjectInput, ElementPatch, SaveSystemInput,
+    UpdateProjectInput,
 };
 use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};
 use ha_core::paths;
@@ -57,6 +58,11 @@ pub struct CreateArtifactBody {
 #[derive(Debug, Deserialize)]
 pub struct SaveSystemBody {
     pub input: SaveSystemInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchBody {
+    pub input: ElementPatch,
 }
 
 // ── Projects ───────────────────────────────────────────────────────
@@ -144,6 +150,16 @@ pub async fn delete_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppE
     validate_id(&id)?;
     service::delete_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /api/design/patch` — visual edit (element style/text writeback).
+pub async fn patch_element(
+    Json(body): Json<PatchBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&body.input.artifact_id)?;
+    Ok(Json(
+        service::patch_element(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
 }
 
 /// `GET /api/design/artifacts/{id}/versions`
