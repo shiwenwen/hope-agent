@@ -396,6 +396,81 @@ function goalSnapshotWithWorktreeEvidence(): GoalSnapshot {
   }
 }
 
+function goalSnapshotWithDomainEvidence(): GoalSnapshot {
+  return {
+    goal: {
+      id: "goal-domain",
+      sessionId: "s1",
+      objective: "Write sourced research brief",
+      completionCriteria: "Source evidence is visible",
+      state: "active",
+      modeSnapshot: null,
+      budgetTokenLimit: null,
+      budgetTimeLimitSecs: null,
+      budgetTurnLimit: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:03:00Z",
+      completedAt: null,
+      finalSummary: null,
+      finalEvidence: {},
+      blockedReason: null,
+      lastEvaluatorResult: {},
+    },
+    links: [],
+    events: [],
+    criteria: [],
+    evidence: [
+      {
+        id: "domain:devi_source:source_cited",
+        sourceType: "domain_evidence",
+        sourceId: "devi_source",
+        relation: "source_cited",
+        title: "Official documentation cited",
+        summary: "Source supports the research brief.",
+        metadata: {
+          domain: "research",
+          title: "Official documentation cited",
+          summary: "Source supports the research brief.",
+          confidence: 0.92,
+          accessScope: "public",
+          redactionStatus: "none",
+          source: {
+            title: "Official docs",
+            uri: "https://example.com/docs",
+            retrievedAt: "2026-07-04T00:00:00Z",
+            workflow: {
+              runId: "wf-domain",
+              opKey: "main/op#1(evidence.record)",
+              sessionId: "s1",
+              goalId: "goal-domain",
+              executionMode: "guarded",
+            },
+          },
+        },
+        createdAt: "2026-01-01T00:03:00Z",
+      },
+    ],
+    timeline: [],
+    budget: {
+      tokenLimit: null,
+      timeLimitSecs: null,
+      turnLimit: null,
+      tokensUsed: 0,
+      elapsedSecs: 180,
+      turnsUsed: 0,
+      tokenRatio: null,
+      timeRatio: null,
+      turnRatio: null,
+      warning: false,
+      exhausted: false,
+      warnings: [],
+      exceeded: [],
+    },
+    workflowRuns: [],
+    tasks: [],
+  }
+}
+
 describe("WorkspacePanel goal section", () => {
   it("surfaces worktree evidence in goal detail", async () => {
     transportMock.call.mockImplementation((name: string) => {
@@ -419,6 +494,31 @@ describe("WorkspacePanel goal section", () => {
     expect(screen.getByText("main · abcdef12")).toBeTruthy()
     expect(screen.getByText("3 个变更")).toBeTruthy()
     expect(screen.getAllByText("handoff at /repo-worktrees/wt_goal").length).toBeGreaterThan(0)
+  })
+
+  it("surfaces domain evidence provenance in goal detail", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithDomainEvidence())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: null, source: "none", exists: false, name: null },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByText("Write sourced research brief"))
+
+    expect(screen.getByText("领域证据")).toBeTruthy()
+    expect(screen.getAllByText("Official documentation cited").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("source_cited").length).toBeGreaterThan(0)
+    expect(screen.getByText("research")).toBeTruthy()
+    expect(screen.getByText("https://example.com/docs")).toBeTruthy()
+    expect(screen.getByText("92%")).toBeTruthy()
+    expect(screen.getByText("main/op#1(evidence.record)")).toBeTruthy()
   })
 })
 

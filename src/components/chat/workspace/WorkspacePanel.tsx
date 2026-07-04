@@ -7717,6 +7717,64 @@ function goalEvidenceTone(relation: string): StatusTone {
   return "muted"
 }
 
+interface GoalDomainEvidence {
+  item: GoalEvidenceItem
+  domain: string
+  evidenceType: string
+  source: Record<string, unknown> | null
+  sourceLabel: string | null
+  confidence: number | null
+  accessScope: string | null
+  redactionStatus: string | null
+  workflowRunId: string | null
+  workflowOpKey: string | null
+}
+
+function goalDomainEvidenceItems(evidence: GoalEvidenceItem[]): GoalDomainEvidence[] {
+  return evidence
+    .filter((item) => item.sourceType === "domain_evidence")
+    .map(goalDomainEvidenceFromItem)
+    .filter((item): item is GoalDomainEvidence => Boolean(item))
+}
+
+function goalDomainEvidenceFromItem(item: GoalEvidenceItem): GoalDomainEvidence | null {
+  const metadata = asRecord(item.metadata)
+  const source = asRecord(metadata?.source)
+  const workflow = asRecord(source?.workflow)
+  return {
+    item,
+    domain: stringField(metadata, "domain") ?? stringField(source, "domain") ?? "-",
+    evidenceType: item.relation,
+    source,
+    sourceLabel: domainEvidenceSourceLabel(source),
+    confidence: numberField(metadata, "confidence"),
+    accessScope: stringField(metadata, "accessScope"),
+    redactionStatus: stringField(metadata, "redactionStatus"),
+    workflowRunId: stringField(workflow, "runId"),
+    workflowOpKey: stringField(workflow, "opKey"),
+  }
+}
+
+function domainEvidenceSourceLabel(source: Record<string, unknown> | null): string | null {
+  if (!source) return null
+  return (
+    stringField(source, "uri") ??
+    stringField(source, "url") ??
+    stringField(source, "path") ??
+    stringField(source, "dataset") ??
+    stringField(source, "sheet") ??
+    stringField(source, "range") ??
+    stringField(source, "threadId") ??
+    stringField(source, "eventId") ??
+    stringField(source, "title")
+  )
+}
+
+function domainEvidenceConfidenceLabel(confidence: number | null): string {
+  if (typeof confidence !== "number" || !Number.isFinite(confidence)) return "-"
+  return `${Math.round(confidence * 100)}%`
+}
+
 interface GoalWorktreeEvidence {
   item: GoalEvidenceItem
   worktreeId: string
@@ -8253,6 +8311,7 @@ function GoalDetailSection({
   const latestTimeline = timeline.slice(-8).reverse()
   const latestEvidence = evidence.slice(-8).reverse()
   const worktreeEvidence = goalWorktreeEvidenceItems(evidence).slice(-4).reverse()
+  const domainEvidence = goalDomainEvidenceItems(evidence).slice(-6).reverse()
   const audit = asRecord(snapshot.goal.finalEvidence)
   const nextEvidence = recordArrayField(audit, "nextEvidenceNeeded").slice(0, 6)
   const budget = snapshot.budget
@@ -8318,6 +8377,68 @@ function GoalDetailSection({
                     {worktree.summary ? (
                       <div className="mt-1 truncate text-[10px] opacity-80">{worktree.summary}</div>
                     ) : null}
+                  </div>
+                </IconTip>
+              ))}
+            </div>
+          </GoalDetailBlock>
+        ) : null}
+
+        {domainEvidence.length > 0 ? (
+          <GoalDetailBlock
+            title={t("workspace.goal.detailDomainEvidence", "领域证据")}
+            count={domainEvidence.length}
+          >
+            <div className="space-y-1">
+              {domainEvidence.map((evidenceItem) => (
+                <IconTip
+                  key={evidenceItem.item.id}
+                  label={compactJson(evidenceItem.item.metadata, evidenceItem.item.id)}
+                >
+                  <div className="min-w-0 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1.5 text-emerald-700 dark:text-emerald-300">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <BookText className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate text-[11px] font-medium">
+                        {evidenceItem.item.title}
+                      </span>
+                      <StatusPill label={evidenceItem.evidenceType} tone="good" />
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] opacity-85">
+                      <span className="shrink-0">{evidenceItem.domain}</span>
+                      {evidenceItem.sourceLabel ? (
+                        <>
+                          <span className="text-emerald-700/45 dark:text-emerald-300/45">·</span>
+                          <span className="min-w-0 flex-1 truncate font-mono">
+                            {truncateMiddle(evidenceItem.sourceLabel, 120)}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                    {evidenceItem.item.summary ? (
+                      <div className="mt-1 truncate text-[10px] opacity-80">
+                        {evidenceItem.item.summary}
+                      </div>
+                    ) : null}
+                    <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
+                      <GoalWorktreeMetric
+                        label={t("workspace.goal.domainConfidence", "Confidence")}
+                        value={domainEvidenceConfidenceLabel(evidenceItem.confidence)}
+                      />
+                      <GoalWorktreeMetric
+                        label={t("workspace.goal.domainAccess", "Access")}
+                        value={evidenceItem.accessScope ?? "-"}
+                      />
+                      <GoalWorktreeMetric
+                        label={t("workspace.goal.domainWorkflow", "Workflow")}
+                        value={
+                          evidenceItem.workflowOpKey
+                            ? truncateMiddle(evidenceItem.workflowOpKey, 28)
+                            : evidenceItem.workflowRunId
+                              ? truncateMiddle(evidenceItem.workflowRunId, 18)
+                              : evidenceItem.redactionStatus ?? "-"
+                        }
+                      />
+                    </div>
                   </div>
                 </IconTip>
               ))}
