@@ -258,7 +258,7 @@ export default function CronJobDetail({
                 <span className="truncate">
                   {job.projectId
                     ? project
-                      ? `${project.emoji ? `${project.emoji} ` : ""}${project.name}`
+                      ? project.name
                       : t("cron.missingProject")
                     : t("cron.noProject")}
                 </span>

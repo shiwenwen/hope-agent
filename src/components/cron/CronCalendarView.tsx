@@ -277,7 +277,7 @@ export default function CronCalendarView({
     if (!projectId) return t("cron.noProject")
     const project = projectMap.get(projectId)
     if (!project) return t("cron.missingProject")
-    return `${project.emoji ? `${project.emoji} ` : ""}${project.name}`
+    return project.name
   }
 
   function handleDayClick(day: number) {

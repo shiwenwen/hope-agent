@@ -545,9 +545,9 @@ function ProjectGroup({
                   projectFolderColorClass,
                 )}
               />
-              {displayMode === "detailed" && (
+              {displayMode === "detailed" && project.logo && (
                 <div className="relative shrink-0">
-                  <ProjectIcon project={project} size="sm" withColorChip />
+                  <ProjectIcon project={project} size="sm" />
                   {projectUnreadCount > 0 && (
                     <span
                       className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none"

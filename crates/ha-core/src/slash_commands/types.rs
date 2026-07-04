@@ -263,8 +263,6 @@ pub struct ProjectPickerItem {
     pub id: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub emoji: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub logo: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
@@ -292,8 +290,8 @@ pub struct SessionPickerItem {
     /// Project id when the session is assigned to one, else `None`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
-    /// Project display label (emoji + name) when assigned. Resolved by the
-    /// handler so picker renderers don't have to hit the project DB.
+    /// Project display label when assigned. Resolved by the handler so picker
+    /// renderers don't have to hit the project DB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_label: Option<String>,
     /// `Some(label)` when the session is currently surfaced from an IM chat

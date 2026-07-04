@@ -14,7 +14,6 @@ import {
   Check,
   CircleSlash,
   FileText,
-  FolderKanban,
   FolderOpen,
   FolderPlus,
   ImagePlus,
@@ -280,20 +279,18 @@ export default function ProjectDialog({
         <div className="border-b border-border/70 bg-muted/25 px-6 py-5">
           <DialogHeader className="space-y-0">
             <DialogTitle className="flex items-center gap-3 text-xl">
-              <span
-                className={cn(
-                  "flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-base shadow-sm",
-                  selectedColor
-                    ? `${selectedColor.softClassName} text-foreground`
-                    : "bg-primary/10 text-primary",
-                )}
-              >
-                {logo ? (
+              {logo && (
+                <span
+                  className={cn(
+                    "flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-base shadow-sm",
+                    selectedColor
+                      ? `${selectedColor.softClassName} text-foreground`
+                      : "bg-primary/10 text-primary",
+                  )}
+                >
                   <img src={logo} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <FolderKanban className="h-5 w-5" />
-                )}
-              </span>
+                </span>
+              )}
               {mode === "create" ? t("project.newProject") : t("project.editProject")}
             </DialogTitle>
           </DialogHeader>

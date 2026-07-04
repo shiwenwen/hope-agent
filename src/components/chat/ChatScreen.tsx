@@ -1803,8 +1803,7 @@ export default function ChatScreen({
           // project tree. A full clickable picker card is a follow-up.
           const lines = [t("project.openProject") + ":"]
           for (const p of action.projects) {
-            const icon = p.emoji ? `${p.emoji} ` : "📁 "
-            lines.push(`- ${icon}**${p.name}** · ${p.sessionCount}`)
+            lines.push(`- **${p.name}** · ${p.sessionCount}`)
           }
           lines.push("")
           lines.push(`> \`/project <${t("project.projectName")}>\``)

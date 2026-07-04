@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **内置 Provider 模板刷新**：为 Anthropic / Anthropic (Vertex AI) / OpenAI / Google Gemini / Moonshot / 智谱 / MiniMax / Kimi Coding 等补齐最新旗舰模型（Claude Fable 5、GPT-5.6 Sol/Terra/Luna、Gemini 3.5 Flash、Kimi K2.7 Code、GLM-5.2、MiniMax M3、kimi-for-coding 等，均置于各供应商列表顶部），修正 Claude Haiku 4.5、MiniMax M2.7 Highspeed 的能力与价格元数据，并新增 OpenCode Zen 旗舰网关模板。 (#412)
 - **语音转写新增供应商与模型刷新**：新增 ElevenLabs Scribe、xAI Grok STT 两个云端 ASR 后端，以及 Groq、Mistral Voxtral、DeepInfra 三个 OpenAI 兼容转写预设，可直接用于语音输入与 IM 自动转写；AssemblyAI 型号更新为 Universal-3 Pro（流式 u3-rt-pro），本地 embedding 目录新增 mxbai-embed-large。 (#413)
 
+### Changed
+
+- **项目不再使用 Emoji 图标**：新建 / 编辑项目移除 Emoji 字段，项目列表、快捷指令、定时任务与系统提示统一只使用项目 Logo 或默认文件夹图标展示项目身份。
+
 ### Fixed
 
 - **聊天消息吸顶与耗时显示更准确**：用户消息悬浮吸顶不再只处理最后一条消息，会按当前可见回复体切换对应用户消息，并正确处理已处理折叠行、上下文压缩事件与长会话 DOM 裁剪；工具 / 思考耗时显示避免把同一轮耗时重复累加。聊天列表与输入框也收窄到更适合全屏阅读的最大宽度。
