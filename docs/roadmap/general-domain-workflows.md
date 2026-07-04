@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-04
 >
-> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard、Phase 7.13 Domain Campaign Learning Closure、Phase 7.14 Domain Readiness Gate、Phase 7.15 Domain Artifact Export Guard、Phase 7.16 Domain Connector Action Guard 已完成第一版；Phase 8.1 Domain Operational Gate、Phase 8.2 Connector E2E Gate 已完成第一版。相关事实已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard、Phase 7.13 Domain Campaign Learning Closure、Phase 7.14 Domain Readiness Gate、Phase 7.15 Domain Artifact Export Guard、Phase 7.16 Domain Connector Action Guard 已完成第一版；Phase 8.1 Domain Operational Gate、Phase 8.2 Connector E2E Gate、Phase 8.3 Domain Soak Report 已完成第一版。相关事实已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
 ## 1. 背景
 
@@ -367,21 +367,21 @@ Gold task pack -> Domain eval task pack
 
 ## 11. Phase 7 完整性审计（2026-07-04）
 
-结论：Phase 7.1-7.16 的“通用场景层第一版”已经完成，具备从 domain template、evidence、context retrieval、quality review、learning proposal、eval/gate、fixture/campaign/leaderboard、readiness、artifact export guard 到 connector action guard 的闭环。它已经不是 coding-only 能力，Research、Writing、Data Analysis、Meeting Prep、Knowledge Curation、Inbox、Project Ops 等非编程任务都能复用 Goal / Workflow / Loop / Evidence / Review / Eval / Guard 控制面。
+结论：Phase 7.1-7.16 的“通用场景层第一版”已经完成，Phase 8.1-8.3 也已把运行稳定性、连接器端到端证据和跨窗口长期运行审计产品化为 Dashboard 可见能力。当前已具备从 domain template、evidence、context retrieval、quality review、learning proposal、eval/gate、fixture/campaign/leaderboard、readiness、artifact export guard、connector action guard、operational gate、connector e2e gate 到 soak report 的闭环。它已经不是 coding-only 能力，Research、Writing、Data Analysis、Meeting Prep、Knowledge Curation、Inbox、Project Ops 等非编程任务都能复用 Goal / Workflow / Loop / Evidence / Review / Eval / Guard / Report 控制面。
 
 当前完成证据：
 
-- 架构文档：`domain-workflow.md` 记录 template、evidence、Artifact Export Guard、Connector Action Guard 和 owner API；`domain-quality.md` 记录领域复核；`domain-eval.md` 记录 eval / fixture / campaign / leaderboard / readiness；`context-retrieval.md` 与 `coding-improvement-loop.md` 记录上下文召回和学习闭环衔接。
-- API 接线：Tauri、HTTP、transport 均已有 domain workflow、domain evidence、artifact export guard、connector action guard、domain eval fixture、campaign、leaderboard 和 readiness gate 入口。
-- GUI 接线：Goal 创建 / 编辑、Workflow Control Center、Workspace「领域复核」、Dashboard Learning 已覆盖模板选择、证据展示、质量复核、学习提炼、Smoke Run、Campaign、Leaderboard、Readiness、交付守门和外部动作守门。
+- 架构文档：`domain-workflow.md` 记录 template、evidence、Artifact Export Guard、Connector Action Guard 和 Connector E2E Gate 衔接；`domain-quality.md` 记录领域复核；`domain-eval.md` 记录 eval / fixture / campaign / leaderboard / readiness / operational gate / soak report；`context-retrieval.md` 与 `coding-improvement-loop.md` 记录上下文召回和学习闭环衔接。
+- API 接线：Tauri、HTTP、transport 均已有 domain workflow、domain evidence、artifact export guard、connector action guard、connector e2e gate、domain eval fixture、campaign、leaderboard、readiness gate、operational gate 和 soak report 入口。
+- GUI 接线：Goal 创建 / 编辑、Workflow Control Center、Workspace「领域复核」、Dashboard Learning 已覆盖模板选择、证据展示、质量复核、学习提炼、Smoke Run、Campaign、Leaderboard、Readiness、Operational、Soak Report、Connector E2E、交付守门和外部动作守门。
 - 权限红线：外部连接器写动作进入 strict `ExternalConnectorAction`，禁止 AllowAlways、Smart 覆盖和 auto-approve 静默旁路；真正外部动作仍必须走工具审批和连接器授权。
-- 验证证据：`cargo test -p ha-core domain_workflow --locked` 覆盖 8 个核心用例；`cargo test -p ha-core domain_eval --locked` 覆盖 15 个 eval / fixture / campaign / readiness 用例；7.16 另由 `cargo test -p ha-core connector_action --locked` 覆盖 5 个连接器守门和权限分类用例。
+- 验证证据：`cargo test -p ha-core domain_workflow --locked` 覆盖核心 domain workflow / guard 用例；`cargo test -p ha-core domain_eval --locked` 覆盖 eval / fixture / campaign / readiness / operational / soak report 用例；7.16/8.2 另由 `cargo test -p ha-core connector_action --locked` 覆盖连接器守门和权限分类用例。
 
 剩余不作为 Phase 7 第一版 blocker，但仍属于“超越 Codex / Claude Code”的长期增强：
 
 - 真实外部账号的端到端演练需要在具备 Gmail / Calendar / Drive / Sheets / Feishu / Lark 等可用测试账号后继续做，当前 worktree 主要用 deterministic / mock / fail-closed 证据覆盖。
 - GUI 仍可继续把 Sources / Evidence / Drafts / Review / Verification / Decisions 做成更完整的通用任务工作台，而不是只集中在 Workspace「领域复核」和 Dashboard Learning。
-- 长期运行稳定性还需要跨天 loop、campaign 和真实连接器动作的 soak run 数据；Phase 8.1 已先把 workflow / loop / campaign 运行残留产品化为 Operational Gate，Phase 8.2 已把连接器 E2E 链路证据产品化为 Gate，但真实跨天 soak report 仍需继续积累样本。
+- 长期运行稳定性还需要跨天 loop、campaign 和真实连接器动作的 soak run 数据；Phase 8.1 已把 workflow / loop / campaign 运行残留产品化为 Operational Gate，Phase 8.2 已把连接器 E2E 链路证据产品化为 Gate，Phase 8.3 已把这些历史导出为 Soak Report，但真实跨天样本仍需继续积累。
 
 ## 12. Phase 8：真实场景产品级验收
 
@@ -427,12 +427,33 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 仍需后续真实样本：
 
 - 用测试账号跑 Gmail / Calendar / Drive / Sheets / Feishu / Lark 的真实 approve -> execute -> evidence -> export/action/e2e gate -> rollback note 流程。
-- 把真实账号样本纳入 Phase 8.3 soak report，而不是仅靠 deterministic fixture。
+- 把真实账号样本纳入 soak report，而不是仅靠 deterministic fixture。
 
-### Phase 8.3 跨天 Soak Report（待做）
+### Phase 8.3 跨天 Soak Report（已完成第一版）
 
-- 把 loop / workflow / campaign 的跨天运行历史导出成 Markdown / JSON / Dashboard snapshot。
-- 报告要包含 drain 时间、失败分类、审批等待、取消/恢复、重试、预算和用户干预次数。
+目标：把 loop / workflow / campaign / connector evidence 的跨窗口运行历史变成可读、可审计、可下钻的 JSON / Markdown / Dashboard snapshot。
+
+已完成：
+
+- 新增 `generate_domain_soak_report` owner API，Tauri / HTTP / transport 已接通。
+- 报告只读 `workflow_runs`、`workflow_events`、`loop_runs`、`domain_eval_campaigns`、`domain_eval_campaign_items` 与 connector E2E evidence；不调用 LLM、不启动任务、不访问连接器、不自动 approve / cancel / retry。
+- 输出 `passed` / `failed` / `insufficient_data`、summary、incidents、timeline、recommended next steps、Markdown 与内嵌 `operationalGate`。
+- Summary 覆盖 workflow drain 时间、失败/阻塞/取消/活跃、审批/暂停/恢复/取消/恢复事件、loop tick、campaign item retry / failed / interrupted、connector E2E execution / verification evidence。
+- Incidents 区分 critical 与 warning：failed/blocked/cancelled workflow、failed/cancelled/interrupted campaign item、failed/cancelled loop 为 critical；running/queued/awaiting approval 等未 drain 工作为 warning。
+- Dashboard Learning 新增「Domain soak report」卡片，展示 workflow / loop / campaign / connector 样本量、critical/warning incidents、最大 drain 时间、最近 timeline 和下一步建议。
+- 新增核心单测覆盖：drained workflow + loop + campaign + connector evidence 时 passed；failed workflow + active campaign item 时 failed，并输出 critical/warning incidents 和 Markdown。
+
+验收：
+
+- 没有样本的窗口不能 passed，只能 `insufficient_data`。
+- 有 critical incident 或内嵌 Operational Gate failed 时必须 failed。
+- active / queued / awaiting approval 不伪装成失败，但会让报告保持 `insufficient_data`，提醒用户先 drain。
+- Markdown 是 JSON 报告的渲染，不是新的真相源。
+
+仍需后续真实样本：
+
+- 用跨天真实账号任务采集 connector E2E + workflow/loop/campaign history，再用 soak report 做人工复核。
+- 后续可把 budget、token/cost、用户干预来源、审批耗时、recovery attempt 细节继续做厚。
 
 ### Phase 8.4 通用任务工作台（待做）
 
@@ -457,3 +478,4 @@ P6 完成后，建议按下列顺序推进：
 12. Phase 7.16：已补 Domain Connector Action Guard，把 Gmail / Calendar / Drive / Sheets / Feishu / Lark 等真实外部动作接入同一套证据、审批和回滚提示语义。
 13. Phase 8.1：已补 Domain Operational Gate，把 workflow / loop / campaign 的运行稳定性合成 Dashboard 可见门禁。
 14. Phase 8.2：已补 Connector E2E Gate，把真实连接器链路的输入、草稿、批准、执行、复核、回滚和交付守门合成 Dashboard 可见门禁。
+15. Phase 8.3：已补 Domain Soak Report，把 workflow / loop / campaign / connector evidence 的跨窗口运行历史导出为 JSON / Markdown / Dashboard snapshot。

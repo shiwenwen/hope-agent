@@ -1672,6 +1672,10 @@ fn build_router_with_cors(
             post(routes::domain_eval::evaluate_domain_operational_gate),
         )
         .route(
+            "/domain-soak-report/generate",
+            post(routes::domain_eval::generate_domain_soak_report),
+        )
+        .route(
             "/sessions/{sid}/domain-quality-runs",
             get(routes::domain_quality::list_domain_quality_runs),
         )

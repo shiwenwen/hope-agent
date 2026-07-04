@@ -6,7 +6,7 @@
 //! eval + domain quality evidence without mixing it into coding benchmark score.
 
 use anyhow::{anyhow, bail, Result};
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -57,6 +57,9 @@ const DEFAULT_DOMAIN_OPERATIONAL_MIN_LOOP_RUNS: usize = 0;
 const DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_LOOP_RUNS: usize = 0;
 const DEFAULT_DOMAIN_OPERATIONAL_MAX_ACTIVE_CAMPAIGNS: usize = 0;
 const DEFAULT_DOMAIN_OPERATIONAL_MAX_FAILED_CAMPAIGN_ITEMS: usize = 0;
+const DEFAULT_DOMAIN_SOAK_WINDOW_DAYS: u32 = 7;
+const DEFAULT_DOMAIN_SOAK_MAX_ITEMS: usize = 12;
+const MAX_DOMAIN_SOAK_MAX_ITEMS: usize = 50;
 const DOMAIN_EVAL_SOURCE_LIVE: &str = "live";
 const DOMAIN_EVAL_SOURCE_FIXTURE_TRACE: &str = "fixture_trace";
 const DOMAIN_EVAL_SOURCE_FIXTURE_AGENT: &str = "fixture_agent";
@@ -1109,6 +1112,163 @@ pub struct DomainOperationalGateReport {
     pub blockers: Vec<String>,
     #[serde(default)]
     pub recommended_next_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainSoakReportInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainSoakReportSummary {
+    pub workflow_runs: usize,
+    pub completed_workflow_runs: usize,
+    pub failed_workflow_runs: usize,
+    pub blocked_workflow_runs: usize,
+    pub cancelled_workflow_runs: usize,
+    pub active_workflow_runs: usize,
+    pub awaiting_approval_workflow_runs: usize,
+    pub repair_workflow_runs: usize,
+    pub approval_events: usize,
+    pub pause_events: usize,
+    pub resume_events: usize,
+    pub cancel_events: usize,
+    pub recovery_events: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_workflow_drain_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_workflow_drain_secs: Option<i64>,
+    pub loop_runs: usize,
+    pub succeeded_loop_runs: usize,
+    pub failed_loop_runs: usize,
+    pub active_loop_runs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_loop_duration_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_loop_duration_secs: Option<i64>,
+    pub campaigns: usize,
+    pub active_campaigns: usize,
+    pub campaign_items: usize,
+    pub passed_campaign_items: usize,
+    pub failed_campaign_items: usize,
+    pub cancelled_campaign_items: usize,
+    pub interrupted_campaign_items: usize,
+    pub retried_campaign_items: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_campaign_item_duration_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_campaign_item_duration_secs: Option<i64>,
+    pub connector_e2e_evidence: usize,
+    pub connector_execution_evidence: usize,
+    pub connector_verification_evidence: usize,
+    pub incidents: usize,
+    pub critical_incidents: usize,
+    pub warning_incidents: usize,
+    pub total_records: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainSoakIncident {
+    pub source: String,
+    pub id: String,
+    pub title: String,
+    pub status: String,
+    pub severity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<i64>,
+    pub reason: String,
+    pub recommendation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainSoakTimelineItem {
+    pub source: String,
+    pub id: String,
+    pub label: String,
+    pub status: String,
+    pub at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainSoakReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub window_days: u32,
+    pub since: String,
+    pub until: String,
+    pub summary: DomainSoakReportSummary,
+    #[serde(default)]
+    pub incidents: Vec<DomainSoakIncident>,
+    #[serde(default)]
+    pub timeline: Vec<DomainSoakTimelineItem>,
+    #[serde(default)]
+    pub recommended_next_steps: Vec<String>,
+    pub markdown: String,
+    pub operational_gate: DomainOperationalGateReport,
+}
+
+struct SoakWorkflowRow {
+    id: String,
+    kind: String,
+    state: String,
+    origin: Option<String>,
+    created_at: String,
+    updated_at: String,
+    completed_at: Option<String>,
+    blocked_reason: Option<String>,
+}
+
+struct SoakLoopRunRow {
+    id: String,
+    loop_id: String,
+    state: String,
+    trigger_reason: String,
+    result_summary: Option<String>,
+    error: Option<String>,
+    started_at: String,
+    finished_at: Option<String>,
+}
+
+struct SoakCampaignRow {
+    campaign_id: String,
+    campaign_name: String,
+    campaign_status: String,
+    campaign_updated_at: String,
+    item_id: Option<String>,
+    item_title: Option<String>,
+    item_status: Option<String>,
+    item_attempt: Option<usize>,
+    item_error: Option<String>,
+    item_started_at: Option<String>,
+    item_finished_at: Option<String>,
+    item_updated_at: Option<String>,
 }
 
 struct DomainGateScope {
@@ -3053,6 +3213,676 @@ impl SessionDB {
             blockers,
             recommended_next_steps,
         })
+    }
+
+    pub fn generate_domain_soak_report(
+        &self,
+        input: DomainSoakReportInput,
+    ) -> Result<DomainSoakReport> {
+        let window_days = input
+            .window_days
+            .unwrap_or(DEFAULT_DOMAIN_SOAK_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS);
+        let max_items = input
+            .max_items
+            .unwrap_or(DEFAULT_DOMAIN_SOAK_MAX_ITEMS)
+            .clamp(1, MAX_DOMAIN_SOAK_MAX_ITEMS);
+        let operational_input = DomainOperationalGateInput {
+            session_id: input.session_id.clone(),
+            project_id: input.project_id.clone(),
+            domain: input.domain.clone(),
+            window_days: Some(window_days),
+            min_workflow_runs: Some(1),
+            max_failed_workflow_runs: Some(0),
+            max_blocked_workflow_runs: Some(0),
+            max_cancelled_workflow_runs: Some(0),
+            max_active_workflow_runs: Some(0),
+            min_loop_runs: Some(0),
+            max_failed_loop_runs: Some(0),
+            max_active_campaigns: Some(0),
+            max_failed_campaign_items: Some(0),
+        };
+        let scope = self.resolve_domain_operational_gate_scope(&operational_input, window_days)?;
+        let operational_gate = self.evaluate_domain_operational_gate(operational_input)?;
+        let until = now_rfc3339();
+        let mut summary = DomainSoakReportSummary::default();
+        let mut incidents = Vec::new();
+        let mut timeline = Vec::new();
+
+        let workflow_rows = self.domain_soak_workflows(&scope)?;
+        let mut workflow_durations = Vec::new();
+        for row in workflow_rows {
+            summary.workflow_runs += 1;
+            if row
+                .origin
+                .as_deref()
+                .is_some_and(|origin| origin.contains("repair"))
+            {
+                summary.repair_workflow_runs += 1;
+            }
+            let duration = row
+                .completed_at
+                .as_deref()
+                .and_then(|finished| timestamp_delta_secs(&row.created_at, finished));
+            if let Some(duration) = duration {
+                workflow_durations.push(duration);
+            }
+            match row.state.as_str() {
+                "completed" => summary.completed_workflow_runs += 1,
+                "failed" => {
+                    summary.failed_workflow_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "workflow",
+                        &row.id,
+                        &row.kind,
+                        &row.state,
+                        "critical",
+                        Some(row.created_at.clone()),
+                        row.completed_at.clone().or_else(|| Some(row.updated_at.clone())),
+                        duration,
+                        row.blocked_reason
+                            .clone()
+                            .unwrap_or_else(|| "workflow failed".to_string()),
+                        "Open the Workflow run detail, inspect failed ops, and retry through a repair workflow.".to_string(),
+                    );
+                }
+                "blocked" => {
+                    summary.blocked_workflow_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "workflow",
+                        &row.id,
+                        &row.kind,
+                        &row.state,
+                        "critical",
+                        Some(row.created_at.clone()),
+                        row.completed_at.clone().or_else(|| Some(row.updated_at.clone())),
+                        duration,
+                        row.blocked_reason
+                            .clone()
+                            .unwrap_or_else(|| "workflow blocked".to_string()),
+                        "Resolve the blocker or explicitly cancel/restart the workflow before unattended continuation.".to_string(),
+                    );
+                }
+                "cancelled" => {
+                    summary.cancelled_workflow_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "workflow",
+                        &row.id,
+                        &row.kind,
+                        &row.state,
+                        "critical",
+                        Some(row.created_at.clone()),
+                        row.completed_at.clone().or_else(|| Some(row.updated_at.clone())),
+                        duration,
+                        "workflow was cancelled".to_string(),
+                        "Confirm cancellation was intentional or retry with a smaller bounded workflow.".to_string(),
+                    );
+                }
+                "awaiting_approval" => {
+                    summary.active_workflow_runs += 1;
+                    summary.awaiting_approval_workflow_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "workflow",
+                        &row.id,
+                        &row.kind,
+                        &row.state,
+                        "warning",
+                        Some(row.created_at.clone()),
+                        None,
+                        timestamp_delta_secs(&row.created_at, &until),
+                        "workflow is waiting for approval".to_string(),
+                        "Approve, deny, pause, or cancel the workflow so long-running work can drain.".to_string(),
+                    );
+                }
+                "running" | "recovering" | "awaiting_user" | "paused" | "draft" => {
+                    summary.active_workflow_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "workflow",
+                        &row.id,
+                        &row.kind,
+                        &row.state,
+                        "warning",
+                        Some(row.created_at.clone()),
+                        None,
+                        timestamp_delta_secs(&row.created_at, &until),
+                        format!("workflow is {}", row.state),
+                        "Let the workflow finish or explicitly pause/cancel stale active work."
+                            .to_string(),
+                    );
+                }
+                _ => {}
+            }
+            timeline.push(DomainSoakTimelineItem {
+                source: "workflow".to_string(),
+                id: row.id,
+                label: row.kind,
+                status: row.state,
+                at: row.completed_at.unwrap_or(row.updated_at),
+                duration_secs: duration,
+            });
+        }
+        summary.average_workflow_drain_secs = average_secs(&workflow_durations);
+        summary.max_workflow_drain_secs = workflow_durations.iter().copied().max();
+
+        for (event_type, payload) in self.domain_soak_workflow_events(&scope)? {
+            if event_type == "run_control_action" {
+                match json_string_value(&payload, "action").as_deref() {
+                    Some("approve") => summary.approval_events += 1,
+                    Some("pause") => summary.pause_events += 1,
+                    Some("resume") => summary.resume_events += 1,
+                    Some("cancel") => summary.cancel_events += 1,
+                    _ => {}
+                }
+            }
+            if event_type == "run_recovery_claimed"
+                || payload
+                    .get("to")
+                    .and_then(Value::as_str)
+                    .is_some_and(|state| state == "recovering")
+            {
+                summary.recovery_events += 1;
+            }
+            if event_type == "run_state_changed"
+                && payload
+                    .get("to")
+                    .and_then(Value::as_str)
+                    .is_some_and(|state| state == "awaiting_approval")
+            {
+                summary.approval_events += 1;
+            }
+        }
+
+        let loop_rows = self.domain_soak_loop_runs(&scope)?;
+        let mut loop_durations = Vec::new();
+        for row in loop_rows {
+            summary.loop_runs += 1;
+            let duration = row
+                .finished_at
+                .as_deref()
+                .and_then(|finished| timestamp_delta_secs(&row.started_at, finished));
+            if let Some(duration) = duration {
+                loop_durations.push(duration);
+            }
+            match row.state.as_str() {
+                "succeeded" | "empty" | "skipped" => summary.succeeded_loop_runs += 1,
+                "failed" | "cancelled" => {
+                    summary.failed_loop_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "loop",
+                        &row.id,
+                        &row.trigger_reason,
+                        &row.state,
+                        "critical",
+                        Some(row.started_at.clone()),
+                        row.finished_at.clone(),
+                        duration,
+                        row.error
+                            .clone()
+                            .or(row.result_summary.clone())
+                            .unwrap_or_else(|| "loop run failed".to_string()),
+                        "Inspect the loop schedule and update its strategy before continuing unattended.".to_string(),
+                    );
+                }
+                "running" | "queued" | "injected" => {
+                    summary.active_loop_runs += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "loop",
+                        &row.id,
+                        &row.trigger_reason,
+                        &row.state,
+                        "warning",
+                        Some(row.started_at.clone()),
+                        None,
+                        timestamp_delta_secs(&row.started_at, &until),
+                        format!("loop run is {}", row.state),
+                        "Wait for the tick to finish or stop the loop if it is stale.".to_string(),
+                    );
+                }
+                _ => {}
+            }
+            timeline.push(DomainSoakTimelineItem {
+                source: "loop".to_string(),
+                id: row.id,
+                label: format!("{}: {}", row.loop_id, row.trigger_reason),
+                status: row.state,
+                at: row.finished_at.unwrap_or(row.started_at),
+                duration_secs: duration,
+            });
+        }
+        summary.average_loop_duration_secs = average_secs(&loop_durations);
+        summary.max_loop_duration_secs = loop_durations.iter().copied().max();
+
+        let campaign_rows = self.domain_soak_campaign_rows(&scope)?;
+        let mut campaign_ids = BTreeSet::new();
+        let mut item_ids = BTreeSet::new();
+        let mut campaign_item_durations = Vec::new();
+        for row in campaign_rows {
+            if campaign_ids.insert(row.campaign_id.clone()) {
+                summary.campaigns += 1;
+                if matches!(
+                    row.campaign_status.as_str(),
+                    "queued" | "running" | "cancel_requested"
+                ) {
+                    summary.active_campaigns += 1;
+                }
+                timeline.push(DomainSoakTimelineItem {
+                    source: "campaign".to_string(),
+                    id: row.campaign_id.clone(),
+                    label: row.campaign_name.clone(),
+                    status: row.campaign_status.clone(),
+                    at: row.campaign_updated_at.clone(),
+                    duration_secs: None,
+                });
+            }
+            let Some(item_id) = row.item_id.clone() else {
+                continue;
+            };
+            if !item_ids.insert(item_id.clone()) {
+                continue;
+            }
+            summary.campaign_items += 1;
+            let item_status = row.item_status.clone().unwrap_or_default();
+            let duration = row
+                .item_started_at
+                .as_deref()
+                .zip(row.item_finished_at.as_deref())
+                .and_then(|(started, finished)| timestamp_delta_secs(started, finished));
+            if let Some(duration) = duration {
+                campaign_item_durations.push(duration);
+            }
+            if row.item_attempt.unwrap_or(0) > 1 {
+                summary.retried_campaign_items += 1;
+            }
+            match item_status.as_str() {
+                "passed" => summary.passed_campaign_items += 1,
+                "failed" | "partial" => {
+                    summary.failed_campaign_items += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "campaign_item",
+                        &item_id,
+                        row.item_title.as_deref().unwrap_or(&row.campaign_name),
+                        &item_status,
+                        "critical",
+                        row.item_started_at.clone(),
+                        row.item_finished_at.clone(),
+                        duration,
+                        row.item_error
+                            .clone()
+                            .unwrap_or_else(|| "campaign item failed".to_string()),
+                        "Retry the failed campaign item or convert the failure into a learning proposal.".to_string(),
+                    );
+                }
+                "cancelled" => {
+                    summary.cancelled_campaign_items += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "campaign_item",
+                        &item_id,
+                        row.item_title.as_deref().unwrap_or(&row.campaign_name),
+                        &item_status,
+                        "critical",
+                        row.item_started_at.clone(),
+                        row.item_finished_at.clone(),
+                        duration,
+                        "campaign item was cancelled".to_string(),
+                        "Confirm cancellation was intentional or retry the item when resources are available.".to_string(),
+                    );
+                }
+                "interrupted" => {
+                    summary.interrupted_campaign_items += 1;
+                    push_soak_incident(
+                        &mut incidents,
+                        "campaign_item",
+                        &item_id,
+                        row.item_title.as_deref().unwrap_or(&row.campaign_name),
+                        &item_status,
+                        "critical",
+                        row.item_started_at.clone(),
+                        row.item_finished_at.clone(),
+                        duration,
+                        row.item_error
+                            .clone()
+                            .unwrap_or_else(|| "campaign item interrupted".to_string()),
+                        "Retry interrupted items after checking provider/runtime availability."
+                            .to_string(),
+                    );
+                }
+                "queued" | "running" => {
+                    push_soak_incident(
+                        &mut incidents,
+                        "campaign_item",
+                        &item_id,
+                        row.item_title.as_deref().unwrap_or(&row.campaign_name),
+                        &item_status,
+                        "warning",
+                        row.item_started_at.clone().or(row.item_updated_at.clone()),
+                        None,
+                        row.item_started_at
+                            .as_deref()
+                            .and_then(|started| timestamp_delta_secs(started, &until)),
+                        format!("campaign item is {item_status}"),
+                        "Wait for active campaign items to finish or cancel stale campaigns."
+                            .to_string(),
+                    );
+                }
+                _ => {}
+            }
+            timeline.push(DomainSoakTimelineItem {
+                source: "campaign_item".to_string(),
+                id: item_id,
+                label: row.item_title.unwrap_or(row.campaign_name),
+                status: item_status,
+                at: row
+                    .item_finished_at
+                    .or(row.item_updated_at)
+                    .or(row.item_started_at)
+                    .unwrap_or(row.campaign_updated_at),
+                duration_secs: duration,
+            });
+        }
+        summary.average_campaign_item_duration_secs = average_secs(&campaign_item_durations);
+        summary.max_campaign_item_duration_secs = campaign_item_durations.iter().copied().max();
+
+        let (connector_e2e, connector_execution, connector_verification) =
+            self.domain_soak_connector_evidence_counts(&scope)?;
+        summary.connector_e2e_evidence = connector_e2e;
+        summary.connector_execution_evidence = connector_execution;
+        summary.connector_verification_evidence = connector_verification;
+
+        incidents.sort_by(|a, b| {
+            incident_rank(&a.severity)
+                .cmp(&incident_rank(&b.severity))
+                .then_with(|| b.started_at.cmp(&a.started_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        timeline.sort_by(|a, b| b.at.cmp(&a.at).then_with(|| a.id.cmp(&b.id)));
+        summary.incidents = incidents.len();
+        summary.critical_incidents = incidents
+            .iter()
+            .filter(|incident| incident.severity == "critical")
+            .count();
+        summary.warning_incidents = incidents
+            .iter()
+            .filter(|incident| incident.severity == "warning")
+            .count();
+        if incidents.len() > max_items {
+            incidents.truncate(max_items);
+        }
+        if timeline.len() > max_items {
+            timeline.truncate(max_items);
+        }
+        summary.total_records = summary.workflow_runs
+            + summary.loop_runs
+            + summary.campaign_items
+            + summary.connector_e2e_evidence;
+        let status = if summary.total_records == 0 {
+            "insufficient_data"
+        } else if summary.critical_incidents > 0 || operational_gate.status == "failed" {
+            "failed"
+        } else if summary.warning_incidents > 0 || operational_gate.status == "insufficient_data" {
+            "insufficient_data"
+        } else {
+            "passed"
+        }
+        .to_string();
+        let recommended_next_steps =
+            domain_soak_recommendations(&summary, &incidents, &operational_gate);
+        let markdown = render_domain_soak_markdown(
+            &scope,
+            &until,
+            &status,
+            &summary,
+            &incidents,
+            &recommended_next_steps,
+        );
+
+        Ok(DomainSoakReport {
+            generated_at: until.clone(),
+            status,
+            scope: scope.scope,
+            session_id: scope.session_id,
+            project_id: scope.project_id,
+            domain: scope.domain,
+            window_days: scope.window_days,
+            since: scope.since,
+            until,
+            summary,
+            incidents,
+            timeline,
+            recommended_next_steps,
+            markdown,
+            operational_gate,
+        })
+    }
+
+    fn domain_soak_workflows(&self, scope: &DomainGateScope) -> Result<Vec<SoakWorkflowRow>> {
+        let mut clauses = vec![
+            "wr.created_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+        ];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("s.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("wr.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("(wr.kind = ? OR g.domain = ?)".to_string());
+            params.push(format!("domain:{domain}"));
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT wr.id, wr.kind, wr.state, wr.origin, wr.created_at, wr.updated_at,
+                    wr.completed_at, wr.blocked_reason
+             FROM workflow_runs wr
+             JOIN sessions s ON s.id = wr.session_id
+             LEFT JOIN goals g ON g.id = wr.goal_id
+             WHERE {}
+             ORDER BY wr.updated_at DESC, wr.id DESC",
+            clauses.join(" AND ")
+        );
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            Ok(SoakWorkflowRow {
+                id: row.get(0)?,
+                kind: row.get(1)?,
+                state: row.get(2)?,
+                origin: row.get(3)?,
+                created_at: row.get(4)?,
+                updated_at: row.get(5)?,
+                completed_at: row.get(6)?,
+                blocked_reason: row.get(7)?,
+            })
+        })?;
+        collect_rows(rows)
+    }
+
+    fn domain_soak_workflow_events(&self, scope: &DomainGateScope) -> Result<Vec<(String, Value)>> {
+        let mut clauses = vec![
+            "e.created_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+        ];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("s.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("wr.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("(wr.kind = ? OR g.domain = ?)".to_string());
+            params.push(format!("domain:{domain}"));
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT e.type, e.payload_json
+             FROM workflow_events e
+             JOIN workflow_runs wr ON wr.id = e.run_id
+             JOIN sessions s ON s.id = wr.session_id
+             LEFT JOIN goals g ON g.id = wr.goal_id
+             WHERE {}
+             ORDER BY e.created_at DESC, e.id DESC
+             LIMIT 5000",
+            clauses.join(" AND ")
+        );
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            let payload_json: String = row.get(1)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
+            ))
+        })?;
+        collect_rows(rows)
+    }
+
+    fn domain_soak_loop_runs(&self, scope: &DomainGateScope) -> Result<Vec<SoakLoopRunRow>> {
+        let mut clauses = vec![
+            "lr.started_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+        ];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("s.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("lr.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("g.domain = ?".to_string());
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT lr.id, lr.loop_id, lr.state, lr.trigger_reason, lr.result_summary,
+                    lr.error, lr.started_at, lr.finished_at
+             FROM loop_runs lr
+             JOIN loop_schedules ls ON ls.id = lr.loop_id
+             JOIN sessions s ON s.id = lr.session_id
+             LEFT JOIN goals g ON g.id = ls.goal_id
+             WHERE {}
+             ORDER BY COALESCE(lr.finished_at, lr.started_at) DESC, lr.id DESC",
+            clauses.join(" AND ")
+        );
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            Ok(SoakLoopRunRow {
+                id: row.get(0)?,
+                loop_id: row.get(1)?,
+                state: row.get(2)?,
+                trigger_reason: row.get(3)?,
+                result_summary: row.get(4)?,
+                error: row.get(5)?,
+                started_at: row.get(6)?,
+                finished_at: row.get(7)?,
+            })
+        })?;
+        collect_rows(rows)
+    }
+
+    fn domain_soak_campaign_rows(&self, scope: &DomainGateScope) -> Result<Vec<SoakCampaignRow>> {
+        let mut clauses = vec!["c.created_at >= ?".to_string()];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("c.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("c.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("(c.domain = ? OR i.domain = ?)".to_string());
+            params.push(domain.clone());
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT c.id, c.name, c.status, c.updated_at,
+                    i.id, i.task_title, i.status, i.attempt, i.error,
+                    i.started_at, i.finished_at, i.updated_at
+             FROM domain_eval_campaigns c
+             LEFT JOIN domain_eval_campaign_items i ON i.campaign_id = c.id
+             WHERE {}
+             ORDER BY c.updated_at DESC, c.id DESC, i.updated_at DESC",
+            clauses.join(" AND ")
+        );
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            Ok(SoakCampaignRow {
+                campaign_id: row.get(0)?,
+                campaign_name: row.get(1)?,
+                campaign_status: row.get(2)?,
+                campaign_updated_at: row.get(3)?,
+                item_id: row.get(4)?,
+                item_title: row.get(5)?,
+                item_status: row.get(6)?,
+                item_attempt: row
+                    .get::<_, Option<i64>>(7)?
+                    .map(|value| value.max(0) as usize),
+                item_error: row.get(8)?,
+                item_started_at: row.get(9)?,
+                item_finished_at: row.get(10)?,
+                item_updated_at: row.get(11)?,
+            })
+        })?;
+        collect_rows(rows)
+    }
+
+    fn domain_soak_connector_evidence_counts(
+        &self,
+        scope: &DomainGateScope,
+    ) -> Result<(usize, usize, usize)> {
+        let mut clauses = vec![
+            "de.created_at >= ?".to_string(),
+            "s.incognito = 0".to_string(),
+            "de.evidence_type IN ('connector_context_collected','connector_draft_created','connector_action_executed','connector_action_verified')".to_string(),
+        ];
+        let mut params = vec![scope.since.clone()];
+        if let Some(project_id) = scope.project_id.as_ref() {
+            clauses.push("s.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = scope.session_id.as_ref() {
+            clauses.push("de.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = scope.domain.as_ref() {
+            clauses.push("de.domain = ?".to_string());
+            params.push(domain.clone());
+        }
+        let sql = format!(
+            "SELECT
+                COUNT(*),
+                SUM(CASE WHEN de.evidence_type = 'connector_action_executed' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN de.evidence_type = 'connector_action_verified' THEN 1 ELSE 0 END)
+             FROM domain_evidence_items de
+             JOIN sessions s ON s.id = de.session_id
+             WHERE {}",
+            clauses.join(" AND ")
+        );
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let (total, executed, verified): (i64, Option<i64>, Option<i64>) =
+            conn.query_row(&sql, params_from_iter(params.iter()), |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?;
+        Ok((
+            total.max(0) as usize,
+            executed.unwrap_or(0).max(0) as usize,
+            verified.unwrap_or(0).max(0) as usize,
+        ))
     }
 
     fn domain_operational_summary(
@@ -6493,6 +7323,182 @@ fn domain_operational_recommendations(checks: &[DomainOperationalGateCheck]) -> 
     recommendations
 }
 
+fn timestamp_delta_secs(start: &str, end: &str) -> Option<i64> {
+    let start = DateTime::parse_from_rfc3339(start).ok()?;
+    let end = DateTime::parse_from_rfc3339(end).ok()?;
+    Some((end - start).num_seconds().max(0))
+}
+
+fn average_secs(values: &[i64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    let sum: i64 = values.iter().sum();
+    let average = sum as f64 / values.len() as f64;
+    Some((average * 10.0).round() / 10.0)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_soak_incident(
+    incidents: &mut Vec<DomainSoakIncident>,
+    source: &str,
+    id: &str,
+    title: &str,
+    status: &str,
+    severity: &str,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+    duration_secs: Option<i64>,
+    reason: String,
+    recommendation: String,
+) {
+    incidents.push(DomainSoakIncident {
+        source: source.to_string(),
+        id: id.to_string(),
+        title: title.to_string(),
+        status: status.to_string(),
+        severity: severity.to_string(),
+        started_at,
+        finished_at,
+        duration_secs,
+        reason,
+        recommendation,
+    });
+}
+
+fn incident_rank(severity: &str) -> usize {
+    match severity {
+        "critical" => 0,
+        "warning" => 1,
+        _ => 2,
+    }
+}
+
+fn json_string_value(value: &Value, key: &str) -> Option<String> {
+    value.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+fn domain_soak_recommendations(
+    summary: &DomainSoakReportSummary,
+    incidents: &[DomainSoakIncident],
+    operational_gate: &DomainOperationalGateReport,
+) -> Vec<String> {
+    let mut recommendations = Vec::new();
+
+    if summary.total_records == 0 {
+        push_unique_soak_recommendation(&mut recommendations, "Run at least one real workflow, loop tick, campaign, or connector E2E action in this scope before trusting soak readiness.");
+    }
+    if summary.critical_incidents > 0 {
+        push_unique_soak_recommendation(&mut recommendations, "Resolve critical soak incidents first: repair failed workflows, retry failed campaign items, and re-run the report.");
+    }
+    if summary.warning_incidents > 0 {
+        push_unique_soak_recommendation(&mut recommendations, "Drain active or approval-waiting work so the report reflects completed long-running behavior.");
+    }
+    if summary.connector_e2e_evidence > 0 && summary.connector_verification_evidence == 0 {
+        push_unique_soak_recommendation(&mut recommendations, "Finish connector verification evidence for real external actions instead of stopping at draft or execution records.");
+    }
+    for recommendation in &operational_gate.recommended_next_steps {
+        push_unique_soak_recommendation(&mut recommendations, recommendation);
+    }
+    for incident in incidents.iter().take(3) {
+        push_unique_soak_recommendation(&mut recommendations, &incident.recommendation);
+    }
+    if recommendations.is_empty() {
+        push_unique_soak_recommendation(&mut recommendations, "Keep collecting cross-day samples and compare this report with the next soak window before widening unattended usage.");
+    }
+    recommendations
+}
+
+fn push_unique_soak_recommendation(recommendations: &mut Vec<String>, item: &str) {
+    if !recommendations.iter().any(|existing| existing == item) {
+        recommendations.push(item.to_string());
+    }
+}
+
+fn render_domain_soak_markdown(
+    scope: &DomainGateScope,
+    generated_at: &str,
+    status: &str,
+    summary: &DomainSoakReportSummary,
+    incidents: &[DomainSoakIncident],
+    recommendations: &[String],
+) -> String {
+    let mut out = String::new();
+    out.push_str("# Domain Soak Report\n\n");
+    out.push_str(&format!(
+        "- Status: `{}`\n- Scope: `{}`\n- Window: {} day(s), since `{}`\n- Generated at: `{}`\n\n",
+        status, scope.scope, scope.window_days, scope.since, generated_at
+    ));
+    out.push_str("## Summary\n\n");
+    out.push_str(&format!(
+        "- Workflows: {} total, {} completed, {} failed, {} blocked, {} cancelled, {} active\n",
+        summary.workflow_runs,
+        summary.completed_workflow_runs,
+        summary.failed_workflow_runs,
+        summary.blocked_workflow_runs,
+        summary.cancelled_workflow_runs,
+        summary.active_workflow_runs
+    ));
+    out.push_str(&format!(
+        "- Loops: {} total, {} succeeded, {} failed, {} active\n",
+        summary.loop_runs,
+        summary.succeeded_loop_runs,
+        summary.failed_loop_runs,
+        summary.active_loop_runs
+    ));
+    out.push_str(&format!(
+        "- Campaigns: {} campaign(s), {} item(s), {} passed, {} failed, {} cancelled, {} interrupted, {} retried\n",
+        summary.campaigns,
+        summary.campaign_items,
+        summary.passed_campaign_items,
+        summary.failed_campaign_items,
+        summary.cancelled_campaign_items,
+        summary.interrupted_campaign_items,
+        summary.retried_campaign_items
+    ));
+    out.push_str(&format!(
+        "- Connector E2E evidence: {} total, {} execution, {} verification\n",
+        summary.connector_e2e_evidence,
+        summary.connector_execution_evidence,
+        summary.connector_verification_evidence
+    ));
+    out.push_str(&format!(
+        "- Incidents: {} total, {} critical, {} warning\n\n",
+        summary.incidents, summary.critical_incidents, summary.warning_incidents
+    ));
+
+    out.push_str("## Incidents\n\n");
+    if incidents.is_empty() {
+        out.push_str("- None in the selected window.\n\n");
+    } else {
+        for incident in incidents {
+            out.push_str(&format!(
+                "- [{}] `{}` {} `{}`: {}. Next: {}\n",
+                incident.severity,
+                incident.source,
+                incident.title,
+                incident.status,
+                incident.reason,
+                incident.recommendation
+            ));
+        }
+        out.push('\n');
+    }
+
+    out.push_str("## Recommended Next Steps\n\n");
+    for recommendation in recommendations {
+        out.push_str(&format!("- {}\n", recommendation));
+    }
+    out
+}
+
+fn collect_rows<T>(
+    rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>>,
+) -> Result<Vec<T>> {
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Into::into)
+}
+
 fn max_timestamp(slot: &mut Option<String>, candidate: String) {
     if slot
         .as_ref()
@@ -7273,6 +8279,206 @@ mod tests {
             .blockers
             .iter()
             .any(|item| item == "campaign_failures"));
+    }
+
+    #[test]
+    fn domain_soak_report_passes_with_drained_history() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("soak-report-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Completed, None)
+            .unwrap();
+
+        let now = Utc::now();
+        let loop_started = (now - Duration::minutes(5)).to_rfc3339();
+        let loop_finished = (now - Duration::minutes(4)).to_rfc3339();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO loop_schedules (
+                    id, session_id, cron_job_id, prompt, trigger_kind, trigger_spec_json,
+                    execution_strategy, state, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                rusqlite::params![
+                    "loop_soak_pass",
+                    session.id,
+                    "cron_soak_pass",
+                    "Keep checking the research brief",
+                    "interval",
+                    "{}",
+                    "continue",
+                    "completed",
+                    loop_started,
+                    loop_finished,
+                ],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO loop_runs (
+                    id, loop_id, cron_job_id, session_id, seq, state, trigger_reason,
+                    result_summary, trace_json, started_at, finished_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                rusqlite::params![
+                    "lrun_soak_pass",
+                    "loop_soak_pass",
+                    "cron_soak_pass",
+                    session.id,
+                    1,
+                    "succeeded",
+                    "interval trigger from test",
+                    "loop drained",
+                    "{}",
+                    loop_started,
+                    loop_finished,
+                ],
+            )
+            .unwrap();
+        }
+
+        let campaign = db
+            .create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+                session_id: Some(session.id.clone()),
+                domain: Some("research".to_string()),
+                task_ids: vec!["research-source-backed-brief".to_string()],
+                max_tasks: Some(1),
+                execution_mode: Some("trace_fixture".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        let item_started = (now - Duration::minutes(3)).to_rfc3339();
+        let item_finished = (now - Duration::minutes(2)).to_rfc3339();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE domain_eval_campaigns
+                 SET status = 'passed', started_at = ?1, finished_at = ?2, updated_at = ?2
+                 WHERE id = ?3",
+                rusqlite::params![item_started, item_finished, campaign.id],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE domain_eval_campaign_items
+                 SET status = 'passed', attempt = 1, score = 1.0, total_checks = 1,
+                     passed_checks = 1, failed_checks = 0, started_at = ?1,
+                     finished_at = ?2, updated_at = ?2
+                 WHERE campaign_id = ?3",
+                rusqlite::params![item_started, item_finished, campaign.id],
+            )
+            .unwrap();
+        }
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "connector_action_executed",
+            "Connector action executed",
+            json!({"connector": "gmail", "action": "draft"}),
+        );
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "connector_action_verified",
+            "Connector action verified",
+            json!({"connector": "gmail", "verified": true}),
+        );
+
+        let report = db
+            .generate_domain_soak_report(DomainSoakReportInput {
+                session_id: Some(session.id),
+                window_days: Some(1),
+                max_items: Some(20),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "passed", "{report:?}");
+        assert_eq!(report.summary.workflow_runs, 1);
+        assert_eq!(report.summary.loop_runs, 1);
+        assert_eq!(report.summary.campaign_items, 1);
+        assert_eq!(report.summary.connector_e2e_evidence, 2);
+        assert_eq!(report.summary.incidents, 0);
+        assert!(report.markdown.contains("# Domain Soak Report"));
+        assert!(report
+            .timeline
+            .iter()
+            .any(|item| item.source == "campaign_item"));
+    }
+
+    #[test]
+    fn domain_soak_report_flags_failed_workflow_and_active_campaign() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("soak-report-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Failed, Some("tool failed"))
+            .unwrap();
+        db.create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+            session_id: Some(session.id.clone()),
+            domain: Some("research".to_string()),
+            task_ids: vec!["research-source-backed-brief".to_string()],
+            max_tasks: Some(1),
+            execution_mode: Some("trace_fixture".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+
+        let report = db
+            .generate_domain_soak_report(DomainSoakReportInput {
+                session_id: Some(session.id),
+                window_days: Some(1),
+                max_items: Some(20),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "failed", "{report:?}");
+        assert_eq!(report.summary.failed_workflow_runs, 1);
+        assert_eq!(report.summary.active_campaigns, 1);
+        assert!(report.summary.critical_incidents >= 1);
+        assert!(report
+            .incidents
+            .iter()
+            .any(|incident| incident.source == "workflow" && incident.status == "failed"));
+        assert!(report
+            .incidents
+            .iter()
+            .any(|incident| incident.source == "campaign_item" && incident.status == "queued"));
+        assert!(report
+            .recommended_next_steps
+            .iter()
+            .any(|step| step.contains("critical soak incidents")));
     }
 
     #[test]

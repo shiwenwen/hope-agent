@@ -899,6 +899,7 @@ pub fn run() {
             commands::domain_eval::evaluate_domain_quality_gate,
             commands::domain_eval::evaluate_domain_readiness_gate,
             commands::domain_eval::evaluate_domain_operational_gate,
+            commands::domain_eval::generate_domain_soak_report,
             commands::domain_quality::list_domain_quality_runs,
             commands::domain_quality::get_domain_quality_run,
             commands::domain_quality::run_domain_quality,

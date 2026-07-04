@@ -46,6 +46,7 @@ import type {
   DomainOperationalGateReport,
   DomainQualityGateReport,
   DomainReadinessGateReport,
+  DomainSoakReport,
   DomainEvalCalibrationRecord,
 } from "@/lib/transport"
 import type { CodingImprovementDashboard, DashboardFilter, DomainQualityDashboard } from "../types"
@@ -145,6 +146,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
     useState<DomainReadinessGateReport | null>(null)
   const [domainOperationalGate, setDomainOperationalGate] =
     useState<DomainOperationalGateReport | null>(null)
+  const [domainSoakReport, setDomainSoakReport] = useState<DomainSoakReport | null>(null)
   const [domainConnectorE2EGate, setDomainConnectorE2EGate] =
     useState<DomainConnectorE2EGateReport | null>(null)
   const [domainEvalRuns, setDomainEvalRuns] = useState<DomainEvalRunRecord[]>([])
@@ -190,6 +192,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         gen,
         drg,
         dog,
+        dsr,
         dceg,
         dqg,
         der,
@@ -315,6 +318,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
             maxFailedCampaignItems: 0,
           },
         }),
+        getTransport().call<DomainSoakReport>("generate_domain_soak_report", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            maxItems: 12,
+          },
+        }),
         getTransport().call<DomainConnectorE2EGateReport>("evaluate_domain_connector_e2e_gate", {
           input: {
             requireConnectorInput: true,
@@ -383,6 +392,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setGeneralization(gen)
       setDomainReadinessGate(drg)
       setDomainOperationalGate(dog)
+      setDomainSoakReport(dsr)
       setDomainConnectorE2EGate(dceg)
       setDomainQualityGate(dqg)
       setDomainEvalRuns(der ?? [])
@@ -943,6 +953,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         generalization={generalization}
         domainReadinessGate={domainReadinessGate}
         domainOperationalGate={domainOperationalGate}
+        domainSoakReport={domainSoakReport}
         domainConnectorE2EGate={domainConnectorE2EGate}
         domainQualityGate={domainQualityGate}
         domainEvalRuns={domainEvalRuns}
@@ -1162,6 +1173,7 @@ function CodingImprovementSection({
   generalization,
   domainReadinessGate,
   domainOperationalGate,
+  domainSoakReport,
   domainConnectorE2EGate,
   domainQualityGate,
   domainEvalRuns,
@@ -1224,6 +1236,7 @@ function CodingImprovementSection({
   generalization: CodingLearningGeneralizationReport | null
   domainReadinessGate: DomainReadinessGateReport | null
   domainOperationalGate: DomainOperationalGateReport | null
+  domainSoakReport: DomainSoakReport | null
   domainConnectorE2EGate: DomainConnectorE2EGateReport | null
   domainQualityGate: DomainQualityGateReport | null
   domainEvalRuns: DomainEvalRunRecord[]
@@ -1431,6 +1444,8 @@ function CodingImprovementSection({
       <DomainReadinessGatePanel report={domainReadinessGate} />
 
       <DomainOperationalGatePanel report={domainOperationalGate} />
+
+      <DomainSoakReportPanel report={domainSoakReport} />
 
       <DomainConnectorE2EGatePanel report={domainConnectorE2EGate} />
 
@@ -3085,6 +3100,157 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
   )
 }
 
+function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) {
+  const { t } = useTranslation()
+  const incidents = report?.incidents.slice(0, 4) ?? []
+  const timeline = report?.timeline.slice(0, 4) ?? []
+  const recommendations = report?.recommendedNextSteps.slice(0, 3) ?? []
+  const workflowBad = report
+    ? report.summary.failedWorkflowRuns +
+      report.summary.blockedWorkflowRuns +
+      report.summary.cancelledWorkflowRuns
+    : 0
+  const campaignBad = report
+    ? report.summary.failedCampaignItems +
+      report.summary.cancelledCampaignItems +
+      report.summary.interruptedCampaignItems
+    : 0
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.domainSoakReport", {
+              defaultValue: "Domain soak report",
+            })}
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            {report
+              ? t("dashboard.learning.domainSoakReportHint", {
+                  defaultValue: "{{scope}} · {{days}}d · {{records}} records",
+                  scope: report.scope,
+                  days: report.windowDays,
+                  records: report.summary.totalRecords,
+                })
+              : t("dashboard.learning.domainSoakReportLoadingHint", {
+                  defaultValue: "Loading long-run evidence",
+                })}
+          </p>
+        </div>
+        <span className={`px-2 py-1 rounded text-[10px] font-medium ${releaseGateTone(report?.status)}`}>
+          {report?.status ?? "loading"}
+        </span>
+      </div>
+      {report ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-8 gap-2">
+            <MetricPill
+              label="WF"
+              value={`${report.summary.completedWorkflowRuns}/${report.summary.workflowRuns}`}
+              tone={workflowBad > 0 ? "warn" : report.summary.completedWorkflowRuns > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="LP"
+              value={`${report.summary.succeededLoopRuns}/${report.summary.loopRuns}`}
+              tone={report.summary.failedLoopRuns > 0 ? "warn" : report.summary.loopRuns > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="CP"
+              value={`${report.summary.passedCampaignItems}/${report.summary.campaignItems}`}
+              tone={campaignBad > 0 ? "warn" : report.summary.passedCampaignItems > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="CE"
+              value={report.summary.connectorE2eEvidence}
+              tone={report.summary.connectorVerificationEvidence > 0 ? "accent" : "muted"}
+            />
+            <MetricPill
+              label="CR"
+              value={report.summary.criticalIncidents}
+              tone={report.summary.criticalIncidents > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="WN"
+              value={report.summary.warningIncidents}
+              tone={report.summary.warningIncidents > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="MAX"
+              value={formatSecs(report.summary.maxWorkflowDrainSecs)}
+              tone="muted"
+            />
+            <MetricPill
+              label="REC"
+              value={report.summary.totalRecords}
+              tone={report.summary.totalRecords > 0 ? "accent" : "muted"}
+            />
+          </div>
+
+          {incidents.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {incidents.map((incident) => (
+                <span
+                  key={`${incident.source}:${incident.id}`}
+                  className={`max-w-full truncate rounded px-1.5 py-0.5 text-[10px] ${
+                    incident.severity === "critical"
+                      ? releaseGateCheckTone("failed")
+                      : releaseGateCheckTone("insufficient_data")
+                  }`}
+                  title={`${incident.reason} · ${incident.recommendation}`}
+                >
+                  {incident.source}: {incident.status}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">
+              {t("dashboard.learning.domainSoakClean", {
+                defaultValue: "No soak incidents in this window",
+              })}
+            </span>
+          )}
+
+          {timeline.length > 0 && (
+            <div className="grid gap-1">
+              {timeline.map((item) => (
+                <div
+                  key={`${item.source}:${item.id}`}
+                  className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+                >
+                  <span className="min-w-0 truncate">
+                    {item.source} · {item.label}
+                  </span>
+                  <span className="shrink-0 tabular-nums">
+                    {new Date(item.at).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {recommendations.length > 0 && (
+            <div className="space-y-1">
+              {recommendations.map((step) => (
+                <div key={step} className="flex items-start gap-1.5 text-[10px] text-muted-foreground">
+                  <FileCheck2 className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span className="min-w-0">{step}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.domainSoakLoading", {
+            defaultValue: "Loading soak report",
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
 function DomainConnectorE2EGatePanel({ report }: { report: DomainConnectorE2EGateReport | null }) {
   const { t } = useTranslation()
   const attentionChecks =
@@ -4202,6 +4368,13 @@ function formatPct(value: number | null | undefined): string {
 
 function formatScore(value: number | null | undefined): string {
   return typeof value === "number" ? value.toFixed(3) : "—"
+}
+
+function formatSecs(value: number | null | undefined): string {
+  if (typeof value !== "number") return "—"
+  if (value < 60) return `${Math.round(value)}s`
+  if (value < 3600) return `${Math.round(value / 60)}m`
+  return `${(value / 3600).toFixed(1)}h`
 }
 
 function formatSignedPct(value: number): string {

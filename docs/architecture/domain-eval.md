@@ -2,7 +2,7 @@
 
 > 返回 [技术文档索引](../README.md)
 >
-> 状态：Phase 7.14 已实现；Phase 8.1 已补 Domain Operational Gate；Phase 8.2 的 Connector E2E Gate 落在 [Domain Workflow 控制平面](domain-workflow.md)，Dashboard Learning 已接入展示。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace / agent fixture runner、fixture run history、Domain Eval Campaign、Domain Campaign Leaderboard、Domain Campaign Learning Closure、Domain Readiness Gate、Domain Operational Gate、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块 / Smoke Run Center / Campaign Center / Operational Gate。
+> 状态：Phase 7.14 已实现；Phase 8.1 已补 Domain Operational Gate；Phase 8.2 的 Connector E2E Gate 落在 [Domain Workflow 控制平面](domain-workflow.md)；Phase 8.3 已补 Domain Soak Report。Dashboard Learning 已接入展示。本文记录 `ha-core::domain_eval` 的最终技术事实：通用领域 eval task registry、promoted domain eval case 导入、user/project calibration 与人工复核记录、deterministic trace scoring、trace / agent fixture runner、fixture run history、Domain Eval Campaign、Domain Campaign Leaderboard、Domain Campaign Learning Closure、Domain Readiness Gate、Domain Operational Gate、Domain Soak Report、`domain_eval_runs` history、Domain Quality Gate、owner API 与 Dashboard 通用质量区块 / Smoke Run Center / Campaign Center / Operational Gate / Soak Report。
 
 ## 目标
 
@@ -14,6 +14,7 @@ Domain Eval 把非 coding 场景的质量判断从“感觉不错”变成可审
 - Quality Gate 聚合 domain eval run、domain quality run/check 和 evidence coverage，输出 `passed` / `failed` / `insufficient_data`。
 - Readiness Gate 再把 Quality Gate、Domain Campaign、Leaderboard 和 Campaign Learning Closure 合成可交付三态，回答“这个通用领域能力现在能不能作为可控长任务使用”。
 - Operational Gate 聚合 WorkflowRun、LoopRun 和 Domain Campaign 的运行稳定性，回答“这套通用长任务控制面最近是否跑得稳、是否仍有未收口长任务或失败残留”。
+- Soak Report 在 Operational Gate 之上导出跨窗口 JSON / Markdown / Dashboard snapshot，回答“最近一段时间的长任务是否真的 drain、哪里失败、哪里等待批准或恢复、下一步怎么收口”。
 
 这套控制面只证明通用领域任务质量，不代表 coding 能力；coding benchmark 仍由 [Coding Eval 控制面评测](coding-eval.md) 和 [Coding Improvement Loop](coding-improvement-loop.md) 承载。
 
@@ -349,6 +350,49 @@ Operational status：
 - 无 failed 但有 `insufficient_data` -> `insufficient_data`
 - 全部 passed -> `passed`
 
+## Soak Report
+
+`generate_domain_soak_report(input)` 是 Phase 8.3 的 owner-plane 长运行审计报告。它只读 `workflow_runs`、`workflow_events`、`loop_runs`、`domain_eval_campaigns`、`domain_eval_campaign_items` 与 connector E2E evidence，不调用 LLM、不运行工具、不自动 approve / cancel / retry。
+
+它和 Operational Gate 的关系：
+
+- Operational Gate 给三态门禁，适合 Dashboard 快速判断运行面是否稳定。
+- Soak Report 给证据快照，适合跨天 / 跨窗口审计、复盘和交给用户或 reviewer 看。
+- Soak Report 内嵌同 scope/window 的 `operationalGate`，但额外保留 incidents、timeline、duration、control events、connector E2E evidence 和 Markdown 文本。
+
+输入：
+
+| 字段 | 说明 |
+| --- | --- |
+| `sessionId` / `projectId` | 可选 scope；不传时为全局非 incognito。session scope 会拒绝 incognito。 |
+| `domain` | 可选领域过滤。workflow 通过 `kind='domain:<domain>'` 或 Goal domain 命中；loop 通过 Goal domain；campaign/evidence 通过 domain 字段。 |
+| `windowDays` | 默认 7，范围 1-180。 |
+| `maxItems` | incidents / timeline 截断数量，默认 12，范围 1-50。 |
+
+Summary 覆盖：
+
+- workflow：total / completed / failed / blocked / cancelled / active / awaiting approval / repair run、平均与最大 drain 秒数。
+- workflow events：approve / pause / resume / cancel / recovery event 计数。
+- loop：total / succeeded / failed / active、平均与最大 tick 时长。
+- campaign：campaign / active campaign / item / passed / failed / cancelled / interrupted / retried item、平均与最大 item 时长。
+- connector E2E evidence：`connector_context_collected`、`connector_draft_created`、`connector_action_executed`、`connector_action_verified` 聚合，以及 execution / verification 子计数。
+- incidents：critical / warning / total；critical 包含 failed/blocked/cancelled workflow、failed/cancelled/interrupted campaign item、failed/cancelled loop；warning 包含 running/queued/awaiting approval 等未 drain 工作。
+
+Status：
+
+- `insufficient_data`：窗口内没有任何 workflow / loop / campaign / connector evidence，或仅存在 active / warning / Operational Gate 样本不足。
+- `failed`：存在 critical incident，或内嵌 Operational Gate failed。
+- `passed`：有样本、无 critical/warning incident，且 Operational Gate passed。
+
+输出：
+
+- `summary`：上述运行与 evidence 计数。
+- `incidents`：按 severity 与时间排序的可行动事故，含 reason 与 recommendation。
+- `timeline`：最近 workflow / loop / campaign / item 事件，供 Dashboard 展示长期运行轨迹。
+- `recommendedNextSteps`：去重后的收口建议，合并 Soak incidents 与 Operational Gate 建议。
+- `markdown`：同一报告的 Markdown 快照，可用于复盘或导出。
+- `operationalGate`：同 scope/window 的完整 Operational Gate 报告。
+
 ## Owner API
 
 Tauri / HTTP / transport 均已注册：
@@ -372,6 +416,7 @@ Tauri / HTTP / transport 均已注册：
 | `evaluate_domain_quality_gate` | `POST /api/domain-quality-gate/evaluate` | 计算通用领域 quality gate。 |
 | `evaluate_domain_readiness_gate` | `POST /api/domain-readiness-gate/evaluate` | 计算通用领域 readiness gate：Quality Gate + Campaign + Leaderboard + Learning Closure。 |
 | `evaluate_domain_operational_gate` | `POST /api/domain-operational-gate/evaluate` | 计算通用领域运行稳定性 gate：Workflow + Loop + Campaign drain / failure evidence。 |
+| `generate_domain_soak_report` | `POST /api/domain-soak-report/generate` | 生成通用领域跨窗口长运行 JSON / Markdown / Dashboard snapshot：Workflow + Loop + Campaign + Connector E2E evidence + incidents + timeline。 |
 
 ## Dashboard 交互
 
@@ -386,6 +431,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - 展示「Domain model leaderboard」：按模型 / execution 聚合最近 campaign item，显示 rank、平均分、item 通过数、trace evidence 数和 warning。
 - 展示「Domain readiness」卡片：直接调用 `evaluate_domain_readiness_gate`，显示总体 readiness 三态、quality/eval/campaign/leaderboard/learning proposal 核心计数、阻塞 check 和 recommended next steps。
 - 展示「Domain operations」卡片：直接调用 `evaluate_domain_operational_gate`，显示 workflow / loop / campaign 的完成、活跃、失败残留和 recommended next steps。
+- 展示「Domain soak report」卡片：直接调用 `generate_domain_soak_report`，显示 workflow / loop / campaign / connector evidence 样本量、critical/warning incidents、最大 drain 时长、最近 timeline 和 recommended next steps。
 - 展示「Connector E2E」卡片：直接调用 `evaluate_domain_connector_e2e_gate`，显示连接器输入、草稿、批准、执行结果、执行后复核、回滚和下层 guard 状态；global scope 只做聚合，不伪装成具体 session/goal 的动作授权。
 - 展示已校准 task 数；最近 eval run 支持点击「Mark reviewed」记录人工复核 calibration。
 - 与 Release Gate / Continuous Benchmark Gate 分开展示，不生成综合分。
@@ -404,6 +450,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - Learning closure 不自动改规则：campaign failure 只能生成 draft proposal，后续 apply / promotion 必须由用户显式触发。
 - Readiness Gate 只读事实：不能自动生成 learning proposal、不能自动 retry campaign、不能把运行中的 campaign 标成 failed；active campaign 只能让 readiness 保持 `insufficient_data`。
 - Operational Gate 只读事实：不能自动 cancel / approve / resume workflow，不能自动 retry campaign，不能把 active workflow / campaign 标成 failed；active long task 只能让 gate 保持 `insufficient_data`。
+- Soak Report 只读事实：不能启动补采样、不能自动恢复长任务、不能把没有样本的窗口标成 passed；Markdown 只是同一 JSON 报告的渲染，不是新的真相源。
 - Retry 必须真实重跑：`retryFailedOnly=true` 清掉 item 的旧 fixture/eval run 指针和 check 统计，再把 failed/interrupted/cancelled item 放回 `queued`。
 - 不写无痕：incognito session 拒绝 run / gate。
 - 不替代 Domain Quality：eval 使用 quality snapshot，quality run 本身仍由 `domain_quality.rs` 管理。
@@ -427,6 +474,7 @@ cargo test -p ha-core domain_eval --locked
 - External model campaign 缺少 provider secret 时 item failed 且进入 leaderboard warning，不写 eval run、不静默成功。
 - Domain Readiness Gate 在 live quality + campaign evidence 齐全时 passed；失败 campaign 且未闭环学习时 failed，并指出 `campaign_failures` / `learning_closure` blockers。
 - Domain Operational Gate 在已完成 workflow 且没有失败残留时 passed；failed workflow + cancelled campaign item 时 failed，并指出 `workflow_failures` / `campaign_failures` blockers。
+- Domain Soak Report 在 workflow / loop / campaign / connector evidence 已 drain 且无事故时 passed；failed workflow + active campaign item 时 failed，并输出 critical/warning incidents 与 Markdown。
 - Agent fixture runner 会创建真实 user message / chat turn，调用 mock Responses provider，经 `run_chat_engine` 产生 response，并默认打开 Workflow Mode Ultracode。
 - Agent fixture 不会自动 materialize trace fixture seed，避免 evidence/workflow 被确定性 fixture 托过关。
 - 缺少 provider/modelChain 的 agent fixture fail-fast，不写 eval run。

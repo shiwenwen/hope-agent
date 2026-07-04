@@ -1623,6 +1623,95 @@ export interface DomainOperationalGateReport {
   recommendedNextSteps: string[];
 }
 
+export interface DomainSoakReportInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays?: number | null;
+  maxItems?: number | null;
+}
+
+export interface DomainSoakReportSummary {
+  workflowRuns: number;
+  completedWorkflowRuns: number;
+  failedWorkflowRuns: number;
+  blockedWorkflowRuns: number;
+  cancelledWorkflowRuns: number;
+  activeWorkflowRuns: number;
+  awaitingApprovalWorkflowRuns: number;
+  repairWorkflowRuns: number;
+  approvalEvents: number;
+  pauseEvents: number;
+  resumeEvents: number;
+  cancelEvents: number;
+  recoveryEvents: number;
+  averageWorkflowDrainSecs?: number | null;
+  maxWorkflowDrainSecs?: number | null;
+  loopRuns: number;
+  succeededLoopRuns: number;
+  failedLoopRuns: number;
+  activeLoopRuns: number;
+  averageLoopDurationSecs?: number | null;
+  maxLoopDurationSecs?: number | null;
+  campaigns: number;
+  activeCampaigns: number;
+  campaignItems: number;
+  passedCampaignItems: number;
+  failedCampaignItems: number;
+  cancelledCampaignItems: number;
+  interruptedCampaignItems: number;
+  retriedCampaignItems: number;
+  averageCampaignItemDurationSecs?: number | null;
+  maxCampaignItemDurationSecs?: number | null;
+  connectorE2eEvidence: number;
+  connectorExecutionEvidence: number;
+  connectorVerificationEvidence: number;
+  incidents: number;
+  criticalIncidents: number;
+  warningIncidents: number;
+  totalRecords: number;
+}
+
+export interface DomainSoakIncident {
+  source: string;
+  id: string;
+  title: string;
+  status: string;
+  severity: "critical" | "warning" | string;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  durationSecs?: number | null;
+  reason: string;
+  recommendation: string;
+}
+
+export interface DomainSoakTimelineItem {
+  source: string;
+  id: string;
+  label: string;
+  status: string;
+  at: string;
+  durationSecs?: number | null;
+}
+
+export interface DomainSoakReport {
+  generatedAt: string;
+  status: "passed" | "failed" | "insufficient_data" | string;
+  scope: "global" | "project" | "session" | string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays: number;
+  since: string;
+  until: string;
+  summary: DomainSoakReportSummary;
+  incidents: DomainSoakIncident[];
+  timeline: DomainSoakTimelineItem[];
+  recommendedNextSteps: string[];
+  markdown: string;
+  operationalGate: DomainOperationalGateReport;
+}
+
 export interface CodingTrendOverview {
   sessions: number;
   goals: number;

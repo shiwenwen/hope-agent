@@ -4,11 +4,11 @@ use ha_core::domain_eval::{
     DomainEvalCampaignLeaderboardInput, DomainEvalCampaignLeaderboardReport,
     DomainEvalFixtureReport, DomainEvalFixtureRunRecord, DomainEvalRunRecord, DomainEvalTask,
     DomainOperationalGateInput, DomainOperationalGateReport, DomainQualityGateInput,
-    DomainQualityGateReport, DomainReadinessGateInput, DomainReadinessGateReport,
-    ImportDomainEvalCaseInput, ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput,
-    ListDomainEvalCampaignsInput, ListDomainEvalFixtureRunsInput, ListDomainEvalRunsInput,
-    ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput, RunDomainEvalCampaignInput,
-    RunDomainEvalFixtureInput, RunDomainEvalTaskInput,
+    DomainQualityGateReport, DomainReadinessGateInput, DomainReadinessGateReport, DomainSoakReport,
+    DomainSoakReportInput, ImportDomainEvalCaseInput, ImportDomainEvalCaseResult,
+    ListDomainEvalCalibrationsInput, ListDomainEvalCampaignsInput, ListDomainEvalFixtureRunsInput,
+    ListDomainEvalRunsInput, ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput,
+    RunDomainEvalCampaignInput, RunDomainEvalFixtureInput, RunDomainEvalTaskInput,
 };
 use ha_core::session::SessionDB;
 
@@ -215,5 +215,16 @@ pub async fn evaluate_domain_operational_gate(
     app_state
         .session_db
         .evaluate_domain_operational_gate(input)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn generate_domain_soak_report(
+    input: DomainSoakReportInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<DomainSoakReport, CmdError> {
+    app_state
+        .session_db
+        .generate_domain_soak_report(input)
         .map_err(Into::into)
 }
