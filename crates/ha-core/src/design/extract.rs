@@ -92,7 +92,10 @@ pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
     let sample = collect_style_samples(dir)
         .with_context(|| format!("failed to read codebase at {}", dir.display()))?;
     if sample.trim().is_empty() {
-        anyhow::bail!("no style files (css / tailwind config / theme) found under {}", dir.display());
+        anyhow::bail!(
+            "no style files (css / tailwind config / theme) found under {}",
+            dir.display()
+        );
     }
     run_extract("codebase style files", &sample).await
 }
@@ -161,13 +164,16 @@ mod tests {
     }
 
     #[test]
-    fn collect_samples_reads_css(
-    ) -> Result<()> {
+    fn collect_samples_reads_css() -> Result<()> {
         let tmp = std::env::temp_dir().join(format!("ds-extract-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp);
         std::fs::write(tmp.join("theme.css"), ":root{--brand:#123456}").unwrap();
         std::fs::create_dir_all(tmp.join("node_modules")).unwrap();
-        std::fs::write(tmp.join("node_modules").join("junk.css"), "should be skipped").unwrap();
+        std::fs::write(
+            tmp.join("node_modules").join("junk.css"),
+            "should be skipped",
+        )
+        .unwrap();
         let s = collect_style_samples(&tmp)?;
         assert!(s.contains("--brand:#123456"));
         assert!(!s.contains("should be skipped"));

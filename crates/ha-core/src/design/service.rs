@@ -7,9 +7,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::db::{
-    DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject, DesignSystemMeta,
-};
+use super::db::{DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject, DesignSystemMeta};
 use super::patch;
 use super::renderer::{self, ArtifactKind, ArtifactParts};
 use super::system::{self, DesignSystemFull};
@@ -71,7 +69,10 @@ fn write_version_snapshot(
     let vdir = dir.join("versions").join(n.to_string());
     std::fs::create_dir_all(vdir.join("source"))?;
     write_atomic(&vdir.join("index.html"), html.as_bytes())?;
-    write_atomic(&vdir.join("source").join("body.html"), parts.body_html.as_bytes())?;
+    write_atomic(
+        &vdir.join("source").join("body.html"),
+        parts.body_html.as_bytes(),
+    )?;
     write_atomic(&vdir.join("source").join("style.css"), parts.css.as_bytes())?;
     write_atomic(&vdir.join("source").join("script.js"), parts.js.as_bytes())?;
     write_atomic(&vdir.join("oidmap.json"), oidmap_json.as_bytes())?;
@@ -80,7 +81,8 @@ fn write_version_snapshot(
 
 /// 读取产物当前源（工作副本）。
 fn read_source(dir: &std::path::Path) -> ArtifactParts {
-    let read = |name: &str| std::fs::read_to_string(dir.join("source").join(name)).unwrap_or_default();
+    let read =
+        |name: &str| std::fs::read_to_string(dir.join("source").join(name)).unwrap_or_default();
     ArtifactParts {
         body_html: read("body.html"),
         css: read("style.css"),
@@ -97,7 +99,10 @@ fn write_working(
 ) -> Result<()> {
     std::fs::create_dir_all(dir.join("source"))?;
     write_atomic(&dir.join("index.html"), html.as_bytes())?;
-    write_atomic(&dir.join("source").join("body.html"), parts.body_html.as_bytes())?;
+    write_atomic(
+        &dir.join("source").join("body.html"),
+        parts.body_html.as_bytes(),
+    )?;
     write_atomic(&dir.join("source").join("style.css"), parts.css.as_bytes())?;
     write_atomic(&dir.join("source").join("script.js"), parts.js.as_bytes())?;
     write_atomic(&dir.join("oidmap.json"), oidmap_json.as_bytes())?;
@@ -306,7 +311,10 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     let project = db
         .get_project(&input.project_id)?
         .with_context(|| format!("project not found: {}", input.project_id))?;
-    let system_id = input.system_id.clone().or(project.default_system_id.clone());
+    let system_id = input
+        .system_id
+        .clone()
+        .or(project.default_system_id.clone());
 
     let ts = now();
     let artifact_id = new_id();
@@ -655,15 +663,7 @@ pub async fn critique_artifact(id: &str) -> Result<super::critique::CritiqueResu
         .and_then(|sid| system::read_full(&db, sid).ok())
         .map(|f| f.system_md);
     let result = super::critique::critique_html(&html, system_md.as_deref()).await?;
-    let _ = db.update_artifact(
-        &a.id,
-        None,
-        None,
-        None,
-        Some(result.overall),
-        None,
-        &now(),
-    );
+    let _ = db.update_artifact(&a.id, None, None, None, Some(result.overall), None, &now());
     emit(
         "design:critiqued",
         json!({ "artifactId": a.id, "overall": result.overall }),
@@ -704,8 +704,8 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
     let a = db
         .get_artifact(id)?
         .with_context(|| format!("artifact not found: {id}"))?;
-    let kind = ArtifactKind::from_str(&a.kind)
-        .with_context(|| format!("unknown kind: {}", a.kind))?;
+    let kind =
+        ArtifactKind::from_str(&a.kind).with_context(|| format!("unknown kind: {}", a.kind))?;
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     match format {
         "html" => {

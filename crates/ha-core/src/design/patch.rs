@@ -380,8 +380,8 @@ fn find_attr_pos(open_tag: &str, attr: &str) -> Option<usize> {
     let mut from = 0;
     while let Some(rel) = open_tag[from..].find(&needle) {
         let pos = from + rel;
-        let ok_before = pos == 0
-            || matches!(open_tag.as_bytes()[pos - 1], b' ' | b'\t' | b'\n' | b'\r');
+        let ok_before =
+            pos == 0 || matches!(open_tag.as_bytes()[pos - 1], b' ' | b'\t' | b'\n' | b'\r');
         if ok_before {
             return Some(pos);
         }
@@ -432,7 +432,10 @@ mod tests {
             src2,
             &map2,
             0,
-            &[("color".into(), "#f00".into()), ("padding".into(), "8px".into())],
+            &[
+                ("color".into(), "#f00".into()),
+                ("padding".into(), "8px".into()),
+            ],
             None,
         )
         .unwrap();
@@ -463,11 +466,19 @@ mod tests {
     fn stale_guard_rejects() {
         let src = "<div>hi</div>";
         let (_, map) = annotate(src);
-        let err = apply_style_patch(src, &map, 0, &[("color".into(), "#f00".into())], Some("deadbeef"));
+        let err = apply_style_patch(
+            src,
+            &map,
+            0,
+            &[("color".into(), "#f00".into())],
+            Some("deadbeef"),
+        );
         assert!(matches!(err, Err(PatchError::Stale)));
         // 正确 hash 放行。
         let h = body_hash(src);
-        assert!(apply_style_patch(src, &map, 0, &[("color".into(), "#f00".into())], Some(&h)).is_ok());
+        assert!(
+            apply_style_patch(src, &map, 0, &[("color".into(), "#f00".into())], Some(&h)).is_ok()
+        );
     }
 
     #[test]

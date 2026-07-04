@@ -89,7 +89,9 @@ fn action_get_system(args: &Value) -> Result<String> {
 
 async fn action_extract_system(args: &Value) -> Result<String> {
     let from = require_str(args, "from")?;
-    let name = str_arg(args, "title").unwrap_or("提取的设计系统").to_string();
+    let name = str_arg(args, "title")
+        .unwrap_or("提取的设计系统")
+        .to_string();
     let meta = service::extract_system(service::ExtractSystemInput {
         name,
         from: from.to_string(),
@@ -217,8 +219,8 @@ fn action_save_to_knowledge(args: &Value) -> Result<String> {
 
 fn action_show(args: &Value, session_id: Option<&str>) -> Result<String> {
     let id = require_str(args, "artifact_id")?;
-    let view = service::get_artifact_view(id)?
-        .with_context(|| format!("artifact not found: {id}"))?;
+    let view =
+        service::get_artifact_view(id)?.with_context(|| format!("artifact not found: {id}"))?;
     if let Some(bus) = crate::globals::get_event_bus() {
         bus.emit(
             "design:show",

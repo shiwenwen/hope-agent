@@ -125,7 +125,8 @@ fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
     })
 }
 
-const ARTIFACT_COLUMNS: &str = "SELECT id, project_id, title, kind, system_id, status, viewport_w, \
+const ARTIFACT_COLUMNS: &str =
+    "SELECT id, project_id, title, kind, system_id, status, viewport_w, \
      viewport_h, current_version, critique_score, thumbnail_path, created_at, updated_at, metadata \
      FROM design_artifacts";
 

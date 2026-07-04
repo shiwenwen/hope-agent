@@ -6,7 +6,7 @@
  * 控件是纯受控组件，父层负责 preview / commit 两条通道。
  */
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { X, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -94,7 +94,13 @@ function NumberRow({
   onCommit: (prop: string, v: string) => void
 }) {
   const [v, setV] = useState(String(value))
-  useEffect(() => setV(String(value)), [value])
+  // Sync local input when the selected element's value changes (render-phase
+  // prev-prop tracking — avoids setState-in-effect cascading renders).
+  const [prevValue, setPrevValue] = useState(value)
+  if (value !== prevValue) {
+    setPrevValue(value)
+    setV(String(value))
+  }
   const commit = () => onCommit(prop, `${parseFloat(v) || 0}${suffix}`)
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
@@ -124,7 +130,13 @@ export default function DesignInspector({
   const { t } = useTranslation()
   const s = selected.styles
   const [text, setText] = useState(selected.text)
-  useEffect(() => setText(selected.text), [selected.oid, selected.text])
+  // Reset the editable text when the selected element changes (render-phase
+  // prev-prop tracking — avoids setState-in-effect cascading renders).
+  const [prevOid, setPrevOid] = useState(selected.oid)
+  if (selected.oid !== prevOid) {
+    setPrevOid(selected.oid)
+    setText(selected.text)
+  }
 
   const align = s["text-align"] || "left"
 

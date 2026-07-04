@@ -21,8 +21,8 @@ use ha_core::paths;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{
-    apply_inline_media_headers, contained_canonical, resolve_mime_for_path, validate_safe_rest_path,
-    HeaderOpts, MimeOpts,
+    apply_inline_media_headers, contained_canonical, resolve_mime_for_path,
+    validate_safe_rest_path, HeaderOpts, MimeOpts,
 };
 
 /// 设计空间 id（UUID-ish）：仅 ASCII 字母数字 + `-`/`_`，长度受限，
@@ -69,7 +69,9 @@ pub struct PatchBody {
 
 /// `GET /api/design/projects`
 pub async fn list_projects() -> Result<Json<Vec<DesignProject>>, AppError> {
-    Ok(Json(service::list_projects().map_err(|e| AppError::internal(e.to_string()))?))
+    Ok(Json(
+        service::list_projects().map_err(|e| AppError::internal(e.to_string()))?,
+    ))
 }
 
 /// `POST /api/design/projects`
@@ -165,8 +167,8 @@ pub async fn export_artifact(
 ) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;
     let format = q.format.as_deref().unwrap_or("html");
-    let res = service::export_artifact(&id, format)
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    let res =
+        service::export_artifact(&id, format).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
@@ -180,9 +182,7 @@ pub async fn critique_artifact(Path(id): Path<String>) -> Result<Json<Value>, Ap
 }
 
 /// `POST /api/design/patch` — visual edit (element style/text writeback).
-pub async fn patch_element(
-    Json(body): Json<PatchBody>,
-) -> Result<Json<DesignArtifact>, AppError> {
+pub async fn patch_element(Json(body): Json<PatchBody>) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&body.input.artifact_id)?;
     Ok(Json(
         service::patch_element(body.input).map_err(|e| AppError::internal(e.to_string()))?,
