@@ -1221,6 +1221,13 @@ fn build_quality_stats(context: &QualityContext, checks: &[CandidateCheck]) -> V
         "templateId": context.template.id,
         "templateVersion": context.template.version,
         "templateTitle": context.template.title,
+        "sourceType": context
+            .input
+            .source_metadata
+            .get("sourceType")
+            .and_then(Value::as_str)
+            .unwrap_or("live"),
+        "source": context.input.source_metadata.clone(),
         "profiles": active_profiles(&context.input.profiles, &context.domain),
         "evidence": evidence_counts(&context.evidence),
         "checks": checks.len(),

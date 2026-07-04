@@ -24,7 +24,7 @@ use crate::domain_quality::{
 };
 use crate::domain_workflow::{ListDomainEvidenceInput, RecordDomainEvidenceInput};
 use crate::provider::{ActiveModel, ProviderConfig};
-use crate::session::{MessageRole, NewMessage, SessionDB};
+use crate::session::{MessageRole, NewMessage, SessionDB, SessionKind};
 use crate::util::now_rfc3339;
 use crate::workflow::CreateWorkflowRunInput;
 use crate::workflow_mode::WorkflowMode;
@@ -39,6 +39,10 @@ const DEFAULT_MIN_AVERAGE_SCORE: f64 = 0.8;
 const DEFAULT_MIN_QUALITY_RUNS: usize = 1;
 const DEFAULT_MAX_BLOCKED_QUALITY_RUNS: usize = 0;
 const DEFAULT_MIN_DOMAIN_COVERAGE: usize = 1;
+const DOMAIN_EVAL_SOURCE_LIVE: &str = "live";
+const DOMAIN_EVAL_SOURCE_FIXTURE_TRACE: &str = "fixture_trace";
+const DOMAIN_EVAL_SOURCE_FIXTURE_AGENT: &str = "fixture_agent";
+const DOMAIN_EVAL_SOURCE_FIXTURE_UNSUPPORTED: &str = "fixture_unsupported";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -175,6 +179,8 @@ pub struct RunDomainEvalTaskInput {
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_quality_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -353,8 +359,11 @@ pub struct DomainEvalFixtureChecks {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DomainEvalFixtureReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fixture_run_id: Option<String>,
     pub name: String,
     pub execution_mode: String,
+    pub source_type: String,
     pub status: String,
     pub passed: bool,
     pub session_id: String,
@@ -406,6 +415,46 @@ pub struct DomainEvalFixtureCheck {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ListDomainEvalFixtureRunsInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalFixtureRunRecord {
+    pub id: String,
+    pub name: String,
+    pub execution_mode: String,
+    pub source_type: String,
+    pub status: String,
+    pub passed: bool,
+    pub session_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality_run_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eval_run_id: Option<String>,
+    pub report: DomainEvalFixtureReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListDomainEvalRunsInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -415,6 +464,10 @@ pub struct ListDomainEvalRunsInput {
     pub domain: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_type: Option<String>,
+    #[serde(default)]
+    pub include_synthetic: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_days: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -434,6 +487,7 @@ pub struct DomainEvalRunRecord {
     pub label: String,
     pub status: String,
     pub score: f64,
+    pub source_type: String,
     pub report: DomainEvalReport,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_quality_run_id: Option<String>,
@@ -508,6 +562,8 @@ pub struct DomainQualityGateInput {
     pub min_domain_coverage: Option<usize>,
     #[serde(default)]
     pub require_approval_safety: bool,
+    #[serde(default)]
+    pub include_synthetic: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -584,6 +640,7 @@ struct DomainGateScope {
     domain: Option<String>,
     window_days: u32,
     since: String,
+    include_synthetic: bool,
 }
 
 struct QualityGateRow {
@@ -604,6 +661,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             label TEXT NOT NULL,
             status TEXT NOT NULL,
             score REAL NOT NULL,
+            source_type TEXT NOT NULL DEFAULT 'live',
             report_json TEXT NOT NULL DEFAULT '{}',
             source_quality_run_id TEXT,
             created_at TEXT NOT NULL,
@@ -615,7 +673,41 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_domain_eval_runs_task
             ON domain_eval_runs(task_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_domain_eval_runs_status
-            ON domain_eval_runs(status, created_at DESC);",
+            ON domain_eval_runs(status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS domain_eval_fixture_runs (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            execution_mode TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            passed INTEGER NOT NULL DEFAULT 0,
+            session_id TEXT NOT NULL,
+            goal_id TEXT,
+            workflow_run_id TEXT,
+            quality_run_id TEXT,
+            eval_run_id TEXT,
+            report_json TEXT NOT NULL DEFAULT '{}',
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+            FOREIGN KEY (eval_run_id) REFERENCES domain_eval_runs(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_domain_eval_fixture_runs_recent
+            ON domain_eval_fixture_runs(source_type, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_domain_eval_fixture_runs_status
+            ON domain_eval_fixture_runs(status, created_at DESC);",
+    )?;
+    ensure_domain_eval_column(
+        conn,
+        "domain_eval_runs",
+        "source_type",
+        "ALTER TABLE domain_eval_runs ADD COLUMN source_type TEXT NOT NULL DEFAULT 'live';",
+    )?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_domain_eval_runs_source
+            ON domain_eval_runs(source_type, created_at DESC);",
     )?;
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS domain_eval_tasks (
@@ -726,6 +818,7 @@ impl SessionDB {
             .unwrap_or(&task.title)
             .to_string();
         let source_quality_run_id = quality.as_ref().map(|snapshot| snapshot.run.id.clone());
+        let source_type = normalized_eval_source_type(input.source_type.as_deref());
         let record = DomainEvalRunRecord {
             id: id.clone(),
             session_id: session_id.clone(),
@@ -736,6 +829,7 @@ impl SessionDB {
             label,
             status: report.status.clone(),
             score: report.score,
+            source_type: source_type.clone(),
             report,
             source_quality_run_id,
             created_at: now,
@@ -745,8 +839,8 @@ impl SessionDB {
         conn.execute(
             "INSERT INTO domain_eval_runs (
                 id, session_id, project_id, task_id, task_version, domain, label,
-                status, score, report_json, source_quality_run_id, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                status, score, source_type, report_json, source_quality_run_id, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 record.id,
                 record.session_id,
@@ -757,6 +851,7 @@ impl SessionDB {
                 record.label,
                 record.status,
                 record.score,
+                record.source_type,
                 report_json,
                 record.source_quality_run_id,
                 record.created_at,
@@ -778,6 +873,7 @@ impl SessionDB {
         let execution_mode = non_empty(&fixture.execution_mode)
             .unwrap_or("trace_fixture")
             .to_string();
+        let source_type = fixture_source_type(&execution_mode);
         let task_id = non_empty(&fixture.task_id)
             .ok_or_else(|| anyhow!("fixture.task_id is required"))?
             .to_string();
@@ -785,9 +881,12 @@ impl SessionDB {
             .resolve_domain_eval_task(&task_id)?
             .ok_or_else(|| anyhow!("domain eval task not found: {task_id}"))?;
         let session = db.create_session(DEFAULT_AGENT_ID)?;
+        db.set_session_kind(&session.id, SessionKind::EvalFixture)?;
         let mut report = DomainEvalFixtureReport {
+            fixture_run_id: None,
             name: name.clone(),
             execution_mode: execution_mode.clone(),
+            source_type: source_type.clone(),
             status: "failed".to_string(),
             passed: false,
             session_id: session.id.clone(),
@@ -811,6 +910,7 @@ impl SessionDB {
                 actual: execution_mode,
                 detail: "Domain eval fixtures only support deterministic trace replay or explicit agent-backed execution.".to_string(),
             });
+            persist_domain_eval_fixture_report(&db, &mut report)?;
             return Ok(report);
         }
 
@@ -870,6 +970,7 @@ impl SessionDB {
                     .or_else(|| Some("agent execution failed".to_string()));
                 report.status = "failed".to_string();
                 report.passed = false;
+                persist_domain_eval_fixture_report(&db, &mut report)?;
                 return Ok(report);
             }
         }
@@ -923,7 +1024,12 @@ impl SessionDB {
                 profiles: Vec::new(),
                 artifact_title: Some(task.title.clone()),
                 artifact_kind: Some(task.task_type.clone()),
-                source_metadata: quality.source_metadata,
+                source_metadata: fixture_quality_source_metadata(
+                    quality.source_metadata,
+                    &source_type,
+                    &name,
+                    &execution_mode,
+                ),
                 explicit_user_approval: quality.explicit_user_approval,
             })?;
             let quality_run_id = snapshot.run.id;
@@ -938,6 +1044,7 @@ impl SessionDB {
             task_id: task.id,
             label: fixture.label.clone().or_else(|| Some(name.clone())),
             source_quality_run_id,
+            source_type: Some(source_type),
         })?;
         report.checks =
             domain_eval_fixture_checks(&fixture.checks, Some(&eval_run), &report.execution);
@@ -945,6 +1052,7 @@ impl SessionDB {
         report.status = if passed { "passed" } else { "failed" }.to_string();
         report.passed = passed;
         report.eval_run = Some(eval_run);
+        persist_domain_eval_fixture_report(&db, &mut report)?;
         Ok(report)
     }
 
@@ -1285,11 +1393,23 @@ impl SessionDB {
             clauses.push("der.task_id = ?".to_string());
             params.push(task_id.to_string());
         }
+        if let Some(source_type) = input.source_type.as_deref().and_then(non_empty) {
+            let source_type = normalized_eval_source_type(Some(source_type));
+            if source_type == "fixture" {
+                clauses.push("der.source_type LIKE 'fixture_%'".to_string());
+            } else {
+                clauses.push("der.source_type = ?".to_string());
+                params.push(source_type);
+            }
+        } else if !input.include_synthetic {
+            clauses.push("der.source_type NOT LIKE 'fixture_%'".to_string());
+            clauses.push("s.kind != 'eval_fixture'".to_string());
+        }
         params.push(limit.to_string());
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(&format!(
             "SELECT der.id, der.session_id, der.project_id, der.task_id, der.task_version,
-                    der.domain, der.label, der.status, der.score, der.report_json,
+                    der.domain, der.label, der.status, der.score, der.source_type, der.report_json,
                     der.source_quality_run_id, der.created_at
              FROM domain_eval_runs der
              JOIN sessions s ON s.id = der.session_id
@@ -1299,6 +1419,60 @@ impl SessionDB {
             clauses.join(" AND ")
         ))?;
         let rows = stmt.query_map(params_from_iter(params.iter()), row_to_domain_eval_run)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn list_domain_eval_fixture_runs(
+        &self,
+        input: ListDomainEvalFixtureRunsInput,
+    ) -> Result<Vec<DomainEvalFixtureRunRecord>> {
+        let limit = input
+            .limit
+            .unwrap_or(DEFAULT_DOMAIN_EVAL_LIMIT)
+            .clamp(1, MAX_DOMAIN_EVAL_LIMIT);
+        let window_days = input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS);
+        let since = since_timestamp(window_days);
+        let mut clauses = vec!["created_at >= ?".to_string()];
+        let mut params = vec![since];
+        if let Some(source_type) = input.source_type.as_deref().and_then(non_empty) {
+            let source_type = normalized_eval_source_type(Some(source_type));
+            if source_type == "fixture" {
+                clauses.push("source_type LIKE 'fixture_%'".to_string());
+            } else {
+                clauses.push("source_type = ?".to_string());
+                params.push(source_type);
+            }
+        } else {
+            clauses.push("source_type LIKE 'fixture_%'".to_string());
+        }
+        if let Some(mode) = input.execution_mode.as_deref().and_then(non_empty) {
+            clauses.push("execution_mode = ?".to_string());
+            params.push(mode.to_string());
+        }
+        if let Some(status) = input.status.as_deref().and_then(non_empty) {
+            clauses.push("status = ?".to_string());
+            params.push(status.to_string());
+        }
+        params.push(limit.to_string());
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT id, name, execution_mode, source_type, status, passed, session_id,
+                    goal_id, workflow_run_id, quality_run_id, eval_run_id, report_json,
+                    error, created_at, updated_at
+             FROM domain_eval_fixture_runs
+             WHERE {}
+             ORDER BY created_at DESC
+             LIMIT ?",
+            clauses.join(" AND ")
+        ))?;
+        let rows = stmt.query_map(
+            params_from_iter(params.iter()),
+            row_to_domain_eval_fixture_run,
+        )?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(Into::into)
     }
@@ -1443,7 +1617,7 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(
             "SELECT id, session_id, project_id, task_id, task_version, domain, label,
-                    status, score, report_json, source_quality_run_id, created_at
+                    status, score, source_type, report_json, source_quality_run_id, created_at
              FROM domain_eval_runs
              WHERE id = ?1",
             params![run_id],
@@ -1754,6 +1928,7 @@ impl SessionDB {
                 domain,
                 window_days,
                 since,
+                include_synthetic: input.include_synthetic,
             });
         }
         if let Some(project_id) = input.project_id.as_deref().and_then(non_empty) {
@@ -1764,6 +1939,7 @@ impl SessionDB {
                 domain,
                 window_days,
                 since,
+                include_synthetic: input.include_synthetic,
             });
         }
         Ok(DomainGateScope {
@@ -1773,6 +1949,7 @@ impl SessionDB {
             domain,
             window_days,
             since,
+            include_synthetic: input.include_synthetic,
         })
     }
 
@@ -1786,6 +1963,7 @@ impl SessionDB {
             domain: scope.domain.clone(),
             window_days: Some(scope.window_days),
             limit: Some(MAX_DOMAIN_EVAL_LIMIT),
+            include_synthetic: scope.include_synthetic,
             ..Default::default()
         })?;
         let mut summary = DomainQualityGateSummary {
@@ -1848,6 +2026,13 @@ impl SessionDB {
             "s.incognito = 0".to_string(),
         ];
         let mut params = vec![scope.since.clone()];
+        if !scope.include_synthetic {
+            clauses.push("s.kind != 'eval_fixture'".to_string());
+            clauses.push(
+                "COALESCE(json_extract(dqr.stats_json, '$.sourceType'), 'live') NOT LIKE 'fixture_%'"
+                    .to_string(),
+            );
+        }
         if let Some(session_id) = scope.session_id.as_deref() {
             clauses.push("dqr.session_id = ?".to_string());
             params.push(session_id.to_string());
@@ -1905,6 +2090,10 @@ impl SessionDB {
             "s.incognito = 0".to_string(),
         ];
         let mut params = vec![scope.since.clone()];
+        if !scope.include_synthetic {
+            clauses.push("s.kind != 'eval_fixture'".to_string());
+            clauses.push("dei.access_scope != 'fixture'".to_string());
+        }
         if let Some(session_id) = scope.session_id.as_deref() {
             clauses.push("dei.session_id = ?".to_string());
             params.push(session_id.to_string());
@@ -1944,6 +2133,10 @@ impl SessionDB {
             "dei.evidence_type = 'source_cited'".to_string(),
         ];
         let mut params = vec![scope.since.clone()];
+        if !scope.include_synthetic {
+            clauses.push("s.kind != 'eval_fixture'".to_string());
+            clauses.push("dei.access_scope != 'fixture'".to_string());
+        }
         if let Some(session_id) = scope.session_id.as_deref() {
             clauses.push("dei.session_id = ?".to_string());
             params.push(session_id.to_string());
@@ -1979,7 +2172,7 @@ impl SessionDB {
 }
 
 fn row_to_domain_eval_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<DomainEvalRunRecord> {
-    let report_json: String = row.get(9)?;
+    let report_json: String = row.get(10)?;
     let report = serde_json::from_str(&report_json).unwrap_or_else(|_| DomainEvalReport {
         task: placeholder_task(),
         status: "failed".to_string(),
@@ -2001,9 +2194,58 @@ fn row_to_domain_eval_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<DomainEva
         label: row.get(6)?,
         status: row.get(7)?,
         score: row.get(8)?,
+        source_type: row
+            .get::<_, Option<String>>(9)?
+            .unwrap_or_else(|| DOMAIN_EVAL_SOURCE_LIVE.to_string()),
         report,
-        source_quality_run_id: row.get(10)?,
-        created_at: row.get(11)?,
+        source_quality_run_id: row.get(11)?,
+        created_at: row.get(12)?,
+    })
+}
+
+fn row_to_domain_eval_fixture_run(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<DomainEvalFixtureRunRecord> {
+    let report_json: String = row.get(11)?;
+    let mut report: DomainEvalFixtureReport =
+        serde_json::from_str(&report_json).unwrap_or_else(|_| DomainEvalFixtureReport {
+            fixture_run_id: row.get(0).ok(),
+            name: row.get::<_, String>(1).unwrap_or_default(),
+            execution_mode: row.get::<_, String>(2).unwrap_or_default(),
+            source_type: row
+                .get::<_, String>(3)
+                .unwrap_or_else(|_| DOMAIN_EVAL_SOURCE_FIXTURE_TRACE.to_string()),
+            status: row
+                .get::<_, String>(4)
+                .unwrap_or_else(|_| "failed".to_string()),
+            passed: row.get::<_, i64>(5).unwrap_or(0) != 0,
+            session_id: row.get::<_, String>(6).unwrap_or_default(),
+            goal_id: row.get(7).ok().flatten(),
+            workflow_run_id: row.get(8).ok().flatten(),
+            quality_run_id: row.get(9).ok().flatten(),
+            eval_run: None,
+            execution: None,
+            checks: Vec::new(),
+            error: row.get(12).ok().flatten(),
+        });
+    let id: String = row.get(0)?;
+    report.fixture_run_id = Some(id.clone());
+    Ok(DomainEvalFixtureRunRecord {
+        id,
+        name: row.get(1)?,
+        execution_mode: row.get(2)?,
+        source_type: row.get(3)?,
+        status: row.get(4)?,
+        passed: row.get::<_, i64>(5)? != 0,
+        session_id: row.get(6)?,
+        goal_id: row.get(7)?,
+        workflow_run_id: row.get(8)?,
+        quality_run_id: row.get(9)?,
+        eval_run_id: row.get(10)?,
+        report,
+        error: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
@@ -2023,6 +2265,54 @@ fn row_to_domain_eval_calibration(
         source_run_id: row.get(9)?,
         calibrated_at: row.get(10)?,
     })
+}
+
+fn persist_domain_eval_fixture_report(
+    db: &SessionDB,
+    report: &mut DomainEvalFixtureReport,
+) -> Result<()> {
+    let id = report
+        .fixture_run_id
+        .clone()
+        .unwrap_or_else(|| format!("defr_{}", uuid::Uuid::new_v4().simple()));
+    report.fixture_run_id = Some(id.clone());
+    let now = now_rfc3339();
+    let eval_run_id = report.eval_run.as_ref().map(|run| run.id.clone());
+    let report_json = serde_json::to_string(report)?;
+    let conn = db.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+    conn.execute(
+        "INSERT INTO domain_eval_fixture_runs (
+            id, name, execution_mode, source_type, status, passed, session_id,
+            goal_id, workflow_run_id, quality_run_id, eval_run_id, report_json,
+            error, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)
+         ON CONFLICT(id) DO UPDATE SET
+            status = excluded.status,
+            passed = excluded.passed,
+            workflow_run_id = excluded.workflow_run_id,
+            quality_run_id = excluded.quality_run_id,
+            eval_run_id = excluded.eval_run_id,
+            report_json = excluded.report_json,
+            error = excluded.error,
+            updated_at = excluded.updated_at",
+        params![
+            id,
+            &report.name,
+            &report.execution_mode,
+            &report.source_type,
+            &report.status,
+            if report.passed { 1 } else { 0 },
+            &report.session_id,
+            &report.goal_id,
+            &report.workflow_run_id,
+            &report.quality_run_id,
+            eval_run_id,
+            report_json,
+            &report.error,
+            now,
+        ],
+    )?;
+    Ok(())
 }
 
 async fn run_domain_eval_agent_execution(
@@ -3511,6 +3801,40 @@ fn default_domain_eval_fixture_execution_mode() -> String {
     "trace_fixture".to_string()
 }
 
+fn normalized_eval_source_type(value: Option<&str>) -> String {
+    value
+        .and_then(non_empty)
+        .map(|value| value.trim().to_ascii_lowercase().replace('-', "_"))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DOMAIN_EVAL_SOURCE_LIVE.to_string())
+}
+
+fn fixture_source_type(execution_mode: &str) -> String {
+    match execution_mode {
+        "trace_fixture" => DOMAIN_EVAL_SOURCE_FIXTURE_TRACE,
+        "agent" => DOMAIN_EVAL_SOURCE_FIXTURE_AGENT,
+        _ => DOMAIN_EVAL_SOURCE_FIXTURE_UNSUPPORTED,
+    }
+    .to_string()
+}
+
+fn fixture_quality_source_metadata(
+    mut metadata: Value,
+    source_type: &str,
+    fixture_name: &str,
+    execution_mode: &str,
+) -> Value {
+    if !metadata.is_object() {
+        metadata = json!({ "payload": metadata });
+    }
+    if let Some(map) = metadata.as_object_mut() {
+        map.insert("sourceType".to_string(), json!(source_type));
+        map.insert("fixtureName".to_string(), json!(fixture_name));
+        map.insert("executionMode".to_string(), json!(execution_mode));
+    }
+    metadata
+}
+
 fn default_agent_fixture_workflow_mode() -> String {
     "ultracode".to_string()
 }
@@ -3565,6 +3889,21 @@ fn decode_domain_eval_task_json(task_json: String) -> rusqlite::Result<DomainEva
     serde_json::from_str(&task_json).map_err(|err| {
         rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(err))
     })
+}
+
+fn ensure_domain_eval_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let columns = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|name| name == column) {
+        conn.execute_batch(alter_sql)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -3835,6 +4174,7 @@ mod tests {
                 task_id: "research-source-backed-brief".to_string(),
                 label: Some("manual calibration candidate".to_string()),
                 source_quality_run_id: None,
+                source_type: None,
             })
             .unwrap();
 
@@ -3884,8 +4224,9 @@ mod tests {
     #[tokio::test]
     async fn domain_eval_fixture_runner_scores_trace_fixture() {
         let (_dir, db) = test_db();
+        let db = Arc::new(db);
         let report = SessionDB::run_domain_eval_fixture(
-            Arc::new(db),
+            db.clone(),
             RunDomainEvalFixtureInput {
                 fixture: DomainEvalFixture {
                     name: "research-trace-fixture".to_string(),
@@ -3960,13 +4301,78 @@ mod tests {
         assert!(report.eval_run.is_some());
         assert!(report.quality_run_id.is_some());
         assert!(report.workflow_run_id.is_some());
+        assert!(report.fixture_run_id.is_some());
+        assert_eq!(report.source_type, DOMAIN_EVAL_SOURCE_FIXTURE_TRACE);
+        assert_eq!(
+            report.eval_run.as_ref().unwrap().source_type,
+            DOMAIN_EVAL_SOURCE_FIXTURE_TRACE
+        );
+        assert_eq!(
+            db.get_session(&report.session_id).unwrap().unwrap().kind,
+            SessionKind::EvalFixture
+        );
+        assert!(db
+            .list_domain_eval_runs(ListDomainEvalRunsInput {
+                window_days: Some(1),
+                limit: Some(10),
+                ..Default::default()
+            })
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            db.list_domain_eval_runs(ListDomainEvalRunsInput {
+                source_type: Some("fixture".to_string()),
+                window_days: Some(1),
+                limit: Some(10),
+                ..Default::default()
+            })
+            .unwrap()
+            .len(),
+            1
+        );
+        assert_eq!(
+            db.list_domain_eval_fixture_runs(ListDomainEvalFixtureRunsInput {
+                window_days: Some(1),
+                limit: Some(10),
+                ..Default::default()
+            })
+            .unwrap()
+            .len(),
+            1
+        );
+        let gate = db
+            .evaluate_domain_quality_gate(DomainQualityGateInput {
+                window_days: Some(1),
+                min_eval_runs: Some(1),
+                min_quality_runs: Some(1),
+                min_domain_coverage: Some(1),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(gate.status, "insufficient_data");
+        assert_eq!(gate.summary.eval_runs, 0);
+        assert_eq!(gate.summary.quality_runs, 0);
+        let synthetic_gate = db
+            .evaluate_domain_quality_gate(DomainQualityGateInput {
+                window_days: Some(1),
+                min_eval_runs: Some(1),
+                min_quality_runs: Some(1),
+                min_domain_coverage: Some(1),
+                include_synthetic: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(synthetic_gate.status, "passed");
+        assert_eq!(synthetic_gate.summary.eval_runs, 1);
+        assert_eq!(synthetic_gate.summary.quality_runs, 1);
     }
 
     #[tokio::test]
     async fn domain_eval_fixture_agent_mode_requires_provider_config() {
         let (_dir, db) = test_db();
+        let db = Arc::new(db);
         let report = SessionDB::run_domain_eval_fixture(
-            Arc::new(db),
+            db.clone(),
             RunDomainEvalFixtureInput {
                 fixture: DomainEvalFixture {
                     name: "agent-requires-provider-config".to_string(),
@@ -3992,6 +4398,20 @@ mod tests {
             .error
             .unwrap()
             .contains("requires providers and modelChain"));
+        let fixture_runs = db
+            .list_domain_eval_fixture_runs(ListDomainEvalFixtureRunsInput {
+                window_days: Some(1),
+                limit: Some(10),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(fixture_runs.len(), 1);
+        assert_eq!(
+            fixture_runs[0].source_type,
+            DOMAIN_EVAL_SOURCE_FIXTURE_AGENT
+        );
+        assert_eq!(fixture_runs[0].status, "failed");
+        assert!(fixture_runs[0].eval_run_id.is_none());
     }
 
     #[tokio::test]
@@ -4169,6 +4589,7 @@ mod tests {
                 task_id: "research-source-backed-brief".to_string(),
                 label: None,
                 source_quality_run_id: None,
+                source_type: None,
             })
             .unwrap();
 
@@ -4270,6 +4691,7 @@ mod tests {
                 task_id: "research-source-backed-brief".to_string(),
                 label: None,
                 source_quality_run_id: Some(quality.run.id),
+                source_type: None,
             })
             .unwrap();
         assert_eq!(eval.status, "passed");

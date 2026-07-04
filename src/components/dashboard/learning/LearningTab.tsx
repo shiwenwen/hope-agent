@@ -37,6 +37,7 @@ import type {
   CodingEvalReleaseGateReport,
   CodingLearningGeneralizationReport,
   DomainEvalRunRecord,
+  DomainEvalFixtureRunRecord,
   DomainEvalTask,
   DomainQualityGateReport,
   DomainEvalCalibrationRecord,
@@ -135,6 +136,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [domainQualityGate, setDomainQualityGate] =
     useState<DomainQualityGateReport | null>(null)
   const [domainEvalRuns, setDomainEvalRuns] = useState<DomainEvalRunRecord[]>([])
+  const [domainFixtureRuns, setDomainFixtureRuns] = useState<DomainEvalFixtureRunRecord[]>([])
   const [domainEvalTasks, setDomainEvalTasks] = useState<DomainEvalTask[]>([])
   const [benchmarkRunning, setBenchmarkRunning] = useState(false)
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
@@ -167,6 +169,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         gen,
         dqg,
         der,
+        dfr,
         det,
       ] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
@@ -274,6 +277,13 @@ export default function LearningTab({ filter }: LearningTabProps) {
             limit: 6,
           },
         }),
+        getTransport().call<DomainEvalFixtureRunRecord[]>("list_domain_eval_fixture_runs", {
+          input: {
+            sourceType: "fixture",
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            limit: 6,
+          },
+        }),
         getTransport().call<DomainEvalTask[]>("list_domain_eval_tasks", {
           input: {
             limit: 20,
@@ -298,6 +308,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setGeneralization(gen)
       setDomainQualityGate(dqg)
       setDomainEvalRuns(der ?? [])
+      setDomainFixtureRuns(dfr ?? [])
       setDomainEvalTasks(det ?? [])
     } catch (e) {
       logger.error("dashboard", "LearningTab::load", "Failed to load learning data", e)
@@ -698,6 +709,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         generalization={generalization}
         domainQualityGate={domainQualityGate}
         domainEvalRuns={domainEvalRuns}
+        domainFixtureRuns={domainFixtureRuns}
         domainEvalTasks={domainEvalTasks}
         benchmarkRunning={benchmarkRunning}
         benchmarkError={benchmarkError}
@@ -897,6 +909,7 @@ function CodingImprovementSection({
   generalization,
   domainQualityGate,
   domainEvalRuns,
+  domainFixtureRuns,
   domainEvalTasks,
   benchmarkRunning,
   benchmarkError,
@@ -939,6 +952,7 @@ function CodingImprovementSection({
   generalization: CodingLearningGeneralizationReport | null
   domainQualityGate: DomainQualityGateReport | null
   domainEvalRuns: DomainEvalRunRecord[]
+  domainFixtureRuns: DomainEvalFixtureRunRecord[]
   domainEvalTasks: DomainEvalTask[]
   benchmarkRunning: boolean
   benchmarkError: string | null
@@ -1135,6 +1149,8 @@ function CodingImprovementSection({
         calibrationActionId={domainCalibrationActionId}
         onRecordCalibration={onRecordDomainEvalCalibration}
       />
+
+      <DomainFixtureSmokePanel runs={domainFixtureRuns} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <ReleaseGatePanel report={releaseGate} />
@@ -2775,6 +2791,103 @@ function DomainQualityGatePanel({
       )}
     </div>
   )
+}
+
+function DomainFixtureSmokePanel({ runs }: { runs: DomainEvalFixtureRunRecord[] }) {
+  const { t } = useTranslation()
+  const total = runs.length
+  const passed = runs.filter((run) => run.passed).length
+  const failed = runs.filter((run) => !run.passed || run.status !== "passed").length
+  const agentRuns = runs.filter((run) => run.executionMode === "agent").length
+  const traceRuns = runs.filter((run) => run.executionMode === "trace_fixture").length
+  const passRate = total > 0 ? passed / total : null
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.domainSmokeCenter", {
+              defaultValue: "Domain smoke runs",
+            })}
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            {t("dashboard.learning.domainSmokeCenterHint", {
+              defaultValue: "Synthetic trace and agent fixture runs are isolated from the live quality gate",
+            })}
+          </p>
+        </div>
+        <span className={`px-2 py-1 rounded text-[10px] font-medium ${failed > 0 ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}`}>
+          {total ? `${passed}/${total}` : "none"}
+        </span>
+      </div>
+      {runs.length ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <MetricPill label="SR" value={total} />
+            <MetricPill label="PR" value={formatPct(passRate)} tone={failed > 0 ? "warn" : "accent"} />
+            <MetricPill label="AG" value={agentRuns} />
+            <MetricPill label="TR" value={traceRuns} />
+            <MetricPill label="FL" value={failed} tone={failed > 0 ? "warn" : "muted"} />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+            {runs.slice(0, 6).map((run) => (
+              <div key={run.id} className="rounded border border-border/50 p-2 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-xs font-medium">{run.name}</span>
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${releaseGateCheckTone(run.status)}`}
+                  >
+                    {run.status}
+                  </span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                  <span>{domainFixtureModeLabel(run.executionMode)}</span>
+                  <span>{run.sourceType}</span>
+                  <span>{new Date(run.createdAt).toLocaleDateString()}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <TraceBadge active={Boolean(run.evalRunId)} label="eval" />
+                  <TraceBadge active={Boolean(run.qualityRunId)} label="quality" />
+                  <TraceBadge active={Boolean(run.workflowRunId)} label="workflow" />
+                  <TraceBadge active={Boolean(run.report.execution?.turnId)} label="turn" />
+                </div>
+                {run.error ? (
+                  <p className="mt-2 truncate text-[10px] text-red-600" title={run.error}>
+                    {run.error}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.noDomainSmokeRuns", {
+            defaultValue: "No synthetic domain smoke runs",
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
+function TraceBadge({ active, label }: { active: boolean; label: string }) {
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] ${
+        active ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"
+      }`}
+    >
+      {label}
+    </span>
+  )
+}
+
+function domainFixtureModeLabel(mode: string): string {
+  if (mode === "trace_fixture") return "trace"
+  if (mode === "agent") return "agent"
+  return mode
 }
 
 function ReleaseGatePanel({ report }: { report: CodingEvalReleaseGateReport | null }) {

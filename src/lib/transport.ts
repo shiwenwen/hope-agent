@@ -1024,6 +1024,7 @@ export interface RunDomainEvalTaskInput {
   taskId: string;
   label?: string | null;
   sourceQualityRunId?: string | null;
+  sourceType?: string | null;
 }
 
 export interface RunDomainEvalFixtureInput {
@@ -1101,8 +1102,10 @@ export interface DomainEvalFixtureChecks {
 }
 
 export interface DomainEvalFixtureReport {
+  fixtureRunId?: string | null;
   name: string;
   executionMode: string;
+  sourceType: string;
   status: string;
   passed: boolean;
   sessionId: string;
@@ -1136,6 +1139,32 @@ export interface DomainEvalFixtureCheck {
   detail: string;
 }
 
+export interface ListDomainEvalFixtureRunsInput {
+  sourceType?: string | null;
+  executionMode?: string | null;
+  status?: string | null;
+  windowDays?: number | null;
+  limit?: number | null;
+}
+
+export interface DomainEvalFixtureRunRecord {
+  id: string;
+  name: string;
+  executionMode: string;
+  sourceType: string;
+  status: string;
+  passed: boolean;
+  sessionId: string;
+  goalId?: string | null;
+  workflowRunId?: string | null;
+  qualityRunId?: string | null;
+  evalRunId?: string | null;
+  report: DomainEvalFixtureReport;
+  error?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ImportDomainEvalCaseInput {
   proposalId: string;
   overwrite?: boolean;
@@ -1154,6 +1183,8 @@ export interface ListDomainEvalRunsInput {
   projectId?: string | null;
   domain?: string | null;
   taskId?: string | null;
+  sourceType?: string | null;
+  includeSynthetic?: boolean;
   windowDays?: number | null;
   limit?: number | null;
 }
@@ -1204,6 +1235,7 @@ export interface DomainEvalRunRecord {
   label: string;
   status: "passed" | "failed" | "insufficient_data" | string;
   score: number;
+  sourceType: string;
   report: DomainEvalReport;
   sourceQualityRunId?: string | null;
   createdAt: string;
@@ -1221,6 +1253,7 @@ export interface DomainQualityGateInput {
   maxBlockedQualityRuns?: number | null;
   minDomainCoverage?: number | null;
   requireApprovalSafety?: boolean;
+  includeSynthetic?: boolean;
 }
 
 export interface DomainQualityGateThresholds {

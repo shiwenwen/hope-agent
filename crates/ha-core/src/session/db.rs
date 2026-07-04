@@ -1464,7 +1464,7 @@ impl SessionDB {
         // Knowledge-space sidebar conversations live in the KB panel, never the
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
-        where_clauses.push("s.kind != 'knowledge'".to_string());
+        where_clauses.push("s.kind NOT IN ('knowledge','eval_fixture')".to_string());
 
         // Cron run sessions live in the cron panel's "conversations" timeline,
         // never the main sidebar list — hide them when the sidebar asks.
@@ -3750,7 +3750,7 @@ impl SessionDB {
             // The in-session search path (Some(sid)) already scopes to one
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
-            where_clauses.push("s.kind != 'knowledge'".to_string());
+            where_clauses.push("s.kind NOT IN ('knowledge','eval_fixture')".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -3760,7 +3760,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind != 'knowledge')".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('knowledge','eval_fixture'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -4078,7 +4078,7 @@ impl SessionDB {
                 "SELECT s.id, COALESCE(s.title, '') AS title
                  FROM sessions s
                  WHERE s.incognito = 0
-                   AND s.kind != 'knowledge'
+                   AND s.kind NOT IN ('knowledge','eval_fixture')
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
                  LIMIT {}",
@@ -4116,7 +4116,7 @@ impl SessionDB {
                      WHERE messages_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
-                       AND s.kind != 'knowledge'
+                       AND s.kind NOT IN ('knowledge','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -4152,7 +4152,7 @@ impl SessionDB {
                      WHERE messages_trigram_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
-                       AND s.kind != 'knowledge'
+                       AND s.kind NOT IN ('knowledge','eval_fixture')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",

@@ -2,9 +2,9 @@ use axum::Json;
 use ha_core::domain_eval::{
     DomainEvalCalibrationRecord, DomainEvalFixtureReport, DomainEvalRunRecord, DomainEvalTask,
     DomainQualityGateInput, DomainQualityGateReport, ImportDomainEvalCaseInput,
-    ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput, ListDomainEvalRunsInput,
-    ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput, RunDomainEvalFixtureInput,
-    RunDomainEvalTaskInput,
+    ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput, ListDomainEvalFixtureRunsInput,
+    ListDomainEvalRunsInput, ListDomainEvalTasksInput, RecordDomainEvalCalibrationInput,
+    RunDomainEvalFixtureInput, RunDomainEvalTaskInput,
 };
 use ha_core::session::SessionDB;
 use serde::Deserialize;
@@ -52,6 +52,12 @@ pub struct ListDomainEvalCalibrationsBody {
 #[serde(rename_all = "camelCase")]
 pub struct ListDomainEvalRunsBody {
     pub input: ListDomainEvalRunsInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDomainEvalFixtureRunsBody {
+    pub input: ListDomainEvalFixtureRunsInput,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +114,14 @@ pub async fn list_domain_eval_runs(
     Json(body): Json<ListDomainEvalRunsBody>,
 ) -> Result<Json<Vec<DomainEvalRunRecord>>, AppError> {
     Ok(Json(session_db()?.list_domain_eval_runs(body.input)?))
+}
+
+pub async fn list_domain_eval_fixture_runs(
+    Json(body): Json<ListDomainEvalFixtureRunsBody>,
+) -> Result<Json<Vec<ha_core::domain_eval::DomainEvalFixtureRunRecord>>, AppError> {
+    Ok(Json(
+        session_db()?.list_domain_eval_fixture_runs(body.input)?,
+    ))
 }
 
 pub async fn evaluate_domain_quality_gate(

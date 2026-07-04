@@ -1641,12 +1641,15 @@ fn build_fact_filter(
 
     if allow_null_session {
         clauses.push(format!(
-            "({session_alias}.id IS NULL OR ({session_alias}.is_cron = 0 AND {session_alias}.parent_session_id IS NULL AND {session_alias}.incognito = 0))"
+            "({session_alias}.id IS NULL OR ({session_alias}.is_cron = 0 AND {session_alias}.parent_session_id IS NULL AND {session_alias}.incognito = 0 AND {session_alias}.kind NOT IN ('knowledge','eval_fixture')))"
         ));
     } else {
         clauses.push(format!("{session_alias}.is_cron = 0"));
         clauses.push(format!("{session_alias}.parent_session_id IS NULL"));
         clauses.push(format!("{session_alias}.incognito = 0"));
+        clauses.push(format!(
+            "{session_alias}.kind NOT IN ('knowledge','eval_fixture')"
+        ));
     }
 
     if let Some(start) = filter.start_date.as_ref().filter(|value| !value.is_empty()) {

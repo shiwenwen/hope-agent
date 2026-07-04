@@ -321,7 +321,7 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 
 ## General Domain Quality（Domain Eval owner API）
 
-> 新增于 Phase 7.6，Phase 7.7 增加人工校准动作。Dashboard Learning Tab 的通用领域质量区块；前端直接调用 `evaluate_domain_quality_gate`、`list_domain_eval_runs`、`list_domain_eval_tasks` 与 `record_domain_eval_calibration`，后端事实源见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
+> 新增于 Phase 7.6，Phase 7.7 增加人工校准动作，Phase 7.10 增加隔离的 Smoke Run Center。Dashboard Learning Tab 的通用领域质量区块；前端直接调用 `evaluate_domain_quality_gate`、`list_domain_eval_runs`、`list_domain_eval_tasks`、`list_domain_eval_fixture_runs` 与 `record_domain_eval_calibration`，后端事实源见 [Domain Eval 与 Quality Gate 控制平面](domain-eval.md)。
 
 该区块不属于 `dashboard::coding_improvement` 聚合，也不与 Release Gate / Continuous Benchmark Gate 合成总分。它只读 Domain Eval / Domain Quality / Domain Evidence 历史，用于回答“非编程长任务的通用质量是否有足够证据”。
 
@@ -334,12 +334,13 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 | Attention checks | gate checks | 列出 failed / insufficient check，帮助用户知道缺的是 eval 样本、quality run、approval safety 还是领域覆盖。 |
 | Recent domain eval runs | `list_domain_eval_runs` | 展示最近通用 eval run，辅助回溯质量判断。 |
 | Calibration status | `list_domain_eval_tasks` / `record_domain_eval_calibration` | 展示已校准 task 数；用户可对最近 eval run 显式标记人工复核，写入 user/project calibration。 |
+| Domain smoke runs | `list_domain_eval_fixture_runs` | 展示最近 trace/agent fixture smoke run，含 source type、执行模式、pass rate、失败数、eval/quality/workflow/turn trace badge 与错误信息；不计入 live gate。 |
 
 红线：
 
 - 通用领域质量门与 coding benchmark 分表、分路径、分 UI 区块展示。
 - 无 domain eval 或 domain quality 历史时必须显示 `insufficient_data`，不能用 coding release gate 替代。
-- Dashboard 默认只读历史，不生成 proposal、不运行 eval、不触发连接器动作；唯一写动作是用户点击「Mark reviewed」时记录 `domain_eval_calibrations` 人工复核。`trace_fixture` runner 仅作为 owner API / 测试能力保留，不直接挂在质量门按钮上，避免合成样本污染真实质量判断。
+- Dashboard 默认只读历史，不生成 proposal、不运行 eval、不触发连接器动作；唯一写动作是用户点击「Mark reviewed」时记录 `domain_eval_calibrations` 人工复核。`trace_fixture` / `agent` fixture runner 仅作为 owner API / 测试能力保留，不直接挂在质量门按钮上；合成样本通过 `SessionKind::EvalFixture`、`sourceType=fixture_*` 与 `domain_eval_fixture_runs` 隔离展示，避免污染真实质量判断。
 
 ## Plan 统计（plan_stats.rs）
 

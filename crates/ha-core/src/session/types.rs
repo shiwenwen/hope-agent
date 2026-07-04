@@ -56,6 +56,7 @@ pub enum SessionKind {
     #[default]
     Regular,
     Knowledge,
+    EvalFixture,
 }
 
 impl SessionKind {
@@ -63,6 +64,7 @@ impl SessionKind {
         match self {
             SessionKind::Regular => "regular",
             SessionKind::Knowledge => "knowledge",
+            SessionKind::EvalFixture => "eval_fixture",
         }
     }
 
@@ -71,6 +73,7 @@ impl SessionKind {
     pub fn from_db_string(s: &str) -> Self {
         match s {
             "knowledge" => SessionKind::Knowledge,
+            "eval_fixture" => SessionKind::EvalFixture,
             _ => SessionKind::Regular,
         }
     }
@@ -163,8 +166,9 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// Session classification (see [`SessionKind`]). `Regular` for normal
-    /// chats; `Knowledge` for knowledge-space sidebar conversations (hidden
-    /// from the main sidebar / picker, trimmed tool set).
+    /// chats; `Knowledge` for knowledge-space sidebar conversations and
+    /// `EvalFixture` for synthetic eval/smoke runs (both hidden from the main
+    /// sidebar / picker).
     #[serde(default)]
     pub kind: SessionKind,
 }
@@ -624,15 +628,24 @@ mod tests {
         let mut kb = meta("g");
         kb.kind = SessionKind::Knowledge;
         assert!(!kb.is_regular_chat());
+
+        let mut fixture = meta("h");
+        fixture.kind = SessionKind::EvalFixture;
+        assert!(!fixture.is_regular_chat());
     }
 
     #[test]
     fn session_kind_roundtrips_and_defaults() {
         assert_eq!(SessionKind::Regular.as_str(), "regular");
         assert_eq!(SessionKind::Knowledge.as_str(), "knowledge");
+        assert_eq!(SessionKind::EvalFixture.as_str(), "eval_fixture");
         assert_eq!(
             SessionKind::from_db_string("knowledge"),
             SessionKind::Knowledge
+        );
+        assert_eq!(
+            SessionKind::from_db_string("eval_fixture"),
+            SessionKind::EvalFixture
         );
         // Unknown / legacy NULL coerced to "" → Regular.
         assert_eq!(SessionKind::from_db_string(""), SessionKind::Regular);
@@ -646,5 +659,11 @@ mod tests {
         assert!(json.contains("\"kind\":\"knowledge\""));
         let back: SessionMeta = serde_json::from_str(&json).unwrap();
         assert_eq!(back.kind, SessionKind::Knowledge);
+
+        m.kind = SessionKind::EvalFixture;
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"kind\":\"eval_fixture\""));
+        let back: SessionMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.kind, SessionKind::EvalFixture);
     }
 }

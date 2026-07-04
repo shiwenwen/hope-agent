@@ -451,6 +451,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   record_domain_eval_calibration: { method: "POST", path: "/api/domain-eval/calibrations/record" },
   list_domain_eval_calibrations: { method: "POST", path: "/api/domain-eval/calibrations" },
   list_domain_eval_runs: { method: "POST", path: "/api/domain-eval/runs" },
+  list_domain_eval_fixture_runs: { method: "POST", path: "/api/domain-eval/fixture-runs" },
   evaluate_domain_quality_gate: { method: "POST", path: "/api/domain-quality-gate/evaluate" },
   list_domain_quality_runs: { method: "GET", path: "/api/sessions/{sessionId}/domain-quality-runs" },
   get_domain_quality_run: { method: "GET", path: "/api/domain-quality-runs/{runId}" },

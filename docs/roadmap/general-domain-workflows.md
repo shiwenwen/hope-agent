@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-04
 >
-> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
 ## 1. 背景
 
@@ -260,9 +260,16 @@ DomainWorkflow
 - 执行失败或缺 provider/modelChain 时不写 `domain_eval_runs`；执行完成但证据不足时仍由同一 scorer 标记 failed / insufficient_data。
 - 定向测试使用本地 mock Responses provider 覆盖真实 chat engine 路径，不访问外部网络。
 
+### Phase 7.10 Domain Fixture / Smoke Run Center（已完成第一版）
+
+- Fixture runner 创建的 session 已标记为 `SessionKind::EvalFixture`，从普通会话列表、普通搜索和 live Dashboard 聚合中隔离。
+- `domain_eval_runs` 新增 `source_type`，普通 eval 默认为 `live`，fixture trace/agent 分别为 `fixture_trace` / `fixture_agent`。
+- 新增 `domain_eval_fixture_runs`，持久化完整 fixture report；即使 agent 配置失败、没有写 eval run，也能在 Smoke Run Center 看到失败原因。
+- `list_domain_eval_runs` 与 `evaluate_domain_quality_gate` 默认排除 synthetic，`includeSynthetic=true` / `sourceType="fixture"` 才用于诊断。
+- Dashboard Learning 新增「Domain smoke runs」卡片，展示最近 fixture run、pass rate、agent/trace 数、失败数、eval/quality/workflow/turn trace badge 与 error。
+
 后续待补：
 
-- 建立独立 Domain Fixture / Smoke Run Center，按 `sourceType=fixture` 过滤展示，避免合成样本污染 Dashboard quality gate。
 - 批量 Domain Eval Pack / Campaign：像 Coding Gold Pack 一样可取消、可 retry、可对比 provider/model。
 
 ## 8. GUI 产品形态
@@ -275,6 +282,7 @@ DomainWorkflow
 - 已落地：Loop 创建支持 `continue` / `workflow` 执行策略。当前 `workflow` 策略用于 interval loop：要求 active/bound Goal 已选择领域模板，每次 tick 直接创建并启动 `origin=loop:<loop_id>` 的 durable WorkflowRun，Loop trace 保存 workflow run id 和 template version；Workspace Loop 列表会关联最近派生 run，并可一键跳到 Workflow run detail。
 - 已落地：Workspace「领域复核」区块支持对当前复核 run 点击「提炼经验」，把成功/失败/需要用户确认的领域质量事实定向进入 Coding Improvement proposal 队列。
 - 已落地：Dashboard Learning 展示 General domain trends + General domain quality gate，区分长期趋势观察和当前门禁判定。
+- 已落地：Dashboard Learning 展示 Domain smoke runs，按 `sourceType=fixture_*` 与 `SessionKind::EvalFixture` 隔离合成回归样本。
 - Workspace 增加通用面板：Sources、Evidence、Drafts、Review、Verification、Decisions。
 
 ## 9. 权限与隐私红线

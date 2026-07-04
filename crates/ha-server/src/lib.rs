@@ -1620,6 +1620,10 @@ fn build_router_with_cors(
             post(routes::domain_eval::list_domain_eval_runs),
         )
         .route(
+            "/domain-eval/fixture-runs",
+            post(routes::domain_eval::list_domain_eval_fixture_runs),
+        )
+        .route(
             "/domain-quality-gate/evaluate",
             post(routes::domain_eval::evaluate_domain_quality_gate),
         )
