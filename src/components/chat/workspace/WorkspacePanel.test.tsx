@@ -8,6 +8,8 @@ import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
 import type {
   CodingImprovementProposal,
   CodingTrendReport,
+  ContextRetrievalSnapshot,
+  DomainEvidenceItem,
   DomainQualityRunSnapshot,
   DomainWorkflowDraft,
   DomainWorkflowTemplate,
@@ -204,6 +206,98 @@ function renderPanel(
       />
     </TooltipProvider>,
   )
+}
+
+function contextRetrievalSnapshot(): ContextRetrievalSnapshot {
+  return {
+    sessionId: "s1",
+    query: null,
+    workspaceRoot: "/repo",
+    candidates: [
+      {
+        id: "doc-1",
+        kind: "document",
+        title: "Browser automation notes",
+        subtitle: "Drive document",
+        path: "/repo/docs/browser.md",
+        line: 12,
+        url: null,
+        score: 82,
+        reasons: ["required evidence for research"],
+        sources: ["domain", "knowledge"],
+        status: "fresh",
+        metadata: {
+          domain: "research",
+          confidence: 0.91,
+          accessScope: "project",
+          redactionStatus: "none",
+          domainActions: {
+            canCite: true,
+            canSummarize: true,
+            canAddEvidence: true,
+            canMarkConflict: true,
+            canCreateTask: true,
+          },
+        },
+      },
+    ],
+    stats: {
+      gitChanges: 0,
+      artifactFiles: 0,
+      diagnostics: 0,
+      reviewFindings: 0,
+      verificationSteps: 0,
+      goalEvidence: 0,
+      tasks: 0,
+      workflowOps: 0,
+      ideContextSignals: 0,
+      fileSearchMatches: 0,
+      symbols: 0,
+      urlSources: 0,
+      domainCandidates: 1,
+      domainEvidence: 0,
+      accessIssues: 0,
+      warnings: [],
+    },
+    domainContext: {
+      domain: "research",
+      templateId: "research-brief",
+      templateVersion: "1.0.0",
+      templateTitle: "Research brief",
+      taskType: "technical_research",
+      goalId: null,
+      goalObjective: null,
+      completionCriteria: null,
+      requiredEvidence: [],
+      approvalGates: [],
+      verificationPolicy: [],
+      source: "template",
+    },
+    accessIssues: [],
+    truncated: false,
+    disabledReason: null,
+    generatedAt: "2026-01-01T00:00:00Z",
+  }
+}
+
+function domainEvidenceItem(patch: Partial<DomainEvidenceItem> = {}): DomainEvidenceItem {
+  return {
+    id: "evidence-1",
+    goalId: null,
+    sessionId: "s1",
+    projectId: null,
+    domain: "research",
+    evidenceType: "artifact_created",
+    title: "上下文摘要：Browser automation notes",
+    summary: "summary",
+    sourceMetadata: {},
+    confidence: 0.91,
+    accessScope: "project",
+    redactionStatus: "none",
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-01-01T00:00:00Z",
+    ...patch,
+  }
 }
 
 function workflowRun(patch: Partial<WorkflowRun> = {}): WorkflowRun {
@@ -912,6 +1006,57 @@ describe("WorkspacePanel goal section", () => {
     expect(screen.getByText("connector")).toBeTruthy()
     expect(screen.getByText("92%")).toBeTruthy()
     expect(screen.getByText("main/op#1(evidence.record)")).toBeTruthy()
+  })
+})
+
+describe("WorkspacePanel context retrieval section", () => {
+  it("records a generated context summary as domain evidence", async () => {
+    const snapshot = contextRetrievalSnapshot()
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "get_context_retrieval") return Promise.resolve(snapshot)
+      if (name === "record_domain_evidence") {
+        const input = args?.input as Partial<DomainEvidenceItem> | undefined
+        return Promise.resolve(
+          domainEvidenceItem({
+            title: input?.title ?? "上下文摘要：Browser automation notes",
+            summary: input?.summary,
+            sourceMetadata: input?.sourceMetadata ?? {},
+          }),
+        )
+      }
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    expect(await screen.findByText("Browser automation notes")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "摘要" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("record_domain_evidence", {
+        input: expect.objectContaining({
+          sessionId: "s1",
+          domain: "research",
+          evidenceType: "artifact_created",
+          title: "上下文摘要：Browser automation notes",
+          confidence: 0.91,
+          accessScope: "project",
+          redactionStatus: "none",
+          sourceMetadata: expect.objectContaining({
+            source: "context_retrieval",
+            action: "summarize",
+            artifactKind: "context_summary",
+            candidateId: "doc-1",
+          }),
+        }),
+      })
+    })
   })
 })
 

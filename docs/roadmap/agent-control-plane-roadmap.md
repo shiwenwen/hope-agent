@@ -749,7 +749,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 
 - Context Retrieval 已增加 document、email thread、calendar event、sheet range、knowledge note、web source、decision、artifact、task 等候选。
 - 排序已按 domain workflow required evidence、Goal criteria、confidence、redaction、query boost 综合加权，不只靠关键词。
-- 候选行已展示引用 / evidence / 摘要 / 请求用户确认 / 标记冲突 / 转 task 等 domain action；复制引用、加入 evidence、标记冲突和转 task 已作为真实轻量动作落地。
+- 候选行已展示引用 / evidence / 摘要 / 请求用户确认 / 标记冲突 / 转 task 等 domain action；复制引用、生成摘要、加入 evidence、标记冲突和转 task 已作为真实轻量动作落地。
 - access issue 已显式展示连接器或 required evidence 缺口，不伪造不存在的上下文。
 
 ### Phase 7.4 Domain Verification & Review（已完成第一版）
@@ -876,6 +876,7 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 - Workspace 新增「通用任务工作台」，把 Sources、Evidence、Drafts、Review、Verification、Decisions 聚合成同屏闭环，而不是只让用户分别打开 Context、Review、Verification、领域复核和 Dashboard。
 - 工作台复用现有 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review、Verification 与 Domain Quality 状态；不新增权限语义、不新增后端表、不绕过审批。
 - 用户可直接运行领域复核、推荐验证、运行验证和刷新全部守门状态。
+- Context Retrieval 候选行的「摘要」按钮已接到 `record_domain_evidence`，可把候选确定性整理成 `artifact_created` 摘要 evidence，并刷新 Context 与工作台。
 - Context Retrieval 候选行的「证据」按钮已接到 `record_domain_evidence`，可把推荐来源/文档/会议/表格/决策显式落成当前 session 的 domain evidence，并刷新工作台。
 - Context Retrieval 候选行的「冲突」按钮已接到 `record_domain_evidence`，可把候选显式落成 `claim_checked` 冲突证据，并刷新 Context 与工作台。
 - Context Retrieval 候选行的「转任务」按钮已接到 `create_session_task`，可把候选显式落成当前 session task，并通过 `task_updated` 刷新进度面板。

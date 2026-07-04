@@ -1846,6 +1846,38 @@ function contextCandidateEvidenceInput(
   }
 }
 
+function contextCandidateSummary(candidate: ContextCandidate): string {
+  const lines: string[] = []
+  if (candidate.subtitle) lines.push(`摘要线索：${candidate.subtitle}`)
+  const location = contextLocationLabel(candidate)
+  if (location) lines.push(`位置：${location}`)
+  if (candidate.status) lines.push(`状态：${candidate.status}`)
+  if (candidate.reasons.length > 0) lines.push(`推荐原因：${candidate.reasons.join("；")}`)
+  if (candidate.sources.length > 0) lines.push(`来源信号：${candidate.sources.join(", ")}`)
+  return lines.join("\n") || candidate.title
+}
+
+function contextCandidateSummaryEvidenceInput(
+  candidate: ContextCandidate,
+  sessionId: string,
+): RecordDomainEvidenceInput {
+  return {
+    sessionId,
+    domain: contextCandidateDomain(candidate),
+    evidenceType: "artifact_created",
+    title: `上下文摘要：${candidate.title}`,
+    summary: contextCandidateSummary(candidate),
+    sourceMetadata: {
+      ...contextCandidateSourceMetadata(candidate),
+      action: "summarize",
+      artifactKind: "context_summary",
+    },
+    confidence: contextCandidateNumberMetadata(candidate, "confidence"),
+    accessScope: contextCandidateAccessScope(candidate),
+    redactionStatus: contextCandidateRedactionStatus(candidate),
+  }
+}
+
 function contextCandidateConflictEvidenceInput(
   candidate: ContextCandidate,
   sessionId: string,
@@ -1873,6 +1905,11 @@ function contextCanAddEvidence(candidate: ContextCandidate): boolean {
   const actions = contextDomainActions(candidate)
   if (!actions?.canAddEvidence) return false
   return contextCandidateStringMetadata(candidate, "origin") !== "domain_evidence"
+}
+
+function contextCanSummarize(candidate: ContextCandidate): boolean {
+  const actions = contextDomainActions(candidate)
+  return Boolean(actions?.canSummarize)
 }
 
 function contextCanMarkConflict(candidate: ContextCandidate): boolean {
@@ -1907,6 +1944,7 @@ function DomainContextActionChips({
   sessionId,
   disabled,
   actionKey,
+  onSummarize,
   onAddEvidence,
   onMarkConflict,
   onCreateTask,
@@ -1915,6 +1953,7 @@ function DomainContextActionChips({
   sessionId?: string | null
   disabled?: boolean
   actionKey?: string | null
+  onSummarize?: (candidate: ContextCandidate) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
   onMarkConflict?: (candidate: ContextCandidate) => void
   onCreateTask?: (candidate: ContextCandidate) => void
@@ -1923,15 +1962,24 @@ function DomainContextActionChips({
   const actions = contextDomainActions(candidate)
   if (!actions) return null
   const chips: string[] = []
-  if (actions.canSummarize) chips.push(t("workspace.context.actionSummarize", "摘要"))
   if (actions.canAskUser) chips.push(t("workspace.context.actionAsk", "确认"))
   const canCite = Boolean(actions.canCite)
+  const canSummarize = contextCanSummarize(candidate)
   const canAddEvidence = contextCanAddEvidence(candidate)
   const canMarkConflict = contextCanMarkConflict(candidate)
   const canCreateTask = contextCanCreateTask(candidate)
-  if (!canCite && !canAddEvidence && !canMarkConflict && !canCreateTask && chips.length === 0) {
+  if (
+    !canCite &&
+    !canSummarize &&
+    !canAddEvidence &&
+    !canMarkConflict &&
+    !canCreateTask &&
+    chips.length === 0
+  ) {
     return null
   }
+  const summaryKey = `${candidate.id}:summary`
+  const summaryBusy = actionKey === summaryKey
   const evidenceKey = `${candidate.id}:evidence`
   const evidenceBusy = actionKey === evidenceKey
   const conflictKey = `${candidate.id}:conflict`
@@ -1960,6 +2008,24 @@ function DomainContextActionChips({
         >
           <Copy className="h-3 w-3" />
           <span>{t("workspace.context.actionCite", "引用")}</span>
+        </button>
+      ) : null}
+      {canSummarize ? (
+        <button
+          type="button"
+          disabled={disabled || !sessionId || !onSummarize || Boolean(actionKey)}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSummarize?.(candidate)
+          }}
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {summaryBusy ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <BookText className="h-3 w-3" />
+          )}
+          <span>{t("workspace.context.actionSummarize", "摘要")}</span>
         </button>
       ) : null}
       {canAddEvidence ? (
@@ -2035,6 +2101,7 @@ function ContextFileCandidateRow({
   actionKey,
   actionsDisabled,
   onAction,
+  onSummarize,
   onAddEvidence,
   onMarkConflict,
   onCreateTask,
@@ -2045,6 +2112,7 @@ function ContextFileCandidateRow({
   actionKey?: string | null
   actionsDisabled?: boolean
   onAction?: (candidate: ContextCandidate, action: ContextFocusedAction) => void
+  onSummarize?: (candidate: ContextCandidate) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
   onMarkConflict?: (candidate: ContextCandidate) => void
   onCreateTask?: (candidate: ContextCandidate) => void
@@ -2097,6 +2165,7 @@ function ContextFileCandidateRow({
               sessionId={sessionId}
               disabled={actionsDisabled}
               actionKey={actionKey}
+              onSummarize={onSummarize}
               onAddEvidence={onAddEvidence}
               onMarkConflict={onMarkConflict}
               onCreateTask={onCreateTask}
@@ -2121,6 +2190,7 @@ function ContextGenericCandidateRow({
   sessionId,
   actionKey,
   actionsDisabled,
+  onSummarize,
   onAddEvidence,
   onMarkConflict,
   onCreateTask,
@@ -2129,6 +2199,7 @@ function ContextGenericCandidateRow({
   sessionId?: string | null
   actionKey?: string | null
   actionsDisabled?: boolean
+  onSummarize?: (candidate: ContextCandidate) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
   onMarkConflict?: (candidate: ContextCandidate) => void
   onCreateTask?: (candidate: ContextCandidate) => void
@@ -2161,6 +2232,7 @@ function ContextGenericCandidateRow({
           sessionId={sessionId}
           disabled={actionsDisabled}
           actionKey={actionKey}
+          onSummarize={onSummarize}
           onAddEvidence={onAddEvidence}
           onMarkConflict={onMarkConflict}
           onCreateTask={onCreateTask}
@@ -2282,6 +2354,33 @@ function ContextRetrievalSection({
           "Record context candidate evidence failed",
           e,
         )
+        toast.error(message)
+      } finally {
+        setContextActionKey(null)
+      }
+    },
+    [disabled, onDomainEvidenceRecorded, refresh, sessionId, t],
+  )
+
+  const summarizeContextCandidate = useCallback(
+    async (candidate: ContextCandidate) => {
+      if (!sessionId || disabled || !contextCanSummarize(candidate)) return
+      const actionKey = `${candidate.id}:summary`
+      setContextActionKey(actionKey)
+      try {
+        const item = await getTransport().call<DomainEvidenceItem>("record_domain_evidence", {
+          input: contextCandidateSummaryEvidenceInput(candidate, sessionId),
+        })
+        toast.success(
+          t("workspace.context.summaryRecorded", "已生成摘要：{{title}}", {
+            title: item.title,
+          }),
+        )
+        refresh()
+        onDomainEvidenceRecorded?.()
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error("ui", "ContextRetrievalSection", "Summarize context candidate failed", e)
         toast.error(message)
       } finally {
         setContextActionKey(null)
@@ -2506,6 +2605,7 @@ function ContextRetrievalSection({
                   actionKey={contextActionKey}
                   actionsDisabled={disabled || Boolean(contextActionKey)}
                   onAction={runFocusedContextAction}
+                  onSummarize={summarizeContextCandidate}
                   onAddEvidence={recordContextCandidateEvidence}
                   onMarkConflict={markContextCandidateConflict}
                   onCreateTask={createContextCandidateTask}
@@ -2517,6 +2617,7 @@ function ContextRetrievalSection({
                   sessionId={sessionId}
                   actionKey={contextActionKey}
                   actionsDisabled={disabled || Boolean(contextActionKey)}
+                  onSummarize={summarizeContextCandidate}
                   onAddEvidence={recordContextCandidateEvidence}
                   onMarkConflict={markContextCandidateConflict}
                   onCreateTask={createContextCandidateTask}
