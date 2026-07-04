@@ -130,6 +130,36 @@ impl LoopTriggerKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopExecutionStrategy {
+    Continue,
+    Workflow,
+}
+
+impl Default for LoopExecutionStrategy {
+    fn default() -> Self {
+        Self::Continue
+    }
+}
+
+impl LoopExecutionStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Continue => "continue",
+            Self::Workflow => "workflow",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "continue" => Some(Self::Continue),
+            "workflow" => Some(Self::Workflow),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopSchedule {
@@ -141,6 +171,7 @@ pub struct LoopSchedule {
     pub prompt: String,
     pub trigger_kind: LoopTriggerKind,
     pub trigger_spec: Value,
+    pub execution_strategy: LoopExecutionStrategy,
     pub state: LoopState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_runs: Option<i64>,
@@ -201,6 +232,8 @@ pub struct CreateLoopScheduleInput {
     pub trigger_kind: LoopTriggerKind,
     #[serde(default)]
     pub trigger_spec: Value,
+    #[serde(default)]
+    pub execution_strategy: LoopExecutionStrategy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_runs: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -217,11 +250,23 @@ pub struct CreateLoopScheduleInput {
 pub struct LoopRunAdmission {
     pub loop_id: String,
     pub run_id: String,
+    pub session_id: String,
     pub prompt: String,
     pub trigger_kind: LoopTriggerKind,
     pub trigger_spec: Value,
+    pub execution_strategy: LoopExecutionStrategy,
     pub agent_id: String,
     pub goal_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct LoopWorkflowLaunch {
+    pub run_id: String,
+    pub workflow_kind: String,
+    pub execution_mode: String,
+    pub template_id: String,
+    pub template_version: String,
+    pub requires_approval: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -254,6 +299,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             prompt TEXT NOT NULL,
             trigger_kind TEXT NOT NULL,
             trigger_spec_json TEXT NOT NULL DEFAULT '{}',
+            execution_strategy TEXT NOT NULL DEFAULT 'continue',
             state TEXT NOT NULL,
             max_runs INTEGER,
             run_count INTEGER NOT NULL DEFAULT 0,
@@ -298,6 +344,20 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_loop_runs_cron
             ON loop_runs(cron_job_id, started_at DESC);",
     )?;
+    ensure_loop_column(
+        conn,
+        "execution_strategy",
+        "ALTER TABLE loop_schedules ADD COLUMN execution_strategy TEXT NOT NULL DEFAULT 'continue';",
+    )?;
+    Ok(())
+}
+
+fn ensure_loop_column(conn: &Connection, column: &str, alter_sql: &str) -> Result<()> {
+    let query = format!("SELECT {column} FROM loop_schedules LIMIT 1");
+    if conn.prepare(&query).is_ok() {
+        return Ok(());
+    }
+    conn.execute(alter_sql, [])?;
     Ok(())
 }
 
@@ -315,12 +375,36 @@ impl SessionDB {
         let now = now_rfc3339();
         let id = format!("loop_{}", uuid::Uuid::new_v4().simple());
         let (goal_id, agent_id, prompt) = self.resolve_loop_create_context(&input)?;
+        if input.execution_strategy == LoopExecutionStrategy::Workflow {
+            if input.trigger_kind != LoopTriggerKind::Interval {
+                return Err(anyhow!(
+                    "loop workflow execution currently supports interval triggers only; condition loops still require conversation continuation"
+                ));
+            }
+            let goal_id = goal_id
+                .as_deref()
+                .ok_or_else(|| anyhow!("loop workflow execution requires a bound Goal"))?;
+            let goal = self
+                .get_goal(goal_id)?
+                .ok_or_else(|| anyhow!("goal not found: {goal_id}"))?;
+            if goal
+                .workflow_template_id
+                .as_deref()
+                .and_then(non_empty)
+                .is_none()
+            {
+                return Err(anyhow!(
+                    "loop workflow execution requires the bound Goal to select a domain workflow template"
+                ));
+            }
+        }
         let schedule = cron_schedule_from_loop(&input)?;
         let trigger_spec = normalized_trigger_spec(input.trigger_kind, &input.trigger_spec)?;
         let trigger_spec_json = stable_json(&trigger_spec)?;
         let approval_policy_snapshot = json!({
             "permission": "inherits_session",
             "scheduler": "cron",
+            "executionStrategy": input.execution_strategy,
             "unattended": "permission_engine_fail_closed_or_policy",
         });
         let approval_policy_snapshot_json = stable_json(&approval_policy_snapshot)?;
@@ -354,10 +438,10 @@ impl SessionDB {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             conn.execute(
                 "INSERT INTO loop_schedules (
-                    id, session_id, goal_id, cron_job_id, prompt, trigger_kind, trigger_spec_json,
+                    id, session_id, goal_id, cron_job_id, prompt, trigger_kind, trigger_spec_json, execution_strategy,
                     state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
                     approval_policy_snapshot_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11, ?12, ?13, ?14, ?14)",
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12, ?13, ?14, ?15, ?15)",
                 params![
                     id,
                     input.session_id,
@@ -366,6 +450,7 @@ impl SessionDB {
                     prompt,
                     input.trigger_kind.as_str(),
                     trigger_spec_json,
+                    input.execution_strategy.as_str(),
                     LoopState::Active.as_str(),
                     normalize_positive(input.max_runs),
                     normalize_positive(input.max_runtime_secs),
@@ -407,7 +492,7 @@ impl SessionDB {
         Ok(conn
             .query_row(
             "SELECT id, session_id, goal_id, cron_job_id, prompt, trigger_kind, trigger_spec_json,
-                    state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
+                    execution_strategy, state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
                     approval_policy_snapshot_json, created_at, updated_at, completed_at, blocked_reason
              FROM loop_schedules WHERE id = ?1",
                 params![loop_id],
@@ -424,7 +509,7 @@ impl SessionDB {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, goal_id, cron_job_id, prompt, trigger_kind, trigger_spec_json,
-                    state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
+                    execution_strategy, state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
                     approval_policy_snapshot_json, created_at, updated_at, completed_at, blocked_reason
              FROM loop_schedules
              WHERE session_id = ?1
@@ -561,6 +646,7 @@ impl SessionDB {
         let trace = json!({
             "triggerKind": schedule.trigger_kind,
             "triggerSpec": schedule.trigger_spec,
+            "executionStrategy": schedule.execution_strategy,
             "cronJobId": cron_job_id,
             "seq": seq,
         });
@@ -587,9 +673,11 @@ impl SessionDB {
         Ok(LoopRunDecision::Admit(LoopRunAdmission {
             loop_id: schedule.id,
             run_id,
+            session_id: session_id.to_string(),
             prompt: schedule.prompt,
             trigger_kind: schedule.trigger_kind,
             trigger_spec: schedule.trigger_spec,
+            execution_strategy: schedule.execution_strategy,
             agent_id: self
                 .get_session(session_id)?
                 .map(|m| m.agent_id)
@@ -608,6 +696,30 @@ impl SessionDB {
         error: Option<&str>,
         finished_at: &str,
     ) -> Result<LoopAfterRunAction> {
+        self.finish_loop_cron_run_with_trace(
+            cron_job_id,
+            loop_run_id,
+            cron_run_log_id,
+            state,
+            result_summary,
+            error,
+            finished_at,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_loop_cron_run_with_trace(
+        &self,
+        cron_job_id: &str,
+        loop_run_id: Option<&str>,
+        cron_run_log_id: Option<i64>,
+        state: LoopRunState,
+        result_summary: Option<&str>,
+        error: Option<&str>,
+        finished_at: &str,
+        extra_trace: Option<Value>,
+    ) -> Result<LoopAfterRunAction> {
         let Some(schedule) = self.loop_schedule_for_cron_job(cron_job_id)? else {
             return Ok(LoopAfterRunAction {
                 loop_id: None,
@@ -619,10 +731,18 @@ impl SessionDB {
             None => self.latest_running_loop_run_id(&schedule.id)?,
         };
         if let Some(run_id) = run_id.as_deref() {
-            let trace_patch = json!({
+            let mut trace_patch = json!({
                 "cronRunLogId": cron_run_log_id,
                 "finishedAt": finished_at,
             });
+            if let Some(extra) = extra_trace {
+                if let (Some(base), Some(extra)) = (trace_patch.as_object_mut(), extra.as_object())
+                {
+                    for (key, value) in extra {
+                        base.insert(key.clone(), value.clone());
+                    }
+                }
+            }
             self.update_loop_run_terminal(
                 run_id,
                 cron_run_log_id,
@@ -685,6 +805,87 @@ impl SessionDB {
         Ok(LoopAfterRunAction {
             loop_id: Some(schedule.id),
             pause_cron_job: pause || next_state.is_terminal(),
+        })
+    }
+
+    pub fn create_loop_workflow_run(
+        &self,
+        admission: &LoopRunAdmission,
+    ) -> Result<LoopWorkflowLaunch> {
+        let goal_id = admission
+            .goal_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("loop workflow execution requires a bound Goal"))?;
+        let goal = self
+            .get_goal(goal_id)?
+            .ok_or_else(|| anyhow!("goal not found: {goal_id}"))?;
+        if goal.session_id != admission.session_id {
+            return Err(anyhow!(
+                "goal {} belongs to session {}; expected {}",
+                goal.id,
+                goal.session_id,
+                admission.session_id
+            ));
+        }
+        let template_id = goal
+            .workflow_template_id
+            .as_deref()
+            .and_then(non_empty)
+            .ok_or_else(|| {
+                anyhow!(
+                    "loop workflow execution requires Goal {} to bind a domain workflow template",
+                    goal.id
+                )
+            })?;
+        let user_context = loop_workflow_user_context(admission);
+        let draft =
+            self.preview_domain_workflow(crate::domain_workflow::PreviewDomainWorkflowInput {
+                template_id: template_id.to_string(),
+                version: goal.workflow_template_version.clone(),
+                session_id: admission.session_id.clone(),
+                goal_id: Some(goal.id.clone()),
+                task_type: goal.workflow_task_type.clone(),
+                objective: Some(goal.objective.clone()),
+                mode_override: None,
+                user_context: Some(user_context),
+                require_plan_confirmation: false,
+            })?;
+        if !draft.script_preview.can_create {
+            return Err(anyhow!(
+                "domain workflow draft failed preflight: {}",
+                draft.script_preview.gate_feedback
+            ));
+        }
+        let run = self.create_workflow_run(crate::workflow::CreateWorkflowRunInput {
+            session_id: admission.session_id.clone(),
+            kind: draft.workflow_kind.clone(),
+            execution_mode: draft.execution_mode.clone(),
+            script_source: draft.script_source,
+            budget: json!({}),
+            parent_run_id: None,
+            origin: Some(format!("loop:{}", admission.loop_id)),
+            goal_id: Some(goal.id.clone()),
+            worktree_id: None,
+        })?;
+        let _ = self.append_workflow_event(
+            &run.id,
+            "run_derived_from_loop",
+            json!({
+                "loopId": admission.loop_id,
+                "loopRunId": admission.run_id,
+                "triggerKind": admission.trigger_kind,
+                "triggerSpec": admission.trigger_spec,
+                "templateId": draft.template.id,
+                "templateVersion": draft.template.version,
+            }),
+        );
+        Ok(LoopWorkflowLaunch {
+            run_id: run.id,
+            workflow_kind: draft.workflow_kind,
+            execution_mode: draft.execution_mode,
+            template_id: draft.template.id,
+            template_version: draft.template.version,
+            requires_approval: draft.script_preview.requires_approval,
         })
     }
 
@@ -767,7 +968,7 @@ impl SessionDB {
         Ok(conn
             .query_row(
             "SELECT id, session_id, goal_id, cron_job_id, prompt, trigger_kind, trigger_spec_json,
-                    state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
+                    execution_strategy, state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
                     approval_policy_snapshot_json, created_at, updated_at, completed_at, blocked_reason
              FROM loop_schedules WHERE cron_job_id = ?1",
                 params![cron_job_id],
@@ -860,8 +1061,26 @@ impl SessionDB {
         trace_patch: Value,
         finished_at: &str,
     ) -> Result<()> {
-        let trace_json = bounded_json(&trace_patch)?;
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let existing_trace: Option<String> = conn
+            .query_row(
+                "SELECT trace_json FROM loop_runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let mut trace = existing_trace
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .unwrap_or_else(|| json!({}));
+        if let (Some(base), Some(patch)) = (trace.as_object_mut(), trace_patch.as_object()) {
+            for (key, value) in patch {
+                base.insert(key.clone(), value.clone());
+            }
+        } else {
+            trace = trace_patch;
+        }
+        let trace_json = bounded_json(&trace)?;
         conn.execute(
             "UPDATE loop_runs
              SET state = ?2,
@@ -1046,8 +1265,9 @@ fn normalized_trigger_spec(kind: LoopTriggerKind, spec: &Value) -> Result<Value>
 fn row_to_loop_schedule(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoopSchedule> {
     let trigger_kind: String = row.get(5)?;
     let trigger_spec_json: String = row.get(6)?;
-    let state: String = row.get(7)?;
-    let policy_json: String = row.get(13)?;
+    let execution_strategy: String = row.get(7)?;
+    let state: String = row.get(8)?;
+    let policy_json: String = row.get(14)?;
     Ok(LoopSchedule {
         id: row.get(0)?,
         session_id: row.get(1)?,
@@ -1056,17 +1276,19 @@ fn row_to_loop_schedule(row: &rusqlite::Row<'_>) -> rusqlite::Result<LoopSchedul
         prompt: row.get(4)?,
         trigger_kind: LoopTriggerKind::from_str(&trigger_kind).unwrap_or(LoopTriggerKind::Interval),
         trigger_spec: serde_json::from_str(&trigger_spec_json).unwrap_or_else(|_| json!({})),
+        execution_strategy: LoopExecutionStrategy::from_str(&execution_strategy)
+            .unwrap_or(LoopExecutionStrategy::Continue),
         state: LoopState::from_str(&state).unwrap_or(LoopState::Blocked),
-        max_runs: row.get(8)?,
-        run_count: row.get(9)?,
-        max_runtime_secs: row.get(10)?,
-        token_budget: row.get(11)?,
-        cost_budget_micros: row.get(12)?,
+        max_runs: row.get(9)?,
+        run_count: row.get(10)?,
+        max_runtime_secs: row.get(11)?,
+        token_budget: row.get(12)?,
+        cost_budget_micros: row.get(13)?,
         approval_policy_snapshot: serde_json::from_str(&policy_json).unwrap_or_else(|_| json!({})),
-        created_at: row.get(14)?,
-        updated_at: row.get(15)?,
-        completed_at: row.get(16)?,
-        blocked_reason: row.get(17)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+        completed_at: row.get(17)?,
+        blocked_reason: row.get(18)?,
     })
 }
 
@@ -1102,6 +1324,28 @@ fn collect_rows<T>(
 
 fn normalize_positive(value: Option<i64>) -> Option<i64> {
     value.filter(|v| *v > 0)
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn loop_workflow_user_context(admission: &LoopRunAdmission) -> String {
+    let trigger_spec =
+        serde_json::to_string(&admission.trigger_spec).unwrap_or_else(|_| "{}".to_string());
+    format!(
+        "Loop trigger context:\n- loop_id: {}\n- loop_run_id: {}\n- trigger_kind: {}\n- trigger_spec: {}\n- recurring_prompt: {}\n",
+        admission.loop_id,
+        admission.run_id,
+        admission.trigger_kind.as_str(),
+        trigger_spec,
+        admission.prompt
+    )
 }
 
 fn now_rfc3339() -> String {
@@ -1229,6 +1473,7 @@ fn emit_loop_event(event: &str, schedule: &LoopSchedule) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::goal::CreateGoalInput;
     use crate::session::NewMessage;
 
     fn temp_dbs() -> (tempfile::TempDir, SessionDB, CronDB) {
@@ -1299,6 +1544,7 @@ mod tests {
             prompt: "poll".into(),
             trigger_kind: LoopTriggerKind::Interval,
             trigger_spec: json!({ "intervalSecs": 0 }),
+            execution_strategy: LoopExecutionStrategy::Continue,
             max_runs: None,
             max_runtime_secs: None,
             token_budget: None,
@@ -1321,6 +1567,7 @@ mod tests {
                     prompt: "poll".into(),
                     trigger_kind: LoopTriggerKind::Interval,
                     trigger_spec: json!({ "intervalSecs": 60 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
                     max_runs: None,
                     max_runtime_secs: None,
                     token_budget: None,
@@ -1345,6 +1592,7 @@ mod tests {
                     prompt: "poll".into(),
                     trigger_kind: LoopTriggerKind::Interval,
                     trigger_spec: json!({ "intervalSecs": 60 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
                     max_runs: None,
                     max_runtime_secs: None,
                     token_budget: Some(10),
@@ -1390,6 +1638,7 @@ mod tests {
                     prompt: "poll".into(),
                     trigger_kind: LoopTriggerKind::Interval,
                     trigger_spec: json!({ "intervalSecs": 60 }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
                     max_runs: None,
                     max_runtime_secs: None,
                     token_budget: None,
@@ -1427,6 +1676,134 @@ mod tests {
     }
 
     #[test]
+    fn workflow_strategy_requires_bound_goal_template() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        session_db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Keep writing brief fresh".to_string(),
+                completion_criteria: "A reviewed draft exists".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal");
+
+        let err = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id,
+                    goal_id: None,
+                    prompt: "".into(),
+                    trigger_kind: LoopTriggerKind::Interval,
+                    trigger_spec: json!({ "intervalSecs": 60 }),
+                    execution_strategy: LoopExecutionStrategy::Workflow,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    agent_id: None,
+                },
+            )
+            .expect_err("workflow loop without goal template should fail");
+        assert!(err.to_string().contains("domain workflow template"));
+    }
+
+    #[test]
+    fn workflow_strategy_materializes_domain_workflow_run() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let goal = session_db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Refresh the weekly status memo".to_string(),
+                completion_criteria: "Draft is reviewed against stakeholders".to_string(),
+                domain: None,
+                workflow_template_id: Some("writing-brief".to_string()),
+                workflow_template_version: None,
+                workflow_task_type: Some("weekly_report".to_string()),
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: Some(goal.goal.id.clone()),
+                    prompt: "Update the memo with the newest evidence".into(),
+                    trigger_kind: LoopTriggerKind::Interval,
+                    trigger_spec: json!({ "intervalSecs": 60 }),
+                    execution_strategy: LoopExecutionStrategy::Workflow,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    agent_id: None,
+                },
+            )
+            .expect("create workflow loop");
+        let decision = session_db
+            .prepare_loop_cron_run(&schedule.cron_job_id, &session.id, &now_rfc3339())
+            .expect("prepare loop");
+        let admission = match decision {
+            LoopRunDecision::Admit(admission) => admission,
+            other => panic!("expected admission, got {other:?}"),
+        };
+        assert_eq!(
+            admission.execution_strategy,
+            LoopExecutionStrategy::Workflow
+        );
+
+        let launch = session_db
+            .create_loop_workflow_run(&admission)
+            .expect("create loop workflow run");
+        assert_eq!(launch.template_id, "writing-brief");
+        assert_eq!(launch.template_version, "1.0.0");
+        assert_eq!(launch.workflow_kind, "domain:writing");
+        let runs = session_db
+            .list_workflow_runs_for_session(&session.id, 10)
+            .expect("list workflow runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].id, launch.run_id);
+        assert_eq!(runs[0].goal_id.as_deref(), Some(goal.goal.id.as_str()));
+        let expected_origin = format!("loop:{}", schedule.id);
+        assert_eq!(runs[0].origin.as_deref(), Some(expected_origin.as_str()));
+        let finished_at = now_rfc3339();
+        session_db
+            .finish_loop_cron_run_with_trace(
+                &schedule.cron_job_id,
+                Some(&admission.run_id),
+                None,
+                LoopRunState::Succeeded,
+                Some("workflow launched"),
+                None,
+                &finished_at,
+                Some(json!({
+                    "executionStrategy": "workflow",
+                    "workflowRunId": launch.run_id,
+                    "templateId": launch.template_id,
+                    "templateVersion": launch.template_version,
+                })),
+            )
+            .expect("finish workflow loop run");
+        let loop_runs = session_db
+            .list_loop_runs(&schedule.id, 10)
+            .expect("list loop runs");
+        assert_eq!(loop_runs.len(), 1);
+        assert_eq!(loop_runs[0].trace["triggerSpec"]["intervalSecs"], json!(60));
+        assert_eq!(loop_runs[0].trace["workflowRunId"], json!(runs[0].id));
+    }
+
+    #[test]
     fn condition_marker_completes_loop_after_successful_run() {
         let (_dir, session_db, cron_db) = temp_dbs();
         let session = session_db.create_session("ha-main").expect("session");
@@ -1442,6 +1819,7 @@ mod tests {
                         "condition": "CI is green",
                         "intervalSecs": 60,
                     }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
                     max_runs: None,
                     max_runtime_secs: None,
                     token_budget: None,

@@ -13,6 +13,7 @@ export type LoopRunState =
   | "cancelled"
   | "skipped"
 export type LoopTriggerKind = "interval" | "cron" | "condition" | "event"
+export type LoopExecutionStrategy = "continue" | "workflow"
 
 export interface LoopSchedule {
   id: string
@@ -22,6 +23,7 @@ export interface LoopSchedule {
   prompt: string
   triggerKind: LoopTriggerKind
   triggerSpec: Record<string, unknown>
+  executionStrategy: LoopExecutionStrategy
   state: LoopState
   maxRuns?: number | null
   runCount: number

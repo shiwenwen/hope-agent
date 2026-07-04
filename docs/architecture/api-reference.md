@@ -603,7 +603,7 @@ Domain Workflow owner API 是 Phase 7.1-7.2 的通用场景入口。`list_domain
 | `resume_loop_schedule` | `POST /api/loops/{loopId}/resume` | ✅ |
 | `stop_loop_schedule` | `POST /api/loops/{loopId}/stop` | ✅ |
 
-Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule` 会拒绝 incognito session，并要求绑定 open Goal 或提供明确 recurring prompt；底层创建受控 `CronJob(SessionLoop)` 复用 Cron 可靠调度，触发时通过 parent injection 回到原会话。Loop run 会写 `loop_runs` trace，绑定 Goal 时写 `loop_run` evidence；`pause/resume/stop` 同步暂停或恢复底层 Cron job。完整契约见 [Loop 控制平面](loop.md)。
+Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule` 会拒绝 incognito session，并要求绑定 open Goal 或提供明确 recurring prompt；可选 `executionStrategy` 默认为 `continue`，触发时通过 parent injection 回到原会话；设为 `workflow` 时仅支持 interval loop，且要求绑定 Goal 已选择 Domain Workflow template，Cron tick 会创建并启动 `origin=loop:<loop_id>` 的 durable WorkflowRun。Loop run 会写 `loop_runs` trace，绑定 Goal 时写 `loop_run` evidence；`pause/resume/stop` 同步暂停或恢复底层 Cron job。完整契约见 [Loop 控制平面](loop.md)。
 
 `export_session_cmd` / `GET /api/sessions/{sessionId}/export` 是两端**形态不对称**的特例：Tauri 端走 IPC，由前端先弹原生 save dialog 拿到 `output_path` 再传进来，后端写盘后返回最终路径字符串；HTTP 端走 GET 直接返回二进制流（`Content-Type` + `Content-Disposition: attachment; filename*=UTF-8''<percent>`），浏览器用 `URL.createObjectURL` + `<a download>` 触发下载。两端共用 [`ha_core::session::export::export_session`](../../crates/ha-core/src/session/export.rs) 序列化器，Query 参数 `format ∈ {md,json,html}` / `includeThinking` / `includeTools` 与 Tauri 命令的字段一一对应。前端 Transport 抽象 [`exportSession`](../../src/lib/transport.ts) 是这一对端点的统一入口，调用方不需要分支。
 

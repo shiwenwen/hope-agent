@@ -138,7 +138,7 @@ pub struct DomainWorkflowTemplateDraft {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewDomainWorkflowInput {
     pub template_id: String,
@@ -155,6 +155,24 @@ pub struct PreviewDomainWorkflowInput {
     pub mode_override: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_context: Option<String>,
+    #[serde(default = "serde_default_true")]
+    pub require_plan_confirmation: bool,
+}
+
+impl Default for PreviewDomainWorkflowInput {
+    fn default() -> Self {
+        Self {
+            template_id: String::new(),
+            version: None,
+            session_id: String::new(),
+            goal_id: None,
+            task_type: None,
+            objective: None,
+            mode_override: None,
+            user_context: None,
+            require_plan_confirmation: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -585,6 +603,7 @@ impl SessionDB {
             &task_type,
             &objective,
             input.user_context.as_deref().unwrap_or_default(),
+            input.require_plan_confirmation,
         );
         let script_preview = preview_workflow_script_for_session(
             self,
@@ -1052,6 +1071,7 @@ fn render_domain_workflow_script(
     task_type: &str,
     objective: &str,
     user_context: &str,
+    require_plan_confirmation: bool,
 ) -> String {
     let evidence = serde_json::to_string_pretty(&template.required_evidence).unwrap_or_default();
     let gates = serde_json::to_string_pretty(&template.approval_gates).unwrap_or_default();
@@ -1059,6 +1079,32 @@ fn render_domain_workflow_script(
         serde_json::to_string_pretty(&template.verification_policy).unwrap_or_default();
     let hints = template.prompt_hints.join("\n- ");
     let stop_conditions = template.stop_conditions.join("\n- ");
+    let plan_confirmation_step = if require_plan_confirmation {
+        format!(
+            r#"  await workflow.askUser({{
+    label: "domain-plan-confirmation",
+    questions: [{{
+      id: "confirm-domain-workflow",
+      header: "Plan",
+      question: {plan_question},
+      options: [
+        {{ label: "Proceed", value: "proceed", description: "Use this domain workflow and evidence plan." }},
+        {{ label: "Adjust", value: "adjust", description: "Pause so the plan can be edited." }}
+      ]
+    }}]
+  }});"#,
+            plan_question = json_string(&format!(
+                "Confirm this {} workflow plan before I proceed.",
+                template.title
+            )),
+        )
+    } else {
+        r#"  await workflow.trace({
+    label: "domain-plan-confirmation-skipped",
+    payload: { reason: "loop_auto_workflow" }
+  });"#
+            .to_string()
+    };
     format!(
         r#"export default async function main(workflow) {{
   const task = await workflow.task.create({{
@@ -1075,19 +1121,9 @@ fn render_domain_workflow_script(
   const evidencePlan = {evidence};
   const approvalGates = {gates};
   const verificationPolicy = {verification};
+  const budget = {{ max_runtime_secs: 300, max_ops: 16 }};
 
-  await workflow.askUser({{
-    label: "domain-plan-confirmation",
-    questions: [{{
-      id: "confirm-domain-workflow",
-      header: "Plan",
-      question: {plan_question},
-      options: [
-        {{ label: "Proceed", value: "proceed", description: "Use this domain workflow and evidence plan." }},
-        {{ label: "Adjust", value: "adjust", description: "Pause so the plan can be edited." }}
-      ]
-    }}]
-  }});
+{plan_confirmation_step}
 
   await workflow.task.update({{
     task,
@@ -1101,6 +1137,11 @@ fn render_domain_workflow_script(
     ].join("\n")
   }});
 
+  const verificationPlan = await workflow.verify({{
+    label: "domain-verification-plan",
+    maxCommands: 3
+  }});
+
   await workflow.finish({{
     status: "draft_ready",
     domain: {domain_json},
@@ -1111,7 +1152,9 @@ fn render_domain_workflow_script(
     outputContract: {output_contract},
     promptHints: {prompt_hints},
     stopConditions: {stop_conditions},
-    userContext: {user_context}
+    verificationPlan,
+    userContext: {user_context},
+    budget
   }});
 }}"#,
         task_title = json_string(&format!("{}: {}", template.title, objective)),
@@ -1120,12 +1163,9 @@ fn render_domain_workflow_script(
             template.domain
         )),
         domain = template.domain,
-        plan_question = json_string(&format!(
-            "Confirm this {} workflow plan before I proceed.",
-            template.title
-        )),
         task_type = task_type,
         goal_id = goal_id.unwrap_or("none"),
+        plan_confirmation_step = plan_confirmation_step,
         domain_json = json_string(&template.domain),
         template_id_json = json_string(&template.id),
         template_version_json = json_string(&template.version),

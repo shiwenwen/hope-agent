@@ -3,7 +3,9 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::cron::CronDB;
-use crate::loop_control::{CreateLoopScheduleInput, LoopSchedule, LoopTriggerKind};
+use crate::loop_control::{
+    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopTriggerKind,
+};
 use crate::session::SessionDB;
 use crate::slash_commands::types::{CommandAction, CommandResult};
 
@@ -60,6 +62,7 @@ fn create_every_loop(
                 prompt: prompt.to_string(),
                 trigger_kind: LoopTriggerKind::Interval,
                 trigger_spec: json!({ "intervalSecs": interval_secs }),
+                execution_strategy: LoopExecutionStrategy::Continue,
                 max_runs: opts.max_runs,
                 max_runtime_secs: opts.max_runtime_secs,
                 token_budget: opts.token_budget,
@@ -99,6 +102,7 @@ fn create_until_loop(
                     "condition": condition,
                     "intervalSecs": interval_secs,
                 }),
+                execution_strategy: LoopExecutionStrategy::Continue,
                 max_runs: opts.max_runs,
                 max_runtime_secs: opts.max_runtime_secs,
                 token_budget: opts.token_budget,

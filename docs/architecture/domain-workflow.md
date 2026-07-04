@@ -51,10 +51,12 @@ Phase 7.1 内置 7 个 template：
 `preview_domain_workflow(input)` 做三件事：
 
 1. 解析 template、session、可选 active/open Goal，拒绝 incognito session。
-2. 生成 `workflow.js` draft：创建 task、写入 domain plan、调用 `workflow.askUser` 要求用户确认计划，最终 `workflow.finish` 返回 template/evidence/approval/verification 摘要。
+2. 生成 `workflow.js` draft：创建 task、写入 domain plan、按 `requirePlanConfirmation` 决定是否调用 `workflow.askUser` 要求用户确认计划，生成 `workflow.verify` 复核计划，最终 `workflow.finish` 返回 template/evidence/approval/verification 摘要和显式 budget hint。
 3. 调用既有 `preview_workflow_script_for_session`，返回 Script Gate 与 permission preview。
 
 生成的 draft 只是一份可审查脚本，不自动创建 WorkflowRun、不自动执行、不访问连接器、不发送消息、不写外部系统。真正执行仍必须走已有 `create_workflow_run` / `run_workflow_run` 和审批链。
+
+`requirePlanConfirmation` 默认 `true`，服务 GUI 手动草稿确认；Loop 自动创建 WorkflowRun 时显式传 `false`，避免无人值守环境一启动就被 `askUser` fail-closed 卡死。自动路径仍不绕过 Script Gate、permission preview、运行时权限引擎或 Domain Quality approval gate。
 
 ## GUI 入口
 
@@ -66,6 +68,7 @@ Workspace / Workflow Control Center 的“新建工作流”表单已接入 doma
 - 点击“生成领域草稿”会调用 `preview_domain_workflow`，把返回的 `workflowKind`、`executionMode`、`scriptSource` 和 `scriptPreview` 回填到标准 workflow 创建链路。
 - 创建前同屏展示 output contract 摘要、required evidence、approval gates、verification policy 与 warnings；用户继续复用既有 Script Gate / permission preview / run immediately / worktree 选择。
 - 修改目标、模板、任务类型、执行模式或脚本会清空旧预检，避免用过期 preview 创建 run。
+- Loop 创建区可在 active Goal 已绑定领域模板时选择“创建工作流”：每次 interval tick 会用该模板版本生成 `requirePlanConfirmation=false` 的 draft，创建 `origin=loop:<loop_id>` 的 WorkflowRun，并把 workflow run id 写回 Loop trace。
 
 GUI 入口仍是 owner plane：它只生成 draft 和 preview，不自动访问连接器，也不绕过后续 workflow runtime 的审批、用户确认和权限策略。
 

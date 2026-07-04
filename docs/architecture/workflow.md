@@ -23,6 +23,8 @@ session workflow_mode
 
 它不负责长期目标本身。长期目标由 Goal 承载，workflow run 可绑定 `goal_id` 并在终态后回写 evidence；`/loop` 只负责定时、重复触发或条件轮询，不改变 workflow 的执行语义。
 
+Loop 可以选择 `executionStrategy=workflow`：interval tick 会读取绑定 Goal 的 domain workflow template/version/task type，生成通过 Script Gate 的 workflow draft，创建 `origin=loop:<loop_id>` 的 WorkflowRun 并请求 Primary runtime 启动。Loop 仍只负责触发和预算门禁；真正执行、审批、恢复、trace、Goal evidence 仍归 Workflow run。
+
 Workflow 不是 coding-only。coding 的迁移、审查、验证是重要模板，但同一能力也服务调研、写作、数据分析、会议准备、知识整理、项目运营等需要并行探索、交叉验证、阶段化执行或长任务追踪的场景。
 
 与 Claude Code dynamic workflows 的对齐边界（参考 [Claude Code Dynamic workflows](https://code.claude.com/docs/en/workflows)，复核日期：2026-07-03）：
@@ -484,6 +486,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。
 - 目标驱动草稿：生成可预检 `workflow.js`，脚本编辑放高级区。coding 只是可选领域模板之一。
 - 领域模板草稿：创建器可直接选择 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops 等 domain workflow template，调用 `preview_domain_workflow` 生成标准 `workflow.js`、证据要求、审批门、验证策略和预检结果，再走同一 `create_workflow_run` 链路。
+- Loop 自动工作流：Loop 创建区在 active Goal 已绑定领域模板时可选择“创建工作流”，后续每次 interval tick 都创建并启动一个 `origin=loop:<loop_id>` 的 WorkflowRun；列表会标记 `Workflow`，具体执行进度继续看 Workflow run detail。
 - 创建前展示 Script Gate 与 permission preview。
 - run list、历史展开、总览、当前焦点、下一步跳转。
 - Trace / Validation / Agents 三视图；Validation 命令行可展开完整输出并复制详情，失败恢复不依赖截断预览。

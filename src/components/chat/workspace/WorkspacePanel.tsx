@@ -200,6 +200,7 @@ import {
 } from "./useGoal"
 import {
   useLoopSchedules,
+  type LoopExecutionStrategy,
   type LoopSchedule,
   type LoopState,
   type LoopTriggerKind,
@@ -5548,6 +5549,8 @@ function LoopSchedulesSection({
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
   const [draftKind, setDraftKind] = useState<"interval" | "condition">("interval")
+  const [draftExecutionStrategy, setDraftExecutionStrategy] =
+    useState<LoopExecutionStrategy>("continue")
   const [draftInterval, setDraftInterval] = useState("10m")
   const [draftCondition, setDraftCondition] = useState("")
   const [draftPrompt, setDraftPrompt] = useState("")
@@ -5555,6 +5558,14 @@ function LoopSchedulesSection({
   const [draftMaxRuntime, setDraftMaxRuntime] = useState("")
   const [draftTokens, setDraftTokens] = useState("")
   const activeGoal = goalState.snapshot?.goal ?? null
+  const canUseWorkflowLoop =
+    draftKind === "interval" && Boolean(activeGoal?.workflowTemplateId)
+
+  useEffect(() => {
+    if (!canUseWorkflowLoop && draftExecutionStrategy === "workflow") {
+      setDraftExecutionStrategy("continue")
+    }
+  }, [canUseWorkflowLoop, draftExecutionStrategy])
 
   const runAction = useCallback(
     async (loop: LoopSchedule, action: "pause" | "resume" | "stop") => {
@@ -5594,6 +5605,15 @@ function LoopSchedulesSection({
       )
       return
     }
+    if (draftExecutionStrategy === "workflow" && !canUseWorkflowLoop) {
+      toast.error(
+        t(
+          "workspace.loop.workflowRequiresGoalTemplate",
+          "创建工作流的 Loop 需要当前 Goal 已选择任务领域模板",
+        ),
+      )
+      return
+    }
     const maxRuntimeSecs = draftMaxRuntime.trim() ? parseLoopDurationSecs(draftMaxRuntime) : null
     if (draftMaxRuntime.trim() && !maxRuntimeSecs) {
       toast.error(t("workspace.loop.maxRuntimeInvalid", "请输入有效最长运行时间，例如 2h"))
@@ -5621,6 +5641,7 @@ function LoopSchedulesSection({
         prompt: draftKind === "condition" && !prompt ? defaultConditionPrompt : prompt,
         triggerKind: draftKind,
         triggerSpec: draftKind === "condition" ? { condition, intervalSecs } : { intervalSecs },
+        executionStrategy: draftExecutionStrategy,
         maxRuns,
         maxRuntimeSecs,
         tokenBudget,
@@ -5638,7 +5659,9 @@ function LoopSchedulesSection({
     }
   }, [
     activeGoal,
+    canUseWorkflowLoop,
     draftCondition,
+    draftExecutionStrategy,
     draftInterval,
     draftKind,
     draftMaxRuns,
@@ -5704,6 +5727,46 @@ function LoopSchedulesSection({
                 </Button>
               ))}
             </div>
+            <div className="grid grid-cols-2 gap-1 rounded-md bg-secondary/40 p-1">
+              {(["continue", "workflow"] as const).map((strategy) => {
+                const disabled = strategy === "workflow" && !canUseWorkflowLoop
+                return (
+                  <Button
+                    key={strategy}
+                    type="button"
+                    variant={draftExecutionStrategy === strategy ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 text-[11px]"
+                    disabled={disabled}
+                    onClick={() => setDraftExecutionStrategy(strategy)}
+                  >
+                    {strategy === "workflow"
+                      ? t("workspace.loop.strategyWorkflow", "创建工作流")
+                      : t("workspace.loop.strategyContinue", "继续会话")}
+                  </Button>
+                )
+              })}
+            </div>
+            {draftExecutionStrategy === "workflow" && activeGoal?.workflowTemplateId ? (
+              <div className="rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px] text-muted-foreground">
+                {t(
+                  "workspace.loop.strategyWorkflowHint",
+                  "每次触发都会按当前 Goal 的领域模板创建可观察 Workflow run。",
+                )}{" "}
+                <span className="font-medium text-foreground/80">
+                  {activeGoal.workflowTemplateVersion
+                    ? `${activeGoal.workflowTemplateId}@${activeGoal.workflowTemplateVersion}`
+                    : activeGoal.workflowTemplateId}
+                </span>
+              </div>
+            ) : !canUseWorkflowLoop ? (
+              <div className="rounded-md bg-secondary/25 px-2 py-1.5 text-[11px] text-muted-foreground">
+                {t(
+                  "workspace.loop.strategyWorkflowDisabled",
+                  "选择带任务领域模板的 active Goal 后，可让 Loop 直接创建 Workflow run。",
+                )}
+              </div>
+            ) : null}
             <div className="grid grid-cols-2 gap-2">
               <Input
                 value={draftInterval}
@@ -5811,6 +5874,12 @@ function LoopSchedulesSection({
                         label={loopStateLabel(t, loop.state)}
                         tone={loopStateTone(loop.state)}
                       />
+                      {loop.executionStrategy === "workflow" ? (
+                        <StatusPill
+                          label={t("workspace.loop.strategyWorkflowShort", "Workflow")}
+                          tone="info"
+                        />
+                      ) : null}
                       <span className="truncate text-xs font-medium text-foreground">
                         {loopTriggerSummary(loop.triggerKind, loop.triggerSpec)}
                       </span>

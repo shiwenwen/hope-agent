@@ -805,70 +805,148 @@ async fn execute_session_loop_payload(
         );
     }
 
-    let parent_agent_id = payload_agent_id
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or(admission.agent_id.as_str())
-        .to_string();
     let prompt = if admission.prompt.trim().is_empty() {
         payload_prompt
     } else {
         admission.prompt.as_str()
     };
-    let goal_id = admission.goal_id.as_deref().or(payload_goal_id);
-    let push_message = crate::loop_control::build_loop_trigger_message(
-        &admission.loop_id,
-        &admission.run_id,
-        goal_id,
-        admission.trigger_kind,
-        &admission.trigger_spec,
-        prompt,
-    );
+    let mut extra_trace: Option<serde_json::Value> = None;
+    let (cron_status, loop_state, summary, error) =
+        if admission.execution_strategy == crate::loop_control::LoopExecutionStrategy::Workflow {
+            app_info!(
+                "cron",
+                "executor",
+                "Firing loop {} run {} as workflow for session {}",
+                admission.loop_id,
+                admission.run_id,
+                parent_session_id
+            );
+            match crate::workflow::ensure_workflow_launcher_primary()
+                .and_then(|_| session_db.create_loop_workflow_run(&admission))
+            {
+                Ok(launch) => {
+                    let accepted = crate::workflow::spawn_workflow_run_if_primary(
+                        session_db.clone(),
+                        launch.run_id.clone(),
+                        format!(
+                            "loop:{}:{}:pid:{}",
+                            admission.loop_id,
+                            admission.run_id,
+                            std::process::id()
+                        ),
+                    );
+                    if accepted {
+                        extra_trace = Some(serde_json::json!({
+                            "executionStrategy": "workflow",
+                            "workflowRunId": launch.run_id,
+                            "workflowKind": launch.workflow_kind,
+                            "executionMode": launch.execution_mode,
+                            "templateId": launch.template_id,
+                            "templateVersion": launch.template_version,
+                            "requiresApproval": launch.requires_approval,
+                        }));
+                        (
+                            "success",
+                            crate::loop_control::LoopRunState::Succeeded,
+                            Some(format!(
+                                "Workflow run {} launched from loop {}",
+                                launch.run_id, admission.loop_id
+                            )),
+                            None,
+                        )
+                    } else {
+                        extra_trace = Some(serde_json::json!({
+                            "executionStrategy": "workflow",
+                            "workflowRunId": launch.run_id,
+                            "launchAccepted": false,
+                        }));
+                        (
+                            "error",
+                            crate::loop_control::LoopRunState::Failed,
+                            None,
+                            Some(
+                                "workflow launch was rejected because this process is not primary"
+                                    .to_string(),
+                            ),
+                        )
+                    }
+                }
+                Err(err) => {
+                    extra_trace = Some(serde_json::json!({
+                        "executionStrategy": "workflow",
+                        "error": err.to_string(),
+                    }));
+                    (
+                        "error",
+                        crate::loop_control::LoopRunState::Failed,
+                        None,
+                        Some(format!("loop workflow launch failed: {err:#}")),
+                    )
+                }
+            }
+        } else {
+            let parent_agent_id = payload_agent_id
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(admission.agent_id.as_str())
+                .to_string();
+            let goal_id = admission.goal_id.as_deref().or(payload_goal_id);
+            let push_message = crate::loop_control::build_loop_trigger_message(
+                &admission.loop_id,
+                &admission.run_id,
+                goal_id,
+                admission.trigger_kind,
+                &admission.trigger_spec,
+                prompt,
+            );
 
-    app_info!(
-        "cron",
-        "executor",
-        "Firing loop {} run {} into session {}",
-        admission.loop_id,
-        admission.run_id,
-        parent_session_id
-    );
+            app_info!(
+                "cron",
+                "executor",
+                "Firing loop {} run {} into session {}",
+                admission.loop_id,
+                admission.run_id,
+                parent_session_id
+            );
 
-    let outcome = crate::subagent::injection::inject_and_run_parent(
-        parent_session_id.to_string(),
-        parent_agent_id,
-        crate::subagent::injection::LOOP_CHILD_AGENT_ID.to_string(),
-        admission.run_id.clone(),
-        push_message,
-        session_db.clone(),
-        None,
-    )
-    .await;
+            let outcome = crate::subagent::injection::inject_and_run_parent(
+                parent_session_id.to_string(),
+                parent_agent_id,
+                crate::subagent::injection::LOOP_CHILD_AGENT_ID.to_string(),
+                admission.run_id.clone(),
+                push_message,
+                session_db.clone(),
+                None,
+            )
+            .await;
+
+            let (cron_status, loop_state, error) = match outcome {
+                crate::subagent::injection::InjectionOutcome::Injected => (
+                    "success",
+                    crate::loop_control::LoopRunState::Succeeded,
+                    None,
+                ),
+                crate::subagent::injection::InjectionOutcome::Queued => {
+                    ("queued", crate::loop_control::LoopRunState::Queued, None)
+                }
+                crate::subagent::injection::InjectionOutcome::Abandoned => (
+                    "error",
+                    crate::loop_control::LoopRunState::Failed,
+                    Some("loop injection abandoned before it could be queued".to_string()),
+                ),
+            };
+            let summary = if error.is_none() {
+                session_db
+                    .summarize_latest_assistant_after(parent_session_id, started_at)
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+            (cron_status, loop_state, summary, error)
+        };
 
     let finished_at = Utc::now().to_rfc3339();
     let duration_ms = start_time.elapsed().as_millis() as u64;
-    let (cron_status, loop_state, error) = match outcome {
-        crate::subagent::injection::InjectionOutcome::Injected => (
-            "success",
-            crate::loop_control::LoopRunState::Succeeded,
-            None,
-        ),
-        crate::subagent::injection::InjectionOutcome::Queued => {
-            ("queued", crate::loop_control::LoopRunState::Queued, None)
-        }
-        crate::subagent::injection::InjectionOutcome::Abandoned => (
-            "error",
-            crate::loop_control::LoopRunState::Failed,
-            Some("loop injection abandoned before it could be queued"),
-        ),
-    };
-    let summary = if error.is_none() {
-        session_db
-            .summarize_latest_assistant_after(parent_session_id, started_at)
-            .ok()
-            .flatten()
-    } else {
-        None
-    };
 
     let _ = cron_db.finalize_or_insert_run_log(
         run_log_id,
@@ -879,7 +957,7 @@ async fn execute_session_loop_payload(
         &finished_at,
         Some(duration_ms),
         summary.as_deref(),
-        error,
+        error.as_deref(),
         None,
     );
 
@@ -894,14 +972,15 @@ async fn execute_session_loop_payload(
     }
 
     let action = session_db
-        .finish_loop_cron_run(
+        .finish_loop_cron_run_with_trace(
             &job.id,
             Some(&admission.run_id),
             run_log_id,
             loop_state,
             summary.as_deref(),
-            error,
+            error.as_deref(),
             &finished_at,
+            extra_trace,
         )
         .unwrap_or(crate::loop_control::LoopAfterRunAction {
             loop_id: Some(admission.loop_id.clone()),
@@ -920,7 +999,7 @@ async fn execute_session_loop_payload(
             cron_status
         },
         job.notify_on_complete,
-        error.map(|_| "loop_injection"),
+        error.as_ref().map(|_| "loop_execution"),
     );
 }
 

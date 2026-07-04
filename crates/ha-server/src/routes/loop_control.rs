@@ -1,6 +1,8 @@
 use axum::extract::Path;
 use axum::Json;
-use ha_core::loop_control::{CreateLoopScheduleInput, LoopSchedule, LoopSnapshot, LoopTriggerKind};
+use ha_core::loop_control::{
+    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopSnapshot, LoopTriggerKind,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -27,6 +29,8 @@ pub struct CreateLoopScheduleBody {
     pub trigger_kind: String,
     pub trigger_spec: Value,
     #[serde(default)]
+    pub execution_strategy: Option<String>,
+    #[serde(default)]
     pub prompt: Option<String>,
     #[serde(default)]
     pub goal_id: Option<String>,
@@ -48,6 +52,15 @@ pub async fn create_loop_schedule(
 ) -> Result<Json<LoopSchedule>, AppError> {
     let kind = LoopTriggerKind::from_str(&body.trigger_kind)
         .ok_or_else(|| AppError::bad_request("Invalid loop trigger kind"))?;
+    let strategy = body
+        .execution_strategy
+        .as_deref()
+        .map(|value| {
+            LoopExecutionStrategy::from_str(value)
+                .ok_or_else(|| AppError::bad_request("Invalid loop execution strategy"))
+        })
+        .transpose()?
+        .unwrap_or_default();
     session_db()?
         .create_loop_schedule(
             cron_db()?,
@@ -57,6 +70,7 @@ pub async fn create_loop_schedule(
                 prompt: body.prompt.unwrap_or_default(),
                 trigger_kind: kind,
                 trigger_spec: body.trigger_spec,
+                execution_strategy: strategy,
                 max_runs: body.max_runs,
                 max_runtime_secs: body.max_runtime_secs,
                 token_budget: body.token_budget,

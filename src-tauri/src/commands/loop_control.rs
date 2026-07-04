@@ -1,5 +1,7 @@
 use crate::commands::CmdError;
-use ha_core::loop_control::{CreateLoopScheduleInput, LoopSchedule, LoopSnapshot, LoopTriggerKind};
+use ha_core::loop_control::{
+    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopSnapshot, LoopTriggerKind,
+};
 use serde_json::Value;
 
 #[tauri::command]
@@ -30,6 +32,7 @@ pub async fn create_loop_schedule(
     session_id: String,
     trigger_kind: String,
     trigger_spec: Value,
+    execution_strategy: Option<String>,
     prompt: Option<String>,
     goal_id: Option<String>,
     max_runs: Option<i64>,
@@ -41,6 +44,14 @@ pub async fn create_loop_schedule(
 ) -> Result<LoopSchedule, CmdError> {
     let kind = LoopTriggerKind::from_str(&trigger_kind)
         .ok_or_else(|| CmdError::msg(format!("Invalid loop trigger kind: {trigger_kind}")))?;
+    let strategy = execution_strategy
+        .as_deref()
+        .map(|value| {
+            LoopExecutionStrategy::from_str(value)
+                .ok_or_else(|| CmdError::msg(format!("Invalid loop execution strategy: {value}")))
+        })
+        .transpose()?
+        .unwrap_or_default();
     app_state
         .session_db
         .create_loop_schedule(
@@ -51,6 +62,7 @@ pub async fn create_loop_schedule(
                 prompt: prompt.unwrap_or_default(),
                 trigger_kind: kind,
                 trigger_spec,
+                execution_strategy: strategy,
                 max_runs,
                 max_runtime_secs,
                 token_budget,
