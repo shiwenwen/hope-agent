@@ -225,6 +225,7 @@ pub fn check_workflow_script_draft(script: &str, options: ScriptGateOptions) -> 
         "workflow.review(",
         "workflow.verify(",
         "workflow.repairLoop(",
+        "workflow.evidence.record(",
         "workflow.block(",
         "workflow.askUser(",
         "workflow.trace(",

@@ -84,6 +84,8 @@ Phase 7.2 支持下列 evidence type：
 
 Goal evidence relation 白名单已加法扩展这些通用 evidence type；coding evidence relation 保持原样。
 
+Workflow runtime 也提供脚本内 sugar：`workflow.evidence.record({ domain, evidenceType, title, summary?, sourceMetadata?, confidence?, accessScope?, redactionStatus? })`。该 API 复用 `record_domain_evidence`，但 scope 由 runtime 强制改写为当前 workflow 的 `session_id`、绑定 `goal_id` 和 session project，脚本不能跨 session / goal / project 写 evidence。写入时会在 `sourceMetadata.workflow` 追加 `runId`、`opKey`、`sessionId`、`goalId`、`executionMode`，用于 Goal detail、Context Retrieval 和后续 Domain Quality 追溯来源。
+
 ## Context Retrieval 衔接
 
 Phase 7.3 起，`ha-core::context_retrieval` 会只读消费本模块的数据：
@@ -150,3 +152,4 @@ cargo test -p ha-core domain_workflow --locked
 
 - 内置 Research template 可列出并生成通过 Script Gate 的 workflow draft。
 - Domain evidence 可写入 `domain_evidence_items`，并通过 `goal_links` 出现在 Goal snapshot evidence 中。
+- Workflow runtime 可通过 `workflow.evidence.record` 写入通用 evidence，并保留 run/op provenance。

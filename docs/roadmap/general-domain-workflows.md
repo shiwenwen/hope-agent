@@ -133,19 +133,19 @@ DomainWorkflow
 
 - 定义并持久化通用 evidence 类型：`source_cited`、`claim_checked`、`user_decision`、`artifact_created`、`artifact_reviewed`、`data_quality_checked`、`citation_audited`、`message_draft_approved`、`meeting_context_collected`。
 - 新增 `domain_evidence_items` 表和 owner API：`record_domain_evidence` / `list_domain_evidence`。
+- Workflow runtime 已支持 `workflow.evidence.record(...)` 脚本内 sugar，scope 绑定当前 session / workflow goal / project，并把 run/op provenance 写入 `sourceMetadata.workflow`。
 - Goal evidence relation 白名单扩展到通用 evidence，记录时可通过 `goal_links` 进入 Goal snapshot。
 - Evidence 支持 source metadata、confidence、access scope、redaction status。
 - Incognito session fail-closed；goal/session 关联路径避免跨 session 伪造 evidence。
 
 后续待补：
 
-- Workflow host API 的脚本内 evidence 写入 sugar。
 - Goal detail GUI 的领域分组 evidence timeline。
 - 更细的 connector access provenance 与导出时敏感来源提示。
 
 验收：
 
-- 非 coding workflow 已能通过 owner API 写通用 evidence 证明完成标准，而不是只靠最终文本。
+- 非 coding workflow 已能通过 owner API 或 `workflow.evidence.record(...)` 写通用 evidence 证明完成标准，而不是只靠最终文本。
 - Evidence item 已保存来源 metadata、confidence、access scope、redaction status。
 - 无痕会话不会持久化 domain evidence。
 

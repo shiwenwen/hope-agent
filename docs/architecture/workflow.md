@@ -305,6 +305,7 @@ Primary-only 启动：
 | `workflow.review({ scope?, baseRef?, focusPaths?, profiles?, ideContext?, label? })` | idempotent | 运行 durable Review run，默认 `scope=local`，继承当前 workflow 的 `goal_id`，返回摘要、finding 数和 blocking finding 数。 |
 | `workflow.verify({ scope?, focusPaths?, maxCommands?, label? })` | idempotent | 创建 Smart Verification 计划，默认 `scope=local`，继承当前 workflow 的 `goal_id`；只规划不执行命令。 |
 | `workflow.repairLoop({ label?, maxAttempts?, validationCommands?, focusPaths?, reviewProfiles?, review?, verify?, maxVerificationCommands? }, fn)` | helper | 脚本级 bounded repair loop；每轮调用 callback 执行动态修复动作，然后自动 validate / profile-aware review / verify / trace。 |
+| `workflow.evidence.record({ domain, evidenceType, title, summary?, sourceMetadata?, confidence?, accessScope?, redactionStatus?, label? })` | non-idempotent | 写入通用 `domain_evidence_items`，scope 强制绑定当前 session / workflow goal / project，并在 `sourceMetadata.workflow` 记录 run id 与 op key；若 run 绑定 Goal，会同步进入 Goal evidence。 |
 | `workflow.block({ reason?, label?, payload? })` | idempotent | 受控停机出口；写 `workflow_block_requested` event，将 run 转 `blocked` 并让 runtime 停止。 |
 | `workflow.askUser({ question, context?, label? })` / `workflow.askUser({ questions, context? })` | non-idempotent | 复用 `ask_user_question`；支持单问题快捷形态或最多 4 个问题数组；无人值守 surface 先按 unattended 策略处理。 |
 | `workflow.diff({ label? })` | pure | 返回 session working dir 的 git diff snapshot。 |

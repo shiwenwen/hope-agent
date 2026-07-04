@@ -1594,6 +1594,129 @@ export default async function main(workflow) {
 }
 
 #[test]
+fn runtime_records_domain_evidence_and_links_goal_snapshot() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let session = db.create_session("ha-main").expect("create session");
+    let goal = db
+        .create_goal(CreateGoalInput {
+            session_id: session.id.clone(),
+            objective: "Write a sourced research brief".to_string(),
+            completion_criteria: "brief includes cited sources".to_string(),
+            budget_token_limit: None,
+            budget_time_limit_secs: None,
+            budget_turn_limit: None,
+        })
+        .expect("create goal");
+
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Collect research source" });
+  const source = await workflow.evidence.record({
+    domain: "research",
+    evidenceType: "source_cited",
+    title: "Official documentation cited",
+    summary: "Source supports the research brief.",
+    sourceMetadata: {
+      title: "Official docs",
+      uri: "https://example.com/docs",
+      retrievedAt: "2026-07-04T00:00:00Z"
+    },
+    confidence: 0.92,
+    accessScope: "public",
+    redactionStatus: "none"
+  });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({ sourceId: source.id, evidenceType: source.evidenceType });
+}
+"#;
+
+    let preview = preview_workflow_script_for_session(&db, &session.id, script, Some("guarded"));
+    assert!(preview.permission.calls.iter().any(|call| {
+        call.api == "workflow.evidence.record" && call.decision == "allow" && !call.dynamic
+    }));
+
+    let run = db
+        .create_workflow_run(CreateWorkflowRunInput {
+            session_id: session.id.clone(),
+            kind: "domain:research".to_string(),
+            execution_mode: "guarded".to_string(),
+            script_source: script.to_string(),
+            budget: json!({ "max_script_secs": 10, "max_ops": 8 }),
+            parent_run_id: None,
+            origin: None,
+            goal_id: Some(goal.goal.id.clone()),
+            worktree_id: None,
+        })
+        .expect("create workflow run");
+
+    let result = run_workflow_script(db.clone(), &run.id).expect("run workflow script");
+    assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let source_id = result
+        .output
+        .as_ref()
+        .and_then(|value| value.get("sourceId"))
+        .and_then(Value::as_str)
+        .expect("finish output includes source id");
+
+    let evidence = db
+        .list_domain_evidence(crate::domain_workflow::ListDomainEvidenceInput {
+            goal_id: Some(goal.goal.id.clone()),
+            ..Default::default()
+        })
+        .expect("list domain evidence");
+    assert_eq!(evidence.len(), 1);
+    assert_eq!(evidence[0].id, source_id);
+    assert_eq!(evidence[0].session_id, session.id);
+    assert_eq!(evidence[0].goal_id.as_deref(), Some(goal.goal.id.as_str()));
+    assert_eq!(evidence[0].domain, "research");
+    assert_eq!(evidence[0].evidence_type, "source_cited");
+    assert_eq!(
+        evidence[0]
+            .source_metadata
+            .get("uri")
+            .and_then(Value::as_str),
+        Some("https://example.com/docs")
+    );
+    assert_eq!(
+        evidence[0]
+            .source_metadata
+            .pointer("/workflow/runId")
+            .and_then(Value::as_str),
+        Some(run.id.as_str())
+    );
+    assert_eq!(
+        evidence[0]
+            .source_metadata
+            .pointer("/workflow/opKey")
+            .and_then(Value::as_str),
+        Some("main/op#1(evidence.record)")
+    );
+
+    let op_types: Vec<&str> = result
+        .snapshot
+        .ops
+        .iter()
+        .map(|op| op.op_type.as_str())
+        .collect();
+    assert_eq!(
+        op_types,
+        vec!["task.create", "evidence.record", "task.update", "finish"]
+    );
+
+    let goal_snapshot = db
+        .goal_snapshot(&goal.goal.id, 100)
+        .expect("goal snapshot")
+        .expect("goal exists");
+    assert!(goal_snapshot.evidence.iter().any(|item| {
+        item.source_type == "domain_evidence"
+            && item.relation == "source_cited"
+            && item.source_id == source_id
+            && item.title.contains("Official documentation cited")
+    }));
+}
+
+#[test]
 fn runtime_diff_returns_git_snapshot_for_session_workspace() {
     let dir = tempfile::tempdir().expect("tempdir");
     let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("open session db"));

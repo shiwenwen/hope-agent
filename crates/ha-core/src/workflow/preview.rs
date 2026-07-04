@@ -225,6 +225,7 @@ fn preview_raw_call(
         "workflow.review"
         | "workflow.verify"
         | "workflow.repairLoop"
+        | "workflow.evidence.record"
         | "workflow.block"
         | "workflow.now"
         | "workflow.random" => calls.push(allow_call(
@@ -380,6 +381,7 @@ fn is_permission_neutral_api(api: &str) -> bool {
             | "workflow.review"
             | "workflow.verify"
             | "workflow.repairLoop"
+            | "workflow.evidence.record"
             | "workflow.block"
             | "workflow.now"
             | "workflow.random"
@@ -634,6 +636,7 @@ fn collect_raw_calls(script: &str) -> Vec<RawWorkflowCall> {
         ("workflow.review", "workflow.review("),
         ("workflow.verify", "workflow.verify("),
         ("workflow.repairLoop", "workflow.repairLoop("),
+        ("workflow.evidence.record", "workflow.evidence.record("),
         ("workflow.block", "workflow.block("),
         ("workflow.now", "workflow.now("),
         ("workflow.random", "workflow.random("),

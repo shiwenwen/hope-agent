@@ -133,6 +133,7 @@ stateDiagram-v2
 - `workflow.validate` op 结束后写 `validation_passed` / `validation_failed` evidence。
 - `workflow.diff` op 结束后写 `diff_snapshot`，并为最多 50 个 changed file 写 `file_changed` evidence。
 - `workflow.finish({ artifact | artifacts })` 结束后写 `artifact_created` evidence，记录产物 id/path/title/kind/hash 等摘要。
+- `workflow.evidence.record(...)` 可写通用 `domain_evidence`，记录来源、用户决策、数据质量、引用审计等非 coding 证据，并保留 workflow run/op provenance。
 - workflow 内 `workflow.tool({ name: "lsp", args: { action: "diagnostics" | "sync_file" } })` 结束后写 `diagnostic_result` evidence；error 级诊断是 hard blocker，后续 passing validation 或 clean diagnostics 可解除较早诊断 blocker。
 - 绑定 `worktree_id` 的 workflow 创建后写 `worktree_attached` evidence；Managed Worktree 创建、反向绑定、归档、恢复、交接时会 best-effort 刷新同一 evidence metadata，记录 `state`、`pathExists`、`baseRef/baseSha`、`dirtySnapshot`、`handedOffAt` 等。
 - Review Engine 完成后写 `review_passed` / `review_completed`；P0/P1 open finding 写 `review_finding`，finding 状态变更会刷新 link metadata。

@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 use tokio::runtime::Handle as TokioHandle;
 
 use crate::async_jobs::{BackgroundJob, JobManager, JobOrigin, JobStatus};
+use crate::domain_workflow::{DomainEvidenceItem, RecordDomainEvidenceInput};
 use crate::plan::check_workflow_script_draft;
 use crate::review::{self, ReviewFindingStatus, RunReviewInput};
 use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
@@ -629,6 +630,23 @@ fn build_workflow_object<'js>(
         )),
     )?;
     workflow.set("task", task)?;
+
+    let evidence = Object::new(ctx.clone())?;
+    let evidence_record_host = host.clone();
+    evidence.set(
+        "record",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>, args: JsValue<'js>| -> rquickjs::Result<JsValue<'js>> {
+                host_call(
+                    &ctx,
+                    &evidence_record_host,
+                    args,
+                    WorkflowRuntimeHost::evidence_record,
+                )
+            },
+        )),
+    )?;
+    workflow.set("evidence", evidence)?;
 
     let file_search_host = host.clone();
     workflow.set(
@@ -1370,6 +1388,77 @@ impl WorkflowRuntimeHost {
                 Ok(task_handle(&updated, None))
             },
         )
+    }
+
+    fn evidence_record(&mut self, args: Value) -> Result<Value> {
+        let input = compact_input(args.clone());
+        self.execute_op_with_key(
+            "evidence.record",
+            WorkflowEffectClass::NonIdempotent,
+            input,
+            move |host, op_key| host.record_domain_evidence(args, op_key),
+        )
+    }
+
+    fn record_domain_evidence(&self, args: Value, op_key: &str) -> Result<Value> {
+        let mut input: RecordDomainEvidenceInput =
+            serde_json::from_value(args).context("parse workflow.evidence.record arguments")?;
+        self.validate_domain_evidence_scope(&input)?;
+        input.session_id = Some(self.session_id.clone());
+        input.goal_id = self.goal_id.clone();
+        input.project_id = self.session_context.project_id.clone();
+        input.source_metadata =
+            workflow_domain_evidence_source(input.source_metadata, self, op_key);
+        let item = self
+            .db
+            .record_domain_evidence(input)
+            .context("record workflow domain evidence")?;
+        Ok(domain_evidence_output(&item))
+    }
+
+    fn validate_domain_evidence_scope(&self, input: &RecordDomainEvidenceInput) -> Result<()> {
+        if let Some(session_id) = input.session_id.as_deref().map(str::trim) {
+            if !session_id.is_empty() && session_id != self.session_id {
+                bail!(
+                    "workflow.evidence.record cannot target session {} from workflow session {}",
+                    session_id,
+                    self.session_id
+                );
+            }
+        }
+        if let Some(goal_id) = input.goal_id.as_deref().map(str::trim) {
+            if goal_id.is_empty() {
+                return Ok(());
+            }
+            match self.goal_id.as_deref() {
+                Some(bound_goal_id) if bound_goal_id == goal_id => {}
+                Some(bound_goal_id) => {
+                    bail!(
+                        "workflow.evidence.record cannot target goal {} from workflow bound to {}",
+                        goal_id,
+                        bound_goal_id
+                    );
+                }
+                None => {
+                    bail!(
+                        "workflow.evidence.record cannot target goal {} because this workflow run is not goal-bound",
+                        goal_id
+                    );
+                }
+            }
+        }
+        if let Some(project_id) = input.project_id.as_deref().map(str::trim) {
+            if !project_id.is_empty()
+                && self.session_context.project_id.as_deref() != Some(project_id)
+            {
+                bail!(
+                    "workflow.evidence.record cannot target project {} from workflow project {:?}",
+                    project_id,
+                    self.session_context.project_id
+                );
+            }
+        }
+        Ok(())
     }
 
     fn file_search(&mut self, args: Value) -> Result<Value> {
@@ -2929,6 +3018,53 @@ fn workflow_verify_output(snapshot: verification::VerificationRunSnapshot) -> Va
                 "state": step.state,
             })
         }).collect::<Vec<_>>(),
+    })
+}
+
+fn workflow_domain_evidence_source(
+    source_metadata: Value,
+    host: &WorkflowRuntimeHost,
+    op_key: &str,
+) -> Value {
+    let mut map = match source_metadata {
+        Value::Object(map) => map,
+        Value::Null => serde_json::Map::new(),
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("value".to_string(), other);
+            map
+        }
+    };
+    map.insert(
+        "workflow".to_string(),
+        json!({
+            "runId": &host.run_id,
+            "opKey": op_key,
+            "sessionId": &host.session_id,
+            "goalId": &host.goal_id,
+            "executionMode": &host.execution_mode,
+        }),
+    );
+    Value::Object(map)
+}
+
+fn domain_evidence_output(item: &DomainEvidenceItem) -> Value {
+    json!({
+        "kind": "domain_evidence",
+        "id": &item.id,
+        "goalId": &item.goal_id,
+        "sessionId": &item.session_id,
+        "projectId": &item.project_id,
+        "domain": &item.domain,
+        "evidenceType": &item.evidence_type,
+        "title": &item.title,
+        "summary": &item.summary,
+        "sourceMetadata": &item.source_metadata,
+        "confidence": item.confidence,
+        "accessScope": &item.access_scope,
+        "redactionStatus": &item.redaction_status,
+        "createdAt": &item.created_at,
+        "updatedAt": &item.updated_at,
     })
 }
 
