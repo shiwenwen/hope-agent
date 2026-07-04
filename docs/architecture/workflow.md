@@ -279,6 +279,7 @@ Primary-only 启动：
 
 - `spawn_workflow_run_if_primary()` 只在 primary process 启动 run。
 - 每次启动请求都会追加 `run_runtime_launch` 审计事件，记录 `accepted`、`owner`、`reason`、`pid`；非 Primary 记录 `accepted=false` / `reason=not_primary`。
+- runtime spawn 后追加 `run_runtime_result` 审计事件，记录 `status=finished|error|skipped|rejected`、最终状态、错误摘要或跳过原因。
 - runtime 启动前必须先 claim `primary_owner`。`Draft` launch claim 保持 `draft` 状态以便权限预览仍会执行；通过预览后再转 `running` 并保留 owner。
 - 重复启动同一个 `running` / owner-alive run 会被 claim CAS 拒绝，避免同一 workflow 并发执行两份 runtime。
 - `spawn_startup_recovery_if_primary()` 启动时恢复 owner 为空或 stale 的 `running` / `recovering` run；若进程在 Draft 预检前崩溃，只有带 stale `primary_owner` 的 `draft` run 会被恢复，普通手动 draft 不会自动启动。
@@ -476,7 +477,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - Run overview 会展示“运行时间线”卡片：从已有 trace event 中浮出最近关键事件（审批、权限预览、恢复、验证、预算、派生 run、worktree 绑定等），用户无需切到 Trace tab 也能快速判断长任务当前卡点和最近动作。
 - Run overview 会展示“审批审计”卡片：串联权限预检、等待批准、批准恢复、阻塞/取消等事件，用户能直接看出审批链路当前状态和历史结果。
 - Run overview 时间线会显示 `run_control_action`，用于追踪 approve / pause / resume / cancel 的请求已接收、结果状态和原因。
-- Run overview 时间线会显示 `run_runtime_launch`，用于追踪 create / run / approve / resume 等启动请求是否被 Primary runtime 接收。
+- Run overview 时间线会显示 `run_runtime_launch` / `run_runtime_result`，用于追踪 create / run / approve / resume 等启动请求是否被 Primary runtime 接收，以及 runtime 实际返回结果。
 - Goal strip：创建 active Goal、展示目标摘要/状态/证据指标、手动 audit、暂停/恢复/清除。
 - Execution Mode 常驻控制。
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。

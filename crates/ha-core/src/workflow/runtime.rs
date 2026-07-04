@@ -164,6 +164,16 @@ pub fn spawn_workflow_run_if_primary(
                 "pid": std::process::id(),
             }),
         );
+        append_runtime_result_event(
+            &db,
+            &run_id,
+            &owner,
+            json!({
+                "status": "rejected",
+                "accepted": false,
+                "reason": "not_primary",
+            }),
+        );
         crate::app_warn!(
             "workflow",
             "spawn_run",
@@ -210,6 +220,17 @@ pub fn spawn_workflow_run_if_primary(
                 match db.claim_workflow_run_for_launch(&run_id, &owner) {
                     Ok(Some(claimed)) => run_workflow_script_async(db.clone(), &claimed.id).await,
                     Ok(None) => {
+                        append_runtime_result_event(
+                            &db,
+                            &run_id,
+                            &owner,
+                            json!({
+                                "status": "skipped",
+                                "accepted": true,
+                                "reason": "claim_unavailable",
+                                "initialState": state.as_str(),
+                            }),
+                        );
                         crate::app_info!(
                             "workflow",
                             "spawn_run",
@@ -228,6 +249,17 @@ pub fn spawn_workflow_run_if_primary(
             | WorkflowRunState::Failed
             | WorkflowRunState::Cancelled
             | WorkflowRunState::Blocked => {
+                append_runtime_result_event(
+                    &db,
+                    &run_id,
+                    &owner,
+                    json!({
+                        "status": "skipped",
+                        "accepted": true,
+                        "reason": "state_not_launchable",
+                        "initialState": state.as_str(),
+                    }),
+                );
                 crate::app_info!(
                     "workflow",
                     "spawn_run",
@@ -241,6 +273,18 @@ pub fn spawn_workflow_run_if_primary(
 
         match result {
             Ok(result) => {
+                append_runtime_result_event(
+                    &db,
+                    &run_id,
+                    &owner,
+                    json!({
+                        "status": "finished",
+                        "accepted": true,
+                        "reason": "runtime_returned",
+                        "finalState": result.snapshot.run.state.as_str(),
+                        "hasOutput": result.output.is_some(),
+                    }),
+                );
                 crate::app_info!(
                     "workflow",
                     "spawn_run",
@@ -250,6 +294,17 @@ pub fn spawn_workflow_run_if_primary(
                 );
             }
             Err(err) => {
+                append_runtime_result_event(
+                    &db,
+                    &run_id,
+                    &owner,
+                    json!({
+                        "status": "error",
+                        "accepted": true,
+                        "reason": "runtime_error",
+                        "error": err.to_string(),
+                    }),
+                );
                 crate::app_warn!(
                     "workflow",
                     "spawn_run",
@@ -260,6 +315,15 @@ pub fn spawn_workflow_run_if_primary(
         }
     });
     true
+}
+
+fn append_runtime_result_event(db: &SessionDB, run_id: &str, owner: &str, payload: Value) {
+    let mut payload = payload;
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("owner".to_string(), json!(owner));
+        object.insert("pid".to_string(), json!(std::process::id()));
+    }
+    let _ = db.append_workflow_event(run_id, "run_runtime_result", payload);
 }
 
 pub fn ensure_workflow_launcher_primary() -> Result<()> {

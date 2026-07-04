@@ -1045,7 +1045,10 @@ fn launch_claim_sets_draft_owner_and_blocks_duplicate_launch() {
 async fn spawn_workflow_run_records_runtime_launch_request() {
     let (_dir, db_raw) = temp_db();
     let db = Arc::new(db_raw);
-    let (_session_id, run_id) = create_run(&db);
+    let (_session_id, run_id) = create_run_with_script(
+        &db,
+        "export default async function main(workflow) { await workflow.finish({ summary: 'done' }); }",
+    );
     let accepted = spawn_workflow_run_if_primary(db.clone(), run_id.clone(), "test:launch");
 
     assert_eq!(accepted, crate::runtime_lock::is_primary());
@@ -1062,6 +1065,30 @@ async fn spawn_workflow_run_records_runtime_launch_request() {
                 } else {
                     "not_primary"
                 })
+    }));
+    if accepted {
+        for _ in 0..20 {
+            let events = db
+                .list_workflow_events(&run_id, 20)
+                .expect("list workflow events");
+            if events
+                .iter()
+                .any(|event| event.event_type == "run_runtime_result")
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
+    let events = db
+        .list_workflow_events(&run_id, 20)
+        .expect("list workflow events");
+    assert!(events.iter().any(|event| {
+        event.event_type == "run_runtime_result"
+            && event.payload.get("owner").and_then(Value::as_str) == Some("test:launch")
+            && event.payload.get("accepted").and_then(Value::as_bool) == Some(accepted)
+            && event.payload.get("status").and_then(Value::as_str)
+                == Some(if accepted { "finished" } else { "rejected" })
     }));
 }
 

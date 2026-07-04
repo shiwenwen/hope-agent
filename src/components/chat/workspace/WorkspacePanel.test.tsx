@@ -928,6 +928,22 @@ describe("WorkspacePanel workflow section", () => {
           },
           createdAt: "2026-01-01T00:01:32Z",
         },
+        {
+          id: 6,
+          runId: run.id,
+          seq: 6,
+          eventType: "run_runtime_result",
+          payload: {
+            status: "finished",
+            accepted: true,
+            reason: "runtime_returned",
+            finalState: "completed",
+            hasOutput: false,
+            owner: "tauri:approve:pid:123",
+            pid: 123,
+          },
+          createdAt: "2026-01-01T00:01:33Z",
+        },
       ],
     }
     transportMock.call.mockImplementation((name: string) => {
@@ -949,6 +965,8 @@ describe("WorkspacePanel workflow section", () => {
     expect(
       screen.getAllByText("已接收 · tauri:approve:pid:123 · primary_spawn_accepted").length,
     ).toBeGreaterThan(0)
+    expect(screen.getAllByText("启动结果").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("finished · completed · runtime_returned").length).toBeGreaterThan(0)
   })
 
   it("shows the bound worktree runtime in workflow overview", async () => {

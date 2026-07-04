@@ -5125,6 +5125,7 @@ const WORKFLOW_OVERVIEW_EVENT_TYPES = new Set([
   "run_state_changed",
   "run_control_action",
   "run_runtime_launch",
+  "run_runtime_result",
   "run_recovery_claimed",
   "run_worktree_attached",
   "script_permission_preview",
@@ -5162,6 +5163,16 @@ function workflowEventTone(event: WorkflowEvent): StatusTone {
   }
   if (event.eventType === "run_runtime_launch") {
     return boolField(payload, "accepted") === false ? "warn" : "info"
+  }
+  if (event.eventType === "run_runtime_result") {
+    const status = stringField(payload, "status")
+    const finalState = stringField(payload, "finalState")
+    if (status === "error" || finalState === "failed" || finalState === "blocked") return "danger"
+    if (status === "rejected" || status === "skipped" || finalState === "awaiting_approval") {
+      return "warn"
+    }
+    if (finalState === "completed") return "good"
+    return "info"
   }
   if (
     event.eventType === "op_failed" ||
@@ -5216,6 +5227,8 @@ function workflowEventTitle(
       return t("workspace.workflow.eventRunControlAction", "控制动作")
     case "run_runtime_launch":
       return t("workspace.workflow.eventRunRuntimeLaunch", "启动请求")
+    case "run_runtime_result":
+      return t("workspace.workflow.eventRunRuntimeResult", "启动结果")
     case "run_recovery_claimed":
       return t("workspace.workflow.eventRecoveryClaimed", "恢复接管")
     case "run_worktree_attached":
@@ -5283,6 +5296,14 @@ function workflowEventDetail(
             ? t("workspace.workflow.launchAccepted", "已接收")
             : t("workspace.workflow.launchRejected", "未接收")
       return [acceptedLabel, owner, reason].filter(Boolean).join(" · ")
+    }
+    case "run_runtime_result": {
+      const status = stringField(payload, "status")
+      const finalState = stringField(payload, "finalState")
+      const reason = stringField(payload, "reason")
+      const error = stringField(payload, "error")
+      const detail = [status, finalState, reason, error ? truncateMiddle(error, 72) : null]
+      return detail.filter(Boolean).join(" · ")
     }
     case "script_permission_preview":
     case "script_permission_preview_blocked":
