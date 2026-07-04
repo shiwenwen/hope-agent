@@ -816,6 +816,11 @@ pub struct ExtractSystemInput {
     pub path: Option<String>,
 }
 
+/// 设计方向选择器：为无品牌 brief 提 N 个候选方向（不落盘）。
+pub async fn propose_directions(brief: &str, n: usize) -> Result<Vec<super::extract::Direction>> {
+    super::extract::propose_directions(brief, n).await
+}
+
 pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMeta> {
     let extracted = match input.from.as_str() {
         "brief" => super::extract::from_brief(input.brief.as_deref().unwrap_or_default()).await?,

@@ -178,7 +178,7 @@ pub fn get_design_tool() -> ToolDefinition {
                     "type": "string",
                     "enum": [
                         "list_recipes", "get_recipe", "list_systems", "get_system", "extract_system",
-                        "list_projects", "list_artifacts", "get_artifact",
+                        "propose_directions", "list_projects", "list_artifacts", "get_artifact",
                         "create_artifact", "update_artifact", "delete_artifact",
                         "versions", "restore", "critique", "save_to_knowledge", "show"
                     ],
@@ -197,6 +197,7 @@ pub fn get_design_tool() -> ToolDefinition {
                 "from": { "type": "string", "enum": ["brief", "codebase"], "description": "Source for extract_system: 'brief' (a text description) or 'codebase' (read a local project's CSS/tailwind/theme files)." },
                 "brief": { "type": "string", "description": "Brand description text (for extract_system from=brief)." },
                 "path": { "type": "string", "description": "Local codebase directory to read styles from (for extract_system from=codebase)." },
+                "count": { "type": "integer", "description": "Number of options for propose_directions (2–6, default 4)." },
                 "title": { "type": "string", "description": "Artifact title" },
                 "body_html": { "type": "string", "description": "Artifact body HTML (structure). For deck, use multiple <section class=\"ds-slide\">…</section>." },
                 "css": { "type": "string", "description": "Artifact CSS (inline). Reference var(--ds-*) design tokens." },

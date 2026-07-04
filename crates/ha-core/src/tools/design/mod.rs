@@ -27,6 +27,7 @@ pub(crate) async fn tool_design(
         "list_systems" => action_list_systems(),
         "get_system" => action_get_system(args),
         "extract_system" => action_extract_system(args).await,
+        "propose_directions" => action_propose_directions(args).await,
         "list_projects" => action_list_projects(),
         "list_artifacts" => action_list_artifacts(args, session_id),
         "get_artifact" => action_get_artifact(args),
@@ -203,6 +204,13 @@ fn action_restore(args: &Value) -> Result<String> {
         "restoredFrom": version,
         "version": artifact.current_version,
     }))
+}
+
+async fn action_propose_directions(args: &Value) -> Result<String> {
+    let brief = require_str(args, "brief")?;
+    let n = args.get("count").and_then(|v| v.as_u64()).unwrap_or(4) as usize;
+    let directions = service::propose_directions(brief, n).await?;
+    ok(json!({ "directions": directions }))
 }
 
 async fn action_critique(args: &Value) -> Result<String> {

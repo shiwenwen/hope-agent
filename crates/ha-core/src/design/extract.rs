@@ -87,6 +87,53 @@ pub async fn from_brief(brief: &str) -> Result<ExtractedSystem> {
     run_extract("brand brief", brief).await
 }
 
+/// 设计方向候选（无品牌 brief 时的选择器，见 design-space.md §11.2）。
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Direction {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub summary: String,
+    #[serde(default)]
+    pub tokens: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DirectionsWrap {
+    #[serde(default)]
+    directions: Vec<Direction>,
+}
+
+/// 为一句话 brief 提 N 个不同气质的设计方向候选（不落盘，供用户/模型挑选）。
+pub async fn propose_directions(brief: &str, n: usize) -> Result<Vec<Direction>> {
+    let n = n.clamp(2, 6);
+    let prompt = format!(
+        "Propose {n} DISTINCT design directions for the brief below. Each should feel like a \
+different brand personality (e.g. minimal, editorial, playful, corporate). Return ONLY a JSON \
+object {{\"directions\":[...]}} where each item has: name (short label), summary (one sentence), \
+tokens (an object using these CSS custom properties, concrete values — hex colors, px sizes, \
+font stacks): {vocab}\n\nBRIEF:\n{brief}",
+        n = n,
+        vocab = TOKEN_VOCAB,
+        brief = truncate(brief, 4000),
+    );
+    let config = crate::config::cached_config();
+    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
+    let res = agent.side_query(&prompt, 2000).await?;
+    let t = res.text.trim();
+    let wrap: DirectionsWrap = serde_json::from_str(t)
+        .or_else(|_| {
+            let (a, b) = (t.find('{'), t.rfind('}'));
+            match (a, b) {
+                (Some(a), Some(b)) if b > a => serde_json::from_str(&t[a..=b]),
+                _ => serde_json::from_str(t),
+            }
+        })
+        .context("could not parse directions JSON")?;
+    Ok(wrap.directions)
+}
+
 /// 从本地代码库提取：读样本样式文件后交 LLM 归纳。
 pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
     let sample = collect_style_samples(dir)
