@@ -487,6 +487,8 @@ pub struct CreateDomainEvalCampaignInput {
     pub max_tasks: Option<usize>,
     #[serde(default)]
     pub models: Vec<DomainEvalCampaignModel>,
+    #[serde(default)]
+    pub providers: Vec<ProviderConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_mode: Option<String>,
     #[serde(default)]
@@ -506,6 +508,23 @@ pub struct ListDomainEvalCampaignsInput {
     pub project_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalCampaignLeaderboardInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub campaign_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -604,6 +623,77 @@ pub struct DomainEvalCampaign {
     pub finished_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalCampaignLeaderboardEvidence {
+    pub campaign_id: String,
+    pub campaign_name: String,
+    pub item_id: String,
+    pub task_id: String,
+    pub domain: String,
+    pub execution_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+    pub updated_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalCampaignLeaderboardRow {
+    pub rank: usize,
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    pub execution_mode: String,
+    pub campaigns: usize,
+    pub items: usize,
+    pub passed_items: usize,
+    pub failed_items: usize,
+    pub cancelled_items: usize,
+    pub interrupted_items: usize,
+    pub attempts: usize,
+    pub eval_runs: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_pass_rate: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_score: Option<f64>,
+    pub total_checks: usize,
+    pub failed_checks: usize,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    #[serde(default)]
+    pub evidence: Vec<DomainEvalCampaignLeaderboardEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainEvalCampaignLeaderboardReport {
+    pub generated_at: String,
+    pub status: String,
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    pub window_days: u32,
+    pub rows: Vec<DomainEvalCampaignLeaderboardRow>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1892,6 +1982,138 @@ impl SessionDB {
         Ok(Some(campaign))
     }
 
+    pub fn get_domain_eval_campaign_leaderboard(
+        &self,
+        input: DomainEvalCampaignLeaderboardInput,
+    ) -> Result<DomainEvalCampaignLeaderboardReport> {
+        let (session_id, project_id) =
+            self.resolve_domain_eval_campaign_scope(input.session_id, input.project_id)?;
+        let window_days = input
+            .window_days
+            .unwrap_or(DEFAULT_WINDOW_DAYS)
+            .clamp(1, MAX_WINDOW_DAYS);
+        let limit = input
+            .limit
+            .unwrap_or(DEFAULT_DOMAIN_EVAL_CAMPAIGN_LIMIT)
+            .clamp(1, MAX_DOMAIN_EVAL_CAMPAIGN_LIMIT);
+        let domain = input
+            .domain
+            .as_deref()
+            .and_then(non_empty)
+            .map(normalize_domain);
+        let since = since_timestamp(window_days);
+        let mut clauses = vec!["c.created_at >= ?".to_string()];
+        let mut params = vec![since];
+        if let Some(project_id) = project_id.as_ref() {
+            clauses.push("c.project_id = ?".to_string());
+            params.push(project_id.clone());
+        } else if let Some(session_id) = session_id.as_ref() {
+            clauses.push("c.session_id = ?".to_string());
+            params.push(session_id.clone());
+        }
+        if let Some(domain) = domain.as_ref() {
+            clauses.push("i.domain = ?".to_string());
+            params.push(domain.clone());
+        }
+        let campaign_ids = input
+            .campaign_ids
+            .iter()
+            .filter_map(|id| non_empty(id).map(str::to_string))
+            .collect::<Vec<_>>();
+        if !campaign_ids.is_empty() {
+            let placeholders = std::iter::repeat("?")
+                .take(campaign_ids.len())
+                .collect::<Vec<_>>()
+                .join(", ");
+            clauses.push(format!("c.id IN ({placeholders})"));
+            params.extend(campaign_ids);
+        }
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT c.id, c.name, i.id, i.task_id, i.domain, i.execution_mode,
+                    i.provider_id, i.model_id, i.label, i.status, i.attempt,
+                    i.eval_run_id, i.score, i.total_checks, i.failed_checks,
+                    i.updated_at, i.error
+             FROM domain_eval_campaign_items i
+             JOIN domain_eval_campaigns c ON c.id = i.campaign_id
+             WHERE {}
+             ORDER BY i.updated_at DESC, i.id DESC
+             LIMIT 500",
+            clauses.join(" AND ")
+        ))?;
+        let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+            Ok(DomainLeaderboardItemRow {
+                campaign_id: row.get(0)?,
+                campaign_name: row.get(1)?,
+                item_id: row.get(2)?,
+                task_id: row.get(3)?,
+                domain: row.get(4)?,
+                execution_mode: row.get(5)?,
+                provider_id: row.get(6)?,
+                model_id: row.get(7)?,
+                label: row.get(8)?,
+                status: row.get(9)?,
+                attempt: row.get::<_, i64>(10)?.max(0) as usize,
+                eval_run_id: row.get(11)?,
+                score: row.get(12)?,
+                total_checks: row.get::<_, i64>(13)?.max(0) as usize,
+                failed_checks: row.get::<_, i64>(14)?.max(0) as usize,
+                updated_at: row.get(15)?,
+                error: row.get(16)?,
+            })
+        })?;
+        let item_rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut grouped: BTreeMap<DomainLeaderboardKey, DomainLeaderboardAccumulator> =
+            BTreeMap::new();
+        for row in item_rows {
+            grouped
+                .entry(DomainLeaderboardKey::from(&row))
+                .or_default()
+                .add(row);
+        }
+        let mut rows = grouped
+            .into_iter()
+            .map(|(key, acc)| acc.into_row(key))
+            .collect::<Vec<_>>();
+        rows.sort_by(compare_domain_leaderboard_rows);
+        rows.truncate(limit);
+        for (index, row) in rows.iter_mut().enumerate() {
+            row.rank = index + 1;
+        }
+        let has_terminal_items = rows.iter().any(|row| {
+            row.passed_items + row.failed_items + row.cancelled_items + row.interrupted_items > 0
+        });
+        let has_failed_items = rows
+            .iter()
+            .any(|row| row.failed_items + row.cancelled_items + row.interrupted_items > 0);
+        let status = if rows.is_empty() || !has_terminal_items {
+            "insufficient_data"
+        } else if has_failed_items {
+            "failed"
+        } else {
+            "passed"
+        }
+        .to_string();
+        let scope = if project_id.is_some() {
+            "project"
+        } else if session_id.is_some() {
+            "session"
+        } else {
+            "global"
+        }
+        .to_string();
+        Ok(DomainEvalCampaignLeaderboardReport {
+            generated_at: now_rfc3339(),
+            status,
+            scope,
+            session_id,
+            project_id,
+            domain,
+            window_days,
+            rows,
+        })
+    }
+
     pub fn cancel_domain_eval_campaign(
         &self,
         campaign_id: &str,
@@ -3141,6 +3363,175 @@ fn domain_eval_campaign_summary(items: &[DomainEvalCampaignItem]) -> DomainEvalC
     summary.average_score =
         (score_count > 0).then_some(((score_sum / score_count as f64) * 1000.0).round() / 1000.0);
     summary
+}
+
+#[derive(Debug, Clone)]
+struct DomainLeaderboardItemRow {
+    campaign_id: String,
+    campaign_name: String,
+    item_id: String,
+    task_id: String,
+    domain: String,
+    execution_mode: String,
+    provider_id: Option<String>,
+    model_id: Option<String>,
+    label: Option<String>,
+    status: String,
+    attempt: usize,
+    eval_run_id: Option<String>,
+    score: Option<f64>,
+    total_checks: usize,
+    failed_checks: usize,
+    updated_at: String,
+    error: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct DomainLeaderboardKey {
+    provider_id: Option<String>,
+    model_id: Option<String>,
+    label: String,
+    execution_mode: String,
+}
+
+impl From<&DomainLeaderboardItemRow> for DomainLeaderboardKey {
+    fn from(row: &DomainLeaderboardItemRow) -> Self {
+        Self {
+            provider_id: row.provider_id.clone(),
+            model_id: row.model_id.clone(),
+            label: row.label.clone().unwrap_or_else(|| {
+                row.provider_id
+                    .as_ref()
+                    .zip(row.model_id.as_ref())
+                    .map(|(provider_id, model_id)| format!("{provider_id}/{model_id}"))
+                    .unwrap_or_else(|| row.execution_mode.clone())
+            }),
+            execution_mode: row.execution_mode.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct DomainLeaderboardAccumulator {
+    campaigns: BTreeSet<String>,
+    domains: BTreeSet<String>,
+    items: usize,
+    passed_items: usize,
+    failed_items: usize,
+    cancelled_items: usize,
+    interrupted_items: usize,
+    attempts: usize,
+    eval_runs: usize,
+    score_sum: f64,
+    score_count: usize,
+    total_checks: usize,
+    failed_checks: usize,
+    evidence: Vec<DomainEvalCampaignLeaderboardEvidence>,
+}
+
+impl DomainLeaderboardAccumulator {
+    fn add(&mut self, row: DomainLeaderboardItemRow) {
+        self.campaigns.insert(row.campaign_id.clone());
+        self.domains.insert(row.domain.clone());
+        self.items += 1;
+        match row.status.as_str() {
+            "passed" => self.passed_items += 1,
+            "failed" => self.failed_items += 1,
+            "cancelled" => self.cancelled_items += 1,
+            "interrupted" => self.interrupted_items += 1,
+            _ => {}
+        }
+        self.attempts += row.attempt;
+        if row.eval_run_id.is_some() {
+            self.eval_runs += 1;
+        }
+        if let Some(score) = row.score {
+            self.score_sum += score;
+            self.score_count += 1;
+        }
+        self.total_checks += row.total_checks;
+        self.failed_checks += row.failed_checks;
+        if self.evidence.len() < 8 {
+            self.evidence.push(DomainEvalCampaignLeaderboardEvidence {
+                campaign_id: row.campaign_id,
+                campaign_name: row.campaign_name,
+                item_id: row.item_id,
+                task_id: row.task_id,
+                domain: row.domain,
+                execution_mode: row.execution_mode,
+                provider_id: row.provider_id,
+                model_id: row.model_id,
+                label: row.label,
+                status: row.status,
+                score: row.score,
+                updated_at: row.updated_at,
+                error: row.error,
+            });
+        }
+    }
+
+    fn into_row(self, key: DomainLeaderboardKey) -> DomainEvalCampaignLeaderboardRow {
+        let mut warnings = Vec::new();
+        if self.failed_items > 0 {
+            warnings.push(format!("{} failed item(s)", self.failed_items));
+        }
+        if self.cancelled_items > 0 {
+            warnings.push(format!("{} cancelled item(s)", self.cancelled_items));
+        }
+        if self.interrupted_items > 0 {
+            warnings.push(format!("{} interrupted item(s)", self.interrupted_items));
+        }
+        if self.eval_runs == 0 {
+            warnings.push("no eval run evidence".to_string());
+        }
+        DomainEvalCampaignLeaderboardRow {
+            rank: 0,
+            label: key.label,
+            provider_id: key.provider_id,
+            model_id: key.model_id,
+            execution_mode: key.execution_mode,
+            campaigns: self.campaigns.len(),
+            items: self.items,
+            passed_items: self.passed_items,
+            failed_items: self.failed_items,
+            cancelled_items: self.cancelled_items,
+            interrupted_items: self.interrupted_items,
+            attempts: self.attempts,
+            eval_runs: self.eval_runs,
+            item_pass_rate: ratio(self.passed_items, self.passed_items + self.failed_items),
+            average_score: (self.score_count > 0)
+                .then_some(((self.score_sum / self.score_count as f64) * 1000.0).round() / 1000.0),
+            total_checks: self.total_checks,
+            failed_checks: self.failed_checks,
+            domains: self.domains.into_iter().collect(),
+            warnings,
+            evidence: self.evidence,
+        }
+    }
+}
+
+fn compare_domain_leaderboard_rows(
+    left: &DomainEvalCampaignLeaderboardRow,
+    right: &DomainEvalCampaignLeaderboardRow,
+) -> std::cmp::Ordering {
+    right
+        .item_pass_rate
+        .partial_cmp(&left.item_pass_rate)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| {
+            right
+                .average_score
+                .partial_cmp(&left.average_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .then_with(|| right.items.cmp(&left.items))
+        .then_with(|| {
+            let left_unhealthy = left.failed_items + left.cancelled_items + left.interrupted_items;
+            let right_unhealthy =
+                right.failed_items + right.cancelled_items + right.interrupted_items;
+            left_unhealthy.cmp(&right_unhealthy)
+        })
+        .then_with(|| left.label.cmp(&right.label))
 }
 
 fn normalize_domain_eval_campaign_models(
@@ -5511,6 +5902,111 @@ mod tests {
             .unwrap();
         assert_eq!(campaigns.len(), 1);
         assert_eq!(campaigns[0].id, completed.id);
+
+        let leaderboard = db
+            .get_domain_eval_campaign_leaderboard(DomainEvalCampaignLeaderboardInput {
+                window_days: Some(1),
+                limit: Some(5),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(leaderboard.status, "passed");
+        assert_eq!(leaderboard.rows.len(), 1);
+        assert_eq!(leaderboard.rows[0].rank, 1);
+        assert_eq!(leaderboard.rows[0].items, 1);
+        assert_eq!(leaderboard.rows[0].passed_items, 1);
+        assert!(leaderboard.rows[0].average_score.unwrap_or_default() >= DEFAULT_MIN_AVERAGE_SCORE);
+        assert_eq!(leaderboard.rows[0].evidence.len(), 1);
+    }
+
+    #[test]
+    fn domain_eval_campaign_leaderboard_queued_only_is_insufficient_data() {
+        let (_dir, db) = test_db();
+        let campaign = db
+            .create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+                name: Some("queued domain campaign".to_string()),
+                task_ids: vec!["research-source-backed-brief".to_string()],
+                max_tasks: Some(1),
+                execution_mode: Some("trace_fixture".to_string()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(campaign.items[0].status, "queued");
+
+        let leaderboard = db
+            .get_domain_eval_campaign_leaderboard(DomainEvalCampaignLeaderboardInput {
+                campaign_ids: vec![campaign.id],
+                limit: Some(5),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(leaderboard.status, "insufficient_data");
+        assert_eq!(leaderboard.rows.len(), 1);
+        assert!(leaderboard.rows[0].item_pass_rate.is_none());
+        assert_eq!(leaderboard.rows[0].eval_runs, 0);
+    }
+
+    #[tokio::test]
+    async fn domain_eval_campaign_external_item_fails_without_provider_secret() {
+        let (_dir, db) = test_db();
+        let db = Arc::new(db);
+        let campaign = db
+            .create_domain_eval_campaign(CreateDomainEvalCampaignInput {
+                name: Some("domain external campaign missing provider".to_string()),
+                task_ids: vec!["research-source-backed-brief".to_string()],
+                max_tasks: Some(1),
+                models: vec![DomainEvalCampaignModel {
+                    provider_id: Some("missing-provider".to_string()),
+                    model_id: Some("missing-model".to_string()),
+                    label: Some("Missing Model".to_string()),
+                }],
+                execution_mode: Some("agent".to_string()),
+                providers: vec![mock_responses_provider(
+                    "https://example.invalid".to_string(),
+                    "other-provider",
+                    "other-model",
+                )],
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(campaign.model_matrix.len(), 1);
+        assert_eq!(
+            campaign.model_matrix[0].provider_id.as_deref(),
+            Some("missing-provider")
+        );
+
+        let completed = run_domain_eval_campaign(
+            db.clone(),
+            RunDomainEvalCampaignInput {
+                campaign_id: campaign.id.clone(),
+                providers: Vec::new(),
+                retry_failed_only: false,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(completed.status, "failed");
+        assert_eq!(completed.summary.failed_items, 1);
+        assert!(completed.items[0]
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Provider config for missing-provider"));
+
+        let leaderboard = db
+            .get_domain_eval_campaign_leaderboard(DomainEvalCampaignLeaderboardInput {
+                campaign_ids: vec![campaign.id],
+                limit: Some(5),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(leaderboard.status, "failed");
+        assert_eq!(leaderboard.rows.len(), 1);
+        assert_eq!(leaderboard.rows[0].failed_items, 1);
+        assert!(leaderboard.rows[0]
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("failed item")));
     }
 
     #[tokio::test]

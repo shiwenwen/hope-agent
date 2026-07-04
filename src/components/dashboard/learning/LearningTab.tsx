@@ -39,6 +39,7 @@ import type {
   DomainEvalRunRecord,
   DomainEvalFixtureRunRecord,
   DomainEvalCampaign,
+  DomainEvalCampaignLeaderboardReport,
   DomainEvalTask,
   DomainQualityGateReport,
   DomainEvalCalibrationRecord,
@@ -139,7 +140,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
   const [domainEvalRuns, setDomainEvalRuns] = useState<DomainEvalRunRecord[]>([])
   const [domainFixtureRuns, setDomainFixtureRuns] = useState<DomainEvalFixtureRunRecord[]>([])
   const [domainEvalCampaigns, setDomainEvalCampaigns] = useState<DomainEvalCampaign[]>([])
+  const [domainCampaignLeaderboard, setDomainCampaignLeaderboard] =
+    useState<DomainEvalCampaignLeaderboardReport | null>(null)
   const [domainEvalTasks, setDomainEvalTasks] = useState<DomainEvalTask[]>([])
+  const [selectedDomainModels, setSelectedDomainModels] = useState<string[]>([])
+  const [domainCampaignMaxTasks, setDomainCampaignMaxTasks] = useState(3)
+  const [domainCampaignBudgetUsd, setDomainCampaignBudgetUsd] = useState("")
   const [benchmarkRunning, setBenchmarkRunning] = useState(false)
   const [benchmarkError, setBenchmarkError] = useState<string | null>(null)
   const [domainCampaignError, setDomainCampaignError] = useState<string | null>(null)
@@ -176,6 +182,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
         der,
         dfr,
         dec,
+        decl,
         det,
       ] = await Promise.all([
         getTransport().call<LearningOverview>("dashboard_learning_overview", {
@@ -295,6 +302,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
             limit: 6,
           },
         }),
+        getTransport().call<DomainEvalCampaignLeaderboardReport>("get_domain_eval_campaign_leaderboard", {
+          input: {
+            windowDays: releaseGateWindowDays(filter, windowDays),
+            limit: 6,
+          },
+        }),
         getTransport().call<DomainEvalTask[]>("list_domain_eval_tasks", {
           input: {
             limit: 20,
@@ -321,6 +334,7 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setDomainEvalRuns(der ?? [])
       setDomainFixtureRuns(dfr ?? [])
       setDomainEvalCampaigns(dec ?? [])
+      setDomainCampaignLeaderboard(decl)
       setDomainEvalTasks(det ?? [])
     } catch (e) {
       logger.error("dashboard", "LearningTab::load", "Failed to load learning data", e)
@@ -373,6 +387,16 @@ export default function LearningTab({ filter }: LearningTabProps) {
 
   const toggleBenchmarkModel = useCallback((key: string) => {
     setSelectedBenchmarkModels((current) =>
+      current.includes(key)
+        ? current.filter((item) => item !== key)
+        : current.length >= 4
+          ? [...current.slice(1), key]
+          : [...current, key],
+    )
+  }, [])
+
+  const toggleDomainModel = useCallback((key: string) => {
+    setSelectedDomainModels((current) =>
       current.includes(key)
         ? current.filter((item) => item !== key)
         : current.length >= 4
@@ -495,6 +519,59 @@ export default function LearningTab({ filter }: LearningTabProps) {
       setDomainCampaignActionId(null)
     }
   }, [reload])
+
+  const runExternalDomainEvalCampaign = useCallback(async () => {
+    const selected = benchmarkModelOptions.filter((option) =>
+      selectedDomainModels.includes(option.key),
+    )
+    if (!selected.length) {
+      setDomainCampaignError("Select at least one external model.")
+      return
+    }
+    const providerIds = new Set(selected.map((option) => option.providerId))
+    const providers = benchmarkProviders.filter((provider) => providerIds.has(provider.id))
+    const parsedBudget = Number(domainCampaignBudgetUsd)
+    setDomainCampaignActionId("external")
+    setDomainCampaignError(null)
+    try {
+      await getTransport().call<DomainEvalCampaign>("create_domain_eval_campaign", {
+        input: {
+          name: "External domain eval campaign",
+          executionMode: "agent",
+          maxTasks: Math.max(1, Math.min(15, domainCampaignMaxTasks)),
+          runNow: true,
+          maxBudgetUsd:
+            domainCampaignBudgetUsd.trim() && Number.isFinite(parsedBudget) && parsedBudget > 0
+              ? parsedBudget
+              : null,
+          providers,
+          models: selected.map((option) => ({
+            providerId: option.providerId,
+            modelId: option.modelId,
+            label: `${option.providerName}/${option.modelName}`,
+          })),
+        },
+      })
+      await reload()
+    } catch (e) {
+      setDomainCampaignError(e instanceof Error ? e.message : String(e))
+      logger.error(
+        "dashboard",
+        "LearningTab::runExternalDomainEvalCampaign",
+        "Failed to run external domain campaign",
+        e,
+      )
+    } finally {
+      setDomainCampaignActionId(null)
+    }
+  }, [
+    benchmarkModelOptions,
+    benchmarkProviders,
+    domainCampaignBudgetUsd,
+    domainCampaignMaxTasks,
+    reload,
+    selectedDomainModels,
+  ])
 
   const cancelDomainEvalCampaign = useCallback(async (campaignId: string) => {
     setDomainCampaignActionId(campaignId)
@@ -780,7 +857,12 @@ export default function LearningTab({ filter }: LearningTabProps) {
         domainEvalRuns={domainEvalRuns}
         domainFixtureRuns={domainFixtureRuns}
         domainEvalCampaigns={domainEvalCampaigns}
+        domainCampaignLeaderboard={domainCampaignLeaderboard}
         domainEvalTasks={domainEvalTasks}
+        domainModelOptions={benchmarkModelOptions}
+        selectedDomainModels={selectedDomainModels}
+        domainCampaignMaxTasks={domainCampaignMaxTasks}
+        domainCampaignBudgetUsd={domainCampaignBudgetUsd}
         benchmarkRunning={benchmarkRunning}
         benchmarkError={benchmarkError}
         domainCampaignError={domainCampaignError}
@@ -798,6 +880,10 @@ export default function LearningTab({ filter }: LearningTabProps) {
         onCancelBenchmarkCampaign={cancelBenchmarkCampaign}
         onRetryBenchmarkCampaign={retryBenchmarkCampaign}
         onRunDomainEvalCampaign={runDomainEvalCampaign}
+        onRunExternalDomainEvalCampaign={runExternalDomainEvalCampaign}
+        onToggleDomainModel={toggleDomainModel}
+        onDomainCampaignMaxTasksChange={setDomainCampaignMaxTasks}
+        onDomainCampaignBudgetUsdChange={setDomainCampaignBudgetUsd}
         onCancelDomainEvalCampaign={cancelDomainEvalCampaign}
         onRetryDomainEvalCampaign={retryDomainEvalCampaign}
         onImportSampleTaskPack={importSampleTaskPack}
@@ -986,7 +1072,12 @@ function CodingImprovementSection({
   domainEvalRuns,
   domainFixtureRuns,
   domainEvalCampaigns,
+  domainCampaignLeaderboard,
   domainEvalTasks,
+  domainModelOptions,
+  selectedDomainModels,
+  domainCampaignMaxTasks,
+  domainCampaignBudgetUsd,
   benchmarkRunning,
   benchmarkError,
   domainCampaignError,
@@ -1004,6 +1095,10 @@ function CodingImprovementSection({
   onCancelBenchmarkCampaign,
   onRetryBenchmarkCampaign,
   onRunDomainEvalCampaign,
+  onRunExternalDomainEvalCampaign,
+  onToggleDomainModel,
+  onDomainCampaignMaxTasksChange,
+  onDomainCampaignBudgetUsdChange,
   onCancelDomainEvalCampaign,
   onRetryDomainEvalCampaign,
   onImportSampleTaskPack,
@@ -1035,7 +1130,12 @@ function CodingImprovementSection({
   domainEvalRuns: DomainEvalRunRecord[]
   domainFixtureRuns: DomainEvalFixtureRunRecord[]
   domainEvalCampaigns: DomainEvalCampaign[]
+  domainCampaignLeaderboard: DomainEvalCampaignLeaderboardReport | null
   domainEvalTasks: DomainEvalTask[]
+  domainModelOptions: BenchmarkModelOption[]
+  selectedDomainModels: string[]
+  domainCampaignMaxTasks: number
+  domainCampaignBudgetUsd: string
   benchmarkRunning: boolean
   benchmarkError: string | null
   domainCampaignError: string | null
@@ -1053,6 +1153,10 @@ function CodingImprovementSection({
   onCancelBenchmarkCampaign: (campaignId: string) => void
   onRetryBenchmarkCampaign: (campaignId: string) => void
   onRunDomainEvalCampaign: () => void
+  onRunExternalDomainEvalCampaign: () => void
+  onToggleDomainModel: (key: string) => void
+  onDomainCampaignMaxTasksChange: (value: number) => void
+  onDomainCampaignBudgetUsdChange: (value: string) => void
   onCancelDomainEvalCampaign: (campaignId: string) => void
   onRetryDomainEvalCampaign: (campaignId: string) => void
   onImportSampleTaskPack: () => void
@@ -1239,9 +1343,18 @@ function CodingImprovementSection({
 
       <DomainEvalCampaignPanel
         campaigns={domainEvalCampaigns}
+        leaderboard={domainCampaignLeaderboard}
+        modelOptions={domainModelOptions}
+        selectedModelKeys={selectedDomainModels}
+        maxTasks={domainCampaignMaxTasks}
+        budgetUsd={domainCampaignBudgetUsd}
         actionId={domainCampaignActionId}
         error={domainCampaignError}
         onRun={onRunDomainEvalCampaign}
+        onRunExternal={onRunExternalDomainEvalCampaign}
+        onToggleModel={onToggleDomainModel}
+        onMaxTasksChange={onDomainCampaignMaxTasksChange}
+        onBudgetUsdChange={onDomainCampaignBudgetUsdChange}
         onCancel={onCancelDomainEvalCampaign}
         onRetry={onRetryDomainEvalCampaign}
       />
@@ -2891,16 +3004,34 @@ function DomainQualityGatePanel({
 
 function DomainEvalCampaignPanel({
   campaigns,
+  leaderboard,
+  modelOptions,
+  selectedModelKeys,
+  maxTasks,
+  budgetUsd,
   actionId,
   error,
   onRun,
+  onRunExternal,
+  onToggleModel,
+  onMaxTasksChange,
+  onBudgetUsdChange,
   onCancel,
   onRetry,
 }: {
   campaigns: DomainEvalCampaign[]
+  leaderboard: DomainEvalCampaignLeaderboardReport | null
+  modelOptions: BenchmarkModelOption[]
+  selectedModelKeys: string[]
+  maxTasks: number
+  budgetUsd: string
   actionId: string | null
   error: string | null
   onRun: () => void
+  onRunExternal: () => void
+  onToggleModel: (key: string) => void
+  onMaxTasksChange: (value: number) => void
+  onBudgetUsdChange: (value: string) => void
   onCancel: (campaignId: string) => void
   onRetry: (campaignId: string) => void
 }) {
@@ -2909,6 +3040,7 @@ function DomainEvalCampaignPanel({
     ["queued", "running", "cancel_requested"].includes(campaign.status),
   ).length
   const latest = campaigns[0]
+  const visibleModels = modelOptions.slice(0, 10)
 
   return (
     <div className="border border-border/60 rounded-lg p-4 min-w-0">
@@ -2991,6 +3123,93 @@ function DomainEvalCampaignPanel({
           })}
         />
       )}
+      <div className="mt-3 border-t border-border/40 pt-3">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.domainExternalCampaign", {
+              defaultValue: "External domain campaign",
+            })}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span>Tasks</span>
+              <input
+                className="h-6 w-14 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
+                type="number"
+                min={1}
+                max={15}
+                value={maxTasks}
+                onChange={(event) =>
+                  onMaxTasksChange(Math.max(1, Math.min(15, Number(event.target.value) || 1)))
+                }
+              />
+            </label>
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <span>USD</span>
+              <input
+                className="h-6 w-20 rounded border border-border bg-background px-1.5 text-xs tabular-nums"
+                type="number"
+                min={0}
+                step="0.01"
+                value={budgetUsd}
+                onChange={(event) => onBudgetUsdChange(event.target.value)}
+              />
+            </label>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5"
+              onClick={onRunExternal}
+              disabled={actionId === "external" || selectedModelKeys.length === 0}
+            >
+              {actionId === "external" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              <span className="text-xs">
+                {t("dashboard.learning.runExternalDomainCampaign", {
+                  defaultValue: "Run external",
+                })}
+              </span>
+            </Button>
+          </div>
+        </div>
+        {visibleModels.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {visibleModels.map((option) => {
+              const selected = selectedModelKeys.includes(option.key)
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => onToggleModel(option.key)}
+                  className={`max-w-full truncate rounded border px-1.5 py-0.5 text-[10px] ${
+                    selected
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "border-border/50 bg-secondary/30 text-muted-foreground"
+                  }`}
+                  title={`${option.providerName}/${option.modelName}`}
+                >
+                  {option.providerName}/{option.modelName}
+                </button>
+              )
+            })}
+            {modelOptions.length > visibleModels.length && (
+              <span className="rounded bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                +{modelOptions.length - visibleModels.length}
+              </span>
+            )}
+          </div>
+        ) : (
+          <EmptyLine
+            label={t("dashboard.learning.noDomainCampaignModels", {
+              defaultValue: "No enabled provider models",
+            })}
+          />
+        )}
+      </div>
+      <DomainCampaignLeaderboard leaderboard={leaderboard} />
       {error && (
         <p className="mt-2 line-clamp-2 text-[10px] text-destructive" title={error}>
           {t("dashboard.learning.domainCampaignFailed", {
@@ -2998,6 +3217,72 @@ function DomainEvalCampaignPanel({
             message: error,
           })}
         </p>
+      )}
+    </div>
+  )
+}
+
+function DomainCampaignLeaderboard({
+  leaderboard,
+}: {
+  leaderboard: DomainEvalCampaignLeaderboardReport | null
+}) {
+  const { t } = useTranslation()
+  return (
+    <div className="mt-3 border-t border-border/40 pt-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          {t("dashboard.learning.domainModelLeaderboard", {
+            defaultValue: "Domain model leaderboard",
+          })}
+        </span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] ${releaseGateTone(leaderboard?.status)}`}>
+          {leaderboard?.status ?? "loading"}
+        </span>
+      </div>
+      {leaderboard?.rows.length ? (
+        <div className="space-y-1.5">
+          {leaderboard.rows.slice(0, 6).map((row) => (
+            <div
+              key={`${row.rank}-${row.executionMode}-${row.providerId ?? "trace"}-${row.modelId ?? "fixture"}`}
+              className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs"
+            >
+              <span className="w-6 text-muted-foreground tabular-nums">#{row.rank}</span>
+              <div className="min-w-0">
+                <div className="truncate font-medium">{row.label}</div>
+                <div className="truncate text-[10px] text-muted-foreground">
+                  {row.executionMode} · {row.domains.slice(0, 3).join(", ") || "domain"} · {row.evidence.length} traces
+                </div>
+              </div>
+              <div className="flex flex-wrap justify-end gap-1.5">
+                <MetricPill
+                  label="SC"
+                  value={formatScore(row.averageScore)}
+                  tone={row.failedItems > 0 ? "warn" : "accent"}
+                />
+                <MetricPill
+                  label="IT"
+                  value={`${row.passedItems}/${row.items}`}
+                  tone={row.failedItems > 0 ? "warn" : "accent"}
+                />
+                {row.warnings.length > 0 && (
+                  <span
+                    className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300"
+                    title={row.warnings.join(", ")}
+                  >
+                    !
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.noDomainLeaderboard", {
+            defaultValue: "No comparable domain campaign rows",
+          })}
+        />
       )}
     </div>
   )

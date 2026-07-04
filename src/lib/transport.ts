@@ -1179,6 +1179,7 @@ export interface CreateDomainEvalCampaignInput {
   taskIds?: string[];
   maxTasks?: number | null;
   models?: DomainEvalCampaignModel[];
+  providers?: Record<string, unknown>[];
   executionMode?: string | null;
   runNow?: boolean;
   maxBudgetUsd?: number | null;
@@ -1189,6 +1190,15 @@ export interface ListDomainEvalCampaignsInput {
   sessionId?: string | null;
   projectId?: string | null;
   limit?: number | null;
+}
+
+export interface DomainEvalCampaignLeaderboardInput {
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays?: number | null;
+  limit?: number | null;
+  campaignIds?: string[];
 }
 
 export interface RunDomainEvalCampaignInput {
@@ -1258,6 +1268,56 @@ export interface DomainEvalCampaign {
   startedAt?: string | null;
   finishedAt?: string | null;
   error?: string | null;
+}
+
+export interface DomainEvalCampaignLeaderboardEvidence {
+  campaignId: string;
+  campaignName: string;
+  itemId: string;
+  taskId: string;
+  domain: string;
+  executionMode: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  label?: string | null;
+  status: string;
+  score?: number | null;
+  updatedAt: string;
+  error?: string | null;
+}
+
+export interface DomainEvalCampaignLeaderboardRow {
+  rank: number;
+  label: string;
+  providerId?: string | null;
+  modelId?: string | null;
+  executionMode: string;
+  campaigns: number;
+  items: number;
+  passedItems: number;
+  failedItems: number;
+  cancelledItems: number;
+  interruptedItems: number;
+  attempts: number;
+  evalRuns: number;
+  itemPassRate?: number | null;
+  averageScore?: number | null;
+  totalChecks: number;
+  failedChecks: number;
+  domains: string[];
+  warnings: string[];
+  evidence: DomainEvalCampaignLeaderboardEvidence[];
+}
+
+export interface DomainEvalCampaignLeaderboardReport {
+  generatedAt: string;
+  status: string;
+  scope: string;
+  sessionId?: string | null;
+  projectId?: string | null;
+  domain?: string | null;
+  windowDays: number;
+  rows: DomainEvalCampaignLeaderboardRow[];
 }
 
 export interface ImportDomainEvalCaseInput {

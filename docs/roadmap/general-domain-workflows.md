@@ -4,7 +4,7 @@
 >
 > 更新时间：2026-07-04
 >
-> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
+> 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate、Phase 7.7 Domain Eval Calibration、Phase 7.8 Domain Eval Fixture Runner、Phase 7.9 Domain Eval Agent Fixture Execution、Phase 7.10 Domain Fixture / Smoke Run Center、Phase 7.11 Domain Eval Campaign Runner、Phase 7.12 Domain External Campaign & Leaderboard 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
 ## 1. 背景
 
@@ -277,6 +277,13 @@ DomainWorkflow
 - 支持 `retryFailedOnly=true`：failed / interrupted / cancelled item 清掉旧 fixture/eval run 关联后重新运行。
 - Dashboard Learning 新增「Domain campaigns」卡片，可运行 trace pack、查看 item pass rate / 平均分 / check 数 / fixture/eval run 关联，并对 campaign cancel / retry。
 
+### Phase 7.12 Domain External Campaign & Leaderboard（已完成第一版）
+
+- `CreateDomainEvalCampaignInput` 新增临时 `providers` 字段，仅用于 `runNow` external campaign 启动，不写入 `domain_eval_campaigns`。
+- 新增 `get_domain_eval_campaign_leaderboard` owner API，按 provider/model/label/execution 聚合 campaign item，输出 rank、pass rate、average score、warnings 与 evidence。
+- Dashboard Learning 的「Domain campaigns」新增独立 provider/model 选择、外部 agent campaign 运行、max tasks / budget 输入和「Domain model leaderboard」。
+- 缺少 provider secret 的 external campaign item 会明确 failed 并进入 leaderboard warning，不写 eval run、不静默成功。
+
 ## 8. GUI 产品形态
 
 通用场景层不应该要求用户记模板名。当前已落地和后续推荐入口：
@@ -288,7 +295,7 @@ DomainWorkflow
 - 已落地：Workspace「领域复核」区块支持对当前复核 run 点击「提炼经验」，把成功/失败/需要用户确认的领域质量事实定向进入 Coding Improvement proposal 队列。
 - 已落地：Dashboard Learning 展示 General domain trends + General domain quality gate，区分长期趋势观察和当前门禁判定。
 - 已落地：Dashboard Learning 展示 Domain smoke runs，按 `sourceType=fixture_*` 与 `SessionKind::EvalFixture` 隔离合成回归样本。
-- 已落地：Dashboard Learning 展示 Domain campaigns，可运行 deterministic trace pack、观察 durable item 进度、取消和 retry 失败 / 中断 / 已取消 item。
+- 已落地：Dashboard Learning 展示 Domain campaigns，可运行 deterministic trace pack 或 external model agent campaign、观察 durable item 进度、取消和 retry 失败 / 中断 / 已取消 item，并查看 Domain model leaderboard。
 - Workspace 增加通用面板：Sources、Evidence、Drafts、Review、Verification、Decisions。
 
 ## 9. 权限与隐私红线

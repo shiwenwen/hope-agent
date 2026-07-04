@@ -1636,6 +1636,10 @@ fn build_router_with_cors(
             post(routes::domain_eval::run_domain_eval_campaign),
         )
         .route(
+            "/domain-eval/campaigns/leaderboard",
+            post(routes::domain_eval::get_domain_eval_campaign_leaderboard),
+        )
+        .route(
             "/domain-eval/campaigns/{campaign_id}",
             get(routes::domain_eval::get_domain_eval_campaign),
         )

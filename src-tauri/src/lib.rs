@@ -892,6 +892,7 @@ pub fn run() {
             commands::domain_eval::get_domain_eval_campaign,
             commands::domain_eval::cancel_domain_eval_campaign,
             commands::domain_eval::run_domain_eval_campaign,
+            commands::domain_eval::get_domain_eval_campaign_leaderboard,
             commands::domain_eval::evaluate_domain_quality_gate,
             commands::domain_quality::list_domain_quality_runs,
             commands::domain_quality::get_domain_quality_run,

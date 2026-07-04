@@ -457,6 +457,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_domain_eval_campaign: { method: "GET", path: "/api/domain-eval/campaigns/{campaignId}" },
   cancel_domain_eval_campaign: { method: "POST", path: "/api/domain-eval/campaigns/{campaignId}/cancel" },
   run_domain_eval_campaign: { method: "POST", path: "/api/domain-eval/campaigns/run" },
+  get_domain_eval_campaign_leaderboard: { method: "POST", path: "/api/domain-eval/campaigns/leaderboard" },
   evaluate_domain_quality_gate: { method: "POST", path: "/api/domain-quality-gate/evaluate" },
   list_domain_quality_runs: { method: "GET", path: "/api/sessions/{sessionId}/domain-quality-runs" },
   get_domain_quality_run: { method: "GET", path: "/api/domain-quality-runs/{runId}" },

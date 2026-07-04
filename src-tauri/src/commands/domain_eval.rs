@@ -1,6 +1,7 @@
 use crate::commands::CmdError;
 use ha_core::domain_eval::{
     CreateDomainEvalCampaignInput, DomainEvalCalibrationRecord, DomainEvalCampaign,
+    DomainEvalCampaignLeaderboardInput, DomainEvalCampaignLeaderboardReport,
     DomainEvalFixtureReport, DomainEvalFixtureRunRecord, DomainEvalRunRecord, DomainEvalTask,
     DomainQualityGateInput, DomainQualityGateReport, ImportDomainEvalCaseInput,
     ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput, ListDomainEvalCampaignsInput,
@@ -103,6 +104,7 @@ pub async fn create_domain_eval_campaign(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<DomainEvalCampaign, CmdError> {
     let run_now = input.run_now;
+    let providers = input.providers.clone();
     let campaign = app_state
         .session_db
         .create_domain_eval_campaign(input)
@@ -113,7 +115,7 @@ pub async fn create_domain_eval_campaign(
         tokio::spawn(async move {
             let input = RunDomainEvalCampaignInput {
                 campaign_id,
-                providers: Vec::new(),
+                providers,
                 retry_failed_only: false,
             };
             let _ = ha_core::domain_eval::run_domain_eval_campaign(db, input).await;
@@ -168,6 +170,17 @@ pub async fn run_domain_eval_campaign(
     app_state
         .session_db
         .get_domain_eval_campaign(&campaign_id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_domain_eval_campaign_leaderboard(
+    input: DomainEvalCampaignLeaderboardInput,
+    app_state: tauri::State<'_, crate::AppState>,
+) -> Result<DomainEvalCampaignLeaderboardReport, CmdError> {
+    app_state
+        .session_db
+        .get_domain_eval_campaign_leaderboard(input)
         .map_err(Into::into)
 }
 

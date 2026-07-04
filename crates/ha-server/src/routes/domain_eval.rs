@@ -1,6 +1,7 @@
 use axum::Json;
 use ha_core::domain_eval::{
     CreateDomainEvalCampaignInput, DomainEvalCalibrationRecord, DomainEvalCampaign,
+    DomainEvalCampaignLeaderboardInput, DomainEvalCampaignLeaderboardReport,
     DomainEvalFixtureReport, DomainEvalFixtureRunRecord, DomainEvalRunRecord, DomainEvalTask,
     DomainQualityGateInput, DomainQualityGateReport, ImportDomainEvalCaseInput,
     ImportDomainEvalCaseResult, ListDomainEvalCalibrationsInput, ListDomainEvalCampaignsInput,
@@ -82,6 +83,12 @@ pub struct RunDomainEvalCampaignBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DomainEvalCampaignLeaderboardBody {
+    pub input: DomainEvalCampaignLeaderboardInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DomainQualityGateBody {
     pub input: DomainQualityGateInput,
 }
@@ -149,6 +156,7 @@ pub async fn create_domain_eval_campaign(
 ) -> Result<Json<DomainEvalCampaign>, AppError> {
     let db = session_db()?.clone();
     let run_now = body.input.run_now;
+    let providers = body.input.providers.clone();
     let campaign = db
         .create_domain_eval_campaign(body.input)
         .map_err(|err| AppError::bad_request(err.to_string()))?;
@@ -158,7 +166,7 @@ pub async fn create_domain_eval_campaign(
         tokio::spawn(async move {
             let input = RunDomainEvalCampaignInput {
                 campaign_id,
-                providers: Vec::new(),
+                providers,
                 retry_failed_only: false,
             };
             let _ = ha_core::domain_eval::run_domain_eval_campaign(run_db, input).await;
@@ -204,6 +212,15 @@ pub async fn run_domain_eval_campaign(
     });
     session_db()?
         .get_domain_eval_campaign(&campaign_id)
+        .map(Json)
+        .map_err(|err| AppError::bad_request(err.to_string()))
+}
+
+pub async fn get_domain_eval_campaign_leaderboard(
+    Json(body): Json<DomainEvalCampaignLeaderboardBody>,
+) -> Result<Json<DomainEvalCampaignLeaderboardReport>, AppError> {
+    session_db()?
+        .get_domain_eval_campaign_leaderboard(body.input)
         .map(Json)
         .map_err(|err| AppError::bad_request(err.to_string()))
 }
