@@ -877,7 +877,45 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getAllByRole("button", { name: "批准" }).length).toBeGreaterThan(0)
     expect(await screen.findByText("运行时间线")).toBeTruthy()
     expect(screen.getByText("最近 2 条")).toBeTruthy()
+    expect(await screen.findByText("审批审计")).toBeTruthy()
+    expect(screen.getByText("等待批准")).toBeTruthy()
+    expect(screen.getAllByText("待处理").length).toBeGreaterThan(0)
     expect(screen.getByText("最近信号")).toBeTruthy()
+  })
+
+  it("shows granted approval history in the workflow overview", async () => {
+    const run = workflowRun({ state: "running" })
+    const snapshot: WorkflowRunSnapshot = {
+      ...workflowSnapshot(run),
+      events: [
+        ...workflowSnapshot(run).events,
+        {
+          id: 3,
+          runId: run.id,
+          seq: 3,
+          eventType: "run_state_changed",
+          payload: {
+            from: "awaiting_approval",
+            to: "running",
+            reason: "approval_granted",
+          },
+          createdAt: "2026-01-01T00:01:30Z",
+        },
+      ],
+    }
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "list_workflow_runs") return Promise.resolve([run])
+      if (name === "get_workflow_run") return Promise.resolve(snapshot)
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel(null)
+
+    expect(await screen.findByText("审批审计")).toBeTruthy()
+    expect(screen.getByText("已批准")).toBeTruthy()
+    expect(screen.getByText("已通过")).toBeTruthy()
   })
 
   it("shows the bound worktree runtime in workflow overview", async () => {

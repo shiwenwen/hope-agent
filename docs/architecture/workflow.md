@@ -469,6 +469,7 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - Run 列表会标记已绑定 `worktreeId` 的 workflow，便于用户区分普通运行和隔离运行。
 - Run overview 会展示绑定 worktree 的运行位置卡片：优先读取 managed worktree live row，缺失时从 `run_worktree_attached` trace event 兜底显示 path/state/source，避免历史 run 失去执行环境上下文。
 - Run overview 会展示“运行时间线”卡片：从已有 trace event 中浮出最近关键事件（审批、权限预览、恢复、验证、预算、派生 run、worktree 绑定等），用户无需切到 Trace tab 也能快速判断长任务当前卡点和最近动作。
+- Run overview 会展示“审批审计”卡片：串联权限预检、等待批准、批准恢复、阻塞/取消等事件，用户能直接看出审批链路当前状态和历史结果。
 - Goal strip：创建 active Goal、展示目标摘要/状态/证据指标、手动 audit、暂停/恢复/清除。
 - Execution Mode 常驻控制。
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。

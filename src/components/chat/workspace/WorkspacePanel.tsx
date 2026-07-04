@@ -4788,6 +4788,102 @@ function workflowPermissionPreview(snapshot: WorkflowRunSnapshot | null): {
   return summary || calls.length > 0 ? { summary: summary ?? {}, calls, truncated } : null
 }
 
+function workflowApprovalAuditEvents(snapshot: WorkflowRunSnapshot | null): WorkflowEvent[] {
+  return (snapshot?.events ?? []).filter((event) => {
+    if (
+      event.eventType === "script_permission_preview" ||
+      event.eventType === "script_permission_preview_blocked" ||
+      event.eventType === "script_permission_approval_required"
+    ) {
+      return true
+    }
+    if (event.eventType !== "run_state_changed") return false
+    const payload = asRecord(event.payload)
+    const reason = stringField(payload, "reason")
+    const from = stringField(payload, "from")
+    const to = stringField(payload, "to")
+    return (
+      reason === "approval_granted" ||
+      reason === "permission_preview" ||
+      reason === "permission_preview_denied" ||
+      (reason === "cancel_requested" && from === "awaiting_approval") ||
+      to === "awaiting_approval"
+    )
+  })
+}
+
+function workflowApprovalAuditTitle(
+  t: ReturnType<typeof useTranslation>["t"],
+  event: WorkflowEvent,
+): string {
+  const payload = asRecord(event.payload)
+  const reason = stringField(payload, "reason")
+  switch (event.eventType) {
+    case "script_permission_preview":
+      return t("workspace.workflow.approvalAuditPreview", "权限预检")
+    case "script_permission_preview_blocked":
+      return t("workspace.workflow.approvalAuditBlocked", "预检阻塞")
+    case "script_permission_approval_required":
+      return t("workspace.workflow.approvalAuditRequired", "等待批准")
+    case "run_state_changed":
+      if (reason === "approval_granted") {
+        return t("workspace.workflow.approvalAuditGranted", "已批准")
+      }
+      if (reason === "permission_preview") {
+        return t("workspace.workflow.approvalAuditEntered", "进入待批准")
+      }
+      if (reason === "permission_preview_denied") {
+        return t("workspace.workflow.approvalAuditDenied", "预检拒绝")
+      }
+      if (reason === "cancel_requested") {
+        return t("workspace.workflow.approvalAuditCancelled", "审批已取消")
+      }
+      return workflowEventTitle(t, event)
+    default:
+      return workflowEventTitle(t, event)
+  }
+}
+
+function workflowApprovalAuditTone(event: WorkflowEvent): StatusTone {
+  const payload = asRecord(event.payload)
+  const reason = stringField(payload, "reason")
+  const to = stringField(payload, "to")
+  if (
+    event.eventType === "script_permission_preview_blocked" ||
+    reason === "permission_preview_denied"
+  ) {
+    return "danger"
+  }
+  if (reason === "approval_granted") return "good"
+  if (
+    event.eventType === "script_permission_approval_required" ||
+    reason === "permission_preview" ||
+    to === "awaiting_approval"
+  ) {
+    return "warn"
+  }
+  if (reason === "cancel_requested") return "muted"
+  return "info"
+}
+
+function workflowApprovalAuditStatusLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  tone: StatusTone,
+): string {
+  switch (tone) {
+    case "good":
+      return t("workspace.workflow.approvalAuditStatusGranted", "已通过")
+    case "warn":
+      return t("workspace.workflow.approvalAuditStatusWaiting", "待处理")
+    case "danger":
+      return t("workspace.workflow.approvalAuditStatusBlocked", "已阻塞")
+    case "info":
+      return t("workspace.workflow.approvalAuditStatusRecorded", "已记录")
+    case "muted":
+      return t("workspace.workflow.approvalAuditStatusClosed", "已关闭")
+  }
+}
+
 function workflowPermissionDecisionLabel(
   t: ReturnType<typeof useTranslation>["t"],
   call: Record<string, unknown>,
@@ -8647,6 +8743,7 @@ function WorkflowRunOverview({
       {worktreeInfo ? <WorkflowRunWorktreeCard info={worktreeInfo} /> : null}
       <WorkflowRunTimelineCard snapshot={snapshot} />
       <WorkflowApprovalPreview snapshot={snapshot} />
+      <WorkflowApprovalAudit snapshot={snapshot} />
       <WorkflowRecoveryHint
         run={run}
         snapshot={snapshot}
@@ -8958,6 +9055,63 @@ function WorkflowRunFocusCard({
       </div>
       <div className="mt-0.5 truncate opacity-85">{body}</div>
     </div>
+  )
+}
+
+function WorkflowApprovalAudit({ snapshot }: { snapshot: WorkflowRunSnapshot | null }) {
+  const { t } = useTranslation()
+  const events = workflowApprovalAuditEvents(snapshot).slice(-6)
+  if (events.length === 0) return null
+
+  return (
+    <div className="rounded-md border border-border/55 bg-secondary/20 p-2">
+      <div className="mb-1.5 flex min-w-0 items-center gap-2">
+        <ClipboardCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/90">
+          {t("workspace.workflow.approvalAudit", "审批审计")}
+        </span>
+        <span className="shrink-0 text-[10px] text-muted-foreground/70">
+          {t("workspace.workflow.approvalAuditCount", "{{count}} 条", { count: events.length })}
+        </span>
+      </div>
+      <div className="space-y-1">
+        {events.map((event) => (
+          <WorkflowApprovalAuditRow key={event.id} event={event} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function WorkflowApprovalAuditRow({ event }: { event: WorkflowEvent }) {
+  const { t } = useTranslation()
+  const tone = workflowApprovalAuditTone(event)
+  const title = workflowApprovalAuditTitle(t, event)
+  const detail = workflowEventDetail(t, event)
+  return (
+    <IconTip label={compactJson(event.payload, event.eventType)}>
+      <div className="flex min-w-0 items-start gap-2 rounded-md px-1.5 py-1 text-[11px] hover:bg-background/45">
+        <span
+          className={cn(
+            "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+            WORKFLOW_TIMELINE_DOT_CLASS[tone],
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/70">
+              #{event.seq}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground/85">{title}</span>
+            <StatusPill label={workflowApprovalAuditStatusLabel(t, tone)} tone={tone} />
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/75">
+            {detail ? <span className="min-w-0 flex-1 truncate">{detail}</span> : null}
+            <span className="shrink-0">{formatMessageTime(event.createdAt)}</span>
+          </div>
+        </div>
+      </div>
+    </IconTip>
   )
 }
 
