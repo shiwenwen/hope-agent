@@ -478,7 +478,7 @@ Smart Verification owner API 管理 durable validation run。`plan_smart_verific
 | `run_domain_quality` | `POST /api/domain-quality-runs/run` | ✅ |
 | `get_domain_quality_run` | `GET /api/domain-quality-runs/{runId}` | ✅ |
 
-Domain Quality owner API 管理 durable non-coding review / verification run。`run_domain_quality` 基于 Domain Workflow template、domain evidence、approval gates 和输入 metadata 同步生成 `domain_quality_runs/checks/events`，并把 `domain_quality_passed` / `domain_quality_blocked` / `domain_quality_failed` / `domain_quality_needs_user` / `domain_quality_check` 写回 Goal evidence。无工作目录也可运行；无痕会话拒绝持久化。高风险动作只有在 `sourceMetadata.requestedAction` 匹配 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失时 run 进入 `needs_user` 并阻塞 Goal。完整契约见 [Domain Quality 控制平面](domain-quality.md)。
+Domain Quality owner API 管理 durable non-coding review / verification run。`run_domain_quality` 基于 Domain Workflow template、domain evidence、approval gates 和输入 metadata 同步生成 `domain_quality_runs/checks/events`，并把 `domain_quality_passed` / `domain_quality_blocked` / `domain_quality_failed` / `domain_quality_needs_user` / `domain_quality_check` 写回 Goal evidence。请求可显式带 `templateId/templateVersion` 或 `domain`；未指定时优先使用 active / 指定 Goal 绑定的 `workflow_template_id/version`，run 与 stats 会保留 template id/version 便于审计。无工作目录也可运行；无痕会话拒绝持久化。高风险动作只有在 `sourceMetadata.requestedAction` 匹配 approval gate 或 `highRiskAction=true` 时要求 `explicitUserApproval`，缺失时 run 进入 `needs_user` 并阻塞 Goal。完整契约见 [Domain Quality 控制平面](domain-quality.md)。
 
 ### Domain Eval / Quality Gate
 

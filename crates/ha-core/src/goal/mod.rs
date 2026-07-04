@@ -100,6 +100,14 @@ pub struct Goal {
     pub session_id: String,
     pub objective: String,
     pub completion_criteria: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_template_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_template_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_task_type: Option<String>,
     pub state: GoalState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode_snapshot: Option<String>,
@@ -260,6 +268,14 @@ pub struct CreateGoalInput {
     #[serde(default)]
     pub completion_criteria: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_template_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_task_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_token_limit: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_time_limit_secs: Option<i64>,
@@ -275,6 +291,14 @@ pub struct UpdateGoalInput {
     pub objective: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_criteria: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_template_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow_task_type: Option<String>,
 }
 
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
@@ -284,6 +308,10 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             session_id TEXT NOT NULL,
             objective TEXT NOT NULL,
             completion_criteria TEXT NOT NULL DEFAULT '',
+            domain TEXT,
+            workflow_template_id TEXT,
+            workflow_template_version TEXT,
+            workflow_task_type TEXT,
             state TEXT NOT NULL,
             mode_snapshot TEXT,
             budget_token_limit INTEGER,
@@ -334,16 +362,105 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_goal_links_target
             ON goal_links(target_type, target_id);",
     )?;
+    ensure_goal_column(
+        conn,
+        "goals",
+        "domain",
+        "ALTER TABLE goals ADD COLUMN domain TEXT;",
+    )?;
+    ensure_goal_column(
+        conn,
+        "goals",
+        "workflow_template_id",
+        "ALTER TABLE goals ADD COLUMN workflow_template_id TEXT;",
+    )?;
+    ensure_goal_column(
+        conn,
+        "goals",
+        "workflow_template_version",
+        "ALTER TABLE goals ADD COLUMN workflow_template_version TEXT;",
+    )?;
+    ensure_goal_column(
+        conn,
+        "goals",
+        "workflow_task_type",
+        "ALTER TABLE goals ADD COLUMN workflow_task_type TEXT;",
+    )?;
     Ok(())
 }
 
 impl SessionDB {
+    fn resolve_goal_domain_selection(
+        &self,
+        domain: Option<String>,
+        workflow_template_id: Option<String>,
+        workflow_template_version: Option<String>,
+        workflow_task_type: Option<String>,
+    ) -> Result<GoalDomainSelection> {
+        let requested_domain = normalize_goal_domain_field(domain.as_deref());
+        let requested_template_id = normalize_goal_text_field(workflow_template_id.as_deref());
+        let requested_template_version =
+            normalize_goal_text_field(workflow_template_version.as_deref());
+        let requested_task_type = normalize_goal_domain_field(workflow_task_type.as_deref());
+
+        let Some(template_id) = requested_template_id else {
+            return Ok(GoalDomainSelection {
+                domain: requested_domain,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: requested_task_type,
+            });
+        };
+
+        let template = self
+            .get_domain_workflow_template(&template_id, requested_template_version.as_deref())?
+            .ok_or_else(|| anyhow!("domain workflow template not found: {template_id}"))?;
+        if let Some(domain) = requested_domain.as_ref() {
+            if domain != &template.domain {
+                return Err(anyhow!(
+                    "goal domain {} does not match template {} domain {}",
+                    domain,
+                    template.id,
+                    template.domain
+                ));
+            }
+        }
+        let task_type = requested_task_type.or_else(|| template.task_types.first().cloned());
+        if let Some(task_type) = task_type.as_ref() {
+            if !template.task_types.is_empty()
+                && !template
+                    .task_types
+                    .iter()
+                    .any(|candidate| candidate == task_type)
+            {
+                return Err(anyhow!(
+                    "task type {} is not supported by template {}",
+                    task_type,
+                    template.id
+                ));
+            }
+        }
+
+        Ok(GoalDomainSelection {
+            domain: Some(template.domain.clone()),
+            workflow_template_id: Some(template.id),
+            workflow_template_version: Some(template.version),
+            workflow_task_type: task_type,
+        })
+    }
+
     pub fn create_goal(&self, input: CreateGoalInput) -> Result<GoalSnapshot> {
         let objective = input.objective.trim();
         if objective.is_empty() {
             return Err(anyhow!("goal objective must not be empty"));
         }
         let criteria = input.completion_criteria.trim();
+        let domain_selection = self.resolve_goal_domain_selection(
+            input.domain,
+            input.workflow_template_id,
+            input.workflow_template_version,
+            input.workflow_task_type,
+        )?;
         let now = now_rfc3339();
         let id = format!("goal_{}", uuid::Uuid::new_v4().simple());
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
@@ -378,15 +495,21 @@ impl SessionDB {
         }
         conn.execute(
             "INSERT INTO goals (
-                id, session_id, objective, completion_criteria, state, mode_snapshot,
+                id, session_id, objective, completion_criteria,
+                domain, workflow_template_id, workflow_template_version, workflow_task_type,
+                state, mode_snapshot,
                 budget_token_limit, budget_time_limit_secs, budget_turn_limit,
                 created_at, updated_at, final_evidence_json, last_evaluator_result_json
-            ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?7, ?8, ?9, ?9, '{}', '{}')",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', ?9, ?10, ?11, ?12, ?13, ?13, '{}', '{}')",
             params![
                 id,
                 input.session_id,
                 objective,
                 criteria,
+                domain_selection.domain,
+                domain_selection.workflow_template_id,
+                domain_selection.workflow_template_version,
+                domain_selection.workflow_task_type,
                 mode,
                 input.budget_token_limit,
                 input.budget_time_limit_secs,
@@ -395,18 +518,22 @@ impl SessionDB {
             ],
         )?;
         drop(conn);
+        let snapshot = self
+            .goal_snapshot(&id, 100)?
+            .ok_or_else(|| anyhow!("goal {} was not persisted", id))?;
         let _ = self.append_goal_event(
             &id,
             "goal_created",
             json!({
                 "objective": objective,
                 "completionCriteria": criteria,
+                "domain": snapshot.goal.domain,
+                "workflowTemplateId": snapshot.goal.workflow_template_id,
+                "workflowTemplateVersion": snapshot.goal.workflow_template_version,
+                "workflowTaskType": snapshot.goal.workflow_task_type,
                 "modeSnapshot": mode,
             }),
         )?;
-        let snapshot = self
-            .goal_snapshot(&id, 100)?
-            .ok_or_else(|| anyhow!("goal {} was not persisted", id))?;
         emit_goal("goal:created", &snapshot.goal);
         Ok(snapshot)
     }
@@ -417,34 +544,84 @@ impl SessionDB {
             return Err(anyhow!("goal objective must not be empty"));
         }
         let completion_criteria = input.completion_criteria.as_deref().map(str::trim);
-        if objective.is_none() && completion_criteria.is_none() {
+        let has_domain_update = input.domain.is_some()
+            || input.workflow_template_id.is_some()
+            || input.workflow_template_version.is_some()
+            || input.workflow_task_type.is_some();
+        if objective.is_none() && completion_criteria.is_none() && !has_domain_update {
             return self
                 .goal_snapshot(&input.goal_id, 100)?
                 .ok_or_else(|| anyhow!("goal {} not found", input.goal_id));
         }
 
         let now = now_rfc3339();
-        let (previous_objective, previous_criteria, previous_state) = {
+        let (previous_objective, previous_criteria, previous_domain, previous_state) = {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-            let current: Option<(String, String, String)> = conn
+            let current: Option<(
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+            )> = conn
                 .query_row(
-                    "SELECT objective, completion_criteria, state FROM goals WHERE id = ?1",
+                    "SELECT objective, completion_criteria, domain, workflow_template_id,
+                            workflow_template_version, workflow_task_type, state
+                     FROM goals WHERE id = ?1",
                     params![input.goal_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                        ))
+                    },
                 )
                 .optional()?;
-            let (previous_objective, previous_criteria, state) =
-                current.ok_or_else(|| anyhow!("goal {} not found", input.goal_id))?;
+            let (
+                previous_objective,
+                previous_criteria,
+                previous_domain,
+                previous_template_id,
+                previous_template_version,
+                previous_task_type,
+                state,
+            ) = current.ok_or_else(|| anyhow!("goal {} not found", input.goal_id))?;
             let previous_state = parse_goal_state(&state)?;
             if previous_state.is_terminal() {
                 return Err(anyhow!("goal {} is terminal", input.goal_id));
             }
             let next_objective = objective.unwrap_or(previous_objective.trim());
             let next_criteria = completion_criteria.unwrap_or(previous_criteria.trim());
+            drop(conn);
+            let next_domain_selection = if has_domain_update {
+                self.resolve_goal_domain_selection(
+                    input.domain,
+                    input.workflow_template_id,
+                    input.workflow_template_version,
+                    input.workflow_task_type,
+                )?
+            } else {
+                GoalDomainSelection {
+                    domain: previous_domain.clone(),
+                    workflow_template_id: previous_template_id.clone(),
+                    workflow_template_version: previous_template_version.clone(),
+                    workflow_task_type: previous_task_type.clone(),
+                }
+            };
             if next_objective == previous_objective.trim()
                 && next_criteria == previous_criteria.trim()
+                && next_domain_selection.domain == previous_domain
+                && next_domain_selection.workflow_template_id == previous_template_id
+                && next_domain_selection.workflow_template_version == previous_template_version
+                && next_domain_selection.workflow_task_type == previous_task_type
             {
-                drop(conn);
                 return self
                     .goal_snapshot(&input.goal_id, 100)?
                     .ok_or_else(|| anyhow!("goal {} not found", input.goal_id));
@@ -453,26 +630,45 @@ impl SessionDB {
                 GoalState::Blocked | GoalState::Evaluating => GoalState::Active,
                 other => other,
             };
+            let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             conn.execute(
                 "UPDATE goals
                     SET objective = COALESCE(?1, objective),
                         completion_criteria = COALESCE(?2, completion_criteria),
-                        state = ?3,
-                        updated_at = ?4,
+                        domain = ?3,
+                        workflow_template_id = ?4,
+                        workflow_template_version = ?5,
+                        workflow_task_type = ?6,
+                        state = ?7,
+                        updated_at = ?8,
                         final_summary = NULL,
                         final_evidence_json = '{}',
                         blocked_reason = NULL,
                         last_evaluator_result_json = '{}'
-                 WHERE id = ?5",
+                 WHERE id = ?9",
                 params![
                     objective,
                     completion_criteria,
+                    next_domain_selection.domain,
+                    next_domain_selection.workflow_template_id,
+                    next_domain_selection.workflow_template_version,
+                    next_domain_selection.workflow_task_type,
                     next_state.as_str(),
                     now,
                     input.goal_id
                 ],
             )?;
-            (previous_objective, previous_criteria, previous_state)
+            (
+                previous_objective,
+                previous_criteria,
+                json!({
+                    "domain": previous_domain,
+                    "workflowTemplateId": previous_template_id,
+                    "workflowTemplateVersion": previous_template_version,
+                    "workflowTaskType": previous_task_type,
+                }),
+                previous_state,
+            )
         };
 
         let snapshot = self
@@ -485,11 +681,19 @@ impl SessionDB {
                 "previous": {
                     "objective": previous_objective,
                     "completionCriteria": previous_criteria,
+                    "domain": previous_domain.get("domain").cloned().unwrap_or(Value::Null),
+                    "workflowTemplateId": previous_domain.get("workflowTemplateId").cloned().unwrap_or(Value::Null),
+                    "workflowTemplateVersion": previous_domain.get("workflowTemplateVersion").cloned().unwrap_or(Value::Null),
+                    "workflowTaskType": previous_domain.get("workflowTaskType").cloned().unwrap_or(Value::Null),
                     "state": previous_state.as_str(),
                 },
                 "next": {
                     "objective": snapshot.goal.objective,
                     "completionCriteria": snapshot.goal.completion_criteria,
+                    "domain": snapshot.goal.domain,
+                    "workflowTemplateId": snapshot.goal.workflow_template_id,
+                    "workflowTemplateVersion": snapshot.goal.workflow_template_version,
+                    "workflowTaskType": snapshot.goal.workflow_task_type,
                     "state": snapshot.goal.state.as_str(),
                 },
             }),
@@ -501,7 +705,9 @@ impl SessionDB {
     pub fn get_goal(&self, goal_id: &str) -> Result<Option<Goal>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(
-            "SELECT id, session_id, objective, completion_criteria, state, mode_snapshot,
+            "SELECT id, session_id, objective, completion_criteria,
+                    domain, workflow_template_id, workflow_template_version, workflow_task_type,
+                    state, mode_snapshot,
                     budget_token_limit, budget_time_limit_secs, budget_turn_limit,
                     created_at, updated_at, completed_at, final_summary, final_evidence_json,
                     blocked_reason, last_evaluator_result_json
@@ -2362,26 +2568,78 @@ fn metadata_u64(metadata: &Value, key: &str) -> Option<u64> {
     metadata.get(key).and_then(Value::as_u64)
 }
 
+#[derive(Debug, Clone, Default)]
+struct GoalDomainSelection {
+    domain: Option<String>,
+    workflow_template_id: Option<String>,
+    workflow_template_version: Option<String>,
+    workflow_task_type: Option<String>,
+}
+
+fn normalize_goal_text_field(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
+fn normalize_goal_domain_field(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            value
+                .chars()
+                .map(|ch| {
+                    if ch.is_ascii_alphanumeric() {
+                        ch.to_ascii_lowercase()
+                    } else {
+                        '_'
+                    }
+                })
+                .collect::<String>()
+                .split('_')
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join("_")
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn ensure_goal_column(conn: &Connection, table: &str, column: &str, alter_sql: &str) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let columns = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|name| name == column) {
+        conn.execute_batch(alter_sql)?;
+    }
+    Ok(())
+}
+
 fn row_to_goal(row: &rusqlite::Row<'_>) -> rusqlite::Result<Goal> {
-    let state: String = row.get(4)?;
-    let final_evidence_json: String = row.get(13)?;
-    let evaluator_json: String = row.get(15)?;
+    let state: String = row.get(8)?;
+    let final_evidence_json: String = row.get(17)?;
+    let evaluator_json: String = row.get(19)?;
     Ok(Goal {
         id: row.get(0)?,
         session_id: row.get(1)?,
         objective: row.get(2)?,
         completion_criteria: row.get(3)?,
+        domain: row.get(4)?,
+        workflow_template_id: row.get(5)?,
+        workflow_template_version: row.get(6)?,
+        workflow_task_type: row.get(7)?,
         state: parse_goal_state_sql(&state)?,
-        mode_snapshot: row.get(5)?,
-        budget_token_limit: row.get(6)?,
-        budget_time_limit_secs: row.get(7)?,
-        budget_turn_limit: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        completed_at: row.get(11)?,
-        final_summary: row.get(12)?,
+        mode_snapshot: row.get(9)?,
+        budget_token_limit: row.get(10)?,
+        budget_time_limit_secs: row.get(11)?,
+        budget_turn_limit: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        completed_at: row.get(15)?,
+        final_summary: row.get(16)?,
         final_evidence: json_from_sql(&final_evidence_json)?,
-        blocked_reason: row.get(14)?,
+        blocked_reason: row.get(18)?,
         last_evaluator_result: json_from_sql(&evaluator_json)?,
     })
 }
@@ -2480,6 +2738,10 @@ mod tests {
             session_id: session_id.to_string(),
             objective: "Ship goal mode".to_string(),
             completion_criteria: "workflow completes with evidence".to_string(),
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
             budget_token_limit: None,
             budget_time_limit_secs: None,
             budget_turn_limit: None,
@@ -2540,12 +2802,105 @@ mod tests {
                 session_id: session.id,
                 objective: "Do not persist".to_string(),
                 completion_criteria: String::new(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
                 budget_token_limit: None,
                 budget_time_limit_secs: None,
                 budget_turn_limit: None,
             })
             .expect_err("incognito goal must be rejected");
         assert!(err.to_string().contains("incognito"));
+    }
+
+    #[test]
+    fn goal_persists_and_updates_domain_workflow_selection() {
+        let (_dir, db) = temp_db();
+        let session = db.create_session("ha-main").expect("create session");
+
+        let goal = db
+            .create_goal(CreateGoalInput {
+                session_id: session.id,
+                objective: "Prepare a sourced brief".to_string(),
+                completion_criteria: "Citations and claim checks are complete".to_string(),
+                domain: None,
+                workflow_template_id: Some("research-brief".to_string()),
+                workflow_template_version: None,
+                workflow_task_type: Some("technical_research".to_string()),
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal with domain workflow");
+
+        assert_eq!(goal.goal.domain.as_deref(), Some("research"));
+        assert_eq!(
+            goal.goal.workflow_template_id.as_deref(),
+            Some("research-brief")
+        );
+        assert_eq!(
+            goal.goal.workflow_template_version.as_deref(),
+            Some("1.0.0")
+        );
+        assert_eq!(
+            goal.goal.workflow_task_type.as_deref(),
+            Some("technical_research")
+        );
+
+        let renamed = db
+            .update_goal(UpdateGoalInput {
+                goal_id: goal.goal.id.clone(),
+                objective: Some("Prepare a sourced brief with current browser risks".to_string()),
+                completion_criteria: None,
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
+            })
+            .expect("update goal objective without changing domain workflow");
+        assert_eq!(
+            renamed.goal.workflow_template_id.as_deref(),
+            Some("research-brief")
+        );
+        assert_eq!(
+            renamed.goal.workflow_task_type.as_deref(),
+            Some("technical_research")
+        );
+
+        let updated = db
+            .update_goal(UpdateGoalInput {
+                goal_id: goal.goal.id.clone(),
+                objective: None,
+                completion_criteria: None,
+                domain: None,
+                workflow_template_id: Some("writing-brief".to_string()),
+                workflow_template_version: None,
+                workflow_task_type: Some("prd".to_string()),
+            })
+            .expect("update goal domain workflow");
+        assert_eq!(updated.goal.domain.as_deref(), Some("writing"));
+        assert_eq!(
+            updated.goal.workflow_template_id.as_deref(),
+            Some("writing-brief")
+        );
+        assert_eq!(updated.goal.workflow_task_type.as_deref(), Some("prd"));
+
+        let cleared = db
+            .update_goal(UpdateGoalInput {
+                goal_id: goal.goal.id,
+                objective: None,
+                completion_criteria: None,
+                domain: Some(String::new()),
+                workflow_template_id: Some(String::new()),
+                workflow_template_version: Some(String::new()),
+                workflow_task_type: Some(String::new()),
+            })
+            .expect("clear goal domain workflow");
+        assert!(cleared.goal.domain.is_none());
+        assert!(cleared.goal.workflow_template_id.is_none());
+        assert!(cleared.goal.workflow_template_version.is_none());
+        assert!(cleared.goal.workflow_task_type.is_none());
     }
 
     #[test]
@@ -3192,6 +3547,10 @@ mod tests {
                 session_id: session.id.clone(),
                 objective: "Stay within turn budget".to_string(),
                 completion_criteria: "no extra workflow after budget".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
                 budget_token_limit: None,
                 budget_time_limit_secs: None,
                 budget_turn_limit: Some(1),

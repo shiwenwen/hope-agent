@@ -56,6 +56,19 @@ Phase 7.1 内置 7 个 template：
 
 生成的 draft 只是一份可审查脚本，不自动创建 WorkflowRun、不自动执行、不访问连接器、不发送消息、不写外部系统。真正执行仍必须走已有 `create_workflow_run` / `run_workflow_run` 和审批链。
 
+## GUI 入口
+
+Workspace / Workflow Control Center 的“新建工作流”表单已接入 domain workflow template：
+
+- Goal 创建 / 编辑表单也可选择 domain workflow template 与 task type；选择会持久化到 `goals.domain`、`workflow_template_id/version`、`workflow_task_type`，下一轮 system prompt、Context Retrieval、Domain Quality 和 Workflow 创建器都会感知。GUI 选择器内部用 `id@version` 作为稳定 key，避免同一模板多版本时丢失版本。
+- 打开创建器时懒加载 `list_domain_workflow_templates`，展示内置 + 自定义且 enabled 的 template。
+- 用户可在 GUI 里选择 template 与 task type，不需要记 `/workflow` 参数或模板 id；若 active Goal 已绑定模板，新建 workflow 默认预选该模板。
+- 点击“生成领域草稿”会调用 `preview_domain_workflow`，把返回的 `workflowKind`、`executionMode`、`scriptSource` 和 `scriptPreview` 回填到标准 workflow 创建链路。
+- 创建前同屏展示 output contract 摘要、required evidence、approval gates、verification policy 与 warnings；用户继续复用既有 Script Gate / permission preview / run immediately / worktree 选择。
+- 修改目标、模板、任务类型、执行模式或脚本会清空旧预检，避免用过期 preview 创建 run。
+
+GUI 入口仍是 owner plane：它只生成 draft 和 preview，不自动访问连接器，也不绕过后续 workflow runtime 的审批、用户确认和权限策略。
+
 ## General Evidence
 
 Phase 7.2 支持下列 evidence type：
@@ -106,6 +119,7 @@ Phase 7.4 起，[Domain Quality 控制平面](domain-quality.md) 会消费本模
 - `requiredEvidence` 变成阻塞 / 建议 check，缺少必需 evidence 会写 `domain_quality_blocked` / `domain_quality_check` Goal evidence。
 - `approvalGates` 变成高风险动作确认门；只有当输入声明 `requestedAction` 或 `highRiskAction=true` 时才强制 `needs_user`。
 - `verificationPolicy` 当前通过内置 domain profile 的确定性规则落地，后续可扩展成更细的 profile。
+- Domain Quality run / stats / event 会保留 template id 与 version；未显式指定 template/domain 时优先使用 active Goal 绑定的 template version。
 - Workspace 新增「领域复核」区块，非 coding 会话不需要工作目录也能运行质量门。
 
 Domain Workflow 仍只负责模板、draft 和 evidence；Domain Quality 负责 review / verification 结论，两者不互相替代。

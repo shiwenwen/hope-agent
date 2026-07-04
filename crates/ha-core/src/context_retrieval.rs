@@ -44,6 +44,8 @@ pub struct ContextRetrievalInput {
     pub domain: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
@@ -124,6 +126,8 @@ pub struct DomainContextProfile {
     pub domain: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -366,6 +370,11 @@ fn resolve_domain_context(
         .as_deref()
         .and_then(non_empty)
         .map(normalize_domain_token);
+    let goal_domain = goal_snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.goal.domain.as_deref())
+        .and_then(non_empty)
+        .map(normalize_domain_token);
     let workflow_domain = recent_domain_workflow_domain(db, session_id);
     let evidence_domain = recent_domain_evidence_domain(db, session_id);
     let inferred_domain = goal_snapshot.as_ref().and_then(|snapshot| {
@@ -374,6 +383,9 @@ fn resolve_domain_context(
 
     let mut source = "none".to_string();
     let mut domain = explicit_domain.inspect(|_| source = "input".to_string());
+    if domain.is_none() {
+        domain = goal_domain.inspect(|_| source = "goal".to_string());
+    }
     if domain.is_none() {
         domain = workflow_domain.inspect(|_| source = "workflow".to_string());
     }
@@ -388,7 +400,28 @@ fn resolve_domain_context(
         .template_id
         .as_deref()
         .and_then(non_empty)
-        .and_then(|id| db.get_domain_workflow_template(id, None).ok().flatten())
+        .and_then(|id| {
+            db.get_domain_workflow_template(id, input.template_version.as_deref())
+                .ok()
+                .flatten()
+        })
+        .or_else(|| {
+            goal_snapshot.as_ref().and_then(|snapshot| {
+                snapshot
+                    .goal
+                    .workflow_template_id
+                    .as_deref()
+                    .and_then(non_empty)
+                    .and_then(|id| {
+                        db.get_domain_workflow_template(
+                            id,
+                            snapshot.goal.workflow_template_version.as_deref(),
+                        )
+                        .ok()
+                        .flatten()
+                    })
+            })
+        })
         .or_else(|| {
             domain.as_ref().and_then(|domain| {
                 db.list_domain_workflow_templates(ListDomainWorkflowTemplatesInput {
@@ -419,10 +452,14 @@ fn resolve_domain_context(
     let profile = DomainContextProfile {
         domain,
         template_id: template.as_ref().map(|template| template.id.clone()),
+        template_version: template.as_ref().map(|template| template.version.clone()),
         template_title: template.as_ref().map(|template| template.title.clone()),
-        task_type: template
-            .as_ref()
-            .and_then(|template| template.task_types.first().cloned()),
+        task_type: template.as_ref().and_then(|template| {
+            goal_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.goal.workflow_task_type.clone())
+                .or_else(|| template.task_types.first().cloned())
+        }),
         goal_id: goal_snapshot
             .as_ref()
             .map(|snapshot| snapshot.goal.id.clone()),
@@ -2314,6 +2351,10 @@ mod tests {
                 session_id: session_id.clone(),
                 objective: "Research competitors and produce a cited brief".to_string(),
                 completion_criteria: "Needs citations and checked claims".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
                 budget_token_limit: None,
                 budget_time_limit_secs: None,
                 budget_turn_limit: None,

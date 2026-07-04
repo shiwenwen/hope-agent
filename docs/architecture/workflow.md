@@ -479,10 +479,11 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - Run overview 会展示“审批审计”卡片：串联权限预检、等待批准、批准恢复、阻塞/取消等事件，用户能直接看出审批链路当前状态和历史结果。
 - Run overview 时间线会显示 `run_control_action`，用于追踪 approve / pause / resume / cancel 的请求已接收、结果状态和原因。
 - Run overview 时间线会显示 `run_runtime_launch` / `run_runtime_result`，用于追踪 create / run / approve / resume 等启动请求是否被 Primary runtime 接收，以及 runtime 实际返回结果。
-- Goal strip：创建 active Goal、展示目标摘要/状态/证据指标、手动 audit、暂停/恢复/清除。
+- Goal strip：创建 active Goal、可选 domain workflow template/task type、展示目标摘要/状态/领域模板/证据指标、手动 audit、暂停/恢复/清除。
 - Execution Mode 常驻控制。
 - 无 run 空态展示 execution mode / working dir，并提供创建入口。
 - 目标驱动草稿：生成可预检 `workflow.js`，脚本编辑放高级区。coding 只是可选领域模板之一。
+- 领域模板草稿：创建器可直接选择 Research / Writing / Data Analysis / Meeting Prep / Knowledge Curation / Inbox / Project Ops 等 domain workflow template，调用 `preview_domain_workflow` 生成标准 `workflow.js`、证据要求、审批门、验证策略和预检结果，再走同一 `create_workflow_run` 链路。
 - 创建前展示 Script Gate 与 permission preview。
 - run list、历史展开、总览、当前焦点、下一步跳转。
 - Trace / Validation / Agents 三视图；Validation 命令行可展开完整输出并复制详情，失败恢复不依赖截断预览。

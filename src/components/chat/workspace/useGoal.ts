@@ -18,6 +18,10 @@ export interface Goal {
   sessionId: string
   objective: string
   completionCriteria: string
+  domain?: string | null
+  workflowTemplateId?: string | null
+  workflowTemplateVersion?: string | null
+  workflowTaskType?: string | null
   state: GoalState
   modeSnapshot?: string | null
   budgetTokenLimit?: number | null

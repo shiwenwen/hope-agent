@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
-import type { ManagedWorktree, WorkspaceEnvironmentSnapshot } from "@/lib/transport"
+import type {
+  DomainWorkflowDraft,
+  DomainWorkflowTemplate,
+  ManagedWorktree,
+  WorkspaceEnvironmentSnapshot,
+} from "@/lib/transport"
 import type { BackgroundJobSnapshot } from "@/types/background-jobs"
 import WorkspacePanel from "./WorkspacePanel"
 import type { GoalSnapshot } from "./useGoal"
@@ -21,16 +26,18 @@ const envMock = vi.hoisted(() => ({
 
 const transportMock = vi.hoisted(() => ({
   supportsLocalFileOps: vi.fn(() => true),
-  call: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<unknown>>((name: string) => {
-    if (name === "get_background_job") return Promise.resolve(null)
-    if (name === "get_coding_trend_report") return Promise.resolve(null)
-    if (name === "get_lsp_status") return Promise.resolve(null)
-    if (name === "get_lsp_diagnostics") return Promise.resolve(null)
-    return Promise.resolve([])
-  }),
-  listen: vi.fn<
-    (eventName: string, handler: (payload: unknown) => void) => () => void
-  >(() => () => {}),
+  call: vi.fn<(name: string, args?: Record<string, unknown>) => Promise<unknown>>(
+    (name: string) => {
+      if (name === "get_background_job") return Promise.resolve(null)
+      if (name === "get_coding_trend_report") return Promise.resolve(null)
+      if (name === "get_lsp_status") return Promise.resolve(null)
+      if (name === "get_lsp_diagnostics") return Promise.resolve(null)
+      return Promise.resolve([])
+    },
+  ),
+  listen: vi.fn<(eventName: string, handler: (payload: unknown) => void) => () => void>(
+    () => () => {},
+  ),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -70,6 +77,22 @@ vi.mock("./useWorkspaceArtifacts", () => ({
 }))
 
 beforeEach(() => {
+  Object.defineProperty(Element.prototype, "hasPointerCapture", {
+    configurable: true,
+    value: () => false,
+  })
+  Object.defineProperty(Element.prototype, "setPointerCapture", {
+    configurable: true,
+    value: () => {},
+  })
+  Object.defineProperty(Element.prototype, "releasePointerCapture", {
+    configurable: true,
+    value: () => {},
+  })
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
+    configurable: true,
+    value: () => {},
+  })
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -295,6 +318,85 @@ function workflowScriptPreview(patch: Partial<WorkflowScriptPreview> = {}): Work
   }
 }
 
+function domainWorkflowTemplate(
+  patch: Partial<DomainWorkflowTemplate> = {},
+): DomainWorkflowTemplate {
+  return {
+    id: "research-brief",
+    version: "1.0.0",
+    title: "Research brief",
+    domain: "research",
+    taskTypes: ["technical_research", "competitive_analysis"],
+    defaultMode: "guarded",
+    requiredEvidence: [
+      {
+        evidenceType: "source_cited",
+        title: "At least three dated sources",
+        required: true,
+        minCount: 3,
+        metadataKeys: ["uri", "retrievedAt"],
+      },
+      {
+        evidenceType: "claim_checked",
+        title: "Important claims checked",
+        required: true,
+        minCount: 2,
+        metadataKeys: ["claim", "verdict"],
+      },
+    ],
+    recommendedTools: ["web_search", "knowledge_recall"],
+    approvalGates: [
+      {
+        action: "external_publish",
+        reason: "User approves before publishing",
+        required: true,
+      },
+    ],
+    verificationPolicy: [
+      {
+        rule: "citation_freshness",
+        severity: "blocking",
+        description: "Flag stale sources.",
+      },
+    ],
+    stopConditions: ["Required citations are missing"],
+    outputContract: "Answer-first research brief with cited sources.",
+    evalCriteria: ["Claims are cited"],
+    promptHints: ["Prefer primary sources"],
+    scope: "built_in",
+    projectId: null,
+    enabled: true,
+    createdAt: "builtin",
+    updatedAt: "builtin",
+    ...patch,
+  }
+}
+
+function domainWorkflowDraft(
+  template: DomainWorkflowTemplate = domainWorkflowTemplate(),
+  patch: Partial<DomainWorkflowDraft> = {},
+): DomainWorkflowDraft {
+  const scriptSource = `export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Research brief" });
+  await workflow.askUser({ label: "domain-plan-confirmation", questions: [] });
+  await workflow.finish({ summary: "draft ready" });
+}`
+  return {
+    template,
+    sessionId: "s1",
+    goalId: null,
+    executionMode: "guarded",
+    workflowKind: "domain:research",
+    scriptSource,
+    scriptPreview: workflowScriptPreview() as unknown as DomainWorkflowDraft["scriptPreview"],
+    requiredEvidence: template.requiredEvidence,
+    approvalGates: template.approvalGates,
+    verificationPolicy: template.verificationPolicy,
+    warnings: ["User approval is required before publication"],
+    ...patch,
+  }
+}
+
 function managedWorktree(patch: Partial<ManagedWorktree> = {}): ManagedWorktree {
   return {
     id: "wt-repair",
@@ -474,6 +576,98 @@ function goalSnapshotWithDomainEvidence(): GoalSnapshot {
 }
 
 describe("WorkspacePanel goal section", () => {
+  it("creates a goal with a selected domain workflow template", async () => {
+    const template = domainWorkflowTemplate()
+    const createdGoal: GoalSnapshot = {
+      goal: {
+        id: "goal-research",
+        sessionId: "s1",
+        objective: "调研新版浏览器自动化能力并整理风险",
+        completionCriteria: "引用、claim check、citation audit 都齐全",
+        domain: "research",
+        workflowTemplateId: "research-brief",
+        workflowTemplateVersion: "1.0.0",
+        workflowTaskType: "technical_research",
+        state: "active",
+        modeSnapshot: null,
+        budgetTokenLimit: null,
+        budgetTimeLimitSecs: null,
+        budgetTurnLimit: null,
+        createdAt: "2026-01-01T00:00:00Z",
+        updatedAt: "2026-01-01T00:00:00Z",
+        completedAt: null,
+        finalSummary: null,
+        finalEvidence: {},
+        blockedReason: null,
+        lastEvaluatorResult: {},
+      },
+      links: [],
+      events: [],
+      criteria: [],
+      evidence: [],
+      timeline: [],
+      budget: {
+        tokenLimit: null,
+        timeLimitSecs: null,
+        turnLimit: null,
+        tokensUsed: 0,
+        elapsedSecs: 0,
+        turnsUsed: 0,
+        tokenRatio: null,
+        timeRatio: null,
+        turnRatio: null,
+        warning: false,
+        exhausted: false,
+        warnings: [],
+        exceeded: [],
+      },
+      workflowRuns: [],
+      tasks: [],
+    }
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "get_active_goal") return Promise.resolve(null)
+      if (name === "list_domain_workflow_templates") return Promise.resolve([template])
+      if (name === "create_goal") return Promise.resolve(createdGoal)
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve(args ?? [])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByText("Goal"))
+    fireEvent.change(screen.getByPlaceholderText("例如：完整实现 Goal 模式，并通过针对性检查"), {
+      target: { value: "调研新版浏览器自动化能力并整理风险" },
+    })
+    fireEvent.change(screen.getByPlaceholderText("每行一个标准：功能完成、证据充分、风险可解释"), {
+      target: { value: "引用、claim check、citation audit 都齐全" },
+    })
+    const domainSelect = (await screen.findAllByRole("combobox"))[0]
+    fireEvent.pointerDown(domainSelect, { button: 0, ctrlKey: false, pointerType: "mouse" })
+    const templateOptions = await screen.findAllByText("Research brief")
+    fireEvent.click(templateOptions[templateOptions.length - 1])
+    fireEvent.click(screen.getByRole("button", { name: "创建 Goal" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_goal", {
+        sessionId: "s1",
+        objective: "调研新版浏览器自动化能力并整理风险",
+        completionCriteria: "引用、claim check、citation audit 都齐全",
+        domain: "research",
+        workflowTemplateId: "research-brief",
+        workflowTemplateVersion: "1.0.0",
+        workflowTaskType: "technical_research",
+      })
+    })
+    expect(await screen.findByText("research")).toBeTruthy()
+    expect(screen.getByText("research-brief@1.0.0")).toBeTruthy()
+    expect(screen.getByText("technical_research")).toBeTruthy()
+  })
+
   it("surfaces worktree evidence in goal detail", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorktreeEvidence())
@@ -770,6 +964,72 @@ describe("WorkspacePanel workflow section", () => {
           runImmediately: true,
         }),
       )
+    })
+  })
+
+  it("generates a domain workflow draft from the workspace template picker", async () => {
+    const template = domainWorkflowTemplate()
+    const draft = domainWorkflowDraft(template)
+    const run = workflowRun({
+      kind: draft.workflowKind,
+      state: "draft",
+      executionMode: draft.executionMode,
+      scriptSource: draft.scriptSource,
+    })
+    const snapshot = workflowSnapshot(run)
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "list_domain_workflow_templates") return Promise.resolve([template])
+      if (name === "preview_domain_workflow") return Promise.resolve(draft)
+      if (name === "create_workflow_run") return Promise.resolve(run)
+      if (name === "get_workflow_run") return Promise.resolve(snapshot)
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve(args ?? [])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: "新建工作流" }))
+    expect((await screen.findAllByText("Research brief")).length).toBeGreaterThan(0)
+
+    fireEvent.change(screen.getByLabelText("从目标开始"), {
+      target: { value: "调研新版浏览器自动化能力并整理风险" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "生成领域草稿" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("preview_domain_workflow", {
+        templateId: "research-brief",
+        version: "1.0.0",
+        sessionId: "s1",
+        goalId: undefined,
+        taskType: "technical_research",
+        objective: "调研新版浏览器自动化能力并整理风险",
+        modeOverride: "guarded",
+      })
+    })
+
+    expect(await screen.findByText("草稿来自 Research brief")).toBeTruthy()
+    expect(screen.getByText(/At least three dated sources/)).toBeTruthy()
+    expect(screen.getByText(/external_publish/)).toBeTruthy()
+    expect(screen.getByText("预检通过")).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "创建并运行" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_workflow_run", {
+        sessionId: "s1",
+        kind: "domain:research",
+        executionMode: "guarded",
+        scriptSource: draft.scriptSource,
+        budget: { maxScriptSecs: 180, maxOps: 24, maxOutputTokens: 10000 },
+        goalId: undefined,
+        runImmediately: true,
+      })
     })
   })
 
@@ -1340,25 +1600,28 @@ describe("WorkspacePanel workflow section", () => {
 
   it("disables the cancel confirmation when the run becomes terminal while the dialog is open", async () => {
     const listeners = new Map<string, Array<(payload: unknown) => void>>()
-    transportMock.listen.mockImplementation((eventName: string, handler: (payload: unknown) => void) => {
-      const handlers = listeners.get(eventName) ?? []
-      handlers.push(handler)
-      listeners.set(eventName, handlers)
-      return () => {
-        const next = (listeners.get(eventName) ?? []).filter((current) => current !== handler)
-        if (next.length > 0) {
-          listeners.set(eventName, next)
-        } else {
-          listeners.delete(eventName)
+    transportMock.listen.mockImplementation(
+      (eventName: string, handler: (payload: unknown) => void) => {
+        const handlers = listeners.get(eventName) ?? []
+        handlers.push(handler)
+        listeners.set(eventName, handlers)
+        return () => {
+          const next = (listeners.get(eventName) ?? []).filter((current) => current !== handler)
+          if (next.length > 0) {
+            listeners.set(eventName, next)
+          } else {
+            listeners.delete(eventName)
+          }
         }
-      }
-    })
+      },
+    )
     let currentRun = workflowRun({ state: "running" })
     transportMock.call.mockImplementation((name: string) => {
       if (name === "list_workflow_runs") return Promise.resolve([currentRun])
       if (name === "get_workflow_run") return Promise.resolve(workflowSnapshot(currentRun))
       if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
-      if (name === "cancel_workflow_run") return Promise.resolve({ ...currentRun, state: "cancelled" })
+      if (name === "cancel_workflow_run")
+        return Promise.resolve({ ...currentRun, state: "cancelled" })
       if (name === "get_background_job") return Promise.resolve(null)
       return Promise.resolve([])
     })

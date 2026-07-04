@@ -1675,6 +1675,10 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
             session_id: session.id.clone(),
             objective: goal.objective.clone(),
             completion_criteria: goal.completion_criteria.clone(),
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
             budget_token_limit: None,
             budget_time_limit_secs: None,
             budget_turn_limit: None,
@@ -1786,6 +1790,7 @@ pub async fn evaluate(db: Arc<SessionDB>, fixture: &CodingEvalFixture) -> Result
                     ide_context: run.ide_context.clone(),
                     domain: None,
                     template_id: None,
+                    template_version: None,
                 },
             )
             .await?,

@@ -29,6 +29,7 @@ export function useContextRetrieval(
     limit?: number
     domain?: string | null
     templateId?: string | null
+    templateVersion?: string | null
   } = {},
 ): ContextRetrievalState {
   const {
@@ -39,6 +40,7 @@ export function useContextRetrieval(
     limit = 24,
     domain = null,
     templateId = null,
+    templateVersion = null,
   } = opts
   const [snapshot, setSnapshot] = useState<ContextRetrievalSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -65,6 +67,7 @@ export function useContextRetrieval(
         limit,
         domain,
         templateId,
+        templateVersion,
       })
       .then((next) => {
         if (reqRef.current !== req) return
@@ -78,7 +81,7 @@ export function useContextRetrieval(
         setError(message)
         setLoading(false)
       })
-  }, [disabled, domain, incognito, limit, query, sessionId, templateId])
+  }, [disabled, domain, incognito, limit, query, sessionId, templateId, templateVersion])
 
   useEffect(() => {
     if (debounceTimerRef.current !== null) {

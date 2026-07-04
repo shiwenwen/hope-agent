@@ -28,6 +28,10 @@ pub async fn create_goal(
     session_id: String,
     objective: String,
     completion_criteria: Option<String>,
+    domain: Option<String>,
+    workflow_template_id: Option<String>,
+    workflow_template_version: Option<String>,
+    workflow_task_type: Option<String>,
     budget_token_limit: Option<i64>,
     budget_time_limit_secs: Option<i64>,
     budget_turn_limit: Option<i64>,
@@ -39,6 +43,10 @@ pub async fn create_goal(
             session_id,
             objective,
             completion_criteria: completion_criteria.unwrap_or_default(),
+            domain,
+            workflow_template_id,
+            workflow_template_version,
+            workflow_task_type,
             budget_token_limit,
             budget_time_limit_secs,
             budget_turn_limit,
@@ -51,6 +59,10 @@ pub async fn update_goal(
     goal_id: String,
     objective: Option<String>,
     completion_criteria: Option<String>,
+    domain: Option<String>,
+    workflow_template_id: Option<String>,
+    workflow_template_version: Option<String>,
+    workflow_task_type: Option<String>,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<GoalSnapshot, CmdError> {
     app_state
@@ -59,6 +71,10 @@ pub async fn update_goal(
             goal_id,
             objective,
             completion_criteria,
+            domain,
+            workflow_template_id,
+            workflow_template_version,
+            workflow_task_type,
         })
         .map_err(Into::into)
 }

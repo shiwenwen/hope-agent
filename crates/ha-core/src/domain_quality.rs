@@ -137,6 +137,8 @@ pub struct DomainQualityRun {
     pub domain: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_version: Option<String>,
     pub state: DomainQualityRunState,
     pub summary: String,
     pub stats: Value,
@@ -198,6 +200,8 @@ pub struct RunDomainQualityInput {
     pub domain: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_version: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -240,6 +244,7 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             goal_id TEXT,
             domain TEXT NOT NULL,
             template_id TEXT,
+            template_version TEXT,
             state TEXT NOT NULL,
             summary TEXT NOT NULL DEFAULT '',
             stats_json TEXT NOT NULL DEFAULT '{}',
@@ -289,6 +294,12 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_domain_quality_checks_session
             ON domain_quality_checks(session_id, updated_at DESC);",
     )?;
+    ensure_domain_quality_column(
+        conn,
+        "domain_quality_runs",
+        "template_version",
+        "ALTER TABLE domain_quality_runs ADD COLUMN template_version TEXT;",
+    )?;
     Ok(())
 }
 
@@ -301,7 +312,7 @@ impl SessionDB {
         let limit = limit.clamp(1, DOMAIN_QUALITY_LIMIT_MAX) as i64;
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, goal_id, domain, template_id, state, summary,
+            "SELECT id, session_id, goal_id, domain, template_id, template_version, state, summary,
                     stats_json, error, created_at, updated_at, completed_at
              FROM domain_quality_runs
              WHERE session_id = ?1
@@ -316,7 +327,7 @@ impl SessionDB {
     pub fn get_domain_quality_run(&self, run_id: &str) -> Result<Option<DomainQualityRun>> {
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         conn.query_row(
-            "SELECT id, session_id, goal_id, domain, template_id, state, summary,
+            "SELECT id, session_id, goal_id, domain, template_id, template_version, state, summary,
                     stats_json, error, created_at, updated_at, completed_at
              FROM domain_quality_runs
              WHERE id = ?1",
@@ -436,7 +447,7 @@ impl SessionDB {
     ) -> Result<DomainWorkflowTemplate> {
         if let Some(template_id) = input.template_id.as_deref().and_then(non_empty) {
             return self
-                .get_domain_workflow_template(template_id, None)?
+                .get_domain_workflow_template(template_id, input.template_version.as_deref())?
                 .ok_or_else(|| anyhow!("domain workflow template not found: {template_id}"));
         }
 
@@ -445,6 +456,24 @@ impl SessionDB {
             .as_deref()
             .and_then(non_empty)
             .map(normalize_domain);
+        if explicit_domain.is_none() {
+            if let Some(goal_id) = goal_id {
+                if let Some(goal) = self.get_goal(goal_id)? {
+                    if let Some(template_id) =
+                        goal.workflow_template_id.as_deref().and_then(non_empty)
+                    {
+                        return self
+                            .get_domain_workflow_template(
+                                template_id,
+                                goal.workflow_template_version.as_deref(),
+                            )?
+                            .ok_or_else(|| {
+                                anyhow!("domain workflow template not found: {template_id}")
+                            });
+                    }
+                }
+            }
+        }
         let inferred_domain = explicit_domain
             .or_else(|| infer_domain_from_quality_input(self, session_id, goal_id, input).ok());
         let domain = inferred_domain.unwrap_or_else(|| "writing".to_string());
@@ -468,15 +497,16 @@ impl SessionDB {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             conn.execute(
                 "INSERT INTO domain_quality_runs (
-                    id, session_id, goal_id, domain, template_id, state, summary,
+                    id, session_id, goal_id, domain, template_id, template_version, state, summary,
                     stats_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, 'running', '', '{}', ?6, ?6)",
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'running', '', '{}', ?7, ?7)",
                 params![
                     id,
                     context.session_id,
                     context.goal_id,
                     context.domain,
                     context.template.id,
+                    context.template.version,
                     now,
                 ],
             )?;
@@ -492,6 +522,7 @@ impl SessionDB {
                 "goalId": context.goal_id,
                 "domain": context.domain,
                 "templateId": context.template.id,
+                "templateVersion": context.template.version,
                 "profiles": active_profiles(&context.input.profiles, &context.domain),
             }),
         );
@@ -658,6 +689,7 @@ impl SessionDB {
                 "runId": snapshot.run.id,
                 "domain": snapshot.run.domain,
                 "templateId": snapshot.run.template_id,
+                "templateVersion": snapshot.run.template_version,
                 "summary": snapshot.run.summary,
                 "state": snapshot.run.state,
                 "blockingChecks": blocking,
@@ -763,6 +795,9 @@ fn infer_domain_from_quality_input(
     }
     if let Some(goal_id) = goal_id {
         if let Some(goal) = db.get_goal(goal_id)? {
+            if let Some(domain) = goal.domain.as_deref().and_then(non_empty) {
+                return Ok(normalize_domain(domain));
+            }
             let text = format!("{} {}", goal.objective, goal.completion_criteria);
             let lower = text.to_ascii_lowercase();
             let domain = infer_domain_from_text(&text);
@@ -1184,6 +1219,7 @@ fn build_quality_stats(context: &QualityContext, checks: &[CandidateCheck]) -> V
     json!({
         "domain": context.domain,
         "templateId": context.template.id,
+        "templateVersion": context.template.version,
         "templateTitle": context.template.title,
         "profiles": active_profiles(&context.input.profiles, &context.domain),
         "evidence": evidence_counts(&context.evidence),
@@ -1295,22 +1331,38 @@ fn dedup_checks(checks: &mut Vec<CandidateCheck>) {
 }
 
 fn row_to_domain_quality_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<DomainQualityRun> {
-    let state: String = row.get(5)?;
-    let stats_json: String = row.get(7)?;
+    let state: String = row.get(6)?;
+    let stats_json: String = row.get(8)?;
     Ok(DomainQualityRun {
         id: row.get(0)?,
         session_id: row.get(1)?,
         goal_id: row.get(2)?,
         domain: row.get(3)?,
         template_id: row.get(4)?,
+        template_version: row.get(5)?,
         state: DomainQualityRunState::from_str(&state),
-        summary: row.get(6)?,
+        summary: row.get(7)?,
         stats: serde_json::from_str(&stats_json).unwrap_or_else(|_| json!({})),
-        error: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        completed_at: row.get(11)?,
+        error: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
+        completed_at: row.get(12)?,
     })
+}
+
+fn ensure_domain_quality_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    alter_sql: &str,
+) -> Result<()> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let columns = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|name| name == column) {
+        conn.execute_batch(alter_sql)?;
+    }
+    Ok(())
 }
 
 fn row_to_domain_quality_check(row: &rusqlite::Row<'_>) -> rusqlite::Result<DomainQualityCheck> {
@@ -1444,6 +1496,10 @@ mod tests {
                 session_id: session.id.clone(),
                 objective: "完成 research brief".to_string(),
                 completion_criteria: "引用、claim check、citation audit 都齐全".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
                 budget_token_limit: None,
                 budget_time_limit_secs: None,
                 budget_turn_limit: None,
@@ -1478,6 +1534,46 @@ mod tests {
     }
 
     #[test]
+    fn domain_quality_prefers_goal_workflow_template() {
+        let (_dir, db) = test_db();
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = db
+            .create_goal(CreateGoalInput {
+                session_id: session.id.clone(),
+                objective: "Prepare a sourced brief".to_string(),
+                completion_criteria: "Draft is reviewed and ready to share".to_string(),
+                domain: None,
+                workflow_template_id: Some("writing-brief".to_string()),
+                workflow_template_version: None,
+                workflow_task_type: Some("prd".to_string()),
+                budget_token_limit: None,
+                budget_time_limit_secs: None,
+                budget_turn_limit: None,
+            })
+            .expect("create goal");
+
+        let snapshot = db
+            .run_domain_quality_for_session(RunDomainQualityInput {
+                session_id: session.id,
+                goal_id: Some(goal.goal.id),
+                ..Default::default()
+            })
+            .expect("run quality");
+
+        assert_eq!(snapshot.run.domain, "writing");
+        assert_eq!(snapshot.run.template_id.as_deref(), Some("writing-brief"));
+        assert_eq!(snapshot.run.template_version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            snapshot
+                .run
+                .stats
+                .get("templateVersion")
+                .and_then(Value::as_str),
+            Some("1.0.0")
+        );
+    }
+
+    #[test]
     fn inbox_send_quality_requires_user_confirmation() {
         let (_dir, db) = test_db();
         let session = db.create_session("ha-main").expect("create session");
@@ -1486,6 +1582,10 @@ mod tests {
                 session_id: session.id.clone(),
                 objective: "draft email reply".to_string(),
                 completion_criteria: "recipient facts checked and send approved".to_string(),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
                 budget_token_limit: None,
                 budget_time_limit_secs: None,
                 budget_turn_limit: None,

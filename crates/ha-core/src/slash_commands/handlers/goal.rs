@@ -67,6 +67,10 @@ fn upsert_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<Comm
                 objective: (!objective.trim().is_empty()).then_some(objective),
                 completion_criteria: (!completion_criteria.trim().is_empty())
                     .then_some(completion_criteria),
+                domain: None,
+                workflow_template_id: None,
+                workflow_template_version: None,
+                workflow_task_type: None,
             })
             .map_err(|e| e.to_string())?;
         return Ok(display_only(render_goal_snapshot(&next)));
@@ -80,6 +84,10 @@ fn upsert_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<Comm
             session_id: sid.to_string(),
             objective,
             completion_criteria,
+            domain: None,
+            workflow_template_id: None,
+            workflow_template_version: None,
+            workflow_task_type: None,
             budget_token_limit: None,
             budget_time_limit_secs: None,
             budget_turn_limit: None,

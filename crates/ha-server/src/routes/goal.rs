@@ -23,6 +23,14 @@ pub struct CreateGoalBody {
     #[serde(default)]
     pub completion_criteria: Option<String>,
     #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub workflow_template_id: Option<String>,
+    #[serde(default)]
+    pub workflow_template_version: Option<String>,
+    #[serde(default)]
+    pub workflow_task_type: Option<String>,
+    #[serde(default)]
     pub budget_token_limit: Option<i64>,
     #[serde(default)]
     pub budget_time_limit_secs: Option<i64>,
@@ -39,6 +47,10 @@ pub async fn create_goal(
             session_id,
             objective: body.objective,
             completion_criteria: body.completion_criteria.unwrap_or_default(),
+            domain: body.domain,
+            workflow_template_id: body.workflow_template_id,
+            workflow_template_version: body.workflow_template_version,
+            workflow_task_type: body.workflow_task_type,
             budget_token_limit: body.budget_token_limit,
             budget_time_limit_secs: body.budget_time_limit_secs,
             budget_turn_limit: body.budget_turn_limit,
@@ -54,6 +66,14 @@ pub struct UpdateGoalBody {
     pub objective: Option<String>,
     #[serde(default)]
     pub completion_criteria: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub workflow_template_id: Option<String>,
+    #[serde(default)]
+    pub workflow_template_version: Option<String>,
+    #[serde(default)]
+    pub workflow_task_type: Option<String>,
 }
 
 pub async fn update_goal(
@@ -65,6 +85,10 @@ pub async fn update_goal(
             goal_id,
             objective: body.objective,
             completion_criteria: body.completion_criteria,
+            domain: body.domain,
+            workflow_template_id: body.workflow_template_id,
+            workflow_template_version: body.workflow_template_version,
+            workflow_task_type: body.workflow_task_type,
         })
         .map(Json)
         .map_err(|e| AppError::bad_request(e.to_string()))

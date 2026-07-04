@@ -698,6 +698,7 @@ export interface ContextRetrievalStats {
 export interface DomainContextProfile {
   domain: string;
   templateId?: string | null;
+  templateVersion?: string | null;
   templateTitle?: string | null;
   taskType?: string | null;
   goalId?: string | null;
@@ -897,6 +898,7 @@ export interface DomainQualityRun {
   goalId?: string | null;
   domain: string;
   templateId?: string | null;
+  templateVersion?: string | null;
   state: DomainQualityRunState;
   summary: string;
   stats: Record<string, unknown>;
@@ -943,6 +945,7 @@ export interface RunDomainQualityInput {
   goalId?: string | null;
   domain?: string | null;
   templateId?: string | null;
+  templateVersion?: string | null;
   profiles?: string[];
   artifactTitle?: string | null;
   artifactKind?: string | null;

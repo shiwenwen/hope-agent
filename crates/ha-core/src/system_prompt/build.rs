@@ -577,6 +577,35 @@ fn build_active_goal_section(session_id: Option<&str>, incognito: bool) -> Optio
         format!("- State: {}", goal.state.as_str()),
         format!("- Objective: {}", truncate(&goal.objective, 1200)),
     ];
+    if let Some(domain) = goal.domain.as_deref().filter(|s| !s.trim().is_empty()) {
+        lines.push(format!("- Domain: {}", truncate(domain, 200)));
+    }
+    if let Some(template_id) = goal
+        .workflow_template_id
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        let mut template = template_id.to_string();
+        if let Some(version) = goal
+            .workflow_template_version
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            template.push('@');
+            template.push_str(version);
+        }
+        lines.push(format!("- Workflow template: {}", truncate(&template, 300)));
+    }
+    if let Some(task_type) = goal
+        .workflow_task_type
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!(
+            "- Workflow task type: {}",
+            truncate(task_type, 200)
+        ));
+    }
     if !goal.completion_criteria.trim().is_empty() {
         lines.push(format!(
             "- Completion criteria: {}",

@@ -34,7 +34,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 - incognito session 禁止创建 durable Goal。
 - 反向也必须成立：存在 open Goal 的普通会话不能再切成 incognito，避免 durable Goal 证据链和“关闭即焚”语义并存。
 - `label` 只用于展示；Goal 与 Workflow 的关系以 `goal_id` / `goal_links` 为准。
-- Goal 更新必须走 owner 平面 `update_goal` 或 `/goal <objective>`；更新 objective 或 completion criteria 后清空旧 final audit，并让 `blocked` / `evaluating` 回到 `active`，避免旧审计结论污染新目标。
+- Goal 更新必须走 owner 平面 `update_goal` 或 `/goal <objective>`；更新 objective、completion criteria 或 domain workflow 绑定后清空旧 final audit，并让 `blocked` / `evaluating` 回到 `active`，避免旧审计结论污染新目标。
 
 ## 3. 数据模型
 
@@ -48,6 +48,9 @@ Goal 数据落在 `sessions.db`，跟随 session 级联删除。
 | `session_id` | 所属 session。 |
 | `objective` | 用户写下的最终目标。 |
 | `completion_criteria` | 用户写下的完成标准，多行文本。 |
+| `domain` | 可选通用任务领域，如 `research` / `writing` / `data_analysis`；为空表示自由目标。 |
+| `workflow_template_id` / `workflow_template_version` | 可选 domain workflow template 绑定。绑定后 Workflow 创建器默认推荐该模板，Context Retrieval / Domain Quality 优先使用它。 |
+| `workflow_task_type` | 可选 template task type，如 `technical_research` / `prd` / `metric_diagnostic`。 |
 | `state` | `active` / `paused` / `evaluating` / `completed` / `failed` / `cancelled` / `blocked`。 |
 | `mode_snapshot` | 创建 Goal 时的 session `execution_mode` 快照。 |
 | `budget_token_limit` / `budget_time_limit_secs` / `budget_turn_limit` | 可选预算字段；`0`/空表示不设限，正数参与预算观测、告警和新 workflow hard stop。 |
@@ -148,6 +151,7 @@ Evaluator v2 是确定性规则门禁，输入为：
 
 - Goal objective。
 - completion criteria。
+- Goal domain / workflow template / task type。
 - linked workflow runs。
 - session tasks。
 - `goal_links` 中的 workflow / validation / diff / file / artifact / diagnostic / review / worktree evidence。
@@ -230,8 +234,8 @@ EventBus：
 
 Workspace / Workflow Control Center 内有 Goal strip：
 
-- 无 active Goal：可直接创建 objective + completion criteria。
-- 有 active Goal：展示目标摘要、状态、workflow/task/evidence 指标，并支持编辑 objective / completion criteria。
+- 无 active Goal：可直接创建 objective + completion criteria，可选 domain workflow template 与 task type；默认“自由任务”。
+- 有 active Goal：展示目标摘要、状态、domain/template/task type、workflow/task/evidence 指标，并支持编辑 objective / completion criteria / domain workflow 绑定。
 - 点击 active Goal strip 可展开 Goal detail，查看 criteria 覆盖、预算、下一步证据、结构化 evidence、timeline、workflow/task 摘要。
 - 若存在 `worktree_attached` evidence，Goal detail 会显示 Worktrees 区块，直接展示改动落点、worktree state、path 是否存在、base、dirty snapshot 与 handoff / run 关联。
 - 若存在 `domain_evidence`，Goal detail 会显示「领域证据」分组，展示 domain、evidence type、source URL/path/dataset、confidence、access scope、connector/account、redaction status、导出前复核提示与 workflow run/op provenance。
@@ -247,7 +251,7 @@ Workspace / Workflow Control Center 内有 Goal strip：
 - 输入框上方常驻展示当前 active Goal 摘要、状态和编辑/评估/暂停/恢复/清除操作，用户不用打开 Workspace 也能掌握目标状态。
 - `/workflow status` / `/workflow runs` / `/workflow trace` 也会显示 active / linked Goal，命令面和 GUI 面保持同一条“目标 -> workflow run -> evidence”链路。
 
-每轮主对话 system prompt 会注入当前 active Goal 的 state、objective、completion criteria、blocked reason / latest audit 摘要。Goal 更新后，下一轮 prompt 重新构建即可让模型感知最新目标。
+每轮主对话 system prompt 会注入当前 active Goal 的 state、objective、domain、workflow template、task type、completion criteria、blocked reason / latest audit 摘要。Goal 更新后，下一轮 prompt 重新构建即可让模型感知最新目标与领域约束。
 
 ## 9. 非目标
 

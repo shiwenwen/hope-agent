@@ -2,7 +2,7 @@
 
 > 返回 [路线图索引](README.md)
 >
-> 更新时间：2026-07-03
+> 更新时间：2026-07-04
 >
 > 状态：Phase 7.1 Domain Workflow Registry、Phase 7.2 General Evidence Model、Phase 7.3 Domain Context Retrieval、Phase 7.4 Domain Verification & Review、Phase 7.5 Domain Learning Loop、Phase 7.6 General Eval & Quality Gate 已完成第一版，并已分别沉淀到 [Domain Workflow 控制平面](../architecture/domain-workflow.md)、[Context Retrieval v2](../architecture/context-retrieval.md)、[Domain Quality 控制平面](../architecture/domain-quality.md)、[Coding Improvement Loop](../architecture/coding-improvement-loop.md) 与 [Domain Eval 与 Quality Gate 控制平面](../architecture/domain-eval.md)。
 
@@ -118,10 +118,11 @@ DomainWorkflow
 - 模板可生成 `workflow.js` draft，并复用既有 Script Gate 与 permission preview。
 - Tauri / HTTP / Transport 已注册 `list_domain_workflow_templates`、`save_domain_workflow_template`、`preview_domain_workflow`。
 - 模板版本、启用范围、默认 mode、推荐工具、required evidence、approval gates、verification policy、stop conditions、output contract 可见。
+- Workspace / Workflow Control Center 的 Goal 创建 / 编辑与“新建工作流”已接入领域模板选择器。Goal 可持久绑定 domain/template/task type，workflow 创建器会继承该推荐并可直接生成领域草稿、显示证据/审批/验证摘要，复用标准预检与创建链路。
 
 验收：
 
-- Owner API 已可列出非 coding 场景模板并生成 workflow draft；GUI 创建入口仍在后续产品化阶段补。
+- Owner API 与 GUI 都可列出非 coding 场景模板并生成 workflow draft；用户不需要记模板 id 或 slash 参数。
 - 同一目标可选择自由编排或 domain workflow draft，执行时仍落既有 WorkflowRun / Task / Goal 链路。
 - 模板 preview 不创建 run、不执行脚本，不绕过权限、审批、连接器授权或 incognito 红线。
 
@@ -246,10 +247,11 @@ DomainWorkflow
 
 ## 8. GUI 产品形态
 
-通用场景层不应该要求用户记模板名。推荐入口：
+通用场景层不应该要求用户记模板名。当前已落地和后续推荐入口：
 
-- Goal 创建时选择任务类型：自由任务 / 调研 / 写作 / 数据分析 / 会议准备 / 知识整理 / 邮件沟通 / 项目运营。
-- Workflow Control Center 根据任务类型给出 draft、证据要求、风险提示和需要授权的连接器。
+- 已落地：Goal 创建 / 编辑可选择任务领域：自由任务 / 调研 / 写作 / 数据分析 / 会议准备 / 知识整理 / 邮件沟通 / 项目运营，并把 domain/template id + version/task type 持久化到 Goal。
+- 已落地：Workflow Control Center 的新建工作流表单可继承 active Goal 的领域模板，也可手动选择领域模板和 task type，生成 draft、证据要求、审批门、验证策略和 Script Gate / permission preview。
+- 已落地：Context Retrieval 与 Domain Quality 均优先读取 Goal 绑定的 template version；用户显式指定 template/domain 时仍可覆盖。
 - Workspace 增加通用面板：Sources、Evidence、Drafts、Review、Verification、Decisions。
 - Dashboard 增加 Domain Learning：按领域看完成率、卡点、证据质量、复核失败、用户确认等待。
 - Loop 创建支持 domain workflow：例如每周五生成项目状态报告、每天早上准备日程 brief。

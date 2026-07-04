@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
@@ -57,6 +65,13 @@ import {
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -91,11 +106,16 @@ import type {
   CodingWorkflowRetro,
   ContextCandidate,
   ContextCandidateKind,
+  DomainApprovalGate,
+  DomainEvidenceRequirement,
   DomainQualityCheck,
   DomainQualityCheckStatus,
   DomainQualityRunSnapshot,
   DomainQualityRunState,
   DomainQualitySeverity,
+  DomainVerificationRule,
+  DomainWorkflowDraft,
+  DomainWorkflowTemplate,
   LspDiagnostic,
   ManagedWorktree,
   ReviewFinding,
@@ -1226,7 +1246,11 @@ function ManagedWorktreesMiniPanel({
             disabled={!canCreate || Boolean(actionKey)}
             onClick={onCreate}
           >
-            {createBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+            {createBusy ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" />
+            )}
           </Button>
         </IconTip>
       </div>
@@ -1242,7 +1266,9 @@ function ManagedWorktreesMiniPanel({
         <div className="space-y-1 border-t border-border/60 p-1.5">
           {visible.map((worktree) => {
             const isActive = activeWorktree?.id === worktree.id
-            const busyPrefix = actionKey?.endsWith(`:${worktree.id}`) ? actionKey.split(":")[0] : null
+            const busyPrefix = actionKey?.endsWith(`:${worktree.id}`)
+              ? actionKey.split(":")[0]
+              : null
             return (
               <div
                 key={worktree.id}
@@ -1622,7 +1648,9 @@ function contextCandidateFocusPaths(candidate: ContextCandidate): string[] {
   if (actions && typeof actions === "object" && !Array.isArray(actions)) {
     const focusPaths = (actions as Record<string, unknown>).focusPaths
     if (Array.isArray(focusPaths)) {
-      const paths = focusPaths.filter((path): path is string => typeof path === "string" && path.length > 0)
+      const paths = focusPaths.filter(
+        (path): path is string => typeof path === "string" && path.length > 0,
+      )
       if (paths.length > 0) return paths
     }
   }
@@ -1813,7 +1841,9 @@ function ContextFileCandidateRow({
               {candidate.reasons[0] ?? contextKindLabel(t, candidate.kind)}
             </div>
             <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/65">
-              <span className="truncate">{contextLocationLabel(candidate) ?? candidate.subtitle}</span>
+              <span className="truncate">
+                {contextLocationLabel(candidate) ?? candidate.subtitle}
+              </span>
               <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
             </div>
             <DomainContextActionChips candidate={candidate} />
@@ -2019,16 +2049,17 @@ function ContextRetrievalSection({
               ],
               [
                 t("workspace.context.statControl", "闭环"),
-                stats.verificationSteps + stats.goalEvidence + stats.tasks + stats.workflowOps + stats.symbols,
+                stats.verificationSteps +
+                  stats.goalEvidence +
+                  stats.tasks +
+                  stats.workflowOps +
+                  stats.symbols,
               ],
               [
                 t("workspace.context.statDomain", "领域"),
                 stats.domainCandidates + stats.domainEvidence,
               ],
-              [
-                t("workspace.context.statAccess", "缺口"),
-                stats.accessIssues,
-              ],
+              [t("workspace.context.statAccess", "缺口"), stats.accessIssues],
             ].map(([label, count]) => (
               <div
                 key={label as string}
@@ -2053,12 +2084,25 @@ function ContextRetrievalSection({
                     domain: snapshot.domainContext.domain,
                   })}
               </span>
+              {snapshot.domainContext.templateId ? (
+                <StatusPill
+                  label={
+                    snapshot.domainContext.templateVersion
+                      ? `${snapshot.domainContext.templateId}@${snapshot.domainContext.templateVersion}`
+                      : snapshot.domainContext.templateId
+                  }
+                  tone="muted"
+                />
+              ) : null}
               <StatusPill label={snapshot.domainContext.source} tone="info" />
             </div>
             {snapshot.accessIssues.length ? (
               <div className="mt-1 space-y-0.5">
                 {snapshot.accessIssues.slice(0, 2).map((issue) => (
-                  <div key={`${issue.kind}:${issue.title}`} className="truncate text-amber-700 dark:text-amber-300">
+                  <div
+                    key={`${issue.kind}:${issue.title}`}
+                    className="truncate text-amber-700 dark:text-amber-300"
+                  >
                     {issue.title} · {issue.action}
                   </div>
                 ))}
@@ -2102,7 +2146,10 @@ function ContextRetrievalSection({
           <EmptyHint>
             {workingDir
               ? t("workspace.context.empty", "暂无推荐上下文")
-              : t("workspace.context.emptyNoWorkspace", "暂无推荐上下文；未设置工作目录时会跳过文件搜索")}
+              : t(
+                  "workspace.context.emptyNoWorkspace",
+                  "暂无推荐上下文；未设置工作目录时会跳过文件搜索",
+                )}
           </EmptyHint>
         )}
 
@@ -2205,13 +2252,17 @@ function LspDiagnosticsSection({
       <div className="space-y-2">
         <div className="grid grid-cols-3 gap-1.5">
           <div className="rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5">
-            <div className="text-[10px] text-muted-foreground">{t("workspace.lsp.servers", "服务")}</div>
+            <div className="text-[10px] text-muted-foreground">
+              {t("workspace.lsp.servers", "服务")}
+            </div>
             <div className="text-xs font-medium tabular-nums text-foreground">
               {activeServers}/{availableServers}
             </div>
           </div>
           <div className="rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5">
-            <div className="text-[10px] text-muted-foreground">{t("workspace.lsp.files", "文件")}</div>
+            <div className="text-[10px] text-muted-foreground">
+              {t("workspace.lsp.files", "文件")}
+            </div>
             <div className="text-xs font-medium tabular-nums text-foreground">
               {snapshot?.files ?? 0}
             </div>
@@ -2404,16 +2455,8 @@ function ReviewSection({
   workingDir?: string | null
 }) {
   const { t } = useTranslation()
-  const {
-    runs,
-    snapshot,
-    loading,
-    running,
-    error,
-    refresh,
-    runReview,
-    updateFindingStatus,
-  } = useReviewRuns(sessionId, { incognito, turnActive })
+  const { runs, snapshot, loading, running, error, refresh, runReview, updateFindingStatus } =
+    useReviewRuns(sessionId, { incognito, turnActive })
   const findings = snapshot?.findings ?? []
   const openFindings = findings.filter((finding) => finding.status === "open")
   const visibleFindings = openFindings.slice(0, 6)
@@ -2426,9 +2469,11 @@ function ReviewSection({
   const activeProfiles = reviewStatsStringArray(snapshot, "profiles")
   const warnings = reviewStatsStringArray(snapshot, "warnings")
   const ideContextPresent = reviewStatsBoolean(snapshot, ["ideContext", "present"])
-  const llmReviewer = typeof latest?.stats?.llmReviewer === "string" ? latest.stats.llmReviewer : null
+  const llmReviewer =
+    typeof latest?.stats?.llmReviewer === "string" ? latest.stats.llmReviewer : null
   const [selectedProfiles, setSelectedProfiles] = useState<string[]>(DEFAULT_REVIEW_PROFILES)
-  const disabled = !sessionId || incognito || !workingDir || running || loading || latest?.state === "running"
+  const disabled =
+    !sessionId || incognito || !workingDir || running || loading || latest?.state === "running"
 
   const blockingCount = openFindings.filter(
     (finding) => finding.severity === "p0" || finding.severity === "p1",
@@ -2506,10 +2551,7 @@ function ReviewSection({
           ].map(([label, count, tone]) => (
             <div
               key={label as string}
-              className={cn(
-                "rounded-md border px-2 py-1.5",
-                STATUS_TONE_CLASS[tone as StatusTone],
-              )}
+              className={cn("rounded-md border px-2 py-1.5", STATUS_TONE_CLASS[tone as StatusTone])}
             >
               <div className="text-[10px]">{label as string}</div>
               <div className="text-xs font-semibold tabular-nums">{count as number}</div>
@@ -2628,10 +2670,7 @@ function ReviewSection({
                       label={finding.severity.toUpperCase()}
                       tone={reviewSeverityTone(finding.severity)}
                     />
-                    <StatusPill
-                      label={finding.verdict}
-                      tone={reviewVerdictTone(finding.verdict)}
-                    />
+                    <StatusPill label={finding.verdict} tone={reviewVerdictTone(finding.verdict)} />
                   </div>
                   <div className="mt-1 line-clamp-2 pl-5 text-[11px] leading-snug text-muted-foreground">
                     {finding.body}
@@ -2762,11 +2801,7 @@ function verificationDurationLabel(ms?: number | null): string | null {
   return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`
 }
 
-function VerificationStepRow({
-  step,
-}: {
-  step: VerificationStep
-}) {
+function VerificationStepRow({ step }: { step: VerificationStep }) {
   const { t } = useTranslation()
   const duration = verificationDurationLabel(step.durationMs)
   const output =
@@ -2906,10 +2941,7 @@ function VerificationSection({
           ].map(([label, count, tone]) => (
             <div
               key={label as string}
-              className={cn(
-                "rounded-md border px-2 py-1.5",
-                STATUS_TONE_CLASS[tone as StatusTone],
-              )}
+              className={cn("rounded-md border px-2 py-1.5", STATUS_TONE_CLASS[tone as StatusTone])}
             >
               <div className="truncate text-[10px]">{label as string}</div>
               <div className="text-xs font-semibold tabular-nums">{count as number}</div>
@@ -2961,7 +2993,9 @@ function VerificationSection({
         </div>
 
         {!workingDir ? (
-          <EmptyHint>{t("workspace.verification.noWorkspace", "选择工作目录后可生成验证建议")}</EmptyHint>
+          <EmptyHint>
+            {t("workspace.verification.noWorkspace", "选择工作目录后可生成验证建议")}
+          </EmptyHint>
         ) : incognito ? (
           <EmptyHint>{t("workspace.verification.incognito", "无痕会话不持久化验证结果")}</EmptyHint>
         ) : error ? (
@@ -3096,6 +3130,11 @@ function domainLabel(domain?: string | null): string {
   return domain ? domain.replace(/_/g, " ") : "domain"
 }
 
+function domainQualityTemplateLabel(run: DomainQualityRunSnapshot["run"]): string | null {
+  if (!run.templateId) return null
+  return run.templateVersion ? `${run.templateId}@${run.templateVersion}` : run.templateId
+}
+
 function DomainQualityCheckRow({ check }: { check: DomainQualityCheck }) {
   const { t } = useTranslation()
   const icon =
@@ -3158,17 +3197,16 @@ function DomainQualitySection({
   const advisory = domainQualityStatsNumber(snapshot, "advisory")
   const active = running || latest?.state === "running"
   const disabled = !sessionId || incognito || active || loading
-  const meta =
-    active ? (
-      <StatusPill label={t("workspace.domainQuality.running", "复核中")} tone="info" loading />
-    ) : latest ? (
-      <StatusPill
-        label={domainQualityStateLabel(t, latest.state)}
-        tone={domainQualityStateTone(latest.state)}
-      />
-    ) : (
-      <StatusPill label={t("workspace.domainQuality.idle", "待复核")} tone="muted" />
-    )
+  const meta = active ? (
+    <StatusPill label={t("workspace.domainQuality.running", "复核中")} tone="info" loading />
+  ) : latest ? (
+    <StatusPill
+      label={domainQualityStateLabel(t, latest.state)}
+      tone={domainQualityStateTone(latest.state)}
+    />
+  ) : (
+    <StatusPill label={t("workspace.domainQuality.idle", "待复核")} tone="muted" />
+  )
 
   const handleRun = async () => {
     const next = await runDomainQuality()
@@ -3201,10 +3239,7 @@ function DomainQualitySection({
           ].map(([label, count, tone]) => (
             <div
               key={label as string}
-              className={cn(
-                "rounded-md border px-2 py-1.5",
-                STATUS_TONE_CLASS[tone as StatusTone],
-              )}
+              className={cn("rounded-md border px-2 py-1.5", STATUS_TONE_CLASS[tone as StatusTone])}
             >
               <div className="truncate text-[10px]">{label as string}</div>
               <div className="text-xs font-semibold tabular-nums">{count as number}</div>
@@ -3243,7 +3278,9 @@ function DomainQualitySection({
         </div>
 
         {incognito ? (
-          <EmptyHint>{t("workspace.domainQuality.incognito", "无痕会话不持久化领域复核")}</EmptyHint>
+          <EmptyHint>
+            {t("workspace.domainQuality.incognito", "无痕会话不持久化领域复核")}
+          </EmptyHint>
         ) : error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive">
             {error}
@@ -3261,7 +3298,9 @@ function DomainQualitySection({
             </div>
             <div className="mt-1 flex min-w-0 flex-wrap gap-1 pl-5">
               <StatusPill label={domainLabel(latest.domain)} tone="info" />
-              {latest.templateId ? <StatusPill label={latest.templateId} tone="muted" /> : null}
+              {domainQualityTemplateLabel(latest) ? (
+                <StatusPill label={domainQualityTemplateLabel(latest)!} tone="muted" />
+              ) : null}
             </div>
           </div>
         ) : (
@@ -3328,10 +3367,7 @@ function codingProposalTone(status: string): StatusTone {
   }
 }
 
-function codingProposalKindLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  kind: string,
-): string {
+function codingProposalKindLabel(t: ReturnType<typeof useTranslation>["t"], kind: string): string {
   switch (kind) {
     case "eval_candidate":
       return t("workspace.codingTrend.kindEval", "评测候选")
@@ -3521,7 +3557,11 @@ function CodingProposalDetail({
             onClick={() => onReject(proposal.id)}
             aria-label={t("workspace.codingTrend.reject", "拒绝")}
           >
-            {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+            {updating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <X className="h-3.5 w-3.5" />
+            )}
           </button>
         </IconTip>
       </div>
@@ -3585,7 +3625,9 @@ function CodingProposalDetail({
         </div>
       ) : null}
 
-      {action?.applied || proposal.status === "promotion_failed" || proposal.status === "promoted" ? (
+      {action?.applied ||
+      proposal.status === "promotion_failed" ||
+      proposal.status === "promoted" ? (
         <div className="space-y-2 rounded-md border border-border/50 bg-background/50 p-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 shrink-0 text-sky-500" />
@@ -3595,7 +3637,10 @@ function CodingProposalDetail({
             {proposal.status === "promoted" ? (
               <StatusPill label={t("workspace.codingTrend.promoted", "已晋升")} tone="good" />
             ) : proposal.status === "promotion_failed" ? (
-              <StatusPill label={t("workspace.codingTrend.promotionFailed", "晋升失败")} tone="danger" />
+              <StatusPill
+                label={t("workspace.codingTrend.promotionFailed", "晋升失败")}
+                tone="danger"
+              />
             ) : null}
           </div>
           <div className="flex min-w-0 items-center gap-1.5">
@@ -3610,7 +3655,9 @@ function CodingProposalDetail({
               ) : (
                 <Eye className="h-3.5 w-3.5" />
               )}
-              <span className="truncate">{t("workspace.codingTrend.previewPromotion", "预览晋升")}</span>
+              <span className="truncate">
+                {t("workspace.codingTrend.previewPromotion", "预览晋升")}
+              </span>
             </button>
             <button
               type="button"
@@ -3754,7 +3801,8 @@ function CodingProposalRow({
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-5">
           <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/65">
-            {codingProposalStatusLabel(t, proposal.status)} · {formatMessageTime(proposal.updatedAt)}
+            {codingProposalStatusLabel(t, proposal.status)} ·{" "}
+            {formatMessageTime(proposal.updatedAt)}
           </span>
           <IconTip label={t("workspace.codingTrend.previewAction", "预览")}>
             <button
@@ -3790,7 +3838,11 @@ function CodingProposalRow({
               }}
               aria-label={t("workspace.codingTrend.applyAction", "应用")}
             >
-              {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              {applying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
             </button>
           </IconTip>
           <IconTip label={t("workspace.codingTrend.promoteAction", "晋升")}>
@@ -3809,7 +3861,11 @@ function CodingProposalRow({
               }}
               aria-label={t("workspace.codingTrend.promoteAction", "晋升")}
             >
-              {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {promoting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
             </button>
           </IconTip>
         </div>
@@ -4172,9 +4228,7 @@ function CodingTrendSection({
                 })}
                 tone={trendReport.retro.recommendations > 0 ? "info" : "muted"}
               />
-              {topCategory ? (
-                <StatusPill label={topCategory.label} tone="warn" />
-              ) : null}
+              {topCategory ? <StatusPill label={topCategory.label} tone="warn" /> : null}
             </div>
           </div>
         )}
@@ -4290,6 +4344,32 @@ const WORKFLOW_EVENT_PREVIEW = 4
 const WORKFLOW_OVERVIEW_EVENT_PREVIEW = 5
 const WORKFLOW_OP_PREVIEW = 6
 const WORKFLOW_FOCUS_OP_PREVIEW = 4
+const GOAL_DOMAIN_FREE_VALUE = "__free_goal_domain__"
+
+function domainTemplateOptionValue(template: Pick<DomainWorkflowTemplate, "id" | "version">) {
+  return `${template.id}@${template.version}`
+}
+
+function findDomainTemplateByValue(
+  templates: DomainWorkflowTemplate[],
+  value: string | null | undefined,
+) {
+  if (!value || value === GOAL_DOMAIN_FREE_VALUE) return null
+  return (
+    templates.find((template) => domainTemplateOptionValue(template) === value) ??
+    templates.find((template) => template.id === value) ??
+    null
+  )
+}
+
+function goalDomainTemplateValue(
+  goal: Pick<Goal, "workflowTemplateId" | "workflowTemplateVersion">,
+) {
+  if (!goal.workflowTemplateId) return GOAL_DOMAIN_FREE_VALUE
+  return goal.workflowTemplateVersion
+    ? `${goal.workflowTemplateId}@${goal.workflowTemplateVersion}`
+    : goal.workflowTemplateId
+}
 
 type ExecutionMode = "off" | "guarded" | "deep" | "autonomous"
 type WorkflowAutonomyMode = "off" | "on" | "ultracode"
@@ -4616,10 +4696,7 @@ function executionModeLabel(
   }
 }
 
-function executionModeHint(
-  t: ReturnType<typeof useTranslation>["t"],
-  mode: ExecutionMode,
-): string {
+function executionModeHint(t: ReturnType<typeof useTranslation>["t"], mode: ExecutionMode): string {
   switch (mode) {
     case "off":
       return t("workspace.workflow.executionOffHint", "普通对话")
@@ -5324,11 +5401,7 @@ function workflowEventDetail(
         typeof spent === "number" && typeof limit === "number"
           ? `${compactCount(spent)}/${compactCount(limit)}`
           : null
-      return [
-        usage,
-        exhausted ? t("workspace.workflow.budgetExhausted", "已达上限") : null,
-        reason,
-      ]
+      return [usage, exhausted ? t("workspace.workflow.budgetExhausted", "已达上限") : null, reason]
         .filter(Boolean)
         .join(" · ")
     }
@@ -5516,7 +5589,9 @@ function LoopSchedulesSection({
     }
     const prompt = draftPrompt.trim()
     if (draftKind === "interval" && !prompt && !activeGoal) {
-      toast.error(t("workspace.loop.promptOrGoalRequired", "请输入 prompt，或先创建一个 active goal"))
+      toast.error(
+        t("workspace.loop.promptOrGoalRequired", "请输入 prompt，或先创建一个 active goal"),
+      )
       return
     }
     const maxRuntimeSecs = draftMaxRuntime.trim() ? parseLoopDurationSecs(draftMaxRuntime) : null
@@ -5545,10 +5620,7 @@ function LoopSchedulesSection({
         sessionId,
         prompt: draftKind === "condition" && !prompt ? defaultConditionPrompt : prompt,
         triggerKind: draftKind,
-        triggerSpec:
-          draftKind === "condition"
-            ? { condition, intervalSecs }
-            : { intervalSecs },
+        triggerSpec: draftKind === "condition" ? { condition, intervalSecs } : { intervalSecs },
         maxRuns,
         maxRuntimeSecs,
         tokenBudget,
@@ -5662,10 +5734,16 @@ function LoopSchedulesSection({
               onChange={(e) => setDraftPrompt(e.target.value)}
               placeholder={
                 draftKind === "condition"
-                  ? t("workspace.loop.promptOptionalPlaceholder", "每次触发要做什么；留空则只检查条件并推进下一步")
+                  ? t(
+                      "workspace.loop.promptOptionalPlaceholder",
+                      "每次触发要做什么；留空则只检查条件并推进下一步",
+                    )
                   : activeGoal
                     ? t("workspace.loop.promptGoalPlaceholder", "留空则继续当前 active goal")
-                    : t("workspace.loop.promptPlaceholder", "check CI and continue fixing if failing")
+                    : t(
+                        "workspace.loop.promptPlaceholder",
+                        "check CI and continue fixing if failing",
+                      )
               }
               className="min-h-[64px] resize-none text-xs"
               aria-label={t("workspace.loop.prompt", "Prompt")}
@@ -5694,7 +5772,11 @@ function LoopSchedulesSection({
                 disabled={createSaving}
                 onClick={() => void createLoop()}
               >
-                {createSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Radio className="h-3.5 w-3.5" />}
+                {createSaving ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Radio className="h-3.5 w-3.5" />
+                )}
                 {t("workspace.loop.create", "创建 Loop")}
               </Button>
             </div>
@@ -5718,11 +5800,17 @@ function LoopSchedulesSection({
           {schedules.slice(0, 5).map((loop) => {
             const isBusy = actionId?.startsWith(`${loop.id}:`)
             return (
-              <div key={loop.id} className="rounded-md border border-border/70 bg-background/70 px-2.5 py-2">
+              <div
+                key={loop.id}
+                className="rounded-md border border-border/70 bg-background/70 px-2.5 py-2"
+              >
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
-                      <StatusPill label={loopStateLabel(t, loop.state)} tone={loopStateTone(loop.state)} />
+                      <StatusPill
+                        label={loopStateLabel(t, loop.state)}
+                        tone={loopStateTone(loop.state)}
+                      />
                       <span className="truncate text-xs font-medium text-foreground">
                         {loopTriggerSummary(loop.triggerKind, loop.triggerSpec)}
                       </span>
@@ -5734,7 +5822,8 @@ function LoopSchedulesSection({
                       </span>
                       {loop.maxRuntimeSecs ? (
                         <span>
-                          {t("workspace.loop.maxRuntime", "最长")} {formatLoopDuration(loop.maxRuntimeSecs)}
+                          {t("workspace.loop.maxRuntime", "最长")}{" "}
+                          {formatLoopDuration(loop.maxRuntimeSecs)}
                         </span>
                       ) : null}
                       <span>{formatMessageTime(loop.updatedAt)}</span>
@@ -5849,17 +5938,29 @@ function WorkflowRunsSection({
   const [draftObjective, setDraftObjective] = useState("")
   const [draftScript, setDraftScript] = useState(WORKFLOW_SCRIPT_TEMPLATE)
   const [draftOrigin, setDraftOrigin] = useState<WorkflowDraftOrigin | null>(null)
+  const [domainTemplates, setDomainTemplates] = useState<DomainWorkflowTemplate[]>([])
+  const [domainTemplatesLoading, setDomainTemplatesLoading] = useState(false)
+  const [domainTemplatesError, setDomainTemplatesError] = useState<string | null>(null)
+  const [selectedDomainTemplateId, setSelectedDomainTemplateId] = useState("")
+  const [selectedDomainTaskType, setSelectedDomainTaskType] = useState("")
+  const [domainDraft, setDomainDraft] = useState<DomainWorkflowDraft | null>(null)
+  const [domainDraftLoading, setDomainDraftLoading] = useState(false)
   const [showAllRuns, setShowAllRuns] = useState(false)
   const [pendingCancelRun, setPendingCancelRun] = useState<WorkflowRun | null>(null)
   const [goalActionKey, setGoalActionKey] = useState<string | null>(null)
   const [goalCreateOpen, setGoalCreateOpen] = useState(false)
   const [goalObjective, setGoalObjective] = useState("")
   const [goalCriteria, setGoalCriteria] = useState("")
+  const [goalTemplateId, setGoalTemplateId] = useState(GOAL_DOMAIN_FREE_VALUE)
+  const [goalTaskType, setGoalTaskType] = useState("")
   const [goalSaving, setGoalSaving] = useState(false)
   const snapshotReqRef = useRef(0)
   const workflowModeReqRef = useRef(0)
   const executionModeReqRef = useRef(0)
   const previewReqRef = useRef(0)
+  const domainTemplatesReqRef = useRef(0)
+  const domainTemplatesRequestedRef = useRef(false)
+  const domainDraftReqRef = useRef(0)
   const autoDetailTabRunRef = useRef<string | null>(null)
   const ensureSessionRef = useRef<Promise<string | null> | null>(null)
 
@@ -5867,6 +5968,14 @@ function WorkflowRunsSection({
   const visibleRuns = showAllRuns ? runs : runs.slice(0, WORKFLOW_RUN_PREVIEW)
   const canMaterializeSession = Boolean(sessionId || onEnsureSession)
   const activeGoal = goalState.snapshot?.goal ?? null
+  const selectedDomainTemplate = findDomainTemplateByValue(
+    domainTemplates,
+    selectedDomainTemplateId,
+  )
+  const selectedGoalTemplate =
+    goalTemplateId === GOAL_DOMAIN_FREE_VALUE
+      ? null
+      : findDomainTemplateByValue(domainTemplates, goalTemplateId)
   const draftWorktrees = managedWorktreesState.worktrees.filter(
     (worktree) => worktree.state !== "archived" && worktree.pathExists,
   )
@@ -5900,6 +6009,112 @@ function WorkflowRunsSection({
     }
     return nextSessionId
   }, [onEnsureSession, sessionId, t])
+
+  const loadDomainWorkflowTemplates = useCallback(() => {
+    if (incognito) {
+      domainTemplatesReqRef.current += 1
+      domainTemplatesRequestedRef.current = false
+      setDomainTemplates([])
+      setDomainTemplatesLoading(false)
+      setDomainTemplatesError(null)
+      return
+    }
+    domainTemplatesRequestedRef.current = true
+    const req = ++domainTemplatesReqRef.current
+    setDomainTemplatesLoading(true)
+    setDomainTemplatesError(null)
+    getTransport()
+      .call<DomainWorkflowTemplate[]>("list_domain_workflow_templates", { limit: 24 })
+      .then((next) => {
+        if (domainTemplatesReqRef.current !== req) return
+        setDomainTemplates(Array.isArray(next) ? next.filter((template) => template.enabled) : [])
+        setDomainTemplatesLoading(false)
+      })
+      .catch((e) => {
+        if (domainTemplatesReqRef.current !== req) return
+        logger.error(
+          "ui",
+          "WorkflowRunsSection::loadDomainWorkflowTemplates",
+          "Failed to load domain workflow templates",
+          e,
+        )
+        setDomainTemplates([])
+        setDomainTemplatesError(e instanceof Error ? e.message : String(e))
+        setDomainTemplatesLoading(false)
+      })
+  }, [incognito])
+
+  useEffect(() => {
+    if (
+      (!createOpen && !goalCreateOpen && !activeGoal) ||
+      incognito ||
+      domainTemplatesRequestedRef.current
+    ) {
+      return
+    }
+    loadDomainWorkflowTemplates()
+  }, [activeGoal, createOpen, goalCreateOpen, incognito, loadDomainWorkflowTemplates])
+
+  useEffect(() => {
+    if (domainTemplates.length === 0) {
+      if (selectedDomainTemplateId) setSelectedDomainTemplateId("")
+      if (selectedDomainTaskType) setSelectedDomainTaskType("")
+      return
+    }
+    const selected = findDomainTemplateByValue(domainTemplates, selectedDomainTemplateId)
+    if (!selected) {
+      const first = domainTemplates[0]
+      setSelectedDomainTemplateId(domainTemplateOptionValue(first))
+      setSelectedDomainTaskType(first.taskTypes[0] ?? "")
+      return
+    }
+    if (selected.taskTypes.length === 0) {
+      if (selectedDomainTaskType) setSelectedDomainTaskType("")
+      return
+    }
+    if (!selected.taskTypes.includes(selectedDomainTaskType)) {
+      setSelectedDomainTaskType(selected.taskTypes[0] ?? "")
+    }
+  }, [domainTemplates, selectedDomainTaskType, selectedDomainTemplateId])
+
+  useEffect(() => {
+    if (goalTemplateId === GOAL_DOMAIN_FREE_VALUE) {
+      if (goalTaskType) setGoalTaskType("")
+      return
+    }
+    const selected = findDomainTemplateByValue(domainTemplates, goalTemplateId)
+    if (!selected) {
+      setGoalTemplateId(GOAL_DOMAIN_FREE_VALUE)
+      setGoalTaskType("")
+      return
+    }
+    if (selected.taskTypes.length === 0) {
+      if (goalTaskType) setGoalTaskType("")
+      return
+    }
+    if (!selected.taskTypes.includes(goalTaskType)) {
+      setGoalTaskType(selected.taskTypes[0] ?? "")
+    }
+  }, [domainTemplates, goalTaskType, goalTemplateId])
+
+  useEffect(() => {
+    if (!activeGoal?.workflowTemplateId || domainTemplates.length === 0 || domainDraft) return
+    const template = findDomainTemplateByValue(domainTemplates, goalDomainTemplateValue(activeGoal))
+    if (!template) return
+    const templateValue = domainTemplateOptionValue(template)
+    if (selectedDomainTemplateId === templateValue) return
+    setSelectedDomainTemplateId(templateValue)
+    setSelectedDomainTaskType(activeGoal.workflowTaskType || template.taskTypes[0] || "")
+    setDraftKind(`domain:${template.domain}`)
+    setDraftMode(normalizeExecutionMode(template.defaultMode))
+  }, [
+    activeGoal?.workflowTaskType,
+    activeGoal?.workflowTemplateId,
+    activeGoal?.workflowTemplateVersion,
+    domainDraft,
+    domainTemplates,
+    selectedDomainTemplateId,
+  ])
 
   useEffect(() => {
     if (runs.length === 0) {
@@ -6128,10 +6343,24 @@ function WorkflowRunsSection({
         sessionId: targetSessionId,
         objective,
         completionCriteria: goalCriteria.trim(),
+        domain: selectedGoalTemplate?.domain ?? undefined,
+        workflowTemplateId: selectedGoalTemplate?.id ?? undefined,
+        workflowTemplateVersion: selectedGoalTemplate?.version ?? undefined,
+        workflowTaskType: selectedGoalTemplate
+          ? goalTaskType || selectedGoalTemplate.taskTypes[0] || undefined
+          : undefined,
       })
       goalState.setSnapshot(snapshot)
+      if (selectedGoalTemplate) {
+        setSelectedDomainTemplateId(domainTemplateOptionValue(selectedGoalTemplate))
+        setSelectedDomainTaskType(goalTaskType || selectedGoalTemplate.taskTypes[0] || "")
+        setDraftKind(`domain:${selectedGoalTemplate.domain}`)
+        setDraftMode(normalizeExecutionMode(selectedGoalTemplate.defaultMode))
+      }
       setGoalObjective("")
       setGoalCriteria("")
+      setGoalTemplateId(GOAL_DOMAIN_FREE_VALUE)
+      setGoalTaskType("")
       setGoalCreateOpen(false)
       toast.success(t("workspace.goal.created", "已创建 Goal"))
     } catch (e) {
@@ -6140,7 +6369,16 @@ function WorkflowRunsSection({
     } finally {
       setGoalSaving(false)
     }
-  }, [ensureWorkflowSession, goalCriteria, goalObjective, goalState, incognito, t])
+  }, [
+    ensureWorkflowSession,
+    goalCriteria,
+    goalObjective,
+    goalState,
+    goalTaskType,
+    incognito,
+    selectedGoalTemplate,
+    t,
+  ])
 
   const runGoalAction = useCallback(
     async (command: "pause_goal" | "resume_goal" | "clear_goal" | "evaluate_goal") => {
@@ -6169,7 +6407,14 @@ function WorkflowRunsSection({
   )
 
   const updateActiveGoal = useCallback(
-    async (objective: string, completionCriteria: string) => {
+    async (
+      objective: string,
+      completionCriteria: string,
+      domainSelection?: {
+        template: DomainWorkflowTemplate | null
+        taskType: string
+      },
+    ) => {
       if (!activeGoal) return false
       const trimmedObjective = objective.trim()
       if (!trimmedObjective) {
@@ -6179,12 +6424,28 @@ function WorkflowRunsSection({
       const key = `update_goal:${activeGoal.id}`
       setGoalActionKey(key)
       try {
-        const snapshot = await getTransport().call<GoalSnapshot>("update_goal", {
+        const payload: Record<string, unknown> = {
           goalId: activeGoal.id,
           objective: trimmedObjective,
           completionCriteria: completionCriteria.trim(),
-        })
+        }
+        if (domainSelection) {
+          payload.domain = domainSelection.template?.domain ?? ""
+          payload.workflowTemplateId = domainSelection.template?.id ?? ""
+          payload.workflowTemplateVersion = domainSelection.template?.version ?? ""
+          payload.workflowTaskType =
+            domainSelection.taskType || domainSelection.template?.taskTypes[0] || ""
+        }
+        const snapshot = await getTransport().call<GoalSnapshot>("update_goal", payload)
         goalState.setSnapshot(snapshot)
+        if (domainSelection?.template) {
+          setSelectedDomainTemplateId(domainTemplateOptionValue(domainSelection.template))
+          setSelectedDomainTaskType(
+            domainSelection.taskType || domainSelection.template.taskTypes[0] || "",
+          )
+          setDraftKind(`domain:${domainSelection.template.domain}`)
+          setDraftMode(normalizeExecutionMode(domainSelection.template.defaultMode))
+        }
         toast.success(t("workspace.goal.updated", "Goal 状态已更新"))
         goalState.refresh()
         return true
@@ -6205,6 +6466,36 @@ function WorkflowRunsSection({
     setDraftPreviewError(null)
     setDraftPreviewLoading(false)
   }, [])
+
+  const clearDomainDraft = useCallback(() => {
+    domainDraftReqRef.current += 1
+    setDomainDraft(null)
+    setDomainDraftLoading(false)
+  }, [])
+
+  const selectDomainTemplate = useCallback(
+    (templateValue: string) => {
+      const template = findDomainTemplateByValue(domainTemplates, templateValue)
+      setSelectedDomainTemplateId(templateValue)
+      setSelectedDomainTaskType(template?.taskTypes[0] ?? "")
+      if (template) {
+        setDraftKind(`domain:${template.domain}`)
+        setDraftMode(normalizeExecutionMode(template.defaultMode))
+      }
+      clearDomainDraft()
+      clearDraftPreview()
+    },
+    [clearDomainDraft, clearDraftPreview, domainTemplates],
+  )
+
+  const selectDomainTaskType = useCallback(
+    (taskType: string) => {
+      setSelectedDomainTaskType(taskType)
+      clearDomainDraft()
+      clearDraftPreview()
+    },
+    [clearDomainDraft, clearDraftPreview],
+  )
 
   const previewWorkflowScriptSource = useCallback(
     async (
@@ -6260,6 +6551,81 @@ function WorkflowRunsSection({
     [ensureWorkflowSession, incognito, t],
   )
 
+  const generateDomainWorkflowDraft = useCallback(async () => {
+    if (incognito) return
+    if (!selectedDomainTemplate) {
+      toast.error(t("workspace.workflow.domainTemplateRequired", "请选择领域模板"))
+      return
+    }
+    const objective = draftObjective.trim()
+    if (!objective && !activeGoal) {
+      toast.error(t("workspace.workflow.domainObjectiveRequired", "请输入目标，或先创建 Goal"))
+      return
+    }
+    const targetSessionId = await ensureWorkflowSession()
+    if (!targetSessionId) return
+
+    const req = ++domainDraftReqRef.current
+    previewReqRef.current += 1
+    setDomainDraftLoading(true)
+    setDomainDraft(null)
+    setDraftPreview(null)
+    setDraftPreviewError(null)
+    setDraftPreviewLoading(false)
+    try {
+      const draft = await getTransport().call<DomainWorkflowDraft>("preview_domain_workflow", {
+        templateId: selectedDomainTemplate.id,
+        version: selectedDomainTemplate.version,
+        sessionId: targetSessionId,
+        goalId: activeGoal?.id ?? undefined,
+        taskType: selectedDomainTaskType || undefined,
+        objective: objective || undefined,
+        modeOverride: draftMode,
+      })
+      if (domainDraftReqRef.current !== req) return
+      const preview = draft.scriptPreview as unknown as WorkflowScriptPreview
+      setDomainDraft(draft)
+      setDraftKind(draft.workflowKind)
+      setDraftMode(normalizeExecutionMode(draft.executionMode))
+      setDraftScript(draft.scriptSource)
+      setDraftPreview(preview)
+      setDraftPreviewError(null)
+      setDraftRunImmediately(Boolean(workingDir))
+      setDraftOrigin(null)
+      if (preview.canCreate) {
+        toast.success(t("workspace.workflow.domainDraftReady", "领域工作流草稿已生成并通过预检"))
+      } else {
+        toast.error(
+          t("workspace.workflow.domainDraftBlocked", "领域工作流草稿已生成，但预检未通过"),
+        )
+      }
+    } catch (e) {
+      if (domainDraftReqRef.current !== req) return
+      logger.error(
+        "ui",
+        "WorkflowRunsSection::generateDomainWorkflowDraft",
+        "Failed to generate domain workflow draft",
+        e,
+      )
+      setDomainDraft(null)
+      setDraftPreview(null)
+      setDraftPreviewError(e instanceof Error ? e.message : String(e))
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (domainDraftReqRef.current === req) setDomainDraftLoading(false)
+    }
+  }, [
+    activeGoal,
+    draftMode,
+    draftObjective,
+    ensureWorkflowSession,
+    incognito,
+    selectedDomainTaskType,
+    selectedDomainTemplate,
+    t,
+    workingDir,
+  ])
+
   const generateGoalDrivenDraft = useCallback(() => {
     const objective = draftObjective.trim()
     if (!objective) {
@@ -6270,6 +6636,7 @@ function WorkflowRunsSection({
     setDraftScript(buildGoalDrivenWorkflowScript(objective))
     setDraftRunImmediately(Boolean(workingDir))
     setDraftOrigin(null)
+    clearDomainDraft()
     clearDraftPreview()
     if (workingDir) {
       toast.success(t("workspace.workflow.objectiveDraftReady", "已生成目标驱动工作流草稿"))
@@ -6281,7 +6648,7 @@ function WorkflowRunsSection({
         ),
       )
     }
-  }, [clearDraftPreview, draftObjective, t, workingDir])
+  }, [clearDomainDraft, clearDraftPreview, draftObjective, t, workingDir])
 
   const generateRepairDraft = useCallback(
     (repairPrompt: string, run: WorkflowRun) => {
@@ -6300,6 +6667,7 @@ ${repairPrompt}`
         runKind: run.kind,
         runState: run.state,
       })
+      clearDomainDraft()
       setDraftWorktreeMode(run.worktreeId ?? "session")
       const script = buildGoalDrivenWorkflowScript(objective)
       setDraftScript(script)
@@ -6319,7 +6687,7 @@ ${repairPrompt}`
         blocked: t("workspace.workflow.repairDraftPreviewBlocked", "修复草稿预检未通过"),
       })
     },
-    [previewWorkflowScriptSource, t, workingDir],
+    [clearDomainDraft, previewWorkflowScriptSource, t, workingDir],
   )
 
   const previewWorkflowDraft = useCallback(async () => {
@@ -6344,7 +6712,9 @@ ${repairPrompt}`
       let worktreeId: string | undefined
       if (normalizedDraftWorktreeMode === "new") {
         if (!workingDir) {
-          toast.error(t("workspace.workflow.worktreeNeedsWorkspace", "先设置工作目录再创建隔离工作树"))
+          toast.error(
+            t("workspace.workflow.worktreeNeedsWorkspace", "先设置工作目录再创建隔离工作树"),
+          )
           return
         }
         const worktree = await getTransport().call<ManagedWorktree>("create_managed_worktree", {
@@ -6386,6 +6756,7 @@ ${repairPrompt}`
       )
       setCreateOpen(false)
       setDraftOrigin(null)
+      clearDomainDraft()
       clearDraftPreview()
     } catch (e) {
       logger.error("ui", "WorkflowRunsSection::createWorkflow", "Failed to create workflow", e)
@@ -6395,6 +6766,7 @@ ${repairPrompt}`
     }
   }, [
     clearDraftPreview,
+    clearDomainDraft,
     draftKind,
     draftMode,
     draftOrigin?.runId,
@@ -6572,12 +6944,20 @@ ${repairPrompt}`
               createOpen={goalCreateOpen}
               objective={goalObjective}
               criteria={goalCriteria}
+              domainTemplates={domainTemplates}
+              domainTemplatesLoading={domainTemplatesLoading}
+              domainTemplatesError={domainTemplatesError}
+              selectedTemplate={selectedGoalTemplate}
+              selectedTaskType={goalTaskType}
               saving={goalSaving}
               actionKey={goalActionKey}
               disabled={!canMaterializeSession}
               onCreateOpenChange={setGoalCreateOpen}
               onObjectiveChange={setGoalObjective}
               onCriteriaChange={setGoalCriteria}
+              onReloadDomainTemplates={loadDomainWorkflowTemplates}
+              onTemplateChange={setGoalTemplateId}
+              onTaskTypeChange={setGoalTaskType}
               onCreate={() => void createGoalFromDraft()}
               onPause={() => void runGoalAction("pause_goal")}
               onResume={() => void runGoalAction("resume_goal")}
@@ -6609,6 +6989,13 @@ ${repairPrompt}`
               script={draftScript}
               draftOrigin={draftOrigin}
               linkedGoal={activeGoal}
+              domainTemplates={domainTemplates}
+              domainTemplatesLoading={domainTemplatesLoading}
+              domainTemplatesError={domainTemplatesError}
+              selectedDomainTemplate={selectedDomainTemplate}
+              selectedDomainTaskType={selectedDomainTaskType}
+              domainDraft={domainDraft}
+              domainDraftLoading={domainDraftLoading}
               runImmediately={draftRunImmediately}
               worktrees={draftWorktrees}
               worktreeMode={normalizedDraftWorktreeMode}
@@ -6617,17 +7004,24 @@ ${repairPrompt}`
               onKindChange={setDraftKind}
               onModeChange={(mode) => {
                 setDraftMode(mode)
+                clearDomainDraft()
                 clearDraftPreview()
               }}
               onScriptChange={(script) => {
                 setDraftScript(script)
+                clearDomainDraft()
                 clearDraftPreview()
               }}
               onObjectiveChange={(objective) => {
                 setDraftObjective(objective)
+                clearDomainDraft()
                 clearDraftPreview()
               }}
               onClearDraftOrigin={() => setDraftOrigin(null)}
+              onReloadDomainTemplates={loadDomainWorkflowTemplates}
+              onDomainTemplateChange={selectDomainTemplate}
+              onDomainTaskTypeChange={selectDomainTaskType}
+              onGenerateDomainDraft={() => void generateDomainWorkflowDraft()}
               onRunImmediatelyChange={setDraftRunImmediately}
               onWorktreeModeChange={setDraftWorktreeMode}
               onGenerateGoalDraft={generateGoalDrivenDraft}
@@ -6935,6 +7329,13 @@ function WorkflowCreateComposer({
   script,
   draftOrigin,
   linkedGoal,
+  domainTemplates,
+  domainTemplatesLoading,
+  domainTemplatesError,
+  selectedDomainTemplate,
+  selectedDomainTaskType,
+  domainDraft,
+  domainDraftLoading,
   runImmediately,
   worktrees,
   worktreeMode,
@@ -6945,6 +7346,10 @@ function WorkflowCreateComposer({
   onObjectiveChange,
   onScriptChange,
   onClearDraftOrigin,
+  onReloadDomainTemplates,
+  onDomainTemplateChange,
+  onDomainTaskTypeChange,
+  onGenerateDomainDraft,
   onRunImmediatelyChange,
   onWorktreeModeChange,
   onGenerateGoalDraft,
@@ -6965,6 +7370,13 @@ function WorkflowCreateComposer({
   script: string
   draftOrigin?: WorkflowDraftOrigin | null
   linkedGoal?: Goal | null
+  domainTemplates: DomainWorkflowTemplate[]
+  domainTemplatesLoading?: boolean
+  domainTemplatesError?: string | null
+  selectedDomainTemplate?: DomainWorkflowTemplate | null
+  selectedDomainTaskType: string
+  domainDraft?: DomainWorkflowDraft | null
+  domainDraftLoading?: boolean
   runImmediately: boolean
   worktrees: ManagedWorktree[]
   worktreeMode: string
@@ -6975,6 +7387,10 @@ function WorkflowCreateComposer({
   onObjectiveChange: (objective: string) => void
   onScriptChange: (script: string) => void
   onClearDraftOrigin: () => void
+  onReloadDomainTemplates: () => void
+  onDomainTemplateChange: (templateId: string) => void
+  onDomainTaskTypeChange: (taskType: string) => void
+  onGenerateDomainDraft: () => void
   onRunImmediatelyChange: (checked: boolean) => void
   onWorktreeModeChange: (mode: string) => void
   onGenerateGoalDraft: () => void
@@ -6985,14 +7401,28 @@ function WorkflowCreateComposer({
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const worktreeBacked = worktreeMode !== "session"
   const effectiveRunImmediately = Boolean(workspaceReady || worktreeBacked) && runImmediately
-  const canPreview = !disabled && !saving && !previewLoading && script.trim().length > 0
+  const canPreview =
+    !disabled && !saving && !previewLoading && !domainDraftLoading && script.trim().length > 0
   const canSubmit =
     !disabled &&
     !saving &&
     !previewLoading &&
+    !domainDraftLoading &&
     script.trim().length > 0 &&
     preview?.canCreate === true
-  const canGenerate = !disabled && !saving && !previewLoading && objective.trim().length > 0
+  const canGenerate =
+    !disabled && !saving && !previewLoading && !domainDraftLoading && objective.trim().length > 0
+  const selectedDomainTask =
+    selectedDomainTemplate?.taskTypes.find((taskType) => taskType === selectedDomainTaskType) ??
+    selectedDomainTemplate?.taskTypes[0] ??
+    ""
+  const canGenerateDomain =
+    !disabled &&
+    !saving &&
+    !previewLoading &&
+    !domainDraftLoading &&
+    Boolean(selectedDomainTemplate) &&
+    (objective.trim().length > 0 || Boolean(linkedGoal))
   const repairOrigin = draftOrigin?.type === "repair" ? draftOrigin : null
 
   useEffect(() => {
@@ -7105,6 +7535,154 @@ function WorkflowCreateComposer({
                 )}
               </div>
             ) : null}
+          </div>
+
+          <div className="space-y-1.5 rounded-md border border-border/55 bg-secondary/15 p-2">
+            <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+              <Layers className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="min-w-0 flex-1 truncate">
+                {t("workspace.workflow.domainTemplateTitle", "领域模板")}
+              </span>
+              {domainTemplatesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+            </div>
+            {domainTemplatesError ? (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 px-2 py-1.5 text-[11px] text-destructive">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {truncateMiddle(domainTemplatesError, 120)}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px]"
+                    disabled={saving || domainTemplatesLoading}
+                    onClick={onReloadDomainTemplates}
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                    {t("workspace.workflow.domainTemplateRetry", "重试")}
+                  </Button>
+                </div>
+              </div>
+            ) : domainTemplates.length === 0 && !domainTemplatesLoading ? (
+              <div className="rounded-md bg-background/55 px-2 py-1.5 text-[11px] text-muted-foreground">
+                {t("workspace.workflow.domainTemplateEmpty", "暂无可用领域模板")}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+                  <Select
+                    value={
+                      selectedDomainTemplate
+                        ? domainTemplateOptionValue(selectedDomainTemplate)
+                        : ""
+                    }
+                    onValueChange={onDomainTemplateChange}
+                    disabled={
+                      saving || previewLoading || domainDraftLoading || domainTemplates.length === 0
+                    }
+                  >
+                    <SelectTrigger className="h-8 bg-background/60 text-xs">
+                      <SelectValue
+                        placeholder={t("workspace.workflow.domainTemplatePlaceholder", "选择模板")}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {domainTemplates.map((template) => (
+                        <SelectItem
+                          key={`${template.id}:${template.version}`}
+                          value={domainTemplateOptionValue(template)}
+                        >
+                          {template.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={selectedDomainTask}
+                    onValueChange={onDomainTaskTypeChange}
+                    disabled={
+                      saving ||
+                      previewLoading ||
+                      domainDraftLoading ||
+                      !selectedDomainTemplate ||
+                      selectedDomainTemplate.taskTypes.length <= 1
+                    }
+                  >
+                    <SelectTrigger className="h-8 bg-background/60 text-xs">
+                      <SelectValue
+                        placeholder={t("workspace.workflow.domainTaskTypePlaceholder", "任务类型")}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(selectedDomainTemplate?.taskTypes ?? []).map((taskType) => (
+                        <SelectItem key={taskType} value={taskType}>
+                          {taskType}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedDomainTemplate ? (
+                  <div className="space-y-1 rounded-md bg-background/55 px-2 py-1.5 text-[11px]">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1">
+                      <StatusPill label={selectedDomainTemplate.domain} tone="info" />
+                      <StatusPill
+                        label={executionModeLabel(
+                          t,
+                          normalizeExecutionMode(selectedDomainTemplate.defaultMode),
+                        )}
+                        tone="muted"
+                      />
+                      <StatusPill
+                        label={t("workspace.workflow.domainEvidenceCount", "{{count}} 证据", {
+                          count: selectedDomainTemplate.requiredEvidence.length,
+                        })}
+                        tone="good"
+                      />
+                      {selectedDomainTemplate.approvalGates.length > 0 ? (
+                        <StatusPill
+                          label={t("workspace.workflow.domainGateCount", "{{count}} 审批", {
+                            count: selectedDomainTemplate.approvalGates.length,
+                          })}
+                          tone="warn"
+                        />
+                      ) : null}
+                    </div>
+                    <p className="line-clamp-2 text-muted-foreground">
+                      {selectedDomainTemplate.outputContract}
+                    </p>
+                  </div>
+                ) : null}
+
+                {domainDraft ? <WorkflowDomainDraftSummary draft={domainDraft} /> : null}
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full gap-1.5 text-xs"
+                  disabled={!canGenerateDomain}
+                  onClick={onGenerateDomainDraft}
+                >
+                  {domainDraftLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Layers className="h-3.5 w-3.5" />
+                  )}
+                  <span className="truncate">
+                    {linkedGoal && objective.trim().length === 0
+                      ? t(
+                          "workspace.workflow.generateDomainDraftFromGoal",
+                          "用当前 Goal 生成领域草稿",
+                        )
+                      : t("workspace.workflow.generateDomainDraft", "生成领域草稿")}
+                  </span>
+                </Button>
+              </>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -7290,7 +7868,7 @@ function WorkflowCreateComposer({
               size="sm"
               variant="outline"
               className="h-8 flex-1 gap-1.5 text-xs"
-              disabled={saving || previewLoading}
+              disabled={saving || previewLoading || domainDraftLoading}
               onClick={() => {
                 onKindChange(WORKFLOW_KIND_DEFAULT)
                 onModeChange("guarded")
@@ -7343,6 +7921,92 @@ function WorkflowCreateComposer({
       </AnimatedCollapse>
     </div>
   )
+}
+
+function WorkflowDomainDraftSummary({ draft }: { draft: DomainWorkflowDraft }) {
+  const { t } = useTranslation()
+  const evidence = draft.requiredEvidence.slice(0, 4)
+  const gates = draft.approvalGates.slice(0, 3)
+  const rules = draft.verificationPolicy.slice(0, 3)
+  const warnings = draft.warnings.slice(0, 3)
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-primary/20 bg-primary/5 p-2 text-[11px]">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+          {t("workspace.workflow.domainDraftSummary", "草稿来自 {{title}}", {
+            title: draft.template.title,
+          })}
+        </span>
+        <StatusPill label={draft.workflowKind} tone="info" />
+      </div>
+
+      {evidence.length > 0 ? (
+        <WorkflowDomainDraftRow
+          icon={ClipboardCheck}
+          label={t("workspace.workflow.domainDraftEvidence", "证据")}
+          values={evidence.map(domainEvidenceRequirementLabel)}
+        />
+      ) : null}
+      {gates.length > 0 ? (
+        <WorkflowDomainDraftRow
+          icon={ShieldAlert}
+          label={t("workspace.workflow.domainDraftGates", "审批")}
+          values={gates.map(domainApprovalGateLabel)}
+        />
+      ) : null}
+      {rules.length > 0 ? (
+        <WorkflowDomainDraftRow
+          icon={CheckCircle2}
+          label={t("workspace.workflow.domainDraftVerification", "验证")}
+          values={rules.map(domainVerificationRuleLabel)}
+        />
+      ) : null}
+      {warnings.length > 0 ? (
+        <div className="space-y-1 rounded-md bg-background/45 px-2 py-1.5 text-amber-700 dark:text-amber-300">
+          {warnings.map((warning) => (
+            <div key={warning} className="flex min-w-0 items-center gap-1.5">
+              <CircleAlert className="h-3 w-3 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{warning}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function WorkflowDomainDraftRow({
+  icon: Icon,
+  label,
+  values,
+}: {
+  icon: LucideIcon
+  label: string
+  values: string[]
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-1.5 rounded-md bg-background/45 px-2 py-1.5">
+      <Icon className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+      <span className="shrink-0 text-[10px] font-medium text-muted-foreground">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-foreground/85">{values.join(" · ")}</span>
+    </div>
+  )
+}
+
+function domainEvidenceRequirementLabel(requirement: DomainEvidenceRequirement): string {
+  const count = requirement.minCount ? ` x${requirement.minCount}` : ""
+  const optional = requirement.required ? "" : " optional"
+  return `${requirement.title}${count}${optional}`
+}
+
+function domainApprovalGateLabel(gate: DomainApprovalGate): string {
+  return gate.required ? gate.action : `${gate.action} optional`
+}
+
+function domainVerificationRuleLabel(rule: DomainVerificationRule): string {
+  return `${rule.rule}:${rule.severity}`
 }
 
 function WorkflowScriptPreviewPanel({
@@ -7700,7 +8364,11 @@ function goalCriterionStatusTone(status: GoalCriterionStatus): StatusTone {
 }
 
 function goalEvidenceTone(relation: string): StatusTone {
-  if (relation.includes("failed") || relation.includes("blocked") || relation.includes("cancelled")) {
+  if (
+    relation.includes("failed") ||
+    relation.includes("blocked") ||
+    relation.includes("cancelled")
+  ) {
     return "danger"
   }
   if (relation.includes("passed") || relation.includes("completed")) {
@@ -7929,6 +8597,128 @@ function formatDurationCompact(seconds: number): string {
   return `${Math.round(hours / 24)}d`
 }
 
+function GoalDomainTemplatePicker({
+  templates,
+  loading,
+  error,
+  selectedTemplate,
+  selectedTaskType,
+  disabled,
+  onReload,
+  onTemplateChange,
+  onTaskTypeChange,
+}: {
+  templates: DomainWorkflowTemplate[]
+  loading?: boolean
+  error?: string | null
+  selectedTemplate?: DomainWorkflowTemplate | null
+  selectedTaskType: string
+  disabled?: boolean
+  onReload: () => void
+  onTemplateChange: (templateId: string) => void
+  onTaskTypeChange: (taskType: string) => void
+}) {
+  const { t } = useTranslation()
+  const selectedTask =
+    selectedTemplate?.taskTypes.find((taskType) => taskType === selectedTaskType) ??
+    selectedTemplate?.taskTypes[0] ??
+    ""
+
+  return (
+    <div className="space-y-1 rounded-md border border-border/50 bg-background/45 p-2">
+      <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+        <Layers className="h-3.5 w-3.5 shrink-0 text-primary" />
+        <span className="min-w-0 flex-1 truncate">
+          {t("workspace.goal.domainTemplate", "任务领域")}
+        </span>
+        {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+      </div>
+      {error ? (
+        <div className="flex min-w-0 items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+          <CircleAlert className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{truncateMiddle(error, 100)}</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[10px]"
+            disabled={disabled || loading}
+            onClick={onReload}
+          >
+            <RefreshCw className="mr-1 h-3 w-3" />
+            {t("workspace.goal.domainRetry", "重试")}
+          </Button>
+        </div>
+      ) : null}
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <Select
+          value={
+            selectedTemplate ? domainTemplateOptionValue(selectedTemplate) : GOAL_DOMAIN_FREE_VALUE
+          }
+          onValueChange={onTemplateChange}
+          disabled={disabled || loading}
+        >
+          <SelectTrigger className="h-8 bg-background/60 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={GOAL_DOMAIN_FREE_VALUE}>
+              {t("workspace.goal.domainFree", "自由任务")}
+            </SelectItem>
+            {templates.map((template) => (
+              <SelectItem
+                key={`${template.id}:${template.version}`}
+                value={domainTemplateOptionValue(template)}
+              >
+                {template.title}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={selectedTask}
+          onValueChange={onTaskTypeChange}
+          disabled={disabled || !selectedTemplate || selectedTemplate.taskTypes.length <= 1}
+        >
+          <SelectTrigger className="h-8 bg-background/60 text-xs">
+            <SelectValue placeholder={t("workspace.goal.domainTaskTypePlaceholder", "任务类型")} />
+          </SelectTrigger>
+          <SelectContent>
+            {(selectedTemplate?.taskTypes ?? []).map((taskType) => (
+              <SelectItem key={taskType} value={taskType}>
+                {taskType}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {selectedTemplate ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-1 pt-0.5">
+          <StatusPill label={selectedTemplate.domain} tone="info" />
+          <StatusPill
+            label={t("workspace.goal.domainEvidenceCount", "{{count}} 证据", {
+              count: selectedTemplate.requiredEvidence.length,
+            })}
+            tone="good"
+          />
+          {selectedTemplate.approvalGates.length > 0 ? (
+            <StatusPill
+              label={t("workspace.goal.domainGateCount", "{{count}} 审批", {
+                count: selectedTemplate.approvalGates.length,
+              })}
+              tone="warn"
+            />
+          ) : null}
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          {t("workspace.goal.domainFreeHint", "不绑定领域模板，模型按目标自由判断。")}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function GoalControlStrip({
   snapshot,
   loading,
@@ -7936,12 +8726,20 @@ function GoalControlStrip({
   createOpen,
   objective,
   criteria,
+  domainTemplates,
+  domainTemplatesLoading,
+  domainTemplatesError,
+  selectedTemplate,
+  selectedTaskType,
   saving,
   actionKey,
   disabled,
   onCreateOpenChange,
   onObjectiveChange,
   onCriteriaChange,
+  onReloadDomainTemplates,
+  onTemplateChange,
+  onTaskTypeChange,
   onCreate,
   onPause,
   onResume,
@@ -7955,24 +8753,38 @@ function GoalControlStrip({
   createOpen: boolean
   objective: string
   criteria: string
+  domainTemplates: DomainWorkflowTemplate[]
+  domainTemplatesLoading?: boolean
+  domainTemplatesError?: string | null
+  selectedTemplate?: DomainWorkflowTemplate | null
+  selectedTaskType: string
   saving?: boolean
   actionKey?: string | null
   disabled?: boolean
   onCreateOpenChange: (open: boolean) => void
   onObjectiveChange: (value: string) => void
   onCriteriaChange: (value: string) => void
+  onReloadDomainTemplates: () => void
+  onTemplateChange: (templateId: string) => void
+  onTaskTypeChange: (taskType: string) => void
   onCreate: () => void
   onPause: () => void
   onResume: () => void
   onClear: () => void
   onEvaluate: () => void
-  onUpdate: (objective: string, completionCriteria: string) => Promise<boolean>
+  onUpdate: (
+    objective: string,
+    completionCriteria: string,
+    domainSelection?: { template: DomainWorkflowTemplate | null; taskType: string },
+  ) => Promise<boolean>
 }) {
   const { t } = useTranslation()
   const [detailOpen, setDetailOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editObjective, setEditObjective] = useState("")
   const [editCriteria, setEditCriteria] = useState("")
+  const [editTemplateId, setEditTemplateId] = useState(GOAL_DOMAIN_FREE_VALUE)
+  const [editTaskType, setEditTaskType] = useState("")
   const goal = snapshot?.goal ?? null
   const audit = asRecord(goal?.finalEvidence)
   const auditEvidence = recordArrayField(audit, "evidence")
@@ -7996,12 +8808,53 @@ function GoalControlStrip({
   const evidenceCount = evidenceItems.length || auditEvidence.length
   const isBusy = saving || Boolean(actionKey)
   const canCreate = !disabled && !saving && objective.trim().length > 0
+  const activeGoalTemplate =
+    goal?.workflowTemplateId && domainTemplates.length > 0
+      ? findDomainTemplateByValue(domainTemplates, goalDomainTemplateValue(goal))
+      : null
+  const editTemplate =
+    editTemplateId === GOAL_DOMAIN_FREE_VALUE
+      ? null
+      : findDomainTemplateByValue(domainTemplates, editTemplateId)
+  const createTaskType =
+    selectedTemplate?.taskTypes.find((taskType) => taskType === selectedTaskType) ??
+    selectedTemplate?.taskTypes[0] ??
+    ""
+  const editSelectedTaskType =
+    editTemplate?.taskTypes.find((taskType) => taskType === editTaskType) ??
+    editTemplate?.taskTypes[0] ??
+    ""
 
   useEffect(() => {
     setEditObjective(goal?.objective ?? "")
     setEditCriteria(goal?.completionCriteria ?? "")
+    setEditTemplateId(goal ? goalDomainTemplateValue(goal) : GOAL_DOMAIN_FREE_VALUE)
+    setEditTaskType(goal?.workflowTaskType ?? "")
     setEditOpen(false)
-  }, [goal?.id, goal?.objective, goal?.completionCriteria])
+  }, [
+    goal?.id,
+    goal?.objective,
+    goal?.completionCriteria,
+    goal?.workflowTemplateId,
+    goal?.workflowTemplateVersion,
+    goal?.workflowTaskType,
+  ])
+
+  useEffect(() => {
+    if (editTemplateId === GOAL_DOMAIN_FREE_VALUE) {
+      if (editTaskType) setEditTaskType("")
+      return
+    }
+    const template = findDomainTemplateByValue(domainTemplates, editTemplateId)
+    if (!template) return
+    if (template.taskTypes.length === 0) {
+      if (editTaskType) setEditTaskType("")
+      return
+    }
+    if (!template.taskTypes.includes(editTaskType)) {
+      setEditTaskType(template.taskTypes[0] ?? "")
+    }
+  }, [domainTemplates, editTaskType, editTemplateId])
 
   return (
     <div className="rounded-md border border-border/55 bg-secondary/20">
@@ -8024,7 +8877,9 @@ function GoalControlStrip({
             ? truncateMiddle(goal.objective.replace(/\s+/g, " "), 96)
             : t("workspace.goal.title", "Goal")}
         </span>
-        {loading ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" /> : null}
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+        ) : null}
         {goal ? (
           <StatusPill
             label={goalStateLabel(t, goal.state)}
@@ -8087,6 +8942,17 @@ function GoalControlStrip({
                 className="min-h-16 resize-y text-xs"
               />
             </div>
+            <GoalDomainTemplatePicker
+              templates={domainTemplates}
+              loading={domainTemplatesLoading}
+              error={domainTemplatesError}
+              selectedTemplate={selectedTemplate}
+              selectedTaskType={createTaskType}
+              disabled={saving}
+              onReload={onReloadDomainTemplates}
+              onTemplateChange={onTemplateChange}
+              onTaskTypeChange={onTaskTypeChange}
+            />
             <Button
               type="submit"
               size="sm"
@@ -8111,6 +8977,28 @@ function GoalControlStrip({
               </span>
               <span className="px-1 text-muted-foreground/45">·</span>
               <span>{truncateMiddle(goal.completionCriteria.replace(/\s+/g, " "), 180)}</span>
+            </div>
+          ) : null}
+
+          {goal.domain || goal.workflowTemplateId ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-1 rounded-md bg-background/45 px-2 py-1.5 text-[11px] text-muted-foreground">
+              {goal.domain ? <StatusPill label={goal.domain} tone="info" /> : null}
+              {goal.workflowTemplateId ? (
+                <StatusPill
+                  label={
+                    goal.workflowTemplateVersion
+                      ? `${goal.workflowTemplateId}@${goal.workflowTemplateVersion}`
+                      : goal.workflowTemplateId
+                  }
+                  tone="muted"
+                />
+              ) : null}
+              {goal.workflowTaskType ? (
+                <StatusPill label={goal.workflowTaskType} tone="good" />
+              ) : null}
+              {activeGoalTemplate ? (
+                <span className="min-w-0 truncate pl-1">{activeGoalTemplate.outputContract}</span>
+              ) : null}
             </div>
           ) : null}
 
@@ -8152,7 +9040,10 @@ function GoalControlStrip({
             </div>
           ) : (
             <div className="rounded-md bg-background/45 px-2 py-1.5 text-[11px] text-muted-foreground">
-              {t("workspace.goal.noAudit", "还没有 final audit；workflow 完成后会自动评估，也可以手动评估。")}
+              {t(
+                "workspace.goal.noAudit",
+                "还没有 final audit；workflow 完成后会自动评估，也可以手动评估。",
+              )}
             </div>
           )}
 
@@ -8180,6 +9071,17 @@ function GoalControlStrip({
                   className="min-h-14 resize-y text-xs"
                 />
               </div>
+              <GoalDomainTemplatePicker
+                templates={domainTemplates}
+                loading={domainTemplatesLoading}
+                error={domainTemplatesError}
+                selectedTemplate={editTemplate}
+                selectedTaskType={editSelectedTaskType}
+                disabled={isBusy}
+                onReload={onReloadDomainTemplates}
+                onTemplateChange={setEditTemplateId}
+                onTaskTypeChange={setEditTaskType}
+              />
               <div className="flex justify-end gap-1.5">
                 <Button
                   type="button"
@@ -8191,6 +9093,8 @@ function GoalControlStrip({
                     setEditOpen(false)
                     setEditObjective(goal.objective)
                     setEditCriteria(goal.completionCriteria)
+                    setEditTemplateId(goalDomainTemplateValue(goal))
+                    setEditTaskType(goal.workflowTaskType ?? "")
                   }}
                 >
                   {t("common.cancel", "取消")}
@@ -8201,7 +9105,13 @@ function GoalControlStrip({
                   className="h-7 px-2 text-xs"
                   disabled={isBusy || !editObjective.trim()}
                   onClick={() => {
-                    void onUpdate(editObjective, editCriteria).then((ok) => {
+                    const domainSelection =
+                      editTemplateId === GOAL_DOMAIN_FREE_VALUE
+                        ? { template: null, taskType: "" }
+                        : editTemplate
+                          ? { template: editTemplate, taskType: editSelectedTaskType }
+                          : undefined
+                    void onUpdate(editObjective, editCriteria, domainSelection).then((ok) => {
                       if (ok) setEditOpen(false)
                     })
                   }}
@@ -8500,7 +9410,7 @@ function GoalDetailSection({
                             ? truncateMiddle(evidenceItem.workflowOpKey, 28)
                             : evidenceItem.workflowRunId
                               ? truncateMiddle(evidenceItem.workflowRunId, 18)
-                              : evidenceItem.redactionStatus ?? "-"
+                              : (evidenceItem.redactionStatus ?? "-")
                         }
                       />
                     </div>
@@ -8569,10 +9479,7 @@ function GoalDetailSection({
           </GoalDetailBlock>
         ) : null}
 
-        <GoalDetailBlock
-          title={t("workspace.goal.detailEvidence", "证据")}
-          count={evidence.length}
-        >
+        <GoalDetailBlock title={t("workspace.goal.detailEvidence", "证据")} count={evidence.length}>
           {latestEvidence.length > 0 ? (
             <div className="space-y-1">
               {latestEvidence.map((item) => (
@@ -8606,7 +9513,10 @@ function GoalDetailSection({
           )}
         </GoalDetailBlock>
 
-        <GoalDetailBlock title={t("workspace.goal.detailTimeline", "时间线")} count={timeline.length}>
+        <GoalDetailBlock
+          title={t("workspace.goal.detailTimeline", "时间线")}
+          count={timeline.length}
+        >
           {latestTimeline.length > 0 ? (
             <div className="space-y-1">
               {latestTimeline.map((item) => (
@@ -9048,10 +9958,7 @@ function WorkflowRunTimelineRow({ event }: { event: WorkflowEvent }) {
     <IconTip label={compactJson(event.payload, event.eventType)}>
       <div className="flex min-w-0 items-start gap-2 rounded-md px-1.5 py-1 text-[11px] hover:bg-background/45">
         <span
-          className={cn(
-            "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-            WORKFLOW_TIMELINE_DOT_CLASS[tone],
-          )}
+          className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", WORKFLOW_TIMELINE_DOT_CLASS[tone])}
         />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -9089,7 +9996,9 @@ function WorkflowRunWorktreeCard({ info }: { info: WorkflowRunWorktreeInfo }) {
           />
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-[10px] opacity-85">
-          <span className="min-w-0 flex-1 truncate font-mono">{truncateMiddle(info.path, 120)}</span>
+          <span className="min-w-0 flex-1 truncate font-mono">
+            {truncateMiddle(info.path, 120)}
+          </span>
           {!info.pathExists ? (
             <StatusPill label={t("workspace.worktree.pathMissing", "路径已清理")} tone="warn" />
           ) : null}
@@ -9333,10 +10242,7 @@ function WorkflowApprovalAuditRow({ event }: { event: WorkflowEvent }) {
     <IconTip label={compactJson(event.payload, event.eventType)}>
       <div className="flex min-w-0 items-start gap-2 rounded-md px-1.5 py-1 text-[11px] hover:bg-background/45">
         <span
-          className={cn(
-            "mt-1.5 h-2 w-2 shrink-0 rounded-full",
-            WORKFLOW_TIMELINE_DOT_CLASS[tone],
-          )}
+          className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", WORKFLOW_TIMELINE_DOT_CLASS[tone])}
         />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -9712,8 +10618,8 @@ function WorkflowOpRow({ op, index }: { op: WorkflowOp; index: number }) {
         : op.opType === "fileSearch"
           ? Search
           : op.opType === "tool"
-        ? Cpu
-        : Radio
+            ? Cpu
+            : Radio
 
   const copyDetails = async () => {
     try {
@@ -10335,7 +11241,11 @@ export default function WorkspacePanel({
           onPreviewFile={onPreviewFile}
         />
 
-        <LspDiagnosticsSection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
+        <LspDiagnosticsSection
+          sessionId={sessionId}
+          incognito={incognito}
+          turnActive={turnActive}
+        />
 
         <ReviewSection
           sessionId={sessionId}
@@ -10351,11 +11261,7 @@ export default function WorkspacePanel({
           workingDir={effectiveWorkingDir}
         />
 
-        <DomainQualitySection
-          sessionId={sessionId}
-          incognito={incognito}
-          turnActive={turnActive}
-        />
+        <DomainQualitySection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
 
         <CodingTrendSection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
 
