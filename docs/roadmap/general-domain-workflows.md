@@ -156,7 +156,7 @@ DomainWorkflow
 - 新增 domain-aware context candidate 类型：document、email_thread、calendar_event、sheet_range、knowledge_note、web_source、decision、artifact、task。
 - 根据 domain workflow 和 goal criteria 排序候选，而不是只按关键词。
 - 支持来源可信度、时效、权限、重复、冲突提示。
-- GUI 候选行展示领域动作：引用、加入 evidence、生成摘要、请求用户确认、标记冲突、转 task；其中“复制引用”已作为真实轻量动作落地，其余通过 `metadata.domainActions` 暴露给后续 owner action。
+- GUI 候选行展示领域动作：引用、加入 evidence、生成摘要、请求用户确认、标记冲突、转 task；其中“复制引用”和“加入 evidence”已作为真实轻量动作落地，其余通过 `metadata.domainActions` 暴露给后续 owner action。
 - 连接器缺失时显示 access issue，不伪造上下文。
 - 无工作目录的非 coding 会话仍可展示 Goal / Task / Workflow / Domain evidence / URL 候选，只跳过 workspace 信号。
 
@@ -460,6 +460,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - Workspace 新增「通用任务工作台」区块，位于 Context Retrieval 之后，把 Sources、Evidence、Drafts、Review、Verification、Decisions 做成同屏闭环总览。
 - 工作台复用已落地的 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review runs、Verification runs 与 Domain Quality runs，不新增后端表，也不绕过既有权限/审批。
 - 用户可在同一面板直接运行领域复核、推荐验证、运行验证和刷新全部守门状态，不需要记 slash 命令或切到 Dashboard。
+- Context Retrieval 候选行的「证据」按钮可把当前推荐来源/文档/会议/表格/决策落成 domain evidence，并刷新通用任务工作台，形成“看到缺口 -> 补证据 -> 守门重新评估”的第一条真实 owner action。
 - 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门和外部动作守门状态生成“下一步”提示。
 - 最近 evidence 行展示 evidence type、domain、access scope、redaction status 与时间，让用户知道来源、草稿、批准、复核和决策证据是否已经真实落盘。
 - 交付守门与外部动作守门仍保持只读：它们提示能否交付/执行外部动作，但真正发送、分享、修改外部系统仍必须走工具审批和连接器授权。

@@ -122,6 +122,7 @@ import type {
   GenerateCodingImprovementProposalsResult,
   LspDiagnostic,
   ManagedWorktree,
+  RecordDomainEvidenceInput,
   ReviewFinding,
   ReviewFindingStatus,
   ReviewRunSnapshot,
@@ -1748,18 +1749,134 @@ function contextCitationText(candidate: ContextCandidate): string {
   return location ? `${candidate.title}${status}: ${location}` : `${candidate.title}${status}`
 }
 
-function DomainContextActionChips({ candidate }: { candidate: ContextCandidate }) {
+function contextCandidateStringMetadata(candidate: ContextCandidate, key: string): string | null {
+  const value = candidate.metadata?.[key]
+  return typeof value === "string" && value.trim().length > 0 ? value : null
+}
+
+function contextCandidateNumberMetadata(candidate: ContextCandidate, key: string): number | null {
+  const value = candidate.metadata?.[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function contextCandidateDomain(candidate: ContextCandidate): string {
+  return contextCandidateStringMetadata(candidate, "domain") ?? "general"
+}
+
+function contextCandidateEvidenceType(candidate: ContextCandidate): string {
+  const explicit = contextCandidateStringMetadata(candidate, "evidenceType")
+  if (explicit) return explicit
+  switch (candidate.kind) {
+    case "decision":
+      return "user_decision"
+    case "artifact":
+      return "artifact_created"
+    case "sheet_range":
+      return "data_quality_checked"
+    case "calendar_event":
+      return "meeting_context_collected"
+    case "email_thread":
+      return "source_cited"
+    case "web_source":
+    case "document":
+    case "knowledge_note":
+    case "goal_evidence":
+    default:
+      return "source_cited"
+  }
+}
+
+function contextCandidateAccessScope(candidate: ContextCandidate): string {
+  const explicit = contextCandidateStringMetadata(candidate, "accessScope")
+  if (explicit) return explicit
+  switch (candidate.kind) {
+    case "email_thread":
+    case "calendar_event":
+    case "sheet_range":
+      return "connector"
+    case "web_source":
+      return "public"
+    case "document":
+    case "knowledge_note":
+    case "artifact":
+      return "project"
+    case "decision":
+    case "goal_evidence":
+    default:
+      return "session"
+  }
+}
+
+function contextCandidateRedactionStatus(candidate: ContextCandidate): string {
+  return contextCandidateStringMetadata(candidate, "redactionStatus") ?? "none"
+}
+
+function contextCandidateSourceMetadata(candidate: ContextCandidate): Record<string, unknown> {
+  return {
+    source: "context_retrieval",
+    candidateId: candidate.id,
+    candidateKind: candidate.kind,
+    title: candidate.title,
+    subtitle: candidate.subtitle ?? null,
+    path: candidate.path ?? null,
+    line: candidate.line ?? null,
+    url: candidate.url ?? null,
+    status: candidate.status ?? null,
+    reasons: candidate.reasons,
+    sources: candidate.sources,
+    originalMetadata: candidate.metadata ?? {},
+  }
+}
+
+function contextCandidateEvidenceInput(
+  candidate: ContextCandidate,
+  sessionId: string,
+): RecordDomainEvidenceInput {
+  return {
+    sessionId,
+    domain: contextCandidateDomain(candidate),
+    evidenceType: contextCandidateEvidenceType(candidate),
+    title: candidate.title,
+    summary: candidate.subtitle ?? candidate.reasons[0] ?? null,
+    sourceMetadata: contextCandidateSourceMetadata(candidate),
+    confidence: contextCandidateNumberMetadata(candidate, "confidence"),
+    accessScope: contextCandidateAccessScope(candidate),
+    redactionStatus: contextCandidateRedactionStatus(candidate),
+  }
+}
+
+function contextCanAddEvidence(candidate: ContextCandidate): boolean {
+  const actions = contextDomainActions(candidate)
+  if (!actions?.canAddEvidence) return false
+  return contextCandidateStringMetadata(candidate, "origin") !== "domain_evidence"
+}
+
+function DomainContextActionChips({
+  candidate,
+  sessionId,
+  disabled,
+  actionKey,
+  onAddEvidence,
+}: {
+  candidate: ContextCandidate
+  sessionId?: string | null
+  disabled?: boolean
+  actionKey?: string | null
+  onAddEvidence?: (candidate: ContextCandidate) => void
+}) {
   const { t } = useTranslation()
   const actions = contextDomainActions(candidate)
   if (!actions) return null
   const chips: string[] = []
-  if (actions.canAddEvidence) chips.push(t("workspace.context.actionEvidence", "证据"))
   if (actions.canSummarize) chips.push(t("workspace.context.actionSummarize", "摘要"))
   if (actions.canAskUser) chips.push(t("workspace.context.actionAsk", "确认"))
   if (actions.canMarkConflict) chips.push(t("workspace.context.actionConflict", "冲突"))
   if (actions.canCreateTask) chips.push(t("workspace.context.actionTask", "转任务"))
   const canCite = Boolean(actions.canCite)
-  if (!canCite && chips.length === 0) return null
+  const canAddEvidence = contextCanAddEvidence(candidate)
+  if (!canCite && !canAddEvidence && chips.length === 0) return null
+  const evidenceKey = `${candidate.id}:evidence`
+  const evidenceBusy = actionKey === evidenceKey
 
   const copyCitation = async (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
@@ -1784,6 +1901,24 @@ function DomainContextActionChips({ candidate }: { candidate: ContextCandidate }
           <span>{t("workspace.context.actionCite", "引用")}</span>
         </button>
       ) : null}
+      {canAddEvidence ? (
+        <button
+          type="button"
+          disabled={disabled || !sessionId || !onAddEvidence || Boolean(actionKey)}
+          onClick={(event) => {
+            event.stopPropagation()
+            onAddEvidence?.(candidate)
+          }}
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {evidenceBusy ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Database className="h-3 w-3" />
+          )}
+          <span>{t("workspace.context.actionEvidence", "证据")}</span>
+        </button>
+      ) : null}
       {chips.slice(0, 4).map((chip) => (
         <span
           key={chip}
@@ -1803,6 +1938,7 @@ function ContextFileCandidateRow({
   actionKey,
   actionsDisabled,
   onAction,
+  onAddEvidence,
 }: {
   candidate: ContextCandidate
   sessionId?: string | null
@@ -1810,6 +1946,7 @@ function ContextFileCandidateRow({
   actionKey?: string | null
   actionsDisabled?: boolean
   onAction?: (candidate: ContextCandidate, action: ContextFocusedAction) => void
+  onAddEvidence?: (candidate: ContextCandidate) => void
 }) {
   const { t } = useTranslation()
   const Icon = contextKindIcon(candidate.kind)
@@ -1854,7 +1991,13 @@ function ContextFileCandidateRow({
               </span>
               <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
             </div>
-            <DomainContextActionChips candidate={candidate} />
+            <DomainContextActionChips
+              candidate={candidate}
+              sessionId={sessionId}
+              disabled={actionsDisabled}
+              actionKey={actionKey}
+              onAddEvidence={onAddEvidence}
+            />
           </div>
         </div>
       </IconTip>
@@ -1870,7 +2013,19 @@ function ContextFileCandidateRow({
   )
 }
 
-function ContextGenericCandidateRow({ candidate }: { candidate: ContextCandidate }) {
+function ContextGenericCandidateRow({
+  candidate,
+  sessionId,
+  actionKey,
+  actionsDisabled,
+  onAddEvidence,
+}: {
+  candidate: ContextCandidate
+  sessionId?: string | null
+  actionKey?: string | null
+  actionsDisabled?: boolean
+  onAddEvidence?: (candidate: ContextCandidate) => void
+}) {
   const { t } = useTranslation()
   const Icon = contextKindIcon(candidate.kind)
   const label = candidate.url ?? candidate.subtitle ?? candidate.path ?? candidate.title
@@ -1894,7 +2049,13 @@ function ContextGenericCandidateRow({ candidate }: { candidate: ContextCandidate
           <span className="truncate">{contextLocationLabel(candidate) ?? candidate.subtitle}</span>
           <span className="shrink-0">{contextKindLabel(t, candidate.kind)}</span>
         </div>
-        <DomainContextActionChips candidate={candidate} />
+        <DomainContextActionChips
+          candidate={candidate}
+          sessionId={sessionId}
+          disabled={actionsDisabled}
+          actionKey={actionKey}
+          onAddEvidence={onAddEvidence}
+        />
       </div>
     </>
   )
@@ -1930,12 +2091,14 @@ function ContextRetrievalSection({
   turnActive,
   workingDir,
   onPreviewFile,
+  onDomainEvidenceRecorded,
 }: {
   sessionId?: string | null
   incognito?: boolean
   turnActive?: boolean
   workingDir?: string | null
   onPreviewFile?: (target: PreviewTarget) => void
+  onDomainEvidenceRecorded?: () => void
 }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
@@ -1984,6 +2147,38 @@ function ContextRetrievalSection({
       }
     },
     [disabled, refresh, sessionId, t],
+  )
+
+  const recordContextCandidateEvidence = useCallback(
+    async (candidate: ContextCandidate) => {
+      if (!sessionId || disabled || !contextCanAddEvidence(candidate)) return
+      const actionKey = `${candidate.id}:evidence`
+      setContextActionKey(actionKey)
+      try {
+        const item = await getTransport().call<DomainEvidenceItem>("record_domain_evidence", {
+          input: contextCandidateEvidenceInput(candidate, sessionId),
+        })
+        toast.success(
+          t("workspace.context.evidenceRecorded", "已加入证据：{{title}}", {
+            title: item.title,
+          }),
+        )
+        refresh()
+        onDomainEvidenceRecorded?.()
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error(
+          "ui",
+          "ContextRetrievalSection",
+          "Record context candidate evidence failed",
+          e,
+        )
+        toast.error(message)
+      } finally {
+        setContextActionKey(null)
+      }
+    },
+    [disabled, onDomainEvidenceRecorded, refresh, sessionId, t],
   )
 
   const meta =
@@ -2137,9 +2332,17 @@ function ContextRetrievalSection({
                   actionKey={contextActionKey}
                   actionsDisabled={disabled || Boolean(contextActionKey)}
                   onAction={runFocusedContextAction}
+                  onAddEvidence={recordContextCandidateEvidence}
                 />
               ) : (
-                <ContextGenericCandidateRow key={candidate.id} candidate={candidate} />
+                <ContextGenericCandidateRow
+                  key={candidate.id}
+                  candidate={candidate}
+                  sessionId={sessionId}
+                  actionKey={contextActionKey}
+                  actionsDisabled={disabled || Boolean(contextActionKey)}
+                  onAddEvidence={recordContextCandidateEvidence}
+                />
               ),
             )}
             {candidates.length > visible.length || snapshot?.truncated ? (
@@ -12953,6 +13156,7 @@ export default function WorkspacePanel({
           turnActive={turnActive}
           workingDir={effectiveWorkingDir}
           onPreviewFile={onPreviewFile}
+          onDomainEvidenceRecorded={domainTaskWorkbenchState.refreshAll}
         />
 
         <DomainTaskWorkbenchSection
