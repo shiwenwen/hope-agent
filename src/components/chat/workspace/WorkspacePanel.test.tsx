@@ -14,7 +14,7 @@ import type {
 import type { BackgroundJobSnapshot } from "@/types/background-jobs"
 import WorkspacePanel from "./WorkspacePanel"
 import type { GoalSnapshot } from "./useGoal"
-import type { LoopSchedule } from "./useLoopSchedules"
+import type { LoopSchedule, LoopSnapshot } from "./useLoopSchedules"
 import type { WorkflowRun, WorkflowRunSnapshot, WorkflowScriptPreview } from "./useWorkflowRuns"
 
 const envMock = vi.hoisted(() => ({
@@ -311,6 +311,35 @@ function loopSchedule(patch: Partial<LoopSchedule> = {}): LoopSchedule {
     updatedAt: "2026-01-01T00:04:00Z",
     completedAt: null,
     blockedReason: null,
+    ...patch,
+  }
+}
+
+function loopSnapshot(patch: Partial<LoopSnapshot> = {}): LoopSnapshot {
+  const schedule = loopSchedule()
+  return {
+    schedule,
+    runs: [
+      {
+        id: "lrun-1",
+        loopId: schedule.id,
+        cronJobId: schedule.cronJobId,
+        cronRunLogId: 7,
+        sessionId: "s1",
+        seq: 1,
+        state: "succeeded",
+        triggerReason: "interval trigger",
+        resultSummary: "workflow launched",
+        error: null,
+        trace: {
+          workflowRunId: "wf-loop",
+          templateId: "research-brief",
+          templateVersion: "1.0.0",
+        },
+        startedAt: "2026-01-01T00:04:00Z",
+        finishedAt: "2026-01-01T00:04:05Z",
+      },
+    ],
     ...patch,
   }
 }
@@ -870,6 +899,36 @@ describe("WorkspacePanel workflow section", () => {
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("get_workflow_run", { runId: "wf-loop" })
     })
+  })
+
+  it("expands loop run history with workflow trace context", async () => {
+    const snapshot = loopSnapshot()
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([snapshot.schedule])
+      if (name === "get_loop_schedule") return Promise.resolve(snapshot)
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve(args ?? [])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: /Loop/ }))
+    expect(await screen.findByText("Update the report")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "运行记录" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("get_loop_schedule", { loopId: "loop-1" })
+    })
+    expect(await screen.findByText("最近运行")).toBeTruthy()
+    expect(screen.getByText("#1")).toBeTruthy()
+    expect(screen.getByText("成功")).toBeTruthy()
+    expect(screen.getByText("research-brief@1.0.0")).toBeTruthy()
+    expect(screen.getByText("workflow launched")).toBeTruthy()
   })
 
   it("shows an actionable workflow empty state before any workflow run exists", async () => {

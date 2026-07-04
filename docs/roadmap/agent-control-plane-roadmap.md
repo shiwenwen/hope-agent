@@ -389,12 +389,13 @@ loop_runs
 - 已落地：Workspace GUI 可创建 `every` / `until` loop，并提供 pause / resume / stop。
 - 已落地：`every` loop 可选择 `executionStrategy=workflow`；GUI 与 `/loop every --workflow` 都能创建，触发后基于绑定 Goal 的 Domain Workflow template 创建并启动 durable WorkflowRun。
 - 已落地：Loop GUI 与 `/loop status <id>` 都能看到派生 workflow run 线索；GUI 可一键跳到 Workflow run detail。
+- 已落地：Workspace Loop 行可展开最近运行记录，按需读取 `loop_runs` trace，显示 run 状态、错误/摘要、workflowRunId 和 template version。
 - 已落地：Loop 不绕过 `/mode`、permission、hooks、incognito、Project/KB access，实际 turn 在原会话里执行。
 
 后续增强：
 
 - Event-triggered loop 接入 EventBus / file watcher / CI。
-- 独立 Loop detail 页面展示完整 run trace、cron log 与消息范围。
+- 独立 Loop detail 页面展示完整 run trace、cron log 与消息范围；Workspace inline detail 已覆盖最近运行排障。
 - 成本预算接入 provider cost ledger，并放开 `cost_budget_micros` 创建限制。
 - Condition workflow：等 Workflow terminal event 能反写 condition result 后，支持 until loop 直接创建 workflow。
 

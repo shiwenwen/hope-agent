@@ -201,7 +201,10 @@ import {
 import {
   useLoopSchedules,
   type LoopExecutionStrategy,
+  type LoopRun,
+  type LoopSnapshot,
   type LoopSchedule,
+  type LoopRunState,
   type LoopState,
   type LoopTriggerKind,
 } from "./useLoopSchedules"
@@ -5481,6 +5484,47 @@ function loopStateTone(state: LoopState): StatusTone {
   }
 }
 
+function loopRunStateLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  state: LoopRunState,
+): string {
+  switch (state) {
+    case "running":
+      return t("workspace.loop.runRunning", "运行中")
+    case "queued":
+      return t("workspace.loop.runQueued", "已排队")
+    case "injected":
+      return t("workspace.loop.runInjected", "已注入")
+    case "succeeded":
+      return t("workspace.loop.runSucceeded", "成功")
+    case "empty":
+      return t("workspace.loop.runEmpty", "无输出")
+    case "failed":
+      return t("workspace.loop.runFailed", "失败")
+    case "cancelled":
+      return t("workspace.loop.runCancelled", "已取消")
+    case "skipped":
+      return t("workspace.loop.runSkipped", "已跳过")
+  }
+}
+
+function loopRunStateTone(state: LoopRunState): StatusTone {
+  switch (state) {
+    case "succeeded":
+      return "good"
+    case "failed":
+    case "cancelled":
+      return "danger"
+    case "running":
+    case "queued":
+    case "injected":
+      return "info"
+    case "empty":
+    case "skipped":
+      return "muted"
+  }
+}
+
 function isLoopTerminal(state: LoopState): boolean {
   return state === "completed" || state === "cancelled"
 }
@@ -5540,6 +5584,134 @@ function workflowRunSortTime(run: WorkflowRun): number {
   return Number.isFinite(time) ? time : 0
 }
 
+function loopRunTrace(run: LoopRun): Record<string, unknown> {
+  return typeof run.trace === "object" && run.trace !== null && !Array.isArray(run.trace)
+    ? (run.trace as Record<string, unknown>)
+    : {}
+}
+
+function loopRunTraceString(run: LoopRun, field: string): string | null {
+  const value = loopRunTrace(run)[field]
+  return typeof value === "string" && value.trim() ? value : null
+}
+
+function loopRunTemplateLabel(run: LoopRun): string | null {
+  const templateId = loopRunTraceString(run, "templateId")
+  if (!templateId) return null
+  const version = loopRunTraceString(run, "templateVersion")
+  return version ? `${templateId}@${version}` : templateId
+}
+
+function LoopRunHistory({
+  snapshot,
+  loading,
+  error,
+  onSelectWorkflowRun,
+}: {
+  snapshot: LoopSnapshot | null
+  loading: boolean
+  error: string | null
+  onSelectWorkflowRun?: (runId: string) => void
+}) {
+  const { t } = useTranslation()
+  if (loading) {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-md bg-secondary/20 px-2 py-2 text-[11px] text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {t("workspace.loop.historyLoading", "加载 Loop 运行记录")}
+      </div>
+    )
+  }
+  if (error) {
+    return (
+      <div className="mt-2 rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1.5 text-[11px] text-destructive">
+        {error}
+      </div>
+    )
+  }
+  if (!snapshot) return null
+  if (snapshot.runs.length === 0) {
+    return (
+      <div className="mt-2 rounded-md bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground">
+        {t("workspace.loop.historyEmpty", "还没有触发记录")}
+      </div>
+    )
+  }
+  return (
+    <div className="mt-2 space-y-1 rounded-md border border-border/60 bg-secondary/15 p-1.5">
+      <div className="flex items-center gap-1.5 px-0.5 text-[10px] font-medium text-muted-foreground">
+        <Clock className="h-3 w-3" />
+        {t("workspace.loop.historyTitle", "最近运行")}
+      </div>
+      {snapshot.runs.slice(0, 5).map((run) => {
+        const workflowRunId = loopRunTraceString(run, "workflowRunId")
+        const template = loopRunTemplateLabel(run)
+        const summary = run.error || run.resultSummary
+        return (
+          <div
+            key={run.id}
+            className="rounded-md border border-border/45 bg-background/65 px-2 py-1.5"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                #{run.seq}
+              </span>
+              <StatusPill
+                label={loopRunStateLabel(t, run.state)}
+                tone={loopRunStateTone(run.state)}
+                loading={run.state === "running" || run.state === "queued"}
+              />
+              <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                {formatMessageTime(run.finishedAt ?? run.startedAt)}
+              </span>
+              {workflowRunId && onSelectWorkflowRun ? (
+                <IconTip label={t("workspace.loop.viewWorkflow", "查看工作流")}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 shrink-0"
+                    aria-label={t("workspace.loop.viewWorkflow", "查看工作流")}
+                    onClick={() => onSelectWorkflowRun(workflowRunId)}
+                  >
+                    <Eye className="h-3 w-3" />
+                  </Button>
+                </IconTip>
+              ) : null}
+            </div>
+            {workflowRunId || template ? (
+              <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
+                {workflowRunId ? (
+                  <span className="min-w-0 truncate">
+                    {t("workspace.loop.workflowRun", "工作流")}{" "}
+                    <span className="font-mono">{truncateMiddle(workflowRunId, 18)}</span>
+                  </span>
+                ) : null}
+                {template ? (
+                  <span className="min-w-0 truncate">
+                    {t("workspace.loop.template", "模板")}{" "}
+                    <span className="font-mono">{template}</span>
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {summary ? (
+              <p
+                className={cn(
+                  "mt-1 line-clamp-2 text-[10px]",
+                  run.error ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {summary}
+              </p>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function LoopSchedulesSection({
   sessionId,
   incognito,
@@ -5571,6 +5743,11 @@ function LoopSchedulesSection({
   const [draftMaxRuns, setDraftMaxRuns] = useState("")
   const [draftMaxRuntime, setDraftMaxRuntime] = useState("")
   const [draftTokens, setDraftTokens] = useState("")
+  const [detailLoopId, setDetailLoopId] = useState<string | null>(null)
+  const [detailSnapshot, setDetailSnapshot] = useState<LoopSnapshot | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const detailReqRef = useRef(0)
   const activeGoal = goalState.snapshot?.goal ?? null
   const canUseWorkflowLoop =
     draftKind === "interval" && Boolean(activeGoal?.workflowTemplateId)
@@ -5600,12 +5777,52 @@ function LoopSchedulesSection({
     }
   }, [canUseWorkflowLoop, draftExecutionStrategy])
 
+  const loadLoopDetail = useCallback((loopId: string) => {
+    const req = ++detailReqRef.current
+    setDetailLoopId(loopId)
+    setDetailLoading(true)
+    setDetailError(null)
+    setDetailSnapshot(null)
+    getTransport()
+      .call<LoopSnapshot | null>("get_loop_schedule", { loopId })
+      .then((snapshot) => {
+        if (detailReqRef.current !== req) return
+        setDetailSnapshot(snapshot)
+        setDetailLoading(false)
+      })
+      .catch((e) => {
+        if (detailReqRef.current !== req) return
+        logger.error("ui", "LoopSchedulesSection::loadDetail", "Loop detail load failed", e)
+        setDetailSnapshot(null)
+        setDetailError(e instanceof Error ? e.message : String(e))
+        setDetailLoading(false)
+      })
+  }, [])
+
+  const toggleLoopDetail = useCallback(
+    (loopId: string) => {
+      if (detailLoopId === loopId) {
+        detailReqRef.current += 1
+        setDetailLoopId(null)
+        setDetailSnapshot(null)
+        setDetailLoading(false)
+        setDetailError(null)
+        return
+      }
+      loadLoopDetail(loopId)
+    },
+    [detailLoopId, loadLoopDetail],
+  )
+
   const runAction = useCallback(
     async (loop: LoopSchedule, action: "pause" | "resume" | "stop") => {
       setActionId(`${loop.id}:${action}`)
       try {
         await getTransport().call(`${action}_loop_schedule`, { loopId: loop.id })
         refresh()
+        if (detailLoopId === loop.id) {
+          loadLoopDetail(loop.id)
+        }
       } catch (e) {
         logger.error("ui", "LoopSchedulesSection::action", "Loop action failed", e)
         toast.error(e instanceof Error ? e.message : String(e))
@@ -5613,7 +5830,7 @@ function LoopSchedulesSection({
         setActionId(null)
       }
     },
-    [refresh],
+    [detailLoopId, loadLoopDetail, refresh],
   )
 
   const createLoop = useCallback(async () => {
@@ -5897,6 +6114,7 @@ function LoopSchedulesSection({
             const isBusy = actionId?.startsWith(`${loop.id}:`)
             const derivedWorkflowRuns = workflowRunsByLoop.get(loop.id) ?? []
             const latestWorkflowRun = derivedWorkflowRuns[0]
+            const detailOpen = detailLoopId === loop.id
             return (
               <div
                 key={loop.id}
@@ -5990,6 +6208,21 @@ function LoopSchedulesSection({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
+                    <IconTip label={t("workspace.loop.history", "运行记录")}>
+                      <Button
+                        variant={detailOpen ? "secondary" : "ghost"}
+                        size="icon"
+                        className="h-7 w-7"
+                        aria-label={t("workspace.loop.history", "运行记录")}
+                        onClick={() => toggleLoopDetail(loop.id)}
+                      >
+                        {detailOpen && detailLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Clock className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </IconTip>
                     {loop.state === "active" ? (
                       <IconTip label={t("workspace.loop.pause", "暂停")}>
                         <Button
@@ -6030,6 +6263,14 @@ function LoopSchedulesSection({
                     ) : null}
                   </div>
                 </div>
+                {detailOpen ? (
+                  <LoopRunHistory
+                    snapshot={detailSnapshot}
+                    loading={detailLoading}
+                    error={detailError}
+                    onSelectWorkflowRun={onSelectWorkflowRun}
+                  />
+                ) : null}
               </div>
             )
           })}
