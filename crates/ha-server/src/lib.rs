@@ -1337,6 +1337,10 @@ fn build_router_with_cors(
             post(routes::plan::respond_ask_user_question),
         )
         .route(
+            "/ask_user/owner-question",
+            post(routes::plan::create_owner_ask_user_question),
+        )
+        .route(
             "/plan/{sid}/pending-ask-user",
             get(routes::plan::get_pending_ask_user_group),
         )

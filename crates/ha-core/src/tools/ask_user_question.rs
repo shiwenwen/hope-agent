@@ -195,6 +195,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         context: context.clone(),
         source,
         timeout_at,
+        owner_response: None,
     };
 
     // Persist the pending group before emitting so restarts can resume it.

@@ -234,6 +234,7 @@ function contextRetrievalSnapshot(): ContextRetrievalSnapshot {
           domainActions: {
             canCite: true,
             canSummarize: true,
+            canAskUser: true,
             canAddEvidence: true,
             canMarkConflict: true,
             canCreateTask: true,
@@ -1053,6 +1054,59 @@ describe("WorkspacePanel context retrieval section", () => {
             action: "summarize",
             artifactKind: "context_summary",
             candidateId: "doc-1",
+          }),
+        }),
+      })
+    })
+  })
+
+  it("requests user confirmation through owner ask_user", async () => {
+    const snapshot = contextRetrievalSnapshot()
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_context_retrieval") return Promise.resolve(snapshot)
+      if (name === "create_owner_ask_user_question")
+        return Promise.resolve({ requestId: "auq-1", sessionId: "s1", questions: [] })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    expect(await screen.findByText("Browser automation notes")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "确认" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_owner_ask_user_question", {
+        input: expect.objectContaining({
+          sessionId: "s1",
+          source: "workspace_context",
+          questions: expect.arrayContaining([
+            expect.objectContaining({
+              questionId: "context_confirmation",
+              options: expect.arrayContaining([
+                expect.objectContaining({ value: "confirm" }),
+                expect.objectContaining({ value: "reject" }),
+              ]),
+            }),
+          ]),
+          ownerResponse: expect.objectContaining({
+            action: "record_domain_evidence",
+            domainEvidence: expect.objectContaining({
+              sessionId: "s1",
+              domain: "research",
+              evidenceType: "user_decision",
+              title: "用户确认：Browser automation notes",
+              sourceMetadata: expect.objectContaining({
+                source: "context_retrieval",
+                action: "ask_user_confirmation",
+                candidateId: "doc-1",
+              }),
+            }),
           }),
         }),
       })

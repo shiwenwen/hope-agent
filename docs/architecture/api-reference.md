@@ -830,6 +830,7 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `cancel_plan_subagent` | `POST /api/plan/{sessionId}/cancel` | ✅ |
 | `list_plans` | `POST /api/plan/list` | ✅ |
 | `resolve_plan_mention` | `POST /api/plan/resolve-mention` | ✅ |
+| `create_owner_ask_user_question` | `POST /api/ask_user/owner-question` | ✅ |
 | `respond_ask_user_question` | `POST /api/ask_user/respond` | ✅ |
 | `get_pending_ask_user_group` | `GET /api/plan/{sessionId}/pending-ask-user` | ✅ |
 | `set_plan_subagent` | `POST /api/config/plan-subagent` | ✅ |
@@ -838,6 +839,8 @@ Loop owner API 管理 session-scoped recurring triggers。`create_loop_schedule`
 | `get_ask_user_question_timeout_enabled` | `GET /api/config/ask-user-question-timeout-enabled` | ✅ |
 | `set_ask_user_question_timeout` | `POST /api/config/ask-user-question-timeout` | ✅ |
 | `get_ask_user_question_timeout` | `GET /api/config/ask-user-question-timeout` | ✅ |
+
+`create_owner_ask_user_question` 创建 owner-plane durable elicitation：它复用 ask_user UI，但不等待模型工具 oneshot；请求自带 `ownerResponse`，用户通过 `respond_ask_user_question` 回答后由后端记录对应 durable evidence（当前用于 Context Retrieval 的 `user_decision`）。普通工具型 ask_user 仍要求 live in-memory receiver，owner-side question 则可跨会话切换和重启保留；incognito session 禁用。
 
 ### Cron
 

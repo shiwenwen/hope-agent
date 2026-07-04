@@ -124,6 +124,33 @@ pub struct AskUserQuestionGroup {
     /// `None` means no overall timeout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_at: Option<u64>,
+    /// Optional owner-plane response handler. Tool-created ask_user requests
+    /// wait on an in-memory oneshot; owner-created requests instead complete
+    /// by recording durable evidence when the user answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_response: Option<AskUserOwnerResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskUserOwnerResponse {
+    pub action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub domain_evidence: Option<crate::domain_workflow::RecordDomainEvidenceInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateOwnerAskUserQuestionInput {
+    pub session_id: String,
+    pub questions: Vec<AskUserQuestion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<AskUserText>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+    pub owner_response: AskUserOwnerResponse,
 }
 
 /// Event payload emitted when a live ask_user_question request expires.

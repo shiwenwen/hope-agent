@@ -1041,18 +1041,41 @@ impl SessionDB {
     /// app startup because any rows left behind from a previous process have
     /// no live in-memory oneshot to deliver answers to — restoring them in
     /// the UI would produce "No pending ask_user_question request" errors.
+    /// Owner-side questions carry a durable `ownerResponse` handler and are
+    /// safe to keep pending across restarts.
     pub fn expire_pending_ask_user_groups(&self) -> anyhow::Result<usize> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let n = conn.execute(
-            "UPDATE ask_user_questions
-                SET status = 'answered', answered_at = datetime('now')
-                WHERE status = 'pending'",
-            [],
+        let mut stmt = conn.prepare(
+            "SELECT request_id, payload FROM ask_user_questions WHERE status = 'pending'",
         )?;
-        Ok(n)
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut pending_rows = Vec::new();
+        for row in rows {
+            pending_rows.push(row?);
+        }
+        drop(stmt);
+        let mut expired = 0usize;
+        for (request_id, payload) in pending_rows {
+            let keep_pending =
+                serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload)
+                    .map(|group| group.owner_response.is_some())
+                    .unwrap_or(false);
+            if keep_pending {
+                continue;
+            }
+            expired += conn.execute(
+                "UPDATE ask_user_questions
+                    SET status = 'answered', answered_at = datetime('now')
+                    WHERE request_id = ?1 AND status = 'pending'",
+                params![request_id],
+            )?;
+        }
+        Ok(expired)
     }
 
     /// Mark a pending ask_user_question group as answered. Idempotent.
@@ -1154,6 +1177,40 @@ impl SessionDB {
             }
         }
         Ok(out)
+    }
+
+    pub fn get_pending_ask_user_group_by_request_id(
+        &self,
+        request_id: &str,
+    ) -> anyhow::Result<Option<crate::ask_user::AskUserQuestionGroup>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE ask_user_questions
+                SET status = 'answered', answered_at = datetime('now')
+                WHERE status = 'pending'
+                  AND timeout_at IS NOT NULL
+                  AND timeout_at > 0
+                  AND timeout_at <= strftime('%s','now')",
+            [],
+        )?;
+        let payload: Option<String> = conn
+            .query_row(
+                "SELECT payload FROM ask_user_questions
+                    WHERE request_id = ?1
+                      AND status = 'pending'
+                      AND (timeout_at IS NULL OR timeout_at = 0
+                           OR timeout_at > strftime('%s','now'))
+                    LIMIT 1",
+                params![request_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        payload
+            .map(|payload| serde_json::from_str(&payload).map_err(Into::into))
+            .transpose()
     }
 
     // ── Session CRUD ─────────────────────────────────────────────

@@ -114,6 +114,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         context: reason.map(AskUserText::plain),
         source: Some("plan".to_string()),
         timeout_at,
+        owner_response: None,
     };
 
     if let Err(e) = ask_user::persist_pending_group(&group) {

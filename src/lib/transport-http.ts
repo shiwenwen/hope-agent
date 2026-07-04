@@ -354,6 +354,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   cancel_plan_subagent:            { method: "POST",   path: "/api/plan/{sessionId}/cancel" },
   list_plans:                      { method: "POST",   path: "/api/plan/list" },
   resolve_plan_mention:            { method: "POST",   path: "/api/plan/resolve-mention" },
+  create_owner_ask_user_question:  { method: "POST",   path: "/api/ask_user/owner-question" },
   respond_ask_user_question:       { method: "POST",   path: "/api/ask_user/respond" },
   get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId}/pending-ask-user" },
   set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },

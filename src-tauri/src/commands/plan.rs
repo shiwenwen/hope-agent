@@ -1,7 +1,7 @@
 use crate::commands::CmdError;
 use crate::plan::{self, PlanModeState, PlanVersionInfo, TransitionOutcome};
 use ha_core::app_info;
-use ha_core::ask_user::AskUserQuestionAnswer;
+use ha_core::ask_user::{AskUserQuestionAnswer, CreateOwnerAskUserQuestionInput};
 
 #[tauri::command]
 pub async fn get_plan_mode(
@@ -57,6 +57,13 @@ pub async fn get_pending_ask_user_group(
     ha_core::ask_user::find_live_pending_group_for_session(&session_id)
         .await
         .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn create_owner_ask_user_question(
+    input: CreateOwnerAskUserQuestionInput,
+) -> Result<ha_core::ask_user::AskUserQuestionGroup, CmdError> {
+    ha_core::ask_user::create_owner_ask_user_question(input).map_err(Into::into)
 }
 
 /// Submit the user's answers to an `ask_user_question` tool call.

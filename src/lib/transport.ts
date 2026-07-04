@@ -3050,6 +3050,47 @@ export interface DomainWorkflowDraft {
   warnings: string[];
 }
 
+export type AskUserText =
+  | string
+  | {
+      key: string;
+      params?: Record<string, unknown>;
+      fallback?: string | null;
+    };
+
+export interface AskUserQuestionOptionInput {
+  value: string;
+  label: AskUserText;
+  description?: AskUserText | null;
+  recommended?: boolean;
+  preview?: string | null;
+  previewKind?: string | null;
+}
+
+export interface AskUserQuestionInput {
+  questionId: string;
+  text: AskUserText;
+  options: AskUserQuestionOptionInput[];
+  allowCustom?: boolean;
+  multiSelect?: boolean;
+  template?: string | null;
+  header?: AskUserText | null;
+  timeoutSecs?: number | null;
+  defaultValues?: string[];
+}
+
+export interface CreateOwnerAskUserQuestionInput {
+  sessionId: string;
+  questions: AskUserQuestionInput[];
+  context?: AskUserText | null;
+  source?: string | null;
+  timeoutSecs?: number | null;
+  ownerResponse: {
+    action: "record_domain_evidence";
+    domainEvidence: RecordDomainEvidenceInput;
+  };
+}
+
 export interface RecordDomainEvidenceInput {
   goalId?: string | null;
   sessionId?: string | null;

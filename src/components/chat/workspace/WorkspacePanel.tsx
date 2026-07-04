@@ -106,6 +106,7 @@ import type {
   CodingWorkflowRetro,
   ContextCandidate,
   ContextCandidateKind,
+  CreateOwnerAskUserQuestionInput,
   DomainApprovalGate,
   DomainArtifactExportGuardReport,
   DomainConnectorActionGuardReport,
@@ -1901,6 +1902,60 @@ function contextCandidateConflictEvidenceInput(
   }
 }
 
+function contextCandidateAskUserInput(
+  candidate: ContextCandidate,
+  sessionId: string,
+): CreateOwnerAskUserQuestionInput {
+  const title = candidate.title
+  const context = candidate.subtitle
+    ? `请确认这条上下文是否应该作为当前任务决策依据：${candidate.subtitle}`
+    : "请确认这条上下文是否应该作为当前任务决策依据。"
+  return {
+    sessionId,
+    source: "workspace_context",
+    context,
+    questions: [
+      {
+        questionId: "context_confirmation",
+        header: "上下文",
+        text: `是否采用「${title}」作为当前任务的有效上下文？`,
+        allowCustom: true,
+        multiSelect: false,
+        options: [
+          {
+            value: "confirm",
+            label: "采用",
+            description: "把这条上下文记录为用户确认的有效依据。",
+            recommended: true,
+          },
+          {
+            value: "reject",
+            label: "不采用",
+            description: "把这条上下文记录为用户拒绝或暂不采纳。",
+          },
+        ],
+      },
+    ],
+    ownerResponse: {
+      action: "record_domain_evidence",
+      domainEvidence: {
+        sessionId,
+        domain: contextCandidateDomain(candidate),
+        evidenceType: "user_decision",
+        title: `用户确认：${title}`,
+        summary: candidate.subtitle ?? candidate.reasons[0] ?? null,
+        sourceMetadata: {
+          ...contextCandidateSourceMetadata(candidate),
+          action: "ask_user_confirmation",
+        },
+        confidence: contextCandidateNumberMetadata(candidate, "confidence"),
+        accessScope: contextCandidateAccessScope(candidate),
+        redactionStatus: contextCandidateRedactionStatus(candidate),
+      },
+    },
+  }
+}
+
 function contextCanAddEvidence(candidate: ContextCandidate): boolean {
   const actions = contextDomainActions(candidate)
   if (!actions?.canAddEvidence) return false
@@ -1910,6 +1965,11 @@ function contextCanAddEvidence(candidate: ContextCandidate): boolean {
 function contextCanSummarize(candidate: ContextCandidate): boolean {
   const actions = contextDomainActions(candidate)
   return Boolean(actions?.canSummarize)
+}
+
+function contextCanAskUser(candidate: ContextCandidate): boolean {
+  const actions = contextDomainActions(candidate)
+  return Boolean(actions?.canAskUser)
 }
 
 function contextCanMarkConflict(candidate: ContextCandidate): boolean {
@@ -1945,6 +2005,7 @@ function DomainContextActionChips({
   disabled,
   actionKey,
   onSummarize,
+  onAskUser,
   onAddEvidence,
   onMarkConflict,
   onCreateTask,
@@ -1954,6 +2015,7 @@ function DomainContextActionChips({
   disabled?: boolean
   actionKey?: string | null
   onSummarize?: (candidate: ContextCandidate) => void
+  onAskUser?: (candidate: ContextCandidate) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
   onMarkConflict?: (candidate: ContextCandidate) => void
   onCreateTask?: (candidate: ContextCandidate) => void
@@ -1962,15 +2024,16 @@ function DomainContextActionChips({
   const actions = contextDomainActions(candidate)
   if (!actions) return null
   const chips: string[] = []
-  if (actions.canAskUser) chips.push(t("workspace.context.actionAsk", "确认"))
   const canCite = Boolean(actions.canCite)
   const canSummarize = contextCanSummarize(candidate)
+  const canAskUser = contextCanAskUser(candidate)
   const canAddEvidence = contextCanAddEvidence(candidate)
   const canMarkConflict = contextCanMarkConflict(candidate)
   const canCreateTask = contextCanCreateTask(candidate)
   if (
     !canCite &&
     !canSummarize &&
+    !canAskUser &&
     !canAddEvidence &&
     !canMarkConflict &&
     !canCreateTask &&
@@ -1980,6 +2043,8 @@ function DomainContextActionChips({
   }
   const summaryKey = `${candidate.id}:summary`
   const summaryBusy = actionKey === summaryKey
+  const askKey = `${candidate.id}:ask`
+  const askBusy = actionKey === askKey
   const evidenceKey = `${candidate.id}:evidence`
   const evidenceBusy = actionKey === evidenceKey
   const conflictKey = `${candidate.id}:conflict`
@@ -2026,6 +2091,24 @@ function DomainContextActionChips({
             <BookText className="h-3 w-3" />
           )}
           <span>{t("workspace.context.actionSummarize", "摘要")}</span>
+        </button>
+      ) : null}
+      {canAskUser ? (
+        <button
+          type="button"
+          disabled={disabled || !sessionId || !onAskUser || Boolean(actionKey)}
+          onClick={(event) => {
+            event.stopPropagation()
+            onAskUser?.(candidate)
+          }}
+          className="inline-flex h-5 items-center gap-1 rounded border border-border/50 bg-background/55 px-1.5 text-[10px] text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {askBusy ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <MessageCircle className="h-3 w-3" />
+          )}
+          <span>{t("workspace.context.actionAsk", "确认")}</span>
         </button>
       ) : null}
       {canAddEvidence ? (
@@ -2102,6 +2185,7 @@ function ContextFileCandidateRow({
   actionsDisabled,
   onAction,
   onSummarize,
+  onAskUser,
   onAddEvidence,
   onMarkConflict,
   onCreateTask,
@@ -2113,6 +2197,7 @@ function ContextFileCandidateRow({
   actionsDisabled?: boolean
   onAction?: (candidate: ContextCandidate, action: ContextFocusedAction) => void
   onSummarize?: (candidate: ContextCandidate) => void
+  onAskUser?: (candidate: ContextCandidate) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
   onMarkConflict?: (candidate: ContextCandidate) => void
   onCreateTask?: (candidate: ContextCandidate) => void
@@ -2166,6 +2251,7 @@ function ContextFileCandidateRow({
               disabled={actionsDisabled}
               actionKey={actionKey}
               onSummarize={onSummarize}
+              onAskUser={onAskUser}
               onAddEvidence={onAddEvidence}
               onMarkConflict={onMarkConflict}
               onCreateTask={onCreateTask}
@@ -2191,6 +2277,7 @@ function ContextGenericCandidateRow({
   actionKey,
   actionsDisabled,
   onSummarize,
+  onAskUser,
   onAddEvidence,
   onMarkConflict,
   onCreateTask,
@@ -2200,6 +2287,7 @@ function ContextGenericCandidateRow({
   actionKey?: string | null
   actionsDisabled?: boolean
   onSummarize?: (candidate: ContextCandidate) => void
+  onAskUser?: (candidate: ContextCandidate) => void
   onAddEvidence?: (candidate: ContextCandidate) => void
   onMarkConflict?: (candidate: ContextCandidate) => void
   onCreateTask?: (candidate: ContextCandidate) => void
@@ -2233,6 +2321,7 @@ function ContextGenericCandidateRow({
           disabled={actionsDisabled}
           actionKey={actionKey}
           onSummarize={onSummarize}
+          onAskUser={onAskUser}
           onAddEvidence={onAddEvidence}
           onMarkConflict={onMarkConflict}
           onCreateTask={onCreateTask}
@@ -2387,6 +2476,37 @@ function ContextRetrievalSection({
       }
     },
     [disabled, onDomainEvidenceRecorded, refresh, sessionId, t],
+  )
+
+  const askContextCandidateConfirmation = useCallback(
+    async (candidate: ContextCandidate) => {
+      if (!sessionId || disabled || !contextCanAskUser(candidate)) return
+      const actionKey = `${candidate.id}:ask`
+      setContextActionKey(actionKey)
+      try {
+        await getTransport().call("create_owner_ask_user_question", {
+          input: contextCandidateAskUserInput(candidate, sessionId),
+        })
+        toast.success(
+          t("workspace.context.confirmationRequested", "已请求确认：{{title}}", {
+            title: candidate.title,
+          }),
+        )
+        refresh()
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        logger.error(
+          "ui",
+          "ContextRetrievalSection",
+          "Request context candidate confirmation failed",
+          e,
+        )
+        toast.error(message)
+      } finally {
+        setContextActionKey(null)
+      }
+    },
+    [disabled, refresh, sessionId, t],
   )
 
   const markContextCandidateConflict = useCallback(
@@ -2606,6 +2726,7 @@ function ContextRetrievalSection({
                   actionsDisabled={disabled || Boolean(contextActionKey)}
                   onAction={runFocusedContextAction}
                   onSummarize={summarizeContextCandidate}
+                  onAskUser={askContextCandidateConfirmation}
                   onAddEvidence={recordContextCandidateEvidence}
                   onMarkConflict={markContextCandidateConflict}
                   onCreateTask={createContextCandidateTask}
@@ -2618,6 +2739,7 @@ function ContextRetrievalSection({
                   actionKey={contextActionKey}
                   actionsDisabled={disabled || Boolean(contextActionKey)}
                   onSummarize={summarizeContextCandidate}
+                  onAskUser={askContextCandidateConfirmation}
                   onAddEvidence={recordContextCandidateEvidence}
                   onMarkConflict={markContextCandidateConflict}
                   onCreateTask={createContextCandidateTask}
