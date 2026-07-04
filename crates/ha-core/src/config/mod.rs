@@ -1018,6 +1018,9 @@ pub struct AppConfig {
     /// Canvas tool configuration
     #[serde(default)]
     pub canvas: crate::tools::canvas::CanvasConfig,
+    /// Design Space subsystem configuration
+    #[serde(default)]
+    pub design: crate::design::DesignConfig,
     /// Browser automation configuration (backend selection, default mode,
     /// user-attach profile bookkeeping).
     #[serde(default)]
@@ -1300,6 +1303,7 @@ impl Default for AppConfig {
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             issue_reporting: crate::issue_reporting::IssueReportingConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
+            design: crate::design::DesignConfig::default(),
             browser: None,
             image: crate::tools::image::ImageToolConfig::default(),
             pdf: crate::tools::pdf::PdfToolConfig::default(),

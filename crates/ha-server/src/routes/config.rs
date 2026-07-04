@@ -989,6 +989,23 @@ pub async fn save_canvas_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/design` -- get Design Space config.
+pub async fn get_design_config() -> Result<Json<ha_core::design::DesignConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.design))
+}
+
+/// `PUT /api/config/design` -- save Design Space config.
+pub async fn save_design_config(
+    Json(body): Json<ConfigBody<ha_core::design::DesignConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("design", "http"), |store| {
+        store.design = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Shortcuts ───────────────────────────────────────────────────
 
 /// `GET /api/config/shortcuts` -- get global keyboard shortcut config.

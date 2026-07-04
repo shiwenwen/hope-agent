@@ -1,0 +1,349 @@
+//! 设计空间 owner 平面业务入口（Tauri / HTTP 薄壳统一调用）。
+//!
+//! owner 平面 = 本机 / API key 信任，负责 UI 的项目/产物 CRUD、可视化编辑回写、
+//! 导出——**不经 agent 访问检查**（见 `docs/architecture/design-space.md` §3）。
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+
+use super::db::{DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject};
+use super::renderer::{self, ArtifactKind, ArtifactParts};
+use crate::paths;
+use crate::platform::write_atomic;
+
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+fn new_id() -> String {
+    uuid::Uuid::new_v4().to_string()
+}
+
+/// 打开（懒建目录）设计库连接。
+pub fn open_db() -> Result<DesignDb> {
+    let db_path = paths::design_db_path()?;
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    DesignDb::open(&db_path)
+}
+
+fn emit(event: &str, payload: serde_json::Value) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(event, payload);
+    }
+}
+
+/// 产物目录绝对路径（前端 iframe / 事件 payload 用）。
+pub fn artifact_dir_str(project_id: &str, artifact_id: &str) -> String {
+    paths::design_artifact_dir(project_id, artifact_id)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+// ── Projects ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectInput {
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub default_system_id: Option<String>,
+    #[serde(default)]
+    pub ha_project_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
+pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
+    let db = open_db()?;
+    let ts = now();
+    let title = if input.title.trim().is_empty() {
+        "未命名项目".to_string()
+    } else {
+        input.title.trim().to_string()
+    };
+    let project = DesignProject {
+        id: new_id(),
+        title,
+        description: input.description,
+        color: input.color,
+        default_system_id: input.default_system_id,
+        ha_project_id: input.ha_project_id,
+        session_id: input.session_id,
+        agent_id: input.agent_id,
+        created_at: ts.clone(),
+        updated_at: ts,
+        artifact_count: 0,
+        metadata: None,
+    };
+    // 建项目目录 + project.json（真相源镜像）。
+    let dir = paths::design_project_dir(&project.id)?;
+    std::fs::create_dir_all(dir.join("artifacts"))?;
+    write_atomic(
+        &dir.join("project.json"),
+        serde_json::to_string_pretty(&project)?.as_bytes(),
+    )?;
+    db.create_project(&project)?;
+    crate::app_info!("design", "service", "create project {}", project.id);
+    emit("design:project_changed", json!({ "projectId": project.id }));
+    Ok(project)
+}
+
+pub fn list_projects() -> Result<Vec<DesignProject>> {
+    open_db()?.list_projects()
+}
+
+pub fn get_project(id: &str) -> Result<Option<DesignProject>> {
+    open_db()?.get_project(id)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectInput {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub default_system_id: Option<String>,
+    #[serde(default)]
+    pub ha_project_id: Option<String>,
+}
+
+pub fn update_project(input: UpdateProjectInput) -> Result<DesignProject> {
+    let db = open_db()?;
+    db.update_project(
+        &input.id,
+        input.title.as_deref(),
+        input.description.as_deref(),
+        input.color.as_deref(),
+        input.default_system_id.as_deref(),
+        input.ha_project_id.as_deref(),
+        &now(),
+    )?;
+    let project = db
+        .get_project(&input.id)?
+        .context("project not found after update")?;
+    // 回写 project.json。
+    if let Ok(dir) = paths::design_project_dir(&project.id) {
+        let _ = write_atomic(
+            &dir.join("project.json"),
+            serde_json::to_string_pretty(&project)?.as_bytes(),
+        );
+    }
+    emit("design:project_changed", json!({ "projectId": project.id }));
+    Ok(project)
+}
+
+/// 删除项目：DB 级联删产物/版本 + `rm -rf` 项目目录。
+pub fn delete_project(id: &str) -> Result<()> {
+    let db = open_db()?;
+    db.delete_project(id)?;
+    if let Ok(dir) = paths::design_project_dir(id) {
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    crate::app_info!("design", "service", "delete project {}", id);
+    emit("design:project_changed", json!({ "projectId": id }));
+    Ok(())
+}
+
+// ── Artifacts ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateArtifactInput {
+    pub project_id: String,
+    pub title: String,
+    /// web|mobile|deck|dashboard|poster|document|email|image
+    pub kind: String,
+    #[serde(default)]
+    pub system_id: Option<String>,
+    /// 产物 body 结构 HTML（可选；空则生成占位）。
+    #[serde(default)]
+    pub body_html: Option<String>,
+    #[serde(default)]
+    pub css: Option<String>,
+    #[serde(default)]
+    pub js: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// `artifact.json` 磁盘元数据镜像。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtifactMeta {
+    id: String,
+    project_id: String,
+    title: String,
+    kind: String,
+    system_id: Option<String>,
+    current_version: i64,
+}
+
+pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let kind = ArtifactKind::from_str(&input.kind)
+        .with_context(|| format!("unknown artifact kind: {}", input.kind))?;
+    // 项目必须存在。
+    db.get_project(&input.project_id)?
+        .with_context(|| format!("project not found: {}", input.project_id))?;
+
+    let ts = now();
+    let artifact_id = new_id();
+    let title = if input.title.trim().is_empty() {
+        format!("未命名{}", kind.as_str())
+    } else {
+        input.title.trim().to_string()
+    };
+
+    let parts = if input.body_html.as_deref().unwrap_or("").trim().is_empty() {
+        renderer::placeholder_parts(kind, &title)
+    } else {
+        ArtifactParts {
+            body_html: input.body_html.unwrap_or_default(),
+            css: input.css.unwrap_or_default(),
+            js: input.js.unwrap_or_default(),
+        }
+    };
+
+    // 磁盘落地：artifact_dir / index.html / source/ / versions/1 / artifact.json
+    let dir = paths::design_artifact_dir(&input.project_id, &artifact_id)?;
+    std::fs::create_dir_all(dir.join("source"))?;
+    std::fs::create_dir_all(dir.join("versions").join("1"))?;
+    let html = renderer::build_artifact_html(kind, &title, &parts);
+    write_atomic(&dir.join("index.html"), html.as_bytes())?;
+    write_atomic(&dir.join("source").join("body.html"), parts.body_html.as_bytes())?;
+    write_atomic(&dir.join("source").join("style.css"), parts.css.as_bytes())?;
+    if !parts.js.trim().is_empty() {
+        write_atomic(&dir.join("source").join("script.js"), parts.js.as_bytes())?;
+    }
+    write_atomic(&dir.join("versions").join("1").join("index.html"), html.as_bytes())?;
+
+    let (vw, vh) = kind.default_viewport();
+    let artifact = DesignArtifact {
+        id: artifact_id.clone(),
+        project_id: input.project_id.clone(),
+        title: title.clone(),
+        kind: kind.as_str().to_string(),
+        system_id: input.system_id.clone(),
+        status: "ready".to_string(),
+        viewport_w: if vw > 0 { Some(vw) } else { None },
+        viewport_h: if vh > 0 { Some(vh) } else { None },
+        current_version: 1,
+        critique_score: None,
+        thumbnail_path: None,
+        created_at: ts.clone(),
+        updated_at: ts.clone(),
+        metadata: None,
+    };
+    let meta = ArtifactMeta {
+        id: artifact.id.clone(),
+        project_id: artifact.project_id.clone(),
+        title: artifact.title.clone(),
+        kind: artifact.kind.clone(),
+        system_id: artifact.system_id.clone(),
+        current_version: 1,
+    };
+    write_atomic(
+        &dir.join("artifact.json"),
+        serde_json::to_string_pretty(&meta)?.as_bytes(),
+    )?;
+
+    db.create_artifact(&artifact)?;
+    db.create_version(&DesignArtifactVersion {
+        id: 0,
+        artifact_id: artifact_id.clone(),
+        version_number: 1,
+        message: Some("Initial version".to_string()),
+        critique_score: None,
+        created_at: ts.clone(),
+    })?;
+    db.touch_project(&input.project_id, &ts)?;
+
+    crate::app_info!(
+        "design",
+        "service",
+        "create artifact {} kind={} project={}",
+        artifact_id,
+        kind.as_str(),
+        input.project_id
+    );
+    emit(
+        "design:artifact_ready",
+        json!({
+            "projectId": input.project_id,
+            "artifactId": artifact_id,
+            "sessionId": input.session_id,
+        }),
+    );
+    Ok(artifact)
+}
+
+pub fn list_artifacts(project_id: &str) -> Result<Vec<DesignArtifact>> {
+    open_db()?.list_artifacts(project_id)
+}
+
+pub fn list_all_artifacts() -> Result<Vec<DesignArtifact>> {
+    open_db()?.list_all_artifacts()
+}
+
+pub fn get_artifact(id: &str) -> Result<Option<DesignArtifact>> {
+    open_db()?.get_artifact(id)
+}
+
+pub fn delete_artifact(id: &str) -> Result<()> {
+    let db = open_db()?;
+    if let Some(a) = db.get_artifact(id)? {
+        db.delete_artifact(id)?;
+        if let Ok(dir) = paths::design_artifact_dir(&a.project_id, id) {
+            if dir.exists() {
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
+        db.touch_project(&a.project_id, &now())?;
+        emit(
+            "design:artifact_deleted",
+            json!({ "projectId": a.project_id, "artifactId": id }),
+        );
+    }
+    Ok(())
+}
+
+pub fn list_versions(artifact_id: &str) -> Result<Vec<DesignArtifactVersion>> {
+    open_db()?.list_versions(artifact_id)
+}
+
+/// 产物预览信息（前端 iframe 加载用）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactView {
+    #[serde(flatten)]
+    pub artifact: DesignArtifact,
+    /// 产物目录绝对路径（前端拼 `/index.html`）。
+    pub artifact_path: String,
+}
+
+pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
+    let Some(artifact) = open_db()?.get_artifact(id)? else {
+        return Ok(None);
+    };
+    let artifact_path = artifact_dir_str(&artifact.project_id, &artifact.id);
+    Ok(Some(ArtifactView {
+        artifact,
+        artifact_path,
+    }))
+}

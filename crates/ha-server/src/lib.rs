@@ -1029,6 +1029,8 @@ fn build_router_with_cors(
         )
         .route("/config/canvas", get(routes::config::get_canvas_config))
         .route("/config/canvas", put(routes::config::save_canvas_config))
+        .route("/config/design", get(routes::config::get_design_config))
+        .route("/config/design", put(routes::config::save_design_config))
         .route("/config/sandbox", get(routes::config::get_sandbox_config))
         .route("/config/sandbox", put(routes::config::set_sandbox_config))
         .route(
@@ -1663,6 +1665,39 @@ fn build_router_with_cors(
         .route(
             "/canvas/projects/{project_id}/{*rest}",
             get(routes::canvas::serve_canvas_project_file),
+        )
+        // ── Design Space ──
+        .route(
+            "/design/projects",
+            get(routes::design::list_projects)
+                .post(routes::design::create_project)
+                .put(routes::design::update_project),
+        )
+        .route(
+            "/design/projects/{id}",
+            get(routes::design::get_project).delete(routes::design::delete_project),
+        )
+        .route(
+            "/design/projects/{project_id}/artifacts",
+            get(routes::design::list_artifacts),
+        )
+        .route(
+            "/design/artifacts",
+            get(routes::design::list_all_artifacts).post(routes::design::create_artifact),
+        )
+        .route(
+            "/design/artifacts/{id}",
+            get(routes::design::get_artifact).delete(routes::design::delete_artifact),
+        )
+        .route(
+            "/design/artifacts/{id}/versions",
+            get(routes::design::list_versions),
+        )
+        // Design artifact static asset tree — serves the preview iframe's
+        // index.html plus its relative CSS / JS / images.
+        .route(
+            "/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}",
+            get(routes::design::serve_artifact_file),
         )
         // Providers extras
         .route(

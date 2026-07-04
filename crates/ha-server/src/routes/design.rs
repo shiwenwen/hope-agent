@@ -1,0 +1,213 @@
+//! 设计空间 HTTP 路由（owner 平面薄壳，逻辑全在 `ha_core::design::service`）。
+//!
+//! Body 方法（POST/PUT）接收 wrapper（`{ input }`），与前端 transport-http 把整个
+//! remaining args 作 body 的行为对齐（同 knowledge `CreateKbBody`）；GET/DELETE 用
+//! path 参数，避免 body 与 path 参数混用。
+
+use axum::extract::{Path, Request};
+use axum::response::{IntoResponse, Response};
+use axum::Json;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tower::ServiceExt;
+use tower_http::services::ServeFile;
+
+use ha_core::design::service::{self, CreateArtifactInput, CreateProjectInput, UpdateProjectInput};
+use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignProject};
+use ha_core::paths;
+
+use crate::error::AppError;
+use crate::routes::file_serve::{
+    apply_inline_media_headers, contained_canonical, resolve_mime_for_path, validate_safe_rest_path,
+    HeaderOpts, MimeOpts,
+};
+
+/// 设计空间 id（UUID-ish）：仅 ASCII 字母数字 + `-`/`_`，长度受限，
+/// 挡住 `..` / `/` / shell 元字符。
+fn validate_id(id: &str) -> Result<(), AppError> {
+    if id.is_empty() || id.len() > 128 {
+        return Err(AppError::bad_request("invalid design id"));
+    }
+    if !id
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err(AppError::bad_request("invalid design id"));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectBody {
+    pub input: CreateProjectInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectBody {
+    pub input: UpdateProjectInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateArtifactBody {
+    pub input: CreateArtifactInput,
+}
+
+// ── Projects ───────────────────────────────────────────────────────
+
+/// `GET /api/design/projects`
+pub async fn list_projects() -> Result<Json<Vec<DesignProject>>, AppError> {
+    Ok(Json(service::list_projects().map_err(|e| AppError::internal(e.to_string()))?))
+}
+
+/// `POST /api/design/projects`
+pub async fn create_project(
+    Json(body): Json<CreateProjectBody>,
+) -> Result<Json<DesignProject>, AppError> {
+    Ok(Json(
+        service::create_project(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/projects/{id}`
+pub async fn get_project(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    match service::get_project(&id).map_err(|e| AppError::internal(e.to_string()))? {
+        Some(p) => Ok(Json(serde_json::to_value(p).unwrap_or(Value::Null))),
+        None => Err(AppError::not_found("design project not found")),
+    }
+}
+
+/// `PUT /api/design/projects` — update (id inside body).
+pub async fn update_project(
+    Json(body): Json<UpdateProjectBody>,
+) -> Result<Json<DesignProject>, AppError> {
+    validate_id(&body.input.id)?;
+    Ok(Json(
+        service::update_project(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `DELETE /api/design/projects/{id}`
+pub async fn delete_project(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::delete_project(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+// ── Artifacts ──────────────────────────────────────────────────────
+
+/// `GET /api/design/projects/{project_id}/artifacts`
+pub async fn list_artifacts(
+    Path(project_id): Path<String>,
+) -> Result<Json<Vec<DesignArtifact>>, AppError> {
+    validate_id(&project_id)?;
+    Ok(Json(
+        service::list_artifacts(&project_id).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts` — create (projectId inside body).
+pub async fn create_artifact(
+    Json(body): Json<CreateArtifactBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&body.input.project_id)?;
+    Ok(Json(
+        service::create_artifact(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/artifacts` — all artifacts across projects (library wall).
+pub async fn list_all_artifacts() -> Result<Json<Vec<DesignArtifact>>, AppError> {
+    Ok(Json(
+        service::list_all_artifacts().map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/artifacts/{id}` — artifact + resolved preview path.
+pub async fn get_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    match service::get_artifact_view(&id).map_err(|e| AppError::internal(e.to_string()))? {
+        Some(v) => Ok(Json(serde_json::to_value(v).unwrap_or(Value::Null))),
+        None => Err(AppError::not_found("design artifact not found")),
+    }
+}
+
+/// `DELETE /api/design/artifacts/{id}`
+pub async fn delete_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::delete_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `GET /api/design/artifacts/{id}/versions`
+pub async fn list_versions(
+    Path(id): Path<String>,
+) -> Result<Json<Vec<DesignArtifactVersion>>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::list_versions(&id).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}` —
+/// serve a file from an artifact directory (the preview iframe loads
+/// `…/index.html` through this route). Three-gate path containment.
+pub async fn serve_artifact_file(
+    Path((project_id, artifact_id, rest)): Path<(String, String, String)>,
+    request: Request,
+) -> Result<Response, AppError> {
+    validate_id(&project_id)?;
+    validate_id(&artifact_id)?;
+    validate_safe_rest_path(&rest)?;
+
+    let base_dir = paths::design_artifact_dir(&project_id, &artifact_id)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    let candidate = base_dir.join(&rest);
+    let file_canon = contained_canonical(&base_dir, &candidate).await?;
+
+    let mime = resolve_mime_for_path(
+        &file_canon,
+        MimeOpts {
+            html_charset: true,
+            sniff_fallback: false,
+        },
+    )
+    .await;
+
+    let mut response = ServeFile::new(&file_canon)
+        .oneshot(request)
+        .await
+        .map_err(|e| AppError::internal(format!("serve design file: {}", e)))?
+        .into_response();
+
+    apply_inline_media_headers(
+        &mut response,
+        HeaderOpts {
+            mime: &mime,
+            cache_secs: 60,
+            disposition: "inline",
+            no_referrer: true,
+        },
+    );
+
+    Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_accepts_typical() {
+        assert!(validate_id("abc-123").is_ok());
+        assert!(validate_id("550e8400e29b41d4a716446655440000").is_ok());
+    }
+
+    #[test]
+    fn id_rejects_bad() {
+        assert!(validate_id("").is_err());
+        assert!(validate_id("..").is_err());
+        assert!(validate_id("a/b").is_err());
+        assert!(validate_id("a\\b").is_err());
+    }
+}

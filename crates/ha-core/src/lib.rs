@@ -40,6 +40,7 @@ pub mod crash_flush;
 pub mod crash_journal;
 pub mod cron;
 pub mod dashboard;
+pub mod design;
 pub mod dev_tools;
 pub mod docker;
 pub mod failover;
