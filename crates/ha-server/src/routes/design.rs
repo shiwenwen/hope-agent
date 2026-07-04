@@ -4,7 +4,7 @@
 //! remaining args 作 body 的行为对齐（同 knowledge `CreateKbBody`）；GET/DELETE 用
 //! path 参数，避免 body 与 path 参数混用。
 
-use axum::extract::{Path, Request};
+use axum::extract::{Path, Query, Request};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
@@ -150,6 +150,24 @@ pub async fn delete_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppE
     validate_id(&id)?;
     service::delete_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExportQuery {
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
+/// `GET /api/design/artifacts/{id}/export?format=html`
+pub async fn export_artifact(
+    Path(id): Path<String>,
+    Query(q): Query<ExportQuery>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let format = q.format.as_deref().unwrap_or("html");
+    let res = service::export_artifact(&id, format)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
 /// `POST /api/design/patch` — visual edit (element style/text writeback).

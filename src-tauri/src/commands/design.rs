@@ -7,8 +7,8 @@
 
 use crate::commands::CmdError;
 use ha_core::design::service::{
-    self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, SaveSystemInput,
-    UpdateProjectInput,
+    self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
+    SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
     DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject, DesignSystemFull,
@@ -87,6 +87,14 @@ pub async fn list_design_artifact_versions_cmd(
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {
     service::patch_element(input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn export_design_artifact_cmd(
+    id: String,
+    format: Option<String>,
+) -> Result<ExportResult, CmdError> {
+    service::export_artifact(&id, format.as_deref().unwrap_or("html")).map_err(Into::into)
 }
 
 // ── Design systems ──────────────────────────────────────────────

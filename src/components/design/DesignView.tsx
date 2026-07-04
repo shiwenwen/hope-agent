@@ -25,6 +25,7 @@ import {
   Mail,
   Sparkles,
   MousePointerClick,
+  Download,
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
@@ -363,6 +364,29 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
   }, [postToIframe])
 
+  // ── Export (D3) ──────────────────────────────────────────────
+  const handleExport = useCallback(async () => {
+    if (!activeArtifact) return
+    try {
+      const res = await tx.call<{ filename: string; mime: string; content: string }>(
+        "export_design_artifact_cmd",
+        { id: activeArtifact.id, format: "html" },
+      )
+      if (!res) return
+      const blob = new Blob([res.content], { type: res.mime })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = res.filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      logger.error("design", "DesignView::handleExport", "export failed", e)
+    }
+  }, [tx, activeArtifact])
+
   // ── Delete (shared confirm) ──────────────────────────────────
 
   const confirmDelete = useCallback(async () => {
@@ -639,6 +663,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
+                    {activeArtifact.kind !== "image" && (
+                      <IconTip label={t("design.exportHtml", "导出 HTML")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => void handleExport()}
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                        </Button>
+                      </IconTip>
+                    )}
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto p-4">

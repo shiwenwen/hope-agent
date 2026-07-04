@@ -760,6 +760,7 @@ pub fn run() {
             commands::design::delete_design_artifact_cmd,
             commands::design::list_design_artifact_versions_cmd,
             commands::design::patch_design_element_cmd,
+            commands::design::export_design_artifact_cmd,
             commands::design::list_design_systems_cmd,
             commands::design::get_design_system_cmd,
             commands::design::save_design_system_cmd,

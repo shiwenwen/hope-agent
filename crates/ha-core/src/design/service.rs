@@ -595,6 +595,58 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .context("artifact gone after update")
 }
 
+// ── Export ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    pub filename: String,
+    pub mime: String,
+    pub content: String,
+}
+
+fn safe_filename(title: &str) -> String {
+    let s: String = title
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect();
+    let trimmed = s
+        .split('-')
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if trimmed.is_empty() {
+        "design".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// 导出产物。Phase 5：`html`（干净自包含，无 bridge/oid）。
+pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    match format {
+        "html" => {
+            let parts = read_source(&dir);
+            let tokens = resolve_tokens(a.system_id.as_deref());
+            // editable=false → 无 inspector bridge / 无 oid，干净可交付。
+            let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
+            Ok(ExportResult {
+                filename: format!("{}.html", safe_filename(&a.title)),
+                mime: "text/html".to_string(),
+                content: html,
+            })
+        }
+        other => anyhow::bail!("unsupported export format: {other}"),
+    }
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// 列出设计系统（首次调用懒 seed 内置系统）。

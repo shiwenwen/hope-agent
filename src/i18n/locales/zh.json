@@ -166,6 +166,7 @@
     "zoomFit": "适应",
     "reload": "刷新",
     "systemNone": "无设计系统",
+    "exportHtml": "导出 HTML",
     "editMode": "可视化微调：点选元素改属性",
     "insp": {
       "text": "文本",

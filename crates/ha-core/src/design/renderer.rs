@@ -88,16 +88,16 @@ pub fn build_artifact_html(
     let (vw, _vh) = kind.default_viewport();
     let esc_title = html_escape(title);
 
-    // 注入 data-ds-oid（可视化微调锚点）+ 产出 oidmap（映射回源码）。
-    let (annotated_body, oidmap) = super::patch::annotate(&parts.body_html);
+    // 编辑态注入 data-ds-oid（可视化微调锚点）+ 产出 oidmap；导出态用干净源码。
+    let (annotated_body, oidmap) = if editable {
+        super::patch::annotate(&parts.body_html)
+    } else {
+        (parts.body_html.clone(), Vec::new())
+    };
 
     // inspector bridge（仅可编辑 kind）：dormant，收到父窗 ds_activate 才启用；
-    // 选中元素回传、样式/文本 live preview。沙箱零网络。
-    let inspector_js = if editable {
-        INSPECTOR_BRIDGE
-    } else {
-        ""
-    };
+    // 选中元素回传、样式/文本 live preview。沙箱零网络。导出态不注入（干净产物）。
+    let inspector_js = if editable { INSPECTOR_BRIDGE } else { "" };
 
     // 设计系统 token → :root CSS 变量。
     let root_css = if tokens.is_empty() {

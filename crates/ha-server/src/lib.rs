@@ -1695,6 +1695,10 @@ fn build_router_with_cors(
             get(routes::design::list_versions),
         )
         .route(
+            "/design/artifacts/{id}/export",
+            get(routes::design::export_artifact),
+        )
+        .route(
             "/design/systems",
             get(routes::design::list_systems).post(routes::design::save_system),
         )
