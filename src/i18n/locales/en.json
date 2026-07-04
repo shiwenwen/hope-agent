@@ -599,8 +599,8 @@
     "viewSystemPrompt": "View System Prompt",
     "weeksAgo": "{{count}}w ago",
     "workingDir": {
-      "browserDescription": "Paths are resolved on the server machine where the agent runs.",
-      "browserTitle": "Select a directory on the server",
+      "browserDescription": "Paths are resolved on the machine where the agent runs.",
+      "browserTitle": "Select a directory",
       "change": "Change directory",
       "clear": "Clear directory",
       "current": "Working directory",
@@ -2217,7 +2217,7 @@
     "projectInstructionsHint": "These instructions are automatically added to the system prompt of every session in this project.",
     "projectInstructionsPlaceholder": "e.g. Always reply in English; keep the tone clear and friendly; start with the conclusion",
     "projectLogo": "Logo",
-    "projectLogoHint": "Optional. When set, replaces the emoji icon in the sidebar. Images are auto-resized to 256×256.",
+    "projectLogoHint": "Optional. Images are auto-resized to 256×256.",
     "projectName": "Project Name",
     "projectNamePlaceholder": "e.g. Hope Agent Development",
     "projects": "Projects",
@@ -2237,11 +2237,11 @@
     "uploadLogo": "Upload logo",
     "workingDir": {
       "clear": "Clear",
-      "hint": "Sessions in this project default to this directory; session-level setting overrides it.",
+      "hint": "Choose an existing directory or create a new one. Leave empty to auto-create the default project directory.",
       "invalid": "Invalid working directory",
       "label": "Working Directory",
       "pick": "Pick directory",
-      "placeholder": "Not set (sessions can override)"
+      "placeholder": "Not set (default project directory will be created)"
     },
     "knowledge": {
       "label": "Knowledge spaces",

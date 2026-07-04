@@ -599,8 +599,8 @@
     "viewSystemPrompt": "查看系统提示词",
     "weeksAgo": "{{count}}周前",
     "workingDir": {
-      "browserDescription": "路径将在运行 Agent 的服务器上解析。",
-      "browserTitle": "选择服务器上的目录",
+      "browserDescription": "路径将在运行 Agent 的机器上解析。",
+      "browserTitle": "选择目录",
       "change": "更换目录",
       "clear": "清除目录",
       "current": "工作目录",
@@ -2217,7 +2217,7 @@
     "projectInstructionsHint": "这些指令会自动加入该项目所有会话的系统提示词",
     "projectInstructionsPlaceholder": "例如：始终用中文回复；语气清楚亲切；先给结论再补充细节",
     "projectLogo": "Logo",
-    "projectLogoHint": "可选。设置后会替代侧边栏的 Emoji 图标显示。图片会自动压缩到 256×256。",
+    "projectLogoHint": "可选。图片会自动压缩到 256×256。",
     "projectName": "项目名称",
     "projectNamePlaceholder": "例如：Hope Agent 开发",
     "projects": "项目",
@@ -2237,11 +2237,11 @@
     "uploadLogo": "上传 Logo",
     "workingDir": {
       "clear": "清除",
-      "hint": "项目下的会话默认使用该目录；会话级设置会覆盖此项。",
+      "hint": "可选择已有目录，也可新建目录。留空则自动创建默认项目目录。",
       "invalid": "无效的工作目录",
       "label": "项目工作目录",
       "pick": "选择目录",
-      "placeholder": "未设置（会话可单独覆盖）"
+      "placeholder": "未设置（将自动创建默认项目目录）"
     },
     "knowledge": {
       "label": "知识空间",

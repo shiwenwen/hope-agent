@@ -22,6 +22,15 @@ pub async fn fs_list_dir(path: Option<String>) -> Result<DirListing, CmdError> {
 }
 
 #[tauri::command]
+pub async fn fs_create_dir(path: String) -> Result<DirListing, CmdError> {
+    Ok(
+        tokio::task::spawn_blocking(move || filesystem::create_dir(&path))
+            .await
+            .context("fs_create_dir task failed")??,
+    )
+}
+
+#[tauri::command]
 pub async fn fs_search_files(
     root: String,
     q: String,

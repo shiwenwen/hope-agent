@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { ChevronUp, Folder, FolderOpen, Loader2, RefreshCw } from "lucide-react"
+import { ChevronUp, Folder, FolderOpen, FolderPlus, Loader2, RefreshCw } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   Dialog,
@@ -21,6 +21,7 @@ interface ServerDirectoryBrowserProps {
   onOpenChange: (open: boolean) => void
   initialPath?: string | null
   onSelect: (path: string) => void
+  allowCreate?: boolean
 }
 
 export default function ServerDirectoryBrowser({
@@ -28,16 +29,21 @@ export default function ServerDirectoryBrowser({
   onOpenChange,
   initialPath,
   onSelect,
+  allowCreate = false,
 }: ServerDirectoryBrowserProps) {
   const { t } = useTranslation()
   const [listing, setListing] = useState<DirListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [manualPath, setManualPath] = useState("")
+  const [newFolderName, setNewFolderName] = useState("")
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const load = useCallback(async (path?: string) => {
     setLoading(true)
     setError(null)
+    setCreateError(null)
     try {
       const result = await getTransport().listServerDirectory(path)
       setListing(result)
@@ -72,6 +78,39 @@ export default function ServerDirectoryBrowser({
     const trimmed = manualPath.trim()
     if (!trimmed) return
     load(trimmed)
+  }
+
+  const handleCreateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!allowCreate || !listing || loading || creating) return
+
+    const name = newFolderName.trim()
+    if (!name) return
+    if (name === "." || name === ".." || /[\\/]/.test(name)) {
+      setCreateError(t("chat.workingDir.invalid"))
+      return
+    }
+
+    setCreating(true)
+    setCreateError(null)
+    try {
+      const created = await getTransport().createDirectory(joinDirectoryPath(listing.path, name))
+      setListing(created)
+      setManualPath(created.path)
+      setNewFolderName("")
+      onSelect(created.path)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error(
+        "chat",
+        "ServerDirectoryBrowser::createDirectory",
+        "Failed to create directory",
+        e,
+      )
+      setCreateError(message)
+    } finally {
+      setCreating(false)
+    }
   }
 
   const handleSelectCurrent = () => {
@@ -114,6 +153,43 @@ export default function ServerDirectoryBrowser({
             )}
           </Button>
         </form>
+
+        {allowCreate && (
+          <form
+            onSubmit={handleCreateSubmit}
+            className="rounded-md border border-border bg-muted/20 p-3"
+          >
+            <div className="mb-2 flex items-center gap-2 text-xs font-medium">
+              <FolderPlus className="h-3.5 w-3.5 text-primary" />
+              {t("fileBrowser.newFolder", { defaultValue: "New folder" })}
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder={t("knowledge.folderNamePlaceholder", {
+                  defaultValue: "Folder name",
+                })}
+                disabled={!listing || loading || creating}
+                className="h-9 flex-1 text-sm"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!listing || loading || creating || !newFolderName.trim()}
+              >
+                {creating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  t("common.create")
+                )}
+              </Button>
+            </div>
+            {createError && (
+              <p className="mt-2 break-all text-xs text-destructive">{createError}</p>
+            )}
+          </form>
+        )}
 
         <div className="rounded border border-border bg-muted/20 h-[360px] overflow-y-auto">
           {loading && (
@@ -180,4 +256,11 @@ export default function ServerDirectoryBrowser({
       </DialogContent>
     </Dialog>
   )
+}
+
+function joinDirectoryPath(base: string, name: string): string {
+  const separator = base.includes("\\") && !base.includes("/") ? "\\" : "/"
+  const normalizedBase = base.replace(/[\\/]+$/, "")
+  if (!normalizedBase) return `${separator}${name}`
+  return `${normalizedBase}${separator}${name}`
 }

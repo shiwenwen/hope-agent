@@ -134,6 +134,10 @@ export class TauriTransport implements Transport {
     return invoke<DirListing>("fs_list_dir", { path: path ?? null });
   }
 
+  async createDirectory(path: string): Promise<DirListing> {
+    return invoke<DirListing>("fs_create_dir", { path });
+  }
+
   async projectFsRawUrl(
     args: ProjectFsScope & { path: string; download?: boolean },
   ): Promise<string | null> {
