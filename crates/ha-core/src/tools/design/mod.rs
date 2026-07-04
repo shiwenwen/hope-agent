@@ -26,6 +26,7 @@ pub(crate) async fn tool_design(
         "get_recipe" => action_get_recipe(args),
         "list_systems" => action_list_systems(),
         "get_system" => action_get_system(args),
+        "extract_system" => action_extract_system(args).await,
         "list_projects" => action_list_projects(),
         "list_artifacts" => action_list_artifacts(args, session_id),
         "get_artifact" => action_get_artifact(args),
@@ -84,6 +85,19 @@ fn action_get_system(args: &Value) -> Result<String> {
     let id = require_str(args, "system_id")?;
     let full = service::get_system_full(id)?;
     ok(serde_json::to_value(full)?)
+}
+
+async fn action_extract_system(args: &Value) -> Result<String> {
+    let from = require_str(args, "from")?;
+    let name = str_arg(args, "title").unwrap_or("提取的设计系统").to_string();
+    let meta = service::extract_system(service::ExtractSystemInput {
+        name,
+        from: from.to_string(),
+        brief: str_arg(args, "brief").map(str::to_string),
+        path: str_arg(args, "path").map(str::to_string),
+    })
+    .await?;
+    ok(json!({ "status": "extracted", "systemId": meta.id, "name": meta.name }))
 }
 
 // ── Projects / artifacts ───────────────────────────────────────────

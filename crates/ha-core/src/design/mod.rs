@@ -7,6 +7,7 @@
 
 pub mod critique;
 pub mod db;
+pub mod extract;
 pub mod patch;
 pub mod recipe;
 pub mod renderer;

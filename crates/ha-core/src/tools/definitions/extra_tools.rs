@@ -177,7 +177,7 @@ pub fn get_design_tool() -> ToolDefinition {
                 "action": {
                     "type": "string",
                     "enum": [
-                        "list_recipes", "get_recipe", "list_systems", "get_system",
+                        "list_recipes", "get_recipe", "list_systems", "get_system", "extract_system",
                         "list_projects", "list_artifacts", "get_artifact",
                         "create_artifact", "update_artifact", "delete_artifact",
                         "versions", "restore", "critique", "save_to_knowledge", "show"
@@ -194,6 +194,9 @@ pub fn get_design_tool() -> ToolDefinition {
                 "artifact_id": { "type": "string", "description": "Artifact id (for get/update/delete/versions/restore/show)" },
                 "system_id": { "type": "string", "description": "Design system id to apply (injects brand tokens)" },
                 "kb_id": { "type": "string", "description": "Knowledge base id for save_to_knowledge (optional; defaults to the primary KB)" },
+                "from": { "type": "string", "enum": ["brief", "codebase"], "description": "Source for extract_system: 'brief' (a text description) or 'codebase' (read a local project's CSS/tailwind/theme files)." },
+                "brief": { "type": "string", "description": "Brand description text (for extract_system from=brief)." },
+                "path": { "type": "string", "description": "Local codebase directory to read styles from (for extract_system from=codebase)." },
                 "title": { "type": "string", "description": "Artifact title" },
                 "body_html": { "type": "string", "description": "Artifact body HTML (structure). For deck, use multiple <section class=\"ds-slide\">…</section>." },
                 "css": { "type": "string", "description": "Artifact CSS (inline). Reference var(--ds-*) design tokens." },

@@ -803,6 +803,52 @@ pub fn delete_system(id: &str) -> Result<()> {
     Ok(())
 }
 
+/// 反向提取设计系统（D2）。`from = brief | codebase`。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractSystemInput {
+    pub name: String,
+    /// brief | codebase
+    pub from: String,
+    #[serde(default)]
+    pub brief: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMeta> {
+    let extracted = match input.from.as_str() {
+        "brief" => super::extract::from_brief(input.brief.as_deref().unwrap_or_default()).await?,
+        "codebase" => {
+            let p = input
+                .path
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .context("'path' required for from=codebase")?;
+            super::extract::from_codebase(std::path::Path::new(p)).await?
+        }
+        other => anyhow::bail!("unsupported extract source: {other}"),
+    };
+    let name = if input.name.trim().is_empty() {
+        "提取的设计系统".to_string()
+    } else {
+        input.name.trim().to_string()
+    };
+    let db = open_db()?;
+    let id = slugify(&name);
+    let meta = system::save_system(
+        &db,
+        &id,
+        &name,
+        Some(&extracted.summary),
+        &extracted.system_md,
+        &extracted.tokens,
+        "extracted",
+    )?;
+    emit("design:system_changed", json!({ "systemId": id }));
+    Ok(meta)
+}
+
 /// 从历史版本恢复：读版本快照源码，生成一个**新**版本（原版本不动）。
 pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignArtifact> {
     let db = open_db()?;
