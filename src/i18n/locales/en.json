@@ -182,6 +182,16 @@
       "margin": "Margin",
       "radius": "Radius"
     },
+    "settings": {
+      "desc": "Design Space: generate, fine-tune, and export deliverable design artifacts.",
+      "enabled": "Enable Design Space",
+      "autoShow": "Auto-focus preview after generation",
+      "autoCritique": "Auto-run quality review before finalizing",
+      "autoCritiqueDesc": "Run a 5-dimension quality review on artifacts (incurs one model call).",
+      "selfCheck": "Anti-AI-slop self-check",
+      "maxVersions": "Versions kept per artifact",
+      "panelWidth": "Default panel width"
+    },
     "deleteTitle": "Confirm delete?",
     "deleteProjectDesc": "This permanently deletes the project and all its artifacts. This cannot be undone.",
     "deleteArtifactDesc": "This permanently deletes the artifact and all its versions. This cannot be undone.",

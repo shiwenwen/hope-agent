@@ -91,7 +91,8 @@ fn risk_level(category: &str) -> &'static str {
         | "knowledge_passive_recall"
         | "knowledge_search"
         | "cron"
-        | "sprite" => "medium",
+        | "sprite"
+        | "design" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
@@ -483,6 +484,7 @@ fn read_category(category: &str) -> Result<Value> {
             &cfg.image_generate,
         )?)),
         "canvas" => Ok(serde_json::to_value(&cfg.canvas)?),
+        "design" => Ok(serde_json::to_value(&cfg.design)?),
         "image" => Ok(serde_json::to_value(&cfg.image)?),
         "pdf" => Ok(serde_json::to_value(&cfg.pdf)?),
         "async_tools" => Ok(serde_json::to_value(&cfg.async_tools)?),
@@ -702,7 +704,8 @@ fn get_all_overview() -> Result<String> {
             "deferred_tools", "async_tools", "timeout_policy", "cron", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
-            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite"
+            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite",
+            "design"
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
@@ -948,6 +951,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "image_generate" => merge_field(&mut store.image_generate, values)?,
         "canvas" => merge_field(&mut store.canvas, values)?,
+        "design" => merge_field(&mut store.design, values)?,
         "image" => merge_field(&mut store.image, values)?,
         "pdf" => merge_field(&mut store.pdf, values)?,
         "async_tools" => merge_field(&mut store.async_tools, values)?,

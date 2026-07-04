@@ -182,6 +182,16 @@
       "margin": "外边距",
       "radius": "圆角"
     },
+    "settings": {
+      "desc": "设计空间：生成、微调、导出可交付的设计产物。",
+      "enabled": "启用设计空间",
+      "autoShow": "生成后自动聚焦预览",
+      "autoCritique": "定稿前自动跑质量评审",
+      "autoCritiqueDesc": "对产物做 5 维质量评审（会产生一次模型调用成本）。",
+      "selfCheck": "反 AI-slop 自查",
+      "maxVersions": "单产物保留版本数",
+      "panelWidth": "面板默认宽度"
+    },
     "deleteTitle": "确认删除？",
     "deleteProjectDesc": "将永久删除该项目及其全部产物，无法恢复。",
     "deleteArtifactDesc": "将永久删除该产物及其全部版本，无法恢复。",
