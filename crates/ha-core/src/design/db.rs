@@ -292,6 +292,15 @@ impl DesignDb {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn list_projects_by_session(&self, session_id: &str) -> Result<Vec<DesignProject>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(&format!(
+            "{PROJECT_COLUMNS} WHERE p.session_id = ?1 ORDER BY p.updated_at DESC"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params![session_id], map_project_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     /// 更新项目元数据。`None` 字段保持原值（COALESCE 语义）。
     pub fn update_project(
         &self,

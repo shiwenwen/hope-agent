@@ -6,10 +6,12 @@
 //! **零 Tauri 依赖**：业务全在此，`src-tauri` / `ha-server` 只做薄壳。
 
 pub mod db;
+pub mod recipe;
 pub mod renderer;
 pub mod service;
 
 pub use db::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};
+pub use recipe::Recipe;
 pub use renderer::{ArtifactKind, ArtifactParts};
 
 use serde::{Deserialize, Serialize};

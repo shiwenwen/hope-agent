@@ -35,6 +35,62 @@ fn emit(event: &str, payload: serde_json::Value) {
     }
 }
 
+/// 解析设计系统的 CSS 变量 token（注入产物 `:root`）。
+///
+/// Phase 3 返回空（内置设计系统在 Phase 2 落地，届时读 `systems/{id}/tokens.json`）。
+fn resolve_tokens(system_id: Option<&str>) -> Vec<(String, String)> {
+    let Some(id) = system_id else {
+        return Vec::new();
+    };
+    let Ok(dir) = paths::design_system_dir(id) else {
+        return Vec::new();
+    };
+    let path = dir.join("tokens.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Ok(map) = serde_json::from_str::<std::collections::BTreeMap<String, String>>(&raw) else {
+        return Vec::new();
+    };
+    map.into_iter().collect()
+}
+
+/// 把当前 index.html + source 快照进 `versions/{n}/`。
+fn write_version_snapshot(
+    dir: &std::path::Path,
+    n: i64,
+    html: &str,
+    parts: &ArtifactParts,
+) -> Result<()> {
+    let vdir = dir.join("versions").join(n.to_string());
+    std::fs::create_dir_all(vdir.join("source"))?;
+    write_atomic(&vdir.join("index.html"), html.as_bytes())?;
+    write_atomic(&vdir.join("source").join("body.html"), parts.body_html.as_bytes())?;
+    write_atomic(&vdir.join("source").join("style.css"), parts.css.as_bytes())?;
+    write_atomic(&vdir.join("source").join("script.js"), parts.js.as_bytes())?;
+    Ok(())
+}
+
+/// 读取产物当前源（工作副本）。
+fn read_source(dir: &std::path::Path) -> ArtifactParts {
+    let read = |name: &str| std::fs::read_to_string(dir.join("source").join(name)).unwrap_or_default();
+    ArtifactParts {
+        body_html: read("body.html"),
+        css: read("style.css"),
+        js: read("script.js"),
+    }
+}
+
+/// 写产物工作副本源 + 渲染 index.html。
+fn write_working(dir: &std::path::Path, html: &str, parts: &ArtifactParts) -> Result<()> {
+    std::fs::create_dir_all(dir.join("source"))?;
+    write_atomic(&dir.join("index.html"), html.as_bytes())?;
+    write_atomic(&dir.join("source").join("body.html"), parts.body_html.as_bytes())?;
+    write_atomic(&dir.join("source").join("style.css"), parts.css.as_bytes())?;
+    write_atomic(&dir.join("source").join("script.js"), parts.js.as_bytes())?;
+    Ok(())
+}
+
 /// 产物目录绝对路径（前端 iframe / 事件 payload 用）。
 pub fn artifact_dir_str(project_id: &str, artifact_id: &str) -> String {
     paths::design_artifact_dir(project_id, artifact_id)
@@ -99,6 +155,28 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
 
 pub fn list_projects() -> Result<Vec<DesignProject>> {
     open_db()?.list_projects()
+}
+
+/// agent 侧：解析当前会话的设计项目（取最近一个，无则新建草稿项目）。
+pub fn get_or_create_session_project(
+    session_id: Option<&str>,
+    agent_id: Option<&str>,
+) -> Result<DesignProject> {
+    if let Some(sid) = session_id {
+        let existing = open_db()?.list_projects_by_session(sid)?;
+        if let Some(p) = existing.into_iter().next() {
+            return Ok(p);
+        }
+    }
+    create_project(CreateProjectInput {
+        title: "设计草稿".to_string(),
+        description: None,
+        color: None,
+        default_system_id: None,
+        ha_project_id: None,
+        session_id: session_id.map(str::to_string),
+        agent_id: agent_id.map(str::to_string),
+    })
 }
 
 pub fn get_project(id: &str) -> Result<Option<DesignProject>> {
@@ -222,16 +300,10 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
 
     // 磁盘落地：artifact_dir / index.html / source/ / versions/1 / artifact.json
     let dir = paths::design_artifact_dir(&input.project_id, &artifact_id)?;
-    std::fs::create_dir_all(dir.join("source"))?;
-    std::fs::create_dir_all(dir.join("versions").join("1"))?;
-    let html = renderer::build_artifact_html(kind, &title, &parts);
-    write_atomic(&dir.join("index.html"), html.as_bytes())?;
-    write_atomic(&dir.join("source").join("body.html"), parts.body_html.as_bytes())?;
-    write_atomic(&dir.join("source").join("style.css"), parts.css.as_bytes())?;
-    if !parts.js.trim().is_empty() {
-        write_atomic(&dir.join("source").join("script.js"), parts.js.as_bytes())?;
-    }
-    write_atomic(&dir.join("versions").join("1").join("index.html"), html.as_bytes())?;
+    let tokens = resolve_tokens(input.system_id.as_deref());
+    let html = renderer::build_artifact_html(kind, &title, &parts, &tokens);
+    write_working(&dir, &html, &parts)?;
+    write_version_snapshot(&dir, 1, &html, &parts)?;
 
     let (vw, vh) = kind.default_viewport();
     let artifact = DesignArtifact {
@@ -346,4 +418,109 @@ pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
         artifact,
         artifact_path,
     }))
+}
+
+/// 更新产物：未提供的字段沿用当前源，重新渲染 + 累加版本 + 剪旧版本。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateArtifactInput {
+    pub id: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub body_html: Option<String>,
+    #[serde(default)]
+    pub css: Option<String>,
+    #[serde(default)]
+    pub js: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+fn prune_version_dirs(dir: &std::path::Path, current_version: i64, keep: i64) {
+    let cutoff = current_version - keep;
+    for n in 1..=cutoff {
+        let vdir = dir.join("versions").join(n.to_string());
+        if vdir.exists() {
+            let _ = std::fs::remove_dir_all(&vdir);
+        }
+    }
+}
+
+pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(&input.id)?
+        .with_context(|| format!("artifact not found: {}", input.id))?;
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let existing = read_source(&dir);
+    let parts = ArtifactParts {
+        body_html: input.body_html.unwrap_or(existing.body_html),
+        css: input.css.unwrap_or(existing.css),
+        js: input.js.unwrap_or(existing.js),
+    };
+    let title = input.title.clone().unwrap_or_else(|| a.title.clone());
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let html = renderer::build_artifact_html(kind, &title, &parts, &tokens);
+    write_working(&dir, &html, &parts)?;
+
+    let next = a.current_version + 1;
+    write_version_snapshot(&dir, next, &html, &parts)?;
+
+    let ts = now();
+    db.update_artifact(
+        &a.id,
+        input.title.as_deref(),
+        Some("ready"),
+        Some(next),
+        None,
+        None,
+        &ts,
+    )?;
+    db.create_version(&DesignArtifactVersion {
+        id: 0,
+        artifact_id: a.id.clone(),
+        version_number: next,
+        message: input.message.or_else(|| Some("Update".to_string())),
+        critique_score: None,
+        created_at: ts.clone(),
+    })?;
+    let keep = crate::config::cached_config()
+        .design
+        .max_versions_per_artifact
+        .max(1);
+    let _ = db.cleanup_old_versions(&a.id, keep);
+    prune_version_dirs(&dir, next, keep);
+    db.touch_project(&a.project_id, &ts)?;
+
+    emit("design:reload", json!({ "artifactId": a.id }));
+    db.get_artifact(&a.id)?
+        .context("artifact gone after update")
+}
+
+/// 从历史版本恢复：读版本快照源码，生成一个**新**版本（原版本不动）。
+pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let vsrc = dir
+        .join("versions")
+        .join(version_number.to_string())
+        .join("source");
+    if !vsrc.exists() {
+        anyhow::bail!("version {version_number} not found");
+    }
+    let read = |name: &str| std::fs::read_to_string(vsrc.join(name)).unwrap_or_default();
+    update_artifact(UpdateArtifactInput {
+        id: a.id.clone(),
+        title: None,
+        body_html: Some(read("body.html")),
+        css: Some(read("style.css")),
+        js: Some(read("script.js")),
+        message: Some(format!("Restored from v{version_number}")),
+    })
 }

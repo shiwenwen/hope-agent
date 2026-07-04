@@ -14,13 +14,14 @@ use super::{
     weather, web_fetch, web_search,
 };
 use super::{
-    agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
-    runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
+    agents, ask_user_question, canvas, design, enter_plan_mode, image, image_generate, job_status,
+    pdf, runtime_cancel, schedule_wakeup, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
-    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
+    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_DESIGN, TOOL_EDIT, TOOL_ENTER_PLAN_MODE,
+    TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
     TOOL_ISSUE_REPORT, TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MAC_CONTROL,
     TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_READ, TOOL_RECALL_MEMORY,
@@ -1777,6 +1778,7 @@ pub async fn execute_tool_with_context(
             TOOL_ISSUE_REPORT => issue_report::tool_issue_report(args, dispatch_ctx).await,
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, dispatch_ctx).await,
+            TOOL_DESIGN => design::tool_design(args, dispatch_ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
             TOOL_ASK_USER_QUESTION => {
                 Ok(ask_user_question::execute(args, dispatch_ctx.session_id.as_deref()).await)

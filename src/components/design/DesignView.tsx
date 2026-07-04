@@ -26,6 +26,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -243,19 +244,45 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     const off = [
       tx.listen("design:artifact_ready", () => {
         if (activeProject) void loadArtifacts(activeProject.id)
+        else void loadProjects()
       }),
       tx.listen("design:artifact_deleted", () => {
         if (activeProject) void loadArtifacts(activeProject.id)
       }),
-      tx.listen("design:reload", () => {
-        setPreviewKey((k) => k + 1)
+      tx.listen("design:reload", (raw) => {
+        const p = parsePayload<{ artifactId?: string }>(raw)
+        if (!activeArtifact || !p?.artifactId || p.artifactId === activeArtifact.id) {
+          setPreviewKey((k) => k + 1)
+        }
+        if (activeProject) void loadArtifacts(activeProject.id)
       }),
       tx.listen("design:project_changed", () => {
         if (!activeProject) void loadProjects()
       }),
+      // Agent called design(action=show): focus that artifact (auto-enter project).
+      tx.listen("design:show", (raw) => {
+        const p = parsePayload<{ projectId?: string; artifactId?: string }>(raw)
+        if (!p?.artifactId) return
+        void (async () => {
+          try {
+            if (p.projectId && activeProject?.id !== p.projectId) {
+              const proj = await tx.call<DesignProject | null>("get_design_project_cmd", {
+                id: p.projectId,
+              })
+              if (proj) openProject(proj)
+            }
+            const artifact = await tx.call<DesignArtifact | null>("get_design_artifact_cmd", {
+              id: p.artifactId,
+            })
+            if (artifact) void openArtifact(artifact)
+          } catch (e) {
+            logger.error("design", "DesignView::onShow", "focus artifact failed", e)
+          }
+        })()
+      }),
     ]
     return () => off.forEach((f) => f())
-  }, [tx, activeProject, loadArtifacts, loadProjects])
+  }, [tx, activeProject, activeArtifact, loadArtifacts, loadProjects, openProject, openArtifact])
 
   // ── Preview iframe src ───────────────────────────────────────
 

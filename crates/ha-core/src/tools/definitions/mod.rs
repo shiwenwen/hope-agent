@@ -10,7 +10,9 @@ mod update_tools;
 // ── Public Re-exports ─────────────────────────────────────────────
 
 pub use core_tools::get_available_tools;
-pub use extra_tools::{get_canvas_tool, get_notification_tool, get_web_search_tool};
+pub use extra_tools::{
+    get_canvas_tool, get_design_tool, get_notification_tool, get_web_search_tool,
+};
 pub use plan_tools::{get_ask_user_question_tool, get_enter_plan_mode_tool, get_submit_plan_tool};
 pub use registry::{
     get_core_tools, get_core_tools_for_provider, get_deferred_tools, get_tools_for_provider,

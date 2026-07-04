@@ -75,9 +75,61 @@ pub struct ArtifactParts {
 }
 
 /// 编译自包含 `index.html`。
-pub fn build_artifact_html(kind: ArtifactKind, title: &str, parts: &ArtifactParts) -> String {
+///
+/// `tokens` 是设计系统展开的 CSS 变量（`("--ds-color-primary","#..")`），注入
+/// `:root`；产物 CSS 引用变量即可换皮。空 = 不注入（用骨架默认值）。
+pub fn build_artifact_html(
+    kind: ArtifactKind,
+    title: &str,
+    parts: &ArtifactParts,
+    tokens: &[(String, String)],
+) -> String {
     let (vw, _vh) = kind.default_viewport();
     let esc_title = html_escape(title);
+
+    // 设计系统 token → :root CSS 变量。
+    let root_css = if tokens.is_empty() {
+        String::new()
+    } else {
+        let mut vars = String::from(":root{");
+        for (k, v) in tokens {
+            // 仅允许 --ds-* 变量名，值滤除 `}`/`<` 防注入逃逸。
+            if !k.starts_with("--ds-") {
+                continue;
+            }
+            let safe_v: String = v.chars().filter(|c| *c != '}' && *c != '<').collect();
+            vars.push_str(k);
+            vars.push(':');
+            vars.push_str(safe_v.trim());
+            vars.push(';');
+        }
+        vars.push('}');
+        vars
+    };
+
+    // deck 翻页器：一份文件多页，←/→/Space 切换，右下角页码。
+    let deck_js = if kind == ArtifactKind::Deck {
+        r#"<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.ds-slide'));
+  if(!slides.length)return;var i=0;
+  var pager=document.createElement('div');
+  pager.style.cssText='position:fixed;right:16px;bottom:12px;font:12px system-ui;color:#888;z-index:9';
+  document.body.appendChild(pager);
+  function show(n){i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach(function(s,k){s.classList.toggle('active',k===i)});
+    pager.textContent=(i+1)+' / '+slides.length;}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();show(i+1)}
+    else if(e.key==='ArrowLeft'){e.preventDefault();show(i-1)}});
+  document.addEventListener('click',function(e){
+    show(e.clientX>window.innerWidth/2?i+1:i-1)});
+  show(0);
+})();
+</script>"#
+    } else {
+        ""
+    };
 
     // 骨架基础样式：中性 reset + 变量占位（Phase 3 由设计系统 token 覆盖）。
     let base_css = r#"*,*::before,*::after{box-sizing:border-box}
@@ -143,16 +195,18 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
 <meta charset=\"utf-8\">\n\
 <meta name=\"viewport\" content=\"{viewport}\">\n\
 <title>{title}</title>\n\
-<style>\n{base}\n{frame}\n{user_css}\n</style>\n\
-</head>\n<body>\n{body}\n{user_js}\n</body>\n</html>\n",
+<style>\n{root}\n{base}\n{frame}\n{user_css}\n</style>\n\
+</head>\n<body>\n{body}\n{user_js}\n{deck_js}\n</body>\n</html>\n",
         kind = kind.as_str(),
         viewport = viewport_meta,
         title = esc_title,
+        root = root_css,
         base = base_css,
         frame = frame_css,
         user_css = parts.css,
         body = wrapped_body,
         user_js = user_js,
+        deck_js = deck_js,
     )
 }
 
@@ -218,7 +272,7 @@ mod tests {
             css: ".x{color:red}".into(),
             js: "console.log(1)".into(),
         };
-        let html = build_artifact_html(ArtifactKind::Web, "T", &parts);
+        let html = build_artifact_html(ArtifactKind::Web, "T", &parts, &[]);
         assert!(html.contains("<!doctype html>"));
         assert!(html.contains("<h1>Hi</h1>"));
         assert!(html.contains(".x{color:red}"));
@@ -231,7 +285,7 @@ mod tests {
     #[test]
     fn escapes_title() {
         let parts = ArtifactParts::default();
-        let html = build_artifact_html(ArtifactKind::Web, "<script>", &parts);
+        let html = build_artifact_html(ArtifactKind::Web, "<script>", &parts, &[]);
         assert!(html.contains("&lt;script&gt;"));
     }
 }

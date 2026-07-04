@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::super::{TOOL_CANVAS, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH};
+use super::super::{TOOL_CANVAS, TOOL_DESIGN, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH};
 use super::types::{ToolDefinition, ToolTier};
 
 /// Returns the web_search tool definition (conditionally injected when enabled).
@@ -148,6 +148,57 @@ pub fn get_canvas_tool() -> ToolDefinition {
                     "enum": ["html", "markdown", "png"],
                     "description": "Export format (for export action)"
                 }
+            },
+            "required": ["action"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+/// The `design` tool — Design Space: generate deliverable, self-contained design
+/// artifacts (web/mobile pages, decks, dashboards, posters, documents, emails)
+/// grounded in reusable brand design systems, previewed live in a stable panel.
+pub fn get_design_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_DESIGN.into(),
+        description: "Create and iterate deliverable design artifacts in the Design Space. Produces self-contained HTML (web/mobile/deck/dashboard/poster/document/email) rendered live in a stable preview panel the user sees. Workflow: call action=list_recipes (optionally filter by kind) to see structure guidance, then action=create_artifact with kind + body_html/css/js. Reference design-system CSS variables (var(--ds-color-primary), var(--ds-space-4), ...) so the artifact stays on-brand. NEVER use external CDNs/network resources (sandboxed). Iterate with action=update_artifact. This is for polished, managed, exportable designs — not throwaway chat visualizations.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Tools → Design Space",
+        },
+        internal: true,
+        concurrent_safe: false,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": [
+                        "list_recipes", "get_recipe", "list_systems",
+                        "list_projects", "list_artifacts", "get_artifact",
+                        "create_artifact", "update_artifact", "delete_artifact",
+                        "versions", "restore", "show"
+                    ],
+                    "description": "Design operation to perform"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["web", "mobile", "deck", "dashboard", "poster", "document", "email", "image"],
+                    "description": "Artifact form (for create_artifact / filtering list_recipes). web=landing/desktop page, mobile=390x844 framed, deck=16:9 slides (each <section class=\"ds-slide\">), dashboard=data panels, poster=1080x1080, document=long-form, email=table-based."
+                },
+                "recipe_id": { "type": "string", "description": "Recipe id (for get_recipe)" },
+                "project_id": { "type": "string", "description": "Design project id (optional; defaults to the session's draft project)" },
+                "artifact_id": { "type": "string", "description": "Artifact id (for get/update/delete/versions/restore/show)" },
+                "system_id": { "type": "string", "description": "Design system id to apply (injects brand tokens)" },
+                "title": { "type": "string", "description": "Artifact title" },
+                "body_html": { "type": "string", "description": "Artifact body HTML (structure). For deck, use multiple <section class=\"ds-slide\">…</section>." },
+                "css": { "type": "string", "description": "Artifact CSS (inline). Reference var(--ds-*) design tokens." },
+                "js": { "type": "string", "description": "Optional artifact JavaScript (inline)." },
+                "version_id": { "type": "integer", "description": "Version number (for restore)" },
+                "version_message": { "type": "string", "description": "Optional message for update" }
             },
             "required": ["action"],
             "additionalProperties": false
