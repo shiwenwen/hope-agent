@@ -11,8 +11,8 @@ use ha_core::design::service::{
     SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
-    DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject, DesignSystemFull,
-    DesignSystemMeta,
+    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject,
+    DesignSystemFull, DesignSystemMeta,
 };
 
 // ── Projects ────────────────────────────────────────────────────
@@ -95,6 +95,11 @@ pub async fn export_design_artifact_cmd(
     format: Option<String>,
 ) -> Result<ExportResult, CmdError> {
     service::export_artifact(&id, format.as_deref().unwrap_or("html")).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn critique_design_artifact_cmd(id: String) -> Result<CritiqueResult, CmdError> {
+    service::critique_artifact(&id).await.map_err(Into::into)
 }
 
 // ── Design systems ──────────────────────────────────────────────

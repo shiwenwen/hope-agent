@@ -167,6 +167,15 @@
     "reload": "刷新",
     "systemNone": "无设计系统",
     "exportHtml": "导出 HTML",
+    "critique": "质量评审",
+    "critiqueScore": "质量评分",
+    "dim": {
+      "brand": "品牌契合",
+      "accessibility": "可访问性",
+      "hierarchy": "视觉层次",
+      "usability": "可用性",
+      "performance": "性能"
+    },
     "editMode": "可视化微调：点选元素改属性",
     "insp": {
       "text": "文本",

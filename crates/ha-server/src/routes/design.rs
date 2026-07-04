@@ -170,6 +170,15 @@ pub async fn export_artifact(
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
+/// `POST /api/design/artifacts/{id}/critique` — 5-dimension quality review.
+pub async fn critique_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let res = service::critique_artifact(&id)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
+}
+
 /// `POST /api/design/patch` — visual edit (element style/text writeback).
 pub async fn patch_element(
     Json(body): Json<PatchBody>,

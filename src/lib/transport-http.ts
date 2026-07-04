@@ -222,6 +222,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_design_artifact_versions_cmd: { method: "GET",    path: "/api/design/artifacts/{id}/versions" },
   patch_design_element_cmd:          { method: "POST",   path: "/api/design/patch" },
   export_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/export" },
+  critique_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/{id}/critique" },
   list_design_systems_cmd:           { method: "GET",    path: "/api/design/systems" },
   get_design_system_cmd:             { method: "GET",    path: "/api/design/systems/{id}" },
   save_design_system_cmd:            { method: "POST",   path: "/api/design/systems" },

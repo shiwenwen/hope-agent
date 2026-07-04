@@ -595,6 +595,38 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .context("artifact gone after update")
 }
 
+// ── Quality gate ───────────────────────────────────────────────────
+
+/// 对产物跑 5 维质量评审门，落总分到产物行。
+pub async fn critique_artifact(id: &str) -> Result<super::critique::CritiqueResult> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let html = std::fs::read_to_string(dir.join("index.html")).unwrap_or_default();
+    let system_md = a
+        .system_id
+        .as_deref()
+        .and_then(|sid| system::read_full(&db, sid).ok())
+        .map(|f| f.system_md);
+    let result = super::critique::critique_html(&html, system_md.as_deref()).await?;
+    let _ = db.update_artifact(
+        &a.id,
+        None,
+        None,
+        None,
+        Some(result.overall),
+        None,
+        &now(),
+    );
+    emit(
+        "design:critiqued",
+        json!({ "artifactId": a.id, "overall": result.overall }),
+    );
+    Ok(result)
+}
+
 // ── Export ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]

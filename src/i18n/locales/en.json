@@ -167,6 +167,15 @@
     "reload": "Reload",
     "systemNone": "No design system",
     "exportHtml": "Export HTML",
+    "critique": "Quality review",
+    "critiqueScore": "Quality",
+    "dim": {
+      "brand": "Brand",
+      "accessibility": "A11y",
+      "hierarchy": "Hierarchy",
+      "usability": "Usability",
+      "performance": "Performance"
+    },
     "editMode": "Visual tune: click an element to edit",
     "insp": {
       "text": "Text",

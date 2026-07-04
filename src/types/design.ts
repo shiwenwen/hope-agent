@@ -69,6 +69,18 @@ export interface DesignSelectedElement {
   rect: { x: number; y: number; w: number; h: number };
 }
 
+/** 5 维质量评审结果（`critique_design_artifact_cmd`）。 */
+export interface CritiqueResult {
+  brand: number;
+  accessibility: number;
+  hierarchy: number;
+  usability: number;
+  performance: number;
+  overall: number;
+  summary: string;
+  fixes: string[];
+}
+
 /** 可视化微调回写入参（`patch_design_element_cmd`）。 */
 export interface ElementPatchInput {
   artifactId: string;

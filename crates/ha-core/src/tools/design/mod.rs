@@ -34,6 +34,7 @@ pub(crate) async fn tool_design(
         "delete_artifact" => action_delete_artifact(args),
         "versions" => action_versions(args),
         "restore" => action_restore(args),
+        "critique" => action_critique(args).await,
         "show" => action_show(args, session_id),
         other => Err(anyhow::anyhow!("Unknown design action: '{}'", other)),
     }
@@ -185,6 +186,12 @@ fn action_restore(args: &Value) -> Result<String> {
         "restoredFrom": version,
         "version": artifact.current_version,
     }))
+}
+
+async fn action_critique(args: &Value) -> Result<String> {
+    let id = require_str(args, "artifact_id")?;
+    let result = service::critique_artifact(id).await?;
+    ok(serde_json::to_value(result)?)
 }
 
 fn action_show(args: &Value, session_id: Option<&str>) -> Result<String> {

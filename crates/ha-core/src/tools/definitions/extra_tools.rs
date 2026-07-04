@@ -180,7 +180,7 @@ pub fn get_design_tool() -> ToolDefinition {
                         "list_recipes", "get_recipe", "list_systems", "get_system",
                         "list_projects", "list_artifacts", "get_artifact",
                         "create_artifact", "update_artifact", "delete_artifact",
-                        "versions", "restore", "show"
+                        "versions", "restore", "critique", "show"
                     ],
                     "description": "Design operation to perform"
                 },

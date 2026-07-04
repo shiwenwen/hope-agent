@@ -26,6 +26,8 @@ import {
   Sparkles,
   MousePointerClick,
   Download,
+  Gauge,
+  Loader2 as Loader2Icon,
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
@@ -65,6 +67,7 @@ import type {
   DesignProject,
   DesignSystemMeta,
   DesignSelectedElement,
+  CritiqueResult,
 } from "@/types/design"
 import { ARTIFACT_KINDS } from "@/types/design"
 
@@ -387,6 +390,26 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
   }, [tx, activeArtifact])
 
+  // ── Quality gate (Phase 6) ───────────────────────────────────
+  const [critiquing, setCritiquing] = useState(false)
+  const [critique, setCritique] = useState<CritiqueResult | null>(null)
+  useEffect(() => setCritique(null), [activeArtifact?.id])
+  const handleCritique = useCallback(async () => {
+    if (!activeArtifact) return
+    setCritiquing(true)
+    setCritique(null)
+    try {
+      const r = await tx.call<CritiqueResult>("critique_design_artifact_cmd", {
+        id: activeArtifact.id,
+      })
+      if (r) setCritique(r)
+    } catch (e) {
+      logger.error("design", "DesignView::handleCritique", "critique failed", e)
+    } finally {
+      setCritiquing(false)
+    }
+  }, [tx, activeArtifact])
+
   // ── Delete (shared confirm) ──────────────────────────────────
 
   const confirmDelete = useCallback(async () => {
@@ -618,7 +641,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           </aside>
 
           {/* Single-artifact preview (center) */}
-          <main className="flex flex-1 min-w-0 flex-col bg-muted/30">
+          <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
             {activeArtifact ? (
               <>
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3">
@@ -664,6 +687,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       </Button>
                     </IconTip>
                     {activeArtifact.kind !== "image" && (
+                      <IconTip label={t("design.critique", "质量评审")} side="bottom">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          disabled={critiquing}
+                          onClick={() => void handleCritique()}
+                        >
+                          {critiquing ? (
+                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Gauge className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </IconTip>
+                    )}
+                    {activeArtifact.kind !== "image" && (
                       <IconTip label={t("design.exportHtml", "导出 HTML")} side="bottom">
                         <Button
                           variant="ghost"
@@ -700,6 +740,52 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                 {t("design.selectArtifact", "从左侧选择一个产物预览")}
+              </div>
+            )}
+
+            {/* Quality critique result card */}
+            {critique && (
+              <div className="absolute bottom-3 right-3 z-10 w-72 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
+                <div className="mb-2 flex items-center gap-2">
+                  <Gauge className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-semibold">
+                    {t("design.critiqueScore", "质量评分")} {critique.overall.toFixed(1)}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto h-5 w-5"
+                    onClick={() => setCritique(null)}
+                  >
+                    <span className="text-xs">×</span>
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                  {(
+                    [
+                      ["brand", critique.brand],
+                      ["accessibility", critique.accessibility],
+                      ["hierarchy", critique.hierarchy],
+                      ["usability", critique.usability],
+                      ["performance", critique.performance],
+                    ] as const
+                  ).map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <span className="text-muted-foreground">{t(`design.dim.${k}`, k)}</span>
+                      <span className="font-mono">{v.toFixed(1)}</span>
+                    </div>
+                  ))}
+                </div>
+                {critique.summary && (
+                  <p className="mt-2 text-xs text-muted-foreground">{critique.summary}</p>
+                )}
+                {critique.fixes.length > 0 && (
+                  <ul className="mt-2 list-disc space-y-0.5 pl-4 text-xs">
+                    {critique.fixes.slice(0, 5).map((f, i) => (
+                      <li key={i}>{f}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
             )}
           </main>
