@@ -1693,6 +1693,14 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/versions",
             get(routes::design::list_versions),
         )
+        .route(
+            "/design/systems",
+            get(routes::design::list_systems).post(routes::design::save_system),
+        )
+        .route(
+            "/design/systems/{id}",
+            get(routes::design::get_system).delete(routes::design::delete_system),
+        )
         // Design artifact static asset tree — serves the preview iframe's
         // index.html plus its relative CSS / JS / images.
         .route(

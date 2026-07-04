@@ -12,8 +12,10 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use ha_core::design::service::{self, CreateArtifactInput, CreateProjectInput, UpdateProjectInput};
-use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignProject};
+use ha_core::design::service::{
+    self, CreateArtifactInput, CreateProjectInput, SaveSystemInput, UpdateProjectInput,
+};
+use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};
 use ha_core::paths;
 
 use crate::error::AppError;
@@ -50,6 +52,11 @@ pub struct UpdateProjectBody {
 #[derive(Debug, Deserialize)]
 pub struct CreateArtifactBody {
     pub input: CreateArtifactInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveSystemBody {
+    pub input: SaveSystemInput,
 }
 
 // ── Projects ───────────────────────────────────────────────────────
@@ -147,6 +154,38 @@ pub async fn list_versions(
     Ok(Json(
         service::list_versions(&id).map_err(|e| AppError::internal(e.to_string()))?,
     ))
+}
+
+// ── Design systems ─────────────────────────────────────────────────
+
+/// `GET /api/design/systems`
+pub async fn list_systems() -> Result<Json<Vec<DesignSystemMeta>>, AppError> {
+    Ok(Json(
+        service::list_systems().map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/systems/{id}` — system meta + prose + tokens.
+pub async fn get_system(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let full = service::get_system_full(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(full).unwrap_or(Value::Null)))
+}
+
+/// `POST /api/design/systems` — create/update a user design system.
+pub async fn save_system(
+    Json(body): Json<SaveSystemBody>,
+) -> Result<Json<DesignSystemMeta>, AppError> {
+    Ok(Json(
+        service::save_system(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `DELETE /api/design/systems/{id}`
+pub async fn delete_system(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::delete_system(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}` —

@@ -9,10 +9,12 @@ pub mod db;
 pub mod recipe;
 pub mod renderer;
 pub mod service;
+pub mod system;
 
 pub use db::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};
 pub use recipe::Recipe;
 pub use renderer::{ArtifactKind, ArtifactParts};
+pub use system::DesignSystemFull;
 
 use serde::{Deserialize, Serialize};
 

@@ -60,6 +60,7 @@ import type {
   DesignArtifact,
   DesignArtifactView,
   DesignProject,
+  DesignSystemMeta,
 } from "@/types/design"
 import { ARTIFACT_KINDS } from "@/types/design"
 
@@ -86,6 +87,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const tx = getTransport()
 
   const [projects, setProjects] = useState<DesignProject[]>([])
+  const [systems, setSystems] = useState<DesignSystemMeta[]>([])
   const [activeProject, setActiveProject] = useState<DesignProject | null>(null)
   const [artifacts, setArtifacts] = useState<DesignArtifact[]>([])
   const [activeArtifact, setActiveArtifact] = useState<DesignArtifactView | null>(null)
@@ -126,6 +128,34 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     void loadProjects()
   }, [loadProjects])
+
+  const loadSystems = useCallback(async () => {
+    try {
+      const list = await tx.call<DesignSystemMeta[]>("list_design_systems_cmd")
+      setSystems(list ?? [])
+    } catch (e) {
+      logger.error("design", "DesignView::loadSystems", "list systems failed", e)
+    }
+  }, [tx])
+
+  useEffect(() => {
+    void loadSystems()
+  }, [loadSystems])
+
+  const setProjectSystem = useCallback(
+    async (systemId: string | null) => {
+      if (!activeProject) return
+      try {
+        const updated = await tx.call<DesignProject>("update_design_project_cmd", {
+          input: { id: activeProject.id, defaultSystemId: systemId ?? "" },
+        })
+        if (updated) setActiveProject(updated)
+      } catch (e) {
+        logger.error("design", "DesignView::setProjectSystem", "set system failed", e)
+      }
+    },
+    [tx, activeProject],
+  )
 
   const createProject = useCallback(async () => {
     setCreatingProject(true)
@@ -327,6 +357,34 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           {activeProject ? activeProject.title : t("design.title", "设计空间")}
         </span>
         <div className="ml-auto flex items-center gap-1">
+          {activeProject && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                  <Palette className="h-3.5 w-3.5 opacity-70" />
+                  <span className="max-w-[120px] truncate">
+                    {systems.find((s) => s.id === activeProject.defaultSystemId)?.name ??
+                      t("design.systemNone", "无设计系统")}
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+                <DropdownMenuItem onSelect={() => void setProjectSystem(null)}>
+                  {t("design.systemNone", "无设计系统")}
+                </DropdownMenuItem>
+                {systems.map((s) => (
+                  <DropdownMenuItem key={s.id} onSelect={() => void setProjectSystem(s.id)}>
+                    <div className="flex flex-col">
+                      <span>{s.name}</span>
+                      {s.summary && (
+                        <span className="text-xs text-muted-foreground">{s.summary}</span>
+                      )}
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {activeProject && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

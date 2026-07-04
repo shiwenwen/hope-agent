@@ -165,6 +165,7 @@
     "artifactCount": "{{count}} 个产物",
     "zoomFit": "适应",
     "reload": "刷新",
+    "systemNone": "无设计系统",
     "deleteTitle": "确认删除？",
     "deleteProjectDesc": "将永久删除该项目及其全部产物，无法恢复。",
     "deleteArtifactDesc": "将永久删除该产物及其全部版本，无法恢复。",

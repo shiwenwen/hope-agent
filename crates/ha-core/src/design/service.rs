@@ -7,10 +7,14 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::db::{DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject};
+use super::db::{
+    DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject, DesignSystemMeta,
+};
 use super::renderer::{self, ArtifactKind, ArtifactParts};
+use super::system::{self, DesignSystemFull};
 use crate::paths;
 use crate::platform::write_atomic;
+use std::collections::BTreeMap;
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -276,9 +280,11 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     let db = open_db()?;
     let kind = ArtifactKind::from_str(&input.kind)
         .with_context(|| format!("unknown artifact kind: {}", input.kind))?;
-    // 项目必须存在。
-    db.get_project(&input.project_id)?
+    // 项目必须存在；产物设计系统缺省时继承项目默认。
+    let project = db
+        .get_project(&input.project_id)?
         .with_context(|| format!("project not found: {}", input.project_id))?;
+    let system_id = input.system_id.clone().or(project.default_system_id.clone());
 
     let ts = now();
     let artifact_id = new_id();
@@ -300,7 +306,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
 
     // 磁盘落地：artifact_dir / index.html / source/ / versions/1 / artifact.json
     let dir = paths::design_artifact_dir(&input.project_id, &artifact_id)?;
-    let tokens = resolve_tokens(input.system_id.as_deref());
+    let tokens = resolve_tokens(system_id.as_deref());
     let html = renderer::build_artifact_html(kind, &title, &parts, &tokens);
     write_working(&dir, &html, &parts)?;
     write_version_snapshot(&dir, 1, &html, &parts)?;
@@ -311,7 +317,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         project_id: input.project_id.clone(),
         title: title.clone(),
         kind: kind.as_str().to_string(),
-        system_id: input.system_id.clone(),
+        system_id: system_id.clone(),
         status: "ready".to_string(),
         viewport_w: if vw > 0 { Some(vw) } else { None },
         viewport_h: if vh > 0 { Some(vh) } else { None },
@@ -498,6 +504,86 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
     emit("design:reload", json!({ "artifactId": a.id }));
     db.get_artifact(&a.id)?
         .context("artifact gone after update")
+}
+
+// ── Design systems ─────────────────────────────────────────────────
+
+/// 列出设计系统（首次调用懒 seed 内置系统）。
+pub fn list_systems() -> Result<Vec<DesignSystemMeta>> {
+    let db = open_db()?;
+    system::ensure_builtins(&db)?;
+    db.list_systems()
+}
+
+/// 读取设计系统正文 + token。
+pub fn get_system_full(id: &str) -> Result<DesignSystemFull> {
+    let db = open_db()?;
+    system::ensure_builtins(&db)?;
+    system::read_full(&db, id)
+}
+
+/// 新建 / 更新用户设计系统入参。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSystemInput {
+    /// 缺省则新建（生成 slug id）；提供则更新。
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub summary: Option<String>,
+    pub system_md: String,
+    pub tokens: BTreeMap<String, String>,
+    /// user | extracted（默认 user）。
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+fn slugify(name: &str) -> String {
+    let base: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed: String = base
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if trimmed.is_empty() {
+        format!("sys-{}", &new_id()[..8])
+    } else {
+        format!("{trimmed}-{}", &new_id()[..6])
+    }
+}
+
+pub fn save_system(input: SaveSystemInput) -> Result<DesignSystemMeta> {
+    let db = open_db()?;
+    let id = input.id.clone().unwrap_or_else(|| slugify(&input.name));
+    let source = input.source.as_deref().unwrap_or("user");
+    let meta = system::save_system(
+        &db,
+        &id,
+        &input.name,
+        input.summary.as_deref(),
+        &input.system_md,
+        &input.tokens,
+        source,
+    )?;
+    emit("design:system_changed", json!({ "systemId": id }));
+    Ok(meta)
+}
+
+pub fn delete_system(id: &str) -> Result<()> {
+    let db = open_db()?;
+    system::delete_system(&db, id)?;
+    emit("design:system_changed", json!({ "systemId": id }));
+    Ok(())
 }
 
 /// 从历史版本恢复：读版本快照源码，生成一个**新**版本（原版本不动）。

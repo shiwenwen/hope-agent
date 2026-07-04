@@ -25,6 +25,7 @@ pub(crate) async fn tool_design(
         "list_recipes" => action_list_recipes(args),
         "get_recipe" => action_get_recipe(args),
         "list_systems" => action_list_systems(),
+        "get_system" => action_get_system(args),
         "list_projects" => action_list_projects(),
         "list_artifacts" => action_list_artifacts(args, session_id),
         "get_artifact" => action_get_artifact(args),
@@ -73,8 +74,14 @@ fn action_get_recipe(args: &Value) -> Result<String> {
 }
 
 fn action_list_systems() -> Result<String> {
-    let systems = service::open_db()?.list_systems()?;
+    let systems = service::list_systems()?;
     ok(json!({ "systems": systems }))
+}
+
+fn action_get_system(args: &Value) -> Result<String> {
+    let id = require_str(args, "system_id")?;
+    let full = service::get_system_full(id)?;
+    ok(serde_json::to_value(full)?)
 }
 
 // ── Projects / artifacts ───────────────────────────────────────────

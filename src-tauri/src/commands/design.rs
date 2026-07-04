@@ -6,8 +6,14 @@
 //! check (that is for the agent `design` tool).
 
 use crate::commands::CmdError;
-use ha_core::design::service::{self, ArtifactView, CreateArtifactInput, CreateProjectInput, UpdateProjectInput};
-use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject};
+use ha_core::design::service::{
+    self, ArtifactView, CreateArtifactInput, CreateProjectInput, SaveSystemInput,
+    UpdateProjectInput,
+};
+use ha_core::design::{
+    DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject, DesignSystemFull,
+    DesignSystemMeta,
+};
 
 // ── Projects ────────────────────────────────────────────────────
 
@@ -76,6 +82,28 @@ pub async fn list_design_artifact_versions_cmd(
     id: String,
 ) -> Result<Vec<DesignArtifactVersion>, CmdError> {
     service::list_versions(&id).map_err(Into::into)
+}
+
+// ── Design systems ──────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_design_systems_cmd() -> Result<Vec<DesignSystemMeta>, CmdError> {
+    service::list_systems().map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_design_system_cmd(id: String) -> Result<DesignSystemFull, CmdError> {
+    service::get_system_full(&id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn save_design_system_cmd(input: SaveSystemInput) -> Result<DesignSystemMeta, CmdError> {
+    service::save_system(input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn delete_design_system_cmd(id: String) -> Result<(), CmdError> {
+    service::delete_system(&id).map_err(Into::into)
 }
 
 // ── Config ──────────────────────────────────────────────────────

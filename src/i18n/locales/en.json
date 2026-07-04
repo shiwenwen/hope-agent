@@ -165,6 +165,7 @@
     "artifactCount": "{{count}} artifacts",
     "zoomFit": "Fit",
     "reload": "Reload",
+    "systemNone": "No design system",
     "deleteTitle": "Confirm delete?",
     "deleteProjectDesc": "This permanently deletes the project and all its artifacts. This cannot be undone.",
     "deleteArtifactDesc": "This permanently deletes the artifact and all its versions. This cannot be undone.",
