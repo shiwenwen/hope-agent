@@ -206,11 +206,8 @@ DomainWorkflow
 - Draft apply / promotion 复用现有 Coding Improvement 安全链路：先预览、再生成 `.hope-agent/coding-improvement/` 草稿，只有显式 promotion 才进入 promoted domain workflow / guidance / review profile / eval case / connector pattern。
 - Workspace proposal 列表已显示领域类 proposal 的中文标签。
 - Workspace「领域复核」区块已支持从当前 Domain Quality run 直接点击「提炼经验」，通过 `sourceType="domain_quality"` + `sourceId=<run_id>` 定向生成学习 proposal，不再只能走泛化 proposal 入口。
+- Dashboard Learning 已增加 General domain trends 历史趋势区块：按领域展示完成率、blocked/failed/needs_user、approval blocker、domain eval pass rate / average score、学习 proposal 草稿/晋升、top blocker reason 和 recent quality runs。
 - 新增回归测试覆盖 Research / Writing / Data Analysis / Inbox quality run 生成学习 proposal、apply 草稿和 promotion preview。
-
-后续待补：
-
-- Dashboard Learning 增加通用场景趋势：完成率、blocked 原因、review catch、verification failure、source quality、用户确认卡点。
 
 验收：
 
@@ -231,7 +228,7 @@ DomainWorkflow
 - `run_domain_eval_task` 复用 Goal、Workflow、Domain Evidence、Domain Quality trace 做 deterministic scoring。
 - 建立 `domain_eval_runs` history，和 `coding_eval_runs` 物理分表。
 - 建立通用 quality gate：evidence completeness、citation quality、data quality、approval safety、completion criteria match、workflow trace、domain coverage。
-- Dashboard Learning 增加「General domain quality」区块，显示 gate 三态、eval pass rate、average score、quality blockers、domain coverage 与最近 run，不与 coding benchmark 混排。
+- Dashboard Learning 增加「General domain trends」历史趋势区块和「General domain quality」Gate 区块：前者显示完成率、blocked 原因、用户确认卡点、eval pass rate、average score、学习候选和最近 quality runs；后者显示 gate 三态、quality blockers、domain coverage 与最近 eval run，不与 coding benchmark 混排。
 
 后续待补：
 
@@ -254,8 +251,8 @@ DomainWorkflow
 - 已落地：Context Retrieval 与 Domain Quality 均优先读取 Goal 绑定的 template version；用户显式指定 template/domain 时仍可覆盖。
 - 已落地：Loop 创建支持 `continue` / `workflow` 执行策略。当前 `workflow` 策略用于 interval loop：要求 active/bound Goal 已选择领域模板，每次 tick 直接创建并启动 `origin=loop:<loop_id>` 的 durable WorkflowRun，Loop trace 保存 workflow run id 和 template version；Workspace Loop 列表会关联最近派生 run，并可一键跳到 Workflow run detail。
 - 已落地：Workspace「领域复核」区块支持对当前复核 run 点击「提炼经验」，把成功/失败/需要用户确认的领域质量事实定向进入 Coding Improvement proposal 队列。
+- 已落地：Dashboard Learning 展示 General domain trends + General domain quality gate，区分长期趋势观察和当前门禁判定。
 - Workspace 增加通用面板：Sources、Evidence、Drafts、Review、Verification、Decisions。
-- Dashboard 增加 Domain Learning：按领域看完成率、卡点、证据质量、复核失败、用户确认等待。
 
 ## 9. 权限与隐私红线
 

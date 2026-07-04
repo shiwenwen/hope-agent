@@ -641,11 +641,89 @@ export interface CodingImprovementRetroItem {
   updatedAt: string
 }
 
+export interface DomainQualityDashboardOverview {
+  qualityRuns: number
+  completedQualityRuns: number
+  blockedQualityRuns: number
+  failedQualityRuns: number
+  needsUserQualityRuns: number
+  qualityCompletionRate: number | null
+  approvalBlockers: number
+  evalRuns: number
+  passedEvalRuns: number
+  failedEvalRuns: number
+  evalPassRate: number | null
+  averageEvalScore: number | null
+  domainsCovered: number
+  draftDomainProposals: number
+  promotedDomainProposals: number
+}
+
+export interface DomainQualityTimelinePoint {
+  date: string
+  qualityRuns: number
+  completedQualityRuns: number
+  blockedQualityRuns: number
+  failedQualityRuns: number
+  needsUserQualityRuns: number
+  approvalBlockers: number
+  evalPassed: number
+  evalFailed: number
+  proposalsCreated: number
+}
+
+export interface DomainQualityDomainBucket {
+  domain: string
+  qualityRuns: number
+  completedQualityRuns: number
+  blockedQualityRuns: number
+  failedQualityRuns: number
+  needsUserQualityRuns: number
+  qualityCompletionRate: number | null
+  approvalBlockers: number
+  evalRuns: number
+  evalPassRate: number | null
+  averageEvalScore: number | null
+  draftProposals: number
+  promotedProposals: number
+}
+
+export interface DomainQualityBlockerBucket {
+  category: string
+  label: string
+  severity: string
+  count: number
+}
+
+export interface DomainQualityRunItem {
+  id: string
+  sessionId: string
+  projectId: string | null
+  domain: string
+  templateId: string | null
+  templateVersion: string | null
+  state: string
+  summary: string
+  failedChecks: number
+  needsUserChecks: number
+  approvalBlockers: number
+  updatedAt: string
+}
+
+export interface DomainQualityDashboard {
+  overview: DomainQualityDashboardOverview
+  timeline: DomainQualityTimelinePoint[]
+  byDomain: DomainQualityDomainBucket[]
+  topBlockers: DomainQualityBlockerBucket[]
+  recentRuns: DomainQualityRunItem[]
+}
+
 export interface CodingImprovementDashboard {
   generatedAt: string
   overview: CodingImprovementDashboardOverview
   timeline: CodingImprovementTimelinePoint[]
   byProject: CodingImprovementProjectBucket[]
+  domainQuality: DomainQualityDashboard
   topFailures: CodingImprovementFailureBucket[]
   toolCallFailures: CodingImprovementFailureBucket[]
   proposalStatuses: CodingImprovementStatusBucket[]

@@ -26,6 +26,7 @@ pub struct CodingImprovementDashboard {
     pub overview: CodingImprovementDashboardOverview,
     pub timeline: Vec<CodingImprovementTimelinePoint>,
     pub by_project: Vec<CodingImprovementProjectBucket>,
+    pub domain_quality: DomainQualityDashboard,
     pub top_failures: Vec<CodingImprovementFailureBucket>,
     pub tool_call_failures: Vec<CodingImprovementFailureBucket>,
     pub proposal_statuses: Vec<CodingImprovementStatusBucket>,
@@ -165,6 +166,95 @@ pub struct CodingImprovementRetroItem {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainQualityDashboard {
+    pub overview: DomainQualityDashboardOverview,
+    pub timeline: Vec<DomainQualityTimelinePoint>,
+    pub by_domain: Vec<DomainQualityDomainBucket>,
+    pub top_blockers: Vec<DomainQualityBlockerBucket>,
+    pub recent_runs: Vec<DomainQualityRunItem>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainQualityDashboardOverview {
+    pub quality_runs: u64,
+    pub completed_quality_runs: u64,
+    pub blocked_quality_runs: u64,
+    pub failed_quality_runs: u64,
+    pub needs_user_quality_runs: u64,
+    pub quality_completion_rate: Option<f64>,
+    pub approval_blockers: u64,
+    pub eval_runs: u64,
+    pub passed_eval_runs: u64,
+    pub failed_eval_runs: u64,
+    pub eval_pass_rate: Option<f64>,
+    pub average_eval_score: Option<f64>,
+    pub domains_covered: u64,
+    pub draft_domain_proposals: u64,
+    pub promoted_domain_proposals: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainQualityTimelinePoint {
+    pub date: String,
+    pub quality_runs: u64,
+    pub completed_quality_runs: u64,
+    pub blocked_quality_runs: u64,
+    pub failed_quality_runs: u64,
+    pub needs_user_quality_runs: u64,
+    pub approval_blockers: u64,
+    pub eval_passed: u64,
+    pub eval_failed: u64,
+    pub proposals_created: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainQualityDomainBucket {
+    pub domain: String,
+    pub quality_runs: u64,
+    pub completed_quality_runs: u64,
+    pub blocked_quality_runs: u64,
+    pub failed_quality_runs: u64,
+    pub needs_user_quality_runs: u64,
+    pub quality_completion_rate: Option<f64>,
+    pub approval_blockers: u64,
+    pub eval_runs: u64,
+    pub eval_pass_rate: Option<f64>,
+    pub average_eval_score: Option<f64>,
+    pub draft_proposals: u64,
+    pub promoted_proposals: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainQualityBlockerBucket {
+    pub category: String,
+    pub label: String,
+    pub severity: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainQualityRunItem {
+    pub id: String,
+    pub session_id: String,
+    pub project_id: Option<String>,
+    pub domain: String,
+    pub template_id: Option<String>,
+    pub template_version: Option<String>,
+    pub state: String,
+    pub summary: String,
+    pub failed_checks: u64,
+    pub needs_user_checks: u64,
+    pub approval_blockers: u64,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Default)]
 struct SqlFilter {
     where_sql: String,
@@ -191,6 +281,22 @@ struct ProjectAccumulator {
     promotion_failures: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+struct DomainAccumulator {
+    domain: String,
+    quality_runs: u64,
+    completed_quality_runs: u64,
+    blocked_quality_runs: u64,
+    failed_quality_runs: u64,
+    needs_user_quality_runs: u64,
+    approval_blockers: u64,
+    eval_runs: u64,
+    passed_eval_runs: u64,
+    eval_score_sum: f64,
+    draft_proposals: u64,
+    promoted_proposals: u64,
+}
+
 pub fn query_coding_improvement_dashboard(
     db: &Arc<SessionDB>,
     filter: &DashboardFilter,
@@ -202,6 +308,7 @@ pub fn query_coding_improvement_dashboard(
     let overview = query_overview(&conn, filter)?;
     let timeline = query_timeline(&conn, filter)?;
     let by_project = query_projects(&conn, filter, limit)?;
+    let domain_quality = query_domain_quality_dashboard(&conn, filter, limit)?;
     let top_failures = query_top_failures(&conn, filter, limit)?;
     let tool_call_failures = query_tool_call_failures(&conn, filter)?;
     let proposal_statuses = query_proposal_statuses(&conn, filter)?;
@@ -213,6 +320,7 @@ pub fn query_coding_improvement_dashboard(
         overview,
         timeline,
         by_project,
+        domain_quality,
         top_failures,
         tool_call_failures,
         proposal_statuses,
@@ -911,6 +1019,469 @@ fn query_projects(
     Ok(buckets)
 }
 
+fn query_domain_quality_dashboard(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+    limit: usize,
+) -> Result<DomainQualityDashboard> {
+    Ok(DomainQualityDashboard {
+        overview: query_domain_quality_overview(conn, filter)?,
+        timeline: query_domain_quality_timeline(conn, filter)?,
+        by_domain: query_domain_quality_by_domain(conn, filter, limit)?,
+        top_blockers: query_domain_quality_top_blockers(conn, filter, limit)?,
+        recent_runs: query_domain_quality_recent_runs(conn, filter, limit)?,
+    })
+}
+
+fn query_domain_quality_overview(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+) -> Result<DomainQualityDashboardOverview> {
+    let quality_filter = build_fact_filter(filter, "s", "dqr.updated_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT dqr.state, COUNT(*)
+         FROM domain_quality_runs dqr
+         JOIN sessions s ON s.id = dqr.session_id
+         {}
+         GROUP BY dqr.state",
+        quality_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(quality_filter.params.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, as_u64(row.get::<_, i64>(1)?)))
+    })?;
+    let mut overview = DomainQualityDashboardOverview::default();
+    for row in rows {
+        let (state, n) = row?;
+        overview.quality_runs += n;
+        match state.as_str() {
+            "completed" => overview.completed_quality_runs += n,
+            "blocked" => overview.blocked_quality_runs += n,
+            "failed" => overview.failed_quality_runs += n,
+            "needs_user" => overview.needs_user_quality_runs += n,
+            _ => {}
+        }
+    }
+    overview.quality_completion_rate =
+        ratio(overview.completed_quality_runs, overview.quality_runs);
+
+    overview.approval_blockers = count_domain_quality_approval_blockers(conn, filter)?;
+
+    let eval_filter = build_fact_filter(filter, "s", "der.created_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT der.status, COUNT(*), COALESCE(SUM(der.score), 0.0)
+         FROM domain_eval_runs der
+         JOIN sessions s ON s.id = der.session_id
+         {}
+         GROUP BY der.status",
+        eval_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(eval_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            as_u64(row.get::<_, i64>(1)?),
+            row.get::<_, f64>(2)?,
+        ))
+    })?;
+    let mut eval_score_sum = 0.0;
+    for row in rows {
+        let (status, n, score_sum) = row?;
+        overview.eval_runs += n;
+        eval_score_sum += score_sum;
+        match status.as_str() {
+            "passed" => overview.passed_eval_runs += n,
+            "failed" => overview.failed_eval_runs += n,
+            _ => {}
+        }
+    }
+    overview.eval_pass_rate = ratio(overview.passed_eval_runs, overview.eval_runs);
+    if overview.eval_runs > 0 {
+        overview.average_eval_score = Some(eval_score_sum / overview.eval_runs as f64);
+    }
+
+    let quality_domain_filter = build_fact_filter(filter, "s", "dqr.updated_at", false);
+    let eval_domain_filter = build_fact_filter(filter, "s", "der.created_at", false);
+    let mut domain_params = quality_domain_filter.params.clone();
+    domain_params.extend(eval_domain_filter.params.clone());
+    overview.domains_covered = count(
+        conn,
+        &format!(
+            "SELECT COUNT(*) FROM (
+                SELECT DISTINCT dqr.domain
+                FROM domain_quality_runs dqr
+                JOIN sessions s ON s.id = dqr.session_id
+                {}
+                UNION
+                SELECT DISTINCT der.domain
+                FROM domain_eval_runs der
+                JOIN sessions s ON s.id = der.session_id
+                {}
+             ) AS domains",
+            quality_domain_filter.where_sql, eval_domain_filter.where_sql
+        ),
+        &domain_params,
+    )?;
+
+    let proposal_filter = append_condition(
+        build_fact_filter(filter, "s", "cip.updated_at", false),
+        "cip.source_type = 'domain_quality'",
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT cip.status, COUNT(*)
+         FROM coding_improvement_proposals cip
+         JOIN sessions s ON s.id = cip.session_id
+         {}
+         GROUP BY cip.status",
+        proposal_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(proposal_filter.params.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, as_u64(row.get::<_, i64>(1)?)))
+    })?;
+    for row in rows {
+        let (status, n) = row?;
+        match status.as_str() {
+            "draft" => overview.draft_domain_proposals += n,
+            "promoted" => overview.promoted_domain_proposals += n,
+            _ => {}
+        }
+    }
+
+    Ok(overview)
+}
+
+fn query_domain_quality_timeline(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+) -> Result<Vec<DomainQualityTimelinePoint>> {
+    let mut days: BTreeMap<String, DomainQualityTimelinePoint> = BTreeMap::new();
+
+    let quality_filter = build_fact_filter(filter, "s", "dqr.updated_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT substr(dqr.updated_at, 1, 10), dqr.state, COUNT(*)
+         FROM domain_quality_runs dqr
+         JOIN sessions s ON s.id = dqr.session_id
+         {}
+         GROUP BY substr(dqr.updated_at, 1, 10), dqr.state",
+        quality_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(quality_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (date, state, n) = row?;
+        let point = domain_day_point(&mut days, date);
+        point.quality_runs += n;
+        match state.as_str() {
+            "completed" => point.completed_quality_runs += n,
+            "blocked" => point.blocked_quality_runs += n,
+            "failed" => point.failed_quality_runs += n,
+            "needs_user" => point.needs_user_quality_runs += n,
+            _ => {}
+        }
+    }
+
+    let approval_filter = append_condition(
+        build_fact_filter(filter, "s", "dqc.updated_at", false),
+        "dqc.check_type = 'approval'
+         AND dqc.status IN ('failed','blocked','needs_user')",
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT substr(dqc.updated_at, 1, 10), COUNT(*)
+         FROM domain_quality_checks dqc
+         JOIN sessions s ON s.id = dqc.session_id
+         {}
+         GROUP BY substr(dqc.updated_at, 1, 10)",
+        approval_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(approval_filter.params.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, as_u64(row.get::<_, i64>(1)?)))
+    })?;
+    for row in rows {
+        let (date, n) = row?;
+        domain_day_point(&mut days, date).approval_blockers += n;
+    }
+
+    let eval_filter = build_fact_filter(filter, "s", "der.created_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT substr(der.created_at, 1, 10), der.status, COUNT(*)
+         FROM domain_eval_runs der
+         JOIN sessions s ON s.id = der.session_id
+         {}
+         GROUP BY substr(der.created_at, 1, 10), der.status",
+        eval_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(eval_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (date, status, n) = row?;
+        let point = domain_day_point(&mut days, date);
+        match status.as_str() {
+            "passed" => point.eval_passed += n,
+            "failed" => point.eval_failed += n,
+            _ => {}
+        }
+    }
+
+    let proposal_filter = append_condition(
+        build_fact_filter(filter, "s", "cip.created_at", false),
+        "cip.source_type = 'domain_quality'",
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT substr(cip.created_at, 1, 10), COUNT(*)
+         FROM coding_improvement_proposals cip
+         JOIN sessions s ON s.id = cip.session_id
+         {}
+         GROUP BY substr(cip.created_at, 1, 10)",
+        proposal_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(proposal_filter.params.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, as_u64(row.get::<_, i64>(1)?)))
+    })?;
+    for row in rows {
+        let (date, n) = row?;
+        domain_day_point(&mut days, date).proposals_created += n;
+    }
+
+    Ok(days.into_values().collect())
+}
+
+fn query_domain_quality_by_domain(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+    limit: usize,
+) -> Result<Vec<DomainQualityDomainBucket>> {
+    let mut map: BTreeMap<String, DomainAccumulator> = BTreeMap::new();
+
+    let quality_filter = build_fact_filter(filter, "s", "dqr.updated_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT dqr.domain, dqr.state, COUNT(*)
+         FROM domain_quality_runs dqr
+         JOIN sessions s ON s.id = dqr.session_id
+         {}
+         GROUP BY dqr.domain, dqr.state",
+        quality_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(quality_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (domain, state, n) = row?;
+        let bucket = domain_bucket(&mut map, domain);
+        bucket.quality_runs += n;
+        match state.as_str() {
+            "completed" => bucket.completed_quality_runs += n,
+            "blocked" => bucket.blocked_quality_runs += n,
+            "failed" => bucket.failed_quality_runs += n,
+            "needs_user" => bucket.needs_user_quality_runs += n,
+            _ => {}
+        }
+    }
+
+    let approval_filter = append_condition(
+        build_fact_filter(filter, "s", "dqc.updated_at", false),
+        "dqc.check_type = 'approval'
+         AND dqc.status IN ('failed','blocked','needs_user')",
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT dqr.domain, COUNT(*)
+         FROM domain_quality_checks dqc
+         JOIN domain_quality_runs dqr ON dqr.id = dqc.run_id
+         JOIN sessions s ON s.id = dqc.session_id
+         {}
+         GROUP BY dqr.domain",
+        approval_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(approval_filter.params.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, as_u64(row.get::<_, i64>(1)?)))
+    })?;
+    for row in rows {
+        let (domain, n) = row?;
+        domain_bucket(&mut map, domain).approval_blockers += n;
+    }
+
+    let eval_filter = build_fact_filter(filter, "s", "der.created_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT der.domain, der.status, COUNT(*), COALESCE(SUM(der.score), 0.0)
+         FROM domain_eval_runs der
+         JOIN sessions s ON s.id = der.session_id
+         {}
+         GROUP BY der.domain, der.status",
+        eval_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(eval_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+            row.get::<_, f64>(3)?,
+        ))
+    })?;
+    for row in rows {
+        let (domain, status, n, score_sum) = row?;
+        let bucket = domain_bucket(&mut map, domain);
+        bucket.eval_runs += n;
+        bucket.eval_score_sum += score_sum;
+        if status == "passed" {
+            bucket.passed_eval_runs += n;
+        }
+    }
+
+    let proposal_filter = append_condition(
+        build_fact_filter(filter, "s", "cip.updated_at", false),
+        "cip.source_type = 'domain_quality'",
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT COALESCE(
+                    NULLIF(CAST(json_extract(cip.payload_json, '$.domain') AS TEXT), ''),
+                    'unknown'
+                ) AS domain,
+                cip.status,
+                COUNT(*)
+         FROM coding_improvement_proposals cip
+         JOIN sessions s ON s.id = cip.session_id
+         {}
+         GROUP BY domain, cip.status",
+        proposal_filter.where_sql
+    ))?;
+    let rows = stmt.query_map(params_from_iter(proposal_filter.params.iter()), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            as_u64(row.get::<_, i64>(2)?),
+        ))
+    })?;
+    for row in rows {
+        let (domain, status, n) = row?;
+        let bucket = domain_bucket(&mut map, domain);
+        match status.as_str() {
+            "draft" => bucket.draft_proposals += n,
+            "promoted" => bucket.promoted_proposals += n,
+            _ => {}
+        }
+    }
+
+    let mut buckets: Vec<_> = map
+        .into_values()
+        .map(|bucket| DomainQualityDomainBucket {
+            domain: bucket.domain,
+            quality_runs: bucket.quality_runs,
+            completed_quality_runs: bucket.completed_quality_runs,
+            blocked_quality_runs: bucket.blocked_quality_runs,
+            failed_quality_runs: bucket.failed_quality_runs,
+            needs_user_quality_runs: bucket.needs_user_quality_runs,
+            quality_completion_rate: ratio(bucket.completed_quality_runs, bucket.quality_runs),
+            approval_blockers: bucket.approval_blockers,
+            eval_runs: bucket.eval_runs,
+            eval_pass_rate: ratio(bucket.passed_eval_runs, bucket.eval_runs),
+            average_eval_score: if bucket.eval_runs > 0 {
+                Some(bucket.eval_score_sum / bucket.eval_runs as f64)
+            } else {
+                None
+            },
+            draft_proposals: bucket.draft_proposals,
+            promoted_proposals: bucket.promoted_proposals,
+        })
+        .collect();
+    buckets.sort_by(|a, b| {
+        (b.blocked_quality_runs + b.failed_quality_runs + b.needs_user_quality_runs)
+            .cmp(&(a.blocked_quality_runs + a.failed_quality_runs + a.needs_user_quality_runs))
+            .then_with(|| b.approval_blockers.cmp(&a.approval_blockers))
+            .then_with(|| b.quality_runs.cmp(&a.quality_runs))
+            .then_with(|| a.domain.cmp(&b.domain))
+    });
+    buckets.truncate(limit);
+    Ok(buckets)
+}
+
+fn query_domain_quality_top_blockers(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+    limit: usize,
+) -> Result<Vec<DomainQualityBlockerBucket>> {
+    let blocker_filter = append_condition(
+        build_fact_filter(filter, "s", "dqc.updated_at", false),
+        "dqc.status IN ('failed','blocked','needs_user')",
+    );
+    let mut stmt = conn.prepare(&format!(
+        "SELECT dqc.check_type, dqc.status, dqc.severity, COUNT(*)
+         FROM domain_quality_checks dqc
+         JOIN sessions s ON s.id = dqc.session_id
+         {}
+         GROUP BY dqc.check_type, dqc.status, dqc.severity
+         ORDER BY COUNT(*) DESC, dqc.check_type ASC, dqc.status ASC
+         LIMIT {}",
+        blocker_filter.where_sql, limit
+    ))?;
+    let rows = stmt.query_map(params_from_iter(blocker_filter.params.iter()), |row| {
+        let check_type = row.get::<_, String>(0)?;
+        let status = row.get::<_, String>(1)?;
+        let severity = row.get::<_, String>(2)?;
+        let category = format!("{check_type}:{status}");
+        Ok(DomainQualityBlockerBucket {
+            label: domain_quality_blocker_label(&check_type, &status).to_string(),
+            severity,
+            category,
+            count: as_u64(row.get::<_, i64>(3)?),
+        })
+    })?;
+    collect(rows)
+}
+
+fn query_domain_quality_recent_runs(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+    limit: usize,
+) -> Result<Vec<DomainQualityRunItem>> {
+    let quality_filter = build_fact_filter(filter, "s", "dqr.updated_at", false);
+    let mut stmt = conn.prepare(&format!(
+        "SELECT dqr.id, dqr.session_id, s.project_id, dqr.domain, dqr.template_id,
+                dqr.template_version, dqr.state, dqr.summary, dqr.updated_at,
+                COALESCE(SUM(CASE WHEN dqc.status IN ('failed','blocked') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN dqc.status = 'needs_user' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN dqc.check_type = 'approval'
+                                    AND dqc.status IN ('failed','blocked','needs_user')
+                               THEN 1 ELSE 0 END), 0)
+         FROM domain_quality_runs dqr
+         JOIN sessions s ON s.id = dqr.session_id
+         LEFT JOIN domain_quality_checks dqc ON dqc.run_id = dqr.id
+         {}
+         GROUP BY dqr.id, dqr.session_id, s.project_id, dqr.domain, dqr.template_id,
+                  dqr.template_version, dqr.state, dqr.summary, dqr.updated_at
+         ORDER BY dqr.updated_at DESC
+         LIMIT {}",
+        quality_filter.where_sql, limit
+    ))?;
+    let rows = stmt.query_map(params_from_iter(quality_filter.params.iter()), |row| {
+        Ok(DomainQualityRunItem {
+            id: row.get(0)?,
+            session_id: row.get(1)?,
+            project_id: row.get(2)?,
+            domain: row.get(3)?,
+            template_id: row.get(4)?,
+            template_version: row.get(5)?,
+            state: row.get(6)?,
+            summary: row.get(7)?,
+            updated_at: row.get(8)?,
+            failed_checks: as_u64(row.get::<_, i64>(9)?),
+            needs_user_checks: as_u64(row.get::<_, i64>(10)?),
+            approval_blockers: as_u64(row.get::<_, i64>(11)?),
+        })
+    })?;
+    collect(rows)
+}
+
 fn query_top_failures(
     conn: &rusqlite::Connection,
     filter: &DashboardFilter,
@@ -1208,6 +1779,17 @@ fn day_point(
         })
 }
 
+fn domain_day_point(
+    days: &mut BTreeMap<String, DomainQualityTimelinePoint>,
+    date: String,
+) -> &mut DomainQualityTimelinePoint {
+    days.entry(date.clone())
+        .or_insert_with(|| DomainQualityTimelinePoint {
+            date,
+            ..Default::default()
+        })
+}
+
 fn collect<T>(
     rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<T>>,
 ) -> Result<Vec<T>> {
@@ -1224,6 +1806,17 @@ fn bucket(
         project_id,
         ..Default::default()
     })
+}
+
+fn domain_bucket(
+    map: &mut BTreeMap<String, DomainAccumulator>,
+    domain: String,
+) -> &mut DomainAccumulator {
+    map.entry(domain.clone())
+        .or_insert_with(|| DomainAccumulator {
+            domain,
+            ..Default::default()
+        })
 }
 
 fn project_key(project_id: Option<&str>) -> String {
@@ -1259,6 +1852,28 @@ fn as_u64(n: i64) -> u64 {
     u64::try_from(n).unwrap_or(0)
 }
 
+fn count_domain_quality_approval_blockers(
+    conn: &rusqlite::Connection,
+    filter: &DashboardFilter,
+) -> Result<u64> {
+    let approval_filter = append_condition(
+        build_fact_filter(filter, "s", "dqc.updated_at", false),
+        "dqc.check_type = 'approval'
+         AND dqc.status IN ('failed','blocked','needs_user')",
+    );
+    count(
+        conn,
+        &format!(
+            "SELECT COUNT(*)
+             FROM domain_quality_checks dqc
+             JOIN sessions s ON s.id = dqc.session_id
+             {}",
+            approval_filter.where_sql
+        ),
+        &approval_filter.params,
+    )
+}
+
 fn failure_label(category: &str) -> &'static str {
     match category {
         "validation_failed" => "Validation failed",
@@ -1285,6 +1900,22 @@ fn failure_severity(category: &str) -> &'static str {
         | "missing_tool_call"
         | "verification_selection_gap" => "medium",
         _ => "low",
+    }
+}
+
+fn domain_quality_blocker_label(check_type: &str, status: &str) -> &'static str {
+    match (check_type, status) {
+        ("approval", "needs_user") => "Approval waiting",
+        ("approval", _) => "Approval safety",
+        ("verification", "needs_user") => "Verification needs user",
+        ("verification", _) => "Verification gap",
+        ("review", _) => "Review gap",
+        ("planning", _) => "Planning gap",
+        ("evidence", _) => "Evidence gap",
+        (_, "needs_user") => "Needs user",
+        (_, "blocked") => "Blocked check",
+        (_, "failed") => "Failed check",
+        _ => "Domain quality blocker",
     }
 }
 
@@ -1480,6 +2111,100 @@ mod tests {
                 params![session.id, project_id, now],
             )
             .unwrap();
+            conn.execute(
+                "INSERT INTO domain_quality_runs (
+                    id, session_id, goal_id, domain, template_id, template_version, state,
+                    summary, stats_json, created_at, updated_at, completed_at
+                 ) VALUES (
+                    'dqr_research_dashboard', ?1, NULL, 'research', 'research-brief', '1.0.0',
+                    'completed', 'Research quality passed', '{}', ?2, ?2, ?2
+                 )",
+                params![session.id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO domain_quality_runs (
+                    id, session_id, goal_id, domain, template_id, template_version, state,
+                    summary, stats_json, created_at, updated_at, completed_at
+                 ) VALUES (
+                    'dqr_inbox_dashboard', ?1, NULL, 'inbox', 'inbox-response', '1.0.0',
+                    'needs_user', 'Inbox send needs approval', '{}', ?2, ?2, ?2
+                 )",
+                params![session.id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO domain_quality_checks (
+                    id, run_id, session_id, seq, check_type, profile, title, body,
+                    severity, status, evidence_type, source_metadata_json, created_at, updated_at
+                 ) VALUES (
+                    'dqc_research_pass', 'dqr_research_dashboard', ?1, 0, 'verification',
+                    'research', 'Sources cited', 'Enough sources were cited', 'p2',
+                    'passed', 'source_cited', '{}', ?2, ?2
+                 )",
+                params![session.id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO domain_quality_checks (
+                    id, run_id, session_id, seq, check_type, profile, title, body,
+                    severity, status, evidence_type, source_metadata_json, created_at, updated_at
+                 ) VALUES (
+                    'dqc_inbox_approval', 'dqr_inbox_dashboard', ?1, 0, 'approval',
+                    'approval_gate', 'Message approved before send', 'User approval missing',
+                    'p1', 'needs_user', 'user_decision', '{}', ?2, ?2
+                 )",
+                params![session.id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO domain_quality_checks (
+                    id, run_id, session_id, seq, check_type, profile, title, body,
+                    severity, status, evidence_type, source_metadata_json, created_at, updated_at
+                 ) VALUES (
+                    'dqc_inbox_missing', 'dqr_inbox_dashboard', ?1, 1, 'verification',
+                    'required_evidence', 'Recipient facts checked', 'Required evidence missing',
+                    'p1', 'failed', 'recipient_checked', '{}', ?2, ?2
+                 )",
+                params![session.id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO domain_eval_runs (
+                    id, session_id, project_id, task_id, task_version, domain, label,
+                    status, score, report_json, source_quality_run_id, created_at
+                 ) VALUES (
+                    'der_research_dashboard', ?1, ?2, 'research-source-coverage',
+                    '1.0.0', 'research', 'Research eval', 'passed', 0.9, '{}',
+                    'dqr_research_dashboard', ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO domain_eval_runs (
+                    id, session_id, project_id, task_id, task_version, domain, label,
+                    status, score, report_json, source_quality_run_id, created_at
+                 ) VALUES (
+                    'der_inbox_dashboard', ?1, ?2, 'inbox-approval-safety',
+                    '1.0.0', 'inbox', 'Inbox eval', 'failed', 0.4, '{}',
+                    'dqr_inbox_dashboard', ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO coding_improvement_proposals (
+                    id, session_id, project_id, kind, status, source_type,
+                    source_id, title, body, payload_json, fingerprint, created_at, updated_at
+                 ) VALUES (
+                    'cip_domain_dashboard', ?1, ?2, 'domain_review_profile', 'draft',
+                    'domain_quality', 'dqr_inbox_dashboard', 'Add inbox review profile',
+                    'body', '{\"domain\":\"inbox\"}', 'fp_domain_dashboard', ?3, ?3
+                 )",
+                params![session.id, project_id, now],
+            )
+            .unwrap();
         }
 
         let dashboard =
@@ -1500,8 +2225,8 @@ mod tests {
         assert_eq!(dashboard.overview.open_review_blockers, 1);
         assert_eq!(dashboard.overview.failed_verification_steps, 1);
         assert_eq!(dashboard.overview.retro_recommendations, 1);
-        assert_eq!(dashboard.overview.draft_proposals, 1);
-        assert_eq!(dashboard.overview.distillation_candidates, 2);
+        assert_eq!(dashboard.overview.draft_proposals, 2);
+        assert_eq!(dashboard.overview.distillation_candidates, 3);
         assert_eq!(dashboard.by_project.len(), 1);
         assert_eq!(
             dashboard.by_project[0].project_id.as_deref(),
@@ -1511,7 +2236,7 @@ mod tests {
             dashboard.by_project[0].project_name.as_deref(),
             Some("Dashboard Project")
         );
-        assert_eq!(dashboard.by_project[0].distillation_candidates, 2);
+        assert_eq!(dashboard.by_project[0].distillation_candidates, 3);
         assert_eq!(dashboard.by_project[0].eval_pack_runs, 1);
         assert_eq!(dashboard.by_project[0].strategy_effect_runs, 1);
         assert_eq!(dashboard.by_project[0].regressed_strategy_effects, 1);
@@ -1520,6 +2245,38 @@ mod tests {
             dashboard.tool_call_failures[0].category,
             "missing_tool_call"
         );
+        assert_eq!(dashboard.domain_quality.overview.quality_runs, 2);
+        assert_eq!(dashboard.domain_quality.overview.completed_quality_runs, 1);
+        assert_eq!(dashboard.domain_quality.overview.needs_user_quality_runs, 1);
+        assert_eq!(dashboard.domain_quality.overview.approval_blockers, 1);
+        assert_eq!(dashboard.domain_quality.overview.eval_runs, 2);
+        assert_eq!(dashboard.domain_quality.overview.passed_eval_runs, 1);
+        assert_eq!(dashboard.domain_quality.overview.failed_eval_runs, 1);
+        assert_eq!(dashboard.domain_quality.overview.eval_pass_rate, Some(0.5));
+        assert_eq!(dashboard.domain_quality.overview.domains_covered, 2);
+        assert_eq!(dashboard.domain_quality.overview.draft_domain_proposals, 1);
+        let inbox = dashboard
+            .domain_quality
+            .by_domain
+            .iter()
+            .find(|bucket| bucket.domain == "inbox")
+            .expect("inbox domain bucket");
+        assert_eq!(inbox.quality_runs, 1);
+        assert_eq!(inbox.needs_user_quality_runs, 1);
+        assert_eq!(inbox.approval_blockers, 1);
+        assert_eq!(inbox.eval_runs, 1);
+        assert_eq!(inbox.draft_proposals, 1);
+        assert_eq!(
+            dashboard.domain_quality.top_blockers[0].category,
+            "approval:needs_user"
+        );
+        assert_eq!(dashboard.domain_quality.recent_runs.len(), 2);
+        assert_eq!(dashboard.domain_quality.timeline.len(), 1);
+        assert_eq!(dashboard.domain_quality.timeline[0].quality_runs, 2);
+        assert_eq!(dashboard.domain_quality.timeline[0].approval_blockers, 1);
+        assert_eq!(dashboard.domain_quality.timeline[0].eval_passed, 1);
+        assert_eq!(dashboard.domain_quality.timeline[0].eval_failed, 1);
+        assert_eq!(dashboard.domain_quality.timeline[0].proposals_created, 1);
         assert_eq!(dashboard.latest_strategy_effects[0].verdict, "regressed");
         assert_eq!(dashboard.latest_retros[0].recommendations.len(), 1);
         assert_eq!(dashboard.timeline.len(), 1);

@@ -40,7 +40,7 @@ import type {
   DomainEvalTask,
   DomainQualityGateReport,
 } from "@/lib/transport"
-import type { CodingImprovementDashboard, DashboardFilter } from "../types"
+import type { CodingImprovementDashboard, DashboardFilter, DomainQualityDashboard } from "../types"
 
 interface LearningOverview {
   windowDays: number
@@ -926,6 +926,7 @@ function CodingImprovementSection({
 }) {
   const { t } = useTranslation()
   const overview = coding?.overview
+  const domainQuality = coding?.domainQuality
   const recentTimeline = coding?.timeline.slice(-10).reverse() ?? []
   const failureModes = [...(coding?.topFailures ?? []), ...(coding?.toolCallFailures ?? [])]
   const maxTimelineValue = Math.max(
@@ -1079,6 +1080,8 @@ function CodingImprovementSection({
         onMaterializeBacklog={onMaterializeBenchmarkBacklog}
         onResolveBacklogItem={onResolveBenchmarkBacklogItem}
       />
+
+      <DomainQualityDashboardPanel dashboard={domainQuality ?? null} />
 
       <DomainQualityGatePanel
         report={domainQualityGate}
@@ -2306,6 +2309,287 @@ function BenchmarkCampaignRow({
   )
 }
 
+function DomainQualityDashboardPanel({
+  dashboard,
+}: {
+  dashboard: DomainQualityDashboard | null
+}) {
+  const { t } = useTranslation()
+  const overview = dashboard?.overview
+  const timeline = dashboard?.timeline.slice(-8).reverse() ?? []
+  const maxTimelineValue = Math.max(
+    1,
+    ...timeline.map(
+      (point) =>
+        point.qualityRuns +
+        point.evalPassed +
+        point.evalFailed +
+        point.approvalBlockers +
+        point.proposalsCreated,
+    ),
+  )
+
+  return (
+    <div className="border border-border/60 rounded-lg p-4 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <div className="min-w-0">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("dashboard.learning.domainQualityTrends", {
+              defaultValue: "General domain trends",
+            })}
+          </h4>
+          <p className="text-[10px] text-muted-foreground">
+            {t("dashboard.learning.domainQualityTrendsHint", {
+              defaultValue: "Quality runs, blockers, evals, and learning candidates",
+            })}
+          </p>
+        </div>
+        <span className="rounded bg-secondary/40 px-2 py-1 text-[10px] text-muted-foreground">
+          {t("dashboard.learning.domainsCovered", {
+            defaultValue: "{{n}} domains",
+            n: overview?.domainsCovered ?? 0,
+          })}
+        </span>
+      </div>
+
+      {dashboard ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <InsightCard
+              icon={FileCheck2}
+              label={t("dashboard.learning.domainQualityRuns", {
+                defaultValue: "Quality",
+              })}
+              value={formatPct(overview?.qualityCompletionRate)}
+              hint={`${overview?.completedQualityRuns ?? 0}/${overview?.qualityRuns ?? 0}`}
+            />
+            <InsightCard
+              icon={ShieldAlert}
+              label={t("dashboard.learning.domainQualityBlockers", {
+                defaultValue: "Blockers",
+              })}
+              value={
+                (overview?.blockedQualityRuns ?? 0) +
+                (overview?.failedQualityRuns ?? 0) +
+                (overview?.needsUserQualityRuns ?? 0)
+              }
+              hint={t("dashboard.learning.approvalBlockers", {
+                defaultValue: "{{n}} approval",
+                n: overview?.approvalBlockers ?? 0,
+              })}
+            />
+            <InsightCard
+              icon={CheckCircle2}
+              label={t("dashboard.learning.domainEval", { defaultValue: "Domain eval" })}
+              value={formatPct(overview?.evalPassRate)}
+              hint={`${overview?.passedEvalRuns ?? 0}/${overview?.evalRuns ?? 0}`}
+            />
+            <InsightCard
+              icon={Activity}
+              label={t("dashboard.learning.domainScore", { defaultValue: "Score" })}
+              value={overview?.averageEvalScore?.toFixed(2) ?? "—"}
+              hint={t("dashboard.learning.averageEvalScore", {
+                defaultValue: "average eval",
+              })}
+            />
+            <InsightCard
+              icon={Layers3}
+              label={t("dashboard.learning.domainLearning", {
+                defaultValue: "Learning",
+              })}
+              value={overview?.draftDomainProposals ?? 0}
+              hint={t("dashboard.learning.domainPromotedHint", {
+                defaultValue: "{{n}} promoted",
+                n: overview?.promotedDomainProposals ?? 0,
+              })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-3">
+            <div className="rounded border border-border/50 p-3 min-w-0">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("dashboard.learning.domainQualityByDomain", {
+                    defaultValue: "By domain",
+                  })}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {dashboard.byDomain.length}
+                </span>
+              </div>
+              {dashboard.byDomain.length ? (
+                <div className="space-y-2">
+                  {dashboard.byDomain.slice(0, 6).map((domain) => (
+                    <div
+                      key={domain.domain}
+                      className="grid grid-cols-[minmax(0,1fr)] gap-2 text-xs sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{domain.domain}</div>
+                        <div className="truncate text-[10px] text-muted-foreground">
+                          {domain.completedQualityRuns}/{domain.qualityRuns} quality ·{" "}
+                          {domain.evalRuns} eval
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 sm:justify-end">
+                        <MetricPill label="QL" value={formatPct(domain.qualityCompletionRate)} />
+                        <MetricPill label="EV" value={formatPct(domain.evalPassRate)} />
+                        <MetricPill
+                          label="AP"
+                          value={domain.approvalBlockers}
+                          tone={domain.approvalBlockers > 0 ? "warn" : "muted"}
+                        />
+                        <MetricPill
+                          label="DR"
+                          value={domain.draftProposals}
+                          tone={domain.draftProposals > 0 ? "accent" : "muted"}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyLine
+                  label={t("dashboard.learning.noDomainQualityDomains", {
+                    defaultValue: "No domain quality history",
+                  })}
+                />
+              )}
+            </div>
+
+            <div className="rounded border border-border/50 p-3 min-w-0">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("dashboard.learning.domainQualityBlockerReasons", {
+                  defaultValue: "Top blockers",
+                })}
+              </span>
+              {dashboard.topBlockers.length ? (
+                <div className="mt-2 space-y-2">
+                  {dashboard.topBlockers.slice(0, 5).map((blocker) => (
+                    <div
+                      key={blocker.category}
+                      className="flex items-center gap-2 border-b border-border/20 pb-2 text-xs last:border-0 last:pb-0"
+                    >
+                      <span className={`h-2 w-2 rounded-full ${severityDot(blocker.severity)}`} />
+                      <span className="min-w-0 flex-1 truncate">{blocker.label}</span>
+                      <span className="tabular-nums text-muted-foreground">{blocker.count}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyLine
+                  label={t("dashboard.learning.noDomainQualityBlockers", {
+                    defaultValue: "No domain quality blockers",
+                  })}
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.2fr] gap-3">
+            <div className="rounded border border-border/50 p-3 min-w-0">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("dashboard.learning.domainQualityTimeline", {
+                  defaultValue: "Trend",
+                })}
+              </span>
+              {timeline.length ? (
+                <div className="mt-2 space-y-2">
+                  {timeline.map((point) => {
+                    const total =
+                      point.qualityRuns +
+                      point.evalPassed +
+                      point.evalFailed +
+                      point.approvalBlockers +
+                      point.proposalsCreated
+                    return (
+                      <div
+                        key={point.date}
+                        className="grid grid-cols-[5.5rem_minmax(0,1fr)_auto] items-center gap-2 text-[10px]"
+                      >
+                        <span className="text-muted-foreground">{point.date}</span>
+                        <div className="h-2 overflow-hidden rounded bg-secondary">
+                          <div
+                            className="h-full rounded bg-emerald-500/70"
+                            style={{ width: `${Math.max(4, (total / maxTimelineValue) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="tabular-nums text-muted-foreground">{total}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <EmptyLine
+                  label={t("dashboard.learning.noDomainQualityTimeline", {
+                    defaultValue: "No domain trend yet",
+                  })}
+                />
+              )}
+            </div>
+
+            <div className="rounded border border-border/50 p-3 min-w-0">
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("dashboard.learning.recentDomainQualityRuns", {
+                  defaultValue: "Recent runs",
+                })}
+              </span>
+              {dashboard.recentRuns.length ? (
+                <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  {dashboard.recentRuns.slice(0, 4).map((run) => (
+                    <div key={run.id} className="rounded border border-border/40 p-2 text-xs min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-medium">{run.domain}</span>
+                        <span
+                          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${domainQualityRunTone(run.state)}`}
+                        >
+                          {run.state}
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground">
+                        {run.summary || run.id}
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        <MetricPill
+                          label="F"
+                          value={run.failedChecks}
+                          tone={run.failedChecks > 0 ? "warn" : "muted"}
+                        />
+                        <MetricPill
+                          label="U"
+                          value={run.needsUserChecks}
+                          tone={run.needsUserChecks > 0 ? "warn" : "muted"}
+                        />
+                        <MetricPill
+                          label="A"
+                          value={run.approvalBlockers}
+                          tone={run.approvalBlockers > 0 ? "warn" : "muted"}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyLine
+                  label={t("dashboard.learning.noRecentDomainQualityRuns", {
+                    defaultValue: "No recent quality runs",
+                  })}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <EmptyLine
+          label={t("dashboard.learning.domainQualityTrendsLoading", {
+            defaultValue: "Loading general-domain trends",
+          })}
+        />
+      )}
+    </div>
+  )
+}
+
 function DomainQualityGatePanel({
   report,
   runs,
@@ -2851,10 +3135,27 @@ function releaseGateCheckTone(status: string): string {
     : "bg-amber-500/10 text-amber-700 dark:text-amber-300"
 }
 
+function domainQualityRunTone(status: string): string {
+  switch (status) {
+    case "completed":
+      return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+    case "failed":
+    case "blocked":
+      return "bg-red-500/10 text-red-600 dark:text-red-400"
+    case "needs_user":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+    default:
+      return "bg-secondary/40 text-muted-foreground"
+  }
+}
+
 function severityDot(severity: string): string {
   switch (severity) {
+    case "p0":
+    case "p1":
     case "high":
       return "bg-red-500"
+    case "p2":
     case "medium":
       return "bg-amber-500"
     default:

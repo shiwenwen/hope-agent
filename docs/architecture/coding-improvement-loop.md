@@ -288,6 +288,7 @@ Phase 4.3 新增只读全局聚合 API：
 | `overview` | session、workflow、case eval、pack eval、strategy effect、tool-call missing、validation/scope delta、review blocker、verification failure、retro、proposal 和 distillation queue 汇总。 |
 | `timeline` | 按天聚合 completed/blocked/failed workflow、passed/failed eval、passed/failed pack、strategy verdict、validation/scope delta、proposal created/applied/promoted、retro recommendation。 |
 | `byProject` | 按 `project_id` 汇总 workflow/eval/pack 成功率、strategy regression、blocker、proposal 与 distillation candidates；项目名可用时从 `projects` 表补齐。 |
+| `domainQuality` | Phase 7.5/7.6 新增。聚合 `domain_quality_runs`、`domain_quality_checks`、`domain_eval_runs` 与 `source_type='domain_quality'` 的 proposal，包含总览、按天趋势、按领域 bucket、top blockers 与 recent runs。它是历史趋势视图，不执行 gate。 |
 | `topFailures` | 从 `eval_candidate` proposal payload 中读取稳定 failure category，展示 top failure mode。 |
 | `toolCallFailures` | 从 task-level eval metrics 读取 agent 模式下 `toolCalls=[]` 的 run，展示 tool-call failure mode。 |
 | `proposalStatuses` | proposal status 分布。 |
@@ -320,6 +321,8 @@ Dashboard Learning Tab 新增「Coding improvement」区块：
 - Latest retros 展示最近 terminal workflow retro 和首条 recommendation。
 - Release Gate 卡片展示当前窗口的 `passed` / `failed` / `insufficient_data`、pack pass rate、strategy regression、missing tool-call 和未通过 checks。
 - Generalization Gate 卡片展示跨项目学习门禁状态、通过/失败/证据不足项目数、promoted learning 数、pack 证据数和未通过 checks。
+- General domain trends 卡片展示通用领域历史趋势：quality completion rate、blocked/failed/needs_user run、approval blockers、domain eval pass rate/average score、domain learning draft/promoted proposal、按领域分布、top blocker reason、recent quality runs。
+- General domain quality gate 卡片只展示当前窗口门禁结果：eval pass rate、average score、quality blocker、domain coverage 与最近 eval run；不替代趋势卡片，也不写入学习结果。
 
 Workspace 是当前 session/project 的可操作质量面板；Dashboard 是全局 / 项目级只读学习视图。两者不复用任意 session 伪装 scope，避免把 session-local report 误读成全局事实。
 

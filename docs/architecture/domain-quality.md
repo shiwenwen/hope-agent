@@ -131,6 +131,17 @@ Phase 7.6 后，`domain_eval::run_domain_eval_task()` 会读取显式 `sourceQua
 
 Domain Quality 仍是复核事实源；Domain Eval / Gate 只读这些事实，不反向修改 quality run。
 
+## Dashboard 趋势输入
+
+Dashboard Learning 的 `dashboard_coding_improvement` 返回 `domainQuality` 历史趋势区块。该区块只读：
+
+- `domain_quality_runs`：按 state 统计 completed / blocked / failed / needs_user，并生成 recent runs。
+- `domain_quality_checks`：统计 approval blockers 和 top blocker reason。
+- `domain_eval_runs`：统计 domain eval pass rate、average score 和按领域 eval 覆盖。
+- `coding_improvement_proposals(source_type='domain_quality')`：统计通用领域学习草稿 / 晋升数量。
+
+它和 `evaluate_domain_quality_gate()` 的边界不同：Dashboard `domainQuality` 是历史可观察性视图，不执行阈值判定、不阻塞发布、不写任何学习产物；Domain Quality Gate 是当前 scope/window 的门禁判定。
+
 ## Owner API
 
 Tauri / HTTP / transport 均已注册：
