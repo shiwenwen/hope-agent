@@ -539,12 +539,19 @@ function ProjectGroup({
                   </button>
                 </IconTip>
               )}
-              <ProjectToggleIcon
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 transition-colors duration-150",
-                  projectFolderColorClass,
+              <span className="relative shrink-0">
+                <ProjectToggleIcon
+                  className={cn(
+                    "h-3.5 w-3.5 transition-colors duration-150",
+                    projectFolderColorClass,
+                  )}
+                />
+                {displayMode === "detailed" && !project.logo && projectUnreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1.5 z-10 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border border-background bg-destructive px-0.5 text-[9px] font-semibold leading-none text-destructive-foreground tabular-nums pointer-events-none">
+                    {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+                  </span>
                 )}
-              />
+              </span>
               {displayMode === "detailed" && project.logo && (
                 <div className="relative shrink-0">
                   <ProjectIcon project={project} size="sm" />
