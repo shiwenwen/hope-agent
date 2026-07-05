@@ -3554,6 +3554,63 @@ function domainAcceptancePlanTaskContent(
   ].join("\n")
 }
 
+function domainAcceptanceReviewMarkdown(
+  t: ReturnType<typeof useTranslation>["t"],
+  summary: DomainAcceptanceCoverageSummary,
+  gaps: DomainAcceptanceGap[],
+): string {
+  const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
+  const sampleFreshness =
+    summary.latestActivityAgeSecs != null
+      ? t("workspace.domainWorkbench.acceptancePlanFreshnessAge", "{{age}} 前", {
+          age: formatDurationCompact(summary.latestActivityAgeSecs),
+        })
+      : t("workspace.domainWorkbench.acceptancePlanFreshnessMissing", "缺最近活动时间")
+  const budgetHealth =
+    summary.budgetExhaustedEvents > 0
+      ? t(
+          "workspace.domainWorkbench.acceptancePlanBudgetExhausted",
+          "耗尽 {{count}} 次{{budget}}",
+          {
+            count: summary.budgetExhaustedEvents,
+            budget: summary.outputTokenBudgetLabel ? ` · ${summary.outputTokenBudgetLabel}` : "",
+          },
+        )
+      : summary.outputTokenBudgetLabel
+        ? t("workspace.domainWorkbench.acceptancePlanBudgetOkWithUsage", "未耗尽 · {{budget}}", {
+            budget: summary.outputTokenBudgetLabel,
+          })
+        : t("workspace.domainWorkbench.acceptancePlanBudgetOk", "未观察到预算耗尽")
+  const requirementLines = summary.requirements.map((requirement) => {
+    const status = domainAcceptanceRequirementStatusLabel(t, requirement)
+    return `- [${status}] ${requirement.label}：${requirement.detail}`
+  })
+  const gapLines =
+    gaps.length > 0
+      ? gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`)
+      : [t("workspace.domainWorkbench.acceptanceReviewNoGaps", "- 暂无验收缺口")]
+
+  return [
+    `# ${t("workspace.domainWorkbench.acceptanceTitle", "真实样本验收")}`,
+    "",
+    `${t("workspace.domainWorkbench.acceptancePlanStatus", "状态")}：${domainAcceptanceStatusLabel(t, summary)}`,
+    `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
+    `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
+    `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
+    `${t("workspace.domainWorkbench.acceptancePlanDrained", "已排空样本")}：${summary.drainedRuns}`,
+    `${t("workspace.domainWorkbench.acceptancePlanFreshness", "最近样本")}：${sampleFreshness}`,
+    `${t("workspace.domainWorkbench.acceptancePlanBudget", "输出预算")}：${budgetHealth}`,
+    `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
+    `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
+    "",
+    `## ${t("workspace.domainWorkbench.acceptancePlanRequirements", "验收必需项")}`,
+    ...requirementLines,
+    "",
+    `## ${t("workspace.domainWorkbench.acceptancePlanGaps", "验收缺口")}`,
+    ...gapLines,
+  ].join("\n")
+}
+
 function DomainAcceptanceCoverageCard({
   summary,
   creatingRequirementTaskKey,
@@ -3572,6 +3629,22 @@ function DomainAcceptanceCoverageCard({
   onCreateGapPlan?: (gaps: DomainAcceptanceGap[]) => void
 }) {
   const { t } = useTranslation()
+  const acceptanceReviewLabel = t("workspace.domainWorkbench.copyAcceptanceReview", "复制验收报告")
+  const copyAcceptanceReview = async () => {
+    try {
+      await navigator.clipboard.writeText(domainAcceptanceReviewMarkdown(t, summary, summary.gaps))
+      toast.success(t("workspace.domainWorkbench.acceptanceReviewCopied", "已复制验收报告"))
+    } catch (e) {
+      logger.error(
+        "ui",
+        "DomainAcceptanceCoverageCard",
+        "Copy acceptance review report failed",
+        e,
+      )
+      toast.error(t("workspace.domainWorkbench.acceptanceReviewCopyFailed", "复制验收报告失败"))
+    }
+  }
+
   return (
     <div className={cn("rounded-md border px-2.5 py-2", STATUS_TONE_CLASS[summary.tone])}>
       <div className="flex min-w-0 items-center gap-1.5">
@@ -3580,6 +3653,16 @@ function DomainAcceptanceCoverageCard({
           {t("workspace.domainWorkbench.acceptanceTitle", "真实样本验收")}
         </span>
         <StatusPill label={domainAcceptanceStatusLabel(t, summary)} tone={summary.tone} />
+        <IconTip label={acceptanceReviewLabel}>
+          <button
+            type="button"
+            aria-label={acceptanceReviewLabel}
+            onClick={() => void copyAcceptanceReview()}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/45 text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+        </IconTip>
         {summary.gaps.length > 1 && onCreateGapPlan ? (
           <button
             type="button"

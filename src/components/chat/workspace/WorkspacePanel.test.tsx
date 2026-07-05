@@ -2102,6 +2102,15 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("3 条")).toBeTruthy()
     expect(screen.getByText("长跑审计仍有事故需要收口。")).toBeTruthy()
 
+    fireEvent.click(screen.getByRole("button", { name: "复制验收报告" }))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("# 真实样本验收"))
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("预算健康：耗尽 1 次 · 10/10"))
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining("工作流输出预算已耗尽，需收口性能或上下文策略。"),
+      )
+    })
+
     const evidenceRequirement = screen.getByText("缺来源/草稿/决策证据")
     const evidenceRequirementRow = evidenceRequirement.parentElement
     expect(evidenceRequirementRow).toBeTruthy()
