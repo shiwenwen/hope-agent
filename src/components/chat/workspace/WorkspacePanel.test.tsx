@@ -2109,6 +2109,20 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(screen.getByRole("button", { name: "查看稳定性" }))
     expect(await screen.findByText("运行稳定性")).toBeTruthy()
     expect(screen.getByText("workflow_failed_residue")).toBeTruthy()
+    const operationalCheck = screen.getByText("workflow_failed_residue")
+    const operationalCheckRow = operationalCheck.parentElement
+    expect(operationalCheckRow).toBeTruthy()
+    fireEvent.click(
+      within(operationalCheckRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content:
+          "处理运行稳定性缺口：workflow_failed_residue（1）- A workflow run failed in the active window.",
+        activeForm: "正在处理运行稳定性缺口：workflow_failed_residue",
+      })
+    })
 
     fireEvent.click(screen.getByRole("button", { name: "查看长跑" }))
     expect(await screen.findByText("长跑审计")).toBeTruthy()

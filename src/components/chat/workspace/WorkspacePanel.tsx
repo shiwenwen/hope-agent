@@ -3800,6 +3800,7 @@ function DomainTaskWorkbenchSection({
 
         <div className="grid grid-cols-1 gap-2">
           <DomainOperationalGatePanel
+            sessionId={sessionId}
             report={operationalGate}
             loading={operationalGateLoading}
             error={operationalGateError}
@@ -6099,12 +6100,14 @@ function DomainQualitySection({
 }
 
 function DomainOperationalGatePanel({
+  sessionId,
   report,
   loading,
   error,
   disabled,
   onRefresh,
 }: {
+  sessionId?: string | null
   report: DomainOperationalGateReport | null
   loading: boolean
   error: string | null
@@ -6112,11 +6115,48 @@ function DomainOperationalGatePanel({
   onRefresh: () => Promise<DomainOperationalGateReport | null>
 }) {
   const { t } = useTranslation()
+  const [creatingCheckTaskKey, setCreatingCheckTaskKey] = useState<string | null>(null)
   const issueChecks = (report?.checks ?? []).filter(
     (check) => check.status !== "passed" && check.severity !== "advisory",
   )
   const summary = report?.summary
   const clean = report?.status === "passed"
+  const canCreateCheckTasks = Boolean(sessionId) && !disabled
+
+  const createCheckTask = async (
+    check: DomainOperationalGateReport["checks"][number],
+    index: number,
+  ) => {
+    if (!sessionId || disabled || creatingCheckTaskKey) return
+    const taskKey = `${index}:${check.name}`
+    setCreatingCheckTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainOperationalGate.checkTaskContent",
+          "处理运行稳定性缺口：{{name}}（{{actual}}）- {{detail}}",
+          {
+            name: check.name,
+            actual: check.actual,
+            detail: check.detail || check.expected,
+          },
+        ),
+        activeForm: t(
+          "workspace.domainOperationalGate.checkTaskActiveForm",
+          "正在处理运行稳定性缺口：{{name}}",
+          { name: check.name },
+        ),
+      })
+      toast.success(t("workspace.domainOperationalGate.checkTaskCreated", "已创建运行稳定性任务"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error("ui", "DomainOperationalGatePanel", "Create operational check task failed", e)
+      toast.error(message)
+    } finally {
+      setCreatingCheckTaskKey(null)
+    }
+  }
 
   return (
     <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
@@ -6200,24 +6240,42 @@ function DomainOperationalGatePanel({
         </div>
       ) : issueChecks.length > 0 ? (
         <div className="mt-2 space-y-1">
-          {issueChecks.slice(0, 3).map((check) => (
-            <div
-              key={check.name}
-              className={cn(
-                "rounded-md px-2 py-1.5 text-[11px]",
-                check.status === "failed"
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-              )}
-            >
-              <div className="flex min-w-0 items-center gap-1.5">
-                <CircleAlert className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
-                <span className="shrink-0 tabular-nums">{check.actual}</span>
+          {issueChecks.slice(0, 3).map((check, index) => {
+            const taskKey = `${index}:${check.name}`
+            return (
+              <div
+                key={check.name}
+                className={cn(
+                  "rounded-md px-2 py-1.5 text-[11px]",
+                  check.status === "failed"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <CircleAlert className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                  <span className="shrink-0 tabular-nums">{check.actual}</span>
+                  {canCreateCheckTasks ? (
+                    <button
+                      type="button"
+                      onClick={() => void createCheckTask(check, index)}
+                      disabled={Boolean(creatingCheckTaskKey)}
+                      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-current/20 bg-background/45 px-1.5 text-[10px] font-medium transition-colors hover:bg-background/75 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {creatingCheckTaskKey === taskKey ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      <span>{t("workspace.domainOperationalGate.createCheckTask", "转任务")}</span>
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-0.5 truncate opacity-85">{check.detail}</div>
               </div>
-              <div className="mt-0.5 truncate opacity-85">{check.detail}</div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : !loading ? (
         <EmptyHint>{t("workspace.domainOperationalGate.empty", "还没有运行稳定性结果")}</EmptyHint>
