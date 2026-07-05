@@ -3023,6 +3023,9 @@ type DomainAcceptanceCoverageSummary = {
   connectorE2eEvidence: number
   criticalIncidents: number
   warningIncidents: number
+  readinessPercent: number
+  requiredPassed: number
+  requiredTotal: number
   tone: StatusTone
   gaps: DomainAcceptanceGap[]
 }
@@ -3152,6 +3155,20 @@ function domainAcceptanceCoverageSummary(
   const sortedGaps = gaps.sort(
     (a, b) => domainAcceptanceGapRank(a.severity) - domainAcceptanceGapRank(b.severity),
   )
+  const requiredChecks = [
+    domains.size > 0,
+    args.evidence.length > 0,
+    drainedRuns > 0,
+    controlRecords > 0 && criticalIncidents === 0 && warningIncidents === 0,
+  ]
+  if (connectorE2eHasScope) {
+    requiredChecks.push(connectorE2eEvidence > 0 && args.connectorE2eGate?.status === "passed")
+  }
+  const requiredPassed = requiredChecks.filter(Boolean).length
+  const requiredTotal = requiredChecks.length
+  const requiredPercent = requiredTotal > 0 ? (requiredPassed / requiredTotal) * 90 : 0
+  const diversityBonus = domains.size >= 2 ? 10 : 0
+  const readinessPercent = Math.max(0, Math.min(100, Math.round(requiredPercent + diversityBonus)))
 
   const tone: StatusTone = hasFailedGate || criticalIncidents > 0
     ? "danger"
@@ -3168,9 +3185,20 @@ function domainAcceptanceCoverageSummary(
     connectorE2eEvidence,
     criticalIncidents,
     warningIncidents,
+    readinessPercent,
+    requiredPassed,
+    requiredTotal,
     tone,
     gaps: sortedGaps.slice(0, 3),
   }
+}
+
+function domainAcceptanceProgressBarClass(tone: StatusTone): string {
+  if (tone === "danger") return "bg-destructive"
+  if (tone === "warn") return "bg-amber-500"
+  if (tone === "good") return "bg-emerald-500"
+  if (tone === "info") return "bg-blue-500"
+  return "bg-muted-foreground/50"
 }
 
 function domainAcceptanceGapRank(severity: DomainAcceptanceGapSeverity): number {
@@ -3212,6 +3240,7 @@ function domainAcceptancePlanTaskContent(
   const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
   const metrics = [
     `${t("workspace.domainWorkbench.acceptancePlanStatus", "状态")}：${domainAcceptanceStatusLabel(t, summary)}`,
+    `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
     `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
     `${t("workspace.domainWorkbench.acceptancePlanDrained", "已排空样本")}：${summary.drainedRuns}`,
@@ -3288,6 +3317,25 @@ function DomainAcceptanceCoverageCard({
             <span>{t("workspace.domainWorkbench.createAcceptancePlan", "采样清单")}</span>
           </button>
         ) : null}
+      </div>
+      <div className="mt-2 space-y-1">
+        <div className="flex min-w-0 items-center justify-between gap-2 text-[10px]">
+          <span className="truncate opacity-80">
+            {t("workspace.domainWorkbench.acceptanceProgress", "验收进度")}
+          </span>
+          <span className="shrink-0 font-mono tabular-nums">
+            {summary.readinessPercent}% · {summary.requiredPassed}/{summary.requiredTotal}
+          </span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-background/55">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-300",
+              domainAcceptanceProgressBarClass(summary.tone),
+            )}
+            style={{ width: `${summary.readinessPercent}%` }}
+          />
+        </div>
       </div>
       <div className="mt-2 grid grid-cols-4 gap-1.5">
         <DomainWorkbenchMetric

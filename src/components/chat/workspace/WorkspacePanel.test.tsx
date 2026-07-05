@@ -2090,6 +2090,7 @@ describe("WorkspacePanel workflow section", () => {
     expect((await screen.findAllByText("需处理")).length).toBeGreaterThan(0)
     expect(screen.getByText("真实样本验收")).toBeTruthy()
     expect(screen.getByText("样本有事故")).toBeTruthy()
+    expect(screen.getByText("45% · 2/4")).toBeTruthy()
     expect(screen.getByText("3 条")).toBeTruthy()
     expect(screen.getByText("长跑审计仍有事故需要收口。")).toBeTruthy()
 
@@ -2098,7 +2099,7 @@ describe("WorkspacePanel workflow section", () => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
         content:
-          "补齐真实样本验收清单：\n\n当前指标：\n- 状态：样本有事故\n- 领域：research\n- 控制面记录：3\n- 已排空样本：2\n- 连接器 E2E evidence：0\n- 事故：critical 1 / warning 0\n\n验收缺口：\n- [阻塞] 长跑审计仍有事故需要收口。\n- [待补] 缺少来源、草稿、复核或用户决策证据。\n- [扩展] 继续补其它通用领域样本，避免只证明单一场景。\n\n采样动作：\n- 补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。\n- 至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。\n- 涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录 E2E evidence。\n- 处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
+          "补齐真实样本验收清单：\n\n当前指标：\n- 状态：样本有事故\n- 验收进度：45% (2/4)\n- 领域：research\n- 控制面记录：3\n- 已排空样本：2\n- 连接器 E2E evidence：0\n- 事故：critical 1 / warning 0\n\n验收缺口：\n- [阻塞] 长跑审计仍有事故需要收口。\n- [待补] 缺少来源、草稿、复核或用户决策证据。\n- [扩展] 继续补其它通用领域样本，避免只证明单一场景。\n\n采样动作：\n- 补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。\n- 至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。\n- 涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录 E2E evidence。\n- 处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
         activeForm: "正在补齐真实样本验收清单",
       })
     })
