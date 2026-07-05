@@ -155,7 +155,27 @@ git diff --check
 5. GUI 是否足够让普通用户知道“现在目标是什么、还差什么、下一步点哪里”。
 6. 性能风险是否被看见：大 Workspace、长 trace、大 evidence、refresh storm 是否还有后续计划。
 
-## 8. 关闭判定
+## 8. Reviewer 决策表
+
+Reviewer 只需要在以下三种结论中选一种，并列出必须处理的问题。
+
+| 结论 | 何时选择 | 后续动作 |
+| --- | --- | --- |
+| `accept_v1_close_after_user_ack` | 认可 deterministic substitute、source-level audit 和本轮 targeted tests 足以代表当前主线第一版完成；真实 Soak / connector / GUI profile 进入后续池。 | 用户确认后可关闭当前 goal，后续增强从 roadmap 池单独排期。 |
+| `needs_strict_evidence_before_close` | 不接受替代证据，要求产品级证明。 | 只补真实 / 跨窗口 Soak、真实或沙箱 connector E2E、GUI smoke/profile，不新增功能面。 |
+| `reject_due_to_blocker` | 发现 P0/P1 correctness、permission、安全、长任务稳定性或核心 UX 阻塞问题。 | 先修 blocker，补对应测试 / 文档，再重新 review。 |
+
+Reviewer 复核输出建议格式：
+
+```text
+Decision: accept_v1_close_after_user_ack | needs_strict_evidence_before_close | reject_due_to_blocker
+P0/P1 blockers: none | <list>
+Accepted substitutes: deterministic soak yes/no, deterministic connector yes/no, source-level GUI audit yes/no
+Required before close: none | <real soak / connector E2E / GUI smoke/profile / fixes>
+Notes:
+```
+
+## 9. 关闭判定
 
 当前 packet 支持的结论：
 
