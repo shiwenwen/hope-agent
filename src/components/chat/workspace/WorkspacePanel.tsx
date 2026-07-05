@@ -3868,6 +3868,66 @@ function domainAcceptanceReviewProtocolLines(
   ].map((line) => `- ${line}`)
 }
 
+function domainAcceptanceSnapshotId(
+  summary: DomainAcceptanceCoverageSummary,
+  context?: DomainAcceptanceReviewContext,
+): string {
+  const gateStatuses = context
+    ? [
+        context.exportGuard?.status ?? "missing",
+        context.connectorGuard?.status ?? "missing",
+        context.connectorE2eGate?.status ?? "missing",
+        context.operationalGate?.status ?? "missing",
+        context.soakReport?.status ?? "missing",
+      ].join("|")
+    : "summary"
+  const evidenceIds = context
+    ? context.evidence
+        .slice(0, 8)
+        .map((item) => item.id)
+        .filter(Boolean)
+        .join("|") || "none"
+    : "summary"
+  const soakSnapshot = context?.soakReport
+    ? [
+        context.soakReport.status,
+        context.soakReport.windowDays,
+        context.soakReport.incidents.length,
+        context.soakReport.timeline.length,
+        context.soakReport.summary.totalRecords,
+        context.soakReport.summary.connectorE2eEvidence,
+      ].join("|")
+    : "missing"
+  const parts = [
+    `domains=${summary.domains.join(",")}`,
+    `records=${summary.controlRecords}`,
+    `drained=${summary.drainedRuns}`,
+    `connector=${summary.connectorE2eEvidence}`,
+    `critical=${summary.criticalIncidents}`,
+    `warning=${summary.warningIncidents}`,
+    `freshness=${summary.latestActivityAgeSecs ?? "missing"}`,
+    `freshnessMax=${summary.freshnessMaxAgeSecs}`,
+    `budget=${summary.budgetExhaustedEvents}:${summary.outputTokenBudgetLabel ?? "-"}`,
+    `progress=${summary.requiredPassed}/${summary.requiredTotal}:${summary.readinessPercent}`,
+    `requirements=${summary.requirements
+      .map((requirement) => `${requirement.key}:${requirement.passed ? 1 : 0}:${requirement.tone}`)
+      .join("|")}`,
+    `lanes=${summary.sampleLanes
+      .map((lane) => `${lane.key}:${lane.passed ? 1 : 0}:${lane.tone}`)
+      .join("|")}`,
+    `gaps=${summary.gaps.map((gap) => `${gap.key}:${gap.severity}`).join("|")}`,
+    `gates=${gateStatuses}`,
+    `evidence=${evidenceIds}`,
+    `soak=${soakSnapshot}`,
+  ]
+  let hash = 0x811c9dc5
+  for (const char of parts.join("\n")) {
+    hash ^= char.charCodeAt(0)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return `acc-${(hash >>> 0).toString(16).padStart(8, "0")}`
+}
+
 function domainAcceptanceAuditIndexLines(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
@@ -3885,6 +3945,9 @@ function domainAcceptanceAuditIndexLines(
       ? `${summary.budgetExhaustedEvents} exhausted · ${summary.outputTokenBudgetLabel}`
       : `${summary.budgetExhaustedEvents} exhausted`
   const lines = [
+    t("workspace.domainWorkbench.acceptanceAuditSnapshot", "快照 ID：{{id}}", {
+      id: domainAcceptanceSnapshotId(summary, context),
+    }),
     t("workspace.domainWorkbench.acceptanceAuditDomains", "领域：{{domains}}", { domains }),
     t(
       "workspace.domainWorkbench.acceptanceAuditControlRecords",
