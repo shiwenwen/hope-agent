@@ -167,8 +167,38 @@
     "reload": "Reload",
     "systemNone": "No design system",
     "exportHtml": "Export HTML",
+    "exportPng": "PNG image",
+    "exportPdf": "PDF",
+    "exportPptx": "PPTX",
     "critique": "Quality review",
     "critiqueScore": "Quality",
+    "history": "Version history",
+    "restore": "Restore",
+    "noVersions": "No versions yet",
+    "version": "Version",
+    "extractSystem": "Extract brand…",
+    "proposeDirections": "Generate design directions…",
+    "extract": "Extract",
+    "extractedSystem": "Extracted design system",
+    "systemNamePlaceholder": "Design system name",
+    "generate": "Generate",
+    "newImage": "Generate image",
+    "imagePromptPlaceholder": "Describe the image you want…",
+    "directionBriefPlaceholder": "Describe your product / brand…",
+    "useThisDirection": "Use this direction →",
+    "editMode": "Visual tune: click an element to edit",
+    "from": {
+      "brief": "Description",
+      "url": "URL",
+      "image": "Screenshot",
+      "codebase": "Codebase"
+    },
+    "extractHint": {
+      "brief": "Describe the brand's mood, colors, and style…",
+      "url": "https://example.com — fetches the page's HTML to distill tokens",
+      "image": "Absolute path to a screenshot / design image",
+      "codebase": "Absolute path to a local project (reads its CSS / theme)"
+    },
     "dim": {
       "brand": "Brand",
       "accessibility": "A11y",
@@ -176,7 +206,6 @@
       "usability": "Usability",
       "performance": "Performance"
     },
-    "editMode": "Visual tune: click an element to edit",
     "insp": {
       "text": "Text",
       "color": "Color",
@@ -212,7 +241,8 @@
       "poster": "Poster",
       "document": "Document",
       "email": "Email",
-      "image": "Image"
+      "image": "Image",
+      "motion": "Motion"
     }
   },
   "channels": {

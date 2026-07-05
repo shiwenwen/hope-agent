@@ -166,17 +166,46 @@
     "zoomFit": "适应",
     "reload": "刷新",
     "systemNone": "无设计系统",
-    "exportHtml": "导出 HTML",
+    "exportHtml": "HTML",
+    "exportPng": "PNG 图片",
+    "exportPdf": "PDF",
+    "exportPptx": "PPTX",
     "critique": "质量评审",
     "critiqueScore": "质量评分",
+    "history": "版本历史",
+    "restore": "恢复",
+    "noVersions": "暂无版本",
+    "version": "版本",
+    "extractSystem": "反向提取品牌…",
+    "proposeDirections": "生成设计方向…",
+    "extract": "提取",
+    "extractedSystem": "提取的设计系统",
+    "systemNamePlaceholder": "设计系统名称",
+    "generate": "生成",
+    "newImage": "生成图像",
+    "imagePromptPlaceholder": "描述你想要的图像…",
+    "directionBriefPlaceholder": "描述你的产品 / 品牌…",
+    "useThisDirection": "采用此方向 →",
+    "editMode": "可视化微调：点击元素编辑",
+    "from": {
+      "brief": "描述",
+      "url": "网址",
+      "image": "截图",
+      "codebase": "代码库"
+    },
+    "extractHint": {
+      "brief": "描述品牌的气质、配色与风格…",
+      "url": "https://example.com —— 抓取页面 HTML 提炼设计令牌",
+      "image": "截图 / 设计图的绝对路径",
+      "codebase": "本地工程的绝对路径（读取其 CSS / 主题）"
+    },
     "dim": {
       "brand": "品牌契合",
       "accessibility": "可访问性",
-      "hierarchy": "视觉层次",
+      "hierarchy": "层次",
       "usability": "可用性",
       "performance": "性能"
     },
-    "editMode": "可视化微调：点选元素改属性",
     "insp": {
       "text": "文本",
       "color": "颜色",
@@ -192,13 +221,13 @@
       "radius": "圆角"
     },
     "settings": {
-      "desc": "设计空间：生成、微调、导出可交付的设计产物。",
+      "desc": "设计空间：生成、微调并导出可交付的设计产物。",
       "enabled": "启用设计空间",
       "autoShow": "生成后自动聚焦预览",
       "autoCritique": "定稿前自动跑质量评审",
-      "autoCritiqueDesc": "对产物做 5 维质量评审（会产生一次模型调用成本）。",
+      "autoCritiqueDesc": "对产物做 5 维质量评审（会产生一次模型调用）。",
       "selfCheck": "反 AI-slop 自查",
-      "maxVersions": "单产物保留版本数",
+      "maxVersions": "每个产物保留的版本数",
       "panelWidth": "面板默认宽度"
     },
     "deleteTitle": "确认删除？",
@@ -212,7 +241,8 @@
       "poster": "海报",
       "document": "文档",
       "email": "邮件",
-      "image": "图像"
+      "image": "图像",
+      "motion": "动效"
     }
   },
   "channels": {
