@@ -6125,6 +6125,10 @@ function DomainOperationalGatePanel({
   const recommendedSteps = (report?.recommendedNextSteps ?? []).filter(Boolean).slice(0, 2)
   const summary = report?.summary
   const clean = report?.status === "passed"
+  const maxActiveWorkAge =
+    summary?.maxActiveWorkAgeSecs != null
+      ? formatLoopDuration(Math.max(1, Math.round(summary.maxActiveWorkAgeSecs)))
+      : "-"
   const canCreateCheckTasks = Boolean(sessionId) && !disabled
   const canCreateRecommendationTasks = Boolean(sessionId) && !disabled
 
@@ -6228,7 +6232,7 @@ function DomainOperationalGatePanel({
       </div>
 
       {summary ? (
-        <div className="mt-2 grid grid-cols-4 gap-1.5">
+        <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-5">
           {[
             [
               t("workspace.domainOperationalGate.workflows", "工作流"),
@@ -6249,6 +6253,11 @@ function DomainOperationalGatePanel({
               t("workspace.domainOperationalGate.campaigns", "评测"),
               summary.activeCampaigns,
               summary.activeCampaigns > 0 ? "warn" : "muted",
+            ],
+            [
+              t("workspace.domainOperationalGate.maxActiveAge", "最长"),
+              maxActiveWorkAge,
+              summary.maxActiveWorkAgeSecs != null ? "warn" : "muted",
             ],
           ].map(([label, value, tone]) => (
             <div

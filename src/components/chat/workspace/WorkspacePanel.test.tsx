@@ -774,7 +774,7 @@ function domainOperationalGateReport(
       failedWorkflowRuns: 1,
       blockedWorkflowRuns: 0,
       cancelledWorkflowRuns: 0,
-      activeWorkflowRuns: 0,
+      activeWorkflowRuns: 1,
       pausedWorkflowRuns: 0,
       awaitingApprovalWorkflowRuns: 0,
       loopSchedules: 1,
@@ -791,6 +791,7 @@ function domainOperationalGateReport(
       cancelledCampaignItems: 0,
       interruptedCampaignItems: 0,
       latestActivityAt: "2026-01-01T00:04:00Z",
+      maxActiveWorkAgeSecs: 120,
     },
     checks: [
       {
@@ -2116,6 +2117,7 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(screen.getByRole("button", { name: "查看稳定性" }))
     expect(await screen.findByText("运行稳定性")).toBeTruthy()
     expect(screen.getByText("workflow_failed_residue")).toBeTruthy()
+    expect(screen.getAllByText("最长").length).toBeGreaterThan(0)
     expect(screen.getByText("稳定性建议")).toBeTruthy()
     const operationalRecommendation = screen
       .getAllByText("Open the failed workflow and repair it.")
@@ -2156,7 +2158,7 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("最近时间线")).toBeTruthy()
     expect(screen.getAllByText("Workflow failed").length).toBeGreaterThan(1)
     expect(screen.getAllByText("4m").length).toBeGreaterThan(1)
-    expect(screen.getByText("2m")).toBeTruthy()
+    expect(screen.getAllByText("2m").length).toBeGreaterThan(0)
     expect(screen.getByText("干预")).toBeTruthy()
     expect(screen.getByText("Token")).toBeTruthy()
     expect(screen.getByText("10/10")).toBeTruthy()

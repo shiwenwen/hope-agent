@@ -3028,7 +3028,7 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
       </div>
       {report ? (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
             <MetricPill
               label="WF"
               value={`${report.summary.completedWorkflowRuns}/${report.summary.workflowRuns}`}
@@ -3058,6 +3058,11 @@ function DomainOperationalGatePanel({ report }: { report: DomainOperationalGateR
               label="RUN"
               value={report.summary.activeCampaigns}
               tone={report.summary.activeCampaigns > 0 ? "warn" : "muted"}
+            />
+            <MetricPill
+              label="AGE"
+              value={formatSecs(report.summary.maxActiveWorkAgeSecs)}
+              tone={report.summary.maxActiveWorkAgeSecs != null ? "warn" : "muted"}
             />
           </div>
           {attentionChecks.length ? (

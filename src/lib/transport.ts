@@ -1597,6 +1597,7 @@ export interface DomainOperationalGateSummary {
   cancelledCampaignItems: number;
   interruptedCampaignItems: number;
   latestActivityAt?: string | null;
+  maxActiveWorkAgeSecs?: number | null;
 }
 
 export interface DomainOperationalGateCheck {

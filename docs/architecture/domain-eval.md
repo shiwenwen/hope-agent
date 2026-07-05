@@ -331,7 +331,7 @@ Operational checks：
 | --- | --- |
 | `workflow_sample` | 至少有 durable workflow run 证据；缺样本为 `insufficient_data`。 |
 | `workflow_failures` | failed / blocked / cancelled workflow run 必须低于阈值，默认 0。 |
-| `workflow_active_drain` | running / recovering / awaiting_user / awaiting_approval / paused workflow run 默认不算失败，但让 gate 保持 `insufficient_data`，直到完成、暂停处理或取消。 |
+| `workflow_active_drain` | running / recovering / awaiting_user / awaiting_approval / paused workflow run 默认不算失败，但让 gate 保持 `insufficient_data`，直到完成、暂停处理或取消；summary 同时给出 `maxActiveWorkAgeSecs`，让 UI 能显示最长未排空时长。 |
 | `loop_sample` | loop run 样本默认可选；设置 `minLoopRuns` 后可要求 recurring long-task 证据。 |
 | `loop_failures` | failed / cancelled loop tick 必须低于阈值，默认 0。 |
 | `campaign_active_drain` | running / queued / cancel_requested campaign 默认不算失败，但让 gate 保持 `insufficient_data`。 |
@@ -431,7 +431,7 @@ Dashboard Learning Tab 新增「General domain quality」区块：
 - 展示「Domain campaigns」卡片：可运行 deterministic trace pack，也可选择 provider/model 运行 external agent campaign；可查看 durable campaign / item 状态、item pass rate、平均分、check 数、fixture/eval run 关联；failed / interrupted / cancelled campaign 可 retry，queued / running campaign 可 cancel，含失败 item 且有 session scope 的 campaign 可显式生成 learning drafts。
 - 展示「Domain model leaderboard」：按模型 / execution 聚合最近 campaign item，显示 rank、平均分、item 通过数、trace evidence 数和 warning。
 - 展示「Domain readiness」卡片：直接调用 `evaluate_domain_readiness_gate`，显示总体 readiness 三态、quality/eval/campaign/leaderboard/learning proposal 核心计数、阻塞 check 和 recommended next steps。
-- 展示「Domain operations」卡片：直接调用 `evaluate_domain_operational_gate`，显示 workflow / loop / campaign 的完成、活跃、失败残留和 recommended next steps。
+- 展示「Domain operations」卡片：直接调用 `evaluate_domain_operational_gate`，显示 workflow / loop / campaign 的完成、活跃、最长未排空时长、失败残留和 recommended next steps。
 - 展示「Domain soak report」卡片：直接调用 `generate_domain_soak_report`，显示 workflow / loop / campaign / connector evidence 样本量、critical/warning incidents、最大 drain 时长、最近 timeline 和 recommended next steps。
 - Workspace「通用任务工作台」也复用 `evaluate_domain_operational_gate({ sessionId, windowDays: 14 })`、`generate_domain_soak_report({ sessionId, windowDays: 14, maxItems: 8 })` 与 `evaluate_domain_connector_e2e_gate({ sessionId })`，作为当前会话的运行稳定性、长跑审计和连接器端到端验收卡片；长跑审计会显示 workflow/loop/campaign/connector 样本、已闭环/未闭环审批等待、owner control intervention、恢复、最近 timeline、recommended next steps 和 output-token budget 消耗/耗尽信号。它只读并刷新状态，不自动 approve / retry / cancel / run loop，也不自动执行外部动作。
 - Dashboard 展示全局「Connector E2E」卡片：直接调用 `evaluate_domain_connector_e2e_gate`，显示连接器输入、草稿、批准、执行结果、执行后复核、回滚和下层 guard 状态；global scope 只做聚合，不伪装成具体 session/goal 的动作授权。

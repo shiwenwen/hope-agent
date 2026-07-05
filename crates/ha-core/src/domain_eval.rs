@@ -1078,6 +1078,8 @@ pub struct DomainOperationalGateSummary {
     pub interrupted_campaign_items: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_activity_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_active_work_age_secs: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3988,9 +3990,10 @@ impl SessionDB {
         scope: &DomainGateScope,
     ) -> Result<DomainOperationalGateSummary> {
         let mut summary = DomainOperationalGateSummary::default();
-        self.fill_domain_operational_workflows(scope, &mut summary)?;
-        self.fill_domain_operational_loops(scope, &mut summary)?;
-        self.fill_domain_operational_campaigns(scope, &mut summary)?;
+        let now = now_rfc3339();
+        self.fill_domain_operational_workflows(scope, &mut summary, &now)?;
+        self.fill_domain_operational_loops(scope, &mut summary, &now)?;
+        self.fill_domain_operational_campaigns(scope, &mut summary, &now)?;
         Ok(summary)
     }
 
@@ -3998,6 +4001,7 @@ impl SessionDB {
         &self,
         scope: &DomainGateScope,
         summary: &mut DomainOperationalGateSummary,
+        now: &str,
     ) -> Result<()> {
         let mut clauses = vec![
             "wr.created_at >= ?".to_string(),
@@ -4017,7 +4021,7 @@ impl SessionDB {
             params.push(domain.clone());
         }
         let sql = format!(
-            "SELECT wr.state, wr.updated_at
+            "SELECT wr.state, wr.updated_at, wr.created_at
              FROM workflow_runs wr
              JOIN sessions s ON s.id = wr.session_id
              LEFT JOIN goals g ON g.id = wr.goal_id
@@ -4028,11 +4032,15 @@ impl SessionDB {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         };
-        for (state, updated_at) in rows {
+        for (state, updated_at, created_at) in rows {
             summary.workflow_runs += 1;
             max_timestamp(&mut summary.latest_activity_at, updated_at);
             match state.as_str() {
@@ -4043,13 +4051,16 @@ impl SessionDB {
                 "paused" => {
                     summary.paused_workflow_runs += 1;
                     summary.active_workflow_runs += 1;
+                    update_max_active_work_age(summary, &created_at, now);
                 }
                 "awaiting_approval" => {
                     summary.awaiting_approval_workflow_runs += 1;
                     summary.active_workflow_runs += 1;
+                    update_max_active_work_age(summary, &created_at, now);
                 }
                 "running" | "recovering" | "awaiting_user" => {
                     summary.active_workflow_runs += 1;
+                    update_max_active_work_age(summary, &created_at, now);
                 }
                 _ => {}
             }
@@ -4061,6 +4072,7 @@ impl SessionDB {
         &self,
         scope: &DomainGateScope,
         summary: &mut DomainOperationalGateSummary,
+        now: &str,
     ) -> Result<()> {
         let mut schedule_clauses = vec![
             "ls.created_at >= ?".to_string(),
@@ -4119,7 +4131,7 @@ impl SessionDB {
             run_params.push(domain.clone());
         }
         let run_sql = format!(
-            "SELECT lr.state, COALESCE(lr.finished_at, lr.started_at)
+            "SELECT lr.state, COALESCE(lr.finished_at, lr.started_at), lr.started_at
              FROM loop_runs lr
              JOIN loop_schedules ls ON ls.id = lr.loop_id
              JOIN sessions s ON s.id = lr.session_id
@@ -4131,17 +4143,24 @@ impl SessionDB {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             let mut stmt = conn.prepare(&run_sql)?;
             let rows = stmt.query_map(params_from_iter(run_params.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         };
-        for (state, activity_at) in runs {
+        for (state, activity_at, started_at) in runs {
             summary.loop_runs += 1;
             max_timestamp(&mut summary.latest_activity_at, activity_at);
             match state.as_str() {
                 "succeeded" => summary.succeeded_loop_runs += 1,
                 "failed" | "cancelled" => summary.failed_loop_runs += 1,
-                "running" | "queued" | "injected" => summary.active_loop_runs += 1,
+                "running" | "queued" | "injected" => {
+                    summary.active_loop_runs += 1;
+                    update_max_active_work_age(summary, &started_at, now);
+                }
                 _ => {}
             }
         }
@@ -4152,6 +4171,7 @@ impl SessionDB {
         &self,
         scope: &DomainGateScope,
         summary: &mut DomainOperationalGateSummary,
+        now: &str,
     ) -> Result<()> {
         let mut clauses = vec!["c.created_at >= ?".to_string()];
         let mut params = vec![scope.since.clone()];
@@ -4168,7 +4188,7 @@ impl SessionDB {
             params.push(domain.clone());
         }
         let sql = format!(
-            "SELECT c.id, c.status, c.updated_at, i.id, i.status
+            "SELECT c.id, c.status, c.updated_at, c.created_at, i.id, i.status
              FROM domain_eval_campaigns c
              LEFT JOIN domain_eval_campaign_items i ON i.campaign_id = c.id
              WHERE {}",
@@ -4182,14 +4202,15 @@ impl SessionDB {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         };
         let mut campaign_ids = BTreeSet::new();
-        for (campaign_id, campaign_status, updated_at, item_id, item_status) in rows {
+        for (campaign_id, campaign_status, updated_at, created_at, item_id, item_status) in rows {
             if campaign_ids.insert(campaign_id) {
                 summary.campaigns += 1;
                 max_timestamp(&mut summary.latest_activity_at, updated_at);
@@ -4198,6 +4219,7 @@ impl SessionDB {
                     "queued" | "running" | "cancel_requested"
                 ) {
                     summary.active_campaigns += 1;
+                    update_max_active_work_age(summary, &created_at, now);
                 }
             }
             let Some(item_status) = item_status else {
@@ -7436,6 +7458,22 @@ fn average_secs(values: &[i64]) -> Option<f64> {
     Some((average * 10.0).round() / 10.0)
 }
 
+fn update_max_active_work_age(
+    summary: &mut DomainOperationalGateSummary,
+    started_at: &str,
+    now: &str,
+) {
+    let Some(age) = timestamp_delta_secs(started_at, now) else {
+        return;
+    };
+    if summary
+        .max_active_work_age_secs
+        .map_or(true, |current| age > current)
+    {
+        summary.max_active_work_age_secs = Some(age);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn push_soak_incident(
     incidents: &mut Vec<DomainSoakIncident>,
@@ -8422,6 +8460,62 @@ mod tests {
             .blockers
             .iter()
             .any(|item| item == "campaign_failures"));
+    }
+
+    #[test]
+    fn domain_operational_gate_tracks_active_work_age() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("operational-gate-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE workflow_runs
+                    SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-120 seconds')
+                  WHERE id = ?1",
+                params![run.id],
+            )
+            .unwrap();
+        }
+
+        let report = db
+            .evaluate_domain_operational_gate(DomainOperationalGateInput {
+                session_id: Some(session.id),
+                domain: Some("research".to_string()),
+                window_days: Some(1),
+                min_workflow_runs: Some(1),
+                min_loop_runs: Some(0),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "insufficient_data", "{report:?}");
+        assert_eq!(report.summary.active_workflow_runs, 1);
+        let age = report.summary.max_active_work_age_secs.unwrap();
+        assert!(
+            (115..=125).contains(&age),
+            "unexpected active work age: {age}"
+        );
+        assert!(report
+            .blockers
+            .iter()
+            .any(|item| item == "workflow_active_drain"));
     }
 
     #[test]
