@@ -2170,7 +2170,7 @@ describe("WorkspacePanel workflow section", () => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
         content:
-          "补齐真实样本验收跑道：Campaign 样本（缺通过的 Campaign item）。跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。",
+          "补齐真实样本验收跑道：Campaign 样本\n\n当前状态：\n- 缺通过的 Campaign item\n\n采样动作：\n- 跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。\n\n需要记录的证据：\n- Campaign item 使用 deterministic trace pack 或真实 agent 样本。\n- 至少一个 item passed，失败 item 有分类和 retry / cancel 证据。\n- 保留 campaign summary，能追溯输入、判断标准和输出。\n\n完成后刷新：\n- 刷新运行稳定性 Gate。\n- 刷新长跑审计 Soak Report。\n- 重新复制真实样本验收报告。",
         activeForm: "正在补齐真实样本验收跑道",
       })
     })

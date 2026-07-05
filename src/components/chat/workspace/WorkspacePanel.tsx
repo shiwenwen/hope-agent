@@ -3051,6 +3051,8 @@ type DomainAcceptanceSampleLane = {
   passed: boolean
   tone: StatusTone
   action: string
+  evidence: string[]
+  refreshTargets: string[]
 }
 
 type DomainAcceptanceGapSeverity = "danger" | "warn" | "info"
@@ -3437,6 +3439,25 @@ function domainAcceptanceCoverageSummary(
         "workspace.domainWorkbench.acceptanceLaneWorkflowAction",
         "跑一个领域 Workflow 并等待排空，再刷新运行稳定性和长跑审计。",
       ),
+      evidence: [
+        t(
+          "workspace.domainWorkbench.acceptanceLaneWorkflowEvidenceTerminal",
+          "WorkflowRun 已进入 completed / failed / blocked / cancelled 终态，不能只看创建成功。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneWorkflowEvidenceTrace",
+          "Workflow trace、validation/review 结果或 domain evidence 能从工作台复核。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneWorkflowEvidenceRecovery",
+          "若失败，保留失败分类、恢复动作和下一轮 rerun 结果。",
+        ),
+      ],
+      refreshTargets: [
+        t("workspace.domainWorkbench.acceptanceLaneRefreshOperational", "刷新运行稳定性 Gate。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshSoak", "刷新长跑审计 Soak Report。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshReport", "重新复制真实样本验收报告。"),
+      ],
     },
     {
       key: "loop",
@@ -3454,6 +3475,25 @@ function domainAcceptanceCoverageSummary(
         "workspace.domainWorkbench.acceptanceLaneLoopAction",
         "创建一个短间隔领域 Loop，确认至少一次 tick 成功并关联 Workflow run。",
       ),
+      evidence: [
+        t(
+          "workspace.domainWorkbench.acceptanceLaneLoopEvidenceGoal",
+          "Loop 绑定 active Goal 或 domain template，tick 不是孤立定时器。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneLoopEvidenceTick",
+          "至少一个 tick succeeded，并关联 workflowRunId 或明确说明无需 Workflow。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneLoopEvidenceTrace",
+          "Loop trace 中能看到策略、退出条件和下一步决策。",
+        ),
+      ],
+      refreshTargets: [
+        t("workspace.domainWorkbench.acceptanceLaneRefreshOperational", "刷新运行稳定性 Gate。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshSoak", "刷新长跑审计 Soak Report。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshReport", "重新复制真实样本验收报告。"),
+      ],
     },
     {
       key: "campaign",
@@ -3472,6 +3512,25 @@ function domainAcceptanceCoverageSummary(
         "workspace.domainWorkbench.acceptanceLaneCampaignAction",
         "跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。",
       ),
+      evidence: [
+        t(
+          "workspace.domainWorkbench.acceptanceLaneCampaignEvidenceSample",
+          "Campaign item 使用 deterministic trace pack 或真实 agent 样本。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneCampaignEvidenceResult",
+          "至少一个 item passed，失败 item 有分类和 retry / cancel 证据。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneCampaignEvidenceTrace",
+          "保留 campaign summary，能追溯输入、判断标准和输出。",
+        ),
+      ],
+      refreshTargets: [
+        t("workspace.domainWorkbench.acceptanceLaneRefreshOperational", "刷新运行稳定性 Gate。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshSoak", "刷新长跑审计 Soak Report。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshReport", "重新复制真实样本验收报告。"),
+      ],
     },
     {
       key: "connector-e2e",
@@ -3499,6 +3558,25 @@ function domainAcceptanceCoverageSummary(
         "workspace.domainWorkbench.acceptanceLaneConnectorAction",
         "用测试账号完成读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明，并记录 E2E evidence。",
       ),
+      evidence: [
+        t(
+          "workspace.domainWorkbench.acceptanceLaneConnectorEvidenceAccount",
+          "使用测试账号或沙箱数据，避免真实用户生产账号。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneConnectorEvidenceFlow",
+          "记录读取上下文、草稿、用户批准、执行、执行后读回/复核。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneConnectorEvidenceAudit",
+          "记录 connector_action_executed 与 connector_action_verified evidence；失败时保留回滚说明。",
+        ),
+      ],
+      refreshTargets: [
+        t("workspace.domainWorkbench.acceptanceLaneRefreshConnector", "刷新连接器 E2E Gate。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshOperational", "刷新运行稳定性 Gate。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshReport", "重新复制真实样本验收报告。"),
+      ],
     },
     {
       key: "cross-domain",
@@ -3517,6 +3595,25 @@ function domainAcceptanceCoverageSummary(
         "workspace.domainWorkbench.acceptanceLaneCrossDomainAction",
         "补一个不同领域样本，例如写作、数据分析、会议准备、知识整理、Inbox 或项目运营。",
       ),
+      evidence: [
+        t(
+          "workspace.domainWorkbench.acceptanceLaneCrossDomainEvidenceDomain",
+          "选择当前会话之外的另一个通用领域，例如写作、数据分析、会议准备、知识整理、Inbox 或项目运营。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneCrossDomainEvidenceTemplates",
+          "确认 Goal、Workflow、Context Retrieval、Domain Quality 均读取到对应领域模板。",
+        ),
+        t(
+          "workspace.domainWorkbench.acceptanceLaneCrossDomainEvidenceGeneral",
+          "保留一条完整 evidence 链，证明不是只靠 coding 场景通过。",
+        ),
+      ],
+      refreshTargets: [
+        t("workspace.domainWorkbench.acceptanceLaneRefreshCoverage", "刷新真实样本验收卡片。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshReport", "重新复制真实样本验收报告。"),
+        t("workspace.domainWorkbench.acceptanceLaneRefreshReview", "更新给人工 / Claude Code / PR review 的验收包。"),
+      ],
     },
   ]
   const requiredChecks = requirements.map((requirement) => requirement.passed)
@@ -3580,6 +3677,31 @@ function domainAcceptanceSampleLaneStatusLabel(
   if (lane.tone === "danger") return t("workspace.domainWorkbench.acceptanceReqBlocked", "阻塞")
   if (lane.tone === "info") return t("workspace.domainWorkbench.acceptanceLaneOptional", "待扩展")
   return t("workspace.domainWorkbench.acceptanceReqMissing", "待补")
+}
+
+function domainAcceptanceSampleLaneTaskContent(
+  t: ReturnType<typeof useTranslation>["t"],
+  lane: DomainAcceptanceSampleLane,
+): string {
+  return [
+    t(
+      "workspace.domainWorkbench.acceptanceLaneTaskTitle",
+      "补齐真实样本验收跑道：{{lane}}",
+      { lane: lane.label },
+    ),
+    "",
+    t("workspace.domainWorkbench.acceptanceLaneTaskStatusHeading", "当前状态："),
+    `- ${lane.detail}`,
+    "",
+    t("workspace.domainWorkbench.acceptanceLaneTaskActionHeading", "采样动作："),
+    `- ${lane.action}`,
+    "",
+    t("workspace.domainWorkbench.acceptanceLaneTaskEvidenceHeading", "需要记录的证据："),
+    ...lane.evidence.map((item) => `- ${item}`),
+    "",
+    t("workspace.domainWorkbench.acceptanceLaneTaskRefreshHeading", "完成后刷新："),
+    ...lane.refreshTargets.map((item) => `- ${item}`),
+  ].join("\n")
 }
 
 function domainAcceptanceGapRank(severity: DomainAcceptanceGapSeverity): number {
@@ -4553,11 +4675,7 @@ function DomainTaskWorkbenchSection({
     try {
       await getTransport().call<Task[]>("create_session_task", {
         sessionId,
-        content: t(
-          "workspace.domainWorkbench.acceptanceLaneTaskContent",
-          "补齐真实样本验收跑道：{{lane}}（{{detail}}）。{{action}}",
-          { lane: lane.label, detail: lane.detail, action: lane.action },
-        ),
+        content: domainAcceptanceSampleLaneTaskContent(t, lane),
         activeForm: t(
           "workspace.domainWorkbench.acceptanceLaneTaskActiveForm",
           "正在补齐真实样本验收跑道",
