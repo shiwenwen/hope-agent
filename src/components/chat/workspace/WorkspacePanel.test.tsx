@@ -2098,6 +2098,21 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("3 条")).toBeTruthy()
     expect(screen.getByText("长跑审计仍有事故需要收口。")).toBeTruthy()
 
+    const evidenceRequirement = screen.getByText("缺来源/草稿/决策证据")
+    const evidenceRequirementRow = evidenceRequirement.parentElement
+    expect(evidenceRequirementRow).toBeTruthy()
+    fireEvent.click(
+      within(evidenceRequirementRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content: "补齐真实样本验收必需项：证据链（缺来源/草稿/决策证据）",
+        activeForm: "正在补齐真实样本验收必需项",
+      })
+    })
+
     fireEvent.click(screen.getByRole("button", { name: "采样清单" }))
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {

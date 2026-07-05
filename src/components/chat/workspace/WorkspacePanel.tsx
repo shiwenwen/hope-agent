@@ -3428,14 +3428,18 @@ function domainAcceptancePlanTaskContent(
 
 function DomainAcceptanceCoverageCard({
   summary,
+  creatingRequirementTaskKey,
   creatingGapTaskKey,
   creatingPlanTask,
+  onCreateRequirementTask,
   onCreateGapTask,
   onCreateGapPlan,
 }: {
   summary: DomainAcceptanceCoverageSummary
+  creatingRequirementTaskKey?: string | null
   creatingGapTaskKey?: string | null
   creatingPlanTask?: boolean
+  onCreateRequirementTask?: (requirement: DomainAcceptanceRequirement, index: number) => void
   onCreateGapTask?: (gap: DomainAcceptanceGap, index: number) => void
   onCreateGapPlan?: (gaps: DomainAcceptanceGap[]) => void
 }) {
@@ -3452,7 +3456,11 @@ function DomainAcceptanceCoverageCard({
           <button
             type="button"
             onClick={() => onCreateGapPlan(summary.gaps)}
-            disabled={Boolean(creatingGapTaskKey) || Boolean(creatingPlanTask)}
+            disabled={
+              Boolean(creatingRequirementTaskKey) ||
+              Boolean(creatingGapTaskKey) ||
+              Boolean(creatingPlanTask)
+            }
             className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             {creatingPlanTask ? (
@@ -3484,21 +3492,49 @@ function DomainAcceptanceCoverageCard({
         </div>
       </div>
       <div className="mt-2 grid grid-cols-2 gap-1.5">
-        {summary.requirements.map((requirement) => (
-          <div
-            key={requirement.key}
-            className="min-w-0 rounded-md bg-background/40 px-1.5 py-1 text-[10px]"
-          >
-            <div className="flex min-w-0 items-center gap-1">
-              <span className="min-w-0 flex-1 truncate font-medium">{requirement.label}</span>
-              <StatusPill
-                label={domainAcceptanceRequirementStatusLabel(t, requirement)}
-                tone={requirement.tone}
-              />
+        {summary.requirements.map((requirement, index) => {
+          const taskKey = `requirement:${index}:${requirement.key}`
+          return (
+            <div
+              key={requirement.key}
+              className="min-w-0 rounded-md bg-background/40 px-1.5 py-1 text-[10px]"
+            >
+              <div className="flex min-w-0 items-center gap-1">
+                <span className="min-w-0 flex-1 truncate font-medium">{requirement.label}</span>
+                <StatusPill
+                  label={domainAcceptanceRequirementStatusLabel(t, requirement)}
+                  tone={requirement.tone}
+                />
+              </div>
+              <div className="mt-1 flex min-w-0 items-center gap-1">
+                <span className="min-w-0 flex-1 truncate text-muted-foreground/75">
+                  {requirement.detail}
+                </span>
+                {!requirement.passed && onCreateRequirementTask ? (
+                  <button
+                    type="button"
+                    onClick={() => onCreateRequirementTask(requirement, index)}
+                    disabled={
+                      Boolean(creatingRequirementTaskKey) ||
+                      Boolean(creatingGapTaskKey) ||
+                      Boolean(creatingPlanTask)
+                    }
+                    className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {creatingRequirementTaskKey === taskKey ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="h-3 w-3" />
+                    )}
+                    <span>
+                      {t("workspace.domainWorkbench.createAcceptanceRequirementTask", "转任务")}
+                    </span>
+                  </button>
+                ) : null}
+              </div>
             </div>
-            <div className="mt-0.5 truncate text-muted-foreground/75">{requirement.detail}</div>
-          </div>
-        ))}
+          )
+        })}
       </div>
       <div className="mt-2 grid grid-cols-4 gap-1.5">
         <DomainWorkbenchMetric
@@ -3565,7 +3601,11 @@ function DomainAcceptanceCoverageCard({
                   <button
                     type="button"
                     onClick={() => onCreateGapTask(gap, index)}
-                    disabled={Boolean(creatingGapTaskKey) || Boolean(creatingPlanTask)}
+                    disabled={
+                      Boolean(creatingRequirementTaskKey) ||
+                      Boolean(creatingGapTaskKey) ||
+                      Boolean(creatingPlanTask)
+                    }
                     className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {creatingGapTaskKey === taskKey ? (
@@ -3782,6 +3822,8 @@ function DomainTaskWorkbenchSection({
   const [creatingAcceptanceGapTaskKey, setCreatingAcceptanceGapTaskKey] = useState<string | null>(
     null,
   )
+  const [creatingAcceptanceRequirementTaskKey, setCreatingAcceptanceRequirementTaskKey] =
+    useState<string | null>(null)
   const [creatingAcceptancePlanTask, setCreatingAcceptancePlanTask] = useState(false)
 
   const handleRefresh = () => {
@@ -3867,6 +3909,43 @@ function DomainTaskWorkbenchSection({
       toast.error(message)
     } finally {
       setCreatingAcceptanceGapTaskKey(null)
+    }
+  }
+
+  const createAcceptanceRequirementTask = async (
+    requirement: DomainAcceptanceRequirement,
+    index: number,
+  ) => {
+    if (!sessionId || disabled || creatingAcceptanceRequirementTaskKey) return
+    const taskKey = `requirement:${index}:${requirement.key}`
+    setCreatingAcceptanceRequirementTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainWorkbench.acceptanceRequirementTaskContent",
+          "补齐真实样本验收必需项：{{requirement}}（{{detail}}）",
+          { requirement: requirement.label, detail: requirement.detail },
+        ),
+        activeForm: t(
+          "workspace.domainWorkbench.acceptanceRequirementTaskActiveForm",
+          "正在补齐真实样本验收必需项",
+        ),
+      })
+      toast.success(
+        t("workspace.domainWorkbench.acceptanceRequirementTaskCreated", "已创建验收必需项任务"),
+      )
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error(
+        "ui",
+        "DomainTaskWorkbenchSection",
+        "Create acceptance requirement task failed",
+        e,
+      )
+      toast.error(message)
+    } finally {
+      setCreatingAcceptanceRequirementTaskKey(null)
     }
   }
 
@@ -4077,8 +4156,10 @@ function DomainTaskWorkbenchSection({
 
         <DomainAcceptanceCoverageCard
           summary={acceptanceSummary}
+          creatingRequirementTaskKey={creatingAcceptanceRequirementTaskKey}
           creatingGapTaskKey={creatingAcceptanceGapTaskKey}
           creatingPlanTask={creatingAcceptancePlanTask}
+          onCreateRequirementTask={!disabled ? createAcceptanceRequirementTask : undefined}
           onCreateGapTask={!disabled ? createAcceptanceGapTask : undefined}
           onCreateGapPlan={!disabled ? createAcceptancePlanTask : undefined}
         />
