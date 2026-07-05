@@ -439,7 +439,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - 新增 `generate_domain_soak_report` owner API，Tauri / HTTP / transport 已接通。
 - 报告只读 `workflow_runs`、`workflow_events`、`loop_runs`、`domain_eval_campaigns`、`domain_eval_campaign_items` 与 connector E2E evidence；不调用 LLM、不启动任务、不访问连接器、不自动 approve / cancel / retry。
 - 输出 `passed` / `failed` / `insufficient_data`、summary、incidents、timeline、recommended next steps、Markdown 与内嵌 `operationalGate`。
-- Summary 覆盖 workflow drain 时间、失败/阻塞/取消/活跃、审批/暂停/恢复/取消/恢复事件、loop tick、campaign item retry / failed / interrupted、connector E2E execution / verification evidence。
+- Summary 覆盖 workflow drain 时间、失败/阻塞/取消/活跃、审批请求/决策/等待耗时、暂停/恢复/取消/恢复事件、loop tick、campaign item retry / failed / interrupted、connector E2E execution / verification evidence。
 - Incidents 区分 critical 与 warning：failed/blocked/cancelled workflow、failed/cancelled/interrupted campaign item、failed/cancelled loop 为 critical；running/queued/awaiting approval 等未 drain 工作为 warning。
 - Dashboard Learning 新增「Domain soak report」卡片，展示 workflow / loop / campaign / connector 样本量、critical/warning incidents、最大 drain 时间、最近 timeline 和下一步建议。
 - 新增核心单测覆盖：drained workflow + loop + campaign + connector evidence 时 passed；failed workflow + active campaign item 时 failed，并输出 critical/warning incidents 和 Markdown。
@@ -454,7 +454,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 仍需后续真实样本：
 
 - 用跨天真实账号任务采集 connector E2E + workflow/loop/campaign history，再用 soak report 做人工复核。
-- 后续可把 budget、token/cost、用户干预来源、审批耗时、recovery attempt 细节继续做厚。
+- 后续可把 budget、token/cost、用户干预来源继续做厚；审批请求/决策/等待耗时与 recovery attempt 计数已进入 Soak Report summary 和 GUI 指标。
 
 ### Phase 8.4 通用任务工作台（已完成第一版）
 

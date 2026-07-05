@@ -5526,6 +5526,10 @@ function DomainSoakReportPanel({
     summary?.maxWorkflowDrainSecs != null
       ? formatLoopDuration(Math.max(1, Math.round(summary.maxWorkflowDrainSecs)))
       : "-"
+  const maxApprovalWait =
+    summary?.maxApprovalWaitSecs != null
+      ? formatLoopDuration(Math.max(1, Math.round(summary.maxApprovalWaitSecs)))
+      : "-"
 
   return (
     <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
@@ -5565,7 +5569,7 @@ function DomainSoakReportPanel({
       </div>
 
       {summary ? (
-        <div className="mt-2 grid grid-cols-4 gap-1.5">
+        <div className="mt-2 grid grid-cols-3 gap-1.5">
           {[
             [t("workspace.domainSoakReport.records", "样本"), summary.totalRecords, "info"],
             [
@@ -5579,6 +5583,16 @@ function DomainSoakReportPanel({
               summary.warningIncidents > 0 ? "warn" : "muted",
             ],
             [t("workspace.domainSoakReport.maxDrain", "最长"), maxDrain, "muted"],
+            [
+              t("workspace.domainSoakReport.approvalWait", "审批"),
+              maxApprovalWait,
+              summary.approvalRequestEvents > summary.approvalDecisionEvents ? "warn" : "muted",
+            ],
+            [
+              t("workspace.domainSoakReport.recovery", "恢复"),
+              summary.recoveryEvents,
+              summary.recoveryEvents > 0 ? "info" : "muted",
+            ],
           ].map(([label, value, tone]) => (
             <div
               key={label as string}

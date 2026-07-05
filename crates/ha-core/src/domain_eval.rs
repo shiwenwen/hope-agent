@@ -1141,10 +1141,16 @@ pub struct DomainSoakReportSummary {
     pub awaiting_approval_workflow_runs: usize,
     pub repair_workflow_runs: usize,
     pub approval_events: usize,
+    pub approval_request_events: usize,
+    pub approval_decision_events: usize,
     pub pause_events: usize,
     pub resume_events: usize,
     pub cancel_events: usize,
     pub recovery_events: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub average_approval_wait_secs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_approval_wait_secs: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub average_workflow_drain_secs: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1243,6 +1249,13 @@ struct SoakWorkflowRow {
     updated_at: String,
     completed_at: Option<String>,
     blocked_reason: Option<String>,
+}
+
+struct SoakWorkflowEventRow {
+    run_id: String,
+    event_type: String,
+    payload: Value,
+    created_at: String,
 }
 
 struct SoakLoopRunRow {
@@ -3369,9 +3382,11 @@ impl SessionDB {
         summary.average_workflow_drain_secs = average_secs(&workflow_durations);
         summary.max_workflow_drain_secs = workflow_durations.iter().copied().max();
 
-        for (event_type, payload) in self.domain_soak_workflow_events(&scope)? {
-            if event_type == "run_control_action" {
-                match json_string_value(&payload, "action").as_deref() {
+        let mut approval_wait_started: BTreeMap<String, String> = BTreeMap::new();
+        let mut approval_wait_durations = Vec::new();
+        for event in self.domain_soak_workflow_events(&scope)? {
+            if event.event_type == "run_control_action" {
+                match json_string_value(&event.payload, "action").as_deref() {
                     Some("approve") => summary.approval_events += 1,
                     Some("pause") => summary.pause_events += 1,
                     Some("resume") => summary.resume_events += 1,
@@ -3379,23 +3394,48 @@ impl SessionDB {
                     _ => {}
                 }
             }
-            if event_type == "run_recovery_claimed"
-                || payload
+            if event.event_type == "run_recovery_claimed"
+                || event
+                    .payload
                     .get("to")
                     .and_then(Value::as_str)
                     .is_some_and(|state| state == "recovering")
             {
                 summary.recovery_events += 1;
             }
-            if event_type == "run_state_changed"
-                && payload
+            if event.event_type == "run_state_changed"
+                && event
+                    .payload
                     .get("to")
                     .and_then(Value::as_str)
                     .is_some_and(|state| state == "awaiting_approval")
             {
                 summary.approval_events += 1;
+                summary.approval_request_events += 1;
+                approval_wait_started.insert(event.run_id.clone(), event.created_at.clone());
+            }
+            if event.event_type == "run_state_changed"
+                && event
+                    .payload
+                    .get("from")
+                    .and_then(Value::as_str)
+                    .is_some_and(|state| state == "awaiting_approval")
+                && !event
+                    .payload
+                    .get("to")
+                    .and_then(Value::as_str)
+                    .is_some_and(|state| state == "awaiting_approval")
+            {
+                summary.approval_decision_events += 1;
+                if let Some(started_at) = approval_wait_started.remove(&event.run_id) {
+                    if let Some(duration) = timestamp_delta_secs(&started_at, &event.created_at) {
+                        approval_wait_durations.push(duration);
+                    }
+                }
             }
         }
+        summary.average_approval_wait_secs = average_secs(&approval_wait_durations);
+        summary.max_approval_wait_secs = approval_wait_durations.iter().copied().max();
 
         let loop_rows = self.domain_soak_loop_runs(&scope)?;
         let mut loop_durations = Vec::new();
@@ -3708,7 +3748,10 @@ impl SessionDB {
         collect_rows(rows)
     }
 
-    fn domain_soak_workflow_events(&self, scope: &DomainGateScope) -> Result<Vec<(String, Value)>> {
+    fn domain_soak_workflow_events(
+        &self,
+        scope: &DomainGateScope,
+    ) -> Result<Vec<SoakWorkflowEventRow>> {
         let mut clauses = vec![
             "e.created_at >= ?".to_string(),
             "s.incognito = 0".to_string(),
@@ -3727,24 +3770,26 @@ impl SessionDB {
             params.push(domain.clone());
         }
         let sql = format!(
-            "SELECT e.type, e.payload_json
+            "SELECT e.run_id, e.type, e.payload_json, e.created_at
              FROM workflow_events e
              JOIN workflow_runs wr ON wr.id = e.run_id
              JOIN sessions s ON s.id = wr.session_id
              LEFT JOIN goals g ON g.id = wr.goal_id
              WHERE {}
-             ORDER BY e.created_at DESC, e.id DESC
+             ORDER BY e.created_at ASC, e.id ASC
              LIMIT 5000",
             clauses.join(" AND ")
         );
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
-            let payload_json: String = row.get(1)?;
-            Ok((
-                row.get::<_, String>(0)?,
-                serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
-            ))
+            let payload_json: String = row.get(2)?;
+            Ok(SoakWorkflowEventRow {
+                run_id: row.get(0)?,
+                event_type: row.get(1)?,
+                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({})),
+                created_at: row.get(3)?,
+            })
         })?;
         collect_rows(rows)
     }
@@ -7463,6 +7508,19 @@ fn render_domain_soak_markdown(
         summary.connector_verification_evidence
     ));
     out.push_str(&format!(
+        "- Control events: {} approval request(s), {} approval decision(s), {} pause, {} resume, {} cancel, {} recovery; max approval wait: {}\n",
+        summary.approval_request_events,
+        summary.approval_decision_events,
+        summary.pause_events,
+        summary.resume_events,
+        summary.cancel_events,
+        summary.recovery_events,
+        summary
+            .max_approval_wait_secs
+            .map(|secs| format!("{secs}s"))
+            .unwrap_or_else(|| "n/a".to_string())
+    ));
+    out.push_str(&format!(
         "- Incidents: {} total, {} critical, {} warning\n\n",
         summary.incidents, summary.critical_incidents, summary.warning_incidents
     ));
@@ -8479,6 +8537,73 @@ mod tests {
             .recommended_next_steps
             .iter()
             .any(|step| step.contains("critical soak incidents")));
+    }
+
+    #[test]
+    fn domain_soak_report_tracks_approval_wait_and_recovery_events() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("soak-report-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(
+            &run.id,
+            WorkflowRunState::AwaitingApproval,
+            Some("permission_preview"),
+        )
+        .unwrap();
+        db.approve_workflow_run(&run.id).unwrap();
+        db.claim_workflow_run_for_recovery(&run.id, "test-owner")
+            .unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE workflow_events
+                    SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-120 seconds')
+                  WHERE run_id = ?1
+                    AND type = 'run_state_changed'
+                    AND payload_json LIKE '%\"to\":\"awaiting_approval\"%'",
+                params![run.id],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE workflow_events
+                    SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 seconds')
+                  WHERE run_id = ?1
+                    AND type = 'run_state_changed'
+                    AND payload_json LIKE '%\"from\":\"awaiting_approval\"%'",
+                params![run.id],
+            )
+            .unwrap();
+        }
+
+        let report = db
+            .generate_domain_soak_report(DomainSoakReportInput {
+                session_id: Some(session.id),
+                window_days: Some(1),
+                max_items: Some(20),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.summary.approval_request_events, 1);
+        assert_eq!(report.summary.approval_decision_events, 1);
+        assert_eq!(report.summary.max_approval_wait_secs, Some(90));
+        assert_eq!(report.summary.average_approval_wait_secs, Some(90.0));
+        assert_eq!(report.summary.recovery_events, 1);
+        assert!(report.markdown.contains("max approval wait: 90s"));
     }
 
     #[test]

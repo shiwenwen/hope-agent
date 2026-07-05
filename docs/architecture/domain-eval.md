@@ -372,7 +372,7 @@ Operational status：
 Summary 覆盖：
 
 - workflow：total / completed / failed / blocked / cancelled / active / awaiting approval / repair run、平均与最大 drain 秒数。
-- workflow events：approve / pause / resume / cancel / recovery event 计数。
+- workflow events：approval request / approval decision / pause / resume / cancel / recovery event 计数，并派生已闭环审批等待的平均 / 最大秒数；仍在等待的审批通过 warning incident duration 表达，不伪造成已完成耗时。
 - loop：total / succeeded / failed / active、平均与最大 tick 时长。
 - campaign：campaign / active campaign / item / passed / failed / cancelled / interrupted / retried item、平均与最大 item 时长。
 - connector E2E evidence：`connector_context_collected`、`connector_draft_created`、`connector_action_executed`、`connector_action_verified` 聚合，以及 execution / verification 子计数。

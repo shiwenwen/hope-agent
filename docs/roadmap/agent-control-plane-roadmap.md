@@ -866,9 +866,9 @@ Goal / Workflow / Loop 稳住后，再进入 coding-specific 深水区：
 ### Phase 8.3 Domain Soak Report（已完成第一版）
 
 - 新增 `generate_domain_soak_report`，只读 WorkflowRun / WorkflowEvent / LoopRun / Domain Campaign / Connector E2E evidence 历史，把通用长任务跨窗口运行情况导出为 JSON / Markdown / Dashboard snapshot。
-- Summary 覆盖 workflow drain、审批/暂停/恢复/取消/恢复事件、loop tick、campaign item retry / failed / interrupted、connector execution / verification evidence。
+- Summary 覆盖 workflow drain、审批请求/决策/等待耗时、暂停/恢复/取消/recovery attempt、loop tick、campaign item retry / failed / interrupted、connector execution / verification evidence。
 - Incidents 区分 critical 与 warning；failed/blocked/cancelled workflow、failed/cancelled/interrupted campaign item、failed/cancelled loop 为 critical，running/queued/awaiting approval 等未 drain 工作为 warning。
-- Dashboard Learning 新增「Domain soak report」卡片，展示 WF / LP / CP / CE / CR / WN / MAX / REC、最近 timeline 和下一步建议。
+- Dashboard Learning 新增「Domain soak report」卡片，展示 WF / LP / CP / CE / CR / WN / MAX / AP / RC / REC、最近 timeline 和下一步建议。
 - Report 只读事实：没有样本不能 passed；active work 不伪装成失败，但会保持 `insufficient_data`；不会自动 approve / cancel / retry。
 
 ### Phase 8.4 通用任务工作台（已完成第一版）
