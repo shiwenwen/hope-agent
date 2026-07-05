@@ -119,6 +119,7 @@ import type {
   DomainQualityRunSnapshot,
   DomainQualityRunState,
   DomainQualitySeverity,
+  DomainSoakIncident,
   DomainSoakReport,
   DomainVerificationRule,
   DomainWorkflowDraft,
@@ -3621,6 +3622,7 @@ function DomainTaskWorkbenchSection({
             onRefresh={domainWorkbenchState.refreshOperationalGate}
           />
           <DomainSoakReportPanel
+            sessionId={sessionId}
             report={soakReport}
             loading={soakReportLoading}
             error={soakReportError}
@@ -5507,12 +5509,14 @@ function DomainOperationalGatePanel({
 }
 
 function DomainSoakReportPanel({
+  sessionId,
   report,
   loading,
   error,
   disabled,
   onRefresh,
 }: {
+  sessionId?: string | null
   report: DomainSoakReport | null
   loading: boolean
   error: string | null
@@ -5522,6 +5526,7 @@ function DomainSoakReportPanel({
   const { t } = useTranslation()
   const summary = report?.summary
   const clean = report?.status === "passed"
+  const [creatingIncidentTaskKey, setCreatingIncidentTaskKey] = useState<string | null>(null)
   const maxDrain =
     summary?.maxWorkflowDrainSecs != null
       ? formatLoopDuration(Math.max(1, Math.round(summary.maxWorkflowDrainSecs)))
@@ -5530,6 +5535,42 @@ function DomainSoakReportPanel({
     summary?.maxApprovalWaitSecs != null
       ? formatLoopDuration(Math.max(1, Math.round(summary.maxApprovalWaitSecs)))
       : "-"
+  const canCreateIncidentTasks = Boolean(sessionId) && !disabled
+
+  const createIncidentTask = async (incident: DomainSoakIncident, index: number) => {
+    if (!sessionId || disabled || creatingIncidentTaskKey) return
+    const taskKey = `${index}:${incident.source}:${incident.id}`
+    setCreatingIncidentTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainSoakReport.incidentTaskContent",
+          "处理长跑事故：{{title}}（{{source}}/{{status}}）- {{recommendation}}",
+          {
+            title: incident.title,
+            source: incident.source,
+            status: incident.status,
+            recommendation: incident.recommendation,
+          },
+        ),
+        activeForm: t(
+          "workspace.domainSoakReport.incidentTaskActiveForm",
+          "正在处理长跑事故：{{title}}",
+          {
+            title: incident.title,
+          },
+        ),
+      })
+      toast.success(t("workspace.domainSoakReport.incidentTaskCreated", "已创建事故处理任务"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error("ui", "DomainSoakReportPanel", "Create soak incident task failed", e)
+      toast.error(message)
+    } finally {
+      setCreatingIncidentTaskKey(null)
+    }
+  }
 
   return (
     <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
@@ -5615,7 +5656,7 @@ function DomainSoakReportPanel({
         </div>
       ) : report?.incidents?.length ? (
         <div className="mt-2 space-y-1">
-          {report.incidents.slice(0, 2).map((incident) => (
+          {report.incidents.slice(0, 2).map((incident, index) => (
             <div
               key={`${incident.source}:${incident.id}`}
               className={cn(
@@ -5632,6 +5673,21 @@ function DomainSoakReportPanel({
                   label={incident.source}
                   tone={incident.severity === "critical" ? "danger" : "warn"}
                 />
+                {canCreateIncidentTasks ? (
+                  <button
+                    type="button"
+                    onClick={() => void createIncidentTask(incident, index)}
+                    disabled={Boolean(creatingIncidentTaskKey)}
+                    className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-current/20 bg-background/45 px-1.5 text-[10px] font-medium transition-colors hover:bg-background/75 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {creatingIncidentTaskKey === `${index}:${incident.source}:${incident.id}` ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="h-3 w-3" />
+                    )}
+                    <span>{t("workspace.domainSoakReport.createIncidentTask", "转任务")}</span>
+                  </button>
+                ) : null}
               </div>
               <div className="mt-0.5 line-clamp-2 opacity-85">{incident.recommendation}</div>
             </div>

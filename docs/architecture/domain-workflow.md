@@ -109,7 +109,7 @@ Phase 8.4 在 `src/components/chat/workspace/WorkspacePanel.tsx` 新增「通用
 - 「运行验证」调用既有 `run_smart_verification`。
 - 「刷新工作台」同时刷新 domain evidence、Artifact Export Guard、Connector Action Guard、Operational Gate、Soak Report、review、verification 与 domain quality state。
 - 「运行稳定性」卡片调用 `evaluate_domain_operational_gate({ sessionId, windowDays: 14 })`，显示 workflow 完成/活跃、loop 成功/失败、campaign 活跃和阻塞 check。
-- 「长跑审计」卡片调用 `generate_domain_soak_report({ sessionId, windowDays: 14, maxItems: 8 })`，显示样本数、critical/warning incidents、最长 workflow drain 和最近事故建议。
+- 「长跑审计」卡片调用 `generate_domain_soak_report({ sessionId, windowDays: 14, maxItems: 8 })`，显示样本数、critical/warning incidents、最长 workflow drain、审批等待、恢复次数和最近事故建议；事故行的「转任务」按钮复用 `create_session_task`，把具体事故处理建议落成可跟踪 task。
 - Workflow 区块顶部的「自主推进就绪」卡片读取同一份通用任务工作台 state；当 Artifact Export Guard、Connector Action Guard、Operational Gate 或 Soak Report 非通过时，`查看交付` / `查看外部动作` / `查看稳定性` / `查看长跑` 会滚动并展开通用任务工作台，定位到交付守门、外部动作守门、运行稳定性和长跑审计证据。该入口只做定位，不自动刷新、不自动重试、不自动修改 gate 结果。
 - 「下一步」列表的「转任务」按钮调用 `create_session_task`，把当前证据缺口或守门建议落成可见 session task；成功后由 `task_updated` 事件刷新 ChatInput 上方进度和 Workspace 进度区块。它只记录用户显式选择的待办，不自动运行 workflow、审批工具或访问连接器。
 - Context Retrieval 候选行的「摘要」按钮调用既有 `record_domain_evidence`，把候选确定性整理为 `artifact_created` context summary evidence；成功后刷新推荐上下文和通用任务工作台。
@@ -120,7 +120,7 @@ Phase 8.4 在 `src/components/chat/workspace/WorkspacePanel.tsx` 新增「通用
 
 红线：
 
-- 工作台只聚合 owner-plane 读模型和已有显式动作按钮；写路径仅限用户显式点击候选行「摘要」、「确认」、「证据」、「冲突」/「转任务」或工作台「下一步」/「转任务」后记录当前 session evidence / task，不自动创建 WorkflowRun、不运行 loop、不 retry campaign、不访问连接器、不发送/分享/导出内容。
+- 工作台只聚合 owner-plane 读模型和已有显式动作按钮；写路径仅限用户显式点击候选行「摘要」、「确认」、「证据」、「冲突」/「转任务」、工作台「下一步」/「转任务」或长跑事故「转任务」后记录当前 session evidence / task，不自动创建 WorkflowRun、不运行 loop、不 retry campaign、不访问连接器、不发送/分享/导出内容。
 - 交付守门和外部动作守门仍是只读结论；真正外部系统修改继续走 `permission::engine` strict approval、连接器授权和工具执行层。
 - Operational Gate 与 Soak Report 仍是只读结论；它们可以提示 approve / retry / cancel / 等待排空，但不能自动执行这些控制动作。
 - Incognito session 不持久化 domain evidence，工作台只显示禁用提示并清空 durable state。

@@ -2,7 +2,7 @@
 
 import type { ComponentProps } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
 import type {
@@ -1946,6 +1946,41 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(screen.getByRole("button", { name: "查看长跑" }))
     expect(await screen.findByText("长跑审计")).toBeTruthy()
     expect(screen.getByText("Workflow failed")).toBeTruthy()
+  })
+
+  it("creates a task from domain soak incidents", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([])
+      if (name === "get_workflow_mode") return Promise.resolve({ mode: "on" })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "generate_domain_soak_report") return Promise.resolve(domainSoakReport())
+      if (name === "evaluate_domain_operational_gate")
+        return Promise.resolve(domainOperationalGateReport())
+      if (name === "create_session_task") return Promise.resolve([])
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    const incidentTitle = await screen.findByText("Workflow failed")
+    const incidentRow = incidentTitle.parentElement
+    expect(incidentRow).toBeTruthy()
+    fireEvent.click(within(incidentRow as HTMLElement).getByRole("button", { name: "转任务" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content:
+          "处理长跑事故：Workflow failed（workflow/failed）- Repair the workflow before continuing the loop.",
+        activeForm: "正在处理长跑事故：Workflow failed",
+      })
+    })
   })
 
   it("opens export and connector guard evidence from readiness actions", async () => {

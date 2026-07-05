@@ -461,9 +461,9 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - Workspace 新增「通用任务工作台」区块，位于 Context Retrieval 之后，把 Sources、Evidence、Drafts、Review、Verification、Decisions 做成同屏闭环总览。
 - 工作台新增「真实样本验收」卡片：从当前 session 的 domain evidence、Operational Gate、Soak Report、Artifact Export Guard 与 Connector Action Guard 派生覆盖领域数、控制面记录数、已排空样本、Connector E2E evidence 与事故/缺口，避免“真实样本还没跑够”只停留在文档提醒。
 - 工作台复用已落地的 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review runs、Verification runs 与 Domain Quality runs，不新增后端表，也不绕过既有权限/审批。
-- 用户可在同一面板直接运行领域复核、推荐验证、运行验证、刷新全部守门状态，并把“下一步”证据缺口一键转成 session task，不需要记 slash 命令或切到 Dashboard。
+- 用户可在同一面板直接运行领域复核、推荐验证、运行验证、刷新全部守门状态，并把“下一步”证据缺口或长跑审计事故一键转成 session task，不需要记 slash 命令或切到 Dashboard。
 - Context Retrieval 候选行的「摘要」按钮会写入 `artifact_created` 摘要 evidence；「确认」按钮会创建 owner-side ask_user，并在用户回答后写入 `user_decision` evidence；「证据」按钮可把当前推荐来源/文档/会议/表格/决策落成 domain evidence，并刷新通用任务工作台；「冲突」按钮会写入 `claim_checked` 冲突证据；「转任务」按钮可把候选落成 session task，形成“看到缺口 -> 生成摘要 / 用户确认 / 补证据 / 标冲突 / 建任务 -> 守门和进度重新评估”的真实 owner action。
-- 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门和外部动作守门状态生成“下一步”提示；每条提示都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
+- 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门、外部动作守门和 Soak incident 状态生成“下一步”提示；每条提示和每个长跑事故都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
 - 最近 evidence 行展示 evidence type、domain、access scope、redaction status 与时间，让用户知道来源、草稿、批准、复核和决策证据是否已经真实落盘。
 - 交付守门与外部动作守门仍保持只读：它们提示能否交付/执行外部动作，但真正发送、分享、修改外部系统仍必须走工具审批和连接器授权。
 
