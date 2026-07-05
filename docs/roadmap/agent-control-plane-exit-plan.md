@@ -34,7 +34,7 @@
 | G1 | 语义闭环 | `/goal`、`/mode`、`/workflow`、`/loop`、`/task`、`/worktree` 的关系稳定，用户和模型都不会混淆。 | 已完成并审计，等用户 / Claude Code 最终复核 |
 | G2 | 自主动态工作流 | Workflow Mode 开启后，模型能自主判断是否编排 workflow；workflow 可审批、暂停、恢复、取消、失败恢复、trace、review、verification。 | 已完成并补 targeted tests，等用户 / Claude Code 最终复核 |
 | G3 | GUI 可控体验 | 用户不靠 slash command 也能创建/查看/推进目标、工作流、循环、任务、证据、守门和下一步。 | source-level audit v1 + GUI Vitest + typecheck 已形成，缺手动视觉 / profile 可选补强 |
-| G4 | 长任务稳定性 | 长任务不会悄悄挂死；有运行稳定性 gate、soak report、预算/审批/恢复信号、跨天样本和 connector E2E 复核。 | deterministic 样本包 v1 + 本轮 targeted tests 已完成；真实 connector E2E 仍是可选补强 |
+| G4 | 长任务稳定性 | 长任务不会悄悄挂死；有运行稳定性 gate、soak report、预算/审批/恢复信号、跨天样本和 connector E2E 复核。 | deterministic 样本包 v1 + 本轮 targeted tests 已完成；真实 / 跨窗口 Soak 与真实 connector E2E 仍是可选补强 |
 | G5 | 质量与性能证据 | 有 targeted tests / eval / benchmark / release gate / smoke 证据证明核心能力不回退，性能和成本风险可见。 | 本轮 targeted backend/frontend tests 已完成；GUI manual smoke / profile 可选补强 |
 | G6 | 文档与外部 review | 已实现事实进入 architecture，路线和剩余项进入 roadmap，并形成可给 Claude Code / 人工 reviewer 的最终 review packet。 | review packet v1 已形成，缺用户 / Claude Code 复核与关闭取舍 |
 
@@ -147,14 +147,14 @@ Exit 1 已有第一版审计产物：[Agent 控制平面完成状态审计](agen
 
 Exit 2 已有 deterministic v1 产物：[最终样本包](agent-control-plane-final-sample-packet.md)，并已补本轮 targeted test output；不再继续新增功能。
 
-Exit 3 已有 source-level v1 产物：[体验与性能审计](agent-control-plane-ux-performance-audit.md)，并已补 GUI 相关 Vitest output；不再继续新增功能。
+Exit 3 已有 source-level v1 产物：[体验与性能审计](agent-control-plane-ux-performance-audit.md)，并已补 GUI 相关 Vitest + typecheck output；不再继续新增功能。
 
 Exit 4 已有 v1 产物：[最终 Review Packet](agent-control-plane-final-review-packet.md)，不再继续新增功能。
 
 当前只剩两类合法推进方式：
 
 1. 用户 / Claude Code 复核并决定是否接受 deterministic substitute 与 source-level audit。
-2. 若走严格证明路线，只补强真实 / 沙箱 connector execution + verification、GUI manual smoke / screenshot / profile。
+2. 若走严格证明路线，只补强真实 / 跨窗口 Soak 样本、真实 / 沙箱 connector execution + verification、GUI manual smoke / screenshot / profile。
 
 无论选择哪种，都不继续扩大 Workspace、Workflow、Loop、Goal 的功能面。
 

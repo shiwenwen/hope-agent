@@ -324,7 +324,7 @@ OR browser performance profile
 
 当前长期目标剩余收口：
 
-1. 可选补强 Exit 2：真实 connector E2E。
+1. 可选补强 Exit 2：真实 / 跨窗口 Soak、真实 connector E2E。
 2. 可选补强 Exit 3：GUI manual smoke / screenshot / profile。
 3. 必做 Exit 4：用户 / Claude Code 最终复核与关闭取舍；最终 review packet 和 architecture / roadmap 一致性审计已完成 v1。
 

@@ -274,17 +274,19 @@ AND each packet links to concrete source evidence
 AND packet states what is deterministic and what remains unproven
 ```
 
-Exit 2 **还差一项可选但建议补强的验收材料**：
+Exit 2 **还差两项可选但建议补强的验收材料**：
 
 ```text
+real or cross-window wall-clock soak sample
 real or sandbox connector execution + post-action verification
 ```
 
 如果用户接受 deterministic-only substitute，那么 Exit 2 可按 deterministic 样本包完成处理，并进入最终关闭取舍。
 
-如果用户要求更强验收，则下一步仍留在 Exit 2，补一类材料：
+如果用户要求更强验收，则下一步仍留在 Exit 2，补两类材料：
 
-1. 用真实或沙箱 connector 账号补一份 execution + post-action verification 样本。
+1. 用真实运行窗口补一份 Soak 样本，至少能证明跨小时 / 跨天挂起、恢复、drain、freshness、budget 和 approval/recovery 信号可见。
+2. 用真实或沙箱 connector 账号补一份 execution + post-action verification 样本。
 
 ## 9. 不能关闭长期目标的原因
 
@@ -292,6 +294,7 @@ real or sandbox connector execution + post-action verification
 
 - 用户 / Claude Code 最终复核。
 - GUI manual smoke / screenshot / browser profile，除非用户接受 source-level audit。
+- 真实跨窗口 / 跨天 Soak 仍未证明，除非用户明确接受 deterministic substitute。
 - 真实外部 connector E2E 仍未证明，除非用户明确接受 deterministic substitute。
 
 当前不能再用“继续做功能”代替这些退出证据。

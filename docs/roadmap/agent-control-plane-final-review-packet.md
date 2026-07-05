@@ -18,7 +18,7 @@
 2. 没有本轮 GUI manual smoke / screenshot / browser performance profile。
 3. 没有用户 / Claude Code 最终复核结论。
 
-如果用户接受 deterministic-only substitute 和 source-level audit，那么当前实现可以进入“功能主线完成、等待最终复核关闭”的状态；如果用户要求严格产品级证明，则必须先补真实 / 沙箱 connector E2E 和 GUI smoke/profile。
+如果用户接受 deterministic-only substitute 和 source-level audit，那么当前实现可以进入“功能主线完成、等待最终复核关闭”的状态；如果用户要求严格产品级证明，则必须先补真实 / 跨窗口 Soak、真实 / 沙箱 connector E2E 和 GUI smoke/profile。
 
 本轮 review 没发现必须阻塞当前退出路线的 P0/P1 设计问题；剩余均为 P2/P3 风险或证据缺口。
 
@@ -104,6 +104,7 @@
 | --- | --- | --- | --- |
 | P2 | `WorkspacePanel.tsx` 过大 | 维护成本高，未来继续扩 GUI 容易引入回归。 | 当前目标不继续重构；后续单独拆分 Goal / Workflow / Loop / Domain Workbench 子面板。 |
 | P2 | Loop 列表超过 5 个后提示 `/loop status` | 与“核心路径不依赖 slash command”的体验目标略冲突。 | 后续增强加 GUI “查看更多 Loop”；不阻塞当前控制面主线。 |
+| P2 | 真实跨窗口 Soak 未跑 | deterministic Soak 能证明规则，但不能证明真实跨小时 / 跨天 wall-clock 运行稳定性。 | 若要关闭最高严格度目标，补真实运行窗口 Soak 样本。 |
 | P2 | 真实 connector E2E 未跑 | 不能宣称真实外部系统执行后复核已经产品级证明。 | 若要关闭最高严格度目标，补沙箱账号 execution + read-back verification。 |
 | P3 | 缺 GUI screenshot / profile | source-level audit 不能证明窄屏视觉、实际渲染耗时、大 trace 性能。 | 需要产品级视觉证明时补 Playwright / browser profile。 |
 | P3 | LLM auditor 未启用 | final audit 目前主要是确定性规则，缺自然语言 rationale 增强。 | 后续增强池处理，不能覆盖规则门禁。 |
@@ -178,7 +179,7 @@ GUI 视觉和性能已通过手动/浏览器级验收。
 
 因此当前 goal 的关闭条件仍未满足。下一步有两个选择：
 
-1. 严格证明路线：补真实 connector E2E、GUI smoke/profile，然后再最终关闭。
+1. 严格证明路线：补真实 / 跨窗口 Soak、真实 connector E2E、GUI smoke/profile，然后再最终关闭。
 2. 产品路线 v1：用户接受 deterministic substitute 与 source-level audit，将真实 E2E、截图/profile 和更多模板纳入后续增强池，再关闭当前主线。
 
 在用户做出这个取舍前，Agent 不应调用 `update_goal(status=complete)`。

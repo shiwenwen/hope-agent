@@ -14,7 +14,7 @@
 
 原因不是核心能力没有做，也不是缺本轮 targeted tests；这些已经补齐。剩余是最后的产品级取舍：
 
-1. 最终样本包已有 deterministic v1 和本轮测试输出，但真实 connector E2E 仍只是替代样本。
+1. 最终样本包已有 deterministic v1 和本轮测试输出，但真实跨窗口 Soak 与真实 connector E2E 仍只是替代样本。
 2. 体验/性能审计已有 source-level v1 和 GUI 相关 Vitest 输出，但还缺手动 GUI smoke、截图或性能 profile。
 3. 最终 review packet 已形成 v1，但还缺用户 / Claude Code 最终复核，以及是否接受替代证据的明确取舍。
 
@@ -23,7 +23,7 @@
 ```text
 Exit 1：完成状态总审计       = 本文完成第一版
 Exit 2：最终样本包           = deterministic v1 + targeted tests 已完成，真实 E2E 可选补强
-Exit 3：体验和性能收口       = source-level audit v1 + GUI Vitest 已完成，缺手动视觉 / profile 可选补强
+Exit 3：体验和性能收口       = source-level audit v1 + GUI Vitest + typecheck 已完成，缺手动视觉 / profile 可选补强
 Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/用户复核与关闭取舍
 ```
 
@@ -132,6 +132,7 @@ Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/
 
 仍建议补强：
 
+- 若最终口径要宣称真实跨窗口 / 跨天长跑稳定性，补真实 wall-clock Soak 样本。
 - 若最终口径要宣称真实外部动作闭环，补真实或沙箱 connector 的 execution + read-back verification。
 
 ### Exit 3：体验和性能收口
@@ -167,7 +168,7 @@ Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/
 
 - 用户 / Claude Code 最终复核。
 - 是否接受 deterministic substitute 和 source-level audit。
-- 若不接受，补真实 connector E2E、GUI smoke/profile。
+- 若不接受，补真实 / 跨窗口 Soak、真实 connector E2E、GUI smoke/profile。
 
 ## 5. 停止继续加功能的规则
 
@@ -186,4 +187,4 @@ Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/
 
 下一步固定为用户 / Claude Code 最终复核与关闭取舍，除非用户要求先补强 Exit 2 / Exit 3 的真实运行证据。
 
-默认保守推进方式：不继续扩展 Workspace UI 或 Workflow Runtime API。若要补强证据，只补真实 connector 样本或 GUI smoke/profile；若接受当前 v1 证据，剩余增强进入后续池。
+默认保守推进方式：不继续扩展 Workspace UI 或 Workflow Runtime API。若要补强证据，只补真实 / 跨窗口 Soak、真实 connector 样本或 GUI smoke/profile；若接受当前 v1 证据，剩余增强进入后续池。
