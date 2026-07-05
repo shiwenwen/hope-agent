@@ -3021,10 +3021,14 @@ type DomainAcceptanceCoverageSummary = {
   controlRecords: number
   drainedRuns: number
   connectorE2eEvidence: number
+  connectorExecutionEvidence: number
+  connectorVerificationEvidence: number
   criticalIncidents: number
   warningIncidents: number
   latestActivityAgeSecs?: number | null
   freshnessMaxAgeSecs: number
+  sampleDays: number
+  requiredSampleDays: number
   budgetExhaustedEvents: number
   outputTokenBudgetLabel: string | null
   readinessPercent: number
@@ -3118,7 +3122,7 @@ type DomainAcceptanceReviewGate = {
   recommendedNextSteps?: string[]
 }
 
-const DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS = 7 * 24 * 60 * 60
+const DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS = 24 * 60 * 60
 
 function domainAcceptanceProvenanceSummary(
   evidence: DomainEvidenceItem[],
@@ -3222,6 +3226,14 @@ function domainAcceptanceCoverageSummary(
     soakSummary?.connectorE2eEvidence ??
     ((soakSummary?.connectorExecutionEvidence ?? 0) +
       (soakSummary?.connectorVerificationEvidence ?? 0))
+  const connectorExecutionEvidence =
+    connectorE2eSummary?.executionEvidence ??
+    soakSummary?.connectorExecutionEvidence ??
+    0
+  const connectorVerificationEvidence =
+    connectorE2eSummary?.verificationEvidence ??
+    soakSummary?.connectorVerificationEvidence ??
+    0
   const controlMix: DomainAcceptanceControlMix = {
     workflowRuns,
     completedWorkflowRuns,
@@ -3241,6 +3253,9 @@ function domainAcceptanceCoverageSummary(
   const hasFreshSample =
     latestActivityAgeSecs != null &&
     latestActivityAgeSecs <= DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS
+  const sampleDays = Math.max(0, soakSummary?.sampleDays ?? (controlRecords > 0 ? 1 : 0))
+  const requiredSampleDays = Math.max(1, soakSummary?.requiredSampleDays ?? 1)
+  const hasRequiredSampleDays = sampleDays >= requiredSampleDays
   const budgetExhaustedEvents = Math.max(0, soakSummary?.workflowBudgetExhaustedEvents ?? 0)
   const outputTokenBudgetLabel =
     soakSummary?.maxWorkflowOutputTokensSpent != null
@@ -3257,7 +3272,9 @@ function domainAcceptanceCoverageSummary(
       args.connectorE2eGate?.action ||
       args.connectorE2eGate?.toolName ||
       connectorE2eSummary?.evidenceItems ||
-      args.connectorGuard?.summary?.actionEvidence,
+      args.connectorGuard?.summary?.actionEvidence ||
+      connectorExecutionEvidence > 0 ||
+      connectorVerificationEvidence > 0,
   )
   const hasFailedGate =
     args.operationalGate?.status === "failed" ||
@@ -3347,6 +3364,26 @@ function domainAcceptanceCoverageSummary(
       t(
         "workspace.domainWorkbench.acceptanceGapFreshness",
         "最近长任务样本过旧或缺少新鲜度信号。",
+      ),
+      "warn",
+    )
+  }
+  if (controlRecords > 0 && !hasRequiredSampleDays) {
+    pushGap(
+      "sample-days",
+      t(
+        "workspace.domainWorkbench.acceptanceGapSampleDays",
+        "多天长跑窗口缺少跨天样本覆盖。",
+      ),
+      "warn",
+    )
+  }
+  if (connectorExecutionEvidence > 0 && connectorVerificationEvidence === 0) {
+    pushGap(
+      "connector-verification",
+      t(
+        "workspace.domainWorkbench.acceptanceGapConnectorVerification",
+        "连接器动作已执行，但缺少执行后读回复核 evidence。",
       ),
       "warn",
     )
@@ -3442,6 +3479,26 @@ function domainAcceptanceCoverageSummary(
               ),
       passed: hasFreshSample,
       tone: hasFreshSample ? "good" : controlRecords > 0 ? "warn" : "muted",
+    },
+    {
+      key: "sample-days",
+      label: t("workspace.domainWorkbench.acceptanceReqSampleDays", "跨天覆盖"),
+      detail:
+        controlRecords === 0
+          ? t("workspace.domainWorkbench.acceptanceReqSampleDaysNoSample", "先补控制面记录")
+          : hasRequiredSampleDays
+            ? t(
+                "workspace.domainWorkbench.acceptanceReqSampleDaysOk",
+                "{{days}}/{{required}} 天",
+                { days: sampleDays, required: requiredSampleDays },
+              )
+            : t(
+                "workspace.domainWorkbench.acceptanceReqSampleDaysMissing",
+                "{{days}}/{{required}} 天，缺跨天样本",
+                { days: sampleDays, required: requiredSampleDays },
+              ),
+      passed: controlRecords > 0 && hasRequiredSampleDays,
+      tone: controlRecords === 0 ? "warn" : hasRequiredSampleDays ? "good" : "warn",
     },
     {
       key: "budget",
@@ -3739,10 +3796,14 @@ function domainAcceptanceCoverageSummary(
     controlRecords,
     drainedRuns,
     connectorE2eEvidence,
+    connectorExecutionEvidence,
+    connectorVerificationEvidence,
     criticalIncidents,
     warningIncidents,
     latestActivityAgeSecs,
     freshnessMaxAgeSecs: DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS,
+    sampleDays,
+    requiredSampleDays,
     budgetExhaustedEvents,
     outputTokenBudgetLabel,
     readinessPercent,
@@ -3996,7 +4057,7 @@ function domainAcceptanceEvidenceLevel(
       tone: "info",
     }
   }
-  if (summary.connectorE2eEvidence > 0) {
+  if (summary.connectorVerificationEvidence > 0) {
     return {
       label: t("workspace.domainWorkbench.acceptanceEvidenceLevelConnector", "真实 E2E 候选"),
       detail: t(
@@ -4030,11 +4091,11 @@ function domainAcceptanceReviewProtocolLines(
     ),
     t(
       "workspace.domainWorkbench.acceptanceReviewProtocolSoak",
-      "长任务必须复核 Operational Gate 与 Soak Report：无 critical 事故、无预算耗尽、样本新鲜且守门通过。",
+      "长任务必须复核 Operational Gate 与 Soak Report：无 critical 事故、无预算耗尽、样本新鲜、跨天覆盖且守门通过。",
     ),
     t(
       "workspace.domainWorkbench.acceptanceReviewProtocolConnector",
-      "连接器 E2E 必须来自测试账号或沙箱数据，并包含执行结果、执行后复核和回滚说明。",
+      "连接器 E2E 必须来自测试账号或沙箱数据，并包含执行结果、执行后读回复核和回滚说明。",
     ),
   ].map((line) => `- ${line}`)
 }
@@ -4077,6 +4138,17 @@ function domainAcceptanceControlMixText(
   )
 }
 
+function domainAcceptanceSampleDaysText(
+  t: ReturnType<typeof useTranslation>["t"],
+  summary: DomainAcceptanceCoverageSummary,
+): string {
+  return t(
+    "workspace.domainWorkbench.acceptanceSampleDaysText",
+    "{{days}}/{{required}} 天",
+    { days: summary.sampleDays, required: summary.requiredSampleDays },
+  )
+}
+
 function domainAcceptanceSnapshotId(
   summary: DomainAcceptanceCoverageSummary,
   context?: DomainAcceptanceReviewContext,
@@ -4105,6 +4177,10 @@ function domainAcceptanceSnapshotId(
         context.soakReport.timeline.length,
         context.soakReport.summary.totalRecords,
         context.soakReport.summary.connectorE2eEvidence,
+        context.soakReport.summary.connectorExecutionEvidence,
+        context.soakReport.summary.connectorVerificationEvidence,
+        context.soakReport.summary.sampleDays,
+        context.soakReport.summary.requiredSampleDays,
       ].join("|")
     : "missing"
   const parts = [
@@ -4112,10 +4188,12 @@ function domainAcceptanceSnapshotId(
     `records=${summary.controlRecords}`,
     `drained=${summary.drainedRuns}`,
     `connector=${summary.connectorE2eEvidence}`,
+    `connectorVerify=${summary.connectorExecutionEvidence}/${summary.connectorVerificationEvidence}`,
     `critical=${summary.criticalIncidents}`,
     `warning=${summary.warningIncidents}`,
     `freshness=${summary.latestActivityAgeSecs ?? "missing"}`,
     `freshnessMax=${summary.freshnessMaxAgeSecs}`,
+    `sampleDays=${summary.sampleDays}/${summary.requiredSampleDays}`,
     `budget=${summary.budgetExhaustedEvents}:${summary.outputTokenBudgetLabel ?? "-"}`,
     `progress=${summary.requiredPassed}/${summary.requiredTotal}:${summary.readinessPercent}`,
     `requirements=${summary.requirements
@@ -4175,6 +4253,17 @@ function domainAcceptanceAuditIndexLines(
       {
         freshness: sampleFreshness,
         max: formatDurationCompact(summary.freshnessMaxAgeSecs),
+      },
+    ),
+    t("workspace.domainWorkbench.acceptanceAuditSampleDays", "跨天覆盖：{{days}}", {
+      days: domainAcceptanceSampleDaysText(t, summary),
+    }),
+    t(
+      "workspace.domainWorkbench.acceptanceAuditConnectorVerification",
+      "连接器复核：执行 {{executed}} · 复核 {{verified}}",
+      {
+        executed: summary.connectorExecutionEvidence,
+        verified: summary.connectorVerificationEvidence,
       },
     ),
     t("workspace.domainWorkbench.acceptanceAuditBudget", "预算：{{budget}}", { budget }),
@@ -4263,8 +4352,9 @@ function domainAcceptancePlanTaskContent(
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
     `${t("workspace.domainWorkbench.acceptancePlanDrained", "已排空样本")}：${summary.drainedRuns}`,
     `${t("workspace.domainWorkbench.acceptancePlanFreshness", "最近样本")}：${sampleFreshness}`,
+    `${t("workspace.domainWorkbench.acceptancePlanSampleDays", "跨天覆盖")}：${domainAcceptanceSampleDaysText(t, summary)}`,
     `${t("workspace.domainWorkbench.acceptancePlanBudget", "输出预算")}：${budgetHealth}`,
-    `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
+    `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}（执行 ${summary.connectorExecutionEvidence} / 复核 ${summary.connectorVerificationEvidence}）`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
   ]
   const requirements = summary.requirements.map((requirement) => {
@@ -4289,7 +4379,7 @@ function domainAcceptancePlanTaskContent(
     ),
     t(
       "workspace.domainWorkbench.acceptancePlanActionFreshness",
-      "如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。",
+      "如果最近样本超过 24 小时或缺跨天覆盖，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。",
     ),
     t(
       "workspace.domainWorkbench.acceptancePlanActionBudget",
@@ -4431,7 +4521,7 @@ function domainAcceptanceReviewSoakLines(
       t,
       soakReport.status,
     )} (${soakReport.status})`,
-    `- ${t("workspace.domainWorkbench.acceptanceReviewSoakSamples", "样本")}：workflow ${summary.completedWorkflowRuns}/${summary.workflowRuns} · loop ${summary.succeededLoopRuns}/${summary.loopRuns} · campaign ${summary.passedCampaignItems}/${summary.campaignItems} · connector ${summary.connectorE2eEvidence}`,
+    `- ${t("workspace.domainWorkbench.acceptanceReviewSoakSamples", "样本")}：workflow ${summary.completedWorkflowRuns}/${summary.workflowRuns} · loop ${summary.succeededLoopRuns}/${summary.loopRuns} · campaign ${summary.passedCampaignItems}/${summary.campaignItems} · connector ${summary.connectorE2eEvidence} (执行 ${summary.connectorExecutionEvidence} / 复核 ${summary.connectorVerificationEvidence}) · days ${summary.sampleDays}/${summary.requiredSampleDays}`,
     `- ${t("workspace.domainWorkbench.acceptanceReviewSoakBudget", "预算")}：${summary.workflowBudgetExhaustedEvents} exhausted · ${
       summary.maxWorkflowOutputTokensSpent != null
         ? compactCount(summary.maxWorkflowOutputTokensSpent)
@@ -4531,8 +4621,9 @@ function domainAcceptanceReviewMarkdown(
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
     `${t("workspace.domainWorkbench.acceptancePlanDrained", "已排空样本")}：${summary.drainedRuns}`,
     `${t("workspace.domainWorkbench.acceptancePlanFreshness", "最近样本")}：${sampleFreshness}`,
+    `${t("workspace.domainWorkbench.acceptancePlanSampleDays", "跨天覆盖")}：${domainAcceptanceSampleDaysText(t, summary)}`,
     `${t("workspace.domainWorkbench.acceptancePlanBudget", "输出预算")}：${budgetHealth}`,
-    `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
+    `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}（执行 ${summary.connectorExecutionEvidence} / 复核 ${summary.connectorVerificationEvidence}）`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
     "",
     `## ${t("workspace.domainWorkbench.acceptanceAuditIndex", "审计索引")}`,

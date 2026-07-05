@@ -2108,11 +2108,13 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0")).toBeTruthy()
     expect(screen.getByText("验收结论")).toBeTruthy()
     expect(screen.getByText("不可验收")).toBeTruthy()
-    expect(screen.getByText("39% · 3/7")).toBeTruthy()
+    expect(screen.getByText("34% · 3/8")).toBeTruthy()
     expect(screen.getByText("证据链")).toBeTruthy()
     expect(screen.getByText("缺来源/草稿/决策证据")).toBeTruthy()
     expect(screen.getByText("样本新鲜")).toBeTruthy()
     expect(screen.getByText("2m 前")).toBeTruthy()
+    expect(screen.getByText("跨天覆盖")).toBeTruthy()
+    expect(screen.getByText("1/2 天，缺跨天样本")).toBeTruthy()
     expect(screen.getByText("预算健康")).toBeTruthy()
     expect(screen.getByText("耗尽 1 次 · 10/10")).toBeTruthy()
     expect(screen.getByText("守门通过")).toBeTruthy()
@@ -2143,6 +2145,8 @@ describe("WorkspacePanel workflow section", () => {
     expect(acceptanceReport).toContain(
       "控制面组成：workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0",
     )
+    expect(acceptanceReport).toContain("跨天覆盖：1/2 天")
+    expect(acceptanceReport).toContain("连接器 E2E evidence：0（执行 0 / 复核 0）")
     expect(acceptanceReport).toContain(
       "Gate 快照：export=missing · connector=missing · e2e=missing · operational=failed · soak=failed",
     )
@@ -2242,10 +2246,12 @@ describe("WorkspacePanel workflow section", () => {
       "控制面组成：workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0",
     )
     expect(acceptancePlanContent).toContain("控制面：记录 3 · 已排空 2 · Connector E2E 0")
+    expect(acceptancePlanContent).toContain("跨天覆盖：1/2 天")
+    expect(acceptancePlanContent).toContain("连接器复核：执行 0 · 复核 0")
     expect(acceptancePlanContent).toContain("复核协议：")
     expect(acceptancePlanContent).toContain("转任务、按钮点击或人工声明不能替代真实 evidence")
     expect(acceptancePlanContent).toContain("验收结论：不可验收 - 长跑审计仍有事故需要收口。")
-    expect(acceptancePlanContent).toContain("验收进度：39% (3/7)")
+    expect(acceptancePlanContent).toContain("验收进度：34% (3/8)")
     expect(acceptancePlanContent).toContain("[待补] Campaign 样本：缺通过的 Campaign item")
     expect(acceptancePlanContent).toContain("证据：至少一个 item passed，失败 item 有分类和 retry / cancel 证据。")
     expect(acceptancePlanContent).toContain("刷新：刷新长跑审计 Soak Report。")
@@ -2364,10 +2370,10 @@ describe("WorkspacePanel workflow section", () => {
 
     expect(await screen.findByText("真实样本验收")).toBeTruthy()
     expect(screen.getByText("样本新鲜")).toBeTruthy()
-    expect(screen.getByText("8d 前，超过 7d")).toBeTruthy()
+    expect(screen.getByText("8d 前，超过 24h")).toBeTruthy()
     expect(screen.getByText("最近长任务样本过旧或缺少新鲜度信号。")).toBeTruthy()
 
-    const freshnessRequirement = screen.getByText("8d 前，超过 7d")
+    const freshnessRequirement = screen.getByText("8d 前，超过 24h")
     const freshnessRequirementRow = freshnessRequirement.parentElement
     expect(freshnessRequirementRow).toBeTruthy()
     fireEvent.click(
@@ -2377,7 +2383,7 @@ describe("WorkspacePanel workflow section", () => {
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
-        content: "补齐真实样本验收必需项：样本新鲜（8d 前，超过 7d）",
+        content: "补齐真实样本验收必需项：样本新鲜（8d 前，超过 24h）",
         activeForm: "正在补齐真实样本验收必需项",
       })
     })
@@ -2403,6 +2409,8 @@ describe("WorkspacePanel workflow section", () => {
         warningIncidents: 0,
         incidents: 0,
         workflowBudgetExhaustedEvents: 0,
+        sampleDays: 2,
+        requiredSampleDays: 2,
       },
       incidents: [],
       timeline: [],
@@ -2562,7 +2570,7 @@ describe("WorkspacePanel workflow section", () => {
     })
 
     expect(await screen.findByText("真实样本验收")).toBeTruthy()
-    expect(screen.getByText("0% · 0/7")).toBeTruthy()
+    expect(screen.getByText("0% · 0/8")).toBeTruthy()
     expect(screen.getByText("守门通过")).toBeTruthy()
     expect(screen.getByText("缺少守门通过样本")).toBeTruthy()
   })
