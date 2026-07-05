@@ -2093,6 +2093,9 @@ describe("WorkspacePanel workflow section", () => {
     const visibleAcceptanceSnapshotId = screen.getByText(/acc-[0-9a-f]{8}/).textContent ?? ""
     expect(visibleAcceptanceSnapshotId).toMatch(/acc-[0-9a-f]{8}/)
     expect(screen.getByText("样本有事故")).toBeTruthy()
+    expect(screen.getByText("证据等级")).toBeTruthy()
+    expect(screen.getByText("阻塞样本")).toBeTruthy()
+    expect(screen.getByText("仍有阻塞缺口或失败守门，不能作为验收证据。")).toBeTruthy()
     expect(screen.getByText("验收结论")).toBeTruthy()
     expect(screen.getByText("不可验收")).toBeTruthy()
     expect(screen.getByText("39% · 3/7")).toBeTruthy()
@@ -2121,6 +2124,9 @@ describe("WorkspacePanel workflow section", () => {
     const acceptanceReport = String(writeText.mock.calls[0]?.[0] ?? "")
     expect(acceptanceReport).toContain("## 审计索引")
     expect(acceptanceReport).toContain(`快照 ID：${visibleAcceptanceSnapshotId}`)
+    expect(acceptanceReport).toContain(
+      "证据等级：阻塞样本 - 仍有阻塞缺口或失败守门，不能作为验收证据。",
+    )
     expect(acceptanceReport).toContain(
       "Gate 快照：export=missing · connector=missing · e2e=missing · operational=failed · soak=failed",
     )
@@ -2210,6 +2216,9 @@ describe("WorkspacePanel workflow section", () => {
     const acceptancePlanContent = String(acceptancePlanTask?.content ?? "")
     expect(acceptancePlanContent).toContain("审计索引：")
     expect(acceptancePlanContent).toContain(`快照 ID：${visibleAcceptanceSnapshotId}`)
+    expect(acceptancePlanContent).toContain(
+      "证据等级：阻塞样本 - 仍有阻塞缺口或失败守门，不能作为验收证据。",
+    )
     expect(acceptancePlanContent).toContain("控制面：记录 3 · 已排空 2 · Connector E2E 0")
     expect(acceptancePlanContent).toContain("复核协议：")
     expect(acceptancePlanContent).toContain("转任务、按钮点击或人工声明不能替代真实 evidence")
@@ -2413,6 +2422,9 @@ describe("WorkspacePanel workflow section", () => {
     })
     const acceptanceReport = String(writeText.mock.calls[0]?.[0] ?? "")
     expect(acceptanceReport).toMatch(/快照 ID：acc-[0-9a-f]{8}/)
+    expect(acceptanceReport).toContain(
+      "证据等级：局部验收 - 必需项已通过，但覆盖面仍窄；不能代表全量通用能力。",
+    )
     expect(acceptanceReport).toContain("source_cited · research · public/none")
     expect(acceptanceReport).toContain("(e-source)")
 
@@ -2431,6 +2443,9 @@ describe("WorkspacePanel workflow section", () => {
     )?.[1]
     const acceptancePlanContent = String(acceptancePlanTask?.content ?? "")
     expect(acceptancePlanContent).toMatch(/快照 ID：acc-[0-9a-f]{8}/)
+    expect(acceptancePlanContent).toContain(
+      "证据等级：局部验收 - 必需项已通过，但覆盖面仍窄；不能代表全量通用能力。",
+    )
     expect(acceptancePlanContent).toContain("验收结论：可局部复核")
     expect(acceptancePlanContent).toContain("继续补其它通用领域样本，避免只证明单一场景。")
   })

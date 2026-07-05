@@ -3069,6 +3069,12 @@ type DomainAcceptanceVerdict = {
   tone: StatusTone
 }
 
+type DomainAcceptanceEvidenceLevel = {
+  label: string
+  detail: string
+  tone: StatusTone
+}
+
 type DomainAcceptanceReviewContext = {
   evidence: DomainEvidenceItem[]
   exportGuard: DomainArtifactExportGuardReport | null
@@ -3845,6 +3851,78 @@ function domainAcceptanceVerdict(
   }
 }
 
+function domainAcceptanceEvidenceLevel(
+  t: ReturnType<typeof useTranslation>["t"],
+  summary: DomainAcceptanceCoverageSummary,
+): DomainAcceptanceEvidenceLevel {
+  const hasDangerGap = summary.gaps.some((gap) => gap.severity === "danger")
+  const hasWarnGap = summary.gaps.some((gap) => gap.severity === "warn")
+  const hasInfoGap = summary.gaps.some((gap) => gap.severity === "info")
+  const hasDangerRequirement = summary.requirements.some(
+    (requirement) => !requirement.passed && requirement.tone === "danger",
+  )
+  const requiredComplete = summary.requiredPassed === summary.requiredTotal
+
+  if (summary.controlRecords === 0) {
+    return {
+      label: t("workspace.domainWorkbench.acceptanceEvidenceLevelNone", "未采样"),
+      detail: t(
+        "workspace.domainWorkbench.acceptanceEvidenceLevelNoneDetail",
+        "没有控制面记录，仅能作为采样待办。",
+      ),
+      tone: "muted",
+    }
+  }
+  if (hasDangerGap || hasDangerRequirement) {
+    return {
+      label: t("workspace.domainWorkbench.acceptanceEvidenceLevelBlocked", "阻塞样本"),
+      detail: t(
+        "workspace.domainWorkbench.acceptanceEvidenceLevelBlockedDetail",
+        "仍有阻塞缺口或失败守门，不能作为验收证据。",
+      ),
+      tone: "danger",
+    }
+  }
+  if (!requiredComplete || hasWarnGap) {
+    return {
+      label: t("workspace.domainWorkbench.acceptanceEvidenceLevelPartial", "局部样本"),
+      detail: t(
+        "workspace.domainWorkbench.acceptanceEvidenceLevelPartialDetail",
+        "可用于定位问题或回归验证，但缺必需项或 warning 缺口。",
+      ),
+      tone: "warn",
+    }
+  }
+  if (hasInfoGap) {
+    return {
+      label: t("workspace.domainWorkbench.acceptanceEvidenceLevelLocal", "局部验收"),
+      detail: t(
+        "workspace.domainWorkbench.acceptanceEvidenceLevelLocalDetail",
+        "必需项已通过，但覆盖面仍窄；不能代表全量通用能力。",
+      ),
+      tone: "info",
+    }
+  }
+  if (summary.connectorE2eEvidence > 0) {
+    return {
+      label: t("workspace.domainWorkbench.acceptanceEvidenceLevelConnector", "真实 E2E 候选"),
+      detail: t(
+        "workspace.domainWorkbench.acceptanceEvidenceLevelConnectorDetail",
+        "包含连接器执行和复核 evidence，可进入人工或 Claude Code 最终复核。",
+      ),
+      tone: "good",
+    }
+  }
+  return {
+    label: t("workspace.domainWorkbench.acceptanceEvidenceLevelNonExternal", "非外部动作候选"),
+    detail: t(
+      "workspace.domainWorkbench.acceptanceEvidenceLevelNonExternalDetail",
+      "可支撑当前非外部动作场景；涉及连接器仍需 sandbox E2E。",
+    ),
+    tone: "good",
+  }
+}
+
 function domainAcceptanceReviewProtocolLines(
   t: ReturnType<typeof useTranslation>["t"],
 ): string[] {
@@ -4018,6 +4096,7 @@ function domainAcceptancePlanTaskContent(
   context: DomainAcceptanceReviewContext,
 ): string {
   const verdict = domainAcceptanceVerdict(t, summary)
+  const evidenceLevel = domainAcceptanceEvidenceLevel(t, summary)
   const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
   const sampleFreshness =
     summary.latestActivityAgeSecs != null
@@ -4043,6 +4122,7 @@ function domainAcceptancePlanTaskContent(
   const metrics = [
     `${t("workspace.domainWorkbench.acceptancePlanStatus", "状态")}：${domainAcceptanceStatusLabel(t, summary)}`,
     `${t("workspace.domainWorkbench.acceptanceVerdict", "验收结论")}：${verdict.label} - ${verdict.detail}`,
+    `${t("workspace.domainWorkbench.acceptanceEvidenceLevel", "证据等级")}：${evidenceLevel.label} - ${evidenceLevel.detail}`,
     `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
     `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
@@ -4270,6 +4350,7 @@ function domainAcceptanceReviewMarkdown(
   context: DomainAcceptanceReviewContext,
 ): string {
   const verdict = domainAcceptanceVerdict(t, summary)
+  const evidenceLevel = domainAcceptanceEvidenceLevel(t, summary)
   const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
   const sampleFreshness =
     summary.latestActivityAgeSecs != null
@@ -4307,6 +4388,7 @@ function domainAcceptanceReviewMarkdown(
     "",
     `${t("workspace.domainWorkbench.acceptancePlanStatus", "状态")}：${domainAcceptanceStatusLabel(t, summary)}`,
     `${t("workspace.domainWorkbench.acceptanceVerdict", "验收结论")}：${verdict.label} - ${verdict.detail}`,
+    `${t("workspace.domainWorkbench.acceptanceEvidenceLevel", "证据等级")}：${evidenceLevel.label} - ${evidenceLevel.detail}`,
     `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
     `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
@@ -4370,6 +4452,7 @@ function DomainAcceptanceCoverageCard({
 }) {
   const { t } = useTranslation()
   const verdict = domainAcceptanceVerdict(t, summary)
+  const evidenceLevel = domainAcceptanceEvidenceLevel(t, summary)
   const snapshotId = domainAcceptanceSnapshotId(summary, reviewContext)
   const acceptanceReviewLabel = t("workspace.domainWorkbench.copyAcceptanceReview", "复制验收报告")
   const copyAcceptanceReview = async () => {
@@ -4452,6 +4535,14 @@ function DomainAcceptanceCoverageCard({
             style={{ width: `${summary.readinessPercent}%` }}
           />
         </div>
+      </div>
+      <div className="mt-2 flex min-w-0 items-start gap-1.5 text-[10px]">
+        <Layers className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 font-medium text-muted-foreground">
+          {t("workspace.domainWorkbench.acceptanceEvidenceLevel", "证据等级")}
+        </span>
+        <StatusPill label={evidenceLevel.label} tone={evidenceLevel.tone} />
+        <span className="min-w-0 flex-1 text-muted-foreground/75">{evidenceLevel.detail}</span>
       </div>
       <div className="mt-2 flex min-w-0 items-start gap-1.5 text-[10px]">
         <Shield className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
