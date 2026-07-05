@@ -8190,6 +8190,13 @@ function DomainSoakReportPanel({
       : (summary?.workflowControlInterventionEvents ?? 0) > 0
         ? "info"
         : "muted"
+  const connectorVerificationTone: StatusTone =
+    (summary?.connectorExecutionEvidence ?? 0) > 0 &&
+    (summary?.connectorVerificationEvidence ?? 0) === 0
+      ? "warn"
+      : (summary?.connectorVerificationEvidence ?? 0) > 0
+        ? "info"
+        : "muted"
   const canCreateIncidentTasks = Boolean(sessionId) && !disabled
   const recommendedSteps = (report?.recommendedNextSteps ?? []).filter(Boolean).slice(0, 2)
   const canCreateRecommendationTasks = Boolean(sessionId) && !disabled
@@ -8349,6 +8356,11 @@ function DomainSoakReportPanel({
               t("workspace.domainSoakReport.interventions", "干预"),
               summary.workflowControlInterventionEvents,
               interventionTone,
+            ],
+            [
+              t("workspace.domainSoakReport.connectorVerified", "复核"),
+              summary.connectorVerificationEvidence,
+              connectorVerificationTone,
             ],
             [t("workspace.domainSoakReport.outputTokens", "Token"), outputTokenBudget, outputTokenTone],
           ].map(([label, value, tone]) => (

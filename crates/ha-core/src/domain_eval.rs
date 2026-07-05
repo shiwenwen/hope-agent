@@ -3720,10 +3720,29 @@ impl SessionDB {
         summary.connector_e2e_evidence = connector_e2e;
         summary.connector_execution_evidence = connector_execution;
         summary.connector_verification_evidence = connector_verification;
-        if let Some(connector_latest) = connector_latest {
-            track_soak_activity(&mut summary, &mut sample_days, &connector_latest);
+        if let Some(connector_latest) = connector_latest.as_deref() {
+            track_soak_activity(&mut summary, &mut sample_days, connector_latest);
         }
         sample_days.extend(connector_sample_days);
+        if summary.connector_execution_evidence > 0 && summary.connector_verification_evidence == 0
+        {
+            push_soak_incident(
+                &mut incidents,
+                "connector_e2e",
+                "connector_verification_missing",
+                "Connector action verification missing",
+                "unverified",
+                "warning",
+                connector_latest,
+                None,
+                None,
+                format!(
+                    "{} connector execution evidence item(s) have no post-action verification",
+                    summary.connector_execution_evidence
+                ),
+                "Record connector_action_verified evidence by reading back the external system state before trusting unattended connector runs.".to_string(),
+            );
+        }
         summary.sample_days = sample_days.len();
         summary.latest_activity_age_secs = summary
             .latest_activity_at
@@ -7623,7 +7642,7 @@ fn domain_soak_recommendations(
     if summary.workflow_control_intervention_events > 1 {
         push_unique_soak_recommendation(&mut recommendations, "Review repeated workflow control interventions and adjust the workflow plan, approval gates, or loop strategy before widening unattended usage.");
     }
-    if summary.connector_e2e_evidence > 0 && summary.connector_verification_evidence == 0 {
+    if summary.connector_execution_evidence > 0 && summary.connector_verification_evidence == 0 {
         push_unique_soak_recommendation(&mut recommendations, "Finish connector verification evidence for real external actions instead of stopping at draft or execution records.");
     }
     if summary.workflow_budget_exhausted_events > 0 {
@@ -8820,6 +8839,65 @@ mod tests {
         assert!(report
             .markdown
             .contains("- Sample days: 1/2 distinct day(s)"));
+    }
+
+    #[test]
+    fn domain_soak_report_requires_connector_post_action_verification() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("soak-report-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Completed, None)
+            .unwrap();
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "connector_action_executed",
+            "Connector action executed",
+            json!({"connector": "gmail", "action": "draft"}),
+        );
+
+        let report = db
+            .generate_domain_soak_report(DomainSoakReportInput {
+                session_id: Some(session.id),
+                window_days: Some(1),
+                max_items: Some(20),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "insufficient_data", "{report:?}");
+        assert_eq!(report.summary.connector_execution_evidence, 1);
+        assert_eq!(report.summary.connector_verification_evidence, 0);
+        assert_eq!(report.summary.warning_incidents, 1);
+        assert!(report.incidents.iter().any(|incident| {
+            incident.source == "connector_e2e"
+                && incident.id == "connector_verification_missing"
+                && incident.status == "unverified"
+        }));
+        assert!(report
+            .recommended_next_steps
+            .iter()
+            .any(|step| step.contains("Finish connector verification evidence")));
+        assert!(report
+            .markdown
+            .contains("Connector action verification missing"));
     }
 
     #[test]

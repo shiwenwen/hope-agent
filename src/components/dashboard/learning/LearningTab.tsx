@@ -3172,6 +3172,18 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
               tone={report.summary.connectorVerificationEvidence > 0 ? "accent" : "muted"}
             />
             <MetricPill
+              label="CV"
+              value={report.summary.connectorVerificationEvidence}
+              tone={
+                report.summary.connectorExecutionEvidence > 0 &&
+                report.summary.connectorVerificationEvidence === 0
+                  ? "warn"
+                  : report.summary.connectorVerificationEvidence > 0
+                    ? "accent"
+                    : "muted"
+              }
+            />
+            <MetricPill
               label="CR"
               value={report.summary.criticalIncidents}
               tone={report.summary.criticalIncidents > 0 ? "warn" : "muted"}
