@@ -1715,7 +1715,10 @@ fn build_router_with_cors(
             "/design/systems/extract",
             post(routes::design::extract_system),
         )
-        .route("/design/directions", post(routes::design::propose_directions))
+        .route(
+            "/design/directions",
+            post(routes::design::propose_directions),
+        )
         .route(
             "/design/systems/{id}",
             get(routes::design::get_system).delete(routes::design::delete_system),

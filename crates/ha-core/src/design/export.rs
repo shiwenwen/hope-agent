@@ -34,7 +34,10 @@ pub fn build_pptx(slides: &[SlideImage], title: &str) -> Result<Vec<u8>> {
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(buf));
     let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
-    let w = |name: &str, data: &[u8], zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>| -> Result<()> {
+    let w = |name: &str,
+             data: &[u8],
+             zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>|
+     -> Result<()> {
         zip.start_file(name, opts)?;
         zip.write_all(data)?;
         Ok(())
@@ -107,7 +110,11 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
         ));
     }
     prels.push_str("</Relationships>");
-    w("ppt/_rels/presentation.xml.rels", prels.as_bytes(), &mut zip)?;
+    w(
+        "ppt/_rels/presentation.xml.rels",
+        prels.as_bytes(),
+        &mut zip,
+    )?;
 
     // Theme (minimal)
     w("ppt/theme/theme1.xml", THEME_XML.as_bytes(), &mut zip)?;
@@ -144,11 +151,7 @@ xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\">\
     // Slides + media
     for (idx, slide) in slides.iter().enumerate() {
         let i = idx + 1;
-        w(
-            &format!("ppt/media/image{i}.png"),
-            &slide.png,
-            &mut zip,
-        )?;
+        w(&format!("ppt/media/image{i}.png"), &slide.png, &mut zip)?;
         w(
             &format!("ppt/slides/slide{i}.xml"),
             slide_xml(i, title).as_bytes(),

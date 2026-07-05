@@ -297,9 +297,7 @@ pub struct CreateArtifactInput {
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
 /// owner（Tauri/HTTP）与 agent 工具共用此入口。
 pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Result<DesignArtifact> {
-    if input.kind == "image"
-        && input.body_html.as_deref().unwrap_or("").trim().is_empty()
-    {
+    if input.kind == "image" && input.body_html.as_deref().unwrap_or("").trim().is_empty() {
         let prompt = input
             .prompt
             .clone()

@@ -1,8 +1,9 @@
 //! 设计系统反向提取（D2 护城河）。
 //!
-//! 从**文本描述**或**本地代码库**（读现有 CSS / tailwind / theme 文件样本）反向生成
-//! 品牌设计契约（`SYSTEM.md` + `tokens.json`）。"读本地工程提取设计系统" 是云端产品
-//! 做不到的本地能力。截图 / URL 多模态提取列后续迭代。见 design-space.md §6.4。
+//! 四通道反向生成品牌设计契约（`SYSTEM.md` + `tokens.json`）：**文本描述** /
+//! **本地代码库**（读 CSS / tailwind / theme 样本）/ **URL**（抓原始 HTML）/
+//! **截图**（视觉模型，见 `vision.rs`）。"读本地工程提取设计系统" 是云端产品做不到的
+//! 本地护城河。见 design-space.md §6.4。
 
 use anyhow::{Context, Result};
 use base64::Engine;
@@ -216,8 +217,8 @@ pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
 /// 品牌设计契约。走 design 层自包含视觉调用（不改主对话链路），支持 Anthropic /
 /// OpenAI-Chat 两种格式的 vision 模型。
 pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("failed to read image {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("failed to read image {}", path.display()))?;
     if bytes.is_empty() {
         anyhow::bail!("image file is empty");
     }

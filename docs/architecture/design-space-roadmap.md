@@ -13,19 +13,18 @@
 - ✅ P2 设计系统（6 套原创品牌契约 + token 编译注入 + 系统 CRUD + 项目品牌切换）
 - ✅ P3 渲染管线（7 种 HTML 形态自包含产物 + deck 翻页器 + token 注入）+ agent `design` 工具（18 action）+ 模板目录 + 版本更新/恢复
 - ✅ P4 可视化直接微调（D1）：oid 确定性字节回写 + inspector bridge + 分区检视器 + stale-write 守卫
-- ✅ P5 一键导出 HTML（干净自包含）
+- ✅ P5 一键导出 **HTML / PNG / PDF / PPTX**（HTML 后端干净自包含；PNG/PDF 前端 html2canvas+jsPDF 客户端栅格化，非打断、两模式通用；PPTX 前端栅格化整页图 + 后端 `zip`+OOXML 组装）
 - ✅ P6 5 维质量评审门（critique）+ 设计方向选择器（propose_directions）
-- ✅ D2 反向提取（文本描述 + 本地代码库）· D4 知识空间联动（save_to_knowledge）
-- ✅ 设置三件套 · 文档同步（AGENTS.md/api-reference/诊断索引/CHANGELOG）· 12 语 i18n（en/zh 完整，zh-TW 繁中，其余 9 语英文占位待润色）
+- ✅ **D2 反向提取四通道**：文本描述 · 本地代码库 · **URL（抓原始 HTML）** · **截图（视觉模型单发，`design/vision.rs` 隔离，零改主对话）**
+- ✅ **D1 image 形态**：接线现有 `image_generate` Provider 栈（`design/image.rs`，data-uri 内嵌保自包含），owner/agent 共用 `create_artifact_generating`
+- ✅ **motion 形态**：自包含 CSS/JS 动画（1280×720，一等交付；HTML/PNG/PDF 导出）
+- ✅ **owner 富 UI**：版本历史面板（列版本 + 恢复）· 反向提取对话框（四通道）· 设计方向选择卡片（色板预览 + 一键采用）· 导出格式菜单 · image 生成入口
+- ✅ D4 知识空间联动（save_to_knowledge）
+- ✅ 设置三件套 · 文档同步（AGENTS.md/api-reference/诊断索引/CHANGELOG）· **12 语完整本地化**（design 命名空间全 12 语真人级翻译，`sync-i18n --check` 零缺失）
 
-**明确的后续项（已在 §4 矩阵/决策账本记录，不阻塞核心验收）：**
+**明确的边界（非缺口，硬性依赖使然）：**
 
-- `image` 形态目前落产物记录 + HTML 占位，**尚未接线现有 `image_generate` Provider 栈**（后续）
-- 导出 **PDF / PPTX / PNG**（当前仅 HTML）——较重，见 §4
-- 反向提取的**截图 / URL 多模态**通道（当前仅 brief / codebase）
-- **视频 / 动效（HTML→MP4）**——重原生依赖，首轮不做（§4「不做/降级」）
-- 9 语**完整本地化翻译**（当前英文占位）
-- owner 侧富 UI：设计系统可视化编辑器 / 方向选择卡片 / 版本历史面板（能力已在 agent 工具面，富 UI 属后续打磨）
+- **视频 MP4 文件编码（HTML→MP4）**——需打包 headless Chrome + FFmpeg 重原生依赖，与本产品"轻量、零重依赖"红线冲突（DQ9）。`motion` 形态已交付动画能力（创建/预览/迭代/HTML 导出），MP4 二进制编码留给用户环境已有的 ffmpeg（不捆绑，避免脆弱半成品）。截图提取当前覆盖 Anthropic / OpenAI-Chat 两大 vision 格式（占绝大多数配置），Responses/Codex provider 给出明确"切换到 vision 模型"提示而非报错。
 
 ## 0. 背景与目标
 
