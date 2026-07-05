@@ -2107,7 +2107,9 @@ describe("WorkspacePanel workflow section", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "查看长跑" }))
     expect(await screen.findByText("长跑审计")).toBeTruthy()
-    expect(screen.getByText("Workflow failed")).toBeTruthy()
+    expect(screen.getByText("最近时间线")).toBeTruthy()
+    expect(screen.getAllByText("Workflow failed").length).toBeGreaterThan(1)
+    expect(screen.getAllByText("4m").length).toBeGreaterThan(1)
   })
 
   it("creates a task from domain soak incidents", async () => {
@@ -2130,7 +2132,12 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    const incidentTitle = await screen.findByText("Workflow failed")
+    await screen.findByText("长跑审计")
+    const incidentTitle = screen
+      .getAllByText("Workflow failed")
+      .find((element) => element.className.includes("font-medium"))
+    expect(incidentTitle).toBeTruthy()
+    if (!incidentTitle) throw new Error("missing soak incident row")
     const incidentRow = incidentTitle.parentElement
     expect(incidentRow).toBeTruthy()
     fireEvent.click(within(incidentRow as HTMLElement).getByRole("button", { name: "转任务" }))

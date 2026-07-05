@@ -109,7 +109,7 @@ Phase 8.4 在 `src/components/chat/workspace/WorkspacePanel.tsx` 新增「通用
 - 「运行验证」调用既有 `run_smart_verification`。
 - 「刷新工作台」同时刷新 domain evidence、Artifact Export Guard、Connector Action Guard、Operational Gate、Soak Report、review、verification 与 domain quality state。
 - 「运行稳定性」卡片调用 `evaluate_domain_operational_gate({ sessionId, windowDays: 14 })`，显示 workflow 完成/活跃、loop 成功/失败、campaign 活跃和阻塞 check。
-- 「长跑审计」卡片调用 `generate_domain_soak_report({ sessionId, windowDays: 14, maxItems: 8 })`，显示样本数、critical/warning incidents、最长 workflow drain、审批等待、恢复次数、Soak Report recommended next steps 和最近事故建议；推荐建议与事故行的「转任务」按钮复用 `create_session_task`，把样本不足、未排空、审批悬空或具体事故处理建议落成可跟踪 task。
+- 「长跑审计」卡片调用 `generate_domain_soak_report({ sessionId, windowDays: 14, maxItems: 8 })`，显示样本数、critical/warning incidents、最长 workflow drain、审批等待、恢复次数、最近 timeline、Soak Report recommended next steps 和最近事故建议；推荐建议与事故行的「转任务」按钮复用 `create_session_task`，把样本不足、未排空、审批悬空或具体事故处理建议落成可跟踪 task。
 - 「交付守门」在报告包含 artifact title / kind / path 时显示「复核产物」，调用既有 `run_domain_quality` 并带上 `sourceMetadata.sourceType="artifact_export_guard"`、artifact path / title / kind / guard status；这会创建可审计 Domain Quality run，不会自动创建 WorkflowRun、导出产物或访问连接器。
 - 「交付守门」和「外部动作守门」的失败/样本不足 check 行提供「转任务」按钮；「交付守门」中需复核的 private / connector / sensitive / pending evidence 行也可「转任务」。这些动作复用 `create_session_task` 把具体守门缺口落成可跟踪 task；只创建用户可见待办，不自动复核产物、不自动批准外部动作、不修改 gate 结果。
 - 「外部动作守门」卡片提供「批准动作」和「记录回滚」显式确认：前者写入 `user_decision` evidence + `explicitUserApproval/decision.approved` marker，后者必须填写回滚文本后才写入 `connector_context_collected` evidence + `rollbackPlan/canRollback` marker。两者只记录用户显式证据，不调用连接器、不执行外部修改。

@@ -6259,6 +6259,7 @@ function DomainSoakReportPanel({
   const canCreateIncidentTasks = Boolean(sessionId) && !disabled
   const recommendedSteps = (report?.recommendedNextSteps ?? []).filter(Boolean).slice(0, 2)
   const canCreateRecommendationTasks = Boolean(sessionId) && !disabled
+  const timelineItems = (report?.timeline ?? []).slice(0, 3)
 
   const createIncidentTask = async (incident: DomainSoakIncident, index: number) => {
     if (!sessionId || disabled || creatingIncidentTaskKey) return
@@ -6396,6 +6397,38 @@ function DomainSoakReportPanel({
         </div>
       ) : null}
 
+      {timelineItems.length > 0 ? (
+        <div className="mt-2 rounded-md border border-border/45 bg-secondary/15 px-2 py-1.5">
+          <div className="mb-1 flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+            <Clock className="h-3 w-3 shrink-0" />
+            <span className="truncate">{t("workspace.domainSoakReport.timeline", "最近时间线")}</span>
+          </div>
+          <div className="space-y-1">
+            {timelineItems.map((item) => {
+              const duration =
+                item.durationSecs != null
+                  ? formatLoopDuration(Math.max(1, Math.round(item.durationSecs)))
+                  : null
+              return (
+                <div
+                  key={`${item.source}:${item.id}:${item.at}`}
+                  className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground"
+                >
+                  <StatusPill label={item.source} tone={domainSoakTimelineTone(item.status)} />
+                  <span className="min-w-0 flex-1 truncate text-foreground/80">{item.label}</span>
+                  {duration ? (
+                    <span className="shrink-0 tabular-nums text-muted-foreground/80">{duration}</span>
+                  ) : null}
+                  <span className="shrink-0 text-muted-foreground/65">
+                    {formatMessageTime(item.at)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {report && !clean && recommendedSteps.length > 0 ? (
         <div className="mt-2 space-y-1">
           {recommendedSteps.map((step, index) => {
@@ -6512,6 +6545,35 @@ function domainSoakReportTone(status?: string | null, loading?: boolean): Status
   if (status === "passed") return "good"
   if (status === "failed") return "danger"
   if (status === "insufficient_data") return "warn"
+  return "muted"
+}
+
+function domainSoakTimelineTone(status?: string | null): StatusTone {
+  const normalized = (status ?? "").toLowerCase()
+  if (
+    normalized === "failed" ||
+    normalized === "blocked" ||
+    normalized === "cancelled" ||
+    normalized === "interrupted"
+  ) {
+    return "danger"
+  }
+  if (
+    normalized === "running" ||
+    normalized === "queued" ||
+    normalized === "awaiting_approval" ||
+    normalized === "awaiting_user"
+  ) {
+    return "warn"
+  }
+  if (
+    normalized === "completed" ||
+    normalized === "passed" ||
+    normalized === "succeeded" ||
+    normalized === "success"
+  ) {
+    return "good"
+  }
   return "muted"
 }
 
