@@ -3386,6 +3386,10 @@ function domainAcceptancePlanTaskContent(
     `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
   ]
+  const requirements = summary.requirements.map((requirement) => {
+    const status = domainAcceptanceRequirementStatusLabel(t, requirement)
+    return `- [${status}] ${requirement.label}：${requirement.detail}`
+  })
   const actions = [
     t(
       "workspace.domainWorkbench.acceptancePlanActionEvidence",
@@ -3410,6 +3414,9 @@ function domainAcceptancePlanTaskContent(
     "",
     t("workspace.domainWorkbench.acceptancePlanMetrics", "当前指标："),
     ...metrics.map((metric) => `- ${metric}`),
+    "",
+    t("workspace.domainWorkbench.acceptancePlanRequirements", "验收必需项："),
+    ...requirements,
     "",
     t("workspace.domainWorkbench.acceptancePlanGaps", "验收缺口："),
     ...gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`),
