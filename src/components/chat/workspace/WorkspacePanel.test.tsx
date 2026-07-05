@@ -2688,6 +2688,10 @@ describe("WorkspacePanel workflow section", () => {
     })
 
     expect(await screen.findByText("连接器 E2E")).toBeTruthy()
+    expect(screen.getByText("下一步：记录执行结果")).toBeTruthy()
+    expect(
+      (screen.getByRole("button", { name: "记录复核" }) as HTMLButtonElement).disabled,
+    ).toBe(true)
 
     fireEvent.change(screen.getByPlaceholderText("执行结果"), {
       target: { value: executionResult },
@@ -2700,6 +2704,7 @@ describe("WorkspacePanel workflow section", () => {
       )
       expect(calls).toHaveLength(1)
     })
+    expect(await screen.findByText("下一步：记录执行后复核")).toBeTruthy()
 
     fireEvent.change(screen.getByPlaceholderText("执行后复核"), {
       target: { value: verificationResult },

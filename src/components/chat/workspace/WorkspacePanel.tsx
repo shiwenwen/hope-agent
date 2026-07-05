@@ -494,6 +494,7 @@ type DomainQualityReviewEvidenceTarget = {
 type DomainArtifactExportReviewMarker = "exportReview" | "exportReady" | "redactionChecked"
 type DomainConnectorActionConfirmationMarker = "explicitUserApproval" | "rollbackPlan"
 type DomainConnectorE2ESampleMarker = "action_execution" | "post_action_verification"
+type DomainConnectorE2ENextSampleStep = "approval" | "execution" | "verification" | "complete"
 
 const STATUS_TONE_CLASS: Record<StatusTone, string> = {
   muted: "border-border bg-muted/50 text-muted-foreground",
@@ -5700,6 +5701,65 @@ function domainConnectorE2ESampleLabel(
   }
 }
 
+function domainConnectorE2ENextSampleStep(
+  summary: DomainConnectorE2EGateReport["summary"] | null | undefined,
+  thresholds: DomainConnectorE2EGateReport["thresholds"] | null | undefined,
+  recordedExecutionSample: boolean,
+  recordedVerificationSample: boolean,
+): DomainConnectorE2ENextSampleStep {
+  if (!summary || !thresholds) return "execution"
+  if (thresholds.requireExplicitApproval && summary.approvalEvidence === 0) return "approval"
+  const hasExecution = summary.executionEvidence > 0 || recordedExecutionSample
+  const hasVerification = summary.verificationEvidence > 0 || recordedVerificationSample
+  if (thresholds.requireExecutionResult && !hasExecution) return "execution"
+  if (thresholds.requirePostActionVerification && !hasVerification) return "verification"
+  return "complete"
+}
+
+function domainConnectorE2ENextSampleTitle(
+  t: ReturnType<typeof useTranslation>["t"],
+  step: DomainConnectorE2ENextSampleStep,
+): string {
+  switch (step) {
+    case "approval":
+      return t("workspace.domainConnectorE2E.nextApproval", "先补批准证据")
+    case "execution":
+      return t("workspace.domainConnectorE2E.nextExecution", "下一步：记录执行结果")
+    case "verification":
+      return t("workspace.domainConnectorE2E.nextVerification", "下一步：记录执行后复核")
+    case "complete":
+      return t("workspace.domainConnectorE2E.nextComplete", "真实样本已闭环")
+  }
+}
+
+function domainConnectorE2ENextSampleDetail(
+  t: ReturnType<typeof useTranslation>["t"],
+  step: DomainConnectorE2ENextSampleStep,
+): string {
+  switch (step) {
+    case "approval":
+      return t(
+        "workspace.domainConnectorE2E.nextApprovalDetail",
+        "外部动作需要先有用户批准；批准后再记录真实执行结果。",
+      )
+    case "execution":
+      return t(
+        "workspace.domainConnectorE2E.nextExecutionDetail",
+        "只记录已经发生的真实外部动作结果，例如 provider result id、发送/修改结果或失败原因。",
+      )
+    case "verification":
+      return t(
+        "workspace.domainConnectorE2E.nextVerificationDetail",
+        "执行后读回外部状态并记录复核结论，确认结果真的可见且符合预期。",
+      )
+    case "complete":
+      return t(
+        "workspace.domainConnectorE2E.nextCompleteDetail",
+        "执行与复核 evidence 都已存在；如仍未通过，请处理剩余回滚、交付或守门缺口。",
+      )
+  }
+}
+
 function domainConnectorE2EBaseMetadata(
   report: DomainConnectorE2EGateReport,
   marker: DomainConnectorE2ESampleMarker,
@@ -7521,6 +7581,8 @@ function DomainConnectorE2EGatePanel({
   const [creatingTaskKey, setCreatingTaskKey] = useState<string | null>(null)
   const [executionResultDraft, setExecutionResultDraft] = useState("")
   const [verificationDraft, setVerificationDraft] = useState("")
+  const [recordedExecutionSample, setRecordedExecutionSample] = useState(false)
+  const [recordedVerificationSample, setRecordedVerificationSample] = useState(false)
   const issueChecks = (report?.checks ?? []).filter((check) => check.status !== "passed")
   const summary = report?.summary
   const relatedEvidence = report?.relatedEvidence ?? []
@@ -7529,6 +7591,24 @@ function DomainConnectorE2EGatePanel({
   const canCreateTasks = Boolean(sessionId) && !disabled
   const executionResult = executionResultDraft.trim()
   const verification = verificationDraft.trim()
+  const reportKey = report
+    ? [report.generatedAt, report.connector ?? "", report.action ?? "", report.toolName ?? ""].join(":")
+    : "none"
+  useEffect(() => {
+    setRecordedExecutionSample(false)
+    setRecordedVerificationSample(false)
+  }, [reportKey])
+  const nextSampleStep = domainConnectorE2ENextSampleStep(
+    summary,
+    report?.thresholds,
+    recordedExecutionSample,
+    recordedVerificationSample,
+  )
+  const executionReady = nextSampleStep === "execution"
+  const verificationReady =
+    nextSampleStep === "verification" ||
+    (summary?.executionEvidence ?? 0) > 0 ||
+    recordedExecutionSample
   const metrics = summary
     ? [
         {
@@ -7579,8 +7659,10 @@ function DomainConnectorE2EGatePanel({
       })
       if (marker === "action_execution") {
         setExecutionResultDraft("")
+        setRecordedExecutionSample(true)
       } else {
         setVerificationDraft("")
+        setRecordedVerificationSample(true)
       }
       toast.success(
         t("workspace.domainConnectorE2E.sampleRecorded", "已记录 E2E 证据：{{title}}", {
@@ -7715,6 +7797,23 @@ function DomainConnectorE2EGatePanel({
             <CheckCircle2 className="h-3 w-3 shrink-0" />
             <span className="truncate">{t("workspace.domainConnectorE2E.realSample", "真实样本")}</span>
           </div>
+          <div
+            className={cn(
+              "mb-1.5 rounded-md border px-2 py-1.5 text-[11px] leading-snug",
+              STATUS_TONE_CLASS[
+                nextSampleStep === "approval"
+                  ? "danger"
+                  : nextSampleStep === "complete"
+                    ? "good"
+                    : "info"
+              ],
+            )}
+          >
+            <div className="font-medium">{domainConnectorE2ENextSampleTitle(t, nextSampleStep)}</div>
+            <div className="mt-0.5 opacity-85">
+              {domainConnectorE2ENextSampleDetail(t, nextSampleStep)}
+            </div>
+          </div>
           <div className="grid grid-cols-1 gap-1.5">
             <div className="space-y-1">
               <Textarea
@@ -7727,7 +7826,12 @@ function DomainConnectorE2EGatePanel({
               <button
                 type="button"
                 onClick={() => void recordSample("action_execution")}
-                disabled={!canRecordSample || !executionResult || Boolean(recordingSample)}
+                disabled={
+                  !canRecordSample ||
+                  !executionReady ||
+                  !executionResult ||
+                  Boolean(recordingSample)
+                }
                 className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {recordingSample === "action_execution" ? (
@@ -7751,7 +7855,12 @@ function DomainConnectorE2EGatePanel({
               <button
                 type="button"
                 onClick={() => void recordSample("post_action_verification")}
-                disabled={!canRecordSample || !verification || Boolean(recordingSample)}
+                disabled={
+                  !canRecordSample ||
+                  !verificationReady ||
+                  !verification ||
+                  Boolean(recordingSample)
+                }
                 className="inline-flex w-full min-w-0 items-center justify-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {recordingSample === "post_action_verification" ? (
