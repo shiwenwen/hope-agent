@@ -107,11 +107,190 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
 }
 
 /// 捕获并 base64 编码，供 owner 命令（Tauri / HTTP）直接返回。返回 `(base64, mime)`。
+/// `format` ∈ `pdf` / `png`（单帧原生捕获）/ `video`|`mp4`（逐帧真渲染 + ffmpeg 编码）。
 pub async fn capture_artifact_b64(artifact_id: &str, format: &str) -> Result<(String, String)> {
+    use base64::Engine;
+    if format == "video" || format == "mp4" {
+        let bytes = capture_video(artifact_id, 30, 120).await?;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        return Ok((b64, "video/mp4".to_string()));
+    }
     let kind = CaptureKind::parse(format)
         .with_context(|| format!("unsupported native export format: {format}"))?;
     let bytes = capture_artifact(artifact_id, kind).await?;
-    use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok((b64, kind.mime().to_string()))
+}
+
+/// 确定性时钟 harness（与 `src/lib/designVideo.ts` 同源）：patch rAF / performance.now /
+/// Date.now 为虚拟时钟 + WAAPI `getAnimations()` 定格；暴露 `__dsSeek(ms)` / `__dsDuration()`。
+/// 注入进 `</head>` 前，保证在产物脚本前生效。
+const VIDEO_HARNESS: &str = r#"<script>
+(function(){
+  var vt=0, cbs=[], nid=1;
+  try{Object.defineProperty(performance,'now',{value:function(){return vt},configurable:true});}
+  catch(e){try{performance.now=function(){return vt};}catch(_){}}
+  try{Date.now=function(){return vt};}catch(e){}
+  window.requestAnimationFrame=function(fn){var id=nid++;cbs.push([id,fn]);return id;};
+  window.cancelAnimationFrame=function(id){cbs=cbs.filter(function(c){return c[0]!==id;});};
+  window.__dsSeek=function(ms){
+    vt=ms; var p=cbs; cbs=[];
+    p.forEach(function(c){try{c[1](ms);}catch(e){}});
+    try{(document.getAnimations?document.getAnimations():[]).forEach(function(a){
+      try{a.pause();a.currentTime=ms;}catch(e){}});}catch(e){}
+  };
+  window.__dsDuration=function(){
+    var s=document.querySelector('.ds-stage');
+    var d=s&&s.getAttribute('data-ds-duration');
+    if(d&&+d>0)return +d;
+    var max=0;
+    try{(document.getAnimations?document.getAnimations():[]).forEach(function(a){
+      try{var ct=a.effect&&a.effect.getComputedTiming?a.effect.getComputedTiming():null;
+      if(ct&&isFinite(ct.endTime))max=Math.max(max,ct.endTime);}catch(e){}});}catch(e){}
+    return max;
+  };
+})();
+</script>"#;
+
+/// ffmpeg 二进制：`HA_FFMPEG_PATH` 覆盖 → 否则 PATH 上的 `ffmpeg`。缺失则整体 Err，前端回退
+/// 客户端 WebCodecs。
+fn ffmpeg_bin() -> String {
+    std::env::var("HA_FFMPEG_PATH")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "ffmpeg".to_string())
+}
+
+/// 视频强路：真实浏览器逐帧渲染（确定性时钟定格）→ 每帧原生截图 → ffmpeg 编码 MP4。
+/// 无浏览器后端 / 无 ffmpeg / 编码失败均返回 Err，由上层回退客户端 WebCodecs。
+pub async fn capture_video(artifact_id: &str, fps: u32, max_secs: u32) -> Result<Vec<u8>> {
+    let fps = fps.clamp(10, 60);
+    let db = super::service::open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let dir = crate::paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let index = dir.join("index.html");
+    let html = std::fs::read_to_string(&index).context("artifact has no index.html to capture")?;
+    // 注入 harness（在 </head> 前，保证先于产物脚本），落成产物目录内的临时 HTML——同目录
+    // 相对 CSS/JS/图片才能被 file:// 正确加载。
+    let injected = match html.find("</head>") {
+        Some(i) => format!("{}{}{}", &html[..i], VIDEO_HARNESS, &html[i..]),
+        None => format!("{VIDEO_HARNESS}{html}"),
+    };
+    let uniq = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let temp_html = dir.join(format!(".ds-export-{uniq}.html"));
+    let work = std::env::temp_dir().join(format!("ds-video-{uniq}"));
+    std::fs::create_dir_all(&work)?;
+    std::fs::write(&temp_html, injected.as_bytes())?;
+    let url = format!("file://{}", temp_html.to_string_lossy());
+
+    let run = capture_video_inner(&url, fps, max_secs, &work).await;
+
+    // 收尾：删临时 HTML + 帧目录（无论成败）。
+    let _ = std::fs::remove_file(&temp_html);
+    let _ = std::fs::remove_dir_all(&work);
+    run
+}
+
+async fn capture_video_inner(
+    url: &str,
+    fps: u32,
+    max_secs: u32,
+    work: &std::path::Path,
+) -> Result<Vec<u8>> {
+    let backend = crate::browser::acquire_backend()
+        .await
+        .context("no browser backend available for native video export")?;
+    let tab = backend
+        .new_page(Some(url))
+        .await
+        .context("failed to open export page")?;
+
+    let frames = async {
+        let _ = backend.select_page(&tab.target_id).await;
+        if !tab.url.contains(".ds-export-") {
+            backend
+                .navigate(url)
+                .await
+                .context("navigate export page")?;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // 时长：__dsDuration()（data-ds-duration / WAAPI 最长），兜底 6s，钳 [1s, max]。
+        let dur_val = backend
+            .evaluate("__dsDuration()")
+            .await
+            .unwrap_or(serde_json::Value::Null);
+        let mut dur_ms = dur_val.as_f64().filter(|d| *d > 0.0).unwrap_or(6000.0);
+        let max_ms = (max_secs.clamp(1, 300) as f64) * 1000.0;
+        dur_ms = dur_ms.clamp(1000.0, max_ms);
+        let total = (((dur_ms / 1000.0) * fps as f64).round() as u32).max(1);
+        crate::app_info!(
+            "design",
+            "render_native",
+            "video capture {total} frames @ {fps}fps ({dur_ms}ms)"
+        );
+
+        for i in 0..total {
+            let t = (i as f64 / fps as f64) * 1000.0;
+            let _ = backend.evaluate(&format!("__dsSeek({t})")).await;
+            tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+            let png = backend
+                .take_screenshot(ScreenshotParams {
+                    format: ImageFormat::Png,
+                    full_page: false,
+                    ..Default::default()
+                })
+                .await
+                .context("frame screenshot failed")?;
+            std::fs::write(work.join(format!("f_{i:05}.png")), &png)?;
+        }
+        Ok::<u32, anyhow::Error>(total)
+    }
+    .await;
+
+    let _ = backend.close_page(&tab.target_id).await;
+    let total = frames?;
+    if total == 0 {
+        anyhow::bail!("no frames captured");
+    }
+
+    // ffmpeg 编码（阻塞子进程放 spawn_blocking，不占 async 执行器）。
+    let bin = ffmpeg_bin();
+    let out = work.join("out.mp4");
+    let frames_glob = work.join("f_%05d.png");
+    let out_clone = out.clone();
+    let status = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(bin)
+            .arg("-y")
+            .args(["-framerate", &fps.to_string()])
+            .arg("-i")
+            .arg(&frames_glob)
+            .args([
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&out_clone)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+    })
+    .await
+    .context("ffmpeg task panicked")?
+    .context(
+        "ffmpeg not available — install ffmpeg or set HA_FFMPEG_PATH (falls back to client)",
+    )?;
+    if !status.success() {
+        anyhow::bail!("ffmpeg encoding failed");
+    }
+    std::fs::read(&out).context("failed to read ffmpeg output")
 }

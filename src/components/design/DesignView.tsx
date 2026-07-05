@@ -105,7 +105,7 @@ import {
   base64ToBlob,
   safeFilename,
 } from "@/lib/designExport"
-import { exportVideo, videoExportSupported } from "@/lib/designVideo"
+import { exportVideo } from "@/lib/designVideo"
 
 interface DesignViewProps {
   onBack: () => void
@@ -619,13 +619,29 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             `${base}.pptx`,
           )
         } else if (format === "video") {
-          downloadBlob(
-            await exportVideo(res.content, vw, activeArtifact.viewportH, {
-              scale: designConfig?.exportScale,
-              onProgress,
-            }),
-            `${base}.mp4`,
-          )
+          // 强路优先：真实浏览器逐帧真渲染 + ffmpeg 编码（任意时长/分辨率、跨浏览器无关）。
+          // 无浏览器后端 / 无 ffmpeg / 失败时回退客户端 WebCodecs 逐帧编码。
+          try {
+            const nat = await tx.call<{ data: string; mime: string }>(
+              "export_design_native_cmd",
+              { id: activeArtifact.id, format: "video" },
+            )
+            downloadBlob(base64ToBlob(nat.data, nat.mime), `${base}.mp4`)
+          } catch (e) {
+            logger.error(
+              "design",
+              "DesignView::handleExport",
+              "native video unavailable, using client WebCodecs fallback",
+              e,
+            )
+            downloadBlob(
+              await exportVideo(res.content, vw, activeArtifact.viewportH, {
+                scale: designConfig?.exportScale,
+                onProgress,
+              }),
+              `${base}.mp4`,
+            )
+          }
         }
         if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
       } catch (e) {
@@ -1313,7 +1329,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             {t("design.exportPptx", "PPTX")}
                           </DropdownMenuItem>
                         )}
-                        {activeArtifact.kind === "motion" && videoExportSupported() && (
+                        {activeArtifact.kind === "motion" && (
+                          // 原生强路（浏览器逐帧 + ffmpeg）不依赖 WebCodecs，故 motion 始终提供；
+                          // 原生不可用时回退客户端 WebCodecs（若也不支持则导出报错）。
                           <DropdownMenuItem onSelect={() => void handleExport("video")}>
                             <Film className="mr-2 h-4 w-4" />
                             {t("design.exportVideo", "视频 (MP4)")}

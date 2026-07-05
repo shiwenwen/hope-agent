@@ -427,14 +427,24 @@ planned ──→ generating ──→ ready
 
 ## 10. 导出与产物库
 
-### 10.1 导出格式
+### 10.1 导出格式（强路 + 客户端回退）
 
-| 格式 | 做法 | 说明 |
+**PDF / PNG / 视频走「强路优先、客户端回退」两级**（`design/render_native.rs`）：
+
+- **强路 = 真实浏览器原生捕获**：复用现有 CDP 浏览器后端（`crate::browser`，Chromium **按需下载、不打进安装包**）在隔离页（`new_page` → 捕获 → `close_page`，不碰用户标签）渲染产物 `index.html` →
+  - **PDF** = `printToPDF`（**矢量、文字可选可搜**）
+  - **PNG** = `captureScreenshot`（**全保真**，`backdrop-filter`/WebGL/真实字体全捕获，摆脱 html2canvas 的 CSS 子集天花板）
+  - **视频（MP4）** = 注入确定性时钟 harness（与 `designVideo.ts` 同源）→ 逐帧 `__dsSeek` + 原生截图 → **ffmpeg**（`HA_FFMPEG_PATH` / PATH，缺失则回退）编码 `libx264`。owner 入口 `export_design_native_cmd` / `GET /api/design/artifacts/{id}/native?format=pdf|png|video`。
+- **客户端回退**：强路（无浏览器后端 / 无 ffmpeg / 失败）时前端自动降级——PNG/PDF 走 `html2canvas + jsPDF`，视频走 **WebCodecs**（`designVideo.ts`），始终可导出。
+
+| 格式 | 强路 | 客户端回退 |
 | --- | --- | --- |
-| **HTML** | 直接产出 `index.html`（已自包含内联） | 单文件，零依赖 |
-| **PNG** | inspector bridge `html2canvas`（vendored 本地）截图，或 owner 端 headless 光栅化 | 缩略图同源 |
-| **PDF** | `deck` → 每页一 PDF page；`web/poster/document` → 整页 | 走 webview print-to-pdf / 零依赖 PDF 写出器；保真优先，见 roadmap Phase 5 |
-| **PPTX** | 确定性 pptx 写出器（freeform 页型），每 `slide`/`poster` 一页 | 保真优先（渐变/字体替换是行业公认痛点，重点投入） |
+| **HTML** | 直接产出 `index.html`（自包含内联，零依赖） | —— |
+| **PNG** | `captureScreenshot`（全保真） | `html2canvas`（多页 deck 纵向拼图） |
+| **PDF** | `printToPDF`（矢量可选文字） | `html2canvas + jsPDF`（位图） |
+| **视频 MP4** | 逐帧真渲染 + ffmpeg（任意时长/分辨率、跨浏览器无关） | WebCodecs 客户端逐帧编码 |
+| **PPTX** | 前端整页栅格化 + 后端 `zip`+OOXML 组装 | （同左，PPTX 无强路） |
+| **ZIP / Markdown** | 后端打包 / `htmd` 转换 | —— |
 
 `exports/` 目录**必须 gitignore**（restore 会清）；HTTP 导出路由需 `DefaultBodyLimit` 放开。
 
