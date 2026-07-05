@@ -12,8 +12,9 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
+use ha_core::design::extract::Direction;
 use ha_core::design::service::{
-    self, CreateArtifactInput, CreateProjectInput, ElementPatch, SaveSystemInput,
+    self, CreateArtifactInput, CreateProjectInput, ElementPatch, ExtractSystemInput, SaveSystemInput,
     UpdateProjectInput,
 };
 use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};
@@ -63,6 +64,33 @@ pub struct SaveSystemBody {
 #[derive(Debug, Deserialize)]
 pub struct PatchBody {
     pub input: ElementPatch,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ExtractSystemBody {
+    pub input: ExtractSystemInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProposeDirectionsBody {
+    pub brief: String,
+    #[serde(default)]
+    pub count: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPptxBody {
+    pub slides: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreBody {
+    pub version_id: i64,
 }
 
 // ── Projects ───────────────────────────────────────────────────────
@@ -127,7 +155,9 @@ pub async fn create_artifact(
 ) -> Result<Json<DesignArtifact>, AppError> {
     validate_id(&body.input.project_id)?;
     Ok(Json(
-        service::create_artifact(body.input).map_err(|e| AppError::internal(e.to_string()))?,
+        service::create_artifact_generating(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }
 
@@ -199,6 +229,26 @@ pub async fn list_versions(
     ))
 }
 
+/// `POST /api/design/artifacts/{id}/restore` — restore a historical version.
+pub async fn restore_version(
+    Path(id): Path<String>,
+    Json(body): Json<RestoreBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::restore_version(&id, body.version_id)
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/pptx` — assemble PPTX from client-rasterized slide PNGs (base64).
+pub async fn export_pptx(Json(body): Json<ExportPptxBody>) -> Result<Json<Value>, AppError> {
+    let title = body.title.as_deref().unwrap_or("design");
+    let b64 =
+        service::export_pptx(&body.slides, title).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "pptx": b64 })))
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// `GET /api/design/systems`
@@ -229,6 +279,28 @@ pub async fn delete_system(Path(id): Path<String>) -> Result<Json<Value>, AppErr
     validate_id(&id)?;
     service::delete_system(&id).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+/// `POST /api/design/systems/extract` — reverse-extract a design system.
+pub async fn extract_system(
+    Json(body): Json<ExtractSystemBody>,
+) -> Result<Json<DesignSystemMeta>, AppError> {
+    Ok(Json(
+        service::extract_system(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/directions` — propose N design direction candidates.
+pub async fn propose_directions(
+    Json(body): Json<ProposeDirectionsBody>,
+) -> Result<Json<Vec<Direction>>, AppError> {
+    Ok(Json(
+        service::propose_directions(&body.brief, body.count.unwrap_or(4))
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
 }
 
 /// `GET /api/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}` —

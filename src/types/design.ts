@@ -13,7 +13,8 @@ export type ArtifactKind =
   | "poster"
   | "document"
   | "email"
-  | "image";
+  | "image"
+  | "motion";
 
 /** 产物生成状态。 */
 export type ArtifactStatus = "planned" | "generating" | "ready" | "failed";
@@ -153,4 +154,28 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
   "document",
   "email",
   "image",
+  "motion",
 ];
+
+/** 设计系统正文（`get_design_system_cmd` 返回）。 */
+export interface DesignSystemFull {
+  meta: DesignSystemMeta;
+  systemMd: string;
+  tokens: Record<string, string>;
+}
+
+/** 反向提取入参（`extract_design_system_cmd`）。 */
+export interface ExtractSystemInput {
+  name: string;
+  from: "brief" | "codebase" | "url" | "image";
+  brief?: string;
+  path?: string;
+  url?: string;
+}
+
+/** 设计方向候选（`propose_design_directions_cmd`）。 */
+export interface DesignDirection {
+  name: string;
+  summary: string;
+  tokens: Record<string, string>;
+}

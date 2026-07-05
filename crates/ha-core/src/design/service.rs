@@ -289,6 +289,26 @@ pub struct CreateArtifactInput {
     pub js: Option<String>,
     #[serde(default)]
     pub session_id: Option<String>,
+    /// image 形态：图片描述 prompt（走 image_generate 生成并内嵌）。
+    #[serde(default)]
+    pub prompt: Option<String>,
+}
+
+/// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
+/// owner（Tauri/HTTP）与 agent 工具共用此入口。
+pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Result<DesignArtifact> {
+    if input.kind == "image"
+        && input.body_html.as_deref().unwrap_or("").trim().is_empty()
+    {
+        let prompt = input
+            .prompt
+            .clone()
+            .filter(|p| !p.trim().is_empty())
+            .unwrap_or_else(|| input.title.clone());
+        let parts = super::image::generate_image_parts(&prompt, &input.title).await?;
+        input.body_html = Some(parts.body_html);
+    }
+    create_artifact(input)
 }
 
 /// `artifact.json` 磁盘元数据镜像。

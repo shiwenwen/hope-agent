@@ -27,6 +27,13 @@ import {
   MousePointerClick,
   Download,
   Gauge,
+  Film,
+  History,
+  Wand2,
+  RotateCcw,
+  FileImage,
+  FileType2,
+  Code2,
   Loader2 as Loader2Icon,
 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
@@ -49,6 +56,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
@@ -63,13 +71,22 @@ import {
 import type {
   ArtifactKind,
   DesignArtifact,
+  DesignArtifactVersion,
   DesignArtifactView,
   DesignProject,
   DesignSystemMeta,
   DesignSelectedElement,
+  DesignDirection,
   CritiqueResult,
 } from "@/types/design"
 import { ARTIFACT_KINDS } from "@/types/design"
+import {
+  exportPng,
+  exportPdf,
+  exportPptx,
+  downloadBlob,
+  safeFilename,
+} from "@/lib/designExport"
 
 interface DesignViewProps {
   onBack: () => void
@@ -85,6 +102,7 @@ const KIND_ICON: Record<ArtifactKind, typeof Monitor> = {
   document: FileText,
   email: Mail,
   image: Sparkles,
+  motion: Film,
 }
 
 type ZoomMode = "fit" | 0.5 | 1
@@ -247,14 +265,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
 
   const createArtifact = useCallback(
-    async (kind: ArtifactKind) => {
+    async (kind: ArtifactKind, prompt?: string) => {
       if (!activeProject) return
       try {
         const artifact = await tx.call<DesignArtifact>("create_design_artifact_cmd", {
           input: {
             projectId: activeProject.id,
-            title: `${kindLabel(kind)}`,
+            title: kind === "image" && prompt ? prompt.slice(0, 40) : `${kindLabel(kind)}`,
             kind,
+            prompt,
           },
         })
         await loadArtifacts(activeProject.id)
@@ -265,6 +284,32 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [tx, activeProject, kindLabel, loadArtifacts, openArtifact],
   )
+
+  // image 形态需要描述 prompt → 弹小对话框收集。
+  const [imagePromptOpen, setImagePromptOpen] = useState(false)
+  const [imagePrompt, setImagePrompt] = useState("")
+  const [creatingImage, setCreatingImage] = useState(false)
+  const onPickKind = useCallback(
+    (kind: ArtifactKind) => {
+      if (kind === "image") {
+        setImagePrompt("")
+        setImagePromptOpen(true)
+      } else {
+        void createArtifact(kind)
+      }
+    },
+    [createArtifact],
+  )
+  const confirmImagePrompt = useCallback(async () => {
+    if (!imagePrompt.trim()) return
+    setCreatingImage(true)
+    try {
+      await createArtifact("image", imagePrompt.trim())
+      setImagePromptOpen(false)
+    } finally {
+      setCreatingImage(false)
+    }
+  }, [createArtifact, imagePrompt])
 
   // ── Visual fine-tuning (D1) ──────────────────────────────────
 
@@ -367,28 +412,146 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
   }, [postToIframe])
 
-  // ── Export (D3) ──────────────────────────────────────────────
-  const handleExport = useCallback(async () => {
+  // ── Export (D3): HTML（后端干净自包含）+ PNG/PDF/PPTX（客户端栅格化） ──
+  const [exporting, setExporting] = useState<null | "html" | "png" | "pdf" | "pptx">(null)
+  const handleExport = useCallback(
+    async (format: "html" | "png" | "pdf" | "pptx") => {
+      if (!activeArtifact || exporting) return
+      setExporting(format)
+      try {
+        // 干净自包含 HTML（editable=false，无 bridge/oid）。
+        const res = await tx.call<{ filename: string; mime: string; content: string }>(
+          "export_design_artifact_cmd",
+          { id: activeArtifact.id, format: "html" },
+        )
+        if (!res) return
+        const base = safeFilename(activeArtifact.title)
+        const kind = activeArtifact.kind
+        const vw = activeArtifact.viewportW
+        if (format === "html") {
+          downloadBlob(new Blob([res.content], { type: res.mime }), `${base}.html`)
+        } else if (format === "png") {
+          downloadBlob(await exportPng(res.content, kind, vw), `${base}.png`)
+        } else if (format === "pdf") {
+          downloadBlob(await exportPdf(res.content, kind, vw), `${base}.pdf`)
+        } else if (format === "pptx") {
+          downloadBlob(await exportPptx(res.content, kind, activeArtifact.title, vw), `${base}.pptx`)
+        }
+      } catch (e) {
+        logger.error("design", "DesignView::handleExport", `export ${format} failed`, e)
+      } finally {
+        setExporting(null)
+      }
+    },
+    [tx, activeArtifact, exporting],
+  )
+
+  // ── Version history (D1) ─────────────────────────────────────
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [versions, setVersions] = useState<DesignArtifactVersion[]>([])
+  const [restoring, setRestoring] = useState<number | null>(null)
+  const openHistory = useCallback(async () => {
     if (!activeArtifact) return
+    setHistoryOpen(true)
     try {
-      const res = await tx.call<{ filename: string; mime: string; content: string }>(
-        "export_design_artifact_cmd",
-        { id: activeArtifact.id, format: "html" },
-      )
-      if (!res) return
-      const blob = new Blob([res.content], { type: res.mime })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = res.filename
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
+      const list = await tx.call<DesignArtifactVersion[]>("list_design_artifact_versions_cmd", {
+        id: activeArtifact.id,
+      })
+      setVersions(list ?? [])
     } catch (e) {
-      logger.error("design", "DesignView::handleExport", "export failed", e)
+      logger.error("design", "DesignView::openHistory", "list versions failed", e)
     }
   }, [tx, activeArtifact])
+  const restoreVersion = useCallback(
+    async (versionId: number) => {
+      if (!activeArtifact) return
+      setRestoring(versionId)
+      try {
+        await tx.call("restore_design_version_cmd", { artifactId: activeArtifact.id, versionId })
+        setPreviewKey((k) => k + 1)
+        setHistoryOpen(false)
+        if (activeProject) void loadArtifacts(activeProject.id)
+      } catch (e) {
+        logger.error("design", "DesignView::restoreVersion", "restore failed", e)
+      } finally {
+        setRestoring(null)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tx, activeArtifact, activeProject],
+  )
+
+  // ── Reverse-extraction (D2) ──────────────────────────────────
+  const [extractOpen, setExtractOpen] = useState(false)
+  const [extractFrom, setExtractFrom] = useState<"brief" | "url" | "codebase" | "image">("brief")
+  const [extractName, setExtractName] = useState("")
+  const [extractText, setExtractText] = useState("")
+  const [extracting, setExtracting] = useState(false)
+  const runExtract = useCallback(async () => {
+    setExtracting(true)
+    try {
+      const input: Record<string, unknown> = {
+        name: extractName.trim() || t("design.extractedSystem", "提取的设计系统"),
+        from: extractFrom,
+      }
+      if (extractFrom === "brief") input.brief = extractText
+      else if (extractFrom === "url") input.url = extractText
+      else input.path = extractText
+      await tx.call("extract_design_system_cmd", { input })
+      setExtractOpen(false)
+      setExtractText("")
+      setExtractName("")
+      await loadSystems()
+    } catch (e) {
+      logger.error("design", "DesignView::runExtract", "extract failed", e)
+    } finally {
+      setExtracting(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tx, extractFrom, extractName, extractText])
+
+  // ── Direction picker (D2) ────────────────────────────────────
+  const [directionsOpen, setDirectionsOpen] = useState(false)
+  const [dirBrief, setDirBrief] = useState("")
+  const [directions, setDirections] = useState<DesignDirection[]>([])
+  const [proposing, setProposing] = useState(false)
+  const runProposeDirections = useCallback(async () => {
+    setProposing(true)
+    setDirections([])
+    try {
+      const list = await tx.call<DesignDirection[]>("propose_design_directions_cmd", {
+        brief: dirBrief,
+        count: 4,
+      })
+      setDirections(list ?? [])
+    } catch (e) {
+      logger.error("design", "DesignView::proposeDirections", "propose failed", e)
+    } finally {
+      setProposing(false)
+    }
+  }, [tx, dirBrief])
+  const adoptDirection = useCallback(
+    async (d: DesignDirection) => {
+      try {
+        const meta = await tx.call<DesignSystemMeta>("save_design_system_cmd", {
+          input: {
+            name: d.name,
+            summary: d.summary,
+            systemMd: `# ${d.name}\n\n${d.summary}\n`,
+            tokens: d.tokens,
+            source: "user",
+          },
+        })
+        await loadSystems()
+        if (activeProject && meta) await setProjectSystem(meta.id)
+        setDirectionsOpen(false)
+      } catch (e) {
+        logger.error("design", "DesignView::adoptDirection", "adopt failed", e)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tx, activeProject],
+  )
 
   // ── Quality gate (Phase 6) ───────────────────────────────────
   const [critiquing, setCritiquing] = useState(false)
@@ -549,6 +712,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     </div>
                   </DropdownMenuItem>
                 ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setExtractOpen(true)}>
+                  <Wand2 className="mr-2 h-4 w-4" />
+                  {t("design.extractSystem", "反向提取品牌…")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setDirectionsOpen(true)}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {t("design.proposeDirections", "生成设计方向…")}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -564,7 +736,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 {ARTIFACT_KINDS.map((kind) => {
                   const Icon = KIND_ICON[kind]
                   return (
-                    <DropdownMenuItem key={kind} onSelect={() => void createArtifact(kind)}>
+                    <DropdownMenuItem key={kind} onSelect={() => onPickKind(kind)}>
                       <Icon className="mr-2 h-4 w-4" />
                       {kindLabel(kind)}
                     </DropdownMenuItem>
@@ -703,18 +875,49 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </Button>
                       </IconTip>
                     )}
-                    {activeArtifact.kind !== "image" && (
-                      <IconTip label={t("design.exportHtml", "导出 HTML")} side="bottom">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => void handleExport()}
-                        >
-                          <Download className="h-3.5 w-3.5" />
+                    <IconTip label={t("design.history", "版本历史")} side="bottom">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => void openHistory()}
+                      >
+                        <History className="h-3.5 w-3.5" />
+                      </Button>
+                    </IconTip>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-6 w-6" disabled={!!exporting}>
+                          {exporting ? (
+                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Download className="h-3.5 w-3.5" />
+                          )}
                         </Button>
-                      </IconTip>
-                    )}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => void handleExport("html")}>
+                          <Code2 className="mr-2 h-4 w-4" />
+                          {t("design.exportHtml", "HTML")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => void handleExport("png")}>
+                          <FileImage className="mr-2 h-4 w-4" />
+                          {t("design.exportPng", "PNG 图片")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => void handleExport("pdf")}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          {t("design.exportPdf", "PDF")}
+                        </DropdownMenuItem>
+                        {(activeArtifact.kind === "deck" ||
+                          activeArtifact.kind === "poster" ||
+                          activeArtifact.kind === "motion") && (
+                          <DropdownMenuItem onSelect={() => void handleExport("pptx")}>
+                            <FileType2 className="mr-2 h-4 w-4" />
+                            {t("design.exportPptx", "PPTX")}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto p-4">
@@ -803,6 +1006,187 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           )}
         </div>
       )}
+
+      {/* Image prompt dialog */}
+      <Dialog open={imagePromptOpen} onOpenChange={setImagePromptOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              {t("design.newImage", "生成图像")}
+            </DialogTitle>
+          </DialogHeader>
+          <textarea
+            autoFocus
+            value={imagePrompt}
+            onChange={(e) => setImagePrompt(e.target.value)}
+            rows={3}
+            placeholder={t("design.imagePromptPlaceholder", "描述你想要的图像…")}
+            className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setImagePromptOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button onClick={() => void confirmImagePrompt()} disabled={creatingImage || !imagePrompt.trim()}>
+              {creatingImage && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+              {t("design.generate", "生成")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Version history dialog */}
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              {t("design.history", "版本历史")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-80 space-y-1.5 overflow-y-auto">
+            {versions.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                {t("design.noVersions", "暂无版本")}
+              </div>
+            ) : (
+              versions.map((v) => (
+                <div
+                  key={v.versionNumber}
+                  className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+                >
+                  <span className="font-mono text-xs text-muted-foreground">v{v.versionNumber}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {v.message ?? t("design.version", "版本")}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(v.createdAt).toLocaleString()}
+                  </span>
+                  {v.versionNumber !== activeArtifact?.currentVersion && (
+                    <IconTip label={t("design.restore", "恢复")} side="left">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        disabled={restoring === v.versionNumber}
+                        onClick={() => void restoreVersion(v.versionNumber)}
+                      >
+                        {restoring === v.versionNumber ? (
+                          <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </IconTip>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reverse-extraction dialog (D2) */}
+      <Dialog open={extractOpen} onOpenChange={setExtractOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-4 w-4" />
+              {t("design.extractSystem", "反向提取品牌")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex gap-1.5">
+            {(["brief", "url", "image", "codebase"] as const).map((f) => (
+              <Button
+                key={f}
+                variant={extractFrom === f ? "default" : "outline"}
+                size="sm"
+                className="flex-1"
+                onClick={() => setExtractFrom(f)}
+              >
+                {t(`design.from.${f}`, f)}
+              </Button>
+            ))}
+          </div>
+          <Input
+            value={extractName}
+            onChange={(e) => setExtractName(e.target.value)}
+            placeholder={t("design.systemNamePlaceholder", "设计系统名称")}
+          />
+          <textarea
+            value={extractText}
+            onChange={(e) => setExtractText(e.target.value)}
+            rows={4}
+            placeholder={t(`design.extractHint.${extractFrom}`, "")}
+            className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setExtractOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button onClick={() => void runExtract()} disabled={extracting || !extractText.trim()}>
+              {extracting && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+              {t("design.extract", "提取")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Direction picker dialog (D2) */}
+      <Dialog open={directionsOpen} onOpenChange={setDirectionsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4" />
+              {t("design.proposeDirections", "生成设计方向")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex gap-2">
+            <Input
+              value={dirBrief}
+              onChange={(e) => setDirBrief(e.target.value)}
+              placeholder={t("design.directionBriefPlaceholder", "描述你的产品 / 品牌…")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !proposing && dirBrief.trim()) void runProposeDirections()
+              }}
+            />
+            <Button onClick={() => void runProposeDirections()} disabled={proposing || !dirBrief.trim()}>
+              {proposing && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+              {t("design.generate", "生成")}
+            </Button>
+          </div>
+          {directions.length > 0 && (
+            <div className="grid grid-cols-2 gap-3">
+              {directions.map((d, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => void adoptDirection(d)}
+                  className="group flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors hover:border-primary/50"
+                >
+                  <div className="flex gap-1.5">
+                    {["--ds-color-primary", "--ds-color-accent", "--ds-color-bg", "--ds-color-fg"].map(
+                      (k) => (
+                        <span
+                          key={k}
+                          className="h-6 w-6 rounded-full border"
+                          style={{ background: d.tokens[k] ?? "transparent" }}
+                        />
+                      ),
+                    )}
+                  </div>
+                  <div className="text-sm font-medium">{d.name}</div>
+                  <div className="text-xs text-muted-foreground">{d.summary}</div>
+                  <div className="text-xs font-medium text-primary opacity-0 group-hover:opacity-100">
+                    {t("design.useThisDirection", "采用此方向 →")}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* New project dialog */}
       <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>

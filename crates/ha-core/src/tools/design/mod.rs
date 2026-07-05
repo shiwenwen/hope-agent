@@ -143,29 +143,24 @@ async fn action_create_artifact(
         None => service::get_or_create_session_project(session_id, agent_id)?.id,
     };
 
+    let _ = kind_enum;
     let title = str_arg(args, "title").unwrap_or("未命名产物").to_string();
-    let mut body_html = str_arg(args, "body_html").map(str::to_string);
 
-    // image 形态：无显式 body 时，用 prompt/brief/title 调 image_generate 生成并内嵌。
-    if kind_enum == ArtifactKind::Image && body_html.as_deref().unwrap_or("").trim().is_empty() {
-        let prompt = str_arg(args, "prompt")
-            .or_else(|| str_arg(args, "brief"))
-            .unwrap_or(&title);
-        let parts = crate::design::image::generate_image_parts(prompt, &title).await?;
-        body_html = Some(parts.body_html);
-    }
-
+    // image 形态的生成在 service::create_artifact_generating 内统一处理（owner/agent 共用）。
     let input = CreateArtifactInput {
         project_id: project_id.clone(),
         title,
         kind: kind.to_string(),
         system_id: str_arg(args, "system_id").map(str::to_string),
-        body_html,
+        body_html: str_arg(args, "body_html").map(str::to_string),
         css: str_arg(args, "css").map(str::to_string),
         js: str_arg(args, "js").map(str::to_string),
         session_id: session_id.map(str::to_string),
+        prompt: str_arg(args, "prompt")
+            .or_else(|| str_arg(args, "brief"))
+            .map(str::to_string),
     };
-    let artifact = service::create_artifact(input)?;
+    let artifact = service::create_artifact_generating(input).await?;
     ok(json!({
         "status": "created",
         "projectId": project_id,

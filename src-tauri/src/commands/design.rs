@@ -6,9 +6,10 @@
 //! check (that is for the agent `design` tool).
 
 use crate::commands::CmdError;
+use ha_core::design::extract::Direction;
 use ha_core::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
-    SaveSystemInput, UpdateProjectInput,
+    ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
     CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject,
@@ -59,7 +60,9 @@ pub async fn list_design_artifacts_cmd(
 pub async fn create_design_artifact_cmd(
     input: CreateArtifactInput,
 ) -> Result<DesignArtifact, CmdError> {
-    service::create_artifact(input).map_err(Into::into)
+    service::create_artifact_generating(input)
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -102,6 +105,23 @@ pub async fn critique_design_artifact_cmd(id: String) -> Result<CritiqueResult, 
     service::critique_artifact(&id).await.map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn restore_design_version_cmd(
+    artifact_id: String,
+    version_id: i64,
+) -> Result<DesignArtifact, CmdError> {
+    service::restore_version(&artifact_id, version_id).map_err(Into::into)
+}
+
+/// PPTX：前端栅格化的整页 PNG（base64）→ 后端组装 → 返回 base64 pptx。
+#[tauri::command]
+pub async fn export_design_pptx_cmd(
+    slides: Vec<String>,
+    title: String,
+) -> Result<String, CmdError> {
+    service::export_pptx(&slides, &title).map_err(Into::into)
+}
+
 // ── Design systems ──────────────────────────────────────────────
 
 #[tauri::command]
@@ -122,6 +142,25 @@ pub async fn save_design_system_cmd(input: SaveSystemInput) -> Result<DesignSyst
 #[tauri::command]
 pub async fn delete_design_system_cmd(id: String) -> Result<(), CmdError> {
     service::delete_system(&id).map_err(Into::into)
+}
+
+/// 反向提取设计系统（brief / codebase / url / image）。owner 平面。
+#[tauri::command]
+pub async fn extract_design_system_cmd(
+    input: ExtractSystemInput,
+) -> Result<DesignSystemMeta, CmdError> {
+    service::extract_system(input).await.map_err(Into::into)
+}
+
+/// 设计方向候选（无品牌 brief 时的选择器）。
+#[tauri::command]
+pub async fn propose_design_directions_cmd(
+    brief: String,
+    count: Option<usize>,
+) -> Result<Vec<Direction>, CmdError> {
+    service::propose_directions(&brief, count.unwrap_or(4))
+        .await
+        .map_err(Into::into)
 }
 
 // ── Config ──────────────────────────────────────────────────────

@@ -1703,9 +1703,19 @@ fn build_router_with_cors(
             get(routes::design::export_artifact),
         )
         .route(
+            "/design/artifacts/{id}/restore",
+            post(routes::design::restore_version),
+        )
+        .route("/design/pptx", post(routes::design::export_pptx))
+        .route(
             "/design/systems",
             get(routes::design::list_systems).post(routes::design::save_system),
         )
+        .route(
+            "/design/systems/extract",
+            post(routes::design::extract_system),
+        )
+        .route("/design/directions", post(routes::design::propose_directions))
         .route(
             "/design/systems/{id}",
             get(routes::design::get_system).delete(routes::design::delete_system),
