@@ -2090,11 +2090,13 @@ describe("WorkspacePanel workflow section", () => {
     expect((await screen.findAllByText("需处理")).length).toBeGreaterThan(0)
     expect(screen.getByText("真实样本验收")).toBeTruthy()
     expect(screen.getByText("样本有事故")).toBeTruthy()
-    expect(screen.getByText("45% · 3/6")).toBeTruthy()
+    expect(screen.getByText("39% · 3/7")).toBeTruthy()
     expect(screen.getByText("证据链")).toBeTruthy()
     expect(screen.getByText("缺来源/草稿/决策证据")).toBeTruthy()
     expect(screen.getByText("样本新鲜")).toBeTruthy()
     expect(screen.getByText("2m 前")).toBeTruthy()
+    expect(screen.getByText("预算健康")).toBeTruthy()
+    expect(screen.getByText("耗尽 1 次 · 10/10")).toBeTruthy()
     expect(screen.getByText("守门通过")).toBeTruthy()
     expect(screen.getByText("运行稳定性、长跑审计 未通过")).toBeTruthy()
     expect(screen.getByText("3 条")).toBeTruthy()
@@ -2115,12 +2117,27 @@ describe("WorkspacePanel workflow section", () => {
       })
     })
 
+    const budgetRequirement = screen.getByText("耗尽 1 次 · 10/10")
+    const budgetRequirementRow = budgetRequirement.parentElement
+    expect(budgetRequirementRow).toBeTruthy()
+    fireEvent.click(
+      within(budgetRequirementRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content: "补齐真实样本验收必需项：预算健康（耗尽 1 次 · 10/10）",
+        activeForm: "正在补齐真实样本验收必需项",
+      })
+    })
+
     fireEvent.click(screen.getByRole("button", { name: "采样清单" }))
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
         content:
-          "补齐真实样本验收清单：\n\n当前指标：\n- 状态：样本有事故\n- 验收进度：45% (3/6)\n- 领域：research\n- 控制面记录：3\n- 已排空样本：2\n- 最近样本：2m 前\n- 连接器 E2E evidence：0\n- 事故：critical 1 / warning 0\n\n验收必需项：\n- [通过] 领域样本：1 个领域\n- [待补] 证据链：缺来源/草稿/决策证据\n- [通过] 排空样本：2 个已排空\n- [通过] 样本新鲜：2m 前\n- [阻塞] 事故清零：critical 1 / warning 0\n- [阻塞] 守门通过：运行稳定性、长跑审计 未通过\n\n验收缺口：\n- [阻塞] 长跑审计仍有事故需要收口。\n- [待补] 缺少来源、草稿、复核或用户决策证据。\n- [扩展] 继续补其它通用领域样本，避免只证明单一场景。\n\n采样动作：\n- 补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。\n- 至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。\n- 如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。\n- 涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录 E2E evidence。\n- 处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
+          "补齐真实样本验收清单：\n\n当前指标：\n- 状态：样本有事故\n- 验收进度：39% (3/7)\n- 领域：research\n- 控制面记录：3\n- 已排空样本：2\n- 最近样本：2m 前\n- 输出预算：耗尽 1 次 · 10/10\n- 连接器 E2E evidence：0\n- 事故：critical 1 / warning 0\n\n验收必需项：\n- [通过] 领域样本：1 个领域\n- [待补] 证据链：缺来源/草稿/决策证据\n- [通过] 排空样本：2 个已排空\n- [通过] 样本新鲜：2m 前\n- [阻塞] 预算健康：耗尽 1 次 · 10/10\n- [阻塞] 事故清零：critical 1 / warning 0\n- [阻塞] 守门通过：运行稳定性、长跑审计 未通过\n\n验收缺口：\n- [阻塞] 长跑审计仍有事故需要收口。\n- [阻塞] 工作流输出预算已耗尽，需收口性能或上下文策略。\n- [待补] 缺少来源、草稿、复核或用户决策证据。\n\n采样动作：\n- 补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。\n- 至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。\n- 如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。\n- 如果输出预算耗尽，先收窄上下文、拆分阶段或降低无效输出，再重新跑最小验证样本。\n- 涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录 E2E evidence。\n- 处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
         activeForm: "正在补齐真实样本验收清单",
       })
     })
@@ -2333,7 +2350,7 @@ describe("WorkspacePanel workflow section", () => {
     })
 
     expect(await screen.findByText("真实样本验收")).toBeTruthy()
-    expect(screen.getByText("0% · 0/6")).toBeTruthy()
+    expect(screen.getByText("0% · 0/7")).toBeTruthy()
     expect(screen.getByText("守门通过")).toBeTruthy()
     expect(screen.getByText("缺少守门通过样本")).toBeTruthy()
   })

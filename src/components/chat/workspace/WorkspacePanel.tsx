@@ -3025,6 +3025,8 @@ type DomainAcceptanceCoverageSummary = {
   warningIncidents: number
   latestActivityAgeSecs?: number | null
   freshnessMaxAgeSecs: number
+  budgetExhaustedEvents: number
+  outputTokenBudgetLabel: string | null
   readinessPercent: number
   requiredPassed: number
   requiredTotal: number
@@ -3100,6 +3102,17 @@ function domainAcceptanceCoverageSummary(
   const hasFreshSample =
     latestActivityAgeSecs != null &&
     latestActivityAgeSecs <= DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS
+  const budgetExhaustedEvents = Math.max(0, soakSummary?.workflowBudgetExhaustedEvents ?? 0)
+  const outputTokenBudgetLabel =
+    soakSummary?.maxWorkflowOutputTokensSpent != null
+      ? soakSummary.maxWorkflowOutputTokenBudget != null &&
+        soakSummary.maxWorkflowOutputTokenBudget > 0
+        ? `${compactCount(soakSummary.maxWorkflowOutputTokensSpent)}/${compactCount(
+            soakSummary.maxWorkflowOutputTokenBudget,
+          )}`
+        : compactCount(soakSummary.maxWorkflowOutputTokensSpent)
+      : null
+  const budgetHealthy = controlRecords > 0 && budgetExhaustedEvents === 0
   const connectorE2eHasScope = Boolean(
     args.connectorE2eGate?.connector ||
       args.connectorE2eGate?.action ||
@@ -3199,6 +3212,16 @@ function domainAcceptanceCoverageSummary(
       "warn",
     )
   }
+  if (budgetExhaustedEvents > 0) {
+    pushGap(
+      "budget",
+      t(
+        "workspace.domainWorkbench.acceptanceGapBudget",
+        "工作流输出预算已耗尽，需收口性能或上下文策略。",
+      ),
+      "danger",
+    )
+  }
   if (failedGateLabels.length > 0 && criticalIncidents === 0) {
     pushGap(
       "failed-gates",
@@ -3282,6 +3305,33 @@ function domainAcceptanceCoverageSummary(
       tone: hasFreshSample ? "good" : controlRecords > 0 ? "warn" : "muted",
     },
     {
+      key: "budget",
+      label: t("workspace.domainWorkbench.acceptanceReqBudget", "预算健康"),
+      detail:
+        budgetExhaustedEvents > 0
+          ? t(
+              "workspace.domainWorkbench.acceptanceReqBudgetExhausted",
+              "耗尽 {{count}} 次{{budget}}",
+              {
+                count: budgetExhaustedEvents,
+                budget: outputTokenBudgetLabel ? ` · ${outputTokenBudgetLabel}` : "",
+              },
+            )
+          : controlRecords > 0
+            ? outputTokenBudgetLabel
+              ? t(
+                  "workspace.domainWorkbench.acceptanceReqBudgetOkWithUsage",
+                  "未耗尽 · {{budget}}",
+                  {
+                    budget: outputTokenBudgetLabel,
+                  },
+                )
+              : t("workspace.domainWorkbench.acceptanceReqBudgetOk", "未观察到预算耗尽")
+            : t("workspace.domainWorkbench.acceptanceReqBudgetNoSample", "先补控制面记录"),
+      passed: budgetHealthy,
+      tone: budgetExhaustedEvents > 0 ? "danger" : controlRecords > 0 ? "good" : "warn",
+    },
+    {
       key: "incidents",
       label: t("workspace.domainWorkbench.acceptanceReqIncidents", "事故清零"),
       detail:
@@ -3359,6 +3409,8 @@ function domainAcceptanceCoverageSummary(
     warningIncidents,
     latestActivityAgeSecs,
     freshnessMaxAgeSecs: DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS,
+    budgetExhaustedEvents,
+    outputTokenBudgetLabel,
     readinessPercent,
     requiredPassed,
     requiredTotal,
@@ -3428,6 +3480,21 @@ function domainAcceptancePlanTaskContent(
           age: formatDurationCompact(summary.latestActivityAgeSecs),
         })
       : t("workspace.domainWorkbench.acceptancePlanFreshnessMissing", "缺最近活动时间")
+  const budgetHealth =
+    summary.budgetExhaustedEvents > 0
+      ? t(
+          "workspace.domainWorkbench.acceptancePlanBudgetExhausted",
+          "耗尽 {{count}} 次{{budget}}",
+          {
+            count: summary.budgetExhaustedEvents,
+            budget: summary.outputTokenBudgetLabel ? ` · ${summary.outputTokenBudgetLabel}` : "",
+          },
+        )
+      : summary.outputTokenBudgetLabel
+        ? t("workspace.domainWorkbench.acceptancePlanBudgetOkWithUsage", "未耗尽 · {{budget}}", {
+            budget: summary.outputTokenBudgetLabel,
+          })
+        : t("workspace.domainWorkbench.acceptancePlanBudgetOk", "未观察到预算耗尽")
   const metrics = [
     `${t("workspace.domainWorkbench.acceptancePlanStatus", "状态")}：${domainAcceptanceStatusLabel(t, summary)}`,
     `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
@@ -3435,6 +3502,7 @@ function domainAcceptancePlanTaskContent(
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
     `${t("workspace.domainWorkbench.acceptancePlanDrained", "已排空样本")}：${summary.drainedRuns}`,
     `${t("workspace.domainWorkbench.acceptancePlanFreshness", "最近样本")}：${sampleFreshness}`,
+    `${t("workspace.domainWorkbench.acceptancePlanBudget", "输出预算")}：${budgetHealth}`,
     `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
   ]
@@ -3454,6 +3522,10 @@ function domainAcceptancePlanTaskContent(
     t(
       "workspace.domainWorkbench.acceptancePlanActionFreshness",
       "如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。",
+    ),
+    t(
+      "workspace.domainWorkbench.acceptancePlanActionBudget",
+      "如果输出预算耗尽，先收窄上下文、拆分阶段或降低无效输出，再重新跑最小验证样本。",
     ),
     t(
       "workspace.domainWorkbench.acceptancePlanActionConnector",
