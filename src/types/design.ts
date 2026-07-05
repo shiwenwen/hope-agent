@@ -107,6 +107,8 @@ export interface DesignSystemMeta {
   name: string;
   slug: string;
   source: "builtin" | "user" | "extracted";
+  /** 分组类目（品牌品类 / 原创原型），仅用于选择器分组；用户系统为 undefined。 */
+  category?: string;
   summary?: string;
   thumbnailPath?: string;
   createdAt: string;

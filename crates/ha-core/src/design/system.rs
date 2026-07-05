@@ -4,8 +4,9 @@
 //! grounding，见 `design_md.rs`）+ `tokens.json`（CSS 变量，渲染器注入产物 `:root`）。
 //! 见 docs/architecture/design-space.md §6。
 //!
-//! 内置系统在此**代码内定义**（原创原型化设计语言，非品牌克隆），首次访问懒 seed
-//! 到 managed 目录 + 注册 `design.db`，用户可 fork / 编辑。
+//! 内置系统在此**代码内定义**：6 套原创原型语言 + 一批品牌风格参考（`brands.rs`，对各
+//! 品牌公开视觉语言的独立再诠释，渲染附免责声明、非官方），首次访问懒 seed 到 managed
+//! 目录 + 注册 `design.db`，用户可 fork / 编辑。
 
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -240,16 +241,215 @@ fn builtins() -> Vec<Builtin> {
     ]
 }
 
+/// 一份"待渲染"的设计系统：原创内置（`brand_ref=None`）或品牌风格参考
+/// （`brand_ref=Some(..)`，渲染时附免责声明）统一走此结构。
+struct SystemEntry {
+    id: &'static str,
+    name: &'static str,
+    summary: &'static str,
+    /// 分组类目（品牌品类 / 原创原型），供 GUI 选择器分组。
+    category: &'static str,
+    /// 品牌风格参考的官方名（用于免责声明）；原创系统为 `None`。
+    brand_ref: Option<&'static str>,
+    tokens: BTreeMap<String, String>,
+    doc: String,
+}
+
+/// 品牌风格参考的"种子"：只声明签名色 / 字体 / 圆角 / 字号密度 / 气质，运行期由
+/// [`expand`] 展开为完整 25 token 契约（数据见 `brands.rs`）。
+pub(super) struct BrandSeed {
+    pub(super) id: &'static str,
+    pub(super) name: &'static str,
+    pub(super) brand_ref: &'static str,
+    pub(super) summary: &'static str,
+    /// 分组类目（由 `brands.rs` 的 `cat(..)` 按分节统一赋值）。
+    pub(super) category: &'static str,
+    pub(super) bg: &'static str,
+    pub(super) fg: &'static str,
+    pub(super) primary: &'static str,
+    /// 次强调色；空串 = 复用 primary。
+    pub(super) accent: &'static str,
+    pub(super) muted: &'static str,
+    pub(super) border: &'static str,
+    pub(super) font: &'static str,
+    /// 标题 / 展示字体；空串 = 复用 font。
+    pub(super) display_font: &'static str,
+    pub(super) radius: Radius,
+    pub(super) scale: Scale,
+    pub(super) doc: &'static str,
+}
+
+/// 圆角风格 → `--ds-radius-{md,lg}`。
+#[derive(Clone, Copy)]
+pub(super) enum Radius {
+    Sharp,
+    Small,
+    Medium,
+    Rounded,
+    Pill,
+}
+
+impl Radius {
+    fn radii(self) -> (&'static str, &'static str) {
+        match self {
+            Radius::Sharp => ("2px", "4px"),
+            Radius::Small => ("6px", "10px"),
+            Radius::Medium => ("10px", "16px"),
+            Radius::Rounded => ("16px", "26px"),
+            Radius::Pill => ("22px", "999px"),
+        }
+    }
+}
+
+/// 字号密度 → `--ds-text-{base,lg,xl,2xl,3xl}`。
+#[derive(Clone, Copy)]
+pub(super) enum Scale {
+    Compact,
+    Normal,
+    Display,
+}
+
+impl Scale {
+    fn sizes(
+        self,
+    ) -> (
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+        &'static str,
+    ) {
+        match self {
+            Scale::Compact => ("14px", "18px", "24px", "34px", "46px"),
+            Scale::Normal => ("16px", "20px", "28px", "40px", "56px"),
+            Scale::Display => ("16px", "22px", "34px", "52px", "72px"),
+        }
+    }
+}
+
+/// 由背景色感知明暗，决定语义色 / 中性色 / 阴影的深浅取向。
+fn is_dark(hex: &str) -> bool {
+    let bytes = hex.trim_start_matches('#').as_bytes();
+    if bytes.len() < 6 {
+        return false;
+    }
+    let val = |a: u8, b: u8| -> f32 {
+        let hi = (a as char).to_digit(16).unwrap_or(0);
+        let lo = (b as char).to_digit(16).unwrap_or(0);
+        (hi * 16 + lo) as f32
+    };
+    let r = val(bytes[0], bytes[1]);
+    let g = val(bytes[2], bytes[3]);
+    let b = val(bytes[4], bytes[5]);
+    0.2126 * r + 0.7152 * g + 0.0722 * b < 128.0
+}
+
+/// 把品牌种子展开成完整 25 token 契约的设计系统条目（语义色 / 中性色 / 阴影按明暗自适应）。
+fn expand(s: &BrandSeed) -> SystemEntry {
+    let dark = is_dark(s.bg);
+    let (radius_md, radius_lg) = s.radius.radii();
+    let (base, lg, xl, x2, x3) = s.scale.sizes();
+    let accent = if s.accent.is_empty() {
+        s.primary
+    } else {
+        s.accent
+    };
+    let serif = if s.display_font.is_empty() {
+        s.font
+    } else {
+        s.display_font
+    };
+    let (success, warning, danger) = if dark {
+        ("#34d399", "#fbbf24", "#f87171")
+    } else {
+        ("#16a34a", "#d97706", "#dc2626")
+    };
+    let secondary = if dark { "#94a3b8" } else { "#64748b" };
+    let shadow = if dark {
+        "0 1px 0 rgba(255,255,255,.04),0 12px 34px rgba(0,0,0,.5)"
+    } else {
+        "0 4px 20px rgba(15,23,42,.08)"
+    };
+    let mono = "ui-monospace,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace";
+    let pairs: [(&str, &str); 25] = [
+        ("--ds-color-bg", s.bg),
+        ("--ds-color-fg", s.fg),
+        ("--ds-color-primary", s.primary),
+        ("--ds-color-secondary", secondary),
+        ("--ds-color-accent", accent),
+        ("--ds-color-muted", s.muted),
+        ("--ds-color-border", s.border),
+        ("--ds-color-success", success),
+        ("--ds-color-warning", warning),
+        ("--ds-color-danger", danger),
+        ("--ds-font-sans", s.font),
+        ("--ds-font-serif", serif),
+        ("--ds-font-mono", mono),
+        ("--ds-text-base", base),
+        ("--ds-text-lg", lg),
+        ("--ds-text-xl", xl),
+        ("--ds-text-2xl", x2),
+        ("--ds-text-3xl", x3),
+        ("--ds-space-2", "8px"),
+        ("--ds-space-4", "16px"),
+        ("--ds-space-6", "24px"),
+        ("--ds-space-8", "44px"),
+        ("--ds-radius-md", radius_md),
+        ("--ds-radius-lg", radius_lg),
+        ("--ds-shadow-md", shadow),
+    ];
+    SystemEntry {
+        id: s.id,
+        name: s.name,
+        summary: s.summary,
+        category: s.category,
+        brand_ref: Some(s.brand_ref),
+        tokens: pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        doc: s.doc.to_string(),
+    }
+}
+
+/// 全部内置设计系统：6 套原创原型语言 + `brands.rs` 的品牌风格参考。
+fn all_systems() -> Vec<SystemEntry> {
+    let mut v: Vec<SystemEntry> = builtins()
+        .into_iter()
+        .map(|b| SystemEntry {
+            id: b.id,
+            name: b.name,
+            summary: b.summary,
+            category: "原创原型",
+            brand_ref: None,
+            tokens: b
+                .tokens
+                .iter()
+                .map(|(k, val)| (k.to_string(), val.to_string()))
+                .collect(),
+            doc: b.doc.to_string(),
+        })
+        .collect();
+    v.extend(super::brands::seeds().iter().map(expand));
+    v
+}
+
 /// 内置系统正文：按 **DESIGN.md 规范** 9 段 canonical schema 渲染 + 末尾 Token 表
-/// （机器可回灌）。产出的即是一份完整、可移植、可无损导入的 DESIGN.md。
-fn build_system_md(b: &Builtin) -> String {
+/// （机器可回灌）。产出的即是一份完整、可移植、可无损导入的 DESIGN.md；品牌风格参考
+/// 额外在摘要下附一行免责声明。
+fn build_system_md(e: &SystemEntry) -> String {
     let sec = |i: usize| -> String {
         let (_, zh, en) = super::design_md::SECTIONS[i];
         format!("## {}. {zh} / {en}\n\n", i + 1)
     };
-    let mut s = format!("# {} 设计系统\n\n> {}\n\n", b.name, b.summary);
+    let mut s = format!("# {} 设计系统\n\n> {}\n\n", e.name, e.summary);
+    if let Some(brand) = e.brand_ref {
+        s.push_str(&format!(
+            "> 免责声明：本设计系统是对「{brand}」公开视觉语言的独立再诠释，仅供设计参考；与 {brand} 及其权利人不存在任何隶属、赞助或授权关系，相关名称与商标归各自所有者所有。\n\n"
+        ));
+    }
     s.push_str(&sec(0)); // brand
-    s.push_str(&format!("{}\n\n", b.doc));
+    s.push_str(&format!("{}\n\n", e.doc));
     s.push_str(&sec(1)); // palette
     s.push_str("主色 primary、辅助 secondary、强调 accent、中性 muted/border，语义色 success/warning/danger，全部以 `var(--ds-color-*)` 提供（见文末 Token 表）。\n\n");
     s.push_str(&sec(2)); // typography
@@ -265,47 +465,43 @@ fn build_system_md(b: &Builtin) -> String {
     s.push_str(&sec(6)); // motion
     s.push_str("过渡克制自然（120–240ms、ease-out），只用 transform/opacity（60fps）；避免大幅位移与炫技。\n\n");
     s.push_str(&sec(7)); // voice
-    s.push_str(&format!("与气质一致：{}。\n\n", b.summary));
+    s.push_str(&format!("与气质一致：{}。\n\n", e.summary));
     s.push_str(&sec(8)); // anti-patterns
-    s.push_str(&format!("{}\n\n", b.doc));
-    s.push_str(super::design_md::tokens_table(&tokens_map(b)).trim_start());
+    s.push_str(&format!("{}\n\n", e.doc));
+    s.push_str(super::design_md::tokens_table(&e.tokens).trim_start());
     s
-}
-
-fn tokens_map(b: &Builtin) -> BTreeMap<String, String> {
-    b.tokens
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect()
 }
 
 /// 懒 seed 内置系统到 managed 目录 + 注册 DB（幂等）。
 pub fn ensure_builtins(db: &DesignDb) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
-    for b in builtins() {
-        let dir = paths::design_system_dir(b.id)?;
+    for e in all_systems() {
+        let dir = paths::design_system_dir(e.id)?;
         let md_path = dir.join(super::design_md::DESIGN_MD_FILE);
         let tokens_path = dir.join("tokens.json");
         // 已存在（用户可能已 fork/编辑）则不覆盖正文，仅确保 DB 注册。
         if !md_path.exists() {
             std::fs::create_dir_all(&dir)?;
-            write_atomic(&md_path, build_system_md(&b).as_bytes())?;
+            write_atomic(&md_path, build_system_md(&e).as_bytes())?;
         }
         if !tokens_path.exists() {
-            let json = serde_json::to_string_pretty(&tokens_map(&b))?;
+            let json = serde_json::to_string_pretty(&e.tokens)?;
             write_atomic(&tokens_path, json.as_bytes())?;
         }
-        if db.get_system(b.id)?.is_none() {
-            db.upsert_system(&DesignSystemMeta {
-                id: b.id.to_string(),
-                name: b.name.to_string(),
-                slug: b.id.to_string(),
+        match db.get_system(e.id)? {
+            None => db.upsert_system(&DesignSystemMeta {
+                id: e.id.to_string(),
+                name: e.name.to_string(),
+                slug: e.id.to_string(),
                 source: "builtin".to_string(),
-                summary: Some(b.summary.to_string()),
+                category: Some(e.category.to_string()),
+                summary: Some(e.summary.to_string()),
                 thumbnail_path: None,
                 created_at: now.clone(),
                 updated_at: now.clone(),
-            })?;
+            })?,
+            // 已存在（可能是升级前入库、category 为 NULL）：仅补齐类目，不动用户其它编辑。
+            Some(_) => db.backfill_system_category(e.id, e.category)?,
         }
     }
     Ok(())
@@ -352,15 +548,19 @@ pub fn save_system(
         serde_json::to_string_pretty(tokens)?.as_bytes(),
     )?;
     let now = chrono::Utc::now().to_rfc3339();
-    let created_at = db
-        .get_system(id)?
-        .map(|m| m.created_at)
+    let existing = db.get_system(id)?;
+    let created_at = existing
+        .as_ref()
+        .map(|m| m.created_at.clone())
         .unwrap_or_else(|| now.clone());
+    // 保留既有分组（原地编辑内置品牌系统不丢类目）；纯用户新建系统为 None（归「我的」）。
+    let category = existing.and_then(|m| m.category);
     let meta = DesignSystemMeta {
         id: id.to_string(),
         name: name.to_string(),
         slug: id.to_string(),
         source: source.to_string(),
+        category,
         summary: summary.map(str::to_string),
         thumbnail_path: None,
         created_at,
@@ -379,4 +579,111 @@ pub fn delete_system(db: &DesignDb, id: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn all_systems_ids_unique_and_slug_safe() {
+        let sys = all_systems();
+        // 6 原创 + 一批品牌风格参考。
+        assert!(
+            sys.len() >= 6 + 100,
+            "expected 6 originals + brand refs, got {}",
+            sys.len()
+        );
+        let mut seen = HashSet::new();
+        for e in &sys {
+            assert!(seen.insert(e.id), "duplicate system id: {}", e.id);
+            assert!(
+                e.id.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+                "id not slug-safe: {}",
+                e.id
+            );
+        }
+    }
+
+    #[test]
+    fn brand_seeds_expand_to_full_contract() {
+        for seed in crate::design::brands::seeds() {
+            let e = expand(&seed);
+            assert_eq!(e.tokens.len(), 25, "brand {} token count", e.id);
+            assert!(e.brand_ref.is_some(), "brand {} missing ref", e.id);
+            assert!(
+                !e.category.is_empty(),
+                "brand {} missing category (cat() wrapping?)",
+                e.id
+            );
+            for k in [
+                "--ds-color-primary",
+                "--ds-color-bg",
+                "--ds-font-sans",
+                "--ds-radius-md",
+                "--ds-shadow-md",
+            ] {
+                assert!(e.tokens.contains_key(k), "brand {} missing {k}", e.id);
+            }
+        }
+    }
+
+    #[test]
+    fn brand_md_carries_disclaimer_and_round_trips_tokens() {
+        let seed = &crate::design::brands::seeds()[0];
+        let e = expand(seed);
+        let md = build_system_md(&e);
+        assert!(md.contains("免责声明"), "brand md must carry disclaimer");
+        assert!(
+            md.contains(e.brand_ref.unwrap()),
+            "disclaimer must name brand"
+        );
+        // 末尾 Token 表可被无损回灌（导入回读一致）。
+        let re = super::super::design_md::extract_tokens(&md);
+        assert_eq!(re.len(), 25, "round-trip token count for {}", e.id);
+    }
+
+    #[test]
+    fn original_builtins_have_no_disclaimer() {
+        let sys = all_systems();
+        let minimal = sys
+            .iter()
+            .find(|e| e.id == "minimal-modern")
+            .expect("minimal-modern builtin present");
+        assert!(minimal.brand_ref.is_none());
+        let md = build_system_md(minimal);
+        assert!(
+            !md.contains("免责声明"),
+            "original systems carry no disclaimer"
+        );
+    }
+
+    #[test]
+    fn dark_brand_uses_light_semantic_palette() {
+        // 深色背景品牌应拿到更亮的语义色，浅色背景拿深色语义色。
+        let dark = expand(&super::BrandSeed {
+            id: "t-dark",
+            name: "T",
+            brand_ref: "T",
+            summary: "s",
+            category: "test",
+            bg: "#0b0f17",
+            fg: "#fff",
+            primary: "#38bdf8",
+            accent: "",
+            muted: "#161b26",
+            border: "#232a37",
+            font: "sans-serif",
+            display_font: "",
+            radius: Radius::Medium,
+            scale: Scale::Normal,
+            doc: "d",
+        });
+        assert_eq!(
+            dark.tokens.get("--ds-color-success").map(String::as_str),
+            Some("#34d399")
+        );
+    }
 }

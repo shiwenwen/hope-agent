@@ -166,6 +166,12 @@
     "zoomFit": "ملاءمة",
     "reload": "إعادة تحميل",
     "systemNone": "بدون نظام تصميم",
+    "picker": {
+      "title": "اختر نظام التصميم",
+      "search": "ابحث عن العلامات / الأنماط…",
+      "mine": "أنظمة التصميم الخاصة بي",
+      "noMatch": "لا توجد أنظمة تصميم مطابقة"
+    },
     "exportHtml": "HTML",
     "exportPng": "صورة PNG",
     "exportPdf": "PDF",

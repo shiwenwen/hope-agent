@@ -166,6 +166,12 @@
     "zoomFit": "Muat",
     "reload": "Muat semula",
     "systemNone": "Tiada sistem reka bentuk",
+    "picker": {
+      "title": "Pilih sistem reka bentuk",
+      "search": "Cari jenama / gaya…",
+      "mine": "Sistem reka bentuk saya",
+      "noMatch": "Tiada sistem reka bentuk sepadan"
+    },
     "exportHtml": "HTML",
     "exportPng": "Imej PNG",
     "exportPdf": "PDF",

@@ -93,6 +93,9 @@ pub struct DesignSystemMeta {
     pub slug: String,
     /// builtin|user|extracted
     pub source: String,
+    /// 分组类目（品牌品类 / 原创原型），仅用于 GUI 选择器分组；用户系统为 None。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -149,7 +152,8 @@ fn map_artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignArtifact>
     })
 }
 
-const SYSTEM_COLUMNS: &str = "SELECT id, name, slug, source, summary, thumbnail_path, created_at, \
+const SYSTEM_COLUMNS: &str =
+    "SELECT id, name, slug, source, category, summary, thumbnail_path, created_at, \
      updated_at FROM design_systems";
 
 fn map_system_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignSystemMeta> {
@@ -158,10 +162,11 @@ fn map_system_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignSystemMeta>
         name: row.get(1)?,
         slug: row.get(2)?,
         source: row.get(3)?,
-        summary: row.get(4)?,
-        thumbnail_path: row.get(5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        category: row.get(4)?,
+        summary: row.get(5)?,
+        thumbnail_path: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
@@ -224,6 +229,7 @@ impl DesignDb {
                 name TEXT NOT NULL,
                 slug TEXT NOT NULL,
                 source TEXT NOT NULL,
+                category TEXT,
                 summary TEXT,
                 thumbnail_path TEXT,
                 created_at TEXT NOT NULL,
@@ -237,6 +243,9 @@ impl DesignDb {
             CREATE INDEX IF NOT EXISTS idx_design_projects_session
                 ON design_projects(session_id, updated_at DESC);",
         )?;
+
+        // `category` 为后加列：对已存在的旧 design.db 幂等补列（列已存在则忽略错误）。
+        let _ = conn.execute("ALTER TABLE design_systems ADD COLUMN category TEXT", []);
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -513,22 +522,33 @@ impl DesignDb {
         let conn = self.lock()?;
         conn.execute(
             "INSERT INTO design_systems
-                (id, name, slug, source, summary, thumbnail_path, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (id, name, slug, source, category, summary, thumbnail_path, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name, slug = excluded.slug, source = excluded.source,
-                summary = excluded.summary, thumbnail_path = excluded.thumbnail_path,
-                updated_at = excluded.updated_at",
+                category = excluded.category, summary = excluded.summary,
+                thumbnail_path = excluded.thumbnail_path, updated_at = excluded.updated_at",
             rusqlite::params![
                 s.id,
                 s.name,
                 s.slug,
                 s.source,
+                s.category,
                 s.summary,
                 s.thumbnail_path,
                 s.created_at,
                 s.updated_at,
             ],
+        )?;
+        Ok(())
+    }
+
+    /// 为缺失分组类目的旧行补齐（仅填 `NULL`，绝不覆盖已有值）。
+    pub fn backfill_system_category(&self, id: &str, category: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_systems SET category = ?2 WHERE id = ?1 AND category IS NULL",
+            rusqlite::params![id, category],
         )?;
         Ok(())
     }

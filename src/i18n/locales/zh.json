@@ -166,6 +166,12 @@
     "zoomFit": "适应",
     "reload": "刷新",
     "systemNone": "无设计系统",
+    "picker": {
+      "title": "选择设计系统",
+      "search": "搜索品牌 / 风格…",
+      "mine": "我的设计系统",
+      "noMatch": "无匹配的设计系统"
+    },
     "exportHtml": "HTML",
     "exportPng": "PNG 图片",
     "exportPdf": "PDF",

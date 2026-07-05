@@ -166,6 +166,12 @@
     "zoomFit": "Vừa khung",
     "reload": "Tải lại",
     "systemNone": "Không có hệ thống thiết kế",
+    "picker": {
+      "title": "Chọn hệ thống thiết kế",
+      "search": "Tìm thương hiệu / phong cách…",
+      "mine": "Hệ thống thiết kế của tôi",
+      "noMatch": "Không có hệ thống thiết kế phù hợp"
+    },
     "exportHtml": "HTML",
     "exportPng": "Ảnh PNG",
     "exportPdf": "PDF",

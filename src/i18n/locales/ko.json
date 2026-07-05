@@ -166,6 +166,12 @@
     "zoomFit": "맞춤",
     "reload": "새로고침",
     "systemNone": "디자인 시스템 없음",
+    "picker": {
+      "title": "디자인 시스템 선택",
+      "search": "브랜드 / 스타일 검색…",
+      "mine": "내 디자인 시스템",
+      "noMatch": "일치하는 디자인 시스템이 없습니다"
+    },
     "exportHtml": "HTML",
     "exportPng": "PNG 이미지",
     "exportPdf": "PDF",

@@ -166,6 +166,12 @@
     "zoomFit": "Sığdır",
     "reload": "Yenile",
     "systemNone": "Tasarım sistemi yok",
+    "picker": {
+      "title": "Tasarım sistemi seç",
+      "search": "Marka / stil ara…",
+      "mine": "Tasarım sistemlerim",
+      "noMatch": "Eşleşen tasarım sistemi yok"
+    },
     "exportHtml": "HTML",
     "exportPng": "PNG görsel",
     "exportPdf": "PDF",

@@ -45,6 +45,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
+import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -139,6 +140,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [newProjectTitle, setNewProjectTitle] = useState("")
   const [creatingProject, setCreatingProject] = useState(false)
+  const [systemPickerOpen, setSystemPickerOpen] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<
     { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
@@ -906,60 +908,84 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         </span>
         <div className="ml-auto flex items-center gap-1">
           {activeProject && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 gap-1.5">
-                  <Palette className="h-3.5 w-3.5 opacity-70" />
-                  <span className="max-w-[120px] truncate">
-                    {systems.find((s) => s.id === activeProject.defaultSystemId)?.name ??
-                      t("design.systemNone", "无设计系统")}
-                  </span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
-                <DropdownMenuItem onSelect={() => void setProjectSystem(null)}>
-                  {t("design.systemNone", "无设计系统")}
-                </DropdownMenuItem>
-                {systems.map((s) => (
-                  <DropdownMenuItem key={s.id} onSelect={() => void setProjectSystem(s.id)}>
-                    <div className="flex flex-col">
-                      <span>{s.name}</span>
-                      {s.summary && (
-                        <span className="text-xs text-muted-foreground">{s.summary}</span>
-                      )}
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setExtractOpen(true)}>
-                  <Wand2 className="mr-2 h-4 w-4" />
-                  {t("design.extractSystem", "反向提取品牌…")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setDirectionsOpen(true)}>
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  {t("design.proposeDirections", "生成设计方向…")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={() => setImportMdOpen(true)}>
-                  <FileCode className="mr-2 h-4 w-4" />
-                  {t("design.importDesignMd", "导入 DESIGN.md…")}
-                </DropdownMenuItem>
-                {activeProject.defaultSystemId && (
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      const sid = activeProject.defaultSystemId
-                      if (!sid) return
-                      const name =
-                        systems.find((s) => s.id === sid)?.name ?? sid
-                      void exportDesignMd(sid, name)
-                    }}
-                  >
-                    <FileText className="mr-2 h-4 w-4" />
-                    {t("design.exportDesignMd", "导出当前系统 (DESIGN.md)")}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5"
+                onClick={() => setSystemPickerOpen(true)}
+              >
+                <Palette className="h-3.5 w-3.5 opacity-70" />
+                <span className="max-w-[120px] truncate">
+                  {systems.find((s) => s.id === activeProject.defaultSystemId)?.name ??
+                    t("design.systemNone", "无设计系统")}
+                </span>
+              </Button>
+              <DesignSystemPicker
+                systems={systems}
+                value={activeProject.defaultSystemId ?? null}
+                onChange={(id) => void setProjectSystem(id)}
+                open={systemPickerOpen}
+                onOpenChange={setSystemPickerOpen}
+                footer={
+                  <div className="flex flex-wrap gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => {
+                        setSystemPickerOpen(false)
+                        setExtractOpen(true)
+                      }}
+                    >
+                      <Wand2 className="h-3.5 w-3.5" />
+                      {t("design.extractSystem", "反向提取品牌…")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => {
+                        setSystemPickerOpen(false)
+                        setDirectionsOpen(true)
+                      }}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {t("design.proposeDirections", "生成设计方向…")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => {
+                        setSystemPickerOpen(false)
+                        setImportMdOpen(true)
+                      }}
+                    >
+                      <FileCode className="h-3.5 w-3.5" />
+                      {t("design.importDesignMd", "导入 DESIGN.md…")}
+                    </Button>
+                    {activeProject.defaultSystemId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        onClick={() => {
+                          const sid = activeProject.defaultSystemId
+                          if (!sid) return
+                          const name = systems.find((s) => s.id === sid)?.name ?? sid
+                          setSystemPickerOpen(false)
+                          void exportDesignMd(sid, name)
+                        }}
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        {t("design.exportDesignMd", "导出当前系统 (DESIGN.md)")}
+                      </Button>
+                    )}
+                  </div>
+                }
+              />
+            </>
           )}
           {activeProject && (
             <DropdownMenu>

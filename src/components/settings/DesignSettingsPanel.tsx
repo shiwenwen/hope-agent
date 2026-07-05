@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
-import { Loader2, Check } from "lucide-react"
+import { Loader2, Check, Palette, ChevronsUpDown } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import type { DesignConfig, DesignSystemMeta } from "@/types/design"
 
 interface ProviderOption {
@@ -23,7 +24,6 @@ interface ProviderOption {
   enabled?: boolean
 }
 
-const NONE = "__none__"
 const MODEL_DEFAULT = "__default__"
 
 const DEFAULTS: DesignConfig = {
@@ -96,6 +96,7 @@ export default function DesignSettingsPanel() {
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [systemPickerOpen, setSystemPickerOpen] = useState(false)
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
 
@@ -197,24 +198,29 @@ export default function DesignSettingsPanel() {
                 "新产物在项目未指定设计系统时回退到此。",
               )}
             </p>
-            <Select
-              value={config.defaultSystemId || NONE}
-              onValueChange={(v) =>
-                setConfig((c) => ({ ...c, defaultSystemId: v === NONE ? undefined : v }))
-              }
+            <Button
+              variant="outline"
+              className="w-full justify-between font-normal"
+              onClick={() => setSystemPickerOpen(true)}
             >
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>{t("design.settings.systemNone", "无")}</SelectItem>
-                {systems.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <span className="flex min-w-0 items-center gap-2">
+                <Palette className="h-4 w-4 shrink-0 opacity-70" />
+                <span className="truncate">
+                  {systems.find((s) => s.id === config.defaultSystemId)?.name ??
+                    t("design.settings.systemNone", "无")}
+                </span>
+              </span>
+              <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+            <DesignSystemPicker
+              systems={systems}
+              value={config.defaultSystemId ?? null}
+              onChange={(id) =>
+                setConfig((c) => ({ ...c, defaultSystemId: id ?? undefined }))
+              }
+              open={systemPickerOpen}
+              onOpenChange={setSystemPickerOpen}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">

@@ -166,6 +166,12 @@
     "zoomFit": "Ajustar",
     "reload": "Recargar",
     "systemNone": "Sin sistema de diseño",
+    "picker": {
+      "title": "Elegir sistema de diseño",
+      "search": "Buscar marcas / estilos…",
+      "mine": "Mis sistemas de diseño",
+      "noMatch": "No hay sistemas de diseño coincidentes"
+    },
     "exportHtml": "HTML",
     "exportPng": "Imagen PNG",
     "exportPdf": "PDF",

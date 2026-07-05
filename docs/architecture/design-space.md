@@ -309,9 +309,14 @@ planned ──→ generating ──→ ready
 
 `system::compile_tokens(system_md) -> tokens.json`：从 DESIGN.md 结构化区块解析出 CSS 自定义属性（`--ds-color-primary`、`--ds-space-4`、`--ds-font-sans`、`--ds-radius-md` …）。渲染时 `renderer` 把 `tokens.json` 展开为 `:root { … }` 注入产物。产物 CSS 引用变量而非硬编码 → **套用/切换设计系统即换皮，一致性由 token 锁定保证**。token 另可导出为 CSS / TS / DTCG（Phase 6 可选）。
 
-### 6.3 内置设计系统（原创原型化，非品牌克隆）
+### 6.3 内置设计系统（原创原型语言 + 品牌风格参考）
 
-随 App 发行 ~8 套**原创**设计语言，覆盖常见气质光谱：极简现代、编辑杂志、科技暗色、温暖亲和、专业金融、大胆活力、优雅奢华、手绘趣味。**绝不克隆任何真实品牌**（规避商标 + 消除抄袭痕迹）。用户可基于内置 fork 或反向提取新建。
+两类随 App 发行，都是完整 DESIGN.md + token，用户可 fork / 反向提取新建：
+
+- **6 套原创原型语言**（`system.rs::builtins`）：极简现代、编辑杂志、科技暗色、温暖亲和、专业金融、大胆活力，覆盖常见气质光谱。
+- **一批品牌风格参考**（`brands.rs` 的 `BrandSeed` 种子 → `system::expand` 展开为完整 25 token 契约）：覆盖开发者工具 / AI / SaaS / 设计框架 / 社交 / 媒体电商 / 大厂等主流品牌。每个种子只声明签名色 / 字体 / 圆角 / 字号密度 / 气质，`expand` 按背景明暗自适应补齐语义色 / 中性色 / 阴影，保证 token 契约齐全一致。**均为对各品牌公开视觉语言的独立再诠释，仅供设计参考**——`build_system_md` 对 `brand_ref=Some(..)` 的系统在摘要下自动附一行免责声明（非官方、无隶属 / 赞助 / 授权、商标归各自所有者），原创系统不附。
+
+**分组与选择（`category` 字段）**：`BrandSeed` 按分节经 `brands.rs::cat(..)` 统一打上类目（开发者工具 / AI 产品 / SaaS / 设计框架 / 社交 / 媒体电商 / 大厂），原创系统类目为「原创原型」；`category` 落 `design_systems` 表（旧库启动期幂等 `ALTER TABLE` 补列 + `backfill_system_category` 仅填 NULL）随 `list_systems` 返回。GUI 侧 `DesignSystemPicker`（Dialog + 搜索框，规避菜单内输入焦点冲突）按 `category` 分组、按 name/summary/category 即时过滤；DesignView 头部与设置页「默认设计系统」共用。用户自建 / 提取系统 `category=None`，归「我的设计系统」组。
 
 ### 6.4 反向提取（D2 护城河）
 
@@ -554,5 +559,5 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 - **推倒重做而非改进 atelier**：用户明确 atelier"做得不好"要求重做；三大痛点（画布卡 / 渲染重白屏 / 微调不好用）由本版三条架构原则逐条对症（轻量自包含 HTML / 无画布产物墙 / 纯 HTML 确定性回写）。
 - **轻量 vs 重量运行时**：本版选**自包含 HTML + iframe 直载**（对齐 agent 原生设计工作空间品类主流做法），拒绝旧版的浏览器内 React/esbuild-wasm/Tailwind 编译——这是"不白屏、启动快、微调稳"的根本保证。
 - **文件即真相源**：磁盘存正文，`design.db` 可重建索引。
-- **原创设计系统**：内置原型化设计语言而非品牌克隆，规避商标 + 消除抄袭痕迹。
+- **内置设计系统两类**：6 套原创原型语言 + 一批品牌风格参考（种子展开、渲染附免责声明、非官方）。品牌参考仅作对公开视觉语言的独立再诠释，商标归各自所有者。
 - **四大差异化全做**：D1 可视化微调（架构层做扎实）/ D2 本地反向提取护城河 / D3 一键导出与产物库 / D4 知识空间与项目联动。
