@@ -245,8 +245,11 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
 const INSPECTOR_BRIDGE: &str = r#"<script>
 (function(){
   var active=false, hovered=null, selected=null;
-  var CSS_PROPS=['color','background-color','font-size','font-weight','text-align',
-    'padding','margin','border-radius','line-height','letter-spacing','width','height'];
+  var CSS_PROPS=['color','background-color','font-size','font-weight','font-style','text-align',
+    'text-transform','text-decoration','line-height','letter-spacing',
+    'padding','margin','gap','width','height','max-width','min-height',
+    'border-radius','border-width','border-style','border-color','box-shadow','opacity',
+    'display','align-items','justify-content','z-index'];
   function elByOid(oid){return document.querySelector('[data-ds-oid="'+oid+'"]')}
   function info(el){
     var cs=getComputedStyle(el), styles={};

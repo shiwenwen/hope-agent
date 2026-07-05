@@ -304,7 +304,8 @@ pub struct CreateArtifactInput {
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
 /// owner（Tauri/HTTP）与 agent 工具共用此入口。
 pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Result<DesignArtifact> {
-    if input.kind == "image" && input.body_html.as_deref().unwrap_or("").trim().is_empty() {
+    let body_empty = input.body_html.as_deref().unwrap_or("").trim().is_empty();
+    if body_empty && input.kind == "image" {
         let prompt = input
             .prompt
             .clone()
@@ -312,8 +313,61 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .unwrap_or_else(|| input.title.clone());
         let parts = super::image::generate_image_parts(&prompt, &input.title).await?;
         input.body_html = Some(parts.body_html);
+    } else if body_empty {
+        // 非 image 形态：有 brief 时用一次模型生成完整自包含设计（GUI prompt→生成，对齐
+        // 参照品类）。生成失败**不阻断**——降级为空壳产物（用户可在对话里继续细化）。
+        if let (Some(kind), Some(brief)) = (
+            ArtifactKind::from_str(&input.kind),
+            input.prompt.clone().filter(|p| !p.trim().is_empty()),
+        ) {
+            let (system_md, tokens) = resolve_system_for_generation(&input);
+            match super::generate::generate_design_parts(&brief, kind, &system_md, &tokens).await {
+                Ok(parts) => {
+                    input.body_html = Some(parts.body_html);
+                    input.css = Some(parts.css);
+                    input.js = Some(parts.js);
+                }
+                Err(e) => {
+                    crate::app_warn!(
+                        "design",
+                        "generate",
+                        "brief→design generation failed ({}), creating shell: {e}",
+                        input.kind
+                    );
+                }
+            }
+        }
     }
     create_artifact(input)
+}
+
+/// 解析生成用的设计系统正文 + token（explicit > project default > config default）。
+fn resolve_system_for_generation(
+    input: &CreateArtifactInput,
+) -> (String, std::collections::BTreeMap<String, String>) {
+    let empty = || (String::new(), std::collections::BTreeMap::new());
+    let Ok(db) = open_db() else {
+        return empty();
+    };
+    let project_default = db
+        .get_project(&input.project_id)
+        .ok()
+        .flatten()
+        .and_then(|p| p.default_system_id);
+    let system_id = input.system_id.clone().or(project_default).or_else(|| {
+        crate::config::cached_config()
+            .design
+            .default_system_id
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+    });
+    let Some(sid) = system_id else {
+        return empty();
+    };
+    match system::read_full(&db, &sid) {
+        Ok(full) => (full.system_md, full.tokens),
+        Err(_) => empty(),
+    }
 }
 
 /// `artifact.json` 磁盘元数据镜像。
@@ -916,7 +970,8 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
             zitems.push(super::export::ZipArtifact {
                 folder,
                 html,
-                source: None,
+                // 项目整包也带各产物的可编辑源码分离目录（source/），与单产物包一致。
+                source: Some((parts.body_html, parts.css, parts.js)),
                 title: a.title.clone(),
                 kind: a.kind.clone(),
             });

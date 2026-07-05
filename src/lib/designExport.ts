@@ -58,8 +58,6 @@ async function renderHtml(html: string, width: number): Promise<RenderHandle> {
     URL.revokeObjectURL(url)
     throw e
   }
-  // 等字体/布局稳定。
-  await new Promise((r) => setTimeout(r, 300))
   const doc = iframe.contentDocument
   const win = iframe.contentWindow
   if (!doc || !win) {
@@ -67,6 +65,17 @@ async function renderHtml(html: string, width: number): Promise<RenderHandle> {
     URL.revokeObjectURL(url)
     throw new Error("export iframe has no document")
   }
+  // 等字体**真正就绪**再抓帧（fonts.ready 比固定延时可靠，慢字体不会未加载就被栅格化）；
+  // 3s 兜底防字体 hang 无限等，再留一小段布局 settle。
+  try {
+    await Promise.race([
+      doc.fonts?.ready ?? Promise.resolve(),
+      new Promise((r) => setTimeout(r, 3000)),
+    ])
+  } catch {
+    /* fonts API 缺失 / reject → 直接往下走 */
+  }
+  await new Promise((r) => setTimeout(r, 80))
   // iframe 高度贴合内容，保证 full-page 捕获。
   const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, 720)
   iframe.style.height = `${h}px`
@@ -120,7 +129,40 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   )
 }
 
-/** 导出 PNG（deck/motion 取首屏；其余取整页/画框）。 */
+/** 单 canvas 安全边长上限（WKWebView ~16384 / Chromium 更高，取保守值）。 */
+const MAX_CANVAS_PX = 16000
+
+/**
+ * 把多张画布纵向拼成一张长图（居中、白底）。整幅超单 canvas 上限时**等比缩小**保证
+ * 所有页都进一张图且导出不失败（大 deck 请优先用 PDF/PPTX）；分配失败**抛错**而非
+ * 静默只出首页伪装成功。
+ */
+function stitchVertical(canvases: HTMLCanvasElement[]): HTMLCanvasElement {
+  const rawWidth = Math.max(...canvases.map((c) => c.width))
+  const rawHeight = canvases.reduce((s, c) => s + c.height, 0)
+  const fit = Math.min(1, MAX_CANVAS_PX / rawWidth, MAX_CANVAS_PX / rawHeight)
+  const width = Math.max(1, Math.floor(rawWidth * fit))
+  const height = Math.max(1, Math.floor(rawHeight * fit))
+  const out = document.createElement("canvas")
+  out.width = width
+  out.height = height
+  const ctx = out.getContext("2d")
+  if (!ctx) {
+    throw new Error("multi-page PNG too large to allocate — export as PDF or PPTX instead")
+  }
+  ctx.fillStyle = "#ffffff"
+  ctx.fillRect(0, 0, width, height)
+  let y = 0
+  for (const c of canvases) {
+    const w = c.width * fit
+    const h = c.height * fit
+    ctx.drawImage(c, Math.round((width - w) / 2), Math.round(y), Math.round(w), Math.round(h))
+    y += h
+  }
+  return out
+}
+
+/** 导出 PNG（多页 deck 纵向拼成一张长图输出全部页；单页/其它取整页或画框）。 */
 export async function exportPng(
   html: string,
   kind: ArtifactKind,
@@ -132,8 +174,14 @@ export async function exportPng(
   try {
     const slides = slidesOf(h.doc)
     if (slides.length > 0) {
-      slides.forEach((s, k) => s.classList.toggle("active", k === 0))
-      return canvasToPngBlob(await rasterize(slides[0], scale))
+      // 逐片栅格化后拼成一张长图——不再只出首屏、丢掉其余幻灯片。
+      const canvases: HTMLCanvasElement[] = []
+      for (let i = 0; i < slides.length; i++) {
+        slides.forEach((s, k) => s.classList.toggle("active", k === i))
+        canvases.push(await rasterize(slides[i], scale))
+        opts?.onProgress?.(i + 1, slides.length)
+      }
+      return canvasToPngBlob(canvases.length === 1 ? canvases[0] : stitchVertical(canvases))
     }
     return canvasToPngBlob(await rasterize(pickTarget(h.doc), scale))
   } finally {

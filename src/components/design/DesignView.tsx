@@ -360,6 +360,64 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
   }, [createArtifact, imagePrompt])
 
+  // ── Prompt-first launch (home hero → generate) ───────────────
+
+  const [homePrompt, setHomePrompt] = useState("")
+  const [homeKind, setHomeKind] = useState<ArtifactKind>("web")
+  const [homeSystemId, setHomeSystemId] = useState<string | null>(null)
+  const [generatingHome, setGeneratingHome] = useState(false)
+
+  // 首屏「一句话 → 生成」：建项目 → 带 prompt 建产物（后端一次模型生成完整自包含设计）→ 打开。
+  const generateFromHome = useCallback(async () => {
+    const prompt = homePrompt.trim()
+    if (!prompt || generatingHome) return
+    const systemId = homeSystemId ?? designConfig?.defaultSystemId ?? undefined
+    let createdProjectId: string | null = null
+    setGeneratingHome(true)
+    try {
+      const project = await tx.call<DesignProject>("create_design_project_cmd", {
+        input: { title: prompt.slice(0, 40) },
+      })
+      createdProjectId = project.id
+      const artifact = await tx.call<DesignArtifact>("create_design_artifact_cmd", {
+        input: {
+          projectId: project.id,
+          title: kindLabel(homeKind),
+          kind: homeKind,
+          prompt,
+          systemId,
+        },
+      })
+      setHomePrompt("")
+      openProject(project)
+      if (artifact) void openArtifact(artifact)
+    } catch (e) {
+      logger.error("design", "DesignView::generateFromHome", "generate failed", e)
+      toast.error(t("design.err.create", "创建失败"))
+      // 回滚：产物没建成，删掉刚建的孤儿空项目（否则每次重试堆积隐藏空项目）。
+      if (createdProjectId) {
+        try {
+          await tx.call("delete_design_project_cmd", { id: createdProjectId })
+        } catch {
+          /* best effort */
+        }
+      }
+    } finally {
+      setGeneratingHome(false)
+    }
+  }, [
+    tx,
+    homePrompt,
+    homeKind,
+    homeSystemId,
+    generatingHome,
+    designConfig,
+    kindLabel,
+    openProject,
+    openArtifact,
+    t,
+  ])
+
   // ── Visual fine-tuning (D1) ──────────────────────────────────
 
   const suppressReloadRef = useRef(false)
@@ -1035,12 +1093,22 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
       {/* Body */}
       {!activeProject ? (
-        <HomeGrid
+        <LaunchHome
           projects={projects}
           loading={loadingProjects}
-          onNew={() => setNewProjectOpen(true)}
+          systems={systems}
+          prompt={homePrompt}
+          setPrompt={setHomePrompt}
+          kind={homeKind}
+          setKind={setHomeKind}
+          systemId={homeSystemId}
+          setSystemId={setHomeSystemId}
+          generating={generatingHome}
+          onGenerate={() => void generateFromHome()}
+          kindLabel={kindLabel}
           onOpen={openProject}
           onDelete={(p) => setDeleteTarget({ type: "project", id: p.id, title: p.title })}
+          onNewBlank={() => setNewProjectOpen(true)}
         />
       ) : (
         <div className="flex flex-1 min-h-0">
@@ -1604,72 +1672,300 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
 }
 
-// ── Home project wall ──────────────────────────────────────────
+// ── Thumbnails ──────────────────────────────────────────────────
+// 静态渲染缩略图：懒挂载（IntersectionObserver）+ sandbox=""（**不跑 JS**，画廊零动画
+// 开销、性能稳定）+ ResizeObserver 等比缩放。复用产物 index.html 的 asset 服务，无需另建
+// 缩略图存储管线。
 
-function HomeGrid({
+const THUMB_DESIGN_W = 1280
+
+function ArtifactThumb({ artifactId }: { artifactId: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [src, setSrc] = useState<string | null>(null)
+  const [scale, setScale] = useState(0.2)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth > 0) setScale(el.clientWidth / THUMB_DESIGN_W)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    let done = false
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (done || !entries.some((e) => e.isIntersecting)) return
+        done = true
+        io.disconnect()
+        getTransport()
+          .call<DesignArtifactView | null>("get_design_artifact_cmd", { id: artifactId })
+          .then((v) => {
+            const p = v?.artifactPath
+            if (p) {
+              const url = getTransport().resolveAssetUrl(`${p}/index.html`)
+              if (url) setSrc(url)
+            }
+          })
+          .catch(() => {})
+      },
+      { rootMargin: "300px" },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [artifactId])
+
+  return (
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full overflow-hidden bg-gradient-to-br from-muted to-muted/40"
+    >
+      {src ? (
+        <iframe
+          src={src}
+          sandbox=""
+          scrolling="no"
+          tabIndex={-1}
+          aria-hidden="true"
+          title=""
+          className="pointer-events-none absolute left-0 top-0 origin-top-left border-0"
+          style={{
+            width: THUMB_DESIGN_W,
+            height: THUMB_DESIGN_W * 0.75,
+            transform: `scale(${scale})`,
+          }}
+        />
+      ) : (
+        <div className="flex h-full items-center justify-center">
+          <Palette className="h-6 w-6 text-muted-foreground/25" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 项目卡缩略图：懒取该项目最近一个产物 → 渲染其静态缩略图。 */
+function ProjectThumb({ projectId }: { projectId: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [artifactId, setArtifactId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    let done = false
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (done || !entries.some((e) => e.isIntersecting)) return
+        done = true
+        io.disconnect()
+        getTransport()
+          .call<DesignArtifact[]>("list_design_artifacts_cmd", { projectId })
+          .then((list) => {
+            const a = list?.[0]
+            if (a) setArtifactId(a.id)
+          })
+          .catch(() => {})
+      },
+      { rootMargin: "300px" },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [projectId])
+
+  return (
+    <div ref={wrapRef} className="h-full w-full">
+      {artifactId ? (
+        <ArtifactThumb artifactId={artifactId} />
+      ) : (
+        <div className="flex h-full items-center justify-center bg-gradient-to-br from-muted to-muted/40">
+          <Palette className="h-7 w-7 text-muted-foreground/30" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Prompt-first launch home ────────────────────────────────────
+
+function LaunchHome({
   projects,
   loading,
-  onNew,
+  systems,
+  prompt,
+  setPrompt,
+  kind,
+  setKind,
+  systemId,
+  setSystemId,
+  generating,
+  onGenerate,
+  kindLabel,
   onOpen,
   onDelete,
+  onNewBlank,
 }: {
   projects: DesignProject[]
   loading: boolean
-  onNew: () => void
+  systems: DesignSystemMeta[]
+  prompt: string
+  setPrompt: (v: string) => void
+  kind: ArtifactKind
+  setKind: (k: ArtifactKind) => void
+  systemId: string | null
+  setSystemId: (id: string | null) => void
+  generating: boolean
+  onGenerate: () => void
+  kindLabel: (k: ArtifactKind) => string
   onOpen: (p: DesignProject) => void
   onDelete: (p: DesignProject) => void
+  onNewBlank: () => void
 }) {
   const { t } = useTranslation()
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const systemName = systems.find((s) => s.id === systemId)?.name
+
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">{t("design.projects", "设计项目")}</h2>
-            <p className="text-sm text-muted-foreground">
-              {t("design.projectsSub", "你的第二设计大脑：从一句话产出可交付的设计。")}
-            </p>
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-6 pb-12 pt-14">
+        {/* Hero */}
+        <div className="mb-7 text-center">
+          <div className="mb-4 inline-flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
+              <Palette className="h-5 w-5 text-primary" />
+            </span>
+            <span className="text-base font-semibold">{t("design.title", "设计空间")}</span>
           </div>
-          <Button onClick={onNew} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            {t("design.newProject", "新建项目")}
-          </Button>
+          <h1 className="font-serif text-4xl font-semibold tracking-tight sm:text-5xl">
+            {t("design.launchHeading", "你想设计什么？")}
+          </h1>
+          <p className="mx-auto mt-3 max-w-lg text-sm text-muted-foreground">
+            {t("design.launchSub", "一句话描述，直接生成可交付的设计——网页 / 演示 / 海报 / 文档 / 动效。")}
+          </p>
         </div>
 
-        {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        {/* Prompt card */}
+        <div className="rounded-2xl border bg-card p-2.5 shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25">
+          <Textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault()
+                onGenerate()
+              }
+            }}
+            placeholder={t(
+              "design.launchPlaceholder",
+              "描述你想要的设计，例如「一个 SaaS 产品的定价页，三档套餐」…",
+            )}
+            className="min-h-[92px] resize-none border-0 bg-transparent px-2 py-1.5 text-base shadow-none focus-visible:ring-0"
+          />
+          <div className="mt-1 flex items-center justify-between gap-2 border-t px-1 pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-muted-foreground"
+              onClick={() => setPickerOpen(true)}
+            >
+              <Palette className="h-3.5 w-3.5" />
+              <span className="max-w-[150px] truncate">
+                {systemName ?? t("design.systemNone", "无设计系统")}
+              </span>
+            </Button>
+            <Button
+              size="sm"
+              className="h-9 gap-1.5"
+              disabled={!prompt.trim() || generating}
+              onClick={onGenerate}
+            >
+              {generating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {generating ? t("design.generating", "生成中…") : t("design.generate", "生成")}
+            </Button>
           </div>
-        ) : projects.length === 0 ? (
-          <button
-            type="button"
-            onClick={onNew}
-            className="flex min-h-[180px] w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-          >
-            <Palette className="h-8 w-8 opacity-40" />
-            <span className="text-sm">{t("design.emptyProjects", "还没有设计项目，点此创建第一个")}</span>
-          </button>
-        ) : (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            {projects.map((p) => (
-              <div
-                key={p.id}
-                className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
+        </div>
+
+        {/* Kind chips */}
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {ARTIFACT_KINDS.map((k) => {
+            const Icon = KIND_ICON[k]
+            const active = k === kind
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors",
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                )}
               >
-                <button
-                  type="button"
-                  onClick={() => onOpen(p)}
-                  aria-label={p.title}
-                  className="flex flex-1 flex-col text-left"
+                <Icon className="h-3.5 w-3.5" />
+                {kindLabel(k)}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Recent projects */}
+        <div className="mt-12">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-muted-foreground">
+              {t("design.recentProjects", "最近的项目")}
+            </h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs text-muted-foreground"
+              onClick={onNewBlank}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {t("design.newBlankProject", "空白项目")}
+            </Button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+              {t("design.emptyProjectsHint", "还没有项目——在上面描述一个设计，直接开始。")}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {projects.map((p) => (
+                <div
+                  key={p.id}
+                  className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
                 >
-                  <div
-                    className="flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-muted to-muted/40"
-                    style={p.color ? { background: p.color } : undefined}
+                  <button
+                    type="button"
+                    onClick={() => onOpen(p)}
+                    disabled={generating}
+                    aria-label={p.title}
+                    className={cn(
+                      "flex flex-1 flex-col text-left",
+                      generating && "pointer-events-none opacity-60",
+                    )}
                   >
-                    <Palette className="h-8 w-8 text-muted-foreground/40" />
-                  </div>
-                  <div className="flex items-center gap-2 p-3 pr-9">
-                    <div className="min-w-0 flex-1">
+                    <div
+                      className="aspect-[4/3] overflow-hidden"
+                      style={p.color ? { background: p.color } : undefined}
+                    >
+                      <ProjectThumb projectId={p.id} />
+                    </div>
+                    <div className="p-3 pr-9">
                       <div className="truncate text-sm font-medium">{p.title}</div>
                       <div className="text-xs text-muted-foreground">
                         {t("design.artifactCount", "{{count}} 个产物", {
@@ -1677,25 +1973,33 @@ function HomeGrid({
                         })}
                       </div>
                     </div>
-                  </div>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("common.delete", "删除")}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(p)
-                  }}
-                  className="absolute bottom-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("common.delete", "删除")}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete(p)
+                    }}
+                    className="absolute bottom-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
+
+      <DesignSystemPicker
+        systems={systems}
+        value={systemId}
+        onChange={setSystemId}
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+      />
     </div>
   )
 }

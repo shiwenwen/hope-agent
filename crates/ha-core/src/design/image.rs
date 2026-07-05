@@ -30,7 +30,8 @@ style=\"display:block;margin:0 auto;max-width:100%;height:auto\">"
     })
 }
 
-/// 生成一张图片，返回原始字节 + mime。无可用 provider → Err。
+/// 生成一张图片，返回原始字节 + mime。**按配置顺序在多个 provider 间 failover**——首选
+/// 被限流 / 报错时自动尝试下一个可用 provider（对齐 `tool_image_generate` 的健壮性）。
 async fn generate_image_bytes(prompt: &str) -> Result<(Vec<u8>, String)> {
     if prompt.trim().is_empty() {
         anyhow::bail!("image prompt is empty");
@@ -39,44 +40,63 @@ async fn generate_image_bytes(prompt: &str) -> Result<(Vec<u8>, String)> {
     let cfg = resolve_image_gen_config(&app_cfg.image_generate).ok_or_else(|| {
         anyhow!("no image-generation provider configured (Settings → Tools → Image)")
     })?;
-    // 首个 enabled + 有 key 的 provider = 最高优先级（与 tool 同口径）。
-    let entry = cfg
+    let candidates: Vec<_> = cfg
         .providers
         .iter()
-        .find(|p| p.enabled && p.api_key.as_deref().is_some_and(|k| !k.is_empty()))
-        .ok_or_else(|| anyhow!("no image-generation provider configured"))?;
-    let provider = resolve_provider(&entry.id)
-        .ok_or_else(|| anyhow!("unknown image provider '{}'", entry.id))?;
-    let model = effective_model(entry);
-    let api_key = entry
-        .api_key
-        .as_deref()
-        .ok_or_else(|| anyhow!("image provider missing api key"))?;
+        .filter(|p| p.enabled && p.api_key.as_deref().is_some_and(|k| !k.is_empty()))
+        .collect();
+    if candidates.is_empty() {
+        anyhow::bail!("no image-generation provider configured");
+    }
 
-    let params = ImageGenParams {
-        api_key,
-        base_url: entry.base_url.as_deref(),
-        model: &model,
-        prompt,
-        size: &cfg.default_size,
-        n: 1,
-        timeout_secs: cfg.timeout_seconds,
-        extra: entry,
-        aspect_ratio: None,
-        resolution: None,
-        input_images: &[],
-    };
-    let ImageGenResult { images, .. } = provider.generate(params).await?;
-    let img = images
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("image provider returned no images"))?;
-    crate::app_info!(
-        "design",
-        "image",
-        "generated image {} bytes mime={}",
-        img.data.len(),
-        img.mime
-    );
-    Ok((img.data, img.mime))
+    let mut last_err: Option<anyhow::Error> = None;
+    for entry in candidates {
+        let Some(provider) = resolve_provider(&entry.id) else {
+            last_err = Some(anyhow!("unknown image provider '{}'", entry.id));
+            continue;
+        };
+        let model = effective_model(entry);
+        let Some(api_key) = entry.api_key.as_deref() else {
+            continue;
+        };
+        let params = ImageGenParams {
+            api_key,
+            base_url: entry.base_url.as_deref(),
+            model: &model,
+            prompt,
+            size: &cfg.default_size,
+            n: 1,
+            timeout_secs: cfg.timeout_seconds,
+            extra: entry,
+            aspect_ratio: None,
+            resolution: None,
+            input_images: &[],
+        };
+        match provider.generate(params).await {
+            Ok(ImageGenResult { images, .. }) => {
+                if let Some(img) = images.into_iter().next() {
+                    crate::app_info!(
+                        "design",
+                        "image",
+                        "generated image {} bytes mime={} via provider={}",
+                        img.data.len(),
+                        img.mime,
+                        entry.id
+                    );
+                    return Ok((img.data, img.mime));
+                }
+                last_err = Some(anyhow!("image provider '{}' returned no images", entry.id));
+            }
+            Err(e) => {
+                crate::app_warn!(
+                    "design",
+                    "image",
+                    "image provider '{}' failed, trying next: {e}",
+                    entry.id
+                );
+                last_err = Some(e);
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| anyhow!("all image providers failed")))
 }

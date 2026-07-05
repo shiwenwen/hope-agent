@@ -23,11 +23,21 @@ pub struct ExtractedSystem {
     pub tokens: BTreeMap<String, String>,
 }
 
+/// 核心 token 词表（每个都必须填值，与 `system::expand` / DESIGN.md 互通格式对齐）。
 const TOKEN_VOCAB: &str = "--ds-color-bg, --ds-color-fg, --ds-color-primary, --ds-color-secondary, \
 --ds-color-accent, --ds-color-muted, --ds-color-border, --ds-color-success, --ds-color-warning, \
 --ds-color-danger, --ds-font-sans, --ds-font-serif, --ds-font-mono, --ds-text-base, --ds-text-lg, \
 --ds-text-xl, --ds-text-2xl, --ds-text-3xl, --ds-space-2, --ds-space-4, --ds-space-6, --ds-space-8, \
 --ds-radius-md, --ds-radius-lg, --ds-shadow-md";
+
+/// 扩展 token（源里明确体现时可补，非必填）——提升表达力而不破坏核心契约。
+const TOKEN_VOCAB_EXT: &str = "--ds-text-sm, --ds-text-4xl, --ds-space-1, --ds-space-3, \
+--ds-space-12, --ds-radius-sm, --ds-radius-full, --ds-shadow-sm, --ds-shadow-lg, --ds-line-height, \
+--ds-line-height-tight, --ds-letter-spacing, --ds-transition, --ds-color-ring, \
+--ds-color-primary-contrast, --ds-color-bg-elevated";
+
+/// 材料截断上限（字符）——样式密集的 URL / 代码库需要更大窗口才能抽全 token。
+const MATERIAL_CHARS: usize = 40000;
 
 fn build_prompt(source_label: &str, material: &str) -> String {
     format!(
@@ -37,13 +47,15 @@ Return ONLY a JSON object (no prose, no code fence) with keys:\n\
 - summary: one sentence describing the design language's mood.\n\
 - systemMd: a Markdown design system doc with 9 sections (theme & mood, color & roles, typography, \
 spacing & grid, layout & responsive, component styles, elevation & depth, voice & tone, do's & don'ts).\n\
-- tokens: an object of CSS custom properties using EXACTLY this vocabulary (fill every key with a \
-concrete value; colors as hex, sizes as px, fonts as font-family stacks): {vocab}\n\n\
+- tokens: an object of CSS custom properties. Fill EVERY key from this core vocabulary with a \
+concrete value (colors as hex, sizes as px, fonts as font-family stacks): {vocab}. You MAY ALSO \
+include any of these extended tokens when the source clearly implies them: {ext}\n\n\
 {label}:\n{material}",
         source = source_label,
         vocab = TOKEN_VOCAB,
+        ext = TOKEN_VOCAB_EXT,
         label = source_label.to_uppercase(),
-        material = truncate(material, 16000),
+        material = truncate(material, MATERIAL_CHARS),
     )
 }
 
@@ -65,7 +77,8 @@ async fn run_extract(source_label: &str, material: &str) -> Result<ExtractedSyst
     let prompt = build_prompt(source_label, material);
     let config = crate::config::cached_config();
     let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
-    let res = agent.side_query(&prompt, 2000).await?;
+    // 4096：容纳完整 9 段 systemMd + 整套（核心 + 扩展）token 的 JSON，避免截断。
+    let res = agent.side_query(&prompt, 4096).await?;
     parse(&res.text)
 }
 
@@ -146,12 +159,43 @@ pub async fn from_url(url: &str) -> Result<ExtractedSystem> {
     run_extract("web page raw HTML (with inline styles)", &html).await
 }
 
+/// 从 `Content-Type` header / `<meta charset>` 探测编码并正确解码（非 UTF-8 页——GBK /
+/// Shift-JIS 等——不再 mojibake）；探测失败回退 UTF-8。
+fn decode_html(bytes: &[u8], content_type: Option<&str>) -> String {
+    // 1) Content-Type: text/html; charset=gbk
+    let from_header = content_type.and_then(|ct| {
+        ct.to_ascii_lowercase()
+            .split("charset=")
+            .nth(1)
+            .map(|s| s.trim().trim_matches('"').trim().to_string())
+    });
+    // 2) <meta charset="..."> / <meta http-equiv content="...charset=..."> 在首段字节里嗅探。
+    let from_meta = || {
+        let head = &bytes[..bytes.len().min(4096)];
+        let ascii = String::from_utf8_lossy(head).to_ascii_lowercase();
+        ascii
+            .find("charset=")
+            .map(|i| &ascii[i + "charset=".len()..])
+            .map(|rest| {
+                rest.trim_start_matches(['"', '\'', ' '])
+                    .split(['"', '\'', ' ', '/', '>', ';'])
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            })
+    };
+    let label = from_header.or_else(from_meta).unwrap_or_default();
+    let enc = encoding_rs::Encoding::for_label(label.as_bytes()).unwrap_or(encoding_rs::UTF_8);
+    let (cow, _, _) = enc.decode(bytes);
+    cow.into_owned()
+}
+
 /// 抓取页面**原始 HTML**（不做正文抽取）。复用 web_fetch 的 SSRF + 浏览器头 + 代理
-/// + 防 DNS-rebinding 重定向策略。上限 512KB。
+/// + 防 DNS-rebinding 重定向策略。上限 2MB（配合 charset 解码 + 更大提取窗口）。
 async fn fetch_raw_html(url: &str) -> Result<String> {
     use futures_util::StreamExt;
 
-    const MAX_BYTES: usize = 512 * 1024;
+    const MAX_BYTES: usize = 2 * 1024 * 1024;
     let ssrf_cfg = crate::config::cached_config().ssrf.clone();
     let policy = ssrf_cfg.web_fetch();
     let trusted = ssrf_cfg.trusted_hosts.clone();
@@ -186,6 +230,11 @@ async fn fetch_raw_html(url: &str) -> Result<String> {
     if !resp.status().is_success() {
         anyhow::bail!("fetch failed with status {}", resp.status().as_u16());
     }
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
 
     let mut bytes = Vec::new();
     let mut stream = resp.bytes_stream();
@@ -197,7 +246,7 @@ async fn fetch_raw_html(url: &str) -> Result<String> {
             break;
         }
     }
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(decode_html(&bytes, content_type.as_deref()))
 }
 
 /// 从本地代码库提取：读样本样式文件后交 LLM 归纳。
@@ -238,6 +287,9 @@ pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
         anyhow::bail!("image file is empty");
     }
     let mime = sniff_image_mime(&bytes);
+    // 上传前按 vision provider 友好尺寸降采样 + 重压缩：本地闸只挡 OOM（默认 24MB），
+    // 但原图 base64 后常超 provider 单图上限（如 Anthropic ~5MB / 1568px），会被 API 拒。
+    let (bytes, mime) = downscale_for_vision(bytes, mime);
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let prompt = build_prompt(
         "screenshot/design image",
@@ -245,6 +297,57 @@ pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
     );
     let text = super::vision::vision_extract(&prompt, mime, &b64).await?;
     parse(&text)
+}
+
+/// 把过大 / 过重的图缩到 vision provider 友好尺寸（长边 ≤ 1568px）并重编码 JPEG(q82)。
+/// 任何解码 / 编码失败都**回退原图原 mime**（绝不阻断提取）。
+fn downscale_for_vision(bytes: Vec<u8>, mime: &'static str) -> (Vec<u8>, &'static str) {
+    const MAX_EDGE: u32 = 1568;
+    const TARGET_BYTES: usize = 4 * 1024 * 1024;
+    let img = match image::load_from_memory(&bytes) {
+        Ok(i) => i,
+        Err(_) => return (bytes, mime),
+    };
+    let (w, h) = (img.width(), img.height());
+    if w.max(h) <= MAX_EDGE && bytes.len() <= TARGET_BYTES {
+        return (bytes, mime);
+    }
+    // thumbnail 保持宽高比、快速降采样到框内。
+    let resized = if w.max(h) > MAX_EDGE {
+        img.thumbnail(MAX_EDGE, MAX_EDGE)
+    } else {
+        img
+    };
+    // JPEG 不支持 alpha：含透明通道的图先**合成到白底**，否则 to_rgb8 直接截通道会让透明区
+    // 露出底层 RGB（常为黑）→ 设计图透明处变黑块、误导 vision 归纳配色。
+    let rgb = if resized.color().has_alpha() {
+        let rgba = resized.to_rgba8();
+        let mut flat = image::RgbImage::new(rgba.width(), rgba.height());
+        for (x, y, p) in rgba.enumerate_pixels() {
+            let a = p[3] as u32;
+            let over = |c: u8| ((c as u32 * a + 255 * (255 - a)) / 255) as u8;
+            flat.put_pixel(x, y, image::Rgb([over(p[0]), over(p[1]), over(p[2])]));
+        }
+        flat
+    } else {
+        resized.to_rgb8()
+    };
+    let mut buf = Vec::new();
+    let ok = {
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 82);
+        enc.encode(
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .is_ok()
+    };
+    if ok && !buf.is_empty() {
+        (buf, "image/jpeg")
+    } else {
+        (bytes, mime)
+    }
 }
 
 /// 从一份 **DESIGN.md** 文本导入设计系统（互通格式）：抽取显式 `--ds-*` token；足量
@@ -292,9 +395,9 @@ fn sniff_image_mime(b: &[u8]) -> &'static str {
 
 /// 采集样式样本：CSS / tailwind config / theme 文件内容（有界深度/数量/大小）。
 fn collect_style_samples(root: &Path) -> Result<String> {
-    const MAX_FILES: usize = 20;
-    const MAX_TOTAL: usize = 14000;
-    const MAX_DEPTH: usize = 4;
+    const MAX_FILES: usize = 40;
+    const MAX_TOTAL: usize = 40000;
+    const MAX_DEPTH: usize = 5;
     let mut out = String::new();
     let mut count = 0usize;
     let mut stack = vec![(root.to_path_buf(), 0usize)];
@@ -319,11 +422,26 @@ fn collect_style_samples(root: &Path) -> Result<String> {
                 stack.push((path, depth + 1));
                 continue;
             }
-            let is_style = name.ends_with(".css")
-                || name.ends_with(".scss")
-                || name.starts_with("tailwind.config")
-                || name.starts_with("theme")
-                || name == "DESIGN.md";
+            let lower = name.to_ascii_lowercase();
+            let is_style = lower.ends_with(".css")
+                || lower.ends_with(".scss")
+                || lower.ends_with(".less")
+                || lower.ends_with(".styl")
+                || lower.starts_with("tailwind.config")
+                || lower == "design.md"
+                // 设计 token / 主题 / CSS-in-JS 文件：按文件名相关度匹配，避免读整棵源码树。
+                || ((lower.contains("theme")
+                    || lower.contains("token")
+                    || lower.contains("palette")
+                    || lower.contains("colors")
+                    || lower.contains("design-system"))
+                    && (lower.ends_with(".ts")
+                        || lower.ends_with(".tsx")
+                        || lower.ends_with(".js")
+                        || lower.ends_with(".jsx")
+                        || lower.ends_with(".mjs")
+                        || lower.ends_with(".cjs")
+                        || lower.ends_with(".json")));
             if !is_style {
                 continue;
             }

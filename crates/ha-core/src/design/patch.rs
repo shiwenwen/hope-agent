@@ -32,8 +32,37 @@ const VOID_TAGS: &[&str] = &[
     "track", "wbr",
 ];
 
+/// raw-text 元素：内容是 CDATA，绝不能把其中的 `<` 当标签扫描。
+const RAW_TEXT_TAGS: &[&str] = &["script", "style", "textarea", "title"];
+
 fn is_void(tag: &str) -> bool {
     VOID_TAGS.contains(&tag.to_ascii_lowercase().as_str())
+}
+
+/// 从 `from` 起找 `</{tag}`（大小写不敏感）的起始字节（`<` 位置）。
+fn find_close_ci(bytes: &[u8], from: usize, tag: &str) -> Option<usize> {
+    let tl = tag.as_bytes();
+    let mut i = from;
+    while i + 2 + tl.len() <= bytes.len() {
+        if bytes[i] == b'<'
+            && bytes[i + 1] == b'/'
+            && bytes[i + 2..i + 2 + tl.len()].eq_ignore_ascii_case(tl)
+            && matches!(
+                bytes.get(i + 2 + tl.len()).copied(),
+                Some(b'>')
+                    | Some(b'/')
+                    | Some(b' ')
+                    | Some(b'\t')
+                    | Some(b'\n')
+                    | Some(b'\r')
+                    | None
+            )
+        {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
 }
 
 /// 遍历 body 源码，注入 `data-ds-oid` 并产出 oidmap（映射回源码字节范围）。
@@ -110,6 +139,17 @@ pub fn annotate(source: &str) -> (String, Vec<OidEntry>) {
         out.push_str(&tag_str[name_end..]);
 
         oid += 1;
+
+        // raw-text 元素：其内容是 CDATA，原样拷贝到匹配闭合标签前，绝不扫描其中的 `<`
+        // （否则内联脚本里的 `document.write("<div>")` 会被误注 oid、破坏脚本 + 偏移坐标）。
+        // 闭合标签本身交回主循环的 `</` 分支照常拷贝。
+        if !void && RAW_TEXT_TAGS.contains(&tag.to_ascii_lowercase().as_str()) {
+            let content_end = find_close_ci(bytes, open_end, &tag).unwrap_or(n);
+            out.push_str(&source[open_end..content_end]);
+            i = content_end;
+            continue;
+        }
+
         i = open_end;
     }
 
@@ -452,6 +492,37 @@ mod tests {
         assert_eq!(map.len(), 1);
         assert_eq!(map[0].tag, "span");
         assert!(out.contains("<!-- <div> -->"));
+    }
+
+    #[test]
+    fn annotate_skips_raw_text_content() {
+        // Regression: `<` inside <script>/<style> raw text must NOT be scanned as tags,
+        // else `document.write("<div>")` gets a bogus data-ds-oid and corrupts the script.
+        let src = r#"<div>hi</div><script>var s="<div class='x'>";document.write("<span>")</script><p>end</p>"#;
+        let (out, map) = annotate(src);
+        // Only div, script, p are real elements — the `<div>` / `<span>` inside the
+        // script string are NOT counted or annotated.
+        assert_eq!(
+            map.iter().map(|e| e.tag.as_str()).collect::<Vec<_>>(),
+            vec!["div", "script", "p"]
+        );
+        // Script body copied verbatim, untouched.
+        assert!(
+            out.contains(r#"var s="<div class='x'>";document.write("<span>")"#),
+            "script body must be verbatim: {out}"
+        );
+        // No oid leaked into the script string.
+        assert!(!out.contains("<div class='x' data-ds-oid"));
+    }
+
+    #[test]
+    fn annotate_skips_style_raw_text() {
+        let src = r#"<style>a::before{content:"<b>"}</style><h1>t</h1>"#;
+        let (_out, map) = annotate(src);
+        assert_eq!(
+            map.iter().map(|e| e.tag.as_str()).collect::<Vec<_>>(),
+            vec!["style", "h1"]
+        );
     }
 
     #[test]

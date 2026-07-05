@@ -11,16 +11,29 @@ import html2canvas from "html2canvas"
 import { Muxer, ArrayBufferTarget } from "mp4-muxer"
 
 export interface VideoOpts {
-  /** 栅格化倍率（清晰度），钳 [1,2]（视频逐帧，倍率越大越慢）。默认 1。 */
+  /** 栅格化倍率（清晰度），钳 [1,3]（视频逐帧，倍率越大越慢）。默认 1.5。 */
   scale?: number
   /** 帧率。默认 30。 */
   fps?: number
+  /** 目标码率（bps）。缺省按分辨率 × 帧率自适应。 */
+  bitrate?: number
+  /** 最长时长（秒），钳 [1,300]。默认 120。 */
+  maxDurationSec?: number
   onProgress?: (done: number, total: number) => void
 }
 
 /** 是否具备客户端视频编码能力（WebCodecs）。 */
 export function videoExportSupported(): boolean {
   return typeof (globalThis as unknown as { VideoEncoder?: unknown }).VideoEncoder !== "undefined"
+}
+
+/** 按分辨率挑 H.264 level（Baseline），避免高分辨率被低 level 拒绝编码。 */
+function h264Codec(w: number, h: number): string {
+  const mb = Math.ceil(w / 16) * Math.ceil(h / 16)
+  if (mb <= 3600) return "avc1.42001f" // ≤ 720p → level 3.1
+  if (mb <= 8192) return "avc1.420028" // ≤ 1080p → level 4.0
+  if (mb <= 22080) return "avc1.420032" // ≤ 4K → level 5.0
+  return "avc1.420033" // level 5.1
 }
 
 /**
@@ -133,12 +146,16 @@ export async function exportVideo(
   }
   const width = vw && vw > 0 ? vw : 1280
   const height = vh && vh > 0 ? vh : 720
-  const scale = Math.min(2, Math.max(1, opts?.scale ?? 1))
+  const scale = Math.min(3, Math.max(1, opts?.scale ?? 1.5))
   const fps = opts?.fps ?? 30
   const W = even(width * scale)
   const H = even(height * scale)
+  // 码率：缺省按分辨率 × 帧率自适应（~0.12 bit/px/frame），钳 [3,24] Mbps；6Mbps 固定值对
+  // 1080p 偏低。
+  const bitrate =
+    opts?.bitrate ?? Math.round(Math.min(24_000_000, Math.max(3_000_000, W * H * fps * 0.12)))
 
-  const config = { codec: "avc1.42001f", width: W, height: H, bitrate: 6_000_000, framerate: fps }
+  const config = { codec: h264Codec(W, H), width: W, height: H, bitrate, framerate: fps }
   const sup = await G.VideoEncoder.isConfigSupported?.(config)
   if (sup && sup.supported === false) {
     throw new Error("H.264 encoding is not supported on this platform")
@@ -153,7 +170,8 @@ export async function exportVideo(
     } catch {
       /* default */
     }
-    durMs = Math.min(30000, Math.max(1000, durMs))
+    const maxDurMs = Math.min(300, Math.max(1, opts?.maxDurationSec ?? 120)) * 1000
+    durMs = Math.min(maxDurMs, Math.max(1000, durMs))
     const totalFrames = Math.max(1, Math.round((durMs / 1000) * fps))
 
     const muxer = new Muxer({

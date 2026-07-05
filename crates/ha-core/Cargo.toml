@@ -72,6 +72,7 @@ libc = "0.2"
 portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
+encoding_rs = "0.8"
 # Desktop-only crates. Gated behind the `desktop-tools` feature so headless
 # server builds (e.g. the Docker image shipped from `ha-server`) don't pull
 # their Linux system libs (wayland / pipewire / gbm / egl / gtk-3).

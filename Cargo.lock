@@ -3056,6 +3056,7 @@ dependencies = [
  "chrono-tz",
  "cron",
  "dirs 6.0.0",
+ "encoding_rs",
  "fancy-regex",
  "fastembed",
  "flate2",

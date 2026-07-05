@@ -154,6 +154,8 @@ export interface CreateArtifactInput {
   bodyHtml?: string;
   css?: string;
   js?: string;
+  /** 生成用一句话 brief：image 走 image_generate；其余形态走模型一次生成自包含设计。 */
+  prompt?: string;
 }
 
 /** 产物形态元数据（前端展示：标签 + 图标语义）。 */

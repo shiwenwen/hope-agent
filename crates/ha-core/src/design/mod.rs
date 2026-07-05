@@ -11,6 +11,7 @@ pub mod db;
 pub mod design_md;
 pub mod export;
 pub mod extract;
+pub mod generate;
 pub mod image;
 pub mod patch;
 pub mod recipe;
