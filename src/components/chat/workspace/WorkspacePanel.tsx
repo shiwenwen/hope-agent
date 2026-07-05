@@ -3051,6 +3051,27 @@ type DomainAcceptanceGap = {
   severity: DomainAcceptanceGapSeverity
 }
 
+type DomainAcceptanceReviewContext = {
+  evidence: DomainEvidenceItem[]
+  exportGuard: DomainArtifactExportGuardReport | null
+  connectorGuard: DomainConnectorActionGuardReport | null
+  connectorE2eGate: DomainConnectorE2EGateReport | null
+  operationalGate: DomainOperationalGateReport | null
+  soakReport: DomainSoakReport | null
+}
+
+type DomainAcceptanceReviewGate = {
+  status?: string | null
+  blockers?: string[]
+  checks?: Array<{
+    name: string
+    status: string
+    actual?: string
+    detail?: string
+  }>
+  recommendedNextSteps?: string[]
+}
+
 const DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS = 7 * 24 * 60 * 60
 
 function domainAcceptanceCoverageSummary(
@@ -3554,10 +3575,158 @@ function domainAcceptancePlanTaskContent(
   ].join("\n")
 }
 
+function domainAcceptanceReviewGateLine(
+  t: ReturnType<typeof useTranslation>["t"],
+  label: string,
+  report: DomainAcceptanceReviewGate | null,
+  displayStatus: string,
+): string {
+  if (!report) {
+    return `- ${label}：${t("workspace.domainWorkbench.acceptanceReviewGateMissing", "未评估")}`
+  }
+  const blockers = (report.blockers ?? []).filter(Boolean).slice(0, 2)
+  const nonPassingChecks = (report.checks ?? [])
+    .filter((check) => check.status !== "passed")
+    .slice(0, 2)
+    .map((check) => {
+      const detail = check.detail || check.actual
+      return detail ? `${check.name}=${check.status} (${detail})` : `${check.name}=${check.status}`
+    })
+  const extras = [
+    blockers.length > 0
+      ? t("workspace.domainWorkbench.acceptanceReviewGateBlockers", "blockers: {{items}}", {
+          items: blockers.join("; "),
+        })
+      : null,
+    nonPassingChecks.length > 0
+      ? t("workspace.domainWorkbench.acceptanceReviewGateChecks", "checks: {{items}}", {
+          items: nonPassingChecks.join("; "),
+        })
+      : null,
+  ].filter(Boolean)
+  return `- ${label}：${displayStatus} (${report.status ?? "unknown"})${
+    extras.length > 0 ? ` · ${extras.join(" · ")}` : ""
+  }`
+}
+
+function domainAcceptanceReviewGateLines(
+  t: ReturnType<typeof useTranslation>["t"],
+  context: DomainAcceptanceReviewContext,
+): string[] {
+  return [
+    domainAcceptanceReviewGateLine(
+      t,
+      t("workspace.domainWorkbench.acceptanceGateExport", "交付守门"),
+      context.exportGuard,
+      domainArtifactExportGuardLabel(t, context.exportGuard?.status),
+    ),
+    domainAcceptanceReviewGateLine(
+      t,
+      t("workspace.domainWorkbench.acceptanceGateConnector", "外部动作守门"),
+      context.connectorGuard,
+      domainConnectorActionGuardLabel(t, context.connectorGuard?.status),
+    ),
+    domainAcceptanceReviewGateLine(
+      t,
+      t("workspace.domainWorkbench.acceptanceGateConnectorE2E", "连接器 E2E"),
+      context.connectorE2eGate,
+      domainConnectorE2EGateLabel(t, context.connectorE2eGate?.status),
+    ),
+    domainAcceptanceReviewGateLine(
+      t,
+      t("workspace.domainWorkbench.acceptanceGateOperational", "运行稳定性"),
+      context.operationalGate,
+      domainOperationalGateLabel(t, context.operationalGate?.status),
+    ),
+    domainAcceptanceReviewGateLine(
+      t,
+      t("workspace.domainWorkbench.acceptanceGateSoak", "长跑审计"),
+      context.soakReport,
+      domainSoakReportLabel(t, context.soakReport?.status),
+    ),
+  ]
+}
+
+function domainAcceptanceReviewEvidenceLines(
+  t: ReturnType<typeof useTranslation>["t"],
+  evidence: DomainEvidenceItem[],
+): string[] {
+  const rows = evidence.slice(0, 5).map((item) => {
+    const privacy = `${item.accessScope}/${item.redactionStatus}`
+    return `- ${item.evidenceType} · ${item.domain} · ${privacy} · ${formatMessageTime(
+      item.createdAt,
+    )} · ${truncateMiddle(item.title, 120)} (${item.id})`
+  })
+  return rows.length > 0
+    ? rows
+    : [t("workspace.domainWorkbench.acceptanceReviewNoEvidence", "- 暂无 evidence")]
+}
+
+function domainAcceptanceReviewSoakLines(
+  t: ReturnType<typeof useTranslation>["t"],
+  soakReport: DomainSoakReport | null,
+): string[] {
+  if (!soakReport) {
+    return [t("workspace.domainWorkbench.acceptanceReviewNoSoak", "- 长跑审计尚未生成")]
+  }
+  const summary = soakReport.summary
+  const lines = [
+    `- ${t("workspace.domainWorkbench.acceptanceReviewSoakWindow", "窗口")}：${soakReport.windowDays}d · ${domainSoakReportLabel(
+      t,
+      soakReport.status,
+    )} (${soakReport.status})`,
+    `- ${t("workspace.domainWorkbench.acceptanceReviewSoakSamples", "样本")}：workflow ${summary.completedWorkflowRuns}/${summary.workflowRuns} · loop ${summary.succeededLoopRuns}/${summary.loopRuns} · campaign ${summary.passedCampaignItems}/${summary.campaignItems} · connector ${summary.connectorE2eEvidence}`,
+    `- ${t("workspace.domainWorkbench.acceptanceReviewSoakBudget", "预算")}：${summary.workflowBudgetExhaustedEvents} exhausted · ${
+      summary.maxWorkflowOutputTokensSpent != null
+        ? compactCount(summary.maxWorkflowOutputTokensSpent)
+        : "-"
+    }/${
+      summary.maxWorkflowOutputTokenBudget != null
+        ? compactCount(summary.maxWorkflowOutputTokenBudget)
+        : "-"
+    }`,
+  ]
+  const incidentLines = soakReport.incidents.slice(0, 3).map(
+    (incident) =>
+      `- ${t("workspace.domainWorkbench.acceptanceReviewIncident", "事故")}：${incident.title} · ${incident.source}/${incident.status}/${incident.severity} · ${incident.recommendation}`,
+  )
+  const timelineLines = soakReport.timeline.slice(0, 5).map((item) => {
+    const duration =
+      item.durationSecs != null ? ` · ${formatDurationCompact(item.durationSecs)}` : ""
+    return `- ${t("workspace.domainWorkbench.acceptanceReviewTimeline", "时间线")}：${item.label} · ${item.source}/${item.status}${duration}`
+  })
+  return [...lines, ...incidentLines, ...timelineLines]
+}
+
+function domainAcceptanceReviewNextStepLines(
+  t: ReturnType<typeof useTranslation>["t"],
+  summary: DomainAcceptanceCoverageSummary,
+  context: DomainAcceptanceReviewContext,
+): string[] {
+  const candidates = [
+    ...summary.gaps.map((gap) => gap.message),
+    ...(context.exportGuard?.recommendedNextSteps ?? []),
+    ...(context.connectorGuard?.recommendedNextSteps ?? []),
+    ...(context.connectorE2eGate?.recommendedNextSteps ?? []),
+    ...(context.operationalGate?.recommendedNextSteps ?? []),
+    ...(context.soakReport?.recommendedNextSteps ?? []),
+  ]
+  const seen = new Set<string>()
+  const unique = candidates.filter((item) => {
+    const trimmed = item.trim()
+    if (!trimmed || seen.has(trimmed)) return false
+    seen.add(trimmed)
+    return true
+  })
+  return unique.length > 0
+    ? unique.slice(0, 8).map((item) => `- ${item}`)
+    : [t("workspace.domainWorkbench.acceptanceReviewNoNextSteps", "- 暂无推荐下一步")]
+}
+
 function domainAcceptanceReviewMarkdown(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
-  gaps: DomainAcceptanceGap[],
+  context: DomainAcceptanceReviewContext,
 ): string {
   const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
   const sampleFreshness =
@@ -3586,8 +3755,8 @@ function domainAcceptanceReviewMarkdown(
     return `- [${status}] ${requirement.label}：${requirement.detail}`
   })
   const gapLines =
-    gaps.length > 0
-      ? gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`)
+    summary.gaps.length > 0
+      ? summary.gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`)
       : [t("workspace.domainWorkbench.acceptanceReviewNoGaps", "- 暂无验收缺口")]
 
   return [
@@ -3608,11 +3777,24 @@ function domainAcceptanceReviewMarkdown(
     "",
     `## ${t("workspace.domainWorkbench.acceptancePlanGaps", "验收缺口")}`,
     ...gapLines,
+    "",
+    `## ${t("workspace.domainWorkbench.acceptanceReviewGates", "守门状态")}`,
+    ...domainAcceptanceReviewGateLines(t, context),
+    "",
+    `## ${t("workspace.domainWorkbench.acceptanceReviewEvidence", "最近证据")}`,
+    ...domainAcceptanceReviewEvidenceLines(t, context.evidence),
+    "",
+    `## ${t("workspace.domainWorkbench.acceptanceReviewSoak", "长跑审计")}`,
+    ...domainAcceptanceReviewSoakLines(t, context.soakReport),
+    "",
+    `## ${t("workspace.domainWorkbench.acceptanceReviewNextSteps", "推荐下一步")}`,
+    ...domainAcceptanceReviewNextStepLines(t, summary, context),
   ].join("\n")
 }
 
 function DomainAcceptanceCoverageCard({
   summary,
+  reviewContext,
   creatingRequirementTaskKey,
   creatingGapTaskKey,
   creatingPlanTask,
@@ -3621,6 +3803,7 @@ function DomainAcceptanceCoverageCard({
   onCreateGapPlan,
 }: {
   summary: DomainAcceptanceCoverageSummary
+  reviewContext: DomainAcceptanceReviewContext
   creatingRequirementTaskKey?: string | null
   creatingGapTaskKey?: string | null
   creatingPlanTask?: boolean
@@ -3632,7 +3815,7 @@ function DomainAcceptanceCoverageCard({
   const acceptanceReviewLabel = t("workspace.domainWorkbench.copyAcceptanceReview", "复制验收报告")
   const copyAcceptanceReview = async () => {
     try {
-      await navigator.clipboard.writeText(domainAcceptanceReviewMarkdown(t, summary, summary.gaps))
+      await navigator.clipboard.writeText(domainAcceptanceReviewMarkdown(t, summary, reviewContext))
       toast.success(t("workspace.domainWorkbench.acceptanceReviewCopied", "已复制验收报告"))
     } catch (e) {
       logger.error(
@@ -4367,6 +4550,14 @@ function DomainTaskWorkbenchSection({
 
         <DomainAcceptanceCoverageCard
           summary={acceptanceSummary}
+          reviewContext={{
+            evidence,
+            exportGuard,
+            connectorGuard,
+            connectorE2eGate,
+            operationalGate,
+            soakReport,
+          }}
           creatingRequirementTaskKey={creatingAcceptanceRequirementTaskKey}
           creatingGapTaskKey={creatingAcceptanceGapTaskKey}
           creatingPlanTask={creatingAcceptancePlanTask}

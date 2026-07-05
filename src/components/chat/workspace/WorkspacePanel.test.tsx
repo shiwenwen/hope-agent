@@ -2110,6 +2110,18 @@ describe("WorkspacePanel workflow section", () => {
         expect.stringContaining("工作流输出预算已耗尽，需收口性能或上下文策略。"),
       )
     })
+    const acceptanceReport = String(writeText.mock.calls[0]?.[0] ?? "")
+    expect(acceptanceReport).toContain("## 守门状态")
+    expect(acceptanceReport).toContain("交付守门：未评估")
+    expect(acceptanceReport).toContain("运行稳定性：阻塞 (failed)")
+    expect(acceptanceReport).toContain("workflow_failed_residue=failed")
+    expect(acceptanceReport).toContain("## 最近证据")
+    expect(acceptanceReport).toContain("暂无 evidence")
+    expect(acceptanceReport).toContain("## 长跑审计")
+    expect(acceptanceReport).toContain("事故：Workflow failed · workflow/failed/critical")
+    expect(acceptanceReport).toContain("时间线：Workflow failed · workflow/failed · 4m")
+    expect(acceptanceReport).toContain("## 推荐下一步")
+    expect(acceptanceReport).toContain("Repair the failed workflow.")
 
     const evidenceRequirement = screen.getByText("缺来源/草稿/决策证据")
     const evidenceRequirementRow = evidenceRequirement.parentElement
@@ -2279,6 +2291,70 @@ describe("WorkspacePanel workflow section", () => {
         activeForm: "正在补齐真实样本验收必需项",
       })
     })
+  })
+
+  it("includes recent evidence provenance in copied acceptance review packets", async () => {
+    const writeText = vi.fn(async (_value: string) => {})
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
+    const cleanOperationalGate = domainOperationalGateReport({
+      status: "passed",
+      checks: [],
+      blockers: [],
+      recommendedNextSteps: [],
+    })
+    const cleanSoakReport = domainSoakReport({
+      status: "passed",
+      summary: {
+        ...domainSoakReport().summary,
+        criticalIncidents: 0,
+        warningIncidents: 0,
+        incidents: 0,
+        workflowBudgetExhaustedEvents: 0,
+      },
+      incidents: [],
+      timeline: [],
+      recommendedNextSteps: [],
+      operationalGate: cleanOperationalGate,
+    })
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
+      if (name === "list_domain_evidence")
+        return Promise.resolve([
+          domainEvidenceItem({
+            id: "e-source",
+            evidenceType: "source_cited",
+            title: "Primary source reviewed",
+            accessScope: "public",
+            redactionStatus: "none",
+          }),
+        ])
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([])
+      if (name === "get_workflow_mode") return Promise.resolve({ mode: "on" })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "evaluate_domain_operational_gate") return Promise.resolve(cleanOperationalGate)
+      if (name === "generate_domain_soak_report") return Promise.resolve(cleanSoakReport)
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    expect(await screen.findByText("Primary source reviewed")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "复制验收报告" }))
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Primary source reviewed"))
+    })
+    const acceptanceReport = String(writeText.mock.calls[0]?.[0] ?? "")
+    expect(acceptanceReport).toContain("source_cited · research · public/none")
+    expect(acceptanceReport).toContain("(e-source)")
   })
 
   it("creates a task from domain soak incidents", async () => {
