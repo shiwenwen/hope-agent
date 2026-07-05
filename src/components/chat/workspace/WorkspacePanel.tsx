@@ -3023,6 +3023,8 @@ type DomainAcceptanceCoverageSummary = {
   connectorE2eEvidence: number
   criticalIncidents: number
   warningIncidents: number
+  latestActivityAgeSecs?: number | null
+  freshnessMaxAgeSecs: number
   readinessPercent: number
   requiredPassed: number
   requiredTotal: number
@@ -3046,6 +3048,8 @@ type DomainAcceptanceGap = {
   message: string
   severity: DomainAcceptanceGapSeverity
 }
+
+const DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS = 7 * 24 * 60 * 60
 
 function domainAcceptanceCoverageSummary(
   t: ReturnType<typeof useTranslation>["t"],
@@ -3088,6 +3092,14 @@ function domainAcceptanceCoverageSummary(
       (soakSummary?.connectorVerificationEvidence ?? 0))
   const criticalIncidents = soakSummary?.criticalIncidents ?? 0
   const warningIncidents = soakSummary?.warningIncidents ?? 0
+  const rawLatestActivityAgeSecs = soakSummary?.latestActivityAgeSecs
+  const latestActivityAgeSecs =
+    typeof rawLatestActivityAgeSecs === "number" && Number.isFinite(rawLatestActivityAgeSecs)
+      ? Math.max(0, rawLatestActivityAgeSecs)
+      : null
+  const hasFreshSample =
+    latestActivityAgeSecs != null &&
+    latestActivityAgeSecs <= DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS
   const connectorE2eHasScope = Boolean(
     args.connectorE2eGate?.connector ||
       args.connectorE2eGate?.action ||
@@ -3177,6 +3189,16 @@ function domainAcceptanceCoverageSummary(
       criticalIncidents > 0 ? "danger" : "warn",
     )
   }
+  if (controlRecords > 0 && !hasFreshSample) {
+    pushGap(
+      "freshness",
+      t(
+        "workspace.domainWorkbench.acceptanceGapFreshness",
+        "最近长任务样本过旧或缺少新鲜度信号。",
+      ),
+      "warn",
+    )
+  }
   if (failedGateLabels.length > 0 && criticalIncidents === 0) {
     pushGap(
       "failed-gates",
@@ -3237,6 +3259,27 @@ function domainAcceptanceCoverageSummary(
           : t("workspace.domainWorkbench.acceptanceReqDrainMissing", "缺 Workflow / Loop / Campaign"),
       passed: drainedRuns > 0,
       tone: drainedRuns > 0 ? "good" : "warn",
+    },
+    {
+      key: "freshness",
+      label: t("workspace.domainWorkbench.acceptanceReqFreshness", "样本新鲜"),
+      detail:
+        latestActivityAgeSecs == null
+          ? t("workspace.domainWorkbench.acceptanceReqFreshnessMissing", "缺最近活动时间")
+          : hasFreshSample
+            ? t("workspace.domainWorkbench.acceptanceReqFreshnessOk", "{{age}} 前", {
+                age: formatDurationCompact(latestActivityAgeSecs),
+              })
+            : t(
+                "workspace.domainWorkbench.acceptanceReqFreshnessStale",
+                "{{age}} 前，超过 {{max}}",
+                {
+                  age: formatDurationCompact(latestActivityAgeSecs),
+                  max: formatDurationCompact(DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS),
+                },
+              ),
+      passed: hasFreshSample,
+      tone: hasFreshSample ? "good" : controlRecords > 0 ? "warn" : "muted",
     },
     {
       key: "incidents",
@@ -3314,6 +3357,8 @@ function domainAcceptanceCoverageSummary(
     connectorE2eEvidence,
     criticalIncidents,
     warningIncidents,
+    latestActivityAgeSecs,
+    freshnessMaxAgeSecs: DOMAIN_ACCEPTANCE_FRESH_SAMPLE_MAX_AGE_SECS,
     readinessPercent,
     requiredPassed,
     requiredTotal,
@@ -3377,12 +3422,19 @@ function domainAcceptancePlanTaskContent(
   gaps: DomainAcceptanceGap[],
 ): string {
   const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
+  const sampleFreshness =
+    summary.latestActivityAgeSecs != null
+      ? t("workspace.domainWorkbench.acceptancePlanFreshnessAge", "{{age}} 前", {
+          age: formatDurationCompact(summary.latestActivityAgeSecs),
+        })
+      : t("workspace.domainWorkbench.acceptancePlanFreshnessMissing", "缺最近活动时间")
   const metrics = [
     `${t("workspace.domainWorkbench.acceptancePlanStatus", "状态")}：${domainAcceptanceStatusLabel(t, summary)}`,
     `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
     `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
     `${t("workspace.domainWorkbench.acceptancePlanDrained", "已排空样本")}：${summary.drainedRuns}`,
+    `${t("workspace.domainWorkbench.acceptancePlanFreshness", "最近样本")}：${sampleFreshness}`,
     `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
   ]
@@ -3398,6 +3450,10 @@ function domainAcceptancePlanTaskContent(
     t(
       "workspace.domainWorkbench.acceptancePlanActionDrain",
       "至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。",
+    ),
+    t(
+      "workspace.domainWorkbench.acceptancePlanActionFreshness",
+      "如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。",
     ),
     t(
       "workspace.domainWorkbench.acceptancePlanActionConnector",
