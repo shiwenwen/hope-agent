@@ -317,7 +317,7 @@ OR browser performance profile
 默认建议：
 
 - 不继续扩大 GUI 功能面。
-- 若用户接受 source-level audit，下一步进入用户 / Claude Code 复核与关闭取舍。
+- Claude Code 已接受 source-level audit 作为 v1 substitute；若用户也接受，下一步即可关闭当前 goal。
 - 若用户要求产品级视觉证明，先补一轮手动 GUI smoke / 截图 / profile，再回到最终复核。
 
 ## 6. 下一步
@@ -326,6 +326,6 @@ OR browser performance profile
 
 1. 可选补强 Exit 2：真实 / 跨窗口 Soak、真实 connector E2E。
 2. 可选补强 Exit 3：GUI manual smoke / screenshot / profile。
-3. 必做 Exit 4：用户 / Claude Code 最终复核与关闭取舍；最终 review packet 和 architecture / roadmap 一致性审计已完成 v1。
+3. 必做 Exit 4：用户最终关闭取舍；Claude Code 已复核通过，最终 review packet 和 architecture / roadmap 一致性审计已完成 v1。
 
 在这些完成前，不能把 thread goal 标记为 complete。

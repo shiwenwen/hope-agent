@@ -16,7 +16,7 @@
 
 1. 最终样本包已有 deterministic v1 和本轮测试输出，但真实跨窗口 Soak 与真实 connector E2E 仍只是替代样本。
 2. 体验/性能审计已有 source-level v1 和 GUI 相关 Vitest 输出，但还缺手动 GUI smoke、截图或性能 profile。
-3. 最终 review packet 已形成 v1，但还缺用户 / Claude Code 最终复核，以及是否接受替代证据的明确取舍。
+3. 最终 review packet 已形成 v1，Claude Code 已给出 `accept_v1_close_after_user_ack`；当前只缺用户明确选择是否接受替代证据。
 
 当前最合理状态：
 
@@ -24,7 +24,7 @@
 Exit 1：完成状态总审计       = 本文完成第一版
 Exit 2：最终样本包           = deterministic v1 + targeted tests 已完成，真实 E2E 可选补强
 Exit 3：体验和性能收口       = source-level audit v1 + GUI Vitest + typecheck 已完成，缺手动视觉 / profile 可选补强
-Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/用户复核与关闭取舍
+Exit 4：最终 review 与文档冻结 = review packet v1 已形成，Claude Code 已复核通过，缺用户关闭取舍
 ```
 
 ## 2. G1-G6 当前状态
@@ -36,7 +36,7 @@ Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/
 | G3 GUI 可控体验 | source audit ready, manual evidence pending | `docs/architecture/workflow.md`、`docs/architecture/goal.md`、`docs/architecture/loop.md`、`docs/architecture/domain-workflow.md`、`docs/roadmap/agent-control-plane-ux-performance-audit.md` | 若要产品级视觉证明，还需手动 GUI smoke、截图或性能 profile；否则可接受 source-level audit 进入关闭取舍。 |
 | G4 长任务稳定性 | targeted evidence ready, final evidence pending | `docs/architecture/background-jobs.md`、`docs/architecture/workflow.md`、`docs/architecture/domain-workflow.md`、`docs/roadmap/general-domain-workflows.md`、`docs/roadmap/agent-control-plane-final-sample-packet.md`，本轮 `workflow` / `domain_eval` / `domain_workflow` tests 通过 | 若要求真实连接器 E2E，还要补真实或沙箱账号 execution + verification 样本。 |
 | G5 质量与性能证据 | targeted tests ready, manual profile pending | `docs/architecture/coding-eval.md`、`docs/architecture/coding-improvement-loop.md`、`docs/roadmap/coding-eval-phase0-report.md`、`docs/roadmap/phase2-eval-report.md`、`docs/roadmap/agent-control-plane-final-review-packet.md`，本轮 backend/frontend targeted tests 通过 | 仍缺 GUI/browser profile；真实视觉 smoke 仍需人工或浏览器级验收。 |
-| G6 文档与外部 review | packet ready, external decision pending | `docs/architecture/` 已有各子系统事实，`docs/roadmap/` 已有路线、本退出计划和 `docs/roadmap/agent-control-plane-final-review-packet.md` | 需要用户 / Claude Code 最终复核，并决定是否接受 deterministic substitute。 |
+| G6 文档与外部 review | Claude Code accepted, user decision pending | `docs/architecture/` 已有各子系统事实，`docs/roadmap/` 已有路线、本退出计划和 `docs/roadmap/agent-control-plane-final-review-packet.md` | Claude Code 已确认无 P0/P1 blocker；需要用户决定是否接受 deterministic substitute 和 source-level audit。 |
 
 ## 3. 已完成能力分层
 
@@ -166,8 +166,7 @@ Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/
 
 仍缺关闭取舍：
 
-- 用户 / Claude Code 最终复核。
-- 是否接受 deterministic substitute 和 source-level audit。
+- 用户是否接受 deterministic substitute 和 source-level audit。
 - 若不接受，补真实 / 跨窗口 Soak、真实 connector E2E、GUI smoke/profile。
 
 ## 5. 停止继续加功能的规则
@@ -185,6 +184,6 @@ Exit 4：最终 review 与文档冻结 = review packet v1 已形成，缺外部/
 
 ## 6. 下一步
 
-下一步固定为用户 / Claude Code 最终复核与关闭取舍，除非用户要求先补强 Exit 2 / Exit 3 的真实运行证据。
+下一步固定为用户关闭取舍：接受产品路线 v1，或选择严格证明路线。除非用户要求先补强 Exit 2 / Exit 3 的真实运行证据，否则不继续新增功能。
 
 默认保守推进方式：不继续扩展 Workspace UI 或 Workflow Runtime API。若要补强证据，只补真实 / 跨窗口 Soak、真实 connector 样本或 GUI smoke/profile；若接受当前 v1 证据，剩余增强进入后续池。

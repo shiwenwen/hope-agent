@@ -17,7 +17,7 @@ Exit 2 已有第一版 deterministic 样本包，并已补本轮 targeted test o
 - 本文已经把 `sample-a` 到 `sample-d` 的替代样本、源码证据和本轮复核结果整理出来。
 - 本轮 targeted backend/frontend tests 已通过。
 - `sample-c` 是 deterministic connector 替代样本，不是真实外部账号 E2E。
-- 真实外部动作闭环仍必须由后续人工 / Claude Code review 明确标注为“真实样本”或“替代样本”。
+- Claude Code 已确认本文作为 deterministic substitute 可以支撑 v1 关闭取舍；真实外部动作闭环仍必须单独标注为“真实样本”或“替代样本”。
 
 当前状态：
 
@@ -290,9 +290,8 @@ real or sandbox connector execution + post-action verification
 
 ## 9. 不能关闭长期目标的原因
 
-即使 Exit 2 deterministic packet 已经形成并补过 targeted tests，整个长期目标仍不能自动关闭，因为还缺：
+即使 Exit 2 deterministic packet 已经形成、补过 targeted tests，并被 Claude Code 接受为 v1 substitute，整个长期目标仍不能自动关闭，因为还缺用户最终取舍：
 
-- 用户 / Claude Code 最终复核。
 - GUI manual smoke / screenshot / browser profile，除非用户接受 source-level audit。
 - 真实跨窗口 / 跨天 Soak 仍未证明，除非用户明确接受 deterministic substitute。
 - 真实外部 connector E2E 仍未证明，除非用户明确接受 deterministic substitute。

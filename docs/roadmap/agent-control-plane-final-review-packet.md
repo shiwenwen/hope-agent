@@ -6,21 +6,22 @@
 >
 > 对应：[目标退出计划](agent-control-plane-exit-plan.md) / [完成状态审计](agent-control-plane-completion-audit.md) / [最终样本包](agent-control-plane-final-sample-packet.md) / [体验与性能审计](agent-control-plane-ux-performance-audit.md)
 >
-> 状态：Exit 4 review packet v1。本文用于人工 / Claude Code / Codex 复核当前长期目标是否可以关闭。
+> 状态：Exit 4 review packet v1。Claude Code 已复核为 `accept_v1_close_after_user_ack`，当前等待用户最终关闭取舍。
 
 ## 1. Review 结论
 
 当前长期目标 **还不能自动关闭**。
 
-原因不是主能力缺失，也不是缺本轮 targeted tests；这些已经补齐。现在只剩两类强证据和一个关闭取舍：
+原因不是主能力缺失，也不是缺本轮 targeted tests；这些已经补齐。Claude Code 已完成独立复核，结论是 `accept_v1_close_after_user_ack`，且未发现 P0/P1 blocker。
 
-1. 没有真实或沙箱 connector 的 execution + post-action read-back verification。
-2. 没有本轮 GUI manual smoke / screenshot / browser performance profile。
-3. 没有用户 / Claude Code 最终复核结论。
+现在只剩用户关闭取舍：
 
-如果用户接受 deterministic-only substitute 和 source-level audit，那么当前实现可以进入“功能主线完成、等待最终复核关闭”的状态；如果用户要求严格产品级证明，则必须先补真实 / 跨窗口 Soak、真实 / 沙箱 connector E2E 和 GUI smoke/profile。
+1. 产品路线 v1：接受 deterministic soak、deterministic connector 和 source-level GUI audit，把真实 / 跨窗口 Soak、真实或沙箱 connector E2E、GUI smoke/profile 放入后续池；然后当前 goal 可以关闭。
+2. 严格证明路线：不接受替代证据，只补真实 / 跨窗口 Soak、真实或沙箱 connector execution + post-action read-back verification、GUI manual smoke / screenshot / browser performance profile；不新增功能面。
 
-本轮 review 没发现必须阻塞当前退出路线的 P0/P1 设计问题；剩余均为 P2/P3 风险或证据缺口。
+在用户明确选择前，Agent 不应调用 `update_goal(status=complete)`。
+
+本轮 review 与 Claude Code 复核都没发现必须阻塞当前退出路线的 P0/P1 设计问题；剩余均为 P2/P3 风险或证据缺口。
 
 ## 2. Review 输入
 
@@ -44,11 +45,11 @@
 | Gate | Review 判定 | 证据 | 未证明 / 后续 |
 | --- | --- | --- | --- |
 | G1 语义闭环 | 通过 | `control-plane-semantics.md`、`goal.md`、`workflow.md`、`loop.md` | 只需最终 review 复述用户心智模型，不需要继续改语义。 |
-| G2 自主动态工作流 | targeted 通过 | `workflow.md`、`workflow-script-runtime.md`、`agent-control-plane-final-sample-packet.md`，本轮 `cargo test -p ha-core workflow --locked` 通过 | 等用户 / Claude Code final review。 |
+| G2 自主动态工作流 | targeted 通过 | `workflow.md`、`workflow-script-runtime.md`、`agent-control-plane-final-sample-packet.md`，本轮 `cargo test -p ha-core workflow --locked` 通过；Claude Code 已确认 workflow 心智对齐 | 等用户最终关闭取舍。 |
 | G3 GUI 可控体验 | source-level 通过 | `agent-control-plane-ux-performance-audit.md`、`goal.md`、`workflow.md`、`loop.md`、`domain-workflow.md` | 缺手动 GUI smoke / screenshot / profile。 |
 | G4 长任务稳定性 | deterministic 通过 | `background-jobs.md`、`workflow.md`、`domain-workflow.md`、`domain-eval.md`、`agent-control-plane-final-sample-packet.md` | 缺真实跨天 wall-clock 长跑和真实 connector E2E。 |
 | G5 质量与性能证据 | targeted tests 通过 | `coding-eval.md`、`coding-improvement-loop.md`、`agent-control-plane-ux-performance-audit.md`，本轮 backend/frontend targeted tests 通过 | 缺浏览器 profile / 手动视觉验收。 |
-| G6 文档与外部 review | packet v1 已形成 | 本文 + roadmap / architecture 索引 | 还缺用户 / Claude Code 最终复核结论。 |
+| G6 文档与外部 review | Claude Code 已复核通过，缺用户取舍 | 本文 + roadmap / architecture 索引；Claude Code 结论 `accept_v1_close_after_user_ack` | 等用户选择产品路线 v1 或严格证明路线。 |
 
 ## 4. Architecture / Roadmap 落点审计
 
@@ -198,7 +199,35 @@ Required before close: none | <real soak / connector E2E / GUI smoke/profile / f
 Notes:
 ```
 
-## 9. 关闭判定
+## 9. Claude Code Review 结果
+
+复核日期：2026-07-05。
+
+复核结论：
+
+```text
+Decision: accept_v1_close_after_user_ack
+P0/P1 blockers: none
+```
+
+Claude Code 同时确认三类替代证据可以作为 v1 关闭依据：
+
+| 替代证据 | Claude Code 判定 | 边界 |
+| --- | --- | --- |
+| deterministic soak | accept | 可作为 v1 关闭替代证据；真实 / 跨窗口 wall-clock Soak 仍进入后续池。 |
+| deterministic connector | accept | 可作为 v1 关闭替代证据；真实或沙箱 connector execution + read-back verification 仍进入后续池。 |
+| source-level GUI audit | accept | 可作为 v1 关闭替代证据；手动 GUI smoke / screenshot / browser profile 仍进入后续池。 |
+
+Claude Code 认为不阻塞关闭的后续项：
+
+- 拆分 `WorkspacePanel.tsx`，降低 19,172 行大文件的维护成本。
+- 增加 GUI “查看更多 Loop”，避免 Loop 数量超过 5 个后主要依赖 `/loop status`。
+
+Claude Code 同时强调：packet 本身没有自我关闭，最终关闭必须由用户明确选择。若用户选择严格证明路线，只补三类真实证据：真实 / 跨窗口 Soak、真实或沙箱 connector execution + post-action read-back verification、GUI manual smoke / screenshot / browser profile；不新增功能面。
+
+方法学边界：Claude Code 本次为源码级 + 文档诚实性复核，核实了 packet 引用的测试函数存在，但没有重跑 cargo / pnpm 测试；packet 中记录的 “100 passed / 26 passed” 等运行结果按本 packet 自述采信。
+
+## 10. 关闭判定
 
 当前 packet 支持的结论：
 
@@ -207,7 +236,7 @@ Notes:
 Exit 1 完成状态审计已形成。
 Exit 2 deterministic 样本包已形成，并已补 targeted tests。
 Exit 3 source-level UX/performance audit 已形成，并已补 GUI Vitest + typecheck。
-Exit 4 review packet v1 已形成。
+Exit 4 review packet v1 已形成，Claude Code 已给出 accept_v1_close_after_user_ack。
 没有发现 P0/P1 blocking design issue。
 ```
 
@@ -220,9 +249,9 @@ GUI 视觉和性能已通过手动/浏览器级验收。
 长期目标可以无需用户认可直接关闭。
 ```
 
-因此当前 goal 的关闭条件仍未满足。下一步有两个选择：
+因此当前 goal 的关闭条件只剩用户明确选择。下一步有两个选择：
 
-1. 严格证明路线：补真实 / 跨窗口 Soak、真实 connector E2E、GUI smoke/profile，然后再最终关闭。
-2. 产品路线 v1：用户接受 deterministic substitute 与 source-level audit，将真实 E2E、截图/profile 和更多模板纳入后续增强池，再关闭当前主线。
+1. 产品路线 v1：用户接受 deterministic substitute 与 source-level audit，将真实 E2E、截图/profile 和更多模板纳入后续增强池，再关闭当前主线。
+2. 严格证明路线：补真实 / 跨窗口 Soak、真实 connector E2E、GUI smoke/profile，然后再最终关闭。
 
 在用户做出这个取舍前，Agent 不应调用 `update_goal(status=complete)`。
