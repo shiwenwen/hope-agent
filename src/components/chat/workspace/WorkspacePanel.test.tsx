@@ -2100,6 +2100,9 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("守门通过")).toBeTruthy()
     expect(screen.getByText("运行稳定性、长跑审计 未通过")).toBeTruthy()
     expect(screen.getByText("3 条")).toBeTruthy()
+    expect(screen.getByText("验收矩阵")).toBeTruthy()
+    expect(screen.getByText("Campaign 样本")).toBeTruthy()
+    expect(screen.getByText("缺通过的 Campaign item")).toBeTruthy()
     expect(screen.getByText("长跑审计仍有事故需要收口。")).toBeTruthy()
 
     fireEvent.click(screen.getByRole("button", { name: "复制验收报告" }))
@@ -2122,6 +2125,9 @@ describe("WorkspacePanel workflow section", () => {
     expect(acceptanceReport).toContain("时间线：Workflow failed · workflow/failed · 4m")
     expect(acceptanceReport).toContain("## 推荐下一步")
     expect(acceptanceReport).toContain("Repair the failed workflow.")
+    expect(acceptanceReport).toContain("## 验收矩阵")
+    expect(acceptanceReport).toContain("[待补] Campaign 样本：缺通过的 Campaign item")
+    expect(acceptanceReport).toContain("[待扩展] 连接器 E2E：当前会话未观察外部动作")
 
     const evidenceRequirement = screen.getByText("缺来源/草稿/决策证据")
     const evidenceRequirementRow = evidenceRequirement.parentElement
@@ -2158,7 +2164,7 @@ describe("WorkspacePanel workflow section", () => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
         content:
-          "补齐真实样本验收清单：\n\n当前指标：\n- 状态：样本有事故\n- 验收进度：39% (3/7)\n- 领域：research\n- 控制面记录：3\n- 已排空样本：2\n- 最近样本：2m 前\n- 输出预算：耗尽 1 次 · 10/10\n- 连接器 E2E evidence：0\n- 事故：critical 1 / warning 0\n\n验收必需项：\n- [通过] 领域样本：1 个领域\n- [待补] 证据链：缺来源/草稿/决策证据\n- [通过] 排空样本：2 个已排空\n- [通过] 样本新鲜：2m 前\n- [阻塞] 预算健康：耗尽 1 次 · 10/10\n- [阻塞] 事故清零：critical 1 / warning 0\n- [阻塞] 守门通过：运行稳定性、长跑审计 未通过\n\n验收缺口：\n- [阻塞] 长跑审计仍有事故需要收口。\n- [阻塞] 工作流输出预算已耗尽，需收口性能或上下文策略。\n- [待补] 缺少来源、草稿、复核或用户决策证据。\n\n采样动作：\n- 补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。\n- 至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。\n- 如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。\n- 如果输出预算耗尽，先收窄上下文、拆分阶段或降低无效输出，再重新跑最小验证样本。\n- 涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录 E2E evidence。\n- 处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
+          "补齐真实样本验收清单：\n\n当前指标：\n- 状态：样本有事故\n- 验收进度：39% (3/7)\n- 领域：research\n- 控制面记录：3\n- 已排空样本：2\n- 最近样本：2m 前\n- 输出预算：耗尽 1 次 · 10/10\n- 连接器 E2E evidence：0\n- 事故：critical 1 / warning 0\n\n验收必需项：\n- [通过] 领域样本：1 个领域\n- [待补] 证据链：缺来源/草稿/决策证据\n- [通过] 排空样本：2 个已排空\n- [通过] 样本新鲜：2m 前\n- [阻塞] 预算健康：耗尽 1 次 · 10/10\n- [阻塞] 事故清零：critical 1 / warning 0\n- [阻塞] 守门通过：运行稳定性、长跑审计 未通过\n\n验收矩阵：\n- [通过] Workflow 样本：1/2 已完成；跑一个领域 Workflow 并等待排空，再刷新运行稳定性和长跑审计。\n- [通过] Loop 样本：1/1 成功；创建一个短间隔领域 Loop，确认至少一次 tick 成功并关联 Workflow run。\n- [待补] Campaign 样本：缺通过的 Campaign item；跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。\n- [待扩展] 连接器 E2E：当前会话未观察外部动作；用测试账号完成读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明，并记录 E2E evidence。\n- [待扩展] 跨领域覆盖：1 个领域；补一个不同领域样本，例如写作、数据分析、会议准备、知识整理、Inbox 或项目运营。\n\n验收缺口：\n- [阻塞] 长跑审计仍有事故需要收口。\n- [阻塞] 工作流输出预算已耗尽，需收口性能或上下文策略。\n- [待补] 缺少来源、草稿、复核或用户决策证据。\n\n采样动作：\n- 补齐来源、草稿、复核或用户决策 evidence 后刷新工作台。\n- 至少排空一个 Workflow / Loop / Campaign，再刷新运行稳定性和长跑审计。\n- 如果最近样本超过 7 天，先跑一个新的 Workflow / Loop / Campaign 或连接器 E2E 样本。\n- 如果输出预算耗尽，先收窄上下文、拆分阶段或降低无效输出，再重新跑最小验证样本。\n- 涉及外部动作时按读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明记录 E2E evidence。\n- 处理 Soak Report 事故或把事故转任务，直到 Operational Gate / Soak Report 不再 failed。",
         activeForm: "正在补齐真实样本验收清单",
       })
     })
@@ -2817,7 +2823,7 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("连接器 E2E")).toBeTruthy()
+    expect((await screen.findAllByText("连接器 E2E")).length).toBeGreaterThan(0)
     expect(screen.getByText("execution_result")).toBeTruthy()
     expect(screen.getByText("post_action_verification")).toBeTruthy()
     expect(screen.getByText("外部动作还缺端到端执行与复核样本。")).toBeTruthy()
@@ -2896,7 +2902,7 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("连接器 E2E")).toBeTruthy()
+    expect((await screen.findAllByText("连接器 E2E")).length).toBeGreaterThan(0)
     expect(screen.getByText("下一步：记录执行结果")).toBeTruthy()
     expect(
       (screen.getByRole("button", { name: "记录复核" }) as HTMLButtonElement).disabled,

@@ -3031,6 +3031,7 @@ type DomainAcceptanceCoverageSummary = {
   requiredPassed: number
   requiredTotal: number
   requirements: DomainAcceptanceRequirement[]
+  sampleLanes: DomainAcceptanceSampleLane[]
   tone: StatusTone
   gaps: DomainAcceptanceGap[]
 }
@@ -3041,6 +3042,15 @@ type DomainAcceptanceRequirement = {
   detail: string
   passed: boolean
   tone: StatusTone
+}
+
+type DomainAcceptanceSampleLane = {
+  key: string
+  label: string
+  detail: string
+  passed: boolean
+  tone: StatusTone
+  action: string
 }
 
 type DomainAcceptanceGapSeverity = "danger" | "warn" | "info"
@@ -3099,15 +3109,18 @@ function domainAcceptanceCoverageSummary(
   const soakSummary = args.soakReport?.summary
   const connectorE2eSummary = args.connectorE2eGate?.summary
   const workflowRuns = soakSummary?.workflowRuns ?? operationalSummary?.workflowRuns ?? 0
+  const completedWorkflowRuns =
+    soakSummary?.completedWorkflowRuns ?? operationalSummary?.completedWorkflowRuns ?? 0
   const loopRuns = soakSummary?.loopRuns ?? operationalSummary?.loopRuns ?? 0
+  const succeededLoopRuns = soakSummary?.succeededLoopRuns ?? operationalSummary?.succeededLoopRuns ?? 0
   const campaignItems = soakSummary?.campaignItems ?? operationalSummary?.campaignItems ?? 0
+  const passedCampaignItems =
+    soakSummary?.passedCampaignItems ?? operationalSummary?.passedCampaignItems ?? 0
   const controlRecords =
     soakSummary?.totalRecords ??
     workflowRuns + loopRuns + campaignItems + args.evidence.length
   const drainedRuns =
-    (soakSummary?.completedWorkflowRuns ?? operationalSummary?.completedWorkflowRuns ?? 0) +
-    (soakSummary?.succeededLoopRuns ?? operationalSummary?.succeededLoopRuns ?? 0) +
-    (soakSummary?.passedCampaignItems ?? operationalSummary?.passedCampaignItems ?? 0)
+    completedWorkflowRuns + succeededLoopRuns + passedCampaignItems
   const connectorE2eEvidence =
     connectorE2eSummary?.evidenceItems ??
     soakSummary?.connectorE2eEvidence ??
@@ -3406,6 +3419,106 @@ function domainAcceptanceCoverageSummary(
             : "warn",
     })
   }
+  const sampleLanes: DomainAcceptanceSampleLane[] = [
+    {
+      key: "workflow",
+      label: t("workspace.domainWorkbench.acceptanceLaneWorkflow", "Workflow 样本"),
+      detail:
+        completedWorkflowRuns > 0
+          ? t(
+              "workspace.domainWorkbench.acceptanceLaneWorkflowOk",
+              "{{completed}}/{{total}} 已完成",
+              { completed: completedWorkflowRuns, total: workflowRuns },
+            )
+          : t("workspace.domainWorkbench.acceptanceLaneWorkflowMissing", "缺已完成 Workflow"),
+      passed: completedWorkflowRuns > 0,
+      tone: completedWorkflowRuns > 0 ? "good" : "warn",
+      action: t(
+        "workspace.domainWorkbench.acceptanceLaneWorkflowAction",
+        "跑一个领域 Workflow 并等待排空，再刷新运行稳定性和长跑审计。",
+      ),
+    },
+    {
+      key: "loop",
+      label: t("workspace.domainWorkbench.acceptanceLaneLoop", "Loop 样本"),
+      detail:
+        succeededLoopRuns > 0
+          ? t("workspace.domainWorkbench.acceptanceLaneLoopOk", "{{succeeded}}/{{total}} 成功", {
+              succeeded: succeededLoopRuns,
+              total: loopRuns,
+            })
+          : t("workspace.domainWorkbench.acceptanceLaneLoopMissing", "缺成功 Loop tick"),
+      passed: succeededLoopRuns > 0,
+      tone: succeededLoopRuns > 0 ? "good" : "warn",
+      action: t(
+        "workspace.domainWorkbench.acceptanceLaneLoopAction",
+        "创建一个短间隔领域 Loop，确认至少一次 tick 成功并关联 Workflow run。",
+      ),
+    },
+    {
+      key: "campaign",
+      label: t("workspace.domainWorkbench.acceptanceLaneCampaign", "Campaign 样本"),
+      detail:
+        passedCampaignItems > 0
+          ? t(
+              "workspace.domainWorkbench.acceptanceLaneCampaignOk",
+              "{{passed}}/{{total}} 通过",
+              { passed: passedCampaignItems, total: campaignItems },
+            )
+          : t("workspace.domainWorkbench.acceptanceLaneCampaignMissing", "缺通过的 Campaign item"),
+      passed: passedCampaignItems > 0,
+      tone: passedCampaignItems > 0 ? "good" : "warn",
+      action: t(
+        "workspace.domainWorkbench.acceptanceLaneCampaignAction",
+        "跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。",
+      ),
+    },
+    {
+      key: "connector-e2e",
+      label: t("workspace.domainWorkbench.acceptanceLaneConnector", "连接器 E2E"),
+      detail: connectorE2eHasScope
+        ? connectorE2eEvidence > 0 && args.connectorE2eGate?.status === "passed"
+          ? t(
+              "workspace.domainWorkbench.acceptanceLaneConnectorOk",
+              "{{count}} 条执行/复核 evidence",
+              { count: connectorE2eEvidence },
+            )
+          : t("workspace.domainWorkbench.acceptanceLaneConnectorMissing", "缺执行/复核闭环")
+        : t("workspace.domainWorkbench.acceptanceLaneConnectorNoScope", "当前会话未观察外部动作"),
+      passed: connectorE2eHasScope
+        ? connectorE2eEvidence > 0 && args.connectorE2eGate?.status === "passed"
+        : false,
+      tone: connectorE2eHasScope
+        ? connectorE2eEvidence > 0 && args.connectorE2eGate?.status === "passed"
+          ? "good"
+          : args.connectorE2eGate?.status === "failed"
+            ? "danger"
+            : "warn"
+        : "info",
+      action: t(
+        "workspace.domainWorkbench.acceptanceLaneConnectorAction",
+        "用测试账号完成读取 -> 草稿 -> 批准 -> 执行 -> 复核 -> 回滚说明，并记录 E2E evidence。",
+      ),
+    },
+    {
+      key: "cross-domain",
+      label: t("workspace.domainWorkbench.acceptanceLaneCrossDomain", "跨领域覆盖"),
+      detail:
+        domains.size >= 2
+          ? t("workspace.domainWorkbench.acceptanceLaneCrossDomainOk", "{{count}} 个领域", {
+              count: domains.size,
+            })
+          : t("workspace.domainWorkbench.acceptanceLaneCrossDomainMissing", "{{count}} 个领域", {
+              count: domains.size,
+            }),
+      passed: domains.size >= 2,
+      tone: domains.size >= 2 ? "good" : "info",
+      action: t(
+        "workspace.domainWorkbench.acceptanceLaneCrossDomainAction",
+        "补一个不同领域样本，例如写作、数据分析、会议准备、知识整理、Inbox 或项目运营。",
+      ),
+    },
+  ]
   const requiredChecks = requirements.map((requirement) => requirement.passed)
   const requiredPassed = requiredChecks.filter(Boolean).length
   const requiredTotal = requiredChecks.length
@@ -3436,6 +3549,7 @@ function domainAcceptanceCoverageSummary(
     requiredPassed,
     requiredTotal,
     requirements,
+    sampleLanes,
     tone,
     gaps: sortedGaps.slice(0, 3),
   }
@@ -3455,6 +3569,16 @@ function domainAcceptanceRequirementStatusLabel(
 ): string {
   if (requirement.passed) return t("workspace.domainWorkbench.acceptanceReqPassed", "通过")
   if (requirement.tone === "danger") return t("workspace.domainWorkbench.acceptanceReqBlocked", "阻塞")
+  return t("workspace.domainWorkbench.acceptanceReqMissing", "待补")
+}
+
+function domainAcceptanceSampleLaneStatusLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  lane: DomainAcceptanceSampleLane,
+): string {
+  if (lane.passed) return t("workspace.domainWorkbench.acceptanceReqPassed", "通过")
+  if (lane.tone === "danger") return t("workspace.domainWorkbench.acceptanceReqBlocked", "阻塞")
+  if (lane.tone === "info") return t("workspace.domainWorkbench.acceptanceLaneOptional", "待扩展")
   return t("workspace.domainWorkbench.acceptanceReqMissing", "待补")
 }
 
@@ -3531,6 +3655,10 @@ function domainAcceptancePlanTaskContent(
     const status = domainAcceptanceRequirementStatusLabel(t, requirement)
     return `- [${status}] ${requirement.label}：${requirement.detail}`
   })
+  const sampleLanes = summary.sampleLanes.map((lane) => {
+    const status = domainAcceptanceSampleLaneStatusLabel(t, lane)
+    return `- [${status}] ${lane.label}：${lane.detail}；${lane.action}`
+  })
   const actions = [
     t(
       "workspace.domainWorkbench.acceptancePlanActionEvidence",
@@ -3566,6 +3694,9 @@ function domainAcceptancePlanTaskContent(
     "",
     t("workspace.domainWorkbench.acceptancePlanRequirements", "验收必需项："),
     ...requirements,
+    "",
+    t("workspace.domainWorkbench.acceptancePlanSampleLanes", "验收矩阵："),
+    ...sampleLanes,
     "",
     t("workspace.domainWorkbench.acceptancePlanGaps", "验收缺口："),
     ...gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`),
@@ -3754,6 +3885,10 @@ function domainAcceptanceReviewMarkdown(
     const status = domainAcceptanceRequirementStatusLabel(t, requirement)
     return `- [${status}] ${requirement.label}：${requirement.detail}`
   })
+  const sampleLaneLines = summary.sampleLanes.map((lane) => {
+    const status = domainAcceptanceSampleLaneStatusLabel(t, lane)
+    return `- [${status}] ${lane.label}：${lane.detail}；${lane.action}`
+  })
   const gapLines =
     summary.gaps.length > 0
       ? summary.gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`)
@@ -3774,6 +3909,9 @@ function domainAcceptanceReviewMarkdown(
     "",
     `## ${t("workspace.domainWorkbench.acceptancePlanRequirements", "验收必需项")}`,
     ...requirementLines,
+    "",
+    `## ${t("workspace.domainWorkbench.acceptancePlanSampleLanes", "验收矩阵")}`,
+    ...sampleLaneLines,
     "",
     `## ${t("workspace.domainWorkbench.acceptancePlanGaps", "验收缺口")}`,
     ...gapLines,
@@ -3961,6 +4099,30 @@ function DomainAcceptanceCoverageCard({
           value={summary.connectorE2eEvidence}
           tone={domainWorkbenchMetricTone(summary.connectorE2eEvidence)}
         />
+      </div>
+      <div className="mt-2 space-y-1 rounded-md bg-background/30 px-1.5 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+          <Gauge className="h-3 w-3 shrink-0" />
+          <span className="truncate">
+            {t("workspace.domainWorkbench.acceptancePlanSampleLanes", "验收矩阵")}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+          {summary.sampleLanes.map((lane) => (
+            <IconTip key={lane.key} label={lane.action}>
+              <div className="min-w-0 rounded-md bg-secondary/25 px-1.5 py-1 text-[10px]">
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="min-w-0 flex-1 truncate font-medium">{lane.label}</span>
+                  <StatusPill
+                    label={domainAcceptanceSampleLaneStatusLabel(t, lane)}
+                    tone={lane.tone}
+                  />
+                </div>
+                <div className="mt-0.5 truncate text-muted-foreground/75">{lane.detail}</div>
+              </div>
+            </IconTip>
+          ))}
+        </div>
       </div>
       {summary.domains.length > 0 ? (
         <div className="mt-2 flex min-w-0 flex-wrap gap-1">
