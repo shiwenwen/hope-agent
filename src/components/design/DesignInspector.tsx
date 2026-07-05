@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next"
 import { X, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import type { DesignSelectedElement } from "@/types/design"
 
@@ -23,15 +24,43 @@ interface Props {
   onClose: () => void
 }
 
-/** computed `rgb(a,b,c)` / `#rrggbb` → `#rrggbb`（native color input 需要）。 */
+const hex2 = (n: number) => Math.max(0, Math.min(255, n || 0)).toString(16).padStart(2, "0")
+
+function rgbStrToHex(inner: string): string {
+  const [r, g, b] = inner.split(",").map((x) => parseInt(x.trim(), 10))
+  return `#${hex2(r)}${hex2(g)}${hex2(b)}`
+}
+
+/**
+ * Any CSS color (`#rgb` / `#rrggbb` / `rgb()` / `rgba()` / named / `hsl()`) →
+ * `#rrggbb`, which is all `<input type="color">` accepts. Named / hsl / 3-digit are
+ * resolved via a canvas (best-effort) instead of collapsing to black, so the swatch
+ * reflects the real color and a stray drag can't silently repaint an element black.
+ */
 function toHex(v: string): string {
-  if (!v) return "#000000"
-  if (v.startsWith("#")) return v.length === 7 ? v : "#000000"
-  const m = v.match(/rgba?\(([^)]+)\)/)
-  if (!m) return "#000000"
-  const [r, g, b] = m[1].split(",").map((x) => parseInt(x.trim(), 10))
-  const h = (n: number) => Math.max(0, Math.min(255, n || 0)).toString(16).padStart(2, "0")
-  return `#${h(r)}${h(g)}${h(b)}`
+  const s = (v || "").trim()
+  if (!s) return "#000000"
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s.toLowerCase()
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    const [r, g, b] = [s[1], s[2], s[3]]
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase()
+  }
+  const m = s.match(/rgba?\(([^)]+)\)/)
+  if (m) return rgbStrToHex(m[1])
+  try {
+    const ctx = document.createElement("canvas").getContext("2d")
+    if (ctx) {
+      ctx.fillStyle = "#000000"
+      ctx.fillStyle = s // invalid input leaves the previous (#000000)
+      const resolved = ctx.fillStyle
+      if (/^#[0-9a-fA-F]{6}$/.test(resolved)) return resolved.toLowerCase()
+      const rm = resolved.match(/rgba?\(([^)]+)\)/)
+      if (rm) return rgbStrToHex(rm[1])
+    }
+  } catch {
+    /* ignore — fall through */
+  }
+  return "#000000"
 }
 
 function px(v: string): number {
@@ -156,7 +185,7 @@ export default function DesignInspector({
 
       {selected.isLeaf && (
         <Section title={t("design.insp.text", "文本")}>
-          <textarea
+          <Textarea
             value={text}
             onChange={(e) => {
               setText(e.target.value)
@@ -164,7 +193,7 @@ export default function DesignInspector({
             }}
             onBlur={() => onCommitText(text)}
             rows={2}
-            className="w-full resize-none rounded border bg-background px-2 py-1.5 text-sm"
+            className="resize-none"
           />
         </Section>
       )}

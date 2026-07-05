@@ -122,6 +122,16 @@ export interface DesignConfig {
   maxVersionsPerArtifact: number;
   panelWidth: number;
   selfCheck: boolean;
+  /** 反向提取图片大小上限（MB）。0 = 不限。默认 24。 */
+  maxExtractImageMb: number;
+  /** 导出栅格化倍率（清晰度），[1,4]。默认 2。 */
+  exportScale: number;
+  /** PDF 导出 JPEG 质量（1–100），[40,100]。默认 92。 */
+  exportJpegQuality: number;
+  /** 反向提取专用视觉模型（providerId:modelId）。空 = 复用活跃模型。 */
+  extractVisionModel?: string;
+  /** 质量评审专用模型（providerId:modelId）。空 = 复用默认分析模型。 */
+  critiqueModel?: string;
 }
 
 /** 创建项目入参。 */

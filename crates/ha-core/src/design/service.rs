@@ -79,15 +79,22 @@ fn write_version_snapshot(
     Ok(())
 }
 
-/// 读取产物当前源（工作副本）。
-fn read_source(dir: &std::path::Path) -> ArtifactParts {
-    let read =
-        |name: &str| std::fs::read_to_string(dir.join("source").join(name)).unwrap_or_default();
-    ArtifactParts {
-        body_html: read("body.html"),
-        css: read("style.css"),
-        js: read("script.js"),
-    }
+/// 读取产物当前源（工作副本）。**读失败即上抛**（区分「文件不存在=合法空」与
+/// 「读错误=不可静默降级为空」），否则 `update_artifact` 会拿空正文覆盖 + 永久快照，
+/// 一次改标题就把产物抹了。
+fn read_source(dir: &std::path::Path) -> Result<ArtifactParts> {
+    let read = |name: &str| -> Result<String> {
+        match std::fs::read_to_string(dir.join("source").join(name)) {
+            Ok(s) => Ok(s),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(anyhow::anyhow!("read source/{name}: {e}")),
+        }
+    };
+    Ok(ArtifactParts {
+        body_html: read("body.html")?,
+        css: read("style.css")?,
+        js: read("script.js")?,
+    })
 }
 
 /// 写产物工作副本源 + 渲染 index.html + oidmap。
@@ -276,7 +283,7 @@ pub fn delete_project(id: &str) -> Result<()> {
 pub struct CreateArtifactInput {
     pub project_id: String,
     pub title: String,
-    /// web|mobile|deck|dashboard|poster|document|email|image
+    /// web|mobile|deck|dashboard|poster|document|email|image|motion
     pub kind: String,
     #[serde(default)]
     pub system_id: Option<String>,
@@ -329,10 +336,18 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     let project = db
         .get_project(&input.project_id)?
         .with_context(|| format!("project not found: {}", input.project_id))?;
+    // System resolution: explicit > project default > global config default.
     let system_id = input
         .system_id
         .clone()
-        .or(project.default_system_id.clone());
+        .or(project.default_system_id.clone())
+        .or_else(|| {
+            crate::config::cached_config()
+                .design
+                .default_system_id
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+        });
 
     let ts = now();
     let artifact_id = new_id();
@@ -389,16 +404,25 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         serde_json::to_string_pretty(&meta)?.as_bytes(),
     )?;
 
-    db.create_artifact(&artifact)?;
-    db.create_version(&DesignArtifactVersion {
-        id: 0,
-        artifact_id: artifact_id.clone(),
-        version_number: 1,
-        message: Some("Initial version".to_string()),
-        critique_score: None,
-        created_at: ts.clone(),
-    })?;
-    db.touch_project(&input.project_id, &ts)?;
+    // Persist to the registry; if it fails, remove the just-written directory so we
+    // don't leak an orphan artifact dir (DB row is the source of truth for listing).
+    let persisted = (|| -> Result<()> {
+        db.create_artifact(&artifact)?;
+        db.create_version(&DesignArtifactVersion {
+            id: 0,
+            artifact_id: artifact_id.clone(),
+            version_number: 1,
+            message: Some("Initial version".to_string()),
+            critique_score: None,
+            created_at: ts.clone(),
+        })?;
+        db.touch_project(&input.project_id, &ts)?;
+        Ok(())
+    })();
+    if let Err(e) = persisted {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(e);
+    }
 
     crate::app_info!(
         "design",
@@ -470,10 +494,8 @@ pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
         return Ok(None);
     };
     let artifact_path = artifact_dir_str(&artifact.project_id, &artifact.id);
-    let body = read_source(
-        &paths::design_artifact_dir(&artifact.project_id, &artifact.id).unwrap_or_default(),
-    )
-    .body_html;
+    let dir = paths::design_artifact_dir(&artifact.project_id, &artifact.id)?;
+    let body = read_source(&dir)?.body_html;
     let body_hash = patch::body_hash(&body);
     Ok(Some(ArtifactView {
         artifact,
@@ -510,8 +532,11 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
         .and_then(|r| serde_json::from_str(&r).ok())
         .unwrap_or_default();
 
+    // Hash of the body we patch against. Checked here (client's load-time guard) and
+    // re-checked under the write lock in `update_artifact` (closes the TOCTOU).
+    let base_hash = patch::body_hash(&body);
     if let Some(h) = &p.expected_hash {
-        if patch::body_hash(&body) != *h {
+        if base_hash != *h {
             anyhow::bail!("stale write: source changed, please re-select");
         }
     }
@@ -538,6 +563,7 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
         css: None,
         js: None,
         message: Some("Visual edit".to_string()),
+        expected_body_hash: Some(base_hash),
     })
 }
 
@@ -556,19 +582,59 @@ pub struct UpdateArtifactInput {
     pub js: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    /// Optional stale-write guard re-verified **under the per-artifact lock** right
+    /// before writing (closes the `patch_element` read→write TOCTOU). Not exposed to
+    /// the agent `update_artifact` path — only `patch_element` sets it.
+    #[serde(default)]
+    pub expected_body_hash: Option<String>,
 }
 
-fn prune_version_dirs(dir: &std::path::Path, current_version: i64, keep: i64) {
-    let cutoff = current_version - keep;
-    for n in 1..=cutoff {
-        let vdir = dir.join("versions").join(n.to_string());
-        if vdir.exists() {
-            let _ = std::fs::remove_dir_all(&vdir);
+/// Delete on-disk version snapshot dirs that the DB no longer retains, so disk
+/// tracks the DB's kept `version_number` set **exactly** (robust to non-contiguous
+/// version numbers from crashes — the old arithmetic `current-keep` cutoff diverged
+/// from `cleanup_old_versions` on any gap and could orphan a still-listed version →
+/// `restore_version` "version not found").
+fn prune_version_dirs_to_db(dir: &std::path::Path, keep: &std::collections::HashSet<i64>) {
+    let vroot = dir.join("versions");
+    let Ok(entries) = std::fs::read_dir(&vroot) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let keep_this = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<i64>().ok())
+            .map(|n| keep.contains(&n))
+            .unwrap_or(true); // non-numeric entry: leave it alone
+        if !keep_this {
+            let _ = std::fs::remove_dir_all(entry.path());
         }
     }
 }
 
+/// Per-artifact in-process mutex. Serializes the read-current → write → bump →
+/// create_version → prune sequence so two concurrent updates on the same artifact
+/// cannot lost-update, collide on `UNIQUE(artifact_id,version_number)`, or leave the
+/// version dir's content mismatched against its DB row. `open_db()` opens a fresh
+/// connection per call, so SQLite file locks alone do NOT serialize this logical RMW.
+fn artifact_lock(artifact_id: &str) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .entry(artifact_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
 pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
+    // Serialize the whole RMW for this artifact (see `artifact_lock`). Held across
+    // sync file + DB IO only (no `.await` inside), so a std mutex is correct here.
+    let lock = artifact_lock(&input.id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
     let db = open_db()?;
     let a = db
         .get_artifact(&input.id)?
@@ -576,7 +642,14 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
     let kind = ArtifactKind::from_str(&a.kind)
         .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
-    let existing = read_source(&dir);
+    let existing = read_source(&dir)?;
+    // Stale-write guard re-checked under the lock: if the on-disk body changed since
+    // the caller computed its patch (e.g. a racing edit), abort instead of lost-update.
+    if let Some(expected) = &input.expected_body_hash {
+        if patch::body_hash(&existing.body_html) != *expected {
+            anyhow::bail!("stale write: source changed, please re-select");
+        }
+    }
     let parts = ArtifactParts {
         body_html: input.body_html.unwrap_or(existing.body_html),
         css: input.css.unwrap_or(existing.css),
@@ -613,7 +686,12 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .max_versions_per_artifact
         .max(1);
     let _ = db.cleanup_old_versions(&a.id, keep);
-    prune_version_dirs(&dir, next, keep);
+    // Prune disk snapshots to exactly the versions the DB retained.
+    if let Ok(remaining) = db.list_versions(&a.id) {
+        let keep_set: std::collections::HashSet<i64> =
+            remaining.iter().map(|v| v.version_number).collect();
+        prune_version_dirs_to_db(&dir, &keep_set);
+    }
     db.touch_project(&a.project_id, &ts)?;
 
     emit("design:reload", json!({ "artifactId": a.id }));
@@ -630,7 +708,7 @@ pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<Strin
         .get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
-    let parts = read_source(&dir);
+    let parts = read_source(&dir)?;
 
     let kb = match kb_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(k) => k.to_string(),
@@ -644,7 +722,13 @@ pub fn save_to_knowledge(artifact_id: &str, kb_id: Option<&str>) -> Result<Strin
         }
     };
 
-    let rel = format!("设计/{}.md", safe_filename(&a.title));
+    // Disambiguate by artifact id so two artifacts with colliding safe-filenames
+    // (or empty titles → "design") don't silently overwrite each other's KB note.
+    let rel = format!(
+        "设计/{}-{}.md",
+        safe_filename(&a.title),
+        a.id.get(..8).unwrap_or(&a.id)
+    );
     let content = format!(
         "---\ntitle: {title}\nkind: {kind}\nsource: design-space\nartifactId: {aid}\n---\n\n\
 # {title}\n\n> 来自设计空间的产物（{kind}）。\n\n\
@@ -727,7 +811,7 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     match format {
         "html" => {
-            let parts = read_source(&dir);
+            let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
             // editable=false → 无 inspector bridge / 无 oid，干净可交付。
             let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
@@ -737,8 +821,115 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
                 content: html,
             })
         }
+        "markdown" | "md" => {
+            let parts = read_source(&dir)?;
+            let md = htmd::convert(&parts.body_html).unwrap_or_default();
+            let content = if md.trim().is_empty() {
+                format!("# {}\n", a.title)
+            } else {
+                md.trim().to_string()
+            };
+            Ok(ExportResult {
+                filename: format!("{}.md", safe_filename(&a.title)),
+                mime: "text/markdown".to_string(),
+                content,
+            })
+        }
         other => anyhow::bail!("unsupported export format: {other}"),
     }
+}
+
+/// 项目级 ZIP 的根画廊页（自包含，链接到各产物目录）。
+fn project_gallery_html(project_title: &str, items_li: &str) -> String {
+    format!(
+        "<!doctype html>\n<html lang=\"zh\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+<title>{title}</title>\n<style>\
+body{{font-family:system-ui,-apple-system,\"PingFang SC\",\"Microsoft YaHei\",sans-serif;\
+max-width:880px;margin:48px auto;padding:0 24px;color:#111827;background:#fff}}\
+h1{{font-size:24px;margin:0 0 4px}}p{{color:#6b7280;margin:0 0 24px}}\
+ul{{list-style:none;padding:0;display:grid;gap:10px}}\
+li{{display:flex;align-items:center;gap:10px;padding:14px 16px;border:1px solid #e5e7eb;border-radius:12px}}\
+li a{{font-weight:600;color:#2563eb;text-decoration:none}}\
+li span{{margin-left:auto;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:.04em}}\
+</style></head><body>\n<h1>{title}</h1>\n<p>设计空间导出 · {n} 个产物 · 各目录内 index.html 可直接打开</p>\n\
+<ul>\n{items}\n</ul>\n</body></html>\n",
+        title = renderer::html_escape(project_title),
+        n = items_li.matches("<li>").count(),
+        items = items_li,
+    )
+}
+
+/// 导出 ZIP：`artifact_id` = 单产物源码包（index.html + source/ + README）；
+/// `project_id` = 项目级全产物包（每产物一目录 + 根 index.html 画廊）。返回 base64。
+pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result<String> {
+    use base64::Engine;
+    let db = open_db()?;
+    let (items, index_html): (Vec<super::export::ZipArtifact>, Option<String>) = if let Some(aid) =
+        artifact_id.filter(|s| !s.is_empty())
+    {
+        let a = db
+            .get_artifact(aid)?
+            .with_context(|| format!("artifact not found: {aid}"))?;
+        let kind =
+            ArtifactKind::from_str(&a.kind).with_context(|| format!("unknown kind: {}", a.kind))?;
+        let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+        let parts = read_source(&dir)?;
+        let tokens = resolve_tokens(a.system_id.as_deref());
+        let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
+        (
+            vec![super::export::ZipArtifact {
+                folder: String::new(),
+                html,
+                source: Some((parts.body_html, parts.css, parts.js)),
+                title: a.title,
+                kind: a.kind,
+            }],
+            None,
+        )
+    } else if let Some(pid) = project_id.filter(|s| !s.is_empty()) {
+        let project = db
+            .get_project(pid)?
+            .with_context(|| format!("project not found: {pid}"))?;
+        let artifacts = db.list_artifacts(pid)?;
+        let mut zitems = Vec::new();
+        let mut gallery = String::new();
+        for a in &artifacts {
+            let Some(kind) = ArtifactKind::from_str(&a.kind) else {
+                continue;
+            };
+            let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+            let parts = read_source(&dir)?;
+            let tokens = resolve_tokens(a.system_id.as_deref());
+            let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
+            let folder = format!(
+                "{}-{}",
+                safe_filename(&a.title),
+                a.id.get(..8).unwrap_or(&a.id)
+            );
+            gallery.push_str(&format!(
+                "<li><a href=\"{f}/index.html\">{t}</a><span>{k}</span></li>\n",
+                f = folder,
+                t = renderer::html_escape(&a.title),
+                k = renderer::html_escape(&a.kind),
+            ));
+            zitems.push(super::export::ZipArtifact {
+                folder,
+                html,
+                source: None,
+                title: a.title.clone(),
+                kind: a.kind.clone(),
+            });
+        }
+        if zitems.is_empty() {
+            anyhow::bail!("project has no artifacts to export");
+        }
+        (zitems, Some(project_gallery_html(&project.title, &gallery)))
+    } else {
+        anyhow::bail!("export_zip needs an artifactId or projectId");
+    };
+    let bytes = super::export::build_zip(&items, index_html.as_deref())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
 /// 由前端栅格化的整页 PNG（base64，可带 data-uri 前缀）组装 PPTX，返回 base64。
@@ -840,6 +1031,43 @@ pub fn delete_system(id: &str) -> Result<()> {
     Ok(())
 }
 
+// ── DESIGN.md 规范：导入 / 导出 ─────────────────────────────────────
+
+/// 导入一份 **DESIGN.md** 文本为设计系统（互通格式）。抽取显式 token；不足则 LLM 合成。
+/// `name` 空则取 DESIGN.md 首个标题 / 引言。source = `imported`。
+pub async fn import_design_md(name: &str, md: &str) -> Result<DesignSystemMeta> {
+    let extracted = super::extract::from_design_md(md).await?;
+    let name = if name.trim().is_empty() {
+        super::design_md::extract_summary(md).unwrap_or_else(|| "导入的设计系统".to_string())
+    } else {
+        name.trim().to_string()
+    };
+    let db = open_db()?;
+    let id = slugify(&name);
+    let meta = system::save_system(
+        &db,
+        &id,
+        &name,
+        Some(&extracted.summary),
+        &extracted.system_md,
+        &extracted.tokens,
+        "imported",
+    )?;
+    emit("design:system_changed", json!({ "systemId": id }));
+    Ok(meta)
+}
+
+/// 导出一个设计系统为规范 **DESIGN.md**（正文 prose + 末尾 Token 表，可无损回灌）。
+pub fn export_design_md(system_id: &str) -> Result<String> {
+    let db = open_db()?;
+    system::ensure_builtins(&db)?;
+    let full = system::read_full(&db, system_id)?;
+    Ok(super::design_md::to_design_md(
+        &full.system_md,
+        &full.tokens,
+    ))
+}
+
 /// 反向提取设计系统（D2）。`from = brief | codebase | url | image`。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -931,5 +1159,6 @@ pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignA
         css: Some(read("style.css")),
         js: Some(read("script.js")),
         message: Some(format!("Restored from v{version_number}")),
+        expected_body_hash: None,
     })
 }

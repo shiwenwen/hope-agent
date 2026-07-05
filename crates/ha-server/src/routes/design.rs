@@ -73,6 +73,14 @@ pub struct ExtractSystemBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportDesignMdBody {
+    #[serde(default)]
+    pub name: String,
+    pub md: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProposeDirectionsBody {
     pub brief: String,
     #[serde(default)]
@@ -85,6 +93,15 @@ pub struct ExportPptxBody {
     pub slides: Vec<String>,
     #[serde(default)]
     pub title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportZipBody {
+    #[serde(default)]
+    pub artifact_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,6 +266,14 @@ pub async fn export_pptx(Json(body): Json<ExportPptxBody>) -> Result<Json<Value>
     Ok(Json(json!({ "pptx": b64 })))
 }
 
+/// `POST /api/design/zip` — single-artifact source bundle (`artifactId`) or
+/// project-level bundle (`projectId`). Returns `{ zip: base64 }`.
+pub async fn export_zip(Json(body): Json<ExportZipBody>) -> Result<Json<Value>, AppError> {
+    let b64 = service::export_zip(body.artifact_id.as_deref(), body.project_id.as_deref())
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "zip": b64 })))
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// `GET /api/design/systems`
@@ -290,6 +315,25 @@ pub async fn extract_system(
             .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))
+}
+
+/// `POST /api/design/systems/import` — import a DESIGN.md-spec design system.
+pub async fn import_design_md(
+    Json(body): Json<ImportDesignMdBody>,
+) -> Result<Json<DesignSystemMeta>, AppError> {
+    Ok(Json(
+        service::import_design_md(&body.name, &body.md)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/systems/{id}/design-md` — export a design system as DESIGN.md.
+pub async fn export_design_md(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let md = service::export_design_md(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "designMd": md })))
 }
 
 /// `POST /api/design/directions` — propose N design direction candidates.

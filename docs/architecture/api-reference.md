@@ -425,13 +425,16 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `list_design_artifact_versions_cmd` | `GET /api/design/artifacts/{id}/versions` | ✅ |
 | `restore_design_version_cmd` | `POST /api/design/artifacts/{artifactId}/restore` | ✅ |
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
-| `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（HTML 干净自包含） | ✅ |
+| `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |
 | `export_design_pptx_cmd` | `POST /api/design/pptx`（前端整页 PNG → OOXML 组装） | ✅ |
+| `export_design_zip_cmd` | `POST /api/design/zip`（artifactId=单产物源码包 / projectId=项目级全产物包） | ✅ |
 | `critique_design_artifact_cmd` | `POST /api/design/artifacts/{id}/critique` | ✅ |
 | `list_design_systems_cmd` | `GET /api/design/systems` | ✅ |
 | `get_design_system_cmd` | `GET /api/design/systems/{id}` | ✅ |
 | `save_design_system_cmd` | `POST /api/design/systems` | ✅ |
 | `extract_design_system_cmd` | `POST /api/design/systems/extract`（brief/codebase/url/image 反向提取） | ✅ |
+| `import_design_md_cmd` | `POST /api/design/systems/import`（导入 DESIGN.md 规范文本） | ✅ |
+| `export_design_md_cmd` | `GET /api/design/systems/{id}/design-md`（导出为规范 DESIGN.md） | ✅ |
 | `propose_design_directions_cmd` | `POST /api/design/directions` | ✅ |
 | `delete_design_system_cmd` | `DELETE /api/design/systems/{id}` | ✅ |
 | `get_design_config_cmd` | `GET /api/config/design` | ✅ |

@@ -113,13 +113,25 @@ pub async fn restore_design_version_cmd(
     service::restore_version(&artifact_id, version_id).map_err(Into::into)
 }
 
-/// PPTX：前端栅格化的整页 PNG（base64）→ 后端组装 → 返回 base64 pptx。
+/// PPTX：前端栅格化的整页 PNG（base64）→ 后端组装 → 返回 `{ pptx: base64 }`。
+/// 形状与 HTTP `POST /api/design/pptx` 一致，前端两模式统一读 `res.pptx`。
 #[tauri::command]
 pub async fn export_design_pptx_cmd(
     slides: Vec<String>,
-    title: String,
-) -> Result<String, CmdError> {
-    service::export_pptx(&slides, &title).map_err(Into::into)
+    title: Option<String>,
+) -> Result<serde_json::Value, CmdError> {
+    let pptx = service::export_pptx(&slides, title.as_deref().unwrap_or("design"))?;
+    Ok(serde_json::json!({ "pptx": pptx }))
+}
+
+/// ZIP：`artifactId` = 单产物源码包；`projectId` = 项目级全产物包 → `{ zip: base64 }`。
+#[tauri::command]
+pub async fn export_design_zip_cmd(
+    artifact_id: Option<String>,
+    project_id: Option<String>,
+) -> Result<serde_json::Value, CmdError> {
+    let zip = service::export_zip(artifact_id.as_deref(), project_id.as_deref())?;
+    Ok(serde_json::json!({ "zip": zip }))
 }
 
 // ── Design systems ──────────────────────────────────────────────
@@ -150,6 +162,21 @@ pub async fn extract_design_system_cmd(
     input: ExtractSystemInput,
 ) -> Result<DesignSystemMeta, CmdError> {
     service::extract_system(input).await.map_err(Into::into)
+}
+
+/// 导入一份 DESIGN.md 文本为设计系统（互通格式）。owner 平面。
+#[tauri::command]
+pub async fn import_design_md_cmd(name: String, md: String) -> Result<DesignSystemMeta, CmdError> {
+    service::import_design_md(&name, &md)
+        .await
+        .map_err(Into::into)
+}
+
+/// 导出一个设计系统为规范 DESIGN.md 文本 → `{ designMd }`。owner 平面。
+#[tauri::command]
+pub async fn export_design_md_cmd(system_id: String) -> Result<serde_json::Value, CmdError> {
+    let md = service::export_design_md(&system_id)?;
+    Ok(serde_json::json!({ "designMd": md }))
 }
 
 /// 设计方向候选（无品牌 brief 时的选择器）。

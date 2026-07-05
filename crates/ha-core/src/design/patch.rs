@@ -48,8 +48,17 @@ pub fn annotate(source: &str) -> (String, Vec<OidEntry>) {
     while i < n {
         let b = bytes[i];
         if b != b'<' {
-            out.push(bytes[i] as char);
+            // Copy the whole non-tag run as one UTF-8 slice. Never `byte as char`
+            // (that Latin-1-reinterprets each byte and mojibakes multibyte text such
+            // as Chinese). `i` stays byte-indexed so oidmap offsets are unchanged; the
+            // run begins/ends on ASCII boundaries (`<` and the tag exits are ASCII),
+            // so `source[start..i]` is always a valid char-boundary slice.
+            let start = i;
             i += 1;
+            while i < n && bytes[i] != b'<' {
+                i += 1;
+            }
+            out.push_str(&source[start..i]);
             continue;
         }
         // 注释 / CDATA / doctype / 结束标签：原样拷贝到对应结束，不注入。
@@ -150,6 +159,7 @@ pub enum PatchError {
     OidNotFound(u32),
     NoClose(u32),
     VoidText,
+    NotLeaf(u32),
 }
 
 impl std::fmt::Display for PatchError {
@@ -159,6 +169,9 @@ impl std::fmt::Display for PatchError {
             PatchError::OidNotFound(o) => write!(f, "oid {o} not found"),
             PatchError::NoClose(o) => write!(f, "element close tag not found for oid {o}"),
             PatchError::VoidText => write!(f, "cannot text-edit a void element"),
+            PatchError::NotLeaf(o) => {
+                write!(f, "cannot text-edit oid {o}: it contains child elements")
+            }
         }
     }
 }
@@ -259,6 +272,12 @@ pub fn apply_text_patch(
     }
     let inner_start = e.open_end;
     let inner_end = find_close_start(source, e).ok_or(PatchError::NoClose(oid))?;
+    // Leaf-only: refuse to overwrite inner content that contains child elements —
+    // that would silently delete the subtree. The inspector bridge only offers text
+    // edit on leaves, but the service / HTTP / tool accept any oid, so guard here.
+    if inner_has_child_element(&source[inner_start..inner_end]) {
+        return Err(PatchError::NotLeaf(oid));
+    }
     let escaped = super::renderer::html_escape(new_text);
 
     let mut new_source = String::with_capacity(source.len());
@@ -266,6 +285,23 @@ pub fn apply_text_patch(
     new_source.push_str(&escaped);
     new_source.push_str(&source[inner_end..]);
     Ok(PatchResult { new_source })
+}
+
+/// Whether an element's inner content contains a child element (start / end / decl
+/// tag). Used to reject text-patching a container (which would delete its subtree).
+fn inner_has_child_element(inner: &str) -> bool {
+    let b = inner.as_bytes();
+    let mut i = 0;
+    while i + 1 < b.len() {
+        if b[i] == b'<' {
+            let c = b[i + 1];
+            if c.is_ascii_alphabetic() || c == b'/' || c == b'!' {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 /// 从 open tag 之后按标签深度匹配，找到本元素闭合标签 `</tag>` 的起始字节。
@@ -419,6 +455,31 @@ mod tests {
     }
 
     #[test]
+    fn annotate_preserves_non_ascii_text() {
+        // Regression: text nodes must be copied as UTF-8, never `byte as char`
+        // (which mojibakes multibyte characters — critical for a Chinese-first app).
+        let src = "<h1>你好，世界</h1><p>café • 日本語 🎨</p>";
+        let (out, map) = annotate(src);
+        assert!(
+            out.contains("你好，世界"),
+            "Chinese text must survive: {out}"
+        );
+        assert!(
+            out.contains("café • 日本語 🎨"),
+            "mixed text must survive: {out}"
+        );
+        assert_eq!(map.len(), 2);
+        // Byte ranges still slice the original start tags correctly.
+        assert_eq!(&src[map[0].open_start..map[0].open_end], "<h1>");
+        assert_eq!(&src[map[1].open_start..map[1].open_end], "<p>");
+        // And a patch located via a multibyte-offset oidmap still lands right.
+        let r = apply_style_patch(src, &map, 1, &[("color".into(), "#f00".into())], None).unwrap();
+        assert!(r
+            .new_source
+            .contains("<p style=\"color: #f00\">café • 日本語 🎨</p>"));
+    }
+
+    #[test]
     fn style_patch_adds_and_merges() {
         let src = "<div>hi</div>";
         let (_, map) = annotate(src);
@@ -454,12 +515,15 @@ mod tests {
     }
 
     #[test]
-    fn text_patch_matches_nested_close() {
+    fn text_patch_rejects_container_keeps_leaf() {
+        // oid 0 = div (has a child element) → refused, so we never silently delete the
+        // subtree. oid 1 = span (leaf) still edits, exercising nested-close matching.
         let src = "<div><span>a</span></div>";
         let (_, map) = annotate(src);
-        // oid 0 = div, inner range spans the whole <span>a</span>.
-        let r = apply_text_patch(src, &map, 0, "x", None).unwrap();
-        assert_eq!(r.new_source, "<div>x</div>");
+        let err = apply_text_patch(src, &map, 0, "x", None).unwrap_err();
+        assert_eq!(err, PatchError::NotLeaf(0));
+        let r = apply_text_patch(src, &map, 1, "b", None).unwrap();
+        assert_eq!(r.new_source, "<div><span>b</span></div>");
     }
 
     #[test]

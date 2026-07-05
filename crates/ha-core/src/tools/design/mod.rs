@@ -26,7 +26,9 @@ pub(crate) async fn tool_design(
         "get_recipe" => action_get_recipe(args),
         "list_systems" => action_list_systems(),
         "get_system" => action_get_system(args),
-        "extract_system" => action_extract_system(args).await,
+        "extract_system" => action_extract_system(args, session_id).await,
+        "import_design_md" => action_import_design_md(args).await,
+        "export_system" => action_export_system(args),
         "propose_directions" => action_propose_directions(args).await,
         "list_projects" => action_list_projects(),
         "list_artifacts" => action_list_artifacts(args, session_id),
@@ -88,20 +90,92 @@ fn action_get_system(args: &Value) -> Result<String> {
     ok(serde_json::to_value(full)?)
 }
 
-async fn action_extract_system(args: &Value) -> Result<String> {
+/// 导入一份 DESIGN.md（`content` 或 `brief` 传文本）为设计系统（互通格式）。
+async fn action_import_design_md(args: &Value) -> Result<String> {
+    let md = str_arg(args, "content")
+        .or_else(|| str_arg(args, "brief"))
+        .context("Missing 'content' (DESIGN.md text) parameter")?;
+    let name = str_arg(args, "title").unwrap_or("").to_string();
+    let meta = service::import_design_md(&name, md).await?;
+    ok(json!({ "status": "imported", "systemId": meta.id, "name": meta.name }))
+}
+
+/// 导出一个设计系统为规范 DESIGN.md 文本。
+fn action_export_system(args: &Value) -> Result<String> {
+    let id = require_str(args, "system_id")?;
+    let md = service::export_design_md(id)?;
+    ok(json!({ "systemId": id, "designMd": md }))
+}
+
+async fn action_extract_system(args: &Value, session_id: Option<&str>) -> Result<String> {
     let from = require_str(args, "from")?;
     let name = str_arg(args, "title")
         .unwrap_or("提取的设计系统")
         .to_string();
+    // Agent-plane path guard: `from=image|codebase` reads a local file/dir and ships
+    // it to a remote (vision) model. Scope the path to the session working directory
+    // or its attachments so a prompt-injected model cannot read unrelated files
+    // (credentials / SSH keys / DBs) and exfiltrate them. The owner plane (Tauri /
+    // HTTP → `service::extract_system` directly) stays unrestricted (local trust).
+    let path = match from {
+        "image" | "codebase" => Some(
+            scoped_local_path(session_id, require_str(args, "path")?)?
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        _ => str_arg(args, "path").map(str::to_string),
+    };
     let meta = service::extract_system(service::ExtractSystemInput {
         name,
         from: from.to_string(),
         brief: str_arg(args, "brief").map(str::to_string),
-        path: str_arg(args, "path").map(str::to_string),
+        path,
         url: str_arg(args, "url").map(str::to_string),
     })
     .await?;
     ok(json!({ "status": "extracted", "systemId": meta.id, "name": meta.name }))
+}
+
+/// Agent-plane filesystem guard for design extraction. Resolves `raw` (absolute, or
+/// relative to the session working directory) to a canonical path and requires it to
+/// live under the session working directory or that session's attachments directory;
+/// anything else is rejected fail-closed. This is what keeps the approval-exempt
+/// `design` tool from becoming an arbitrary-local-file-read + exfiltration primitive.
+fn scoped_local_path(session_id: Option<&str>, raw: &str) -> Result<std::path::PathBuf> {
+    let sid = session_id.context("a session is required to read local files for extraction")?;
+    let raw = raw.trim();
+    if raw.is_empty() {
+        anyhow::bail!("empty path");
+    }
+    // Allowed roots: session working directory (if any) ∪ session attachments dir.
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(wd) = crate::session::effective_session_working_dir(Some(sid)) {
+        if let Ok(c) = std::path::Path::new(&wd).canonicalize() {
+            roots.push(c);
+        }
+    }
+    if let Ok(c) = crate::paths::attachments_dir(sid).and_then(|d| Ok(d.canonicalize()?)) {
+        roots.push(c);
+    }
+    if roots.is_empty() {
+        anyhow::bail!("no scoped directory is available for reading local files in this session");
+    }
+    let p = std::path::Path::new(raw);
+    let candidate = if p.is_absolute() {
+        p.to_path_buf()
+    } else {
+        roots[0].join(p)
+    };
+    let canon = candidate
+        .canonicalize()
+        .map_err(|_| anyhow::anyhow!("path not found or inaccessible: {raw}"))?;
+    if !roots.iter().any(|r| canon.starts_with(r)) {
+        anyhow::bail!(
+            "path is outside the session working directory / attachments — design \
+             extraction is scoped for safety (move the file into the working directory): {raw}"
+        );
+    }
+    Ok(canon)
 }
 
 // ── Projects / artifacts ───────────────────────────────────────────
@@ -179,6 +253,7 @@ fn action_update_artifact(args: &Value) -> Result<String> {
         css: str_arg(args, "css").map(str::to_string),
         js: str_arg(args, "js").map(str::to_string),
         message: str_arg(args, "version_message").map(str::to_string),
+        expected_body_hash: None,
     })?;
     ok(json!({
         "status": "updated",

@@ -217,6 +217,21 @@ pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
 /// 品牌设计契约。走 design 层自包含视觉调用（不改主对话链路），支持 Anthropic /
 /// OpenAI-Chat 两种格式的 vision 模型。
 pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
+    // Size cap (config `design.maxExtractImageMb`, default 24, `0` = unlimited).
+    // Checked via metadata *before* reading so an oversized file never loads.
+    let limit_mb = crate::config::cached_config().design.max_extract_image_mb;
+    if limit_mb > 0 {
+        let meta = std::fs::metadata(path)
+            .with_context(|| format!("failed to stat image {}", path.display()))?;
+        let max_bytes = (limit_mb as u64) * 1024 * 1024;
+        if meta.len() > max_bytes {
+            anyhow::bail!(
+                "image is {} MiB, over the {} MB extraction limit (raise it in Settings → Tools → Design Space)",
+                meta.len() / (1024 * 1024),
+                limit_mb
+            );
+        }
+    }
     let bytes =
         std::fs::read(path).with_context(|| format!("failed to read image {}", path.display()))?;
     if bytes.is_empty() {
@@ -230,6 +245,34 @@ pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
     );
     let text = super::vision::vision_extract(&prompt, mime, &b64).await?;
     parse(&text)
+}
+
+/// 从一份 **DESIGN.md** 文本导入设计系统（互通格式）：抽取显式 `--ds-*` token；足量
+/// （≥4）则确定性直用（零 LLM 成本），不足则用 LLM 从正文合成。**始终保留原 DESIGN.md
+/// 正文**（不改写用户的 prose）。
+pub async fn from_design_md(md: &str) -> Result<ExtractedSystem> {
+    if md.trim().is_empty() {
+        anyhow::bail!("empty DESIGN.md");
+    }
+    let tokens = super::design_md::extract_tokens(md);
+    let summary =
+        super::design_md::extract_summary(md).unwrap_or_else(|| "导入的设计系统".to_string());
+    let system_md = md.trim().to_string();
+    if tokens.len() >= 4 {
+        Ok(ExtractedSystem {
+            summary,
+            system_md,
+            tokens,
+        })
+    } else {
+        // token 不足 → LLM 从正文合成 token，但保留原 DESIGN.md 正文。
+        let synth = from_brief(md).await?;
+        Ok(ExtractedSystem {
+            summary,
+            system_md,
+            tokens: synth.tokens,
+        })
+    }
 }
 
 /// 从图片魔数嗅探 mime（默认 png）。

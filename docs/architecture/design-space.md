@@ -43,7 +43,7 @@
 1. **轻量自包含产物，拒绝浏览器内编译（对症"渲染重/白屏"）**：每个产物是一份**自包含 HTML**（内联 CSS/JS，依赖走 vendored 本地资产，默认零网络）。由模型直接生成、iframe 直接加载渲染——**绝不在浏览器里编译 React/JSX/Tailwind**，无 `esbuild-wasm` 冷启动、无运行时打包、无白屏看门狗。这也让产物天然可导出、可分享、可 diff。
 2. **产物为中心的稳定工作台，拒绝脆弱无限画布（对症"画布卡/不稳"）**：主编辑面是**单产物聚焦预览**（一个稳定 iframe + fit/百分比缩放下拉，纯 CSS 缩放，无自研 transform）；多产物概览用**纯 CSS grid 缩略图墙**（无平移 / 无自研缩放 / 无 pointer capture 逻辑）。从架构上根除卡顿与指针捕获泄漏类 bug。
 3. **可视化微调建立在纯 HTML 的确定性映射之上（对症"微调不好用"）**：产物是纯 HTML，渲染 DOM ≈ 源码结构，因此"选中元素→改属性→回写源码"是**确定性字节范围 patch**（渲染期注入稳定 `data-ds-oid`，回写走单一命中 + `expected` stale-write 守卫 + 撤销/重做）。旧版败在 JSX→React→DOM 的有损编译映射上，本版从源头绕开。
-4. **文件即真相源**：产物（`index.html` + 版本快照）与设计系统（`SYSTEM.md` + `tokens.json`）都是磁盘上的真实文件；`design.db` 是**可重建的元数据注册表 / 索引**（删了能从磁盘全量重建）。对齐 [知识空间 D9](knowledge-base.md) 与 [项目](project.md) 既有红线。
+4. **文件即真相源**：产物（`index.html` + 版本快照）与设计系统（`DESIGN.md` + `tokens.json`）都是磁盘上的真实文件；`design.db` 是**可重建的元数据注册表 / 索引**（删了能从磁盘全量重建）。对齐 [知识空间 D9](knowledge-base.md) 与 [项目](project.md) 既有红线。
 5. **核心逻辑全进 ha-core**（零 Tauri 依赖）：业务、渲染编排、token 编译、oid 回写、索引全在 `crates/ha-core/src/design/`；`src-tauri` / `ha-server` 只做薄壳。
 6. **Transport 双实现**：每个新 invoke 同时实现 Tauri + HTTP（见 [transport-modes.md](transport-modes.md)）。
 7. **设置三件套**：新增用户可调字段必须同 PR 具备 GUI 控件 + `ha-settings` 分支 + SKILL.md 登记（见 [AGENTS.md 设置约定](../../AGENTS.md)）。
@@ -67,7 +67,7 @@
 
 ### D2 · 更强的品牌设计系统（本地护城河）
 
-一键从**截图 / 图片 / URL / 现有本地代码工程**反向提取品牌设计契约（`SYSTEM.md` 9 段 + `tokens.json`），并可视化管理、跨产物套用、跨会话/项目全局引用。因 Hope Agent 是本地桌面 Agent（有文件系统 / exec / 多模态），"读本地工程提取设计系统"是外部云端产品做不到的护城河。详见 [§6](#6-设计系统层品牌契约--token-编译)。
+一键从**截图 / 图片 / URL / 现有本地代码工程**反向提取品牌设计契约（`DESIGN.md` 9 段 + `tokens.json`），并可视化管理、跨产物套用、跨会话/项目全局引用。因 Hope Agent 是本地桌面 Agent（有文件系统 / exec / 多模态），"读本地工程提取设计系统"是外部云端产品做不到的护城河。详见 [§6](#6-设计系统层品牌契约--token-编译)。
 
 ### D3 · 一键导出与产物库
 
@@ -98,7 +98,7 @@ graph TD
         TOOL["tools/design/<br/>agent 工具 design（多 action）"]
         SVC["design/service.rs<br/>owner 平面业务入口"]
         RENDER["design/renderer.rs<br/>自包含 HTML 编译 + inspector bridge 注入"]
-        SYS["design/system.rs<br/>SYSTEM.md 解析 → tokens.json → :root CSS 变量"]
+        SYS["design/system.rs<br/>DESIGN.md 解析 → tokens.json → :root CSS 变量"]
         PATCH["design/patch.rs<br/>oid → 源码字节范围 确定性回写"]
         CRIT["design/critique.rs<br/>5 维质量门（side_query）"]
         EXPORT["design/export.rs<br/>HTML/PDF/PPTX/PNG"]
@@ -138,7 +138,7 @@ graph TD
 | **设计项目（Project）** | 顶层容器，聚合一组产物，可选绑定一个默认设计系统与一个 Hope Agent 项目 | 用户/模型创建 → 增删产物 → 删除级联清目录 |
 | **产物（Artifact）** | 单个可交付设计，有 `kind`（web/mobile/deck/dashboard/poster/document/email/image），对应磁盘一个目录 + 一份自包含 `index.html` | `create` → `update`（累加版本）→ `delete` |
 | **产物版本（Version）** | 一次 update / restore / 可视化编辑产生的源码快照 | 递增；超 `maxVersionsPerArtifact` 按版本号倒序保留最新 N |
-| **设计系统（DesignSystem）** | 可复用品牌契约：`SYSTEM.md`（9 段，真相源）+ `tokens.json`（解析缓存） | 内置只读 / 用户创建 / 反向提取；套用到产物即注入 `:root` token |
+| **设计系统（DesignSystem）** | 可复用品牌契约：`DESIGN.md`（9 段，真相源）+ `tokens.json`（解析缓存） | 内置只读 / 用户创建 / 反向提取；套用到产物即注入 `:root` token |
 | **设计模板（Recipe）** | 某产物形态的生成模板（`RECIPE.md`：frontmatter + 生成指令 + 预览），供模型 `list_recipes/get_recipe` 参考 | 内置随 App 发行 + 用户自建（managed 目录） |
 | **oid 映射（oidmap）** | 渲染期为源码每个元素分配的稳定 `data-ds-oid → 源码字节范围`，可视化回写用 | 每次渲染重算；随版本落盘 |
 
@@ -149,8 +149,8 @@ graph TD
 ├── design.db                            # SQLite（WAL + foreign_keys）：元数据注册表 / 可重建索引
 ├── systems/
 │   └── {system-id}/
-│       ├── SYSTEM.md                    # 品牌契约（9 段，真相源）
-│       ├── tokens.json                  # SYSTEM.md 解析出的 token（可重建缓存）
+│       ├── DESIGN.md                    # 品牌契约（9 段，真相源）
+│       ├── tokens.json                  # DESIGN.md 解析出的 token（可重建缓存）
 │       └── assets/                      # 可选：logo / 字体引用
 └── projects/
     └── {project-id}/
@@ -210,7 +210,7 @@ CREATE TABLE design_artifact_versions (
     UNIQUE(artifact_id, version_number)
 );
 
-CREATE TABLE design_systems (           -- SYSTEM.md 的可重建索引
+CREATE TABLE design_systems (           -- DESIGN.md 的可重建索引
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL, slug TEXT NOT NULL,
     source TEXT NOT NULL,              -- builtin|user|extracted
@@ -226,7 +226,7 @@ CREATE INDEX idx_design_projects_session  ON design_projects(session_id, updated
 
 **设计要点：**
 
-- 表是**元数据注册表**，产物正文（`index.html` / `source/`）与设计系统正文（`SYSTEM.md`）在磁盘。`reindex` 可从磁盘全量重建 DB（对齐知识空间"索引可重建"红线）。
+- 表是**元数据注册表**，产物正文（`index.html` / `source/`）与设计系统正文（`DESIGN.md`）在磁盘。`reindex` 可从磁盘全量重建 DB（对齐知识空间"索引可重建"红线）。
 - `session_id` / `agent_id` / `ha_project_id` 均弱引用无 FK：删会话不级联删设计（跨会话复用价值）；删 Hope Agent 项目由 owner 侧显式处理。
 - 版本快照式（非 diff）：换存储简单与 restore 可靠；`current_version` 是逻辑游标，prune 旧版本不影响它。
 
@@ -269,42 +269,45 @@ planned ──→ generating ──→ ready
    └──────────────┴──────→ failed
 ```
 
-模型批量生成时先声明**规划**（要产哪些产物、标题、目标视口）→ 产物库立即出现骨架卡（shimmer + 标题占位）；每写完一个产物翻 `ready`（骨架 300ms fade 替换为真实预览）；失败翻 `failed`（红边 + 错误摘要 + 重试，错误进对话上下文）。事件链 `design:planned / artifact_ready / artifact_failed / artifact_updated`（EventBus 增量更新，不整页刷新）。**关键：状态更新是纯 DOM 卡片翻转，不涉及任何画布 transform**（对症"卡"）。
+产物状态（`DesignArtifact.status ∈ planned|generating|ready|failed`）是产物行上的列，产物库按此列渲染角标（`generating` 转圈 / `failed` 红色警示），经 `design:artifact_ready` / `design:reload` 触发的列表刷新增量更新——**纯 DOM 卡片翻转，不涉及任何画布 transform**（对症"卡"）。状态推进不各自发独立事件。
 
-### 5.4 事件目录
+### 5.4 事件目录（as-built）
+
+后端 emit 7 个 `design:*` 事件（`design/service.rs` + `tools/design/mod.rs`），前端 `DesignView` 全部订阅；HTTP/WS 模式经 `WS /ws/events` 全量透传，两运行模式一致送达。payload 字段均 camelCase。
 
 | 事件 | 触发 | Payload | 前端反应 |
 | --- | --- | --- | --- |
-| `design:show` | `show` action / 打开产物 | `{projectId, artifactId, sessionId}` | 聚焦该产物预览；`sessionId` 不匹配则丢弃（跨会话过滤，同 canvas） |
-| `design:planned` | 批量生成声明规划 | `{projectId, frames:[{tempId,title,kind}]}` | 出骨架卡 |
-| `design:artifact_ready` | 单产物写完 | `{projectId, artifactId}` | 骨架替换真实预览 / 增量插入 |
-| `design:artifact_failed` | 生成失败 | `{projectId, artifactId, error}` | 红边 + 重试 |
-| `design:reload` | update / restore / 可视化编辑落盘 | `{artifactId}` | 同 ID 则 remount iframe |
-| `design:artifact_deleted` | delete | `{artifactId}` | 关闭 / 移除卡 |
-| `design:snapshot_request` | snapshot action | `{artifactId, requestId}` | 向 iframe postMessage 请求截图 |
-| `design:system_changed` | 设计系统增删改 | `{systemId}` | 刷新系统目录 |
+| `design:project_changed` | 项目增/删/改 | `{projectId}` | 首页刷新项目墙 |
+| `design:artifact_ready` | 单产物创建完成 | `{projectId, artifactId, sessionId}` | 刷新产物库（增量插入） |
+| `design:artifact_deleted` | delete | `{projectId, artifactId}` | 命中当前预览则清空 activeArtifact + 刷新库 |
+| `design:reload` | update / restore / 可视化编辑落盘 | `{artifactId}` | 同 ID remount iframe + 重取 bodyHash（防下次微调 stale） |
+| `design:show` | `show` action | `{projectId, artifactId, sessionId}` | 聚焦该产物（必要时自动进项目） |
+| `design:system_changed` | 设计系统增/删/改 / 反向提取 | `{systemId}` | 刷新系统选择器 |
+| `design:critiqued` | `critique` action | `{artifactId, overall}` | 刷新产物库（更新评分列） |
 
 ---
 
 ## 6. 设计系统层（品牌契约 + Token 编译）
 
-### 6.1 `SYSTEM.md` 9 段 schema（原创命名）
+### 6.1 `DESIGN.md` 规范：9 段 canonical schema + Token 表
 
-品牌契约是**唯一真相源**的 Markdown，9 段（社区惯例对齐但命名原创，无抄袭）：
+品牌契约是**唯一真相源**的单文件 Markdown（`DESIGN.md`，规范实现见 `design/design_md.rs`）。9 段 canonical schema（`design_md::SECTIONS`，双语标题，导出按此序）：
 
-1. **主题与气质**（Theme & Mood）— 一句话定位 + 关键词
-2. **色彩与角色**（Color & Roles）— primary / secondary / accent / neutral / 语义色（success/warn/danger）+ 明暗
+1. **主题与品牌**（Brand）— 一句话定位 + 关键词
+2. **色彩与角色**（Palette）— primary / secondary / accent / neutral / 语义色（success/warn/danger）+ 明暗
 3. **字体排印**（Typography）— 字族 / 字号阶 / 字重 / 行高
-4. **间距与网格**（Spacing & Grid）— 间距阶 / 栅格 / 断点 / 容器
-5. **布局与响应式**（Layout & Responsive）— 布局原则 / 断点行为
-6. **组件样式**（Component Styles）— 按钮 / 卡片 / 输入 / 导航 的形态约定
-7. **层次与投影**（Elevation & Depth）— 阴影阶 / 圆角 / 边框
-8. **语气与文案**（Voice & Tone）— 措辞 / 语气 / 词汇表
-9. **禁忌**（Do's & Don'ts / Anti-patterns）— 明确不要做什么
+4. **间距与网格**（Spacing）— 间距阶 / 栅格 / 圆角 / 阴影
+5. **布局与响应式**（Layout）— 布局原则 / 断点行为
+6. **组件样式**（Components）— 按钮 / 卡片 / 输入 / 导航 的形态约定
+7. **动效**（Motion）— 过渡时长 / 缓动 / 60fps transform-opacity 约束
+8. **语气与文案**（Voice）— 措辞 / 语气 / 词汇表
+9. **禁忌与反模式**（Anti-patterns）— 明确不要做什么
+
+文档末尾附 **Token 表**（`## Tokens` markdown 表，`--ds-*` CSS 变量）——机器可解析、可无损回灌，使每份 `DESIGN.md` 都是完整、可移植、可再导入的单文件。
 
 ### 6.2 Token 编译
 
-`system::compile_tokens(system_md) -> tokens.json`：从 SYSTEM.md 结构化区块解析出 CSS 自定义属性（`--ds-color-primary`、`--ds-space-4`、`--ds-font-sans`、`--ds-radius-md` …）。渲染时 `renderer` 把 `tokens.json` 展开为 `:root { … }` 注入产物。产物 CSS 引用变量而非硬编码 → **套用/切换设计系统即换皮，一致性由 token 锁定保证**。token 另可导出为 CSS / TS / DTCG（Phase 6 可选）。
+`system::compile_tokens(system_md) -> tokens.json`：从 DESIGN.md 结构化区块解析出 CSS 自定义属性（`--ds-color-primary`、`--ds-space-4`、`--ds-font-sans`、`--ds-radius-md` …）。渲染时 `renderer` 把 `tokens.json` 展开为 `:root { … }` 注入产物。产物 CSS 引用变量而非硬编码 → **套用/切换设计系统即换皮，一致性由 token 锁定保证**。token 另可导出为 CSS / TS / DTCG（Phase 6 可选）。
 
 ### 6.3 内置设计系统（原创原型化，非品牌克隆）
 
@@ -314,11 +317,19 @@ planned ──→ generating ──→ ready
 
 `design(action="extract_system", from, ref)`：
 
-- `from=image`（截图 / 设计稿）→ 多模态 LLM 分析视觉 → 生成 `SYSTEM.md` + `tokens.json`
+- `from=image`（截图 / 设计稿）→ 多模态 LLM 分析视觉 → 生成 `DESIGN.md` + `tokens.json`
 - `from=url` → `security::ssrf::check_url` 后抓取页面 + 首屏截图 → 提取
-- `from=codebase`（本地代码工程）→ 读工程的 CSS / tailwind config / design token 文件 / 现有 `DESIGN.md` → 归纳 `SYSTEM.md`
+- `from=codebase`（本地代码工程）→ 读工程的 CSS / tailwind config / design token 文件 / 现有 `DESIGN.md` → 归纳 `DESIGN.md`
 
 **owner 写入为主**：反向提取默认落 managed 设计系统目录（用户可见可编辑），**后台自主维护绝不写外部工程**（对齐知识空间外部只读红线）。
+
+### 6.5 DESIGN.md 规范互通（导入 / 导出）
+
+`DESIGN.md` 既是内部落盘格式，也是**跨工具互通格式**：
+
+- **导入**（`service::import_design_md` / 工具 `design(action="import_design_md", content)` / owner `POST /api/design/systems/import`）：解析任意 DESIGN.md——`design_md::extract_tokens` 从 `:root{}` / 表格 / 内联抽 `--ds-*` token（≥4 个即确定性直用，**零 LLM 成本**）；token 不足时用 LLM 从正文合成，但**始终保留原 DESIGN.md 正文**（不改写用户 prose）。source 记 `imported`。
+- **导出**（`service::export_design_md` / 工具 `design(action="export_system")` / owner `GET /api/design/systems/{id}/design-md`）：`design_md::to_design_md` 输出正文 prose + 末尾 Token 表，**可无损再导入**。
+- **`from=codebase`** 反向提取本就读工程内现有 `DESIGN.md`，与导入互补。
 
 ---
 

@@ -253,9 +253,133 @@ const THEME_XML: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"y
 <a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill>\
 <a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme></a:themeElements></a:theme>";
 
+// ── ZIP export ──────────────────────────────────────────────────────
+
+/// One artifact's files for a ZIP bundle.
+pub struct ZipArtifact {
+    /// Folder inside the archive (safe slug). Empty = archive root (single export).
+    pub folder: String,
+    /// Clean self-contained `index.html`.
+    pub html: String,
+    /// `(body, css, js)` source; `Some` bundles a `source/` dir (single export).
+    pub source: Option<(String, String, String)>,
+    pub title: String,
+    pub kind: String,
+}
+
+fn zip_write(
+    zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>,
+    opts: SimpleFileOptions,
+    name: &str,
+    data: &[u8],
+) -> Result<()> {
+    zip.start_file(name, opts)?;
+    zip.write_all(data)?;
+    Ok(())
+}
+
+/// Build a ZIP from artifacts. `index_html` (Some) is written at the archive root as
+/// a gallery/manifest (project export); each artifact lands under its `folder`.
+/// Reuses the existing `zip` dependency — no new deps.
+pub fn build_zip(artifacts: &[ZipArtifact], index_html: Option<&str>) -> Result<Vec<u8>> {
+    if artifacts.is_empty() {
+        anyhow::bail!("nothing to export");
+    }
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    if let Some(idx) = index_html {
+        zip_write(&mut zip, opts, "index.html", idx.as_bytes())?;
+    }
+    for a in artifacts {
+        let base = if a.folder.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", a.folder)
+        };
+        zip_write(
+            &mut zip,
+            opts,
+            &format!("{base}index.html"),
+            a.html.as_bytes(),
+        )?;
+        if let Some((body, css, js)) = &a.source {
+            zip_write(
+                &mut zip,
+                opts,
+                &format!("{base}source/body.html"),
+                body.as_bytes(),
+            )?;
+            zip_write(
+                &mut zip,
+                opts,
+                &format!("{base}source/style.css"),
+                css.as_bytes(),
+            )?;
+            zip_write(
+                &mut zip,
+                opts,
+                &format!("{base}source/script.js"),
+                js.as_bytes(),
+            )?;
+        }
+        let readme = format!(
+            "# {title}\n\n- kind: {kind}\n\n自包含产物：在浏览器直接打开 `index.html` 即可（零外部依赖）。\
+源码见 `source/`。\n",
+            title = a.title,
+            kind = a.kind,
+        );
+        zip_write(
+            &mut zip,
+            opts,
+            &format!("{base}README.md"),
+            readme.as_bytes(),
+        )?;
+    }
+    Ok(zip.finish()?.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_zip_single_and_project() {
+        let a = ZipArtifact {
+            folder: String::new(),
+            html: "<!doctype html><h1>A</h1>".into(),
+            source: Some(("<h1>A</h1>".into(), ".x{}".into(), "".into())),
+            title: "Deck A".into(),
+            kind: "deck".into(),
+        };
+        let single = build_zip(std::slice::from_ref(&a), None).unwrap();
+        assert_eq!(&single[0..2], b"PK");
+        let r = zip::ZipArchive::new(std::io::Cursor::new(single)).unwrap();
+        let names: Vec<String> = r.file_names().map(str::to_string).collect();
+        assert!(names.iter().any(|n| n == "index.html"));
+        assert!(names.iter().any(|n| n == "source/body.html"));
+        assert!(names.iter().any(|n| n == "README.md"));
+
+        let proj = build_zip(
+            &[ZipArtifact {
+                folder: "deck-a-1234abcd".into(),
+                html: "<!doctype html><h1>A</h1>".into(),
+                source: None,
+                title: "Deck A".into(),
+                kind: "deck".into(),
+            }],
+            Some("<!doctype html><h1>Gallery</h1>"),
+        )
+        .unwrap();
+        let r2 = zip::ZipArchive::new(std::io::Cursor::new(proj)).unwrap();
+        let names2: Vec<String> = r2.file_names().map(str::to_string).collect();
+        assert!(names2.iter().any(|n| n == "index.html"));
+        assert!(names2.iter().any(|n| n == "deck-a-1234abcd/index.html"));
+    }
+
+    #[test]
+    fn build_zip_empty_errors() {
+        assert!(build_zip(&[], None).is_err());
+    }
 
     #[test]
     fn build_pptx_produces_valid_zip() {

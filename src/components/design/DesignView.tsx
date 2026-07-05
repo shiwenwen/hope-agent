@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import type { CSSProperties } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ArrowLeft,
@@ -33,9 +34,14 @@ import {
   RotateCcw,
   FileImage,
   FileType2,
+  FileArchive,
+  FileCode,
   Code2,
+  AlertCircle,
+  X,
   Loader2 as Loader2Icon,
 } from "lucide-react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
@@ -43,6 +49,14 @@ import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Dialog,
@@ -77,6 +91,7 @@ import type {
   DesignSystemMeta,
   DesignSelectedElement,
   DesignDirection,
+  DesignConfig,
   CritiqueResult,
 } from "@/types/design"
 import { ARTIFACT_KINDS } from "@/types/design"
@@ -85,8 +100,10 @@ import {
   exportPdf,
   exportPptx,
   downloadBlob,
+  base64ToBlob,
   safeFilename,
 } from "@/lib/designExport"
+import { exportVideo, videoExportSupported } from "@/lib/designVideo"
 
 interface DesignViewProps {
   onBack: () => void
@@ -138,6 +155,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   selectedRef.current = selected
   const editModeRef = useRef(false)
   editModeRef.current = editMode
+  // Live refs so the EventBus subscription can read current project/artifact without
+  // being a dependency (avoids re-subscribing — and dropping events — on every edit).
+  const activeProjectRef = useRef<DesignProject | null>(null)
+  activeProjectRef.current = activeProject
+  const activeArtifactRef = useRef<DesignArtifactView | null>(null)
+  activeArtifactRef.current = activeArtifact
 
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
@@ -157,10 +180,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setProjects(list ?? [])
     } catch (e) {
       logger.error("design", "DesignView::loadProjects", "list projects failed", e)
+      toast.error(t("design.err.load", "加载失败"))
     } finally {
       setLoadingProjects(false)
     }
-  }, [tx])
+  }, [tx, t])
 
   useEffect(() => {
     void loadProjects()
@@ -172,12 +196,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setSystems(list ?? [])
     } catch (e) {
       logger.error("design", "DesignView::loadSystems", "list systems failed", e)
+      toast.error(t("design.err.load", "加载失败"))
     }
-  }, [tx])
+  }, [tx, t])
 
   useEffect(() => {
     void loadSystems()
   }, [loadSystems])
+
+  // Export clarity/quality prefs (config-driven; undefined → export defaults).
+  const [designConfig, setDesignConfig] = useState<DesignConfig | null>(null)
+  useEffect(() => {
+    tx.call<DesignConfig>("get_design_config_cmd")
+      .then(setDesignConfig)
+      .catch(() => {})
+  }, [tx])
 
   const setProjectSystem = useCallback(
     async (systemId: string | null) => {
@@ -189,9 +222,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         if (updated) setActiveProject(updated)
       } catch (e) {
         logger.error("design", "DesignView::setProjectSystem", "set system failed", e)
+        toast.error(t("design.err.setSystem", "设置设计系统失败"))
       }
     },
-    [tx, activeProject],
+    [tx, activeProject, t],
   )
 
   const createProject = useCallback(async () => {
@@ -206,6 +240,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       if (project) openProject(project)
     } catch (e) {
       logger.error("design", "DesignView::createProject", "create project failed", e)
+      toast.error(t("design.err.create", "创建失败"))
     } finally {
       setCreatingProject(false)
     }
@@ -224,11 +259,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setArtifacts(list ?? [])
       } catch (e) {
         logger.error("design", "DesignView::loadArtifacts", "list artifacts failed", e)
+        toast.error(t("design.err.load", "加载失败"))
       } finally {
         setLoadingArtifacts(false)
       }
     },
-    [tx],
+    [tx, t],
   )
 
   const openProject = useCallback(
@@ -259,9 +295,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         }
       } catch (e) {
         logger.error("design", "DesignView::openArtifact", "open artifact failed", e)
+        toast.error(t("design.err.load", "加载失败"))
       }
     },
-    [tx],
+    [tx, t],
   )
 
   const createArtifact = useCallback(
@@ -280,9 +317,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         if (artifact) void openArtifact(artifact)
       } catch (e) {
         logger.error("design", "DesignView::createArtifact", "create artifact failed", e)
+        toast.error(
+          t(
+            kind === "image" ? "design.err.imageGen" : "design.err.create",
+            kind === "image" ? "图像生成失败，请重试" : "创建失败",
+          ),
+        )
+        throw e // let image-prompt flow keep its dialog open on failure
       }
     },
-    [tx, activeProject, kindLabel, loadArtifacts, openArtifact],
+    [tx, activeProject, kindLabel, loadArtifacts, openArtifact, t],
   )
 
   // image 形态需要描述 prompt → 弹小对话框收集。
@@ -295,7 +339,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setImagePrompt("")
         setImagePromptOpen(true)
       } else {
-        void createArtifact(kind)
+        // error already surfaced via toast in createArtifact; swallow the rejection
+        void createArtifact(kind).catch(() => {})
       }
     },
     [createArtifact],
@@ -305,7 +350,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     setCreatingImage(true)
     try {
       await createArtifact("image", imagePrompt.trim())
-      setImagePromptOpen(false)
+      setImagePromptOpen(false) // only on success — createArtifact throws on failure
+    } catch {
+      // error already surfaced via toast in createArtifact; keep dialog open to retry
     } finally {
       setCreatingImage(false)
     }
@@ -316,16 +363,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const suppressReloadRef = useRef(false)
 
   const refreshView = useCallback(async () => {
-    if (!activeArtifact) return
+    const active = activeArtifactRef.current
+    if (!active) return
     try {
       const view = await tx.call<DesignArtifactView | null>("get_design_artifact_cmd", {
-        id: activeArtifact.id,
+        id: active.id,
       })
       if (view) setActiveArtifact(view)
     } catch {
       /* non-fatal */
     }
-  }, [tx, activeArtifact])
+  }, [tx])
 
   const commitPatch = useCallback(
     async (patch: { oid: number; styles?: [string, string][]; text?: string }) => {
@@ -341,13 +389,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         })
         await refreshView()
       } catch (e) {
-        // stale write or error → hard reload to resync
+        // stale write or error → hard reload to resync; clear the now-invalid
+        // selection and tell the user to re-pick (oid may no longer match).
         suppressReloadRef.current = false
         setPreviewKey((k) => k + 1)
+        setSelected(null)
         logger.error("design", "DesignView::commitPatch", "patch failed", e)
+        toast.error(t("design.staleReselect", "源已更新，请重新选择元素后再试"))
       }
     },
-    [tx, activeArtifact, refreshView],
+    [tx, activeArtifact, refreshView, t],
   )
 
   const handleLiveStyle = useCallback(
@@ -412,38 +463,157 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
   }, [postToIframe])
 
-  // ── Export (D3): HTML（后端干净自包含）+ PNG/PDF/PPTX（客户端栅格化） ──
-  const [exporting, setExporting] = useState<null | "html" | "png" | "pdf" | "pptx">(null)
+  // ── Export (D3): HTML/MD/ZIP（后端）+ PNG/PDF/PPTX/MP4（客户端栅格化） ──
+  type ExportFormat = "html" | "md" | "zip" | "png" | "pdf" | "pptx" | "video"
+  const [exporting, setExporting] = useState<null | ExportFormat>(null)
   const handleExport = useCallback(
-    async (format: "html" | "png" | "pdf" | "pptx") => {
+    async (format: ExportFormat) => {
       if (!activeArtifact || exporting) return
       setExporting(format)
+      // Text/backend formats are quick; rasterized ones can take seconds → live toast.
+      const quick = format === "html" || format === "md"
+      const toastId = quick ? undefined : toast.loading(t("design.exporting", "正在导出…"))
+      const onProgress =
+        toastId !== undefined
+          ? (done: number, total: number) => {
+              if (total > 1) {
+                toast.loading(
+                  t("design.exportProgressSlide", "正在导出 {{done}}/{{total}}", { done, total }),
+                  { id: toastId },
+                )
+              }
+            }
+          : undefined
       try {
-        // 干净自包含 HTML（editable=false，无 bridge/oid）。
+        const base = safeFilename(activeArtifact.title)
+        // Text formats (HTML / Markdown) — backend returns the content directly.
+        if (format === "html" || format === "md") {
+          const fmt = format === "md" ? "markdown" : "html"
+          const res = await tx.call<{ filename: string; mime: string; content: string }>(
+            "export_design_artifact_cmd",
+            { id: activeArtifact.id, format: fmt },
+          )
+          if (!res) return
+          downloadBlob(new Blob([res.content], { type: res.mime }), res.filename || `${base}.${format}`)
+          return
+        }
+        // ZIP — backend assembles a source bundle (base64).
+        if (format === "zip") {
+          const res = await tx.call<{ zip: string }>("export_design_zip_cmd", {
+            artifactId: activeArtifact.id,
+          })
+          if (!res?.zip) return
+          downloadBlob(base64ToBlob(res.zip, "application/zip"), `${base}.zip`)
+          if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
+          return
+        }
+        // Rasterized formats (PNG/PDF/PPTX/MP4) need the clean self-contained HTML.
         const res = await tx.call<{ filename: string; mime: string; content: string }>(
           "export_design_artifact_cmd",
           { id: activeArtifact.id, format: "html" },
         )
         if (!res) return
-        const base = safeFilename(activeArtifact.title)
         const kind = activeArtifact.kind
         const vw = activeArtifact.viewportW
-        if (format === "html") {
-          downloadBlob(new Blob([res.content], { type: res.mime }), `${base}.html`)
-        } else if (format === "png") {
-          downloadBlob(await exportPng(res.content, kind, vw), `${base}.png`)
-        } else if (format === "pdf") {
-          downloadBlob(await exportPdf(res.content, kind, vw), `${base}.pdf`)
-        } else if (format === "pptx") {
-          downloadBlob(await exportPptx(res.content, kind, activeArtifact.title, vw), `${base}.pptx`)
+        // Clarity/quality from config (undefined → export defaults 2x / q92).
+        const exportOpts = {
+          scale: designConfig?.exportScale,
+          jpegQuality: designConfig?.exportJpegQuality,
+          onProgress,
         }
+        if (format === "png") {
+          downloadBlob(await exportPng(res.content, kind, vw, exportOpts), `${base}.png`)
+        } else if (format === "pdf") {
+          downloadBlob(await exportPdf(res.content, kind, vw, exportOpts), `${base}.pdf`)
+        } else if (format === "pptx") {
+          downloadBlob(
+            await exportPptx(res.content, kind, activeArtifact.title, vw, exportOpts),
+            `${base}.pptx`,
+          )
+        } else if (format === "video") {
+          downloadBlob(
+            await exportVideo(res.content, vw, activeArtifact.viewportH, {
+              scale: designConfig?.exportScale,
+              onProgress,
+            }),
+            `${base}.mp4`,
+          )
+        }
+        if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
       } catch (e) {
         logger.error("design", "DesignView::handleExport", `export ${format} failed`, e)
+        toast.error(t("design.err.export", "导出失败"), toastId !== undefined ? { id: toastId } : undefined)
       } finally {
         setExporting(null)
       }
     },
-    [tx, activeArtifact, exporting],
+    [tx, activeArtifact, exporting, t, designConfig],
+  )
+
+  // 项目级 ZIP：打包该项目全部产物（每产物一目录 + 根 index.html 画廊）。
+  const [exportingProject, setExportingProject] = useState(false)
+  const exportProject = useCallback(async () => {
+    if (!activeProject || exportingProject) return
+    setExportingProject(true)
+    const toastId = toast.loading(t("design.exporting", "正在导出…"))
+    try {
+      const res = await tx.call<{ zip: string }>("export_design_zip_cmd", {
+        projectId: activeProject.id,
+      })
+      if (!res?.zip) return
+      downloadBlob(base64ToBlob(res.zip, "application/zip"), `${safeFilename(activeProject.title)}.zip`)
+      toast.success(t("design.ok.exported", "已导出"), { id: toastId })
+    } catch (e) {
+      logger.error("design", "DesignView::exportProject", "export project failed", e)
+      toast.error(t("design.err.export", "导出失败"), { id: toastId })
+    } finally {
+      setExportingProject(false)
+    }
+  }, [tx, activeProject, exportingProject, t])
+
+  // ── DESIGN.md 规范：导入 / 导出设计系统（互通格式）──────────────
+  const [importMdOpen, setImportMdOpen] = useState(false)
+  const [importMdName, setImportMdName] = useState("")
+  const [importMdText, setImportMdText] = useState("")
+  const [importingMd, setImportingMd] = useState(false)
+  const runImportDesignMd = useCallback(async () => {
+    if (!importMdText.trim()) return
+    setImportingMd(true)
+    try {
+      const meta = await tx.call<DesignSystemMeta>("import_design_md_cmd", {
+        name: importMdName.trim(),
+        md: importMdText,
+      })
+      await loadSystems()
+      if (activeProject && meta) await setProjectSystem(meta.id)
+      setImportMdOpen(false)
+      setImportMdText("")
+      setImportMdName("")
+      toast.success(t("design.ok.imported", "已导入设计系统"))
+    } catch (e) {
+      logger.error("design", "DesignView::importDesignMd", "import failed", e)
+      toast.error(t("design.err.importMd", "DESIGN.md 导入失败"))
+    } finally {
+      setImportingMd(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tx, importMdName, importMdText, activeProject, t])
+  const exportDesignMd = useCallback(
+    async (systemId: string, name: string) => {
+      try {
+        const res = await tx.call<{ designMd: string }>("export_design_md_cmd", { systemId })
+        if (!res?.designMd) return
+        downloadBlob(
+          new Blob([res.designMd], { type: "text/markdown" }),
+          `${safeFilename(name)}-DESIGN.md`,
+        )
+        toast.success(t("design.ok.exported", "已导出"))
+      } catch (e) {
+        logger.error("design", "DesignView::exportDesignMd", "export failed", e)
+        toast.error(t("design.err.export", "导出失败"))
+      }
+    },
+    [tx, t],
   )
 
   // ── Version history (D1) ─────────────────────────────────────
@@ -460,8 +630,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setVersions(list ?? [])
     } catch (e) {
       logger.error("design", "DesignView::openHistory", "list versions failed", e)
+      toast.error(t("design.err.load", "加载失败"))
     }
-  }, [tx, activeArtifact])
+  }, [tx, activeArtifact, t])
   const restoreVersion = useCallback(
     async (versionId: number) => {
       if (!activeArtifact) return
@@ -469,16 +640,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       try {
         await tx.call("restore_design_version_cmd", { artifactId: activeArtifact.id, versionId })
         setPreviewKey((k) => k + 1)
+        await refreshView() // sync bodyHash/currentVersion so the next visual edit isn't stale
         setHistoryOpen(false)
         if (activeProject) void loadArtifacts(activeProject.id)
+        toast.success(t("design.ok.restored", "已恢复到该版本"))
       } catch (e) {
         logger.error("design", "DesignView::restoreVersion", "restore failed", e)
+        toast.error(t("design.err.restore", "恢复失败"))
       } finally {
         setRestoring(null)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tx, activeArtifact, activeProject],
+    [tx, activeArtifact, activeProject, refreshView, t],
   )
 
   // ── Reverse-extraction (D2) ──────────────────────────────────
@@ -502,21 +676,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setExtractText("")
       setExtractName("")
       await loadSystems()
+      toast.success(t("design.ok.extracted", "已提取设计系统"))
     } catch (e) {
       logger.error("design", "DesignView::runExtract", "extract failed", e)
+      toast.error(t("design.err.extract", "反向提取失败"))
     } finally {
       setExtracting(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tx, extractFrom, extractName, extractText])
+  }, [tx, extractFrom, extractName, extractText, t])
 
   // ── Direction picker (D2) ────────────────────────────────────
   const [directionsOpen, setDirectionsOpen] = useState(false)
   const [dirBrief, setDirBrief] = useState("")
   const [directions, setDirections] = useState<DesignDirection[]>([])
   const [proposing, setProposing] = useState(false)
+  const [proposedOnce, setProposedOnce] = useState(false)
   const runProposeDirections = useCallback(async () => {
     setProposing(true)
+    setProposedOnce(true)
     setDirections([])
     try {
       const list = await tx.call<DesignDirection[]>("propose_design_directions_cmd", {
@@ -526,12 +704,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       setDirections(list ?? [])
     } catch (e) {
       logger.error("design", "DesignView::proposeDirections", "propose failed", e)
+      toast.error(t("design.err.propose", "生成方向失败"))
     } finally {
       setProposing(false)
     }
-  }, [tx, dirBrief])
+  }, [tx, dirBrief, t])
+  const [adopting, setAdopting] = useState<number | null>(null)
   const adoptDirection = useCallback(
-    async (d: DesignDirection) => {
+    async (d: DesignDirection, index: number) => {
+      setAdopting(index)
       try {
         const meta = await tx.call<DesignSystemMeta>("save_design_system_cmd", {
           input: {
@@ -545,12 +726,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         await loadSystems()
         if (activeProject && meta) await setProjectSystem(meta.id)
         setDirectionsOpen(false)
+        toast.success(t("design.ok.adopted", "已应用设计方向"))
       } catch (e) {
         logger.error("design", "DesignView::adoptDirection", "adopt failed", e)
+        toast.error(t("design.err.adopt", "采用方向失败"))
+      } finally {
+        setAdopting(null)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tx, activeProject],
+    [tx, activeProject, t],
   )
 
   // ── Quality gate (Phase 6) ───────────────────────────────────
@@ -568,10 +753,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       if (r) setCritique(r)
     } catch (e) {
       logger.error("design", "DesignView::handleCritique", "critique failed", e)
+      toast.error(t("design.err.critique", "质量评审失败"))
     } finally {
       setCritiquing(false)
     }
-  }, [tx, activeArtifact])
+  }, [tx, activeArtifact, t])
 
   // ── Delete (shared confirm) ──────────────────────────────────
 
@@ -589,35 +775,58 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       }
     } catch (e) {
       logger.error("design", "DesignView::confirmDelete", "delete failed", e)
+      toast.error(t("design.err.delete", "删除失败"))
     } finally {
       setDeleteTarget(null)
     }
-  }, [deleteTarget, tx, activeProject, activeArtifact, backToHome, loadProjects, loadArtifacts])
+  }, [deleteTarget, tx, activeProject, activeArtifact, backToHome, loadProjects, loadArtifacts, t])
 
   // ── Live events ──────────────────────────────────────────────
 
   useEffect(() => {
     const off = [
       tx.listen("design:artifact_ready", () => {
-        if (activeProject) void loadArtifacts(activeProject.id)
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
         else void loadProjects()
       }),
-      tx.listen("design:artifact_deleted", () => {
-        if (activeProject) void loadArtifacts(activeProject.id)
+      tx.listen("design:artifact_deleted", (raw) => {
+        const p = parsePayload<{ artifactId?: string }>(raw)
+        // Deleted artifact is the one being previewed → clear it so we don't leave a
+        // broken iframe pointing at a now-removed directory.
+        if (p?.artifactId && activeArtifactRef.current?.id === p.artifactId) {
+          setActiveArtifact(null)
+        }
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
       }),
       tx.listen("design:reload", (raw) => {
         const p = parsePayload<{ artifactId?: string }>(raw)
+        const active = activeArtifactRef.current
         // Self-initiated visual edits already show via live preview — skip the
         // remount flash (source + oidmap are fresh; bodyHash refreshed separately).
         if (suppressReloadRef.current) {
           suppressReloadRef.current = false
-        } else if (!activeArtifact || !p?.artifactId || p.artifactId === activeArtifact.id) {
+        } else if (!active || !p?.artifactId || p.artifactId === active.id) {
           setPreviewKey((k) => k + 1)
+          // External change (e.g. agent edit) → resync bodyHash/currentVersion so the
+          // next visual edit doesn't trip the stale-write guard and get lost.
+          if (active && (!p?.artifactId || p.artifactId === active.id)) void refreshView()
         }
-        if (activeProject) void loadArtifacts(activeProject.id)
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
       }),
       tx.listen("design:project_changed", () => {
-        if (!activeProject) void loadProjects()
+        if (!activeProjectRef.current) void loadProjects()
+      }),
+      // Agent created / extracted a design system → refresh the picker.
+      tx.listen("design:system_changed", () => {
+        void loadSystems()
+      }),
+      // Agent ran a critique → refresh scores in the artifact list.
+      tx.listen("design:critiqued", () => {
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
       }),
       // Agent called design(action=show): focus that artifact (auto-enter project).
       tx.listen("design:show", (raw) => {
@@ -625,7 +834,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         if (!p?.artifactId) return
         void (async () => {
           try {
-            if (p.projectId && activeProject?.id !== p.projectId) {
+            if (p.projectId && activeProjectRef.current?.id !== p.projectId) {
               const proj = await tx.call<DesignProject | null>("get_design_project_cmd", {
                 id: p.projectId,
               })
@@ -642,7 +851,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       }),
     ]
     return () => off.forEach((f) => f())
-  }, [tx, activeProject, activeArtifact, loadArtifacts, loadProjects, openProject, openArtifact])
+  }, [tx, loadArtifacts, loadProjects, loadSystems, openProject, openArtifact, refreshView])
 
   // ── Preview iframe src ───────────────────────────────────────
 
@@ -650,15 +859,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     ? tx.resolveAssetUrl(`${activeArtifact.artifactPath}/index.html`) ?? ""
     : ""
 
-  const scaleStyle =
+  // Preview scaling. "fit" stretches the iframe to fill the pane. A numeric zoom
+  // renders at the artifact's natural viewport size and visually scales it, with the
+  // wrapper reserving the *scaled* footprint so 100% shows real pixels (not a no-op
+  // vs. fit) and 50% shows the whole design at half size with correct scrolling.
+  const naturalW = activeArtifact?.viewportW && activeArtifact.viewportW > 0 ? activeArtifact.viewportW : 1024
+  const naturalH = activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
+  const scaleStyle: CSSProperties =
     zoom === "fit"
-      ? { width: "100%", height: "100%" }
+      ? { width: "100%", height: "100%", border: 0 }
       : {
-          width: `${100 / zoom}%`,
-          height: `${100 / zoom}%`,
+          width: `${naturalW}px`,
+          height: `${naturalH}px`,
+          border: 0,
           transform: `scale(${zoom})`,
-          transformOrigin: "top left" as const,
+          transformOrigin: "top left",
         }
+  const frameWrapStyle: CSSProperties | undefined =
+    zoom === "fit" ? undefined : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -721,6 +939,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   <Sparkles className="mr-2 h-4 w-4" />
                   {t("design.proposeDirections", "生成设计方向…")}
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => setImportMdOpen(true)}>
+                  <FileCode className="mr-2 h-4 w-4" />
+                  {t("design.importDesignMd", "导入 DESIGN.md…")}
+                </DropdownMenuItem>
+                {activeProject.defaultSystemId && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      const sid = activeProject.defaultSystemId
+                      if (!sid) return
+                      const name =
+                        systems.find((s) => s.id === sid)?.name ?? sid
+                      void exportDesignMd(sid, name)
+                    }}
+                  >
+                    <FileText className="mr-2 h-4 w-4" />
+                    {t("design.exportDesignMd", "导出当前系统 (DESIGN.md)")}
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -744,6 +981,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 })}
               </DropdownMenuContent>
             </DropdownMenu>
+          )}
+          {activeProject && (
+            <IconTip label={t("design.exportProject", "导出项目 (ZIP)")} side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                disabled={exportingProject}
+                onClick={() => void exportProject()}
+              >
+                {exportingProject ? (
+                  <Loader2Icon className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileArchive className="h-4 w-4" />
+                )}
+              </Button>
+            </IconTip>
           )}
           <IconTip label={t("common.settings", "设置")} side="bottom">
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenSettings}>
@@ -780,12 +1034,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   const Icon = KIND_ICON[a.kind] ?? Monitor
                   const active = activeArtifact?.id === a.id
                   return (
-                    <li key={a.id}>
+                    <li key={a.id} className="group relative">
                       <button
                         type="button"
                         onClick={() => void openArtifact(a)}
                         className={cn(
-                          "group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors",
+                          "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 pr-8 text-left text-sm transition-colors",
                           active
                             ? "bg-primary/10 text-primary"
                             : "hover:bg-muted text-foreground",
@@ -793,18 +1047,27 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       >
                         <Icon className="h-4 w-4 shrink-0 opacity-70" />
                         <span className="min-w-0 flex-1 truncate">{a.title}</span>
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
-                          }}
-                          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </span>
+                        {a.status === "generating" && (
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                        )}
+                        {a.status === "failed" && (
+                          <IconTip label={t("design.statusFailed", "生成失败")} side="left">
+                            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                          </IconTip>
+                        )}
                       </button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("common.delete", "删除")}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
+                        }}
+                        className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </li>
                   )
                 })}
@@ -836,18 +1099,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </Button>
                       </IconTip>
                     )}
-                    <select
+                    <Select
                       value={String(zoom)}
-                      onChange={(e) => {
-                        const v = e.target.value
+                      onValueChange={(v) =>
                         setZoom(v === "fit" ? "fit" : (Number(v) as ZoomMode))
-                      }}
-                      className="h-6 rounded border bg-background px-1.5 text-xs"
+                      }
                     >
-                      <option value="fit">{t("design.zoomFit", "适应")}</option>
-                      <option value="1">100%</option>
-                      <option value="0.5">50%</option>
-                    </select>
+                      <SelectTrigger className="h-6 w-auto gap-1 px-1.5 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
+                        <SelectItem value="1">100%</SelectItem>
+                        <SelectItem value="0.5">50%</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <IconTip label={t("design.reload", "刷新")} side="bottom">
                       <Button
                         variant="ghost"
@@ -900,6 +1166,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           <Code2 className="mr-2 h-4 w-4" />
                           {t("design.exportHtml", "HTML")}
                         </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => void handleExport("md")}>
+                          <FileText className="mr-2 h-4 w-4" />
+                          {t("design.exportMd", "Markdown")}
+                        </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => void handleExport("png")}>
                           <FileImage className="mr-2 h-4 w-4" />
                           {t("design.exportPng", "PNG 图片")}
@@ -916,16 +1186,36 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             {t("design.exportPptx", "PPTX")}
                           </DropdownMenuItem>
                         )}
+                        {activeArtifact.kind === "motion" && videoExportSupported() && (
+                          <DropdownMenuItem onSelect={() => void handleExport("video")}>
+                            <Film className="mr-2 h-4 w-4" />
+                            {t("design.exportVideo", "视频 (MP4)")}
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => void handleExport("zip")}>
+                          <FileArchive className="mr-2 h-4 w-4" />
+                          {t("design.exportZip", "源码包 (ZIP)")}
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
                 </div>
-                <div className="flex-1 overflow-auto p-4">
+                <div className="relative flex-1 overflow-auto p-4">
+                  {editMode && !selected && (
+                    <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
+                      <span className="rounded-full bg-primary/90 px-3 py-1 text-xs text-primary-foreground shadow-md">
+                        {t("design.editHint", "在预览中点选一个元素开始微调")}
+                      </span>
+                    </div>
+                  )}
                   <div
                     className={cn(
-                      "mx-auto h-full w-full overflow-hidden rounded-lg border bg-white shadow-sm",
+                      "overflow-hidden rounded-lg border bg-white shadow-sm",
+                      zoom === "fit" ? "mx-auto h-full w-full" : "mx-auto",
                       editMode && "ring-2 ring-primary/40",
                     )}
+                    style={frameWrapStyle}
                   >
                     <iframe
                       ref={iframeRef}
@@ -960,7 +1250,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     className="ml-auto h-5 w-5"
                     onClick={() => setCritique(null)}
                   >
-                    <span className="text-xs">×</span>
+                    <X className="h-3 w-3" />
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
@@ -1016,13 +1306,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               {t("design.newImage", "生成图像")}
             </DialogTitle>
           </DialogHeader>
-          <textarea
+          <Textarea
             autoFocus
             value={imagePrompt}
             onChange={(e) => setImagePrompt(e.target.value)}
             rows={3}
             placeholder={t("design.imagePromptPlaceholder", "描述你想要的图像…")}
-            className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm"
+            className="resize-none"
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setImagePromptOpen(false)}>
@@ -1114,12 +1404,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             onChange={(e) => setExtractName(e.target.value)}
             placeholder={t("design.systemNamePlaceholder", "设计系统名称")}
           />
-          <textarea
+          <Textarea
             value={extractText}
             onChange={(e) => setExtractText(e.target.value)}
             rows={4}
             placeholder={t(`design.extractHint.${extractFrom}`, "")}
-            className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm"
+            className="resize-none"
           />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setExtractOpen(false)}>
@@ -1128,6 +1418,39 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             <Button onClick={() => void runExtract()} disabled={extracting || !extractText.trim()}>
               {extracting && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.extract", "提取")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import DESIGN.md dialog (互通格式) */}
+      <Dialog open={importMdOpen} onOpenChange={setImportMdOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileCode className="h-4 w-4" />
+              {t("design.importDesignMd", "导入 DESIGN.md")}
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            value={importMdName}
+            onChange={(e) => setImportMdName(e.target.value)}
+            placeholder={t("design.systemNamePlaceholder", "设计系统名称")}
+          />
+          <Textarea
+            value={importMdText}
+            onChange={(e) => setImportMdText(e.target.value)}
+            rows={10}
+            placeholder={t("design.importDesignMdPlaceholder", "粘贴 DESIGN.md 文本（9 段规范 + --ds-* Token 表；缺 token 时自动合成）…")}
+            className="resize-none font-mono text-xs"
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setImportMdOpen(false)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button onClick={() => void runImportDesignMd()} disabled={importingMd || !importMdText.trim()}>
+              {importingMd && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+              {t("design.import", "导入")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1156,15 +1479,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               {t("design.generate", "生成")}
             </Button>
           </div>
-          {directions.length > 0 && (
+          {directions.length > 0 ? (
             <div className="grid grid-cols-2 gap-3">
               {directions.map((d, i) => (
                 <button
                   key={i}
                   type="button"
-                  onClick={() => void adoptDirection(d)}
-                  className="group flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors hover:border-primary/50"
+                  disabled={adopting !== null}
+                  onClick={() => void adoptDirection(d, i)}
+                  className="group relative flex flex-col gap-2 rounded-xl border p-3 text-left transition-colors hover:border-primary/50 disabled:opacity-60"
                 >
+                  {adopting === i && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/60">
+                      <Loader2Icon className="h-4 w-4 animate-spin text-primary" />
+                    </div>
+                  )}
                   <div className="flex gap-1.5">
                     {["--ds-color-primary", "--ds-color-accent", "--ds-color-bg", "--ds-color-fg"].map(
                       (k) => (
@@ -1184,6 +1513,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 </button>
               ))}
             </div>
+          ) : (
+            proposedOnce &&
+            !proposing && (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                {t("design.noDirections", "未生成方向，换个描述再试")}
+              </div>
+            )
           )}
         </DialogContent>
       </Dialog>
@@ -1224,7 +1560,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               {deleteTarget?.type === "project"
                 ? t("design.deleteProjectDesc", "将永久删除该项目及其全部产物，无法恢复。")
                 : t("design.deleteArtifactDesc", "将永久删除该产物及其全部版本，无法恢复。")}
-              {deleteTarget ? `（${deleteTarget.title}）` : ""}
+              {deleteTarget ? ` — ${deleteTarget.title}` : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1292,37 +1628,43 @@ function HomeGrid({
             {projects.map((p) => (
               <div
                 key={p.id}
-                className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
-                onClick={() => onOpen(p)}
+                className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
               >
-                <div
-                  className="flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-muted to-muted/40"
-                  style={p.color ? { background: p.color } : undefined}
+                <button
+                  type="button"
+                  onClick={() => onOpen(p)}
+                  aria-label={p.title}
+                  className="flex flex-1 flex-col text-left"
                 >
-                  <Palette className="h-8 w-8 text-muted-foreground/40" />
-                </div>
-                <div className="flex items-center gap-2 p-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{p.title}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {t("design.artifactCount", "{{count}} 个产物").replace(
-                        "{{count}}",
-                        String(p.artifactCount ?? 0),
-                      )}
+                  <div
+                    className="flex aspect-[4/3] items-center justify-center bg-gradient-to-br from-muted to-muted/40"
+                    style={p.color ? { background: p.color } : undefined}
+                  >
+                    <Palette className="h-8 w-8 text-muted-foreground/40" />
+                  </div>
+                  <div className="flex items-center gap-2 p-3 pr-9">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-medium">{p.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t("design.artifactCount", "{{count}} 个产物", {
+                          count: p.artifactCount ?? 0,
+                        })}
+                      </div>
                     </div>
                   </div>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDelete(p)
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </span>
-                </div>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("common.delete", "删除")}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDelete(p)
+                  }}
+                  className="absolute bottom-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             ))}
           </div>

@@ -178,11 +178,12 @@ pub fn get_design_tool() -> ToolDefinition {
                     "type": "string",
                     "enum": [
                         "list_recipes", "get_recipe", "list_systems", "get_system", "extract_system",
+                        "import_design_md", "export_system",
                         "propose_directions", "list_projects", "list_artifacts", "get_artifact",
                         "create_artifact", "update_artifact", "delete_artifact",
                         "versions", "restore", "critique", "save_to_knowledge", "show"
                     ],
-                    "description": "Design operation to perform"
+                    "description": "Design operation to perform. import_design_md = import a DESIGN.md-spec design system from 'content' (interop format); export_system = export a design system as a portable DESIGN.md."
                 },
                 "kind": {
                     "type": "string",
@@ -196,6 +197,7 @@ pub fn get_design_tool() -> ToolDefinition {
                 "kb_id": { "type": "string", "description": "Knowledge base id for save_to_knowledge (optional; defaults to the primary KB)" },
                 "from": { "type": "string", "enum": ["brief", "codebase", "url", "image"], "description": "Source for extract_system: 'brief' (text description), 'codebase' (read a local project's CSS/tailwind/theme files at 'path'), 'url' (fetch a live page's HTML at 'url'), or 'image' (analyze a local screenshot/design image at 'path' via a vision model)." },
                 "brief": { "type": "string", "description": "Brand description text (for extract_system from=brief)." },
+                "content": { "type": "string", "description": "DESIGN.md text to import (for import_design_md): a 9-section design-system doc (Brand/Palette/Typography/Spacing/Layout/Components/Motion/Voice/Anti-patterns) with an optional --ds-* Token table." },
                 "path": { "type": "string", "description": "Local path — a codebase directory (from=codebase) or a screenshot/image file (from=image)." },
                 "url": { "type": "string", "description": "Web page URL to extract a design system from (for extract_system from=url)." },
                 "count": { "type": "integer", "description": "Number of options for propose_directions (2–6, default 4)." },

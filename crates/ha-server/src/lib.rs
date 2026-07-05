@@ -1707,6 +1707,7 @@ fn build_router_with_cors(
             post(routes::design::restore_version),
         )
         .route("/design/pptx", post(routes::design::export_pptx))
+        .route("/design/zip", post(routes::design::export_zip))
         .route(
             "/design/systems",
             get(routes::design::list_systems).post(routes::design::save_system),
@@ -1716,8 +1717,16 @@ fn build_router_with_cors(
             post(routes::design::extract_system),
         )
         .route(
+            "/design/systems/import",
+            post(routes::design::import_design_md),
+        )
+        .route(
             "/design/directions",
             post(routes::design::propose_directions),
+        )
+        .route(
+            "/design/systems/{id}/design-md",
+            get(routes::design::export_design_md),
         )
         .route(
             "/design/systems/{id}",

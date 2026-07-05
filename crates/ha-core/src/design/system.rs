@@ -1,7 +1,8 @@
 //! 设计系统层（品牌契约 + Token 编译）。
 //!
-//! 一个设计系统 = `SYSTEM.md`（9 段 prose，真相源，供 LLM grounding）+ `tokens.json`
-//! （CSS 变量，渲染器注入产物 `:root`）。见 docs/architecture/design-space.md §6。
+//! 一个设计系统 = `DESIGN.md`（**DESIGN.md 规范** 9 段 prose + Token 表，真相源，供 LLM
+//! grounding，见 `design_md.rs`）+ `tokens.json`（CSS 变量，渲染器注入产物 `:root`）。
+//! 见 docs/architecture/design-space.md §6。
 //!
 //! 内置系统在此**代码内定义**（原创原型化设计语言，非品牌克隆），首次访问懒 seed
 //! 到 managed 目录 + 注册 `design.db`，用户可 fork / 编辑。
@@ -20,7 +21,7 @@ use crate::platform::write_atomic;
 pub struct DesignSystemFull {
     #[serde(flatten)]
     pub meta: DesignSystemMeta,
-    /// SYSTEM.md 正文（供 LLM 读取 grounding）。
+    /// DESIGN.md 正文（供 LLM 读取 grounding）。
     pub system_md: String,
     /// CSS 变量 token（有序）。
     pub tokens: BTreeMap<String, String>,
@@ -32,18 +33,9 @@ struct Builtin {
     name: &'static str,
     summary: &'static str,
     tokens: &'static [(&'static str, &'static str)],
-    /// SYSTEM.md 正文（气质 + 用法要点，原创措辞）。
+    /// DESIGN.md 正文的气质段（品牌 + 反模式，原创措辞）。
     doc: &'static str,
 }
-
-/// Token 词汇表（渲染器与产物共用的 CSS 变量名约定）。
-/// 每个内置系统按此表提供值；产物 CSS 一律引用 `var(--ds-*)`。
-const TOKEN_KEYS_DOC: &str = "\
-色彩：--ds-color-bg / --ds-color-fg / --ds-color-primary / --ds-color-secondary / --ds-color-accent / \
---ds-color-muted / --ds-color-border / --ds-color-success / --ds-color-warning / --ds-color-danger。\
-排印：--ds-font-sans / --ds-font-serif / --ds-font-mono / --ds-text-sm / --ds-text-base / --ds-text-lg / \
---ds-text-xl / --ds-text-2xl / --ds-text-3xl。\
-间距与圆角：--ds-space-1..8 / --ds-radius-sm / --ds-radius-md / --ds-radius-lg / --ds-shadow-sm / --ds-shadow-md。";
 
 fn builtins() -> Vec<Builtin> {
     vec![
@@ -248,27 +240,36 @@ fn builtins() -> Vec<Builtin> {
     ]
 }
 
+/// 内置系统正文：按 **DESIGN.md 规范** 9 段 canonical schema 渲染 + 末尾 Token 表
+/// （机器可回灌）。产出的即是一份完整、可移植、可无损导入的 DESIGN.md。
 fn build_system_md(b: &Builtin) -> String {
-    format!(
-        "# {name} 设计系统\n\n\
-> {summary}\n\n\
-## 1. 主题与气质\n\n{doc}\n\n\
-## 2. 色彩与角色\n\n\
-主色 primary、辅助 secondary、强调 accent、中性 muted/border，以及语义色 success/warning/danger。\
-所有颜色以 CSS 变量提供（见文末 Token 清单），产物 CSS 引用 `var(--ds-color-*)`。\n\n\
-## 3. 字体排印\n\n无衬线 sans 为主，衬线 serif 用于标题点缀，等宽 mono 用于代码/数据。字号阶见 Token。\n\n\
-## 4. 间距与网格\n\n8px 基准间距阶（`--ds-space-*`），栅格与容器留白充足。\n\n\
-## 5. 布局与响应式\n\n移动优先、内容居中、最大宽度受控；断点自适应。\n\n\
-## 6. 组件样式\n\n按钮/卡片/输入统一圆角 `--ds-radius-*`、统一阴影 `--ds-shadow-*`。\n\n\
-## 7. 层次与投影\n\n层次靠字号、间距、克制的阴影表达，避免堆叠边框。\n\n\
-## 8. 语气与文案\n\n与气质一致：{summary}。\n\n\
-## 9. 禁忌\n\n{doc}\n\n\
----\n\n**Token 词汇表**：{keys}\n",
-        name = b.name,
-        summary = b.summary,
-        doc = b.doc,
-        keys = TOKEN_KEYS_DOC,
-    )
+    let sec = |i: usize| -> String {
+        let (_, zh, en) = super::design_md::SECTIONS[i];
+        format!("## {}. {zh} / {en}\n\n", i + 1)
+    };
+    let mut s = format!("# {} 设计系统\n\n> {}\n\n", b.name, b.summary);
+    s.push_str(&sec(0)); // brand
+    s.push_str(&format!("{}\n\n", b.doc));
+    s.push_str(&sec(1)); // palette
+    s.push_str("主色 primary、辅助 secondary、强调 accent、中性 muted/border，语义色 success/warning/danger，全部以 `var(--ds-color-*)` 提供（见文末 Token 表）。\n\n");
+    s.push_str(&sec(2)); // typography
+    s.push_str("无衬线 sans 为主，衬线 serif 用于标题点缀，等宽 mono 用于代码/数据；字号阶 `--ds-text-*`。\n\n");
+    s.push_str(&sec(3)); // spacing
+    s.push_str(
+        "8px 基准间距阶 `--ds-space-*`，留白充足；圆角 `--ds-radius-*`、阴影 `--ds-shadow-*`。\n\n",
+    );
+    s.push_str(&sec(4)); // layout
+    s.push_str("移动优先、内容居中、最大宽度受控；断点自适应。\n\n");
+    s.push_str(&sec(5)); // components
+    s.push_str("按钮/卡片/输入统一圆角与阴影；层次靠字号与间距而非堆叠边框。\n\n");
+    s.push_str(&sec(6)); // motion
+    s.push_str("过渡克制自然（120–240ms、ease-out），只用 transform/opacity（60fps）；避免大幅位移与炫技。\n\n");
+    s.push_str(&sec(7)); // voice
+    s.push_str(&format!("与气质一致：{}。\n\n", b.summary));
+    s.push_str(&sec(8)); // anti-patterns
+    s.push_str(&format!("{}\n\n", b.doc));
+    s.push_str(super::design_md::tokens_table(&tokens_map(b)).trim_start());
+    s
 }
 
 fn tokens_map(b: &Builtin) -> BTreeMap<String, String> {
@@ -283,7 +284,7 @@ pub fn ensure_builtins(db: &DesignDb) -> Result<()> {
     let now = chrono::Utc::now().to_rfc3339();
     for b in builtins() {
         let dir = paths::design_system_dir(b.id)?;
-        let md_path = dir.join("SYSTEM.md");
+        let md_path = dir.join(super::design_md::DESIGN_MD_FILE);
         let tokens_path = dir.join("tokens.json");
         // 已存在（用户可能已 fork/编辑）则不覆盖正文，仅确保 DB 注册。
         if !md_path.exists() {
@@ -316,7 +317,8 @@ pub fn read_full(db: &DesignDb, id: &str) -> Result<DesignSystemFull> {
         .get_system(id)?
         .with_context(|| format!("design system not found: {id}"))?;
     let dir = paths::design_system_dir(id)?;
-    let system_md = std::fs::read_to_string(dir.join("SYSTEM.md")).unwrap_or_default();
+    let system_md =
+        std::fs::read_to_string(dir.join(super::design_md::DESIGN_MD_FILE)).unwrap_or_default();
     let tokens = std::fs::read_to_string(dir.join("tokens.json"))
         .ok()
         .and_then(|raw| serde_json::from_str::<BTreeMap<String, String>>(&raw).ok())
@@ -341,7 +343,10 @@ pub fn save_system(
 ) -> Result<DesignSystemMeta> {
     let dir = paths::design_system_dir(id)?;
     std::fs::create_dir_all(&dir)?;
-    write_atomic(&dir.join("SYSTEM.md"), system_md.as_bytes())?;
+    write_atomic(
+        &dir.join(super::design_md::DESIGN_MD_FILE),
+        system_md.as_bytes(),
+    )?;
     write_atomic(
         &dir.join("tokens.json"),
         serde_json::to_string_pretty(tokens)?.as_bytes(),

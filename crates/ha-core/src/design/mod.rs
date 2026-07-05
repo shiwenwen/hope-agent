@@ -7,6 +7,7 @@
 
 pub mod critique;
 pub mod db;
+pub mod design_md;
 pub mod export;
 pub mod extract;
 pub mod image;
@@ -44,6 +45,31 @@ pub struct DesignConfig {
     pub panel_width: u32,
     #[serde(default = "default_self_check")]
     pub self_check: bool,
+    /// 反向提取（截图/设计图）读取的图片文件大小上限（MB）。`0` = 不限。默认 24。
+    #[serde(default = "default_max_extract_image_mb")]
+    pub max_extract_image_mb: u32,
+    /// 导出栅格化倍率（清晰度）。越大越清晰、文件越大。读时钳 `[1,4]`。默认 2（retina）。
+    #[serde(default = "default_export_scale")]
+    pub export_scale: u32,
+    /// PDF 导出的 JPEG 压缩质量（1–100）。读时钳 `[40,100]`。默认 92。
+    #[serde(default = "default_export_jpeg_quality")]
+    pub export_jpeg_quality: u32,
+    /// 反向提取截图的专用视觉模型（`providerId:modelId`）。空 = 复用当前激活模型。
+    #[serde(default)]
+    pub extract_vision_model: Option<String>,
+    /// 质量评审的专用模型（`providerId:modelId`）。空 = 复用默认分析 agent 模型。
+    #[serde(default)]
+    pub critique_model: Option<String>,
+}
+
+/// 导出倍率安全钳（`[1,4]`）。
+pub fn clamp_export_scale(v: u32) -> u32 {
+    v.clamp(1, 4)
+}
+
+/// 导出 JPEG 质量安全钳（`[40,100]`）。
+pub fn clamp_export_jpeg_quality(v: u32) -> u32 {
+    v.clamp(40, 100)
 }
 
 fn default_enabled() -> bool {
@@ -61,6 +87,15 @@ fn default_panel_width() -> u32 {
 fn default_self_check() -> bool {
     true
 }
+fn default_max_extract_image_mb() -> u32 {
+    24
+}
+fn default_export_scale() -> u32 {
+    2
+}
+fn default_export_jpeg_quality() -> u32 {
+    92
+}
 
 impl Default for DesignConfig {
     fn default() -> Self {
@@ -72,6 +107,11 @@ impl Default for DesignConfig {
             max_versions_per_artifact: default_max_versions(),
             panel_width: default_panel_width(),
             self_check: default_self_check(),
+            max_extract_image_mb: default_max_extract_image_mb(),
+            export_scale: default_export_scale(),
+            export_jpeg_quality: default_export_jpeg_quality(),
+            extract_vision_model: None,
+            critique_model: None,
         }
     }
 }

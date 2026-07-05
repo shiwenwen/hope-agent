@@ -11,15 +11,16 @@
 - ✅ 架构文档 + 本迭代计划
 - ✅ P1 工作空间（首页项目墙 + 工作室产物库 + 稳定单产物 iframe 预览，无画布）+ 项目/产物 CRUD
 - ✅ P2 设计系统（6 套原创品牌契约 + token 编译注入 + 系统 CRUD + 项目品牌切换）
-- ✅ P3 渲染管线（7 种 HTML 形态自包含产物 + deck 翻页器 + token 注入）+ agent `design` 工具（18 action）+ 模板目录 + 版本更新/恢复
+- ✅ P3 渲染管线（9 种 HTML 形态自包含产物含 image/motion + deck 翻页器 + token 注入）+ agent `design` 工具（17 action）+ 模板目录 + 版本更新/恢复
 - ✅ P4 可视化直接微调（D1）：oid 确定性字节回写 + inspector bridge + 分区检视器 + stale-write 守卫
-- ✅ P5 一键导出 **HTML / PNG / PDF / PPTX**（HTML 后端干净自包含；PNG/PDF 前端 html2canvas+jsPDF 客户端栅格化，非打断、两模式通用；PPTX 前端栅格化整页图 + 后端 `zip`+OOXML 组装）
+- ✅ P5 一键导出 **HTML / Markdown / PNG / PDF / PPTX / MP4 / ZIP**（HTML 后端干净自包含；Markdown 后端 `htmd` HTML→MD；PNG/PDF 前端 html2canvas+jsPDF 客户端栅格化，非打断、两模式通用；PPTX 前端栅格化整页图 + 后端 `zip`+OOXML 组装；**MP4 前端 WebCodecs+mp4-muxer 逐帧编码**——确定性时钟 harness（patch rAF/perf + WAAPI seek）定格 motion，零重依赖胜服务端 FFmpeg；**ZIP** 单产物源码包 / 项目级全产物包 + 根画廊，后端 `zip` 组装）
 - ✅ P6 5 维质量评审门（critique）+ 设计方向选择器（propose_directions）
 - ✅ **D2 反向提取四通道**：文本描述 · 本地代码库 · **URL（抓原始 HTML）** · **截图（视觉模型单发，`design/vision.rs` 隔离，零改主对话）**
 - ✅ **D1 image 形态**：接线现有 `image_generate` Provider 栈（`design/image.rs`，data-uri 内嵌保自包含），owner/agent 共用 `create_artifact_generating`
 - ✅ **motion 形态**：自包含 CSS/JS 动画（1280×720，一等交付；HTML/PNG/PDF 导出）
 - ✅ **owner 富 UI**：版本历史面板（列版本 + 恢复）· 反向提取对话框（四通道）· 设计方向选择卡片（色板预览 + 一键采用）· 导出格式菜单 · image 生成入口
 - ✅ D4 知识空间联动（save_to_knowledge）
+- ✅ **DESIGN.md 规范完整支持**（`design/design_md.rs`）：设计系统落盘为 `DESIGN.md`（9 段 canonical schema 含 motion + `## Tokens` 表）；**导入**任意 DESIGN.md（`extract_tokens` 确定性抽 token，缺则 LLM 合成，保留原正文）；**导出**为可无损回灌的规范 DESIGN.md。owner（`POST /systems/import` · `GET /systems/{id}/design-md`）+ agent（`import_design_md` / `export_system`）+ GUI（系统下拉导入/导出对话框）三面齐全
 - ✅ 设置三件套 · 文档同步（AGENTS.md/api-reference/诊断索引/CHANGELOG）· **12 语完整本地化**（design 命名空间全 12 语真人级翻译，`sync-i18n --check` 零缺失）
 
 **明确的边界（非缺口，硬性依赖使然）：**

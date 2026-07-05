@@ -55,6 +55,30 @@ Anthropic or OpenAI provider, or use extract from URL / codebase / description i
 /// 选 vision provider：优先当前激活模型（若格式受支持 + 支持 vision），否则回退首个
 /// enabled 的 Anthropic / OpenAI-Chat provider。
 fn resolve_vision_provider(cfg: &AppConfig) -> Result<(&ProviderConfig, String)> {
+    // Explicit override (design.extractVisionModel = "providerId:modelId"). User chose
+    // it, so we trust the model but still enforce a format the code can actually call.
+    if let Some(over) = cfg
+        .design
+        .extract_vision_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let (pid, mid) = over.split_once(':').ok_or_else(|| {
+            anyhow!("invalid design.extractVisionModel '{over}' (want 'providerId:modelId')")
+        })?;
+        let p = find_provider(&cfg.providers, pid)
+            .ok_or_else(|| anyhow!("design.extractVisionModel provider '{pid}' not found"))?;
+        if !matches!(p.api_type, ApiType::Anthropic | ApiType::OpenaiChat) {
+            bail!(
+                "design.extractVisionModel provider '{}' is {:?}; screenshot extraction \
+needs an Anthropic or OpenAI-Chat vision model",
+                p.name,
+                p.api_type
+            );
+        }
+        return Ok((p, mid.to_string()));
+    }
     if let Some(am) = &cfg.active_model {
         if let Some(p) = find_provider(&cfg.providers, &am.provider_id) {
             if matches!(p.api_type, ApiType::Anthropic | ApiType::OpenaiChat)

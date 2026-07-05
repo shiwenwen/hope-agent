@@ -109,11 +109,15 @@ pub fn build_artifact_html(
     } else {
         let mut vars = String::from(":root{");
         for (k, v) in tokens {
-            // 仅允许 --ds-* 变量名，值滤除 `}`/`<` 防注入逃逸。
+            // 仅允许 --ds-* 变量名；值滤除 `}`/`{`/`<`/`;` 防注入逃逸（`;` 防单个
+            // token 值塞入多条声明——extracted/url 来源的 token 由 LLM 可控）。
             if !k.starts_with("--ds-") {
                 continue;
             }
-            let safe_v: String = v.chars().filter(|c| *c != '}' && *c != '<').collect();
+            let safe_v: String = v
+                .chars()
+                .filter(|c| *c != '}' && *c != '{' && *c != '<' && *c != ';')
+                .collect();
             vars.push_str(k);
             vars.push(':');
             vars.push_str(safe_v.trim());

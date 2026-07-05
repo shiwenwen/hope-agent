@@ -5,20 +5,94 @@ import { Loader2, Check } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
-import type { DesignConfig } from "@/types/design"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import type { DesignConfig, DesignSystemMeta } from "@/types/design"
+
+interface ProviderOption {
+  id: string
+  name: string
+  models: { id: string; name: string }[]
+  enabled?: boolean
+}
+
+const NONE = "__none__"
+const MODEL_DEFAULT = "__default__"
 
 const DEFAULTS: DesignConfig = {
   enabled: true,
   autoShow: true,
   autoCritique: false,
+  defaultSystemId: undefined,
   maxVersionsPerArtifact: 50,
   panelWidth: 480,
   selfCheck: true,
+  maxExtractImageMb: 24,
+  exportScale: 2,
+  exportJpegQuality: 92,
+  extractVisionModel: undefined,
+  critiqueModel: undefined,
+}
+
+/** Optional model override picker (`providerId:modelId`); default = reuse. */
+function ModelPicker({
+  label,
+  desc,
+  value,
+  providers,
+  onChange,
+  defaultLabel,
+}: {
+  label: string
+  desc: string
+  value: string | undefined
+  providers: ProviderOption[]
+  onChange: (v: string | undefined) => void
+  defaultLabel: string
+}) {
+  return (
+    <div className="space-y-1.5">
+      <span className="text-sm font-medium">{label}</span>
+      <p className="text-xs text-muted-foreground">{desc}</p>
+      <Select
+        value={value || MODEL_DEFAULT}
+        onValueChange={(v) => onChange(v === MODEL_DEFAULT ? undefined : v)}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={MODEL_DEFAULT}>{defaultLabel}</SelectItem>
+          {providers
+            .filter((p) => p.enabled !== false && p.models.length > 0)
+            .map((p) => (
+              <SelectGroup key={p.id}>
+                <SelectLabel>{p.name}</SelectLabel>
+                {p.models.map((m) => (
+                  <SelectItem key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
 }
 
 export default function DesignSettingsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<DesignConfig>(DEFAULTS)
+  const [systems, setSystems] = useState<DesignSystemMeta[]>([])
+  const [providers, setProviders] = useState<ProviderOption[]>([])
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -32,6 +106,14 @@ export default function DesignSettingsPanel() {
         setConfig({ ...DEFAULTS, ...c })
         setSavedSnapshot(JSON.stringify({ ...DEFAULTS, ...c }))
       })
+      .catch(() => {})
+    getTransport()
+      .call<DesignSystemMeta[]>("list_design_systems_cmd")
+      .then((list) => setSystems(list ?? []))
+      .catch(() => {})
+    getTransport()
+      .call<ProviderOption[]>("get_providers")
+      .then((list) => setProviders(list ?? []))
       .catch(() => {})
   }, [])
 
@@ -105,6 +187,36 @@ export default function DesignSettingsPanel() {
             />
           </div>
 
+          <div className="space-y-1.5">
+            <span className="text-sm font-medium">
+              {t("design.settings.defaultSystem", "默认设计系统")}
+            </span>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "design.settings.defaultSystemDesc",
+                "新产物在项目未指定设计系统时回退到此。",
+              )}
+            </p>
+            <Select
+              value={config.defaultSystemId || NONE}
+              onValueChange={(v) =>
+                setConfig((c) => ({ ...c, defaultSystemId: v === NONE ? undefined : v }))
+              }
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>{t("design.settings.systemNone", "无")}</SelectItem>
+                {systems.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <span className="text-sm font-medium">
@@ -132,6 +244,76 @@ export default function DesignSettingsPanel() {
                 onValueCommit={(value) => setConfig((c) => ({ ...c, panelWidth: value }))}
               />
             </div>
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">
+                {t("design.settings.maxExtractImageMb", "提取图片大小上限 (MB)")}
+              </span>
+              <DeferredNumberInput
+                className="w-full"
+                min={0}
+                max={512}
+                value={config.maxExtractImageMb}
+                onValueCommit={(value) => setConfig((c) => ({ ...c, maxExtractImageMb: value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("design.settings.maxExtractImageMbDesc", "反向提取截图时的图片上限；0 = 不限。")}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">
+                {t("design.settings.exportScale", "导出清晰度 (倍)")}
+              </span>
+              <DeferredNumberInput
+                className="w-full"
+                min={1}
+                max={4}
+                value={config.exportScale}
+                onValueCommit={(value) => setConfig((c) => ({ ...c, exportScale: value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("design.settings.exportScaleDesc", "栅格化倍率；越大越清晰、文件越大。默认 2。")}
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">
+                {t("design.settings.exportJpegQuality", "PDF 图像质量")}
+              </span>
+              <DeferredNumberInput
+                className="w-full"
+                min={40}
+                max={100}
+                value={config.exportJpegQuality}
+                onValueCommit={(value) => setConfig((c) => ({ ...c, exportJpegQuality: value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("design.settings.exportJpegQualityDesc", "PDF 页 JPEG 压缩质量 (1–100)。默认 92。")}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <ModelPicker
+              label={t("design.settings.extractVisionModel", "提取视觉模型")}
+              desc={t(
+                "design.settings.extractVisionModelDesc",
+                "反向提取截图专用；留空复用当前活跃模型（需支持视觉）。",
+              )}
+              value={config.extractVisionModel}
+              providers={providers}
+              onChange={(v) => setConfig((c) => ({ ...c, extractVisionModel: v }))}
+              defaultLabel={t("design.settings.modelActive", "复用活跃模型")}
+            />
+            <ModelPicker
+              label={t("design.settings.critiqueModel", "质量评审模型")}
+              desc={t(
+                "design.settings.critiqueModelDesc",
+                "5 维质量评审专用；留空复用默认分析模型。",
+              )}
+              value={config.critiqueModel}
+              providers={providers}
+              onChange={(v) => setConfig((c) => ({ ...c, critiqueModel: v }))}
+              defaultLabel={t("design.settings.modelDefault", "复用默认分析模型")}
+            />
           </div>
         </div>
       </div>
