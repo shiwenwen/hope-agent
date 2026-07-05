@@ -1699,6 +1699,41 @@ describe("WorkspacePanel domain quality section", () => {
     })
   })
 
+  it("shows artifact evidence scope on domain quality runs", async () => {
+    const snapshot = domainQualitySnapshot()
+    snapshot.run.stats = {
+      ...snapshot.run.stats,
+      evidenceScope: {
+        mode: "artifact_matched",
+        total: 5,
+        matched: 2,
+        target: {
+          title: "Research brief",
+          kind: "brief",
+        },
+      },
+    }
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "list_domain_quality_runs") return Promise.resolve([snapshot.run])
+      if (name === "get_domain_quality_run") return Promise.resolve(snapshot)
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      if (name === "get_coding_trend_report") return Promise.resolve(null)
+      return Promise.resolve(args ?? [])
+    })
+
+    renderPanel({
+      workingDir: { path: null, source: "none", exists: false, name: null },
+      git: null,
+    })
+
+    await clickSectionHeader("领域复核")
+
+    expect(await screen.findByText("产物证据")).toBeTruthy()
+    expect(screen.getByText("Research brief · 2/5 条匹配")).toBeTruthy()
+  })
+
   it("imports promoted domain eval proposals from the coding trend section", async () => {
     const proposal = codingImprovementProposal()
     transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {

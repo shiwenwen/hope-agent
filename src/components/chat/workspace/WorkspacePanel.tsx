@@ -5108,6 +5108,72 @@ function domainQualityTemplateLabel(run: DomainQualityRunSnapshot["run"]): strin
   return run.templateVersion ? `${run.templateId}@${run.templateVersion}` : run.templateId
 }
 
+function domainQualityEvidenceScopeView(
+  t: ReturnType<typeof useTranslation>["t"],
+  run: DomainQualityRunSnapshot["run"],
+): { label: string; tone: StatusTone; detail: string | null } | null {
+  const scope = asRecord(run.stats?.evidenceScope)
+  const mode = stringField(scope, "mode")
+  if (!mode) return null
+  const total = numberField(scope, "total")
+  const matched = numberField(scope, "matched")
+  const target = asRecord(scope?.target)
+  const targetLabel =
+    stringField(target, "title") ?? stringField(target, "path") ?? stringField(target, "kind")
+  const countText =
+    total !== null && matched !== null
+      ? t("workspace.domainQuality.scopeCount", "{{matched}}/{{total}} 条", {
+          matched,
+          total,
+        })
+      : null
+  if (mode === "artifact_matched") {
+    return {
+      label: t("workspace.domainQuality.scopeArtifact", "产物证据"),
+      tone: matched === 0 ? "warn" : "info",
+      detail: targetLabel
+        ? t("workspace.domainQuality.scopeArtifactDetail", "{{target}} · {{scopeText}}匹配", {
+            target: targetLabel,
+            scopeText: countText ?? t("workspace.domainQuality.scopeUnknownCount", "已"),
+          })
+        : countText
+          ? t("workspace.domainQuality.scopeArtifactCount", "{{scopeText}}匹配", {
+              scopeText: countText,
+            })
+          : null,
+    }
+  }
+  if (mode === "legacy_fallback_all") {
+    return {
+      label: t("workspace.domainQuality.scopeLegacyFallback", "旧证据回退"),
+      tone: "warn",
+      detail: countText
+        ? t(
+            "workspace.domainQuality.scopeLegacyFallbackDetail",
+            "未发现 artifact 线索，使用 {{scopeText}}全量证据",
+            { scopeText: countText },
+          )
+        : t("workspace.domainQuality.scopeLegacyFallbackShort", "未发现 artifact 线索，使用全量证据"),
+    }
+  }
+  if (mode === "all") {
+    return {
+      label: t("workspace.domainQuality.scopeAll", "全量证据"),
+      tone: "muted",
+      detail: total !== null
+        ? t("workspace.domainQuality.scopeAllDetail", "使用 {{count}} 条领域证据", {
+            count: total,
+          })
+        : null,
+    }
+  }
+  return {
+    label: mode.replace(/_/g, " "),
+    tone: "muted",
+    detail: countText,
+  }
+}
+
 function DomainQualityCheckRow({ check }: { check: DomainQualityCheck }) {
   const { t } = useTranslation()
   const icon =
@@ -5195,6 +5261,7 @@ function DomainQualitySection({
   const advisory = domainQualityStatsNumber(snapshot, "advisory")
   const active = running || latest?.state === "running"
   const disabled = !sessionId || incognito || active || loading
+  const evidenceScopeView = latest ? domainQualityEvidenceScopeView(t, latest) : null
   const learning =
     learningRunId !== null && latest !== undefined && learningRunId === latest.id
   const canGenerateLearning =
@@ -5406,7 +5473,16 @@ function DomainQualitySection({
               {domainQualityTemplateLabel(latest) ? (
                 <StatusPill label={domainQualityTemplateLabel(latest)!} tone="muted" />
               ) : null}
+              {evidenceScopeView ? (
+                <StatusPill label={evidenceScopeView.label} tone={evidenceScopeView.tone} />
+              ) : null}
             </div>
+            {evidenceScopeView?.detail ? (
+              <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-5 text-[10px] text-muted-foreground/70">
+                <Database className="h-3 w-3 shrink-0" />
+                <span className="truncate">{evidenceScopeView.detail}</span>
+              </div>
+            ) : null}
           </div>
         ) : (
           <EmptyHint>{t("workspace.domainQuality.empty", "还没有领域复核记录")}</EmptyHint>
