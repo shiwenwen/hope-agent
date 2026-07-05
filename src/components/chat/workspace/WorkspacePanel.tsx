@@ -3860,6 +3860,86 @@ function domainAcceptanceReviewProtocolLines(
   ].map((line) => `- ${line}`)
 }
 
+function domainAcceptanceAuditIndexLines(
+  t: ReturnType<typeof useTranslation>["t"],
+  summary: DomainAcceptanceCoverageSummary,
+  context?: DomainAcceptanceReviewContext,
+): string[] {
+  const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
+  const sampleFreshness =
+    summary.latestActivityAgeSecs != null
+      ? t("workspace.domainWorkbench.acceptancePlanFreshnessAge", "{{age}} 前", {
+          age: formatDurationCompact(summary.latestActivityAgeSecs),
+        })
+      : t("workspace.domainWorkbench.acceptancePlanFreshnessMissing", "缺最近活动时间")
+  const budget =
+    summary.outputTokenBudgetLabel != null
+      ? `${summary.budgetExhaustedEvents} exhausted · ${summary.outputTokenBudgetLabel}`
+      : `${summary.budgetExhaustedEvents} exhausted`
+  const lines = [
+    t("workspace.domainWorkbench.acceptanceAuditDomains", "领域：{{domains}}", { domains }),
+    t(
+      "workspace.domainWorkbench.acceptanceAuditControlRecords",
+      "控制面：记录 {{records}} · 已排空 {{drained}} · Connector E2E {{connector}}",
+      {
+        records: summary.controlRecords,
+        drained: summary.drainedRuns,
+        connector: summary.connectorE2eEvidence,
+      },
+    ),
+    t(
+      "workspace.domainWorkbench.acceptanceAuditFreshness",
+      "新鲜度：{{freshness}} · 上限 {{max}}",
+      {
+        freshness: sampleFreshness,
+        max: formatDurationCompact(summary.freshnessMaxAgeSecs),
+      },
+    ),
+    t("workspace.domainWorkbench.acceptanceAuditBudget", "预算：{{budget}}", { budget }),
+  ]
+  if (context) {
+    lines.push(
+      t(
+        "workspace.domainWorkbench.acceptanceAuditGates",
+        "Gate 快照：export={{exportStatus}} · connector={{connectorStatus}} · e2e={{e2eStatus}} · operational={{operationalStatus}} · soak={{soakStatus}}",
+        {
+          exportStatus: context.exportGuard?.status ?? "missing",
+          connectorStatus: context.connectorGuard?.status ?? "missing",
+          e2eStatus: context.connectorE2eGate?.status ?? "missing",
+          operationalStatus: context.operationalGate?.status ?? "missing",
+          soakStatus: context.soakReport?.status ?? "missing",
+        },
+      ),
+    )
+    const evidenceIds = context.evidence
+      .slice(0, 8)
+      .map((item) => item.id)
+      .filter(Boolean)
+    lines.push(
+      t("workspace.domainWorkbench.acceptanceAuditEvidenceIds", "Evidence IDs：{{ids}}", {
+        ids:
+          evidenceIds.length > 0
+            ? evidenceIds.join(", ")
+            : t("workspace.domainWorkbench.acceptanceAuditNoEvidenceIds", "无"),
+      }),
+    )
+    if (context.soakReport) {
+      lines.push(
+        t(
+          "workspace.domainWorkbench.acceptanceAuditSoakWindow",
+          "Soak 窗口：{{window}}d · incidents {{incidents}} · timeline {{timeline}}",
+          {
+            window: context.soakReport.windowDays,
+            incidents: context.soakReport.incidents.length,
+            timeline: context.soakReport.timeline.length,
+          },
+        ),
+      )
+    }
+  }
+  return lines.map((line) => `- ${line}`)
+}
+
 function domainAcceptancePlanTaskContent(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
@@ -3939,6 +4019,9 @@ function domainAcceptancePlanTaskContent(
     "",
     t("workspace.domainWorkbench.acceptancePlanMetrics", "当前指标："),
     ...metrics.map((metric) => `- ${metric}`),
+    "",
+    t("workspace.domainWorkbench.acceptanceAuditIndex", "审计索引："),
+    ...domainAcceptanceAuditIndexLines(t, summary),
     "",
     t("workspace.domainWorkbench.acceptanceReviewProtocol", "复核协议："),
     ...domainAcceptanceReviewProtocolLines(t),
@@ -4156,6 +4239,9 @@ function domainAcceptanceReviewMarkdown(
     `${t("workspace.domainWorkbench.acceptancePlanBudget", "输出预算")}：${budgetHealth}`,
     `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
+    "",
+    `## ${t("workspace.domainWorkbench.acceptanceAuditIndex", "审计索引")}`,
+    ...domainAcceptanceAuditIndexLines(t, summary, context),
     "",
     `## ${t("workspace.domainWorkbench.acceptanceReviewProtocol", "复核协议")}`,
     ...domainAcceptanceReviewProtocolLines(t),

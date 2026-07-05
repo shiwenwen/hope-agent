@@ -2116,6 +2116,11 @@ describe("WorkspacePanel workflow section", () => {
       )
     })
     const acceptanceReport = String(writeText.mock.calls[0]?.[0] ?? "")
+    expect(acceptanceReport).toContain("## 审计索引")
+    expect(acceptanceReport).toContain(
+      "Gate 快照：export=missing · connector=missing · e2e=missing · operational=failed · soak=failed",
+    )
+    expect(acceptanceReport).toContain("Evidence IDs：无")
     expect(acceptanceReport).toContain("## 复核协议")
     expect(acceptanceReport).toContain(
       "只有验收结论为“可验收”时，当前样本才可作为最终验收证据",
@@ -2199,6 +2204,8 @@ describe("WorkspacePanel workflow section", () => {
         String(args?.activeForm ?? "") === "正在补齐真实样本验收清单",
     )?.[1]
     const acceptancePlanContent = String(acceptancePlanTask?.content ?? "")
+    expect(acceptancePlanContent).toContain("审计索引：")
+    expect(acceptancePlanContent).toContain("控制面：记录 3 · 已排空 2 · Connector E2E 0")
     expect(acceptancePlanContent).toContain("复核协议：")
     expect(acceptancePlanContent).toContain("转任务、按钮点击或人工声明不能替代真实 evidence")
     expect(acceptancePlanContent).toContain("验收结论：不可验收 - 长跑审计仍有事故需要收口。")
