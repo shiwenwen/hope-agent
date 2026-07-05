@@ -2488,6 +2488,7 @@ describe("WorkspacePanel workflow section", () => {
       if (name === "evaluate_domain_connector_action_guard") return Promise.resolve(null)
       if (name === "evaluate_domain_operational_gate") return Promise.resolve(null)
       if (name === "generate_domain_soak_report") return Promise.resolve(null)
+      if (name === "create_session_task") return Promise.resolve([])
       if (name === "get_background_job") return Promise.resolve(null)
       return Promise.resolve([])
     })
@@ -2501,6 +2502,20 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("execution_result")).toBeTruthy()
     expect(screen.getByText("post_action_verification")).toBeTruthy()
     expect(screen.getByText("外部动作还缺端到端执行与复核样本。")).toBeTruthy()
+
+    const e2eCheckLabel = screen.getByText("execution_result")
+    const e2eCheckRow = e2eCheckLabel.parentElement
+    expect(e2eCheckRow).toBeTruthy()
+    fireEvent.click(within(e2eCheckRow as HTMLElement).getByRole("button", { name: "转任务" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content:
+          "处理连接器 E2E 缺口：execution_result（0）- The connector action has not produced an execution result yet.",
+        activeForm: "正在处理连接器 E2E 缺口：execution_result",
+      })
+    })
 
     fireEvent.click(screen.getByRole("button", { name: "查看 E2E" }))
     await waitFor(() => {

@@ -422,7 +422,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - Checks 覆盖 connector input、draft/preview、explicit approval、execution result、post-action verification、rollback plan、Connector Action Guard、Artifact Export Guard。
 - 缺用户批准为 `failed`；缺真实输入、执行结果或执行后复核为 `insufficient_data`，不把 mock/deterministic 或外部账号缺失伪装成通过。
 - Dashboard Learning 新增「Connector E2E」卡片，展示 IN / DR / OK / EX / VF / RB / GU 和 recommended next steps。
-- Workspace「通用任务工作台」新增当前会话「连接器 E2E」卡片，并把该 gate 纳入真实样本验收和 Autonomous Readiness 的健康状态 /「查看 E2E」快捷入口；用户可显式填写执行结果和执行后复核，分别写回 `connector_action_executed` / `connector_action_verified` evidence。
+- Workspace「通用任务工作台」新增当前会话「连接器 E2E」卡片，并把该 gate 纳入真实样本验收和 Autonomous Readiness 的健康状态 /「查看 E2E」快捷入口；用户可显式填写执行结果和执行后复核，分别写回 `connector_action_executed` / `connector_action_verified` evidence，E2E check 行也可转成 session task。
 - 新增核心单测覆盖：完整 Gmail send lifecycle passed；缺 execution result 时保持 `insufficient_data`。
 
 仍需后续真实样本：
@@ -465,7 +465,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - artifact-scoped 领域复核通过后，用户可在「领域复核」摘要卡片点击「记录复核证据」，写回窄域 `artifact_reviewed` evidence；该动作只确认本次复核事实，不替代导出前 review、脱敏检查或外部动作批准。
 - 交付守门卡片提供「导出复核 / 可交付确认 / 脱敏复核」三个显式确认按钮，写入 `artifact_reviewed` evidence 上的对应 marker；守门仍重新计算所有证据，不因点击按钮绕过 `pending|sensitive` fail-closed。
 - 外部动作守门卡片提供「批准动作 / 记录回滚」显式确认；批准写入 `user_decision` evidence，回滚必须填写文本后写入 `connector_context_collected` evidence，因此不会把空回滚方案伪装成可恢复。
-- 连接器 E2E 卡片提供「记录执行 / 记录复核」真实样本入口，必须填写结果文本后才写入标准 execution / verification evidence；它不调用连接器、不伪造外部 result id，只让真实动作后的人工记录进入 Gate / Soak Report。
+- 连接器 E2E 卡片提供「记录执行 / 记录复核」真实样本入口，必须填写结果文本后才写入标准 execution / verification evidence；它不调用连接器、不伪造外部 result id，只让真实动作后的人工记录进入 Gate / Soak Report；E2E check 行可「转任务」，把缺执行、缺复核、缺回滚等缺口进入 TaskProgressPanel。
 - Context Retrieval 候选行的「摘要」按钮会写入 `artifact_created` 摘要 evidence；「确认」按钮会创建 owner-side ask_user，并在用户回答后写入 `user_decision` evidence；「证据」按钮可把当前推荐来源/文档/会议/表格/决策落成 domain evidence，并刷新通用任务工作台；「冲突」按钮会写入 `claim_checked` 冲突证据；「转任务」按钮可把候选落成 session task，形成“看到缺口 -> 生成摘要 / 用户确认 / 补证据 / 标冲突 / 建任务 -> 守门和进度重新评估”的真实 owner action。
 - 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门、外部动作守门和 Soak incident 状态生成“下一步”提示；每条提示、每个守门 check、每条需复核 evidence 和每个长跑事故都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
 - 最近 evidence 行展示 evidence type、domain、access scope、redaction status 与时间，让用户知道来源、草稿、批准、复核和决策证据是否已经真实落盘。
