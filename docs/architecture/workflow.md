@@ -491,9 +491,9 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - Loop 自动工作流：Loop 创建区在 active Goal 已绑定领域模板时可选择“创建工作流”，后续每次 interval tick 都创建并启动一个 `origin=loop:<loop_id>` 的 WorkflowRun；Loop 列表会标记 `Workflow`，并把最近派生 run 的 kind/state/time 直接露出。点击“查看工作流”会选中对应 Workflow run detail，具体执行进度、审批、恢复、验证、agents 和取消仍在 Workflow 控制面处理。Workspace 顶层共享同一份 `useGoal`、`useWorkflowRuns` 与 `useLoopSchedules` state 给「自主推进就绪」、Goal strip、Workflow run list 和 Loop 区块，避免重复请求并保证 active Goal / Loop / Workflow 视图一致；readiness 卡片的“新建 Loop”只会展开 Loop 创建器并预选 workflow 策略，仍需用户确认创建。
 - 创建前展示 Script Gate 与 permission preview。
 - run list、历史展开、总览、当前焦点、下一步跳转。
-- Run overview 的“下一步”卡片覆盖 draft / awaiting approval / awaiting user / running / recovering / paused / blocked / failed / completed / cancelled 全状态：明确该看 Trace、Validation 还是 Agents，失败/阻塞时保留复制修复提示与生成 repair draft，完成后提示复核验证结果、产物和残余风险。
+- Run overview 的“下一步”卡片覆盖 draft / awaiting approval / awaiting user / running / recovering / paused / blocked / failed / completed / cancelled 全状态：明确该看 Trace、Validation 还是 Agents，失败/阻塞时保留生成 repair draft、复制修复提示与「转任务」，完成后提示复核验证结果、产物和残余风险。
 - Trace / Validation / Agents 三视图；Validation 命令行可展开完整输出并复制详情，失败恢复不依赖截断预览。
-- blocked / failed 恢复建议、复制修复提示、生成 repair draft。
+- blocked / failed 恢复建议、复制修复提示、生成 repair draft；用户也可把同一失败上下文显式「转任务」，复用 `create_session_task` 进入 TaskProgressPanel，不自动启动新的 workflow run。
 - repair draft 默认继承原 run 的 `worktreeId`（若有），创建修复 run 时继续落在同一个隔离运行位置。
 - draft / approve / pause / resume / cancel 操作；cancel 前确认。
 - 窄屏内部面板走 overlay，不被桌面 split-pane 挤出视口。

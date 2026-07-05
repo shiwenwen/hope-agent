@@ -3913,6 +3913,7 @@ describe("WorkspacePanel workflow section", () => {
           }),
         )
       }
+      if (name === "create_session_task") return Promise.resolve([])
       if (name === "get_background_job") return Promise.resolve(null)
       return Promise.resolve([])
     })
@@ -3971,6 +3972,28 @@ describe("WorkspacePanel workflow section", () => {
     expect(prompt).toContain("main/op#2(workflow.validate)")
     expect(prompt).toContain("pnpm test")
     expect(prompt).toContain("expected value to be true")
+
+    const recoveryTitle = screen.getByText("下一步：修复验证失败")
+    const recoveryCard = recoveryTitle.parentElement?.parentElement
+    expect(recoveryCard).toBeTruthy()
+    fireEvent.click(within(recoveryCard as HTMLElement).getByRole("button", { name: "转任务" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith(
+        "create_session_task",
+        expect.objectContaining({
+          sessionId: "s1",
+          activeForm: "正在修复失败工作流 wf-1",
+          content: expect.stringContaining("修复失败工作流 wf-1"),
+        }),
+      )
+      expect(transportMock.call).toHaveBeenCalledWith(
+        "create_session_task",
+        expect.objectContaining({
+          content: expect.stringContaining("expected value to be true"),
+        }),
+      )
+    })
 
     fireEvent.click(screen.getByRole("button", { name: "创建并运行修复" }))
 

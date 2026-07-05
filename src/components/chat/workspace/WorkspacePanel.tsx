@@ -11990,6 +11990,7 @@ function WorkflowRunsSection({
   const [domainDraftLoading, setDomainDraftLoading] = useState(false)
   const [showAllRuns, setShowAllRuns] = useState(false)
   const [pendingCancelRun, setPendingCancelRun] = useState<WorkflowRun | null>(null)
+  const [creatingRepairTaskRunId, setCreatingRepairTaskRunId] = useState<string | null>(null)
   const [goalActionKey, setGoalActionKey] = useState<string | null>(null)
   const [goalCreateOpen, setGoalCreateOpen] = useState(false)
   const [goalObjective, setGoalObjective] = useState("")
@@ -12754,6 +12755,42 @@ ${repairPrompt}`
     [clearDomainDraft, previewWorkflowScriptSource, t, workingDir],
   )
 
+  const createRepairTask = useCallback(
+    async (repairPrompt: string, run: WorkflowRun) => {
+      if (incognito || creatingRepairTaskRunId) return
+      setCreatingRepairTaskRunId(run.id)
+      try {
+        const targetSessionId = await ensureWorkflowSession()
+        if (!targetSessionId) return
+        await getTransport().call<Task[]>("create_session_task", {
+          sessionId: targetSessionId,
+          content: t(
+            "workspace.workflow.repairTaskContent",
+            "修复失败工作流 {{id}}：\n\n{{prompt}}",
+            { id: run.id, prompt: repairPrompt },
+          ),
+          activeForm: t(
+            "workspace.workflow.repairTaskActiveForm",
+            "正在修复失败工作流 {{id}}",
+            { id: run.id },
+          ),
+        })
+        toast.success(t("workspace.workflow.repairTaskCreated", "已创建工作流修复任务"))
+      } catch (e) {
+        logger.error(
+          "ui",
+          "WorkflowRunsSection::createRepairTask",
+          "Failed to create repair task",
+          e,
+        )
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setCreatingRepairTaskRunId(null)
+      }
+    },
+    [creatingRepairTaskRunId, ensureWorkflowSession, incognito, t],
+  )
+
   const previewWorkflowDraft = useCallback(async () => {
     await previewWorkflowScriptSource(draftScript, draftMode)
   }, [draftMode, draftScript, previewWorkflowScriptSource])
@@ -13227,6 +13264,8 @@ ${repairPrompt}`
                       actions={renderDetailActions(detailRun)}
                       onSelectDetailTab={setDetailTab}
                       onCreateRepairDraft={generateRepairDraft}
+                      onCreateRepairTask={createRepairTask}
+                      creatingRepairTask={creatingRepairTaskRunId === detailRun.id}
                     />
 
                     {snapshotLoading ? (
@@ -15846,6 +15885,8 @@ function WorkflowRunOverview({
   actions,
   onSelectDetailTab,
   onCreateRepairDraft,
+  onCreateRepairTask,
+  creatingRepairTask,
 }: {
   run: WorkflowRun
   snapshot: WorkflowRunSnapshot | null
@@ -15854,6 +15895,8 @@ function WorkflowRunOverview({
   actions?: ReactNode
   onSelectDetailTab?: (tab: WorkflowDetailTab) => void
   onCreateRepairDraft?: (repairPrompt: string, run: WorkflowRun) => void
+  onCreateRepairTask?: (repairPrompt: string, run: WorkflowRun) => void
+  creatingRepairTask?: boolean
 }) {
   const { t } = useTranslation()
   const ops = snapshot?.ops ?? []
@@ -16003,6 +16046,8 @@ function WorkflowRunOverview({
         snapshot={snapshot}
         onSelectDetailTab={onSelectDetailTab}
         onCreateRepairDraft={onCreateRepairDraft}
+        onCreateRepairTask={onCreateRepairTask}
+        creatingRepairTask={creatingRepairTask}
       />
       {actions ? <div>{actions}</div> : null}
     </div>
@@ -16492,11 +16537,15 @@ function WorkflowRecoveryHint({
   snapshot,
   onSelectDetailTab,
   onCreateRepairDraft,
+  onCreateRepairTask,
+  creatingRepairTask,
 }: {
   run: WorkflowRun
   snapshot: WorkflowRunSnapshot | null
   onSelectDetailTab?: (tab: WorkflowDetailTab) => void
   onCreateRepairDraft?: (repairPrompt: string, run: WorkflowRun) => void
+  onCreateRepairTask?: (repairPrompt: string, run: WorkflowRun) => void
+  creatingRepairTask?: boolean
 }) {
   const { t } = useTranslation()
   const ops = snapshot?.ops ?? []
@@ -16684,7 +16733,12 @@ function WorkflowRecoveryHint({
       </div>
       <div className="mt-0.5 truncate opacity-85">{body}</div>
       {showRepairActions ? (
-        <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+        <div
+          className={cn(
+            "mt-1.5 grid gap-1.5",
+            onCreateRepairTask ? "grid-cols-3" : "grid-cols-2",
+          )}
+        >
           <Button
             type="button"
             size="sm"
@@ -16699,6 +16753,27 @@ function WorkflowRecoveryHint({
               {t("workspace.workflow.createRepairDraft", "生成修复草稿")}
             </span>
           </Button>
+          {onCreateRepairTask ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 min-w-0 gap-1.5 border-current/25 bg-background/45 text-[11px] hover:bg-background/70"
+              disabled={creatingRepairTask}
+              onClick={() => {
+                if (repairPrompt) onCreateRepairTask(repairPrompt, run)
+              }}
+            >
+              {creatingRepairTask ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              <span className="truncate">
+                {t("workspace.workflow.createRepairTask", "转任务")}
+              </span>
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
