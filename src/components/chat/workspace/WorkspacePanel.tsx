@@ -3934,18 +3934,22 @@ function DomainAcceptanceCoverageCard({
   summary,
   reviewContext,
   creatingRequirementTaskKey,
+  creatingSampleLaneTaskKey,
   creatingGapTaskKey,
   creatingPlanTask,
   onCreateRequirementTask,
+  onCreateSampleLaneTask,
   onCreateGapTask,
   onCreateGapPlan,
 }: {
   summary: DomainAcceptanceCoverageSummary
   reviewContext: DomainAcceptanceReviewContext
   creatingRequirementTaskKey?: string | null
+  creatingSampleLaneTaskKey?: string | null
   creatingGapTaskKey?: string | null
   creatingPlanTask?: boolean
   onCreateRequirementTask?: (requirement: DomainAcceptanceRequirement, index: number) => void
+  onCreateSampleLaneTask?: (lane: DomainAcceptanceSampleLane, index: number) => void
   onCreateGapTask?: (gap: DomainAcceptanceGap, index: number) => void
   onCreateGapPlan?: (gaps: DomainAcceptanceGap[]) => void
 }) {
@@ -3990,6 +3994,7 @@ function DomainAcceptanceCoverageCard({
             onClick={() => onCreateGapPlan(summary.gaps)}
             disabled={
               Boolean(creatingRequirementTaskKey) ||
+              Boolean(creatingSampleLaneTaskKey) ||
               Boolean(creatingGapTaskKey) ||
               Boolean(creatingPlanTask)
             }
@@ -4048,6 +4053,7 @@ function DomainAcceptanceCoverageCard({
                     onClick={() => onCreateRequirementTask(requirement, index)}
                     disabled={
                       Boolean(creatingRequirementTaskKey) ||
+                      Boolean(creatingSampleLaneTaskKey) ||
                       Boolean(creatingGapTaskKey) ||
                       Boolean(creatingPlanTask)
                     }
@@ -4108,20 +4114,49 @@ function DomainAcceptanceCoverageCard({
           </span>
         </div>
         <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-          {summary.sampleLanes.map((lane) => (
-            <IconTip key={lane.key} label={lane.action}>
-              <div className="min-w-0 rounded-md bg-secondary/25 px-1.5 py-1 text-[10px]">
-                <div className="flex min-w-0 items-center gap-1">
-                  <span className="min-w-0 flex-1 truncate font-medium">{lane.label}</span>
-                  <StatusPill
-                    label={domainAcceptanceSampleLaneStatusLabel(t, lane)}
-                    tone={lane.tone}
-                  />
+          {summary.sampleLanes.map((lane, index) => {
+            const taskKey = `lane:${index}:${lane.key}`
+            return (
+              <IconTip key={lane.key} label={lane.action}>
+                <div className="min-w-0 rounded-md bg-secondary/25 px-1.5 py-1 text-[10px]">
+                  <div className="flex min-w-0 items-center gap-1">
+                    <span className="min-w-0 flex-1 truncate font-medium">{lane.label}</span>
+                    <StatusPill
+                      label={domainAcceptanceSampleLaneStatusLabel(t, lane)}
+                      tone={lane.tone}
+                    />
+                  </div>
+                  <div className="mt-0.5 flex min-w-0 items-center gap-1">
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground/75">
+                      {lane.detail}
+                    </span>
+                    {!lane.passed && onCreateSampleLaneTask ? (
+                      <button
+                        type="button"
+                        onClick={() => onCreateSampleLaneTask(lane, index)}
+                        disabled={
+                          Boolean(creatingRequirementTaskKey) ||
+                          Boolean(creatingSampleLaneTaskKey) ||
+                          Boolean(creatingGapTaskKey) ||
+                          Boolean(creatingPlanTask)
+                        }
+                        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {creatingSampleLaneTaskKey === taskKey ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Plus className="h-3 w-3" />
+                        )}
+                        <span>
+                          {t("workspace.domainWorkbench.createAcceptanceLaneTask", "转任务")}
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="mt-0.5 truncate text-muted-foreground/75">{lane.detail}</div>
-              </div>
-            </IconTip>
-          ))}
+              </IconTip>
+            )
+          })}
         </div>
       </div>
       {summary.domains.length > 0 ? (
@@ -4159,6 +4194,7 @@ function DomainAcceptanceCoverageCard({
                     onClick={() => onCreateGapTask(gap, index)}
                     disabled={
                       Boolean(creatingRequirementTaskKey) ||
+                      Boolean(creatingSampleLaneTaskKey) ||
                       Boolean(creatingGapTaskKey) ||
                       Boolean(creatingPlanTask)
                     }
@@ -4380,6 +4416,8 @@ function DomainTaskWorkbenchSection({
   )
   const [creatingAcceptanceRequirementTaskKey, setCreatingAcceptanceRequirementTaskKey] =
     useState<string | null>(null)
+  const [creatingAcceptanceSampleLaneTaskKey, setCreatingAcceptanceSampleLaneTaskKey] =
+    useState<string | null>(null)
   const [creatingAcceptancePlanTask, setCreatingAcceptancePlanTask] = useState(false)
 
   const handleRefresh = () => {
@@ -4502,6 +4540,41 @@ function DomainTaskWorkbenchSection({
       toast.error(message)
     } finally {
       setCreatingAcceptanceRequirementTaskKey(null)
+    }
+  }
+
+  const createAcceptanceSampleLaneTask = async (
+    lane: DomainAcceptanceSampleLane,
+    index: number,
+  ) => {
+    if (!sessionId || disabled || creatingAcceptanceSampleLaneTaskKey) return
+    const taskKey = `lane:${index}:${lane.key}`
+    setCreatingAcceptanceSampleLaneTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainWorkbench.acceptanceLaneTaskContent",
+          "补齐真实样本验收跑道：{{lane}}（{{detail}}）。{{action}}",
+          { lane: lane.label, detail: lane.detail, action: lane.action },
+        ),
+        activeForm: t(
+          "workspace.domainWorkbench.acceptanceLaneTaskActiveForm",
+          "正在补齐真实样本验收跑道",
+        ),
+      })
+      toast.success(t("workspace.domainWorkbench.acceptanceLaneTaskCreated", "已创建验收跑道任务"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error(
+        "ui",
+        "DomainTaskWorkbenchSection",
+        "Create acceptance sample lane task failed",
+        e,
+      )
+      toast.error(message)
+    } finally {
+      setCreatingAcceptanceSampleLaneTaskKey(null)
     }
   }
 
@@ -4721,9 +4794,11 @@ function DomainTaskWorkbenchSection({
             soakReport,
           }}
           creatingRequirementTaskKey={creatingAcceptanceRequirementTaskKey}
+          creatingSampleLaneTaskKey={creatingAcceptanceSampleLaneTaskKey}
           creatingGapTaskKey={creatingAcceptanceGapTaskKey}
           creatingPlanTask={creatingAcceptancePlanTask}
           onCreateRequirementTask={!disabled ? createAcceptanceRequirementTask : undefined}
+          onCreateSampleLaneTask={!disabled ? createAcceptanceSampleLaneTask : undefined}
           onCreateGapTask={!disabled ? createAcceptanceGapTask : undefined}
           onCreateGapPlan={!disabled ? createAcceptancePlanTask : undefined}
         />

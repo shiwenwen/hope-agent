@@ -2159,6 +2159,22 @@ describe("WorkspacePanel workflow section", () => {
       })
     })
 
+    const campaignLane = screen.getByText("缺通过的 Campaign item")
+    const campaignLaneRow = campaignLane.parentElement?.parentElement
+    expect(campaignLaneRow).toBeTruthy()
+    fireEvent.click(
+      within(campaignLaneRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content:
+          "补齐真实样本验收跑道：Campaign 样本（缺通过的 Campaign item）。跑一个 deterministic 或真实 agent campaign item，确认可取消、可 retry、可复核。",
+        activeForm: "正在补齐真实样本验收跑道",
+      })
+    })
+
     fireEvent.click(screen.getByRole("button", { name: "采样清单" }))
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
