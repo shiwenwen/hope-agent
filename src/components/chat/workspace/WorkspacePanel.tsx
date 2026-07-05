@@ -6260,6 +6260,7 @@ function DomainSoakReportPanel({
   const recommendedSteps = (report?.recommendedNextSteps ?? []).filter(Boolean).slice(0, 2)
   const canCreateRecommendationTasks = Boolean(sessionId) && !disabled
   const timelineItems = (report?.timeline ?? []).slice(0, 3)
+  const canCopyReport = Boolean(report?.markdown)
 
   const createIncidentTask = async (incident: DomainSoakIncident, index: number) => {
     if (!sessionId || disabled || creatingIncidentTaskKey) return
@@ -6323,6 +6324,17 @@ function DomainSoakReportPanel({
     }
   }
 
+  const copyReportMarkdown = async () => {
+    if (!report?.markdown) return
+    try {
+      await navigator.clipboard.writeText(report.markdown)
+      toast.success(t("workspace.domainSoakReport.reportCopied", "已复制长跑报告"))
+    } catch (e) {
+      logger.error("ui", "DomainSoakReportPanel", "Copy soak report failed", e)
+      toast.error(t("workspace.domainSoakReport.reportCopyFailed", "复制长跑报告失败"))
+    }
+  }
+
   return (
     <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -6344,6 +6356,18 @@ function DomainSoakReportPanel({
           tone={domainSoakReportTone(report?.status, loading)}
           loading={loading}
         />
+        {canCopyReport ? (
+          <IconTip label={t("workspace.domainSoakReport.copyReport", "复制报告")}>
+            <button
+              type="button"
+              onClick={() => void copyReportMarkdown()}
+              disabled={disabled}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/60 bg-secondary/25 text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:opacity-55"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </button>
+          </IconTip>
+        ) : null}
         <IconTip label={t("workspace.domainSoakReport.refresh", "刷新长跑审计")}>
           <button
             type="button"

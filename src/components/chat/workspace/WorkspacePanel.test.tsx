@@ -2053,6 +2053,11 @@ describe("WorkspacePanel workflow section", () => {
   })
 
   it("opens operational and soak evidence from readiness actions", async () => {
+    const writeText = vi.fn(async (_value: string) => {})
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
       if (name === "list_workflow_runs") return Promise.resolve([])
@@ -2110,6 +2115,11 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("最近时间线")).toBeTruthy()
     expect(screen.getAllByText("Workflow failed").length).toBeGreaterThan(1)
     expect(screen.getAllByText("4m").length).toBeGreaterThan(1)
+
+    fireEvent.click(screen.getByRole("button", { name: "复制报告" }))
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("Workflow failed")
+    })
   })
 
   it("creates a task from domain soak incidents", async () => {
