@@ -221,7 +221,7 @@ pub fn get_tool_search_tool() -> ToolDefinition {
 pub fn get_workflow_run_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_WORKFLOW_RUN.into(),
-        description: "Create an observable, durable workflow run from a dynamic JavaScript workflow script, then request primary runtime launch by default. Use this only when Workflow Mode is enabled and the task benefits from explicit orchestration, fan-out, checkpoints, validation, review, or long-running recovery. It is not coding-only: use it for any substantial task where a durable, inspectable plan of operations improves reliability. Do not use it for trivial one-step work. The workflow run appears in the user's Workflow control center, where it can be approved, paused, resumed, inspected, or cancelled.".into(),
+        description: "Create an observable, durable workflow run from a dynamic JavaScript workflow script, then request primary runtime launch by default. Use this only when Workflow Mode is enabled and the task benefits from explicit orchestration, fan-out, checkpoints, validation, review, or long-running recovery. The assistant writes the workflow script itself when orchestration helps; do not ask the user to provide a script or enter a coding-only mode first. It is not coding-only: use it for any substantial research, writing, data, connector, operations, knowledge, or coding task where a durable, inspectable plan of operations improves reliability. Do not use it for trivial one-step work. The workflow run appears in the user's Workflow control center, where it can be approved, paused, resumed, inspected, or cancelled.".into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::Meta,
         },
@@ -548,6 +548,13 @@ mod tests {
     #[test]
     fn workflow_run_schema_requires_canonical_script_without_alias() {
         let def = super::get_workflow_run_tool();
+        assert!(def
+            .description
+            .contains("The assistant writes the workflow script itself"));
+        assert!(def.description.contains("research, writing, data"));
+        assert!(def
+            .description
+            .contains("Do not use it for trivial one-step work"));
         let properties = def
             .parameters
             .get("properties")

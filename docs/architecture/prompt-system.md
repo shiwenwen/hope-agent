@@ -198,6 +198,7 @@ The following project context files have been loaded:
 | ---- | ---- | -------- | ---- |
 | `# Current Permission Mode` | `sessions.permission_mode` | 所有正常 `system_prompt::build()` 路径 | 告诉模型当前会话处于 `default` / `smart` / `yolo`，让它合理决定工具调用自主度；权限引擎仍是唯一真相 |
 | `# Execution Mode: Guarded/Deep/Autonomous` | `sessions.execution_mode` | `guarded` / `deep` / `autonomous`；`off` 不注入 | 告诉模型当前会话的长任务推进策略、验证深度、修复次数和停止条件；不改变权限、sandbox、hook 或审批裁决 |
+| `# Workflow Mode: On/Ultracode` | `sessions.workflow_mode` | `on` / `ultracode`；`off` 不注入 | 告诉模型用户已允许自主动态编排；模型应自行判断是否调用 `workflow_run` 创建 durable run，而不是要求用户手写脚本或进入 coding-only 模式 |
 | `# IM Channel Attachment` | `SessionMeta.channel_info`（`channel_conversations` join） | 会话绑定 IM chat 时 | 告诉模型该 session 的回复可能镜像到 IM chat，包括桌面 / HTTP 发起的 turn |
 
 `# Current Permission Mode` 由 `build_permission_mode_guidance()` 生成：
@@ -217,11 +218,22 @@ The following project context files have been loaded:
 
 该段靠近 prompt 尾部的动态执行控制区，紧跟 `# Current Permission Mode`，避免 `/mode` 翻转时冲掉更大的静态前缀缓存。它只影响模型行为规划；实际持久 workflow 的创建、审批、暂停、恢复、取消和恢复重放仍由 [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md) 中的 runtime / owner API 执行。
 
+### Workflow Mode
+
+`# Workflow Mode` 由 `WorkflowMode::system_prompt_section()` 生成，枚举值为 `off | on | ultracode`。它是**会话级自主编排提示**，不是权限开关：
+
+- `off`：默认值，不注入段，也不向模型暴露 `workflow_run`。
+- `on`：提示模型可在多阶段、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行或需要可审计轨迹时自行调用 `workflow_run`；tiny 对话、单个显然动作或已验证机械任务保持 inline。
+- `ultracode`：在 `on` 的基础上更偏质量和覆盖；除 tiny / conversational / 已验证机械任务外，实质任务默认作为 workflow 候选。
+
+该段明确 Workflow 不是 coding-only，也不是“让用户写脚本”的功能；模型应自己生成 workflow script 并创建 durable run。执行层仍由 `workflow_run` 工具、Workflow Script Gate、permission preview、primary launcher、pause/resume/cancel/recovery 和 Goal/Loop 控制面兜底。
+
 `# IM Channel Attachment` 只描述稳定的 attach 状态，区别于 IM 入站 turn 通过 `ChatEngineParams.extra_system_context` 携带的 `## IM Channel Context`。后者只在 IM 消息触发的 turn 存在，包含当前 inbound sender / chat context；前者覆盖桌面 / HTTP 在同一 IM 绑定 session 中继续发消息并镜像到 IM 的场景。IM metadata 来自外部平台，prompt 中以单行 JSON 作为**不可信 routing/audience context**渲染，模型必须把字段值当作数据而非指令。
 
 **代码位置**：
 - Permission mode guidance：`crates/ha-core/src/system_prompt/constants.rs`
 - Execution mode section：`crates/ha-core/src/execution_mode.rs`
+- Workflow mode section：`crates/ha-core/src/workflow_mode.rs`
 - 动态注入顺序：`crates/ha-core/src/system_prompt/build.rs`
 - IM attachment section：`crates/ha-core/src/system_prompt/sections.rs`
 - 会话状态解析：`crates/ha-core/src/agent/config.rs`

@@ -172,8 +172,8 @@ Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具
 | Mode | 数据值 | 模型工具面 | Prompt 行为 | 用户语义 |
 | --- | --- | --- | --- | --- |
 | Off | `off` | 不注入 `workflow_run`。执行层也拒绝模型调用。 | 不注入 Workflow Mode 段。 | 普通对话/任务推进，用户仍可在 owner 控制面查看历史 run。 |
-| On | `on` | 注入 `workflow_run`。 | 告诉模型可在多步骤、fan-out、研究、迁移、验证、长任务场景按需创建 workflow。 | 用户允许模型自主动态编排，但模型仍需判断是否值得。 |
-| Ultracode | `ultracode` | 注入 `workflow_run`。 | 强化为“实质任务默认考虑 workflow”，鼓励多阶段、独立审查、交叉验证。 | 对齐 Claude Code `ultracode` 心智：质量/覆盖优先，成本和耗时更高。 |
+| On | `on` | 注入 `workflow_run`。 | 告诉模型可在多步骤、fan-out、研究、迁移、验证、长任务场景按需创建 workflow；明确“模型自己写脚本并创建 run”，不要求用户手写脚本或切 coding mode。 | 用户允许模型自主动态编排，但模型仍需判断是否值得。 |
+| Ultracode | `ultracode` | 注入 `workflow_run`。 | 强化为“实质任务默认考虑 workflow”，鼓励多阶段、独立审查、交叉验证；除 tiny / conversational / 已验证机械任务外，模型应主动判断并创建 durable workflow。 | 对齐 Claude Code `ultracode` 心智：质量/覆盖优先，成本和耗时更高。 |
 
 存储：
 
@@ -187,6 +187,7 @@ Workflow Mode 是 session 级持久开关，入口是输入框 `+` 菜单/工具
 - `workflow_run` 是 Core Meta Tool，但不进入静态工具目录；schema 构建后只在当前 session `workflow_mode.enabled()` 且非 incognito 时追加。
 - 执行层再次校验 session、incognito、DB、`workflow_mode`，所以即使旧 schema 或外部请求绕进来也 fail-closed。
 - `SessionDB` 还会拒绝把已开启 Workflow Mode 或已有 WorkflowRun 的普通会话切成 incognito。
+- 模型侧决策规则：请求包含多阶段依赖、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行或可审计轨迹时，应自行调用 `workflow_run` 创建 run；tiny 对话、单个显然动作或已验证机械任务保持 inline。这个规则适用于 Research、Writing、Data Analysis、Meeting Prep、Inbox / Project Ops、Knowledge Curation、Coding 等通用场景。
 - 模型侧 `workflow_run` schema 只要求 canonical `script`，且不展示 `scriptSource` / `script_source` alias，避免脚本入口分裂；执行层仍兼容这些历史输入别名。其它可选元数据参数为 `kind`、`executionMode`、`budget`、`runImmediately`、`parentRunId`、`origin`、`goalId`、`worktreeId`，创建层会校验 parent/goal/worktree 均属于同一 session。
 - `runImmediately` 默认 `true`：模型创建 run 后直接进入 preflight / approval / runtime；如果需要用户先看脚本，可显式创建 draft。
 - `executionMode` 未传时继承当前 session execution mode；若 session execution mode 是 `off`，run 默认使用 `guarded`，避免有 workflow 却没有基础 stop guard。

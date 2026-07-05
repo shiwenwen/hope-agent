@@ -61,6 +61,9 @@ impl WorkflowMode {
 const WORKFLOW_MODE_ON_PROMPT: &str = concat!(
     "# Workflow Mode: On\n\n",
     "This session has persistent Workflow Mode enabled. The user has opted into autonomous dynamic workflow orchestration.\n",
+    "- Treat Workflow Mode as permission to decide and create workflows yourself when useful. Do not ask the user to write a workflow script or switch to a special coding mode first.\n",
+    "- Decision rule: create a workflow when the request has multiple dependent steps, broad search or comparison, connector/file evidence, long-running work, independent verification, recoverable background execution, or a user-visible audit trail. Stay inline for tiny, conversational, or single obvious actions.\n",
+    "- Use workflows for general domains too: research, writing, data analysis, meeting prep, inbox/project ops, knowledge curation, connector action review, and coding all share the same durable control plane.\n",
     "- You may call `workflow_run` when deterministic multi-step orchestration, fan-out, independent review, research sweeps, migration planning, or long-running verification would make the work more complete, observable, or recoverable.\n",
     "- Workflow is not coding-only. Use it for any domain where structured background orchestration is useful; coding-specific validation is only one template.\n",
     "- Prefer a hybrid pattern: scout inline first to learn the work-list, then author a compact JavaScript workflow script for the deterministic fan-out or verification phase.\n",
@@ -75,6 +78,8 @@ const WORKFLOW_MODE_ON_PROMPT: &str = concat!(
 const WORKFLOW_MODE_ULTRACODE_PROMPT: &str = concat!(
     "# Workflow Mode: Ultracode\n\n",
     "Ultracode is on for this session: optimize for exhaustive correctness, stability, and coverage. Token cost is not the primary constraint.\n",
+    "- Treat substantial user requests as workflow candidates by default. Decide and create the durable workflow yourself when orchestration improves outcome quality, observability, or recovery.\n",
+    "- Do not wait for the user to ask for a workflow explicitly; the user has already enabled this mode. Only stay inline for tiny, conversational, or already-verified work.\n",
     "- Use `workflow_run` by default for every substantive task where parallel readers, independent designers, adversarial verifiers, broad search, or staged migration can improve quality.\n",
     "- Solo inline work is appropriate only for conversational, tiny, or already-verified mechanical turns.\n",
     "- Prefer multi-phase orchestration: understand -> design -> implement/check -> adversarial review -> synthesize. Keep each workflow phase observable and bounded.\n",
@@ -92,6 +97,9 @@ mod tests {
     fn workflow_mode_prompt_uses_runtime_host_api_contract() {
         let prompt = WorkflowMode::On.system_prompt_section().unwrap();
         assert!(prompt.contains("workflow_run"));
+        assert!(prompt.contains("Do not ask the user to write a workflow script"));
+        assert!(prompt.contains("Decision rule: create a workflow"));
+        assert!(prompt.contains("research, writing, data analysis, meeting prep"));
         assert!(prompt.contains("workflow.verify({ scope?, focusPaths?, maxCommands?, label? })"));
         assert!(prompt.contains("workflow.waitAll(handles, { timeout?, label? })"));
         assert!(prompt.contains("workflow.askUser({ question, context?, label? })"));

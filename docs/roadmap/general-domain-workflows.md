@@ -252,6 +252,7 @@ DomainWorkflow
 - `run_domain_eval_fixture` 已支持 `executionMode="agent"`，创建真实 user message + chat turn 并调用 `run_chat_engine`。
 - Agent fixture 必须显式传 `execution.providers` / `execution.modelChain`；owner API 不隐式读取桌面全局 provider。
 - Agent fixture 默认 `execution.workflowMode="ultracode"`，让模型能在通用任务中自主判断是否创建 durable workflow；也可显式设为 `on` / `off`。
+- Workflow Mode prompt / `workflow_run` 工具描述已明确“模型自己判断并创建 durable workflow”，并给出多阶段、宽搜索/比较、connector 或文件证据、长时间运行、独立验证、可恢复后台执行、可审计轨迹等触发规则；不会把 workflow 误导成用户手写脚本或 coding-only 功能。
 - `report.execution` 记录 status、turnId、response/error、modelUsed、toolCalls 和 workflowMode；checks 支持 execution status、turn、tool call、response/error 断言。
 - Agent fixture 不自动写入 `fixture.evidence` / `fixture.workflow`，避免模型未产出真实 evidence/workflow trace 时被确定性种子托过关。
 - 执行失败或缺 provider/modelChain 时不写 `domain_eval_runs`；执行完成但证据不足时仍由同一 scorer 标记 failed / insufficient_data。
