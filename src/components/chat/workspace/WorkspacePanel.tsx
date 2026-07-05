@@ -3837,6 +3837,29 @@ function domainAcceptanceVerdict(
   }
 }
 
+function domainAcceptanceReviewProtocolLines(
+  t: ReturnType<typeof useTranslation>["t"],
+): string[] {
+  return [
+    t(
+      "workspace.domainWorkbench.acceptanceReviewProtocolVerdict",
+      "只有验收结论为“可验收”时，当前样本才可作为最终验收证据；“可局部复核”只能证明局部场景。",
+    ),
+    t(
+      "workspace.domainWorkbench.acceptanceReviewProtocolEvidence",
+      "逐项核对验收必需项和验收矩阵；转任务、按钮点击或人工声明不能替代真实 evidence。",
+    ),
+    t(
+      "workspace.domainWorkbench.acceptanceReviewProtocolSoak",
+      "长任务必须复核 Operational Gate 与 Soak Report：无 critical 事故、无预算耗尽、样本新鲜且守门通过。",
+    ),
+    t(
+      "workspace.domainWorkbench.acceptanceReviewProtocolConnector",
+      "连接器 E2E 必须来自测试账号或沙箱数据，并包含执行结果、执行后复核和回滚说明。",
+    ),
+  ].map((line) => `- ${line}`)
+}
+
 function domainAcceptancePlanTaskContent(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
@@ -3916,6 +3939,9 @@ function domainAcceptancePlanTaskContent(
     "",
     t("workspace.domainWorkbench.acceptancePlanMetrics", "当前指标："),
     ...metrics.map((metric) => `- ${metric}`),
+    "",
+    t("workspace.domainWorkbench.acceptanceReviewProtocol", "复核协议："),
+    ...domainAcceptanceReviewProtocolLines(t),
     "",
     t("workspace.domainWorkbench.acceptancePlanRequirements", "验收必需项："),
     ...requirements,
@@ -4130,6 +4156,9 @@ function domainAcceptanceReviewMarkdown(
     `${t("workspace.domainWorkbench.acceptancePlanBudget", "输出预算")}：${budgetHealth}`,
     `${t("workspace.domainWorkbench.acceptancePlanConnector", "连接器 E2E evidence")}：${summary.connectorE2eEvidence}`,
     `${t("workspace.domainWorkbench.acceptancePlanIncidents", "事故")}：critical ${summary.criticalIncidents} / warning ${summary.warningIncidents}`,
+    "",
+    `## ${t("workspace.domainWorkbench.acceptanceReviewProtocol", "复核协议")}`,
+    ...domainAcceptanceReviewProtocolLines(t),
     "",
     `## ${t("workspace.domainWorkbench.acceptancePlanRequirements", "验收必需项")}`,
     ...requirementLines,
