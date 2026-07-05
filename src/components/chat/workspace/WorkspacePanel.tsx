@@ -3032,9 +3032,20 @@ type DomainAcceptanceCoverageSummary = {
   requiredTotal: number
   requirements: DomainAcceptanceRequirement[]
   sampleLanes: DomainAcceptanceSampleLane[]
+  controlMix: DomainAcceptanceControlMix
   provenance: DomainAcceptanceProvenanceSummary
   tone: StatusTone
   gaps: DomainAcceptanceGap[]
+}
+
+type DomainAcceptanceControlMix = {
+  workflowRuns: number
+  completedWorkflowRuns: number
+  loopRuns: number
+  succeededLoopRuns: number
+  campaignItems: number
+  passedCampaignItems: number
+  connectorE2eEvidence: number
 }
 
 type DomainAcceptanceProvenanceSummary = {
@@ -3211,6 +3222,15 @@ function domainAcceptanceCoverageSummary(
     soakSummary?.connectorE2eEvidence ??
     ((soakSummary?.connectorExecutionEvidence ?? 0) +
       (soakSummary?.connectorVerificationEvidence ?? 0))
+  const controlMix: DomainAcceptanceControlMix = {
+    workflowRuns,
+    completedWorkflowRuns,
+    loopRuns,
+    succeededLoopRuns,
+    campaignItems,
+    passedCampaignItems,
+    connectorE2eEvidence,
+  }
   const criticalIncidents = soakSummary?.criticalIncidents ?? 0
   const warningIncidents = soakSummary?.warningIncidents ?? 0
   const rawLatestActivityAgeSecs = soakSummary?.latestActivityAgeSecs
@@ -3730,6 +3750,7 @@ function domainAcceptanceCoverageSummary(
     requiredTotal,
     requirements,
     sampleLanes,
+    controlMix,
     provenance,
     tone,
     gaps: sortedGaps.slice(0, 3),
@@ -4037,6 +4058,25 @@ function domainAcceptanceProvenanceText(
   )
 }
 
+function domainAcceptanceControlMixText(
+  t: ReturnType<typeof useTranslation>["t"],
+  mix: DomainAcceptanceControlMix,
+): string {
+  return t(
+    "workspace.domainWorkbench.acceptanceControlMixText",
+    "workflow {{completedWorkflow}}/{{workflow}} · loop {{succeededLoop}}/{{loop}} · campaign {{passedCampaign}}/{{campaign}} · connector {{connector}}",
+    {
+      completedWorkflow: mix.completedWorkflowRuns,
+      workflow: mix.workflowRuns,
+      succeededLoop: mix.succeededLoopRuns,
+      loop: mix.loopRuns,
+      passedCampaign: mix.passedCampaignItems,
+      campaign: mix.campaignItems,
+      connector: mix.connectorE2eEvidence,
+    },
+  )
+}
+
 function domainAcceptanceSnapshotId(
   summary: DomainAcceptanceCoverageSummary,
   context?: DomainAcceptanceReviewContext,
@@ -4081,6 +4121,7 @@ function domainAcceptanceSnapshotId(
     `requirements=${summary.requirements
       .map((requirement) => `${requirement.key}:${requirement.passed ? 1 : 0}:${requirement.tone}`)
       .join("|")}`,
+    `control=${summary.controlMix.completedWorkflowRuns}/${summary.controlMix.workflowRuns}:${summary.controlMix.succeededLoopRuns}/${summary.controlMix.loopRuns}:${summary.controlMix.passedCampaignItems}/${summary.controlMix.campaignItems}:${summary.controlMix.connectorE2eEvidence}`,
     `provenance=${summary.provenance.total}:${summary.provenance.workflow}:${summary.provenance.connector}:${summary.provenance.fixtureOrMock}:${summary.provenance.manual}:${summary.provenance.publicSource}:${summary.provenance.restrictedAccess}`,
     `lanes=${summary.sampleLanes
       .map((lane) => `${lane.key}:${lane.passed ? 1 : 0}:${lane.tone}`)
@@ -4216,6 +4257,7 @@ function domainAcceptancePlanTaskContent(
     `${t("workspace.domainWorkbench.acceptanceVerdict", "验收结论")}：${verdict.label} - ${verdict.detail}`,
     `${t("workspace.domainWorkbench.acceptanceEvidenceLevel", "证据等级")}：${evidenceLevel.label} - ${evidenceLevel.detail}`,
     `${t("workspace.domainWorkbench.acceptanceProvenance", "来源分布")}：${domainAcceptanceProvenanceText(t, summary.provenance)}`,
+    `${t("workspace.domainWorkbench.acceptanceControlMix", "控制面组成")}：${domainAcceptanceControlMixText(t, summary.controlMix)}`,
     `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
     `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
@@ -4483,6 +4525,7 @@ function domainAcceptanceReviewMarkdown(
     `${t("workspace.domainWorkbench.acceptanceVerdict", "验收结论")}：${verdict.label} - ${verdict.detail}`,
     `${t("workspace.domainWorkbench.acceptanceEvidenceLevel", "证据等级")}：${evidenceLevel.label} - ${evidenceLevel.detail}`,
     `${t("workspace.domainWorkbench.acceptanceProvenance", "来源分布")}：${domainAcceptanceProvenanceText(t, summary.provenance)}`,
+    `${t("workspace.domainWorkbench.acceptanceControlMix", "控制面组成")}：${domainAcceptanceControlMixText(t, summary.controlMix)}`,
     `${t("workspace.domainWorkbench.acceptancePlanProgress", "验收进度")}：${summary.readinessPercent}% (${summary.requiredPassed}/${summary.requiredTotal})`,
     `${t("workspace.domainWorkbench.acceptancePlanDomains", "领域")}：${domains}`,
     `${t("workspace.domainWorkbench.acceptancePlanRecords", "控制面记录")}：${summary.controlRecords}`,
@@ -4645,6 +4688,15 @@ function DomainAcceptanceCoverageCard({
         </span>
         <span className="min-w-0 flex-1 text-muted-foreground/75">
           {domainAcceptanceProvenanceText(t, summary.provenance)}
+        </span>
+      </div>
+      <div className="mt-2 flex min-w-0 items-start gap-1.5 text-[10px]">
+        <Radio className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 font-medium text-muted-foreground">
+          {t("workspace.domainWorkbench.acceptanceControlMix", "控制面组成")}
+        </span>
+        <span className="min-w-0 flex-1 text-muted-foreground/75">
+          {domainAcceptanceControlMixText(t, summary.controlMix)}
         </span>
       </div>
       <div className="mt-2 flex min-w-0 items-start gap-1.5 text-[10px]">

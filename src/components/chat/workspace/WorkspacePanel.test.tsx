@@ -2102,6 +2102,8 @@ describe("WorkspacePanel workflow section", () => {
         "evidence 0 · workflow 0 · connector 0 · fixture/mock 0 · manual 0 · public 0 · restricted 0",
       ),
     ).toBeTruthy()
+    expect(screen.getByText("控制面组成")).toBeTruthy()
+    expect(screen.getByText("workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0")).toBeTruthy()
     expect(screen.getByText("验收结论")).toBeTruthy()
     expect(screen.getByText("不可验收")).toBeTruthy()
     expect(screen.getByText("39% · 3/7")).toBeTruthy()
@@ -2135,6 +2137,9 @@ describe("WorkspacePanel workflow section", () => {
     )
     expect(acceptanceReport).toContain(
       "来源分布：evidence 0 · workflow 0 · connector 0 · fixture/mock 0 · manual 0 · public 0 · restricted 0",
+    )
+    expect(acceptanceReport).toContain(
+      "控制面组成：workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0",
     )
     expect(acceptanceReport).toContain(
       "Gate 快照：export=missing · connector=missing · e2e=missing · operational=failed · soak=failed",
@@ -2230,6 +2235,9 @@ describe("WorkspacePanel workflow section", () => {
     )
     expect(acceptancePlanContent).toContain(
       "来源分布：evidence 0 · workflow 0 · connector 0 · fixture/mock 0 · manual 0 · public 0 · restricted 0",
+    )
+    expect(acceptancePlanContent).toContain(
+      "控制面组成：workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0",
     )
     expect(acceptancePlanContent).toContain("控制面：记录 3 · 已排空 2 · Connector E2E 0")
     expect(acceptancePlanContent).toContain("复核协议：")
@@ -2440,6 +2448,9 @@ describe("WorkspacePanel workflow section", () => {
     expect(acceptanceReport).toContain(
       "来源分布：evidence 1 · workflow 0 · connector 0 · fixture/mock 0 · manual 0 · public 1 · restricted 0",
     )
+    expect(acceptanceReport).toContain(
+      "控制面组成：workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0",
+    )
     expect(acceptanceReport).toContain("source_cited · research · public/none")
     expect(acceptanceReport).toContain("(e-source)")
 
@@ -2463,6 +2474,9 @@ describe("WorkspacePanel workflow section", () => {
     )
     expect(acceptancePlanContent).toContain(
       "来源分布：evidence 1 · workflow 0 · connector 0 · fixture/mock 0 · manual 0 · public 1 · restricted 0",
+    )
+    expect(acceptancePlanContent).toContain(
+      "控制面组成：workflow 1/2 · loop 1/1 · campaign 0/0 · connector 0",
     )
     expect(acceptancePlanContent).toContain("验收结论：可局部复核")
     expect(acceptancePlanContent).toContain("继续补其它通用领域样本，避免只证明单一场景。")
