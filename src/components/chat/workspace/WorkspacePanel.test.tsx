@@ -2109,6 +2109,26 @@ describe("WorkspacePanel workflow section", () => {
     fireEvent.click(screen.getByRole("button", { name: "查看稳定性" }))
     expect(await screen.findByText("运行稳定性")).toBeTruthy()
     expect(screen.getByText("workflow_failed_residue")).toBeTruthy()
+    expect(screen.getByText("稳定性建议")).toBeTruthy()
+    const operationalRecommendation = screen
+      .getAllByText("Open the failed workflow and repair it.")
+      .find((element) =>
+        String(element.parentElement?.parentElement?.className ?? "").includes("border-sky-500"),
+      )
+    expect(operationalRecommendation).toBeTruthy()
+    if (!operationalRecommendation) throw new Error("missing operational recommendation row")
+    const operationalRecommendationRow = operationalRecommendation.parentElement
+    expect(operationalRecommendationRow).toBeTruthy()
+    fireEvent.click(
+      within(operationalRecommendationRow as HTMLElement).getByRole("button", { name: "转任务" }),
+    )
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content: "处理运行稳定性建议：Open the failed workflow and repair it.",
+        activeForm: "正在处理运行稳定性建议",
+      })
+    })
     const operationalCheck = screen.getByText("workflow_failed_residue")
     const operationalCheckRow = operationalCheck.parentElement
     expect(operationalCheckRow).toBeTruthy()

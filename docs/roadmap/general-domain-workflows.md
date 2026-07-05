@@ -467,7 +467,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - 外部动作守门卡片提供「批准动作 / 记录回滚」显式确认；批准写入 `user_decision` evidence，回滚必须填写文本后写入 `connector_context_collected` evidence，因此不会把空回滚方案伪装成可恢复。
 - 连接器 E2E 卡片提供「记录执行 / 记录复核」真实样本入口，必须填写结果文本后才写入标准 execution / verification evidence；它不调用连接器、不伪造外部 result id，只让真实动作后的人工记录进入 Gate / Soak Report；E2E check 行可「转任务」，把缺执行、缺复核、缺回滚等缺口进入 TaskProgressPanel。
 - Context Retrieval 候选行的「摘要」按钮会写入 `artifact_created` 摘要 evidence；「确认」按钮会创建 owner-side ask_user，并在用户回答后写入 `user_decision` evidence；「证据」按钮可把当前推荐来源/文档/会议/表格/决策落成 domain evidence，并刷新通用任务工作台；「冲突」按钮会写入 `claim_checked` 冲突证据；「转任务」按钮可把候选落成 session task，形成“看到缺口 -> 生成摘要 / 用户确认 / 补证据 / 标冲突 / 建任务 -> 守门和进度重新评估”的真实 owner action。
-- 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门、外部动作守门和 Soak incident 状态生成“下一步”提示；运行稳定性 check 可「转任务」；长跑审计会展示最近 timeline，并可复制 Soak Markdown 报告；每条提示、每个守门 check、每条需复核 evidence、每条 Soak Report recommended next step 和每个长跑事故都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
+- 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门、外部动作守门和 Soak incident 状态生成“下一步”提示；运行稳定性 check 和 recommended next steps 可「转任务」；长跑审计会展示最近 timeline，并可复制 Soak Markdown 报告；每条提示、每个守门 check、每条需复核 evidence、每条 Soak Report recommended next step 和每个长跑事故都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
 - 最近 evidence 行展示 evidence type、domain、access scope、redaction status 与时间，让用户知道来源、草稿、批准、复核和决策证据是否已经真实落盘。
 - 交付守门与外部动作守门的判定仍保持只读：它们提示能否交付/执行外部动作；「复核产物」只创建 Domain Quality run，显式确认按钮只写当前 session evidence，check 行与需复核 evidence 行「转任务」只创建用户可见待办；真正发送、分享、修改外部系统仍必须走工具审批和连接器授权。
 

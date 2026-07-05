@@ -6116,12 +6116,17 @@ function DomainOperationalGatePanel({
 }) {
   const { t } = useTranslation()
   const [creatingCheckTaskKey, setCreatingCheckTaskKey] = useState<string | null>(null)
+  const [creatingRecommendationTaskKey, setCreatingRecommendationTaskKey] = useState<string | null>(
+    null,
+  )
   const issueChecks = (report?.checks ?? []).filter(
     (check) => check.status !== "passed" && check.severity !== "advisory",
   )
+  const recommendedSteps = (report?.recommendedNextSteps ?? []).filter(Boolean).slice(0, 2)
   const summary = report?.summary
   const clean = report?.status === "passed"
   const canCreateCheckTasks = Boolean(sessionId) && !disabled
+  const canCreateRecommendationTasks = Boolean(sessionId) && !disabled
 
   const createCheckTask = async (
     check: DomainOperationalGateReport["checks"][number],
@@ -6155,6 +6160,33 @@ function DomainOperationalGatePanel({
       toast.error(message)
     } finally {
       setCreatingCheckTaskKey(null)
+    }
+  }
+
+  const createRecommendationTask = async (step: string, index: number) => {
+    if (!sessionId || disabled || creatingRecommendationTaskKey) return
+    const taskKey = `${index}:${step}`
+    setCreatingRecommendationTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainOperationalGate.recommendationTaskContent",
+          "处理运行稳定性建议：{{step}}",
+          { step },
+        ),
+        activeForm: t(
+          "workspace.domainOperationalGate.recommendationTaskActiveForm",
+          "正在处理运行稳定性建议",
+        ),
+      })
+      toast.success(t("workspace.domainOperationalGate.recommendationTaskCreated", "已创建运行稳定性建议任务"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error("ui", "DomainOperationalGatePanel", "Create operational recommendation task failed", e)
+      toast.error(message)
+    } finally {
+      setCreatingRecommendationTaskKey(null)
     }
   }
 
@@ -6227,6 +6259,43 @@ function DomainOperationalGatePanel({
               <div className="text-xs font-semibold tabular-nums">{value as string | number}</div>
             </div>
           ))}
+        </div>
+      ) : null}
+
+      {report && !clean && recommendedSteps.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          <div className="flex min-w-0 items-center gap-1.5 px-1 text-[10px] font-medium text-muted-foreground">
+            <Lightbulb className="h-3 w-3 shrink-0" />
+            <span className="truncate">{t("workspace.domainOperationalGate.recommendations", "稳定性建议")}</span>
+          </div>
+          {recommendedSteps.map((step, index) => {
+            const taskKey = `${index}:${step}`
+            return (
+              <div
+                key={taskKey}
+                className="rounded-md border border-sky-500/20 bg-sky-500/10 px-2 py-1.5 text-[11px] text-sky-700 dark:text-sky-300"
+              >
+                <div className="flex min-w-0 items-start gap-1.5">
+                  <span className="min-w-0 flex-1 line-clamp-2">{step}</span>
+                  {canCreateRecommendationTasks ? (
+                    <button
+                      type="button"
+                      onClick={() => void createRecommendationTask(step, index)}
+                      disabled={Boolean(creatingRecommendationTaskKey)}
+                      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-current/20 bg-background/45 px-1.5 text-[10px] font-medium transition-colors hover:bg-background/75 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {creatingRecommendationTaskKey === taskKey ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      <span>{t("workspace.domainOperationalGate.createRecommendationTask", "转任务")}</span>
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
         </div>
       ) : null}
 
