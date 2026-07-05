@@ -437,6 +437,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `export_design_md_cmd` | `GET /api/design/systems/{id}/design-md`（导出为规范 DESIGN.md） | ✅ |
 | `propose_design_directions_cmd` | `POST /api/design/directions` | ✅ |
 | `list_design_recipes_cmd` | `GET /api/design/recipes`（内置设计模板目录，首屏模板快选） | ✅ |
+| `export_design_native_cmd` | `GET /api/design/artifacts/{id}/native?format=pdf\|png`（真实浏览器原生捕获：矢量 PDF / 全保真 PNG；无后端时前端回退客户端栅格化） | ✅ |
 | `delete_design_system_cmd` | `DELETE /api/design/systems/{id}` | ✅ |
 | `get_design_config_cmd` | `GET /api/config/design` | ✅ |
 | `save_design_config_cmd` | `PUT /api/config/design` | ✅ |

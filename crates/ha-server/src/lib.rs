@@ -1726,6 +1726,10 @@ fn build_router_with_cors(
         )
         .route("/design/recipes", get(routes::design::list_recipes))
         .route(
+            "/design/artifacts/{id}/native",
+            get(routes::design::export_native),
+        )
+        .route(
             "/design/systems/{id}/design-md",
             get(routes::design::export_design_md),
         )

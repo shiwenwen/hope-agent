@@ -212,3 +212,15 @@ pub async fn save_design_config_cmd(config: DesignConfig) -> Result<(), CmdError
 pub async fn list_design_recipes_cmd() -> Result<Vec<ha_core::design::recipe::Recipe>, CmdError> {
     Ok(ha_core::design::recipe::builtin_recipes())
 }
+
+/// 强路导出：真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）→ `{ data: base64, mime }`。
+/// 复用现有 CDP 后端（Chromium 按需下载、不打包）；后端不可用时返回 Err，前端回退客户端
+/// 栅格化（html2canvas / jsPDF）。owner 平面。
+#[tauri::command]
+pub async fn export_design_native_cmd(
+    id: String,
+    format: String,
+) -> Result<serde_json::Value, CmdError> {
+    let (data, mime) = ha_core::design::render_native::capture_artifact_b64(&id, &format).await?;
+    Ok(serde_json::json!({ "data": data, "mime": mime }))
+}

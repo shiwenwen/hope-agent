@@ -774,6 +774,7 @@ pub fn run() {
             commands::design::export_design_md_cmd,
             commands::design::propose_design_directions_cmd,
             commands::design::list_design_recipes_cmd,
+            commands::design::export_design_native_cmd,
             commands::design::get_design_config_cmd,
             commands::design::save_design_config_cmd,
             // Dashboard analytics

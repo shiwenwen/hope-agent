@@ -352,6 +352,21 @@ pub async fn list_recipes() -> Result<Json<Vec<ha_core::design::recipe::Recipe>>
     Ok(Json(ha_core::design::recipe::builtin_recipes()))
 }
 
+/// `GET /api/design/artifacts/{id}/native?format=pdf` — real-browser native capture
+/// (vector PDF via printToPDF / full-fidelity PNG via captureScreenshot). Falls back
+/// to client rasterization on the frontend when the browser backend is unavailable.
+pub async fn export_native(
+    Path(id): Path<String>,
+    Query(q): Query<ExportQuery>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let format = q.format.as_deref().unwrap_or("pdf");
+    let (data, mime) = ha_core::design::render_native::capture_artifact_b64(&id, format)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "data": data, "mime": mime })))
+}
+
 /// `GET /api/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}` —
 /// serve a file from an artifact directory (the preview iframe loads
 /// `…/index.html` through this route). Three-gate path containment.

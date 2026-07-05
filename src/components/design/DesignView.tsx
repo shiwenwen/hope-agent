@@ -591,10 +591,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           jpegQuality: designConfig?.exportJpegQuality,
           onProgress,
         }
-        if (format === "png") {
-          downloadBlob(await exportPng(res.content, kind, vw, exportOpts), `${base}.png`)
-        } else if (format === "pdf") {
-          downloadBlob(await exportPdf(res.content, kind, vw, exportOpts), `${base}.pdf`)
+        if (format === "png" || format === "pdf") {
+          // 强路优先：真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）。无浏览器后端
+          // 或原生失败时，回退客户端栅格化（html2canvas / jsPDF），保证始终可导出。
+          try {
+            const nat = await tx.call<{ data: string; mime: string }>(
+              "export_design_native_cmd",
+              { id: activeArtifact.id, format },
+            )
+            downloadBlob(base64ToBlob(nat.data, nat.mime), `${base}.${format}`)
+          } catch (e) {
+            logger.error(
+              "design",
+              "DesignView::handleExport",
+              `native ${format} unavailable, using client fallback`,
+              e,
+            )
+            if (format === "png") {
+              downloadBlob(await exportPng(res.content, kind, vw, exportOpts), `${base}.png`)
+            } else {
+              downloadBlob(await exportPdf(res.content, kind, vw, exportOpts), `${base}.pdf`)
+            }
+          }
         } else if (format === "pptx") {
           downloadBlob(
             await exportPptx(res.content, kind, activeArtifact.title, vw, exportOpts),

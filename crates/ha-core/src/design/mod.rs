@@ -15,6 +15,7 @@ pub mod generate;
 pub mod image;
 pub mod patch;
 pub mod recipe;
+pub mod render_native;
 pub mod renderer;
 pub mod service;
 pub mod system;
