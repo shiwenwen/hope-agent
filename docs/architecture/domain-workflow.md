@@ -100,7 +100,7 @@ Phase 8.4 在 `src/components/chat/workspace/WorkspacePanel.tsx` 新增「通用
 - `good`：已有证据链且没有上述阻塞/缺口。
 - `muted`：无痕会话、无 session 或尚未开始。
 
-「真实样本验收」卡片是 Workspace 内的只读派生视图，不新增后端表：它从当前 session 的 domain evidence、Artifact Export Guard、Connector Action Guard、Operational Gate 与 Soak Report 计算覆盖领域数、控制面记录数、已排空 Workflow / Loop / Campaign 样本、Connector E2E evidence 数，以及事故、缺证据、缺排空、缺连接器 E2E、单领域覆盖等缺口。它回答“当前会话是否已经有真实场景样本可供验收”，不启动采样、不调用连接器、不修改 gate 结果。
+「真实样本验收」卡片是 Workspace 内的只读派生视图，不新增后端表：它从当前 session 的 domain evidence、Artifact Export Guard、Connector Action Guard、Operational Gate 与 Soak Report 计算覆盖领域数、控制面记录数、已排空 Workflow / Loop / Campaign 样本、Connector E2E evidence 数，以及事故、缺证据、缺排空、缺连接器 E2E、单领域覆盖等缺口。它回答“当前会话是否已经有真实场景样本可供验收”，不启动采样、不调用连接器、不修改 gate 结果；每个验收缺口可由用户显式「转任务」，复用 `create_session_task` 落入 TaskProgressPanel。
 
 用户可见动作：
 

@@ -459,7 +459,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 ### Phase 8.4 通用任务工作台（已完成第一版）
 
 - Workspace 新增「通用任务工作台」区块，位于 Context Retrieval 之后，把 Sources、Evidence、Drafts、Review、Verification、Decisions 做成同屏闭环总览。
-- 工作台新增「真实样本验收」卡片：从当前 session 的 domain evidence、Operational Gate、Soak Report、Artifact Export Guard 与 Connector Action Guard 派生覆盖领域数、控制面记录数、已排空样本、Connector E2E evidence 与事故/缺口，避免“真实样本还没跑够”只停留在文档提醒。
+- 工作台新增「真实样本验收」卡片：从当前 session 的 domain evidence、Operational Gate、Soak Report、Artifact Export Guard 与 Connector Action Guard 派生覆盖领域数、控制面记录数、已排空样本、Connector E2E evidence 与事故/缺口；每个验收缺口都可显式「转任务」，避免“真实样本还没跑够”只停留在文档提醒。
 - 工作台复用已落地的 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review runs、Verification runs 与 Domain Quality runs，不新增后端表，也不绕过既有权限/审批。
 - 用户可在同一面板直接运行领域复核、对交付守门里的具体 artifact 发起领域复核、推荐验证、运行验证、刷新全部守门状态，并把“下一步”证据缺口、交付/外部动作守门 check、需复核 evidence 或长跑审计事故一键转成 session task，不需要记 slash 命令或切到 Dashboard。
 - artifact-scoped 领域复核通过后，用户可在「领域复核」摘要卡片点击「记录复核证据」，写回窄域 `artifact_reviewed` evidence；该动作只确认本次复核事实，不替代导出前 review、脱敏检查或外部动作批准。

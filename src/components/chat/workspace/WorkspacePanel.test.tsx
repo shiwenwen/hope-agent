@@ -2062,6 +2062,7 @@ describe("WorkspacePanel workflow section", () => {
       if (name === "evaluate_domain_operational_gate")
         return Promise.resolve(domainOperationalGateReport())
       if (name === "generate_domain_soak_report") return Promise.resolve(domainSoakReport())
+      if (name === "create_session_task") return Promise.resolve([])
       if (name === "get_background_job") return Promise.resolve(null)
       return Promise.resolve([])
     })
@@ -2076,6 +2077,19 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("样本有事故")).toBeTruthy()
     expect(screen.getByText("3 条")).toBeTruthy()
     expect(screen.getByText("长跑审计仍有事故需要收口。")).toBeTruthy()
+
+    const acceptanceGap = screen.getByText("长跑审计仍有事故需要收口。")
+    const acceptanceGapRow = acceptanceGap.parentElement
+    expect(acceptanceGapRow).toBeTruthy()
+    fireEvent.click(within(acceptanceGapRow as HTMLElement).getByRole("button", { name: "转任务" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content: "补齐真实样本验收缺口：长跑审计仍有事故需要收口。",
+        activeForm: "正在补齐真实样本验收缺口",
+      })
+    })
 
     fireEvent.click(screen.getByRole("button", { name: "查看稳定性" }))
     expect(await screen.findByText("运行稳定性")).toBeTruthy()

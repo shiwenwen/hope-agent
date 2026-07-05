@@ -3136,8 +3136,12 @@ function domainAcceptanceStatusLabel(
 
 function DomainAcceptanceCoverageCard({
   summary,
+  creatingGapTaskKey,
+  onCreateGapTask,
 }: {
   summary: DomainAcceptanceCoverageSummary
+  creatingGapTaskKey?: string | null
+  onCreateGapTask?: (gap: string, index: number) => void
 }) {
   const { t } = useTranslation()
   return (
@@ -3198,14 +3202,32 @@ function DomainAcceptanceCoverageCard({
       ) : null}
       {summary.gaps.length > 0 ? (
         <div className="mt-2 space-y-1">
-          {summary.gaps.map((gap, index) => (
-            <div
-              key={`${index}:${gap}`}
-              className="line-clamp-2 text-[11px] leading-snug text-muted-foreground"
-            >
-              {gap}
-            </div>
-          ))}
+          {summary.gaps.map((gap, index) => {
+            const taskKey = `acceptance:${index}:${gap}`
+            return (
+              <div
+                key={taskKey}
+                className="flex min-w-0 items-start gap-1.5 rounded-md px-1.5 py-1 text-[11px] leading-snug text-muted-foreground"
+              >
+                <span className="line-clamp-2 min-w-0 flex-1">{gap}</span>
+                {onCreateGapTask ? (
+                  <button
+                    type="button"
+                    onClick={() => onCreateGapTask(gap, index)}
+                    disabled={Boolean(creatingGapTaskKey)}
+                    className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {creatingGapTaskKey === taskKey ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="h-3 w-3" />
+                    )}
+                    <span>{t("workspace.domainWorkbench.createAcceptanceTask", "转任务")}</span>
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
         </div>
       ) : null}
     </div>
@@ -3406,6 +3428,9 @@ function DomainTaskWorkbenchSection({
 
   const focusSignal = focusRequest?.nonce ?? 0
   const [creatingStepTaskKey, setCreatingStepTaskKey] = useState<string | null>(null)
+  const [creatingAcceptanceGapTaskKey, setCreatingAcceptanceGapTaskKey] = useState<string | null>(
+    null,
+  )
 
   const handleRefresh = () => {
     void refreshAll()
@@ -3463,6 +3488,33 @@ function DomainTaskWorkbenchSection({
       toast.error(message)
     } finally {
       setCreatingStepTaskKey(null)
+    }
+  }
+
+  const createAcceptanceGapTask = async (gap: string, index: number) => {
+    if (!sessionId || disabled || creatingAcceptanceGapTaskKey) return
+    const taskKey = `acceptance:${index}:${gap}`
+    setCreatingAcceptanceGapTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainWorkbench.acceptanceTaskContent",
+          "补齐真实样本验收缺口：{{gap}}",
+          { gap },
+        ),
+        activeForm: t(
+          "workspace.domainWorkbench.acceptanceTaskActiveForm",
+          "正在补齐真实样本验收缺口",
+        ),
+      })
+      toast.success(t("workspace.domainWorkbench.acceptanceTaskCreated", "已创建真实样本任务"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error("ui", "DomainTaskWorkbenchSection", "Create acceptance gap task failed", e)
+      toast.error(message)
+    } finally {
+      setCreatingAcceptanceGapTaskKey(null)
     }
   }
 
@@ -3649,7 +3701,11 @@ function DomainTaskWorkbenchSection({
           </div>
         </div>
 
-        <DomainAcceptanceCoverageCard summary={acceptanceSummary} />
+        <DomainAcceptanceCoverageCard
+          summary={acceptanceSummary}
+          creatingGapTaskKey={creatingAcceptanceGapTaskKey}
+          onCreateGapTask={!disabled ? createAcceptanceGapTask : undefined}
+        />
 
         <div className="grid grid-cols-1 gap-2">
           <DomainOperationalGatePanel
