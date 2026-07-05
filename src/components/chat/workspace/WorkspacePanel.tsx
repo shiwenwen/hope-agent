@@ -4369,6 +4369,7 @@ function DomainAcceptanceCoverageCard({
 }) {
   const { t } = useTranslation()
   const verdict = domainAcceptanceVerdict(t, summary)
+  const snapshotId = domainAcceptanceSnapshotId(summary, reviewContext)
   const acceptanceReviewLabel = t("workspace.domainWorkbench.copyAcceptanceReview", "复制验收报告")
   const copyAcceptanceReview = async () => {
     try {
@@ -4423,6 +4424,14 @@ function DomainAcceptanceCoverageCard({
             <span>{t("workspace.domainWorkbench.createAcceptancePlan", "采样清单")}</span>
           </button>
         ) : null}
+      </div>
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/75">
+        <span className="shrink-0">
+          {t("workspace.domainWorkbench.acceptanceSnapshot", "验收快照")}
+        </span>
+        <code className="min-w-0 truncate rounded bg-background/45 px-1 py-0.5 font-mono text-[10px]">
+          {snapshotId}
+        </code>
       </div>
       <div className="mt-2 space-y-1">
         <div className="flex min-w-0 items-center justify-between gap-2 text-[10px]">

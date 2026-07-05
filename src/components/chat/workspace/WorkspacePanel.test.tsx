@@ -2089,6 +2089,8 @@ describe("WorkspacePanel workflow section", () => {
 
     expect((await screen.findAllByText("需处理")).length).toBeGreaterThan(0)
     expect(screen.getByText("真实样本验收")).toBeTruthy()
+    expect(screen.getByText("验收快照")).toBeTruthy()
+    expect(screen.getByText(/acc-[0-9a-f]{8}/)).toBeTruthy()
     expect(screen.getByText("样本有事故")).toBeTruthy()
     expect(screen.getByText("验收结论")).toBeTruthy()
     expect(screen.getByText("不可验收")).toBeTruthy()
