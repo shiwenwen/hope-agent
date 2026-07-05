@@ -216,6 +216,27 @@ function renderPanel(
   )
 }
 
+async function clickTextButton(text: string) {
+  const matches = await screen.findAllByText(text)
+  const button = matches.map((element) => element.closest("button")).find(Boolean)
+  fireEvent.click(button ?? matches[0])
+}
+
+async function clickSectionHeader(title: string) {
+  const buttons = await screen.findAllByRole("button", { name: new RegExp(title) })
+  const header = buttons.find((button) => button.hasAttribute("aria-expanded"))
+  fireEvent.click(header ?? buttons[0])
+}
+
+async function flushContextRetrievalDebounce() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(260)
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+}
+
 function contextRetrievalSnapshot(): ContextRetrievalSnapshot {
   return {
     sessionId: "s1",
@@ -1247,7 +1268,7 @@ describe("WorkspacePanel goal section", () => {
       git: null,
     })
 
-    fireEvent.click(await screen.findByText("Ship isolated worktree"))
+    await clickTextButton("Ship isolated worktree")
 
     expect(screen.getByText("Worktrees")).toBeTruthy()
     expect(screen.getByText("feature-goal")).toBeTruthy()
@@ -1271,7 +1292,7 @@ describe("WorkspacePanel goal section", () => {
       git: null,
     })
 
-    fireEvent.click(await screen.findByText("Write sourced research brief"))
+    await clickTextButton("Write sourced research brief")
 
     expect(screen.getByText("领域证据")).toBeTruthy()
     expect(screen.getAllByText("Official documentation cited").length).toBeGreaterThan(0)
@@ -1290,6 +1311,7 @@ describe("WorkspacePanel goal section", () => {
 describe("WorkspacePanel context retrieval section", () => {
   it("records a generated context summary as domain evidence", async () => {
     const snapshot = contextRetrievalSnapshot()
+    vi.useFakeTimers()
     transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === "get_context_retrieval") return Promise.resolve(snapshot)
       if (name === "record_domain_evidence") {
@@ -1315,8 +1337,10 @@ describe("WorkspacePanel context retrieval section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("Browser automation notes")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "摘要" }))
+    await flushContextRetrievalDebounce()
+    vi.useRealTimers()
+    await clickSectionHeader("推荐上下文")
+    fireEvent.click(await screen.findByRole("button", { name: "摘要" }))
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("record_domain_evidence", {
@@ -1341,6 +1365,7 @@ describe("WorkspacePanel context retrieval section", () => {
 
   it("requests user confirmation through owner ask_user", async () => {
     const snapshot = contextRetrievalSnapshot()
+    vi.useFakeTimers()
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_context_retrieval") return Promise.resolve(snapshot)
       if (name === "create_owner_ask_user_question")
@@ -1358,8 +1383,10 @@ describe("WorkspacePanel context retrieval section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("Browser automation notes")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "确认" }))
+    await flushContextRetrievalDebounce()
+    vi.useRealTimers()
+    await clickSectionHeader("推荐上下文")
+    fireEvent.click(await screen.findByRole("button", { name: "确认" }))
 
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_owner_ask_user_question", {
@@ -1397,6 +1424,7 @@ describe("WorkspacePanel context retrieval section", () => {
   it("refreshes context and task workbench when domain evidence is recorded", async () => {
     const snapshot = contextRetrievalSnapshot()
     const listeners = new Map<string, Array<(payload: unknown) => void>>()
+    vi.useFakeTimers()
     transportMock.listen.mockImplementation(
       (eventName: string, handler: (payload: unknown) => void) => {
         const handlers = listeners.get(eventName) ?? []
@@ -1430,7 +1458,13 @@ describe("WorkspacePanel context retrieval section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("Browser automation notes")).toBeTruthy()
+    await flushContextRetrievalDebounce()
+    vi.useRealTimers()
+    await waitFor(() => {
+      expect(
+        transportMock.call.mock.calls.filter(([name]) => name === "get_context_retrieval").length,
+      ).toBeGreaterThan(0)
+    })
     await waitFor(() => {
       expect(listeners.get("domain_evidence:recorded")?.length ?? 0).toBeGreaterThanOrEqual(2)
     })
@@ -1575,7 +1609,7 @@ describe("WorkspacePanel domain quality section", () => {
       git: null,
     })
 
-    fireEvent.click(await screen.findByRole("button", { name: /领域复核/ }))
+    await clickSectionHeader("领域复核")
     expect(await screen.findByText("Research quality passed")).toBeTruthy()
 
     fireEvent.click(screen.getByRole("button", { name: "提炼经验" }))
@@ -1690,7 +1724,7 @@ describe("WorkspacePanel workflow section", () => {
 
     expect(await screen.findByText("自主推进就绪")).toBeTruthy()
     expect(await screen.findByText("自主就绪")).toBeTruthy()
-    expect(screen.getByText("Keep the research brief fresh")).toBeTruthy()
+    expect(screen.getAllByText("Keep the research brief fresh").length).toBeGreaterThan(0)
     expect(screen.getAllByText("自主").length).toBeGreaterThan(0)
     await waitFor(() => {
       const goalCalls = transportMock.call.mock.calls.filter(([name]) => name === "get_active_goal")
