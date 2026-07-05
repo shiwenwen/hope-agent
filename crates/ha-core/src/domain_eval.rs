@@ -1171,6 +1171,8 @@ pub struct DomainSoakReportSummary {
     pub latest_activity_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_activity_age_secs: Option<i64>,
+    pub sample_days: usize,
+    pub required_sample_days: usize,
     pub loop_runs: usize,
     pub succeeded_loop_runs: usize,
     pub failed_loop_runs: usize,
@@ -3275,12 +3277,15 @@ impl SessionDB {
         let operational_gate = self.evaluate_domain_operational_gate(operational_input)?;
         let until = now_rfc3339();
         let mut summary = DomainSoakReportSummary::default();
+        summary.required_sample_days = if window_days > 1 { 2 } else { 1 };
+        let mut sample_days = BTreeSet::new();
         let mut incidents = Vec::new();
         let mut timeline = Vec::new();
 
         let workflow_rows = self.domain_soak_workflows(&scope)?;
         let mut workflow_durations = Vec::new();
         for row in workflow_rows {
+            track_soak_sample_day(&mut sample_days, &row.created_at);
             summary.workflow_runs += 1;
             if row
                 .origin
@@ -3395,7 +3400,7 @@ impl SessionDB {
                 duration_secs: duration,
             });
             if let Some(item) = timeline.last() {
-                max_timestamp(&mut summary.latest_activity_at, item.at.clone());
+                track_soak_activity(&mut summary, &mut sample_days, &item.at);
             }
         }
         summary.average_workflow_drain_secs = average_secs(&workflow_durations);
@@ -3404,7 +3409,7 @@ impl SessionDB {
         let mut approval_wait_started: BTreeMap<String, String> = BTreeMap::new();
         let mut approval_wait_durations = Vec::new();
         for event in self.domain_soak_workflow_events(&scope)? {
-            max_timestamp(&mut summary.latest_activity_at, event.created_at.clone());
+            track_soak_activity(&mut summary, &mut sample_days, &event.created_at);
             if event.event_type == "run_control_action" {
                 match json_string_value(&event.payload, "action").as_deref() {
                     Some("approve") => {
@@ -3503,6 +3508,7 @@ impl SessionDB {
         let loop_rows = self.domain_soak_loop_runs(&scope)?;
         let mut loop_durations = Vec::new();
         for row in loop_rows {
+            track_soak_sample_day(&mut sample_days, &row.started_at);
             summary.loop_runs += 1;
             let duration = row
                 .finished_at
@@ -3559,7 +3565,7 @@ impl SessionDB {
                 duration_secs: duration,
             });
             if let Some(item) = timeline.last() {
-                max_timestamp(&mut summary.latest_activity_at, item.at.clone());
+                track_soak_activity(&mut summary, &mut sample_days, &item.at);
             }
         }
         summary.average_loop_duration_secs = average_secs(&loop_durations);
@@ -3586,16 +3592,16 @@ impl SessionDB {
                     at: row.campaign_updated_at.clone(),
                     duration_secs: None,
                 });
-                max_timestamp(
-                    &mut summary.latest_activity_at,
-                    row.campaign_updated_at.clone(),
-                );
+                track_soak_activity(&mut summary, &mut sample_days, &row.campaign_updated_at);
             }
             let Some(item_id) = row.item_id.clone() else {
                 continue;
             };
             if !item_ids.insert(item_id.clone()) {
                 continue;
+            }
+            if let Some(started_at) = row.item_started_at.as_deref() {
+                track_soak_sample_day(&mut sample_days, started_at);
             }
             summary.campaign_items += 1;
             let item_status = row.item_status.clone().unwrap_or_default();
@@ -3698,20 +3704,27 @@ impl SessionDB {
                 duration_secs: duration,
             });
             if let Some(item) = timeline.last() {
-                max_timestamp(&mut summary.latest_activity_at, item.at.clone());
+                track_soak_activity(&mut summary, &mut sample_days, &item.at);
             }
         }
         summary.average_campaign_item_duration_secs = average_secs(&campaign_item_durations);
         summary.max_campaign_item_duration_secs = campaign_item_durations.iter().copied().max();
 
-        let (connector_e2e, connector_execution, connector_verification, connector_latest) =
-            self.domain_soak_connector_evidence_counts(&scope)?;
+        let (
+            connector_e2e,
+            connector_execution,
+            connector_verification,
+            connector_latest,
+            connector_sample_days,
+        ) = self.domain_soak_connector_evidence_counts(&scope)?;
         summary.connector_e2e_evidence = connector_e2e;
         summary.connector_execution_evidence = connector_execution;
         summary.connector_verification_evidence = connector_verification;
         if let Some(connector_latest) = connector_latest {
-            max_timestamp(&mut summary.latest_activity_at, connector_latest);
+            track_soak_activity(&mut summary, &mut sample_days, &connector_latest);
         }
+        sample_days.extend(connector_sample_days);
+        summary.sample_days = sample_days.len();
         summary.latest_activity_age_secs = summary
             .latest_activity_at
             .as_deref()
@@ -3743,11 +3756,20 @@ impl SessionDB {
             + summary.loop_runs
             + summary.campaign_items
             + summary.connector_e2e_evidence;
+        let stale_activity = summary
+            .latest_activity_age_secs
+            .is_some_and(|age| age > 24 * 60 * 60);
+        let insufficient_day_coverage =
+            summary.sample_days < summary.required_sample_days && summary.total_records > 0;
         let status = if summary.total_records == 0 {
             "insufficient_data"
         } else if summary.critical_incidents > 0 || operational_gate.status == "failed" {
             "failed"
-        } else if summary.warning_incidents > 0 || operational_gate.status == "insufficient_data" {
+        } else if summary.warning_incidents > 0
+            || operational_gate.status == "insufficient_data"
+            || stale_activity
+            || insufficient_day_coverage
+        {
             "insufficient_data"
         } else {
             "passed"
@@ -3970,7 +3992,7 @@ impl SessionDB {
     fn domain_soak_connector_evidence_counts(
         &self,
         scope: &DomainGateScope,
-    ) -> Result<(usize, usize, usize, Option<String>)> {
+    ) -> Result<(usize, usize, usize, Option<String>, Vec<String>)> {
         let mut clauses = vec![
             "de.created_at >= ?".to_string(),
             "s.incognito = 0".to_string(),
@@ -3993,26 +4015,39 @@ impl SessionDB {
                 COUNT(*),
                 SUM(CASE WHEN de.evidence_type = 'connector_action_executed' THEN 1 ELSE 0 END),
                 SUM(CASE WHEN de.evidence_type = 'connector_action_verified' THEN 1 ELSE 0 END),
-                MAX(de.created_at)
+                MAX(de.created_at),
+                GROUP_CONCAT(de.created_at)
              FROM domain_evidence_items de
              JOIN sessions s ON s.id = de.session_id
              WHERE {}",
             clauses.join(" AND ")
         );
         let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
-        let (total, executed, verified, latest_at): (
+        let (total, executed, verified, latest_at, sample_days): (
             i64,
             Option<i64>,
             Option<i64>,
             Option<String>,
+            Option<String>,
         ) = conn.query_row(&sql, params_from_iter(params.iter()), |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
         })?;
         Ok((
             total.max(0) as usize,
             executed.unwrap_or(0).max(0) as usize,
             verified.unwrap_or(0).max(0) as usize,
             latest_at,
+            sample_days
+                .unwrap_or_default()
+                .split(',')
+                .filter_map(rfc3339_day_key)
+                .collect(),
         ))
     }
 
@@ -7480,6 +7515,27 @@ fn timestamp_delta_secs(start: &str, end: &str) -> Option<i64> {
     Some((end - start).num_seconds().max(0))
 }
 
+fn rfc3339_day_key(timestamp: &str) -> Option<String> {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .map(|ts| ts.with_timezone(&Utc).date_naive().to_string())
+}
+
+fn track_soak_sample_day(sample_days: &mut BTreeSet<String>, timestamp: &str) {
+    if let Some(day) = rfc3339_day_key(timestamp) {
+        sample_days.insert(day);
+    }
+}
+
+fn track_soak_activity(
+    summary: &mut DomainSoakReportSummary,
+    sample_days: &mut BTreeSet<String>,
+    timestamp: &str,
+) {
+    track_soak_sample_day(sample_days, timestamp);
+    max_timestamp(&mut summary.latest_activity_at, timestamp.to_string());
+}
+
 fn average_secs(values: &[i64]) -> Option<f64> {
     if values.is_empty() {
         return None;
@@ -7572,6 +7628,9 @@ fn domain_soak_recommendations(
     }
     if summary.workflow_budget_exhausted_events > 0 {
         push_unique_soak_recommendation(&mut recommendations, "Review workflow output-token budget exhaustion: shrink fan-out, summarize intermediate outputs, or explicitly raise the budget before widening unattended usage.");
+    }
+    if summary.total_records > 0 && summary.sample_days < summary.required_sample_days {
+        push_unique_soak_recommendation(&mut recommendations, "Collect long-running samples on at least two distinct days before trusting unattended cross-day stability.");
     }
     if summary
         .latest_activity_age_secs
@@ -7687,6 +7746,10 @@ fn render_domain_soak_markdown(
             .latest_activity_age_secs
             .map(|secs| format!("{secs}s"))
             .unwrap_or_else(|| "n/a".to_string())
+    ));
+    out.push_str(&format!(
+        "- Sample days: {}/{} distinct day(s)\n",
+        summary.sample_days, summary.required_sample_days
     ));
     out.push_str(&format!(
         "- Incidents: {} total, {} critical, {} warning\n\n",
@@ -8695,6 +8758,8 @@ mod tests {
         assert_eq!(report.summary.loop_runs, 1);
         assert_eq!(report.summary.campaign_items, 1);
         assert_eq!(report.summary.connector_e2e_evidence, 2);
+        assert_eq!(report.summary.sample_days, 1);
+        assert_eq!(report.summary.required_sample_days, 1);
         assert_eq!(report.summary.incidents, 0);
         assert!(report.summary.latest_activity_at.is_some());
         assert!(report
@@ -8704,9 +8769,135 @@ mod tests {
         assert!(report.markdown.contains("# Domain Soak Report"));
         assert!(report.markdown.contains("- Freshness: latest activity"));
         assert!(report
+            .markdown
+            .contains("- Sample days: 1/1 distinct day(s)"));
+        assert!(report
             .timeline
             .iter()
             .any(|item| item.source == "campaign_item"));
+    }
+
+    #[test]
+    fn domain_soak_report_requires_cross_day_samples_for_multi_day_window() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("soak-report-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Completed, None)
+            .unwrap();
+
+        let report = db
+            .generate_domain_soak_report(DomainSoakReportInput {
+                session_id: Some(session.id),
+                window_days: Some(7),
+                max_items: Some(20),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "insufficient_data", "{report:?}");
+        assert_eq!(report.summary.sample_days, 1);
+        assert_eq!(report.summary.required_sample_days, 2);
+        assert!(report
+            .recommended_next_steps
+            .iter()
+            .any(|step| step.contains("two distinct days")));
+        assert!(report
+            .markdown
+            .contains("- Sample days: 1/2 distinct day(s)"));
+    }
+
+    #[test]
+    fn domain_soak_report_passes_with_cross_day_fresh_samples() {
+        let (_dir, db) = test_db();
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .unwrap();
+        let run = db
+            .create_workflow_run(CreateWorkflowRunInput {
+                session_id: session.id.clone(),
+                kind: "domain:research".to_string(),
+                execution_mode: "guarded".to_string(),
+                script_source: default_domain_workflow_script(),
+                budget: json!({}),
+                parent_run_id: None,
+                origin: Some("soak-report-test".to_string()),
+                goal_id: None,
+                worktree_id: None,
+            })
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Running, None)
+            .unwrap();
+        db.transition_workflow_run(&run.id, WorkflowRunState::Completed, None)
+            .unwrap();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE workflow_runs
+                    SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 days'),
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 days', '+2 minutes'),
+                        completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 days', '+2 minutes')
+                  WHERE id = ?1",
+                params![run.id],
+            )
+            .unwrap();
+            conn.execute(
+                "UPDATE workflow_events
+                    SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-2 days', '+1 minutes')
+                  WHERE run_id = ?1",
+                params![run.id],
+            )
+            .unwrap();
+        }
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "connector_action_executed",
+            "Connector action executed",
+            json!({"connector": "gmail", "action": "draft"}),
+        );
+        record_evidence(
+            &db,
+            &session.id,
+            "research",
+            "connector_action_verified",
+            "Connector action verified",
+            json!({"connector": "gmail", "verified": true}),
+        );
+
+        let report = db
+            .generate_domain_soak_report(DomainSoakReportInput {
+                session_id: Some(session.id),
+                window_days: Some(3),
+                max_items: Some(20),
+                ..Default::default()
+            })
+            .unwrap();
+
+        assert_eq!(report.status, "passed", "{report:?}");
+        assert_eq!(report.summary.sample_days, 2);
+        assert_eq!(report.summary.required_sample_days, 2);
+        assert_eq!(report.summary.connector_verification_evidence, 1);
+        assert!(report
+            .summary
+            .latest_activity_age_secs
+            .is_some_and(|age| age <= 10));
     }
 
     #[test]
@@ -8761,8 +8952,10 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(report.status, "passed", "{report:?}");
+        assert_eq!(report.status, "insufficient_data", "{report:?}");
         assert_eq!(report.summary.total_records, 1);
+        assert_eq!(report.summary.sample_days, 1);
+        assert_eq!(report.summary.required_sample_days, 2);
         assert!(report
             .summary
             .latest_activity_age_secs

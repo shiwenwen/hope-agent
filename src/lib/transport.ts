@@ -1661,6 +1661,8 @@ export interface DomainSoakReportSummary {
   maxWorkflowDrainSecs?: number | null;
   latestActivityAt?: string | null;
   latestActivityAgeSecs?: number | null;
+  sampleDays: number;
+  requiredSampleDays: number;
   loopRuns: number;
   succeededLoopRuns: number;
   failedLoopRuns: number;

@@ -850,6 +850,8 @@ function domainSoakReport(patch: Partial<DomainSoakReport> = {}): DomainSoakRepo
       maxWorkflowDrainSecs: 240,
       latestActivityAt: "2026-01-01T00:04:00Z",
       latestActivityAgeSecs: 120,
+      sampleDays: 1,
+      requiredSampleDays: 2,
       loopRuns: 1,
       succeededLoopRuns: 1,
       failedLoopRuns: 0,

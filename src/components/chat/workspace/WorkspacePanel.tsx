@@ -8150,6 +8150,14 @@ function DomainSoakReportPanel({
       : summary.latestActivityAgeSecs > 24 * 60 * 60
         ? "warn"
         : "info"
+  const sampleDayCoverage =
+    summary != null ? `${summary.sampleDays}/${summary.requiredSampleDays}` : "-"
+  const sampleDayTone: StatusTone =
+    summary == null
+      ? "muted"
+      : summary.sampleDays >= summary.requiredSampleDays
+        ? "info"
+        : "warn"
   const maxApprovalWait =
     summary?.maxOpenApprovalWaitSecs != null
       ? formatLoopDuration(Math.max(1, Math.round(summary.maxOpenApprovalWaitSecs)))
@@ -8315,6 +8323,7 @@ function DomainSoakReportPanel({
           {[
             [t("workspace.domainSoakReport.records", "样本"), summary.totalRecords, "info"],
             [t("workspace.domainSoakReport.freshness", "新鲜"), latestActivityAge, latestActivityTone],
+            [t("workspace.domainSoakReport.sampleDays", "跨天"), sampleDayCoverage, sampleDayTone],
             [
               t("workspace.domainSoakReport.critical", "事故"),
               summary.criticalIncidents,

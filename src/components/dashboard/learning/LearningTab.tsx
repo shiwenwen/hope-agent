@@ -3198,6 +3198,13 @@ function DomainSoakReportPanel({ report }: { report: DomainSoakReport | null }) 
               }
             />
             <MetricPill
+              label="DY"
+              value={`${report.summary.sampleDays}/${report.summary.requiredSampleDays}`}
+              tone={
+                report.summary.sampleDays >= report.summary.requiredSampleDays ? "accent" : "warn"
+              }
+            />
+            <MetricPill
               label="AP"
               value={
                 report.summary.maxOpenApprovalWaitSecs != null
