@@ -2236,6 +2236,30 @@ describe("WorkspacePanel workflow section", () => {
     })
   })
 
+  it("keeps the acceptance gate requirement pending until a gate is observed", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([])
+      if (name === "get_workflow_mode") return Promise.resolve({ mode: "on" })
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "evaluate_domain_operational_gate") return Promise.resolve(null)
+      if (name === "generate_domain_soak_report") return Promise.resolve(null)
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    expect(await screen.findByText("真实样本验收")).toBeTruthy()
+    expect(screen.getByText("0% · 0/5")).toBeTruthy()
+    expect(screen.getByText("守门通过")).toBeTruthy()
+    expect(screen.getByText("缺少守门通过样本")).toBeTruthy()
+  })
+
   it("opens export and connector guard evidence from readiness actions", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())

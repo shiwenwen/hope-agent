@@ -3101,6 +3101,15 @@ function domainAcceptanceCoverageSummary(
     args.exportGuard?.status === "failed" ||
     args.connectorGuard?.status === "failed" ||
     args.connectorE2eGate?.status === "failed"
+  const observedGateStatuses = [
+    args.exportGuard?.status,
+    args.connectorGuard?.status,
+    args.connectorE2eGate?.status,
+    args.operationalGate?.status,
+    args.soakReport?.status,
+  ].filter(Boolean)
+  const allObservedGatesPassed =
+    observedGateStatuses.length > 0 && observedGateStatuses.every((status) => status === "passed")
   const failedGateLabels = [
     args.exportGuard?.status === "failed"
       ? t("workspace.domainWorkbench.acceptanceGateExport", "交付守门")
@@ -3257,9 +3266,11 @@ function domainAcceptanceCoverageSummary(
         ? t("workspace.domainWorkbench.acceptanceReqGatesFailed", "{{gates}} 未通过", {
             gates: failedGateLabels.join("、"),
           })
-        : t("workspace.domainWorkbench.acceptanceReqGatesOk", "无 failed gate"),
-      passed: !hasFailedGate,
-      tone: hasFailedGate ? "danger" : "good",
+        : allObservedGatesPassed
+          ? t("workspace.domainWorkbench.acceptanceReqGatesOk", "已观察守门均通过")
+          : t("workspace.domainWorkbench.acceptanceReqGatesPending", "缺少守门通过样本"),
+      passed: allObservedGatesPassed,
+      tone: hasFailedGate ? "danger" : allObservedGatesPassed ? "good" : "warn",
     },
   ]
   if (connectorE2eHasScope) {

@@ -461,7 +461,7 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 ### Phase 8.4 通用任务工作台（已完成第一版）
 
 - Workspace 新增「通用任务工作台」区块，位于 Context Retrieval 之后，把 Sources、Evidence、Drafts、Review、Verification、Decisions 做成同屏闭环总览。
-- 工作台新增「真实样本验收」卡片：从当前 session 的 domain evidence、Operational Gate、Soak Report、Artifact Export Guard 与 Connector Action Guard 派生覆盖领域数、控制面记录数、已排空样本、Connector E2E evidence、验收进度与事故/缺口；验收进度按必需项通过数 / 必需项总数保守计算，failed gate 会拉低必需项进度，并把跨领域覆盖作为额外加分，让用户直接看到“还差多少”；必需项清单会逐项显示领域样本、证据链、排空样本、事故清零、守门通过、连接器 E2E（仅涉及外部动作时）的通过 / 待补 / 阻塞原因；验收缺口按 `阻塞` / `待补` / `扩展` 标记并排序，让 critical soak incident、failed E2E gate 等先于普通补样本展示；每个验收缺口都可显式「转任务」，也可一键创建包含当前指标、验收进度、带严重度标签的验收缺口和采样动作的「采样清单」任务，避免“真实样本还没跑够”只停留在文档提醒。
+- 工作台新增「真实样本验收」卡片：从当前 session 的 domain evidence、Operational Gate、Soak Report、Artifact Export Guard 与 Connector Action Guard 派生覆盖领域数、控制面记录数、已排空样本、Connector E2E evidence、验收进度与事故/缺口；验收进度按必需项通过数 / 必需项总数保守计算，failed gate 会拉低必需项进度，守门通过要求至少有已观察 gate 且全部 passed，并把跨领域覆盖作为额外加分，让用户直接看到“还差多少”；必需项清单会逐项显示领域样本、证据链、排空样本、事故清零、守门通过、连接器 E2E（仅涉及外部动作时）的通过 / 待补 / 阻塞原因；验收缺口按 `阻塞` / `待补` / `扩展` 标记并排序，让 critical soak incident、failed E2E gate 等先于普通补样本展示；每个验收缺口都可显式「转任务」，也可一键创建包含当前指标、验收进度、带严重度标签的验收缺口和采样动作的「采样清单」任务，避免“真实样本还没跑够”只停留在文档提醒。
 - 工作台复用已落地的 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review runs、Verification runs 与 Domain Quality runs，不新增后端表，也不绕过既有权限/审批。
 - 用户可在同一面板直接运行领域复核、对交付守门里的具体 artifact 发起领域复核、推荐验证、运行验证、刷新全部守门状态，并把“下一步”证据缺口、交付/外部动作守门 check、需复核 evidence 或长跑审计事故一键转成 session task，不需要记 slash 命令或切到 Dashboard。
 - artifact-scoped 领域复核通过后，用户可在「领域复核」摘要卡片点击「记录复核证据」，写回窄域 `artifact_reviewed` evidence；该动作只确认本次复核事实，不替代导出前 review、脱敏检查或外部动作批准。
