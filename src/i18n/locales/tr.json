@@ -365,7 +365,7 @@
     "conversations": "Sohbetler",
     "collapseSidebar": "Kenar çubuğunu daralt",
     "sidebarCompactMode": "Kompakt moda geç",
-    "sidebarDetailedMode": "Ayrıntılı moda geç",
+    "sidebarDetailedMode": "Normal moda geç",
     "copied": "Kopyalandı",
     "copy": "Kopyala",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "Bu oturumda tüm araçlar onaysız çalışır (korunan yollar hâlâ denetlenir).",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "İzin modu"
     },
     "pickSession": "Bir oturum seç",
     "profileRotationTitle": "Profil değişimi",
@@ -664,6 +642,30 @@
       "reloadBody": "Yüklü uzantı ana bilgisayarla eşleşmiyor. Gerçek Chrome'unuzun denetimini geri kazanmak için yeniden yükleyin.",
       "openSettings": "Ayarları aç",
       "dismiss": "Tekrar gösterme"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "Kum havuzu"
     },
     "browserExtensionRequired": {
       "nextAction": "Sonraki eylem: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "Renk",
     "projectDescription": "Açıklama",
     "projectDescriptionPlaceholder": "Bu proje ne hakkında?",
-    "projectEmoji": "Emoji",
     "projectInstructions": "Proje talimatları",
     "projectInstructionsHint": "Bu talimatlar, bu projedeki her oturumun sistem istemine otomatik olarak eklenir.",
     "projectInstructionsPlaceholder": "örn. Her zaman Türkçe yanıtla; tonu açık ve samimi tut; sonuca önce başla",
     "projectLogo": "Logo",
-    "projectLogoHint": "İsteğe bağlı. Ayarlandığında kenar çubuğundaki emoji simgesinin yerine geçer. Görüntüler otomatik olarak 256×256 boyutuna getirilir.",
+    "projectLogoHint": "İsteğe bağlı. Görüntüler otomatik olarak 256×256 boyutuna getirilir.",
     "projectName": "Proje adı",
     "projectNamePlaceholder": "örn. Hope Agent Geliştirme",
     "projects": "Projeler",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "Bilgi"
     },
-    "knowledgeCompile": {
-      "agent": "Kaynak düzenleme ajanı",
-      "agentDefault": "Genel varsayılan ajanı kullan",
-      "agentDesc": "Kaynakları incelenebilir not önerilerine dönüştüren ajan. Ayarlanmadığında genel varsayılan ajanı devralır."
-    },
     "knowledgeChunk": {
       "title": "Gelişmiş · parçalama",
       "description": "Notların alma birimlerine nasıl bölüneceği. Varsayılanlar çoğu not için uygundur.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Kaydedildi",
-      "title": "Orijinal medya saklama",
-      "description": "İçe aktarılan ses, video ve görüntü orijinallerini kaynak kanıtlarını incelemek için isteğe bağlı olarak saklayın.",
-      "maxTotal": "Toplam kota (MiB)",
-      "maxSource": "Kaynak başına (MiB)",
-      "thumbnail": "Küçük resim uzun kenarı (px)",
-      "prune": "Kota aşılınca en eski medyayı temizle",
-      "pruneDesc": "Yeni saklanacak dosya kotayı aşacaksa, yeni dosyayı atlamadan önce en eski saklanan orijinaller kaldırılır."
     },
     "knowledgePassiveRecall": {
       "title": "Pasif ilgili notlar",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "Bağlama adresi",
     "serverEmbeddedBindDesc": "Yalnızca localhost için varsayılan 127.0.0.1. Ağa açmak için 0.0.0.0 olarak ayarlayın",
     "serverGenerateApiKey": "Oluştur",
-    "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
-    "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez.",
     "serverMode": "Sunucu modu",
     "serverModeDesc": "Gömülü modu seçin veya bir uzak sunucuya bağlanın",
     "serverModeEmbedded": "Gömülü",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "Sohbet modelini kullan",
     "shortcuts": "Kısayollar",
     "sidebarCompactMode": "Kompakt mod",
-    "sidebarCompactModeDesc": "Sohbet, Agent ve proje avatarlarını ve emojilerini gizleyerek kenar çubuğunu daha sade tutar.",
+    "sidebarCompactModeDesc": "Sohbet ve Agent avatarlarını ve emojilerini, ayrıca proje avatarlarını gizleyerek kenar çubuğunu daha sade tutar.",
     "sidebarDisplayMode": "Görünüm",
     "skillAnyBins": "Bu binarilerden herhangi biri",
     "skillBudget": "Prompt bütçesi",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "Kaydedildi",
     "webSearchTimeout": "Zaman aşımı (saniye)",
     "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)",
+    "knowledgeCompile": {
+      "agent": "Kaynak düzenleme ajanı",
+      "agentDefault": "Genel varsayılan ajanı kullan",
+      "agentDesc": "Kaynakları incelenebilir not önerilerine dönüştüren ajan. Ayarlanmadığında genel varsayılan ajanı devralır."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Kaydedildi",
+      "title": "Orijinal medya saklama",
+      "description": "İçe aktarılan ses, video ve görüntü orijinallerini kaynak kanıtlarını incelemek için isteğe bağlı olarak saklayın.",
+      "maxTotal": "Toplam kota (MiB)",
+      "maxSource": "Kaynak başına (MiB)",
+      "thumbnail": "Küçük resim uzun kenarı (px)",
+      "prune": "Kota aşılınca en eski medyayı temizle",
+      "pruneDesc": "Yeni saklanacak dosya kotayı aşacaksa, yeni dosyayı atlamadan önce en eski saklanan orijinaller kaldırılır."
+    },
+    "serverKnowledgeAgentReadToken": "Knowledge Agent okuma belirteci",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Salt okunur agent erişimini devre dışı bırakmak için boş bırakın",
+    "serverKnowledgeAgentReadTokenDesc": "Harici agentlar için kapsamı sınırlı belirteçtir. Yalnızca owner API anahtarı da ayarlandığında çalışır; etkin olduğunda sadece salt okunur knowledge agent uç noktalarını çağırır ve owner API erişimi vermez.",
     "devVisualTest": "Kullanıcı arayüzü animasyon testi",
     "permLoading": "İzinler kontrol ediliyor...",
     "uiEffects": "Arka plan animasyonu",

@@ -365,7 +365,7 @@
     "conversations": "会话",
     "collapseSidebar": "收起会话栏",
     "sidebarCompactMode": "切换到简约模式",
-    "sidebarDetailedMode": "切换到详细模式",
+    "sidebarDetailedMode": "切换到普通模式",
     "copied": "已复制",
     "copy": "复制",
     "quickPrompts": {
@@ -493,6 +493,7 @@
         "desc": "编辑类工具与高危命令需要审批，其余直接放行",
         "label": "默认权限"
       },
+      "menuLabel": "权限模式",
       "smart": {
         "desc": "由模型自评或独立判官模型决定是否需要审批",
         "label": "智能审批"
@@ -507,6 +508,7 @@
         "desc": "隔离副本试跑，编辑审批不放松",
         "label": "隔离沙箱"
       },
+      "menuLabel": "沙箱",
       "off": {
         "desc": "在宿主机执行，审批逻辑不变",
         "label": "关闭沙箱"
@@ -602,8 +604,8 @@
     "viewSystemPrompt": "查看系统提示词",
     "weeksAgo": "{{count}}周前",
     "workingDir": {
-      "browserDescription": "路径将在运行 Agent 的服务器上解析。",
-      "browserTitle": "选择服务器上的目录",
+      "browserDescription": "路径将在运行 Agent 的机器上解析。",
+      "browserTitle": "选择目录",
       "change": "更换目录",
       "clear": "清除目录",
       "current": "工作目录",
@@ -2262,12 +2264,11 @@
     "projectColor": "主题色",
     "projectDescription": "项目描述",
     "projectDescriptionPlaceholder": "这个项目是做什么的？",
-    "projectEmoji": "Emoji",
     "projectInstructions": "项目指令",
     "projectInstructionsHint": "这些指令会自动加入该项目所有会话的系统提示词",
     "projectInstructionsPlaceholder": "例如：始终用中文回复；语气清楚亲切；先给结论再补充细节",
     "projectLogo": "Logo",
-    "projectLogoHint": "可选。设置后会替代侧边栏的 Emoji 图标显示。图片会自动压缩到 256×256。",
+    "projectLogoHint": "可选。图片会自动压缩到 256×256。",
     "projectName": "项目名称",
     "projectNamePlaceholder": "例如：Hope Agent 开发",
     "projects": "项目",
@@ -2287,11 +2288,11 @@
     "uploadLogo": "上传 Logo",
     "workingDir": {
       "clear": "清除",
-      "hint": "项目下的会话默认使用该目录；会话级设置会覆盖此项。",
+      "hint": "可选择已有目录，也可新建目录。留空则自动创建默认项目目录。",
       "invalid": "无效的工作目录",
       "label": "项目工作目录",
       "pick": "选择目录",
-      "placeholder": "未设置（会话可单独覆盖）"
+      "placeholder": "未设置（将自动创建默认项目目录）"
     },
     "knowledge": {
       "label": "知识空间",
@@ -4359,7 +4360,7 @@
     "sessionTitleUseChatModel": "使用对话模型",
     "shortcuts": "快捷键",
     "sidebarCompactMode": "简约模式",
-    "sidebarCompactModeDesc": "隐藏会话、Agent 和项目的头像与 emoji，让侧边栏更清爽。",
+    "sidebarCompactModeDesc": "隐藏会话、Agent 的头像与 emoji，以及项目头像，让侧边栏更清爽。",
     "sidebarDisplayMode": "界面显示",
     "skillAnyBins": "以下任一工具",
     "skillBudget": "提示词预算",

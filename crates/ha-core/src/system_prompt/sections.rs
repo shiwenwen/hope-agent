@@ -577,13 +577,9 @@ pub(super) fn build_acp_section() -> String {
 pub(super) fn build_project_context_section(project: &Project) -> String {
     let mut out = String::from("# Current Project\n\n");
 
-    let title = match &project.emoji {
-        Some(e) if !e.trim().is_empty() => format!("{} **{}**", e, project.name),
-        _ => format!("**{}**", project.name),
-    };
     out.push_str(&format!(
-        "You are currently working inside project {}.\n",
-        title
+        "You are currently working inside project **{}**.\n",
+        project.name
     ));
 
     if let Some(desc) = project

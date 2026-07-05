@@ -87,6 +87,12 @@
       "contextCompactedTitle": "コンテキスト圧縮",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} 件",
+      "sandboxMode": {
+        "menuLabel": "サンドボックス"
+      },
+      "permissionMode": {
+        "menuLabel": "権限モード"
+      },
       "browserExtensionRequired": {
         "nextAction": "次のアクション: {{nextAction}}",
         "openSettings": "[設定] > [ブラウザ] を開いて、拡張機能をインストールまたは有効にします。",
@@ -1870,6 +1876,12 @@
       "contextCompactedTitle": "컨텍스트 압축됨",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "메시지 {{count}}개",
+      "sandboxMode": {
+        "menuLabel": "샌드박스"
+      },
+      "permissionMode": {
+        "menuLabel": "권한 모드"
+      },
       "browserExtensionRequired": {
         "nextAction": "다음 작업: {{nextAction}}",
         "openSettings": "설정 > 브라우저를 열어 확장 기능을 설치하거나 활성화하세요.",
@@ -3653,6 +3665,12 @@
       "contextCompactedTitle": "上下文已壓縮",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} 則",
+      "sandboxMode": {
+        "menuLabel": "沙箱"
+      },
+      "permissionMode": {
+        "menuLabel": "權限模式"
+      },
       "browserExtensionRequired": {
         "nextAction": "下一步行動：{{nextAction}}",
         "openSettings": "開啟“設定”>“瀏覽器”以安裝或啟用擴充功能。",
@@ -5419,6 +5437,12 @@
       "contextCompactedTitle": "Bağlam sıkıştırıldı",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} mesaj",
+      "sandboxMode": {
+        "menuLabel": "Kum havuzu"
+      },
+      "permissionMode": {
+        "menuLabel": "İzin modu"
+      },
       "browserExtensionRequired": {
         "nextAction": "Sonraki eylem: {{nextAction}}",
         "openSettings": "Uzantıyı yüklemek veya etkinleştirmek için Ayarlar > Tarayıcı'yı açın.",
@@ -7202,6 +7226,12 @@
       "contextCompactedTitle": "Đã nén context",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} tin",
+      "sandboxMode": {
+        "menuLabel": "Hộp cát"
+      },
+      "permissionMode": {
+        "menuLabel": "Chế độ quyền"
+      },
       "browserExtensionRequired": {
         "nextAction": "Hành động tiếp theo: {{nextAction}}",
         "openSettings": "Mở Cài đặt > Trình duyệt để cài đặt hoặc bật tiện ích mở rộng.",
@@ -8985,6 +9015,12 @@
       "contextCompactedTitle": "Contexto compactado",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} msgs",
+      "sandboxMode": {
+        "menuLabel": "Sandbox"
+      },
+      "permissionMode": {
+        "menuLabel": "Modo de permissão"
+      },
       "browserExtensionRequired": {
         "nextAction": "Próxima ação: {{nextAction}}",
         "openSettings": "Abra Configurações > Navegador para instalar ou ativar a extensão.",
@@ -10768,6 +10804,12 @@
       "contextCompactedTitle": "Контекст сжат",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} сообщ.",
+      "sandboxMode": {
+        "menuLabel": "Песочница"
+      },
+      "permissionMode": {
+        "menuLabel": "Режим разрешений"
+      },
       "browserExtensionRequired": {
         "nextAction": "Следующее действие: {{nextAction}}",
         "openSettings": "Откройте «Настройки» > «Браузер», чтобы установить или включить расширение.",
@@ -12551,6 +12593,12 @@
       "contextCompactedTitle": "تم ضغط السياق",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} رسالة",
+      "sandboxMode": {
+        "menuLabel": "صندوق العزل"
+      },
+      "permissionMode": {
+        "menuLabel": "وضع الأذونات"
+      },
       "browserExtensionRequired": {
         "nextAction": "الإجراء التالي: {{nextAction}}",
         "openSettings": "افتح الإعدادات > المتصفح لتثبيت الامتداد أو تمكينه.",
@@ -14334,6 +14382,12 @@
       "contextCompactedTitle": "Contexto compactado",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} msgs",
+      "sandboxMode": {
+        "menuLabel": "Sandbox"
+      },
+      "permissionMode": {
+        "menuLabel": "Modo de permisos"
+      },
       "browserExtensionRequired": {
         "nextAction": "Siguiente acción: {{nextAction}}",
         "openSettings": "Abra Configuración> Navegador para instalar o habilitar la extensión.",
@@ -16117,6 +16171,12 @@
       "contextCompactedTitle": "Konteks dipadatkan",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} mesej",
+      "sandboxMode": {
+        "menuLabel": "Kotak pasir"
+      },
+      "permissionMode": {
+        "menuLabel": "Mod kebenaran"
+      },
       "browserExtensionRequired": {
         "nextAction": "Tindakan seterusnya: {{nextAction}}",
         "openSettings": "Buka Tetapan > Penyemak Imbas untuk memasang atau mendayakan sambungan.",
@@ -18005,6 +18065,12 @@
       "contextCompactedTitle": "上下文已压缩",
       "contextCompactedTier": "tier {{tier}}",
       "contextCompactedMsgs": "{{count}} 条",
+      "sandboxMode": {
+        "menuLabel": "沙箱"
+      },
+      "permissionMode": {
+        "menuLabel": "权限模式"
+      },
       "browserExtensionRequired": {
         "nextAction": "下一步行动：{{nextAction}}",
         "openSettings": "打开“设置”>“浏览器”以安装或启用扩展。",

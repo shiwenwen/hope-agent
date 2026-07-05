@@ -124,7 +124,9 @@ impl SttSessionManager {
             }
             SttProviderKind::OpenaiTranscriptions
             | SttProviderKind::OpenaiCompatible
-            | SttProviderKind::OpenaiChatCompletionsAsr => {
+            | SttProviderKind::OpenaiChatCompletionsAsr
+            | SttProviderKind::ElevenlabsStt
+            | SttProviderKind::XaiStt => {
                 return Err(SttError::Other(format!(
                     "Streaming transcription for {:?} requires a streaming-capable provider (use the batch endpoint)",
                     provider.kind

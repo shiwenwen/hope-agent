@@ -365,7 +365,7 @@
     "conversations": "Hội thoại",
     "collapseSidebar": "Thu gọn thanh bên",
     "sidebarCompactMode": "Chuyển sang chế độ gọn",
-    "sidebarDetailedMode": "Chuyển sang chế độ chi tiết",
+    "sidebarDetailedMode": "Chuyển sang chế độ thường",
     "copied": "Đã sao chép",
     "copy": "Sao chép",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "Mọi công cụ trong phiên này chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log).",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "Chế độ quyền"
     },
     "pickSession": "Chọn phiên",
     "profileRotationTitle": "Đổi profile",
@@ -664,6 +642,30 @@
       "reloadBody": "Tiện ích đã cài không khớp với host. Tải lại để khôi phục quyền điều khiển Chrome thật của bạn.",
       "openSettings": "Mở cài đặt",
       "dismiss": "Không hiển thị lại"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "Hộp cát"
     },
     "browserExtensionRequired": {
       "nextAction": "Hành động tiếp theo: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "Màu",
     "projectDescription": "Mô tả",
     "projectDescriptionPlaceholder": "Dự án này về việc gì?",
-    "projectEmoji": "Emoji",
     "projectInstructions": "Chỉ dẫn dự án",
     "projectInstructionsHint": "Các chỉ dẫn này tự động được thêm vào system prompt của mọi phiên trong dự án này.",
     "projectInstructionsPlaceholder": "vd. Luôn trả lời bằng tiếng Việt; giữ giọng rõ ràng và thân thiện; bắt đầu bằng kết luận",
     "projectLogo": "Logo",
-    "projectLogoHint": "Tùy chọn. Khi đặt, sẽ thay thế biểu tượng emoji ở thanh bên. Ảnh tự động được thu về 256×256.",
+    "projectLogoHint": "Tùy chọn. Ảnh tự động được thu về 256×256.",
     "projectName": "Tên dự án",
     "projectNamePlaceholder": "vd. Phát triển Hope Agent",
     "projects": "Dự án",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "Kiến thức"
     },
-    "knowledgeCompile": {
-      "agent": "Agent sắp xếp nguồn",
-      "agentDefault": "Dùng Agent mặc định toàn cục",
-      "agentDesc": "Agent dùng để chuyển nguồn thành đề xuất ghi chú có thể xem lại. Khi chưa đặt, sẽ kế thừa Agent mặc định toàn cục."
-    },
     "knowledgeChunk": {
       "title": "Nâng cao · phân đoạn",
       "description": "Cách ghi chú được chia thành các đơn vị truy xuất. Giá trị mặc định phù hợp với hầu hết.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Đã lưu",
-      "title": "Lưu giữ media gốc",
-      "description": "Tùy chọn giữ lại bản gốc âm thanh, video và hình ảnh đã nhập để xem lại bằng chứng nguồn.",
-      "maxTotal": "Tổng hạn mức (MiB)",
-      "maxSource": "Mỗi nguồn (MiB)",
-      "thumbnail": "Cạnh dài thumbnail (px)",
-      "prune": "Xóa media cũ nhất khi vượt hạn mức",
-      "pruneDesc": "Khi tệp mới được lưu giữ sẽ vượt hạn mức, hãy xóa các bản gốc đã lưu cũ nhất trước khi bỏ qua tệp mới."
     },
     "knowledgePassiveRecall": {
       "title": "Ghi chú liên quan thụ động",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "Địa chỉ bind",
     "serverEmbeddedBindDesc": "Mặc định 127.0.0.1 chỉ cho localhost. Đặt thành 0.0.0.0 để mở ra mạng",
     "serverGenerateApiKey": "Tạo",
-    "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
-    "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
     "serverMode": "Chế độ máy chủ",
     "serverModeDesc": "Chọn chế độ nhúng hoặc kết nối với máy chủ từ xa",
     "serverModeEmbedded": "Nhúng",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "Dùng mô hình trò chuyện",
     "shortcuts": "Phím tắt",
     "sidebarCompactMode": "Chế độ gọn",
-    "sidebarCompactModeDesc": "Ẩn avatar và emoji của cuộc trò chuyện, Agent và dự án để thanh bên gọn hơn.",
+    "sidebarCompactModeDesc": "Ẩn avatar và emoji của cuộc trò chuyện, Agent, cùng avatar của dự án để thanh bên gọn hơn.",
     "sidebarDisplayMode": "Hiển thị",
     "skillAnyBins": "Bất kỳ binary nào dưới đây",
     "skillBudget": "Ngân sách Prompt",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "Đã lưu",
     "webSearchTimeout": "Hết thời gian (giây)",
     "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)",
+    "knowledgeCompile": {
+      "agent": "Agent sắp xếp nguồn",
+      "agentDefault": "Dùng Agent mặc định toàn cục",
+      "agentDesc": "Agent dùng để chuyển nguồn thành đề xuất ghi chú có thể xem lại. Khi chưa đặt, sẽ kế thừa Agent mặc định toàn cục."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Đã lưu",
+      "title": "Lưu giữ media gốc",
+      "description": "Tùy chọn giữ lại bản gốc âm thanh, video và hình ảnh đã nhập để xem lại bằng chứng nguồn.",
+      "maxTotal": "Tổng hạn mức (MiB)",
+      "maxSource": "Mỗi nguồn (MiB)",
+      "thumbnail": "Cạnh dài thumbnail (px)",
+      "prune": "Xóa media cũ nhất khi vượt hạn mức",
+      "pruneDesc": "Khi tệp mới được lưu giữ sẽ vượt hạn mức, hãy xóa các bản gốc đã lưu cũ nhất trước khi bỏ qua tệp mới."
+    },
+    "serverKnowledgeAgentReadToken": "Token đọc của Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Để trống để tắt quyền truy cập agent chỉ đọc",
+    "serverKnowledgeAgentReadTokenDesc": "Token giới hạn cho agent bên ngoài. Chỉ có hiệu lực khi cũng đặt owner API key; khi đó token chỉ gọi được các endpoint knowledge agent chỉ đọc và không cấp quyền owner API.",
     "devVisualTest": "Kiểm tra hoạt ảnh UI",
     "permLoading": "Đang kiểm tra quyền...",
     "uiEffects": "Hoạt hình nền",

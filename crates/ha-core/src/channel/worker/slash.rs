@@ -578,11 +578,7 @@ pub(super) async fn dispatch_slash_for_channel(
                     "project",
                     projects.iter().map(|p| {
                         let id_short: String = p.id.chars().take(8).collect();
-                        let label = match p.emoji.as_deref() {
-                            Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
-                            _ => p.name.clone(),
-                        };
-                        (p.id.clone(), id_short, label)
+                        (p.id.clone(), id_short, p.name.clone())
                     }),
                 );
                 Ok(ChannelSlashOutcome::Reply {
@@ -973,7 +969,7 @@ pub(super) fn render_options_help_text(
 }
 
 /// Text fallback for `ShowProjectPicker` on channels without inline buttons.
-/// Lists up to 20 projects with their name + emoji + session count.
+/// Lists up to 20 projects with their name + session count.
 /// `handle_project` already does fuzzy match on name, so the prompt
 /// instructs users to type `/project <name>`.
 fn render_project_picker_text(
@@ -982,14 +978,7 @@ fn render_project_picker_text(
     let mut lines = Vec::with_capacity(projects.len().min(20) + 2);
     lines.push("**Projects** (use `/project <name>` to switch):".to_string());
     for p in projects.iter().take(20) {
-        let prefix = match p.emoji.as_deref() {
-            Some(e) if !e.is_empty() => format!("{} ", e),
-            _ => String::new(),
-        };
-        lines.push(format!(
-            "- {}**{}** — {} session(s)",
-            prefix, p.name, p.session_count
-        ));
+        lines.push(format!("- **{}** — {} session(s)", p.name, p.session_count));
     }
     if projects.len() > 20 {
         lines.push(format!("… +{} more", projects.len() - 20));

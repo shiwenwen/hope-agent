@@ -1505,6 +1505,29 @@ export class HttpTransport implements Transport {
     return (await res.json()) as DirListing;
   }
 
+  async createDirectory(path: string): Promise<DirListing> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    const res = await fetch(`${this.baseUrl}/api/filesystem/create-dir`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ path }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      this.handleAuthFailure(res.status);
+      let message = text || `create-dir failed: ${res.status}`;
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed?.error) message = parsed.error;
+      } catch {
+        /* text was not JSON */
+      }
+      throw new Error(message);
+    }
+    return (await res.json()) as DirListing;
+  }
+
   async exportSession(args: ExportSessionArgs): Promise<ExportSessionResult | null> {
     const url = new URL(
       `${this.baseUrl}/api/sessions/${encodeURIComponent(args.sessionId)}/export`,

@@ -37,6 +37,12 @@ pub async fn transcribe_with(
             )
             .await
         }
+        SttProviderKind::ElevenlabsStt => {
+            providers::elevenlabs::transcribe_batch(provider, model, profile, audio, options).await
+        }
+        SttProviderKind::XaiStt => {
+            providers::xai::transcribe_batch(provider, model, profile, audio, options).await
+        }
         SttProviderKind::DeepgramWs
         | SttProviderKind::AssemblyaiWs
         | SttProviderKind::AzureWs

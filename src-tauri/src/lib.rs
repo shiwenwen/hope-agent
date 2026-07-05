@@ -252,6 +252,7 @@ pub fn run() {
             commands::misc::set_dock_badge_cmd,
             // Filesystem listing & search (chat-input @ mention popper, working-dir picker)
             commands::filesystem::fs_list_dir,
+            commands::filesystem::fs_create_dir,
             commands::filesystem::fs_search_files,
             // Agent management
             commands::agent_mgmt::list_agents,

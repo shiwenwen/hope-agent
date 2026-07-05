@@ -365,7 +365,7 @@
     "conversations": "チャット",
     "collapseSidebar": "サイドバーを折りたたむ",
     "sidebarCompactMode": "コンパクト表示に切り替え",
-    "sidebarDetailedMode": "詳細表示に切り替え",
+    "sidebarDetailedMode": "通常表示に切り替え",
     "copied": "コピーしました",
     "copy": "コピー",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "このセッションのツールはすべて承認なしで実行（保護パスは監査ログ）",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "権限モード"
     },
     "pickSession": "セッションを選択",
     "profileRotationTitle": "プロファイル切替",
@@ -664,6 +642,30 @@
       "reloadBody": "インストール済みの拡張機能がホストと一致しません。再読み込みすると実際の Chrome の操作を復元できます。",
       "openSettings": "設定を開く",
       "dismiss": "今後表示しない"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "サンドボックス"
     },
     "browserExtensionRequired": {
       "nextAction": "次のアクション: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "カラー",
     "projectDescription": "説明",
     "projectDescriptionPlaceholder": "このプロジェクトの概要は？",
-    "projectEmoji": "絵文字",
     "projectInstructions": "プロジェクト指示",
     "projectInstructionsHint": "この指示はこのプロジェクト内の全セッションのシステムプロンプトに自動的に追加されます。",
     "projectInstructionsPlaceholder": "例：常に日本語で返答する。明るく親しみやすい口調にし、最初に結論を述べる",
     "projectLogo": "ロゴ",
-    "projectLogoHint": "任意。設定するとサイドバーの絵文字アイコンの代わりに表示。画像は 256×256 に自動リサイズされます。",
+    "projectLogoHint": "任意。画像は 256×256 に自動リサイズされます。",
     "projectName": "プロジェクト名",
     "projectNamePlaceholder": "例：Hope Agent 開発",
     "projects": "プロジェクト",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "ナレッジ"
     },
-    "knowledgeCompile": {
-      "agent": "資料整理エージェント",
-      "agentDefault": "グローバル既定エージェントを使用",
-      "agentDesc": "ソース資料をレビュー可能なノート提案に整理するエージェントです。未設定の場合はグローバル既定エージェントを継承します。"
-    },
     "knowledgeChunk": {
       "title": "詳細設定 · チャンク",
       "description": "ノートを検索単位に分割する方法。既定値はほとんどのノートに適しています。",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "保存しました",
-      "title": "元メディアの保持",
-      "description": "インポートした音声、動画、画像の原本を、ソース証拠の確認用に任意で保持します。",
-      "maxTotal": "総容量上限（MiB）",
-      "maxSource": "ソースごとの上限（MiB）",
-      "thumbnail": "サムネイルの最長辺（px）",
-      "prune": "容量超過時に古いメディアを削除",
-      "pruneDesc": "新しく保持するファイルが容量上限を超える場合、スキップする前に最も古い保持済み原本を削除します。"
     },
     "knowledgePassiveRecall": {
       "title": "受動的な関連ノート",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "バインドアドレス",
     "serverEmbeddedBindDesc": "既定の 127.0.0.1 は localhost のみ。0.0.0.0 にするとネットワークに公開",
     "serverGenerateApiKey": "生成",
-    "serverKnowledgeAgentReadToken": "Knowledge Agent 読み取りトークン",
-    "serverKnowledgeAgentReadTokenPlaceholder": "読み取り専用 Agent アクセスを無効にするには空欄",
-    "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。owner API キーも設定されている場合のみ有効になり、有効時は読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。",
     "serverMode": "サーバーモード",
     "serverModeDesc": "組み込みモードまたはリモートサーバー接続を選択",
     "serverModeEmbedded": "組み込み",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "チャットモデルを使用",
     "shortcuts": "ショートカット",
     "sidebarCompactMode": "コンパクトモード",
-    "sidebarCompactModeDesc": "チャット、Agent、プロジェクトのアバターと絵文字を隠し、サイドバーをすっきり表示します。",
+    "sidebarCompactModeDesc": "チャットと Agent のアバターと絵文字、プロジェクトのアバターを隠し、サイドバーをすっきり表示します。",
     "sidebarDisplayMode": "表示",
     "skillAnyBins": "以下のいずれかのバイナリ",
     "skillBudget": "プロンプト予算",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "保存しました",
     "webSearchTimeout": "タイムアウト（秒）",
     "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)",
+    "knowledgeCompile": {
+      "agent": "資料整理エージェント",
+      "agentDefault": "グローバル既定エージェントを使用",
+      "agentDesc": "ソース資料をレビュー可能なノート提案に整理するエージェントです。未設定の場合はグローバル既定エージェントを継承します。"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "保存しました",
+      "title": "元メディアの保持",
+      "description": "インポートした音声、動画、画像の原本を、ソース証拠の確認用に任意で保持します。",
+      "maxTotal": "総容量上限（MiB）",
+      "maxSource": "ソースごとの上限（MiB）",
+      "thumbnail": "サムネイルの最長辺（px）",
+      "prune": "容量超過時に古いメディアを削除",
+      "pruneDesc": "新しく保持するファイルが容量上限を超える場合、スキップする前に最も古い保持済み原本を削除します。"
+    },
+    "serverKnowledgeAgentReadToken": "Knowledge Agent 読み取りトークン",
+    "serverKnowledgeAgentReadTokenPlaceholder": "読み取り専用 Agent アクセスを無効にするには空欄",
+    "serverKnowledgeAgentReadTokenDesc": "外部 Agent 用のスコープ付きトークンです。owner API キーも設定されている場合のみ有効になり、有効時は読み取り専用のナレッジ Agent エンドポイントだけを呼び出せ、owner API 権限は付与しません。",
     "devVisualTest": "UIアニメーションのテスト",
     "permLoading": "権限を確認しています...",
     "uiEffects": "背景アニメーション",

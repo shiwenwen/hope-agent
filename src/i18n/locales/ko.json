@@ -365,7 +365,7 @@
     "conversations": "대화",
     "collapseSidebar": "사이드바 접기",
     "sidebarCompactMode": "간단 모드로 전환",
-    "sidebarDetailedMode": "자세히 모드로 전환",
+    "sidebarDetailedMode": "일반 모드로 전환",
     "copied": "복사됨",
     "copy": "복사",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "이 세션의 모든 도구는 승인 없이 실행 (보호 경로는 감사 로그)",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "권한 모드"
     },
     "pickSession": "세션 선택",
     "profileRotationTitle": "프로필 전환",
@@ -664,6 +642,30 @@
       "reloadBody": "설치된 확장 프로그램이 호스트와 일치하지 않습니다. 다시 로드하면 실제 Chrome 제어가 복원됩니다.",
       "openSettings": "설정 열기",
       "dismiss": "다시 표시 안 함"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "샌드박스"
     },
     "browserExtensionRequired": {
       "nextAction": "다음 작업: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "색상",
     "projectDescription": "설명",
     "projectDescriptionPlaceholder": "이 프로젝트는 무엇에 관한 것인가요?",
-    "projectEmoji": "이모지",
     "projectInstructions": "프로젝트 지침",
     "projectInstructionsHint": "이 지침은 이 프로젝트의 모든 세션 시스템 프롬프트에 자동으로 추가됩니다.",
     "projectInstructionsPlaceholder": "예: 항상 한국어로 응답; 명확하고 친근한 톤 유지; 결론부터 말하기",
     "projectLogo": "로고",
-    "projectLogoHint": "선택. 설정 시 사이드바의 이모지 아이콘을 대체합니다. 이미지는 자동으로 256×256으로 조정됩니다.",
+    "projectLogoHint": "선택. 이미지는 자동으로 256×256으로 조정됩니다.",
     "projectName": "프로젝트 이름",
     "projectNamePlaceholder": "예: Hope Agent 개발",
     "projects": "프로젝트",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "지식"
     },
-    "knowledgeCompile": {
-      "agent": "자료 정리 Agent",
-      "agentDefault": "전역 기본 Agent 사용",
-      "agentDesc": "소스 자료를 검토 가능한 노트 제안으로 정리하는 Agent입니다. 설정하지 않으면 전역 기본 Agent를 상속합니다."
-    },
     "knowledgeChunk": {
       "title": "고급 · 청크",
       "description": "노트를 검색 단위로 나누는 방식입니다. 기본값이 대부분의 노트에 적합합니다.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "저장됨",
-      "title": "원본 미디어 보관",
-      "description": "가져온 오디오, 비디오, 이미지 원본을 소스 증거 검토용으로 선택 보관합니다.",
-      "maxTotal": "전체 할당량(MiB)",
-      "maxSource": "소스당 한도(MiB)",
-      "thumbnail": "썸네일 최대 변(px)",
-      "prune": "할당량 초과 시 가장 오래된 미디어 정리",
-      "pruneDesc": "새로 보관할 파일이 할당량을 초과하면 새 파일을 건너뛰기 전에 가장 오래된 보관 원본을 삭제합니다."
     },
     "knowledgePassiveRecall": {
       "title": "수동 관련 노트",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "바인드 주소",
     "serverEmbeddedBindDesc": "기본값 127.0.0.1 은 localhost 전용. 0.0.0.0 으로 설정하면 네트워크에 노출",
     "serverGenerateApiKey": "생성",
-    "serverKnowledgeAgentReadToken": "Knowledge Agent 읽기 토큰",
-    "serverKnowledgeAgentReadTokenPlaceholder": "읽기 전용 Agent 접근을 비활성화하려면 비워두기",
-    "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. owner API 키가 함께 설정된 경우에만 동작하며, 동작 시 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있고 owner API 권한은 부여하지 않습니다.",
     "serverMode": "서버 모드",
     "serverModeDesc": "내장 모드 또는 원격 서버에 연결",
     "serverModeEmbedded": "내장",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "채팅 모델 사용",
     "shortcuts": "단축키",
     "sidebarCompactMode": "간단 모드",
-    "sidebarCompactModeDesc": "채팅, Agent, 프로젝트의 아바타와 emoji를 숨겨 사이드바를 더 깔끔하게 보여줍니다.",
+    "sidebarCompactModeDesc": "채팅과 Agent의 아바타 및 emoji, 그리고 프로젝트 아바타를 숨겨 사이드바를 더 깔끔하게 보여줍니다.",
     "sidebarDisplayMode": "표시",
     "skillAnyBins": "다음 바이너리 중 하나",
     "skillBudget": "프롬프트 예산",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "저장됨",
     "webSearchTimeout": "시간 초과 (초)",
     "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)",
+    "knowledgeCompile": {
+      "agent": "자료 정리 Agent",
+      "agentDefault": "전역 기본 Agent 사용",
+      "agentDesc": "소스 자료를 검토 가능한 노트 제안으로 정리하는 Agent입니다. 설정하지 않으면 전역 기본 Agent를 상속합니다."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "저장됨",
+      "title": "원본 미디어 보관",
+      "description": "가져온 오디오, 비디오, 이미지 원본을 소스 증거 검토용으로 선택 보관합니다.",
+      "maxTotal": "전체 할당량(MiB)",
+      "maxSource": "소스당 한도(MiB)",
+      "thumbnail": "썸네일 최대 변(px)",
+      "prune": "할당량 초과 시 가장 오래된 미디어 정리",
+      "pruneDesc": "새로 보관할 파일이 할당량을 초과하면 새 파일을 건너뛰기 전에 가장 오래된 보관 원본을 삭제합니다."
+    },
+    "serverKnowledgeAgentReadToken": "Knowledge Agent 읽기 토큰",
+    "serverKnowledgeAgentReadTokenPlaceholder": "읽기 전용 Agent 접근을 비활성화하려면 비워두기",
+    "serverKnowledgeAgentReadTokenDesc": "외부 Agent용 범위 제한 토큰입니다. owner API 키가 함께 설정된 경우에만 동작하며, 동작 시 읽기 전용 지식 Agent 엔드포인트만 호출할 수 있고 owner API 권한은 부여하지 않습니다.",
     "devVisualTest": "UI 애니메이션 테스트",
     "permLoading": "권한 확인 중...",
     "uiEffects": "배경 애니메이션",

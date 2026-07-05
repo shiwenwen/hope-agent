@@ -44,7 +44,6 @@ pub fn handle_project(
             .map(|p| ProjectPickerItem {
                 id: p.project.id.clone(),
                 name: p.project.name.clone(),
-                emoji: p.project.emoji.clone(),
                 logo: p.project.logo.clone(),
                 color: p.project.color.clone(),
                 description: p.project.description.clone(),
@@ -102,7 +101,6 @@ pub fn handle_projects() -> Result<CommandResult, String> {
         .map(|p| ProjectPickerItem {
             id: p.project.id.clone(),
             name: p.project.name.clone(),
-            emoji: p.project.emoji.clone(),
             logo: p.project.logo.clone(),
             color: p.project.color.clone(),
             description: p.project.description.clone(),

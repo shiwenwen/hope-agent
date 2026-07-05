@@ -20,6 +20,8 @@ export type SttProviderKind =
   | "azure-ws"
   | "volcengine-ws"
   | "xunfei-ws"
+  | "elevenlabs-stt"
+  | "xai-stt"
 
 /**
  * Mirrors `SttProviderKind::supports_batch()` in ha-core. The desktop
@@ -30,6 +32,8 @@ export const BATCH_CAPABLE_KINDS: ReadonlySet<SttProviderKind> = new Set([
   "openai-transcriptions",
   "openai-compatible",
   "openai-chat-completions-asr",
+  "elevenlabs-stt",
+  "xai-stt",
 ])
 
 /**

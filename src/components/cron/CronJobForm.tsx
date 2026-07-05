@@ -631,7 +631,6 @@ export default function CronJobForm({
                 {projects.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
                     <span className="text-xs">
-                      {p.emoji ? `${p.emoji} ` : ""}
                       {p.name}
                       {p.archived ? (
                         <span className="text-muted-foreground ml-1">

@@ -128,10 +128,10 @@ export default function SearchResultItem({
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-medium text-foreground truncate flex items-center gap-1">
           {typeChip}
-          {project && (
+          {project?.logo && (
             <IconTip label={project.name}>
               <span className="shrink-0">
-                <ProjectIcon project={project} size="xs" withColorChip />
+                <ProjectIcon project={project} size="xs" />
               </span>
             </IconTip>
           )}

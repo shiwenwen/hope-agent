@@ -20,11 +20,8 @@ pub struct Project {
     /// Custom instructions appended to the system prompt for every session in the project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub emoji: Option<String>,
     /// Optional project logo stored as a `data:image/...;base64,...` URL.
-    /// Rendered in the sidebar row and overview header when present; takes
-    /// precedence over `emoji` in the UI.
+    /// Rendered in the sidebar row and overview header when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -51,14 +48,9 @@ pub struct Project {
 }
 
 impl Project {
-    /// Human-readable label combining the emoji prefix (when set) with the
-    /// name. Used by pickers and IM message bodies that don't have separate
-    /// rendering surfaces for the emoji.
+    /// Human-readable label used by pickers and IM message bodies.
     pub fn display_label(&self) -> String {
-        match self.emoji.as_deref().filter(|e| !e.is_empty()) {
-            Some(e) => format!("{} {}", e, self.name),
-            None => self.name.clone(),
-        }
+        self.name.clone()
     }
 }
 
@@ -83,8 +75,6 @@ pub struct CreateProjectInput {
     pub description: Option<String>,
     #[serde(default)]
     pub instructions: Option<String>,
-    #[serde(default)]
-    pub emoji: Option<String>,
     #[serde(default)]
     pub logo: Option<String>,
     #[serde(default)]
@@ -114,8 +104,6 @@ pub struct UpdateProjectInput {
     pub description: Option<String>,
     #[serde(default)]
     pub instructions: Option<String>,
-    #[serde(default)]
-    pub emoji: Option<String>,
     #[serde(default)]
     pub logo: Option<String>,
     #[serde(default)]

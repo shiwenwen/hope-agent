@@ -37,9 +37,22 @@ const REQUEST_TIMEOUT_SECS: u64 = 120;
 
 /// Build the `/v1/audio/transcriptions` URL given the provider's base URL.
 /// Trim a trailing slash so users can configure either form.
+///
+/// Most compatible bases are the API root *without* the version segment
+/// (OpenAI `api.openai.com`, Groq `api.groq.com/openai`, the local
+/// backends), so we append the full `/v1/audio/transcriptions`. A few
+/// providers hand out a base that *already* includes the version — DeepInfra's
+/// OpenAI-compatible root is `api.deepinfra.com/v1/openai`, and users
+/// sometimes paste `https://api.openai.com/v1`. Appending another `/v1`
+/// there would 404, so when the base already carries a `/v1` segment we add
+/// only `/audio/transcriptions`.
 fn transcriptions_url(base_url: &str) -> String {
     let trimmed = base_url.trim_end_matches('/');
-    format!("{}/v1/audio/transcriptions", trimmed)
+    if trimmed.ends_with("/v1") || trimmed.contains("/v1/") {
+        format!("{}/audio/transcriptions", trimmed)
+    } else {
+        format!("{}/v1/audio/transcriptions", trimmed)
+    }
 }
 
 /// One-shot transcription via OpenAI-compatible `/v1/audio/transcriptions`.
@@ -237,6 +250,21 @@ mod tests {
         assert_eq!(
             transcriptions_url("http://127.0.0.1:10097"),
             "http://127.0.0.1:10097/v1/audio/transcriptions"
+        );
+        // Groq's base carries `/openai` but no version — still needs `/v1`.
+        assert_eq!(
+            transcriptions_url("https://api.groq.com/openai"),
+            "https://api.groq.com/openai/v1/audio/transcriptions"
+        );
+        // Versioned bases (DeepInfra `/v1/openai`, or a user-pasted `.../v1`)
+        // must not get a second `/v1`.
+        assert_eq!(
+            transcriptions_url("https://api.deepinfra.com/v1/openai"),
+            "https://api.deepinfra.com/v1/openai/audio/transcriptions"
+        );
+        assert_eq!(
+            transcriptions_url("https://api.openai.com/v1"),
+            "https://api.openai.com/v1/audio/transcriptions"
         );
     }
 

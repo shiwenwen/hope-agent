@@ -50,6 +50,17 @@ pub fn embedding_model_catalog() -> Vec<OllamaEmbeddingModel> {
             recommended: true,
         },
         OllamaEmbeddingModel {
+            id: "mxbai-embed-large:335m".into(),
+            display_name: "Mxbai Embed Large 335M".into(),
+            dimensions: 1_024,
+            size_mb: 670,
+            context_window: 512,
+            languages: vec!["en".into()],
+            min_ollama_version: Some("0.1.26".into()),
+            installed: false,
+            recommended: false,
+        },
+        OllamaEmbeddingModel {
             id: "qwen3-embedding:0.6b".into(),
             display_name: "Qwen3 Embedding 0.6B".into(),
             dimensions: 1_024,

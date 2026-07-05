@@ -214,6 +214,13 @@ export interface Transport {
   listServerDirectory(path?: string): Promise<DirListing>;
 
   /**
+   * Create an absolute directory on the runtime machine and return its listing.
+   * In Tauri mode this is the user's local filesystem; in HTTP mode it is the
+   * server host filesystem.
+   */
+  createDirectory(path: string): Promise<DirListing>;
+
+  /**
    * Fuzzy-search files & directories under `root`. Used by the chat-input
    * `@` mention popper for tokens that don't contain a `/` (e.g. `@chat`).
    *

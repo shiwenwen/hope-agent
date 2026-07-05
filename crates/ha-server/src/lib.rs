@@ -1988,6 +1988,10 @@ fn build_router_with_cors(
         // and the chat-input `@` mention popper)
         .route("/filesystem/list-dir", get(routes::filesystem::list_dir))
         .route(
+            "/filesystem/create-dir",
+            post(routes::filesystem::create_dir),
+        )
+        .route(
             "/filesystem/search-files",
             get(routes::filesystem::search_files),
         )

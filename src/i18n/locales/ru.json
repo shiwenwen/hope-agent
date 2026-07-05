@@ -365,7 +365,7 @@
     "conversations": "Чаты",
     "collapseSidebar": "Свернуть боковую панель",
     "sidebarCompactMode": "Переключить в компактный режим",
-    "sidebarDetailedMode": "Переключить в подробный режим",
+    "sidebarDetailedMode": "Переключить в обычный режим",
     "copied": "Скопировано",
     "copy": "Копировать",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "Все инструменты в этой сессии запускаются без одобрения (защищённые пути логируются).",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "Режим разрешений"
     },
     "pickSession": "Выбрать сессию",
     "profileRotationTitle": "Смена профиля",
@@ -664,6 +642,30 @@
       "reloadBody": "Установленное расширение не соответствует хосту. Перезагрузите его, чтобы восстановить управление вашим реальным Chrome.",
       "openSettings": "Открыть настройки",
       "dismiss": "Больше не показывать"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "Песочница"
     },
     "browserExtensionRequired": {
       "nextAction": "Следующее действие: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "Цвет",
     "projectDescription": "Описание",
     "projectDescriptionPlaceholder": "О чём этот проект?",
-    "projectEmoji": "Эмодзи",
     "projectInstructions": "Инструкции проекта",
     "projectInstructionsHint": "Эти инструкции автоматически добавляются в системный промпт каждой сессии этого проекта.",
     "projectInstructionsPlaceholder": "напр. Всегда отвечай на русском; сохраняй ясный и дружелюбный тон; начинай с вывода",
     "projectLogo": "Логотип",
-    "projectLogoHint": "Необязательно. При установке заменяет эмодзи-иконку в боковой панели. Изображения автоматически масштабируются до 256×256.",
+    "projectLogoHint": "Необязательно. Изображения автоматически масштабируются до 256×256.",
     "projectName": "Название проекта",
     "projectNamePlaceholder": "напр. Разработка Hope Agent",
     "projects": "Проекты",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "База знаний"
     },
-    "knowledgeCompile": {
-      "agent": "Агент для организации источников",
-      "agentDefault": "Использовать глобального агента по умолчанию",
-      "agentDesc": "Агент, который превращает источники в предложения заметок для проверки. Если не задан, наследует глобального агента по умолчанию."
-    },
     "knowledgeChunk": {
       "title": "Дополнительно · разбиение",
       "description": "Как заметки делятся на единицы поиска. Значения по умолчанию подходят большинству.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Сохранено",
-      "title": "Хранение исходных медиа",
-      "description": "При желании сохраняйте импортированные оригиналы аудио, видео и изображений для проверки доказательств источников.",
-      "maxTotal": "Общая квота (MiB)",
-      "maxSource": "На источник (MiB)",
-      "thumbnail": "Длинная сторона миниатюры (px)",
-      "prune": "Удалять старые медиа при превышении квоты",
-      "pruneDesc": "Если новый сохраняемый файл превысит квоту, сначала удаляются самые старые сохранённые оригиналы; если места всё равно не хватит, новый файл пропускается."
     },
     "knowledgePassiveRecall": {
       "title": "Пассивные связанные заметки",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "Адрес привязки",
     "serverEmbeddedBindDesc": "По умолчанию 127.0.0.1 — только localhost. Установите 0.0.0.0 для доступа из сети",
     "serverGenerateApiKey": "Сгенерировать",
-    "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
-    "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API.",
     "serverMode": "Режим сервера",
     "serverModeDesc": "Выберите встроенный режим или подключение к удалённому серверу",
     "serverModeEmbedded": "Встроенный",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "Использовать модель чата",
     "shortcuts": "Горячие клавиши",
     "sidebarCompactMode": "Компактный режим",
-    "sidebarCompactModeDesc": "Скрывает аватары и emoji чатов, Agent и проектов, чтобы боковая панель была чище.",
+    "sidebarCompactModeDesc": "Скрывает аватары и emoji чатов и Agent, а также аватары проектов, чтобы боковая панель была чище.",
     "sidebarDisplayMode": "Отображение",
     "skillAnyBins": "Любой из этих бинарей",
     "skillBudget": "Бюджет prompt",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "Сохранено",
     "webSearchTimeout": "Таймаут (секунд)",
     "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)",
+    "knowledgeCompile": {
+      "agent": "Агент для организации источников",
+      "agentDefault": "Использовать глобального агента по умолчанию",
+      "agentDesc": "Агент, который превращает источники в предложения заметок для проверки. Если не задан, наследует глобального агента по умолчанию."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Сохранено",
+      "title": "Хранение исходных медиа",
+      "description": "При желании сохраняйте импортированные оригиналы аудио, видео и изображений для проверки доказательств источников.",
+      "maxTotal": "Общая квота (MiB)",
+      "maxSource": "На источник (MiB)",
+      "thumbnail": "Длинная сторона миниатюры (px)",
+      "prune": "Удалять старые медиа при превышении квоты",
+      "pruneDesc": "Если новый сохраняемый файл превысит квоту, сначала удаляются самые старые сохранённые оригиналы; если места всё равно не хватит, новый файл пропускается."
+    },
+    "serverKnowledgeAgentReadToken": "Токен чтения Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Оставьте пустым, чтобы отключить доступ agent только для чтения",
+    "serverKnowledgeAgentReadTokenDesc": "Токен с ограниченной областью для внешних agent. Он работает только когда также задан owner API key; тогда может вызывать только read-only endpoints Knowledge Agent и не даёт доступ owner API.",
     "devVisualTest": "Тестирование пользовательской анимации",
     "permLoading": "Проверяем разрешения...",
     "uiEffects": "Фоновая анимация",

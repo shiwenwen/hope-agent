@@ -365,7 +365,7 @@
     "conversations": "Perbualan",
     "collapseSidebar": "Runtuhkan bar sisi",
     "sidebarCompactMode": "Tukar ke mod ringkas",
-    "sidebarDetailedMode": "Tukar ke mod terperinci",
+    "sidebarDetailedMode": "Tukar ke mod biasa",
     "copied": "Disalin",
     "copy": "Salin",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "Semua alat dalam sesi ini berjalan tanpa kelulusan (laluan dilindungi tetap diaudit).",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "Mod kebenaran"
     },
     "pickSession": "Pilih sesi",
     "profileRotationTitle": "Tukar profil",
@@ -664,6 +642,30 @@
       "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
       "openSettings": "Buka tetapan",
       "dismiss": "Jangan tunjuk lagi"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "Kotak pasir"
     },
     "browserExtensionRequired": {
       "nextAction": "Tindakan seterusnya: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "Warna",
     "projectDescription": "Penerangan",
     "projectDescriptionPlaceholder": "Projek ini mengenai apa?",
-    "projectEmoji": "Emoji",
     "projectInstructions": "Arahan projek",
     "projectInstructionsHint": "Arahan ini akan ditambah automatik ke prompt sistem setiap sesi projek ini.",
     "projectInstructionsPlaceholder": "cth. Sentiasa balas dalam BM; gunakan nada jelas dan mesra; mulakan dengan kesimpulan",
     "projectLogo": "Logo",
-    "projectLogoHint": "Pilihan. Jika ditetapkan, ia menggantikan ikon emoji di bar sisi. Imej akan diubah saiz secara automatik kepada 256×256.",
+    "projectLogoHint": "Pilihan. Imej akan diubah saiz secara automatik kepada 256×256.",
     "projectName": "Nama projek",
     "projectNamePlaceholder": "cth. Pembangunan Hope Agent",
     "projects": "Projek",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "Pengetahuan"
     },
-    "knowledgeCompile": {
-      "agent": "Ejen penyusunan sumber",
-      "agentDefault": "Gunakan ejen lalai global",
-      "agentDesc": "Ejen yang menukar sumber kepada cadangan nota yang boleh disemak. Jika tidak ditetapkan, ia mewarisi ejen lalai global."
-    },
     "knowledgeChunk": {
       "title": "Lanjutan · pemotongan",
       "description": "Cara nota dipecah kepada unit dapatan. Nilai lalai sesuai untuk kebanyakan nota.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Disimpan",
-      "title": "Simpan media asal",
-      "description": "Secara pilihan simpan audio, video dan imej asal yang diimport untuk semakan bukti sumber.",
-      "maxTotal": "Kuota keseluruhan (MiB)",
-      "maxSource": "Setiap sumber (MiB)",
-      "thumbnail": "Sisi terpanjang lakaran kecil (px)",
-      "prune": "Bersihkan media paling lama apabila melebihi kuota",
-      "pruneDesc": "Apabila fail baharu yang disimpan akan melebihi kuota, buang asal tersimpan paling lama sebelum melangkau fail baharu."
     },
     "knowledgePassiveRecall": {
       "title": "Nota berkaitan pasif",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "Alamat bind",
     "serverEmbeddedBindDesc": "Lalai 127.0.0.1 untuk localhost sahaja. Tetapkan kepada 0.0.0.0 untuk didedahkan ke rangkaian",
     "serverGenerateApiKey": "Jana",
-    "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
-    "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
     "serverMode": "Mod pelayan",
     "serverModeDesc": "Pilih mod terbenam atau sambung ke pelayan jauh",
     "serverModeEmbedded": "Terbenam",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "Guna model sembang",
     "shortcuts": "Pintasan",
     "sidebarCompactMode": "Mod ringkas",
-    "sidebarCompactModeDesc": "Sembunyikan avatar dan emoji untuk sembang, Agent dan projek supaya bar sisi lebih kemas.",
+    "sidebarCompactModeDesc": "Sembunyikan avatar dan emoji untuk sembang dan Agent, serta avatar projek supaya bar sisi lebih kemas.",
     "sidebarDisplayMode": "Paparan",
     "skillAnyBins": "Mana-mana binari ini",
     "skillBudget": "Belanjawan prompt",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "Disimpan",
     "webSearchTimeout": "Tamat masa (saat)",
     "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)",
+    "knowledgeCompile": {
+      "agent": "Ejen penyusunan sumber",
+      "agentDefault": "Gunakan ejen lalai global",
+      "agentDesc": "Ejen yang menukar sumber kepada cadangan nota yang boleh disemak. Jika tidak ditetapkan, ia mewarisi ejen lalai global."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Disimpan",
+      "title": "Simpan media asal",
+      "description": "Secara pilihan simpan audio, video dan imej asal yang diimport untuk semakan bukti sumber.",
+      "maxTotal": "Kuota keseluruhan (MiB)",
+      "maxSource": "Setiap sumber (MiB)",
+      "thumbnail": "Sisi terpanjang lakaran kecil (px)",
+      "prune": "Bersihkan media paling lama apabila melebihi kuota",
+      "pruneDesc": "Apabila fail baharu yang disimpan akan melebihi kuota, buang asal tersimpan paling lama sebelum melangkau fail baharu."
+    },
+    "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
+    "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
     "devVisualTest": "Ujian animasi UI",
     "permLoading": "Menyemak kebenaran...",
     "uiEffects": "Animasi latar belakang",

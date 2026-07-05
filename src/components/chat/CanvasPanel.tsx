@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
+import { MAIN_WINDOW_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH } from "@/lib/mainWindowSize"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { useTranslation } from "react-i18next"
@@ -124,9 +125,9 @@ export default function CanvasPanel({
     if (!isTauriMode()) return
     const win = getCurrentWindow()
     if (canvas && !detached) {
-      win.setMinSize(new LogicalSize(1280, 480))
+      win.setMinSize(new LogicalSize(1280, MAIN_WINDOW_MIN_HEIGHT))
     } else {
-      win.setMinSize(new LogicalSize(840, 480))
+      win.setMinSize(new LogicalSize(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT))
     }
   }, [canvas, detached])
 

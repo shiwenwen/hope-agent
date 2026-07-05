@@ -391,12 +391,6 @@ fn render_model_picker_history(
 fn render_project_picker_history(projects: &[ProjectPickerItem]) -> String {
     let mut lines = vec![format!("**Projects** ({})", projects.len())];
     for item in projects.iter().take(HISTORY_PICKER_LIMIT) {
-        let emoji = item
-            .emoji
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .map(|s| format!("{s} "))
-            .unwrap_or_default();
         let desc = item
             .description
             .as_deref()
@@ -404,8 +398,8 @@ fn render_project_picker_history(projects: &[ProjectPickerItem]) -> String {
             .map(|s| format!(" - {}", crate::truncate_utf8(s, 120)))
             .unwrap_or_default();
         lines.push(format!(
-            "- {}**{}** - {} session(s){}",
-            emoji, item.name, item.session_count, desc
+            "- **{}** - {} session(s){}",
+            item.name, item.session_count, desc
         ));
     }
     append_truncated_note(&mut lines, projects.len());

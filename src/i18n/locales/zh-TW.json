@@ -365,7 +365,7 @@
     "conversations": "會話",
     "collapseSidebar": "收起會話欄",
     "sidebarCompactMode": "切換到簡約模式",
-    "sidebarDetailedMode": "切換到詳細模式",
+    "sidebarDetailedMode": "切換到普通模式",
     "copied": "已複制",
     "copy": "複制",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "本會話內所有工具直接執行（保護路徑仍記稽核日誌）",
         "label": "完全放行"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "隔離副本試跑，編輯審批不放鬆",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "掛載目前工作區，減少編輯命令審批",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "權限模式"
     },
     "pickSession": "選擇工作階段",
     "profileRotationTitle": "設定切換",
@@ -664,6 +642,30 @@
       "reloadBody": "已安裝的擴充功能與宿主版本不符,重新載入即可恢復對真實 Chrome 的控制。",
       "openSettings": "前往設定",
       "dismiss": "不再顯示"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "隔離副本試跑，編輯審批不放鬆",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "沙箱內 exec 最大自治，嚴格風險仍審批",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "掛載目前工作區，減少編輯命令審批",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "沙箱"
     },
     "browserExtensionRequired": {
       "nextAction": "下一步行動：{{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "主題色",
     "projectDescription": "描述",
     "projectDescriptionPlaceholder": "這個專案是做什麼的？",
-    "projectEmoji": "Emoji",
     "projectInstructions": "專案指令",
     "projectInstructionsHint": "這些指令會自動加入此專案所有對話的系統提示詞",
     "projectInstructionsPlaceholder": "例如：始終用繁體中文回覆；語氣清楚親切；先給結論再補充細節",
     "projectLogo": "Logo",
-    "projectLogoHint": "可選。設定後會取代側邊欄的 Emoji 圖示。圖片會自動縮放為 256×256。",
+    "projectLogoHint": "可選。圖片會自動縮放為 256×256。",
     "projectName": "專案名稱",
     "projectNamePlaceholder": "例如：Hope Agent 開發",
     "projects": "專案",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "知識空間"
     },
-    "knowledgeCompile": {
-      "agent": "資料整理 Agent",
-      "agentDefault": "使用全域預設 Agent",
-      "agentDesc": "用於將來源資料整理成可審閱的筆記建議，未設定時繼承全域預設 Agent。"
-    },
     "knowledgeChunk": {
       "title": "進階 · 分塊",
       "description": "控制筆記如何切分成檢索單元。預設值適合大多數筆記。",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "已儲存",
-      "title": "原始媒體留存",
-      "description": "可選擇保留匯入的音訊、影片和圖片原件，用於來源證據回看。",
-      "maxTotal": "總配額（MiB）",
-      "maxSource": "單一資料上限（MiB）",
-      "thumbnail": "縮圖最長邊（px）",
-      "prune": "超過配額時清理最舊媒體",
-      "pruneDesc": "當新的留存檔案會超過配額時，先刪除最舊的已留存原件；若仍不足，則跳過新檔案留存。"
     },
     "knowledgePassiveRecall": {
       "title": "被動相關筆記",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "監聽地址",
     "serverEmbeddedBindDesc": "默認 127.0.0.1 僅本機訪問。改為 0.0.0.0 可對外暴露到局域網",
     "serverGenerateApiKey": "生成",
-    "serverKnowledgeAgentReadToken": "知識空間 Agent 唯讀 Token",
-    "serverKnowledgeAgentReadTokenPlaceholder": "留空則關閉唯讀 Agent 存取",
-    "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。",
     "serverMode": "服務器模式",
     "serverModeDesc": "選擇內嵌模式或連接遠程服務器",
     "serverModeEmbedded": "內嵌",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "使用對話模型",
     "shortcuts": "快捷鍵",
     "sidebarCompactMode": "簡約模式",
-    "sidebarCompactModeDesc": "隱藏會話、Agent 和專案的頭像與 emoji，讓側邊欄更清爽。",
+    "sidebarCompactModeDesc": "隱藏會話、Agent 的頭像與 emoji，以及專案頭像，讓側邊欄更清爽。",
     "sidebarDisplayMode": "介面顯示",
     "skillAnyBins": "以下任一工具",
     "skillBudget": "提示詞預算",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "已保存",
     "webSearchTimeout": "超時（秒）",
     "webSearchTimeoutDesc": "搜索請求 HTTP 超時時間（5-120 秒）",
+    "knowledgeCompile": {
+      "agent": "資料整理 Agent",
+      "agentDefault": "使用全域預設 Agent",
+      "agentDesc": "用於將來源資料整理成可審閱的筆記建議，未設定時繼承全域預設 Agent。"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "已儲存",
+      "title": "原始媒體留存",
+      "description": "可選擇保留匯入的音訊、影片和圖片原件，用於來源證據回看。",
+      "maxTotal": "總配額（MiB）",
+      "maxSource": "單一資料上限（MiB）",
+      "thumbnail": "縮圖最長邊（px）",
+      "prune": "超過配額時清理最舊媒體",
+      "pruneDesc": "當新的留存檔案會超過配額時，先刪除最舊的已留存原件；若仍不足，則跳過新檔案留存。"
+    },
+    "serverKnowledgeAgentReadToken": "知識空間 Agent 唯讀 Token",
+    "serverKnowledgeAgentReadTokenPlaceholder": "留空則關閉唯讀 Agent 存取",
+    "serverKnowledgeAgentReadTokenDesc": "給外部 Agent 使用的受限 Token。只有同時設定 owner API Key 時才生效；生效後只能呼叫知識空間唯讀介面，不授予 owner API 權限。",
     "devVisualTest": "UI動畫測試",
     "permLoading": "正在檢查權限...",
     "uiEffects": "背景動畫",

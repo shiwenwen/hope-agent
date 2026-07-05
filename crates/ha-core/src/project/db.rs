@@ -39,7 +39,6 @@ impl ProjectDB {
                 name              TEXT NOT NULL,
                 description       TEXT,
                 instructions      TEXT,
-                emoji             TEXT,
                 color             TEXT,
                 default_agent_id  TEXT,
                 default_model_id  TEXT,
@@ -88,6 +87,11 @@ impl ProjectDB {
                     params![((idx as i64) + 1) * 1024, id],
                 )?;
             }
+        }
+
+        let has_emoji = conn.prepare("SELECT emoji FROM projects LIMIT 1").is_ok();
+        if has_emoji {
+            conn.execute_batch("ALTER TABLE projects DROP COLUMN emoji;")?;
         }
 
         conn.execute_batch(
@@ -144,16 +148,15 @@ impl ProjectDB {
         let sort_order = next_project_sort_order(&conn)?;
 
         conn.execute(
-            "INSERT INTO projects (id, name, description, instructions, emoji, color,
+            "INSERT INTO projects (id, name, description, instructions, color,
                 default_agent_id, default_model_id, created_at, updated_at, archived, logo,
                 working_dir, sort_order)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10, ?11, ?12)",
             params![
                 id,
                 name,
                 normalize_optional(input.description.as_deref()),
                 normalize_optional(input.instructions.as_deref()),
-                normalize_optional(input.emoji.as_deref()),
                 normalize_optional(input.color.as_deref()),
                 normalize_optional(input.default_agent_id.as_deref()),
                 normalize_optional(input.default_model_id.as_deref()),
@@ -170,7 +173,6 @@ impl ProjectDB {
             name,
             description: normalize_optional(input.description.as_deref()).map(str::to_string),
             instructions: normalize_optional(input.instructions.as_deref()).map(str::to_string),
-            emoji: normalize_optional(input.emoji.as_deref()).map(str::to_string),
             logo,
             color: normalize_optional(input.color.as_deref()).map(str::to_string),
             default_agent_id: normalize_optional(input.default_agent_id.as_deref())
@@ -194,7 +196,7 @@ impl ProjectDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         let row = conn
             .query_row(
-                "SELECT id, name, description, instructions, emoji, color,
+                "SELECT id, name, description, instructions, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
                         working_dir, sort_order
                  FROM projects WHERE id = ?1",
@@ -265,8 +267,6 @@ impl ProjectDB {
             "instructions",
             &patch.instructions,
         );
-        push_str_field(&mut sets, &mut params_vec, "emoji", &patch.emoji);
-
         // Logo: size-validate before reaching the generic pusher.
         if let Some(raw) = &patch.logo {
             let validated = validate_logo(Some(raw))?;
@@ -321,7 +321,7 @@ impl ProjectDB {
         // Re-read to return the authoritative current state.
         let project = conn
             .query_row(
-                "SELECT id, name, description, instructions, emoji, color,
+                "SELECT id, name, description, instructions, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
                         working_dir, sort_order
                  FROM projects WHERE id = ?1",
@@ -472,7 +472,7 @@ impl ProjectDB {
         // later by the caller that has the MemoryBackend in hand). Here we
         // return zero and let the command layer enrich it.
         let sql = format!(
-            "SELECT p.id, p.name, p.description, p.instructions, p.emoji, p.color,
+            "SELECT p.id, p.name, p.description, p.instructions, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
                     p.logo, p.working_dir, p.sort_order,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
@@ -499,8 +499,8 @@ impl ProjectDB {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
-                session_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
-                unread_count: row.get::<_, i64>(15).unwrap_or(0) as u32,
+                session_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
+                unread_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
@@ -521,16 +521,15 @@ fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
         name: row.get(1)?,
         description: row.get(2)?,
         instructions: row.get(3)?,
-        emoji: row.get(4)?,
-        color: row.get(5)?,
-        default_agent_id: row.get(6)?,
-        default_model_id: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
-        archived: row.get::<_, i64>(10).unwrap_or(0) != 0,
-        logo: row.get::<_, Option<String>>(11).unwrap_or(None),
-        working_dir: row.get::<_, Option<String>>(12).unwrap_or(None),
-        sort_order: row.get::<_, i64>(13).unwrap_or(0),
+        color: row.get(4)?,
+        default_agent_id: row.get(5)?,
+        default_model_id: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+        archived: row.get::<_, i64>(9).unwrap_or(0) != 0,
+        logo: row.get::<_, Option<String>>(10).unwrap_or(None),
+        working_dir: row.get::<_, Option<String>>(11).unwrap_or(None),
+        sort_order: row.get::<_, i64>(12).unwrap_or(0),
     })
 }
 
@@ -591,8 +590,9 @@ mod tests {
     use std::sync::Arc;
     use tempfile::tempdir;
 
-    /// Regression: legacy installs that still carry `bound_channel_*` columns
-    /// must boot cleanly — the migration drops them and the legacy index.
+    /// Regression: legacy installs that still carry `emoji` and
+    /// `bound_channel_*` columns must boot cleanly — the migration drops them
+    /// and the legacy index.
     #[test]
     fn migrate_drops_legacy_bound_channel_columns() {
         let dir = tempdir().unwrap();
@@ -640,6 +640,10 @@ mod tests {
             conn.prepare("SELECT bound_channel_id FROM projects LIMIT 1")
                 .is_err(),
             "bound_channel_id should be dropped"
+        );
+        assert!(
+            conn.prepare("SELECT emoji FROM projects LIMIT 1").is_err(),
+            "emoji should be dropped"
         );
         // Index is gone.
         let count: i64 = conn
@@ -692,7 +696,6 @@ mod tests {
                     name: name.into(),
                     description: None,
                     instructions: None,
-                    emoji: None,
                     logo: None,
                     color: None,
                     default_agent_id: None,
@@ -769,7 +772,6 @@ mod tests {
                 name: "Proj".into(),
                 description: None,
                 instructions: None,
-                emoji: None,
                 logo: None,
                 color: None,
                 default_agent_id: None,
@@ -850,7 +852,6 @@ mod tests {
                 name: "Proj".into(),
                 description: None,
                 instructions: None,
-                emoji: None,
                 logo: None,
                 color: None,
                 default_agent_id: None,

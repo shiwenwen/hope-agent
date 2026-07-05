@@ -365,7 +365,7 @@
     "conversations": "Conversas",
     "collapseSidebar": "Recolher barra lateral",
     "sidebarCompactMode": "Mudar para modo compacto",
-    "sidebarDetailedMode": "Mudar para modo detalhado",
+    "sidebarDetailedMode": "Mudar para modo normal",
     "copied": "Copiado",
     "copy": "Copiar",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "Todas as ferramentas são executadas sem aprovação (caminhos protegidos são auditados).",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "Modo de permissão"
     },
     "pickSession": "Escolher uma sessão",
     "profileRotationTitle": "Rotação de perfil",
@@ -664,6 +642,30 @@
       "reloadBody": "A extensão instalada não corresponde ao host. Recarregue-a para restaurar o controle do seu Chrome real.",
       "openSettings": "Abrir configurações",
       "dismiss": "Não mostrar novamente"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "Sandbox"
     },
     "browserExtensionRequired": {
       "nextAction": "Próxima ação: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "Cor",
     "projectDescription": "Descrição",
     "projectDescriptionPlaceholder": "Sobre o que é este projeto?",
-    "projectEmoji": "Emoji",
     "projectInstructions": "Instruções do projeto",
     "projectInstructionsHint": "Essas instruções são adicionadas automaticamente ao prompt de sistema de cada sessão deste projeto.",
     "projectInstructionsPlaceholder": "ex. Sempre responder em português; usar um tom claro e amigável; começar pela conclusão",
     "projectLogo": "Logo",
-    "projectLogoHint": "Opcional. Quando definido, substitui o ícone emoji na barra lateral. Imagens são redimensionadas automaticamente para 256×256.",
+    "projectLogoHint": "Opcional. Imagens são redimensionadas automaticamente para 256×256.",
     "projectName": "Nome do projeto",
     "projectNamePlaceholder": "ex. Desenvolvimento Hope Agent",
     "projects": "Projetos",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "Conhecimento"
     },
-    "knowledgeCompile": {
-      "agent": "Agente de organização de fontes",
-      "agentDefault": "Usar agente padrão global",
-      "agentDesc": "Agente usado para transformar fontes em sugestões de notas revisáveis. Quando não definido, herda o agente padrão global."
-    },
     "knowledgeChunk": {
       "title": "Avançado · fragmentação",
       "description": "Como as notas são divididas em unidades de recuperação. Os padrões servem para a maioria.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Salvo",
-      "title": "Retenção da mídia original",
-      "description": "Opcionalmente mantenha os originais importados de áudio, vídeo e imagem para revisar evidências das fontes.",
-      "maxTotal": "Cota total (MiB)",
-      "maxSource": "Por fonte (MiB)",
-      "thumbnail": "Maior lado da miniatura (px)",
-      "prune": "Remover mídias mais antigas ao exceder a cota",
-      "pruneDesc": "Quando um novo arquivo retido excederia a cota, remova os originais retidos mais antigos antes de ignorar o novo arquivo."
     },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas passivas",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "Endereço de bind",
     "serverEmbeddedBindDesc": "Padrão 127.0.0.1 apenas localhost. Defina como 0.0.0.0 para expor à rede",
     "serverGenerateApiKey": "Gerar",
-    "serverKnowledgeAgentReadToken": "Token de leitura do Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Deixe vazio para desativar o acesso de agent somente leitura",
-    "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner.",
     "serverMode": "Modo servidor",
     "serverModeDesc": "Escolha modo embutido ou conecte a um servidor remoto",
     "serverModeEmbedded": "Embutido",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "Usar modelo do chat",
     "shortcuts": "Atalhos",
     "sidebarCompactMode": "Modo compacto",
-    "sidebarCompactModeDesc": "Oculta avatares e emoji de conversas, Agents e projetos para deixar a barra lateral mais limpa.",
+    "sidebarCompactModeDesc": "Oculta avatares e emoji de conversas e Agents, além dos avatares de projetos, para deixar a barra lateral mais limpa.",
     "sidebarDisplayMode": "Exibição",
     "skillAnyBins": "Qualquer um destes binários",
     "skillBudget": "Orçamento de prompt",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "Salvo",
     "webSearchTimeout": "Timeout (segundos)",
     "webSearchTimeoutDesc": "Timeout HTTP para requisições de pesquisa (5-120 s)",
+    "knowledgeCompile": {
+      "agent": "Agente de organização de fontes",
+      "agentDefault": "Usar agente padrão global",
+      "agentDesc": "Agente usado para transformar fontes em sugestões de notas revisáveis. Quando não definido, herda o agente padrão global."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Salvo",
+      "title": "Retenção da mídia original",
+      "description": "Opcionalmente mantenha os originais importados de áudio, vídeo e imagem para revisar evidências das fontes.",
+      "maxTotal": "Cota total (MiB)",
+      "maxSource": "Por fonte (MiB)",
+      "thumbnail": "Maior lado da miniatura (px)",
+      "prune": "Remover mídias mais antigas ao exceder a cota",
+      "pruneDesc": "Quando um novo arquivo retido excederia a cota, remova os originais retidos mais antigos antes de ignorar o novo arquivo."
+    },
+    "serverKnowledgeAgentReadToken": "Token de leitura do Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Deixe vazio para desativar o acesso de agent somente leitura",
+    "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner.",
     "devVisualTest": "Teste de animação de UI",
     "permLoading": "Verificando permissões...",
     "uiEffects": "Animação de fundo",

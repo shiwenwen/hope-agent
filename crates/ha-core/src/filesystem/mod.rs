@@ -6,6 +6,8 @@
 //! - `list_dir(path)` — single-level read of a directory, used by the
 //!   server-mode directory picker and the `@` chat-mention popper when the
 //!   token contains a `/`.
+//! - `create_dir(path)` — create a user-selected absolute directory for the
+//!   directory picker, then return the created directory listing.
 //! - `search_files(root, query, limit)` — fuzzy walk of `root`, respecting
 //!   `.gitignore` / hidden-file rules. Used by the chat-mention popper when
 //!   the user typed a bare `@chat`-style token.
@@ -254,6 +256,40 @@ pub fn list_dir(requested: Option<&str>) -> Result<DirListing> {
         entries,
         truncated,
     })
+}
+
+/// Create an absolute directory and return its listing.
+///
+/// This is intentionally absolute-path only because it backs owner-facing
+/// directory pickers. Workspace-relative project file operations use
+/// [`project_mkdir`] instead.
+pub fn create_dir(requested: &str) -> Result<DirListing> {
+    let trimmed = requested.trim();
+    if trimmed.is_empty() {
+        return Err(FilesystemError::bad_input("directory path is empty"));
+    }
+    let target = Path::new(trimmed);
+    if !target.is_absolute() {
+        return Err(FilesystemError::bad_input(format!(
+            "path must be absolute: {}",
+            trimmed
+        )));
+    }
+
+    std::fs::create_dir_all(target).map_err(|e| {
+        FilesystemError::bad_input(format!("cannot create directory '{}': {}", trimmed, e))
+    })?;
+    let canon = target.canonicalize().map_err(|e| {
+        FilesystemError::bad_input(format!("cannot resolve path '{}': {}", trimmed, e))
+    })?;
+    if !canon.is_dir() {
+        return Err(FilesystemError::bad_input(format!(
+            "path is not a directory: {}",
+            canon.display()
+        )));
+    }
+    let canon_str = canon.to_string_lossy().to_string();
+    list_dir(Some(&canon_str))
 }
 
 #[cfg(unix)]

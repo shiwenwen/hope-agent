@@ -10,9 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **输入框支持 @Agent 委派子智能体**：在对话输入框输入 `@` 时，Agent 候选会展示在文件 / 知识笔记 / 技能之后；选中后插入可视化 Agent 芯片，并在发送时把用户主动要求某个 Agent 执行任务的意图注入给模型，便于模型通过既有子智能体工具发起委派。
+- **项目工作目录选择支持新建目录**：新建 / 编辑项目时，工作目录选择提升到表单顶部，可选择已有目录或直接新建目录；未手动选择时仍沿用默认项目目录自动创建逻辑。HTTP Server 模式下远端目录选择器也支持新建目录，并继续受 `filesystem.allowRemoteWrites` 写入开关保护。
+- **内置 Provider 模板刷新**：为 Anthropic / Anthropic (Vertex AI) / OpenAI / Google Gemini / Moonshot / 智谱 / MiniMax / Kimi Coding 等补齐最新旗舰模型（Claude Fable 5、GPT-5.6 Sol/Terra/Luna、Gemini 3.5 Flash、Kimi K2.7 Code、GLM-5.2、MiniMax M3、kimi-for-coding 等，均置于各供应商列表顶部），修正 Claude Haiku 4.5、MiniMax M2.7 Highspeed 的能力与价格元数据，并新增 OpenCode Zen 旗舰网关模板。 (#412)
+- **语音转写新增供应商与模型刷新**：新增 ElevenLabs Scribe、xAI Grok STT 两个云端 ASR 后端，以及 Groq、Mistral Voxtral、DeepInfra 三个 OpenAI 兼容转写预设，可直接用于语音输入与 IM 自动转写；AssemblyAI 型号更新为 Universal-3 Pro（流式 u3-rt-pro），本地 embedding 目录新增 mxbai-embed-large。 (#413)
+
+### Changed
+
+- **项目不再使用 Emoji 图标**：新建 / 编辑项目移除 Emoji 字段，项目列表、快捷指令、定时任务与系统提示统一只使用项目 Logo 或默认文件夹图标展示项目身份。
+- **对话输入框工具栏窄宽自适应更完善**：输入框变窄时会按优先级依次将沙箱、权限模式收进「+」菜单（可就地展开切换），停止 / 发送按钮始终保持在同一行、不再换行，最窄仅保留「加号 · 模型选择 · 停止 / 发送」；折叠断点按各控件宽度重新校准。消息列表首条消息顶部也补足了间距。 (#420)
+- **模型选择支持悬浮查看完整名称**：底部工具栏的模型名称过长被截断时，鼠标悬浮即可显示「供应商 · 完整模型名」，无需展开菜单。 (#420)
 
 ### Fixed
 
+- **聊天消息吸顶与耗时显示更准确**：用户消息悬浮吸顶不再只处理最后一条消息，会按当前可见回复体切换对应用户消息，并正确处理已处理折叠行、上下文压缩事件与长会话 DOM 裁剪；工具 / 思考耗时显示避免把同一轮耗时重复累加。聊天列表与输入框也收窄到更适合全屏阅读的最大宽度。
 - **MCP 配置编辑与热更新更可靠**：编辑 MCP server 时不再把界面中的 `<redacted>` 占位值写回覆盖真实 env / header / OAuth secret；服务名保持不可变，更新请求也不能改写已有 server id。禁用 / 重排 / 全局开关变更会即时同步到运行时，应用以 `mcpGlobal.enabled=false` 启动后再打开 MCP 也无需重启即可生效。
 - **MCP 工具目录与连接状态更稳定**：动态 MCP 工具名现在会处理 `foo-bar` / `foo.bar` 等清洗后重名的碰撞，避免工具互相覆盖；修改 URL / env / header / OAuth / 信任等级 / 并发上限后会重建连接，旧连接不会继续泄漏旧配置或把过期 catalog 写回工具索引；并发冷启动同一 MCP server 时也不会重复 spawn / handshake。
 - **MCP 设置面板细节修复**：切换 transport 后隐藏的 env / header 不会悄悄保存；数字字段清空会回到默认值而不是被保存成最小值；禁用 server 的测试 / 重连 / 授权按钮会置灰，避免点出无效错误。

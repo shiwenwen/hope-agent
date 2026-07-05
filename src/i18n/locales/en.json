@@ -365,7 +365,7 @@
     "conversations": "Chats",
     "collapseSidebar": "Collapse sidebar",
     "sidebarCompactMode": "Switch to compact mode",
-    "sidebarDetailedMode": "Switch to detailed mode",
+    "sidebarDetailedMode": "Switch to normal mode",
     "copied": "Copied",
     "copy": "Copy",
     "quickPrompts": {
@@ -493,6 +493,7 @@
         "desc": "Edit-class tools and high-risk commands need approval; everything else runs.",
         "label": "Default"
       },
+      "menuLabel": "Permission mode",
       "smart": {
         "desc": "Defer approval decisions to a judge model or the model's self-confidence tag.",
         "label": "Smart Approval"
@@ -507,6 +508,7 @@
         "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
         "label": "Isolated Sandbox"
       },
+      "menuLabel": "Sandbox",
       "off": {
         "desc": "Run on the host; approval behavior is unchanged.",
         "label": "Sandbox Off"
@@ -602,8 +604,8 @@
     "viewSystemPrompt": "View System Prompt",
     "weeksAgo": "{{count}}w ago",
     "workingDir": {
-      "browserDescription": "Paths are resolved on the server machine where the agent runs.",
-      "browserTitle": "Select a directory on the server",
+      "browserDescription": "Paths are resolved on the machine where the agent runs.",
+      "browserTitle": "Select a directory",
       "change": "Change directory",
       "clear": "Clear directory",
       "current": "Working directory",
@@ -2262,12 +2264,11 @@
     "projectColor": "Color",
     "projectDescription": "Description",
     "projectDescriptionPlaceholder": "What is this project about?",
-    "projectEmoji": "Emoji",
     "projectInstructions": "Project Instructions",
     "projectInstructionsHint": "These instructions are automatically added to the system prompt of every session in this project.",
     "projectInstructionsPlaceholder": "e.g. Always reply in English; keep the tone clear and friendly; start with the conclusion",
     "projectLogo": "Logo",
-    "projectLogoHint": "Optional. When set, replaces the emoji icon in the sidebar. Images are auto-resized to 256×256.",
+    "projectLogoHint": "Optional. Images are auto-resized to 256×256.",
     "projectName": "Project Name",
     "projectNamePlaceholder": "e.g. Hope Agent Development",
     "projects": "Projects",
@@ -2287,11 +2288,11 @@
     "uploadLogo": "Upload logo",
     "workingDir": {
       "clear": "Clear",
-      "hint": "Sessions in this project default to this directory; session-level setting overrides it.",
+      "hint": "Choose an existing directory or create a new one. Leave empty to auto-create the default project directory.",
       "invalid": "Invalid working directory",
       "label": "Working Directory",
       "pick": "Pick directory",
-      "placeholder": "Not set (sessions can override)"
+      "placeholder": "Not set (default project directory will be created)"
     },
     "knowledge": {
       "label": "Knowledge spaces",
@@ -4359,7 +4360,7 @@
     "sessionTitleUseChatModel": "Use chat model",
     "shortcuts": "Shortcuts",
     "sidebarCompactMode": "Compact mode",
-    "sidebarCompactModeDesc": "Hide chat, Agent, and project avatars and emoji to keep the sidebar cleaner.",
+    "sidebarCompactModeDesc": "Hide chat and Agent avatars and emoji, plus project avatars, to keep the sidebar cleaner.",
     "sidebarDisplayMode": "Display",
     "skillAnyBins": "Any of these binaries",
     "skillBudget": "Prompt Budget",

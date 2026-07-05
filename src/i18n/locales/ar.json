@@ -365,7 +365,7 @@
     "conversations": "المحادثات",
     "collapseSidebar": "طي الشريط الجانبي",
     "sidebarCompactMode": "التبديل إلى الوضع الموجز",
-    "sidebarDetailedMode": "التبديل إلى الوضع التفصيلي",
+    "sidebarDetailedMode": "التبديل إلى الوضع العادي",
     "copied": "تم النسخ",
     "copy": "نسخ",
     "quickPrompts": {
@@ -500,30 +500,8 @@
       "yolo": {
         "desc": "جميع الأدوات في هذه الجلسة تعمل بدون موافقة (المسارات المحمية لا تزال تُسجّل).",
         "label": "YOLO"
-      }
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
       },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      }
+      "menuLabel": "وضع الأذونات"
     },
     "pickSession": "اختر جلسة",
     "profileRotationTitle": "تغيير الملف الشخصي",
@@ -664,6 +642,30 @@
       "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
       "openSettings": "فتح الإعدادات",
       "dismiss": "عدم الإظهار مرة أخرى"
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
+      },
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      },
+      "menuLabel": "صندوق العزل"
     },
     "browserExtensionRequired": {
       "nextAction": "الإجراء التالي: {{nextAction}}",
@@ -2262,12 +2264,11 @@
     "projectColor": "اللون",
     "projectDescription": "الوصف",
     "projectDescriptionPlaceholder": "ما الذي يدور حوله هذا المشروع؟",
-    "projectEmoji": "Emoji",
     "projectInstructions": "تعليمات المشروع",
     "projectInstructionsHint": "تُضاف هذه التعليمات تلقائيًا إلى مطالبة النظام لكل جلسة ضمن هذا المشروع.",
     "projectInstructionsPlaceholder": "مثال: الرد دائمًا بالعربية؛ اجعل النبرة واضحة ولطيفة؛ ابدأ بالخلاصة",
     "projectLogo": "الشعار",
-    "projectLogoHint": "اختياري. عند التعيين يحل محل أيقونة الإيموجي في الشريط الجانبي. يتم تغيير حجم الصور تلقائيًا إلى 256×256.",
+    "projectLogoHint": "اختياري. يتم تغيير حجم الصور تلقائيًا إلى 256×256.",
     "projectName": "اسم المشروع",
     "projectNamePlaceholder": "مثال: تطوير Hope Agent",
     "projects": "المشاريع",
@@ -3403,11 +3404,6 @@
     "knowledge": {
       "tab": "المعرفة"
     },
-    "knowledgeCompile": {
-      "agent": "وكيل تنظيم المصادر",
-      "agentDefault": "استخدام الوكيل الافتراضي العام",
-      "agentDesc": "الوكيل المستخدم لتحويل المصادر إلى اقتراحات ملاحظات قابلة للمراجعة. عند عدم ضبطه، يرث الوكيل الافتراضي العام."
-    },
     "knowledgeChunk": {
       "title": "متقدّم · التقطيع",
       "description": "كيفية تقسيم الملاحظات إلى وحدات استرجاع. القيم الافتراضية تناسب معظم الملاحظات.",
@@ -3465,16 +3461,6 @@
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
       }
-    },
-    "knowledgeMediaRetention": {
-      "saved": "تم الحفظ",
-      "title": "الاحتفاظ بالوسائط الأصلية",
-      "description": "احتفِظ اختياريًا بأصول الصوت والفيديو والصور المستوردة لمراجعة أدلة المصادر.",
-      "maxTotal": "الحصة الإجمالية (MiB)",
-      "maxSource": "لكل مصدر (MiB)",
-      "thumbnail": "أطول ضلع للصورة المصغرة (px)",
-      "prune": "تنظيف أقدم الوسائط عند تجاوز الحصة",
-      "pruneDesc": "عندما يتسبب ملف جديد محتفَظ به في تجاوز الحصة، تُزال أقدم الأصول المحتفَظ بها قبل تخطي الملف الجديد."
     },
     "knowledgePassiveRecall": {
       "title": "الملاحظات ذات الصلة السلبية",
@@ -4331,9 +4317,6 @@
     "serverEmbeddedBind": "عنوان الربط",
     "serverEmbeddedBindDesc": "الافتراضي 127.0.0.1 للوصول من المضيف المحلي فقط. اضبط على 0.0.0.0 للكشف للشبكة",
     "serverGenerateApiKey": "توليد",
-    "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
-    "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
     "serverMode": "وضع الخادم",
     "serverModeDesc": "اختر الوضع المضمن أو الاتصال بخادم بعيد",
     "serverModeEmbedded": "مضمن",
@@ -4359,7 +4342,7 @@
     "sessionTitleUseChatModel": "استخدام نموذج المحادثة",
     "shortcuts": "الاختصارات",
     "sidebarCompactMode": "الوضع الموجز",
-    "sidebarCompactModeDesc": "يخفي صور ورموز emoji للمحادثات وAgents والمشاريع ليبقى الشريط الجانبي أنظف.",
+    "sidebarCompactModeDesc": "يخفي صور المحادثات وAgents ورموز emoji الخاصة بها، وصور المشاريع، ليبقى الشريط الجانبي أنظف.",
     "sidebarDisplayMode": "العرض",
     "skillAnyBins": "أي من هذه البرامج الثنائية",
     "skillBudget": "ميزانية البرومبت",
@@ -4999,6 +4982,24 @@
     "webSearchSaved": "تم الحفظ",
     "webSearchTimeout": "المهلة (ثوانٍ)",
     "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)",
+    "knowledgeCompile": {
+      "agent": "وكيل تنظيم المصادر",
+      "agentDefault": "استخدام الوكيل الافتراضي العام",
+      "agentDesc": "الوكيل المستخدم لتحويل المصادر إلى اقتراحات ملاحظات قابلة للمراجعة. عند عدم ضبطه، يرث الوكيل الافتراضي العام."
+    },
+    "knowledgeMediaRetention": {
+      "saved": "تم الحفظ",
+      "title": "الاحتفاظ بالوسائط الأصلية",
+      "description": "احتفِظ اختياريًا بأصول الصوت والفيديو والصور المستوردة لمراجعة أدلة المصادر.",
+      "maxTotal": "الحصة الإجمالية (MiB)",
+      "maxSource": "لكل مصدر (MiB)",
+      "thumbnail": "أطول ضلع للصورة المصغرة (px)",
+      "prune": "تنظيف أقدم الوسائط عند تجاوز الحصة",
+      "pruneDesc": "عندما يتسبب ملف جديد محتفَظ به في تجاوز الحصة، تُزال أقدم الأصول المحتفَظ بها قبل تخطي الملف الجديد."
+    },
+    "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
+    "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
     "devVisualTest": "اختبار الرسوم المتحركة لواجهة المستخدم",
     "permLoading": "جارٍ التحقق من الأذونات...",
     "uiEffects": "الرسوم المتحركة الخلفية",
