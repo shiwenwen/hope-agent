@@ -5805,6 +5805,47 @@ function DomainArtifactExportGuardPanel({
     }
   }
 
+  const createEvidenceReviewTask = async (
+    item: DomainArtifactExportGuardReport["evidenceRequiringReview"][number],
+    index: number,
+  ) => {
+    if (!sessionId || disabled || creatingTaskKey) return
+    const taskKey = `evidence:${index}:${item.id}`
+    setCreatingTaskKey(taskKey)
+    try {
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: t(
+          "workspace.domainExportGuard.evidenceTaskContent",
+          "复核交付证据：{{title}}（{{reason}}）- {{scope}} / {{redaction}}",
+          {
+            title: item.title,
+            reason: item.reason,
+            scope: item.accessScope,
+            redaction: item.redactionStatus,
+          },
+        ),
+        activeForm: t(
+          "workspace.domainExportGuard.evidenceTaskActiveForm",
+          "正在复核交付证据：{{title}}",
+          { title: item.title },
+        ),
+      })
+      toast.success(t("workspace.domainExportGuard.evidenceTaskCreated", "已创建证据复核任务"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error(
+        "ui",
+        "DomainArtifactExportGuardPanel",
+        "Create export evidence review task failed",
+        e,
+      )
+      toast.error(message)
+    } finally {
+      setCreatingTaskKey(null)
+    }
+  }
+
   return (
     <div className="rounded-md border border-border/55 bg-background/45 px-2.5 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -5914,21 +5955,39 @@ function DomainArtifactExportGuardPanel({
 
       {evidenceRequiringReview.length ? (
         <div className="mt-2 space-y-1">
-          {evidenceRequiringReview.slice(0, 2).map((item) => (
-            <div
-              key={item.id}
-              className="min-w-0 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
-            >
-              <div className="flex min-w-0 items-center gap-1.5">
-                <ShieldAlert className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
-                <StatusPill label={item.reason} tone="warn" />
+          {evidenceRequiringReview.slice(0, 2).map((item, index) => {
+            const taskKey = `evidence:${index}:${item.id}`
+            return (
+              <div
+                key={item.id}
+                className="min-w-0 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300"
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <ShieldAlert className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
+                  <StatusPill label={item.reason} tone="warn" />
+                  {canCreateTasks ? (
+                    <button
+                      type="button"
+                      onClick={() => void createEvidenceReviewTask(item, index)}
+                      disabled={Boolean(creatingTaskKey)}
+                      className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-current/20 bg-background/45 px-1.5 text-[10px] font-medium transition-colors hover:bg-background/70 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {creatingTaskKey === taskKey ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Plus className="h-3 w-3" />
+                      )}
+                      <span>{t("workspace.domainExportGuard.createEvidenceTask", "转任务")}</span>
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
+                  {item.accessScope} · {item.redactionStatus}
+                </div>
               </div>
-              <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
-                {item.accessScope} · {item.redactionStatus}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       ) : null}
     </div>

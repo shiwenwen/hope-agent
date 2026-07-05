@@ -380,7 +380,7 @@ Gold task pack -> Domain eval task pack
 剩余不作为 Phase 7 第一版 blocker，但仍属于“超越 Codex / Claude Code”的长期增强：
 
 - 真实外部账号的端到端演练需要在具备 Gmail / Calendar / Drive / Sheets / Feishu / Lark 等可用测试账号后继续做，当前 worktree 主要用 deterministic / mock / fail-closed 证据覆盖。
-- 通用任务工作台后续仍可继续接入更多 owner action，例如对具体 artifact 发起领域复核；来源一键加入 evidence、从证据缺口/守门 check/长跑事故创建 task 已落地，不再只依赖 Workspace「领域复核」和 Dashboard Learning。
+- 通用任务工作台后续仍可继续接入更多 owner action，例如对具体 artifact 发起领域复核；来源一键加入 evidence、从证据缺口/守门 check/需复核 evidence/长跑事故创建 task 已落地，不再只依赖 Workspace「领域复核」和 Dashboard Learning。
 - 长期运行稳定性还需要跨天 loop、campaign 和真实连接器动作的 soak run 数据；Phase 8.1 已把 workflow / loop / campaign 运行残留产品化为 Operational Gate，Phase 8.2 已把连接器 E2E 链路证据产品化为 Gate，Phase 8.3 已把这些历史导出为 Soak Report，Phase 8.4 已在 Workspace「通用任务工作台」内补上真实样本验收卡片，让当前会话的领域覆盖、控制面记录、已排空样本、Connector E2E evidence 和事故缺口可见；真实跨天样本仍需继续积累。
 
 ## 12. Phase 8：真实场景产品级验收
@@ -461,11 +461,11 @@ Phase 8 不再新增一套执行系统，而是把 Phase 7 的通用控制面放
 - Workspace 新增「通用任务工作台」区块，位于 Context Retrieval 之后，把 Sources、Evidence、Drafts、Review、Verification、Decisions 做成同屏闭环总览。
 - 工作台新增「真实样本验收」卡片：从当前 session 的 domain evidence、Operational Gate、Soak Report、Artifact Export Guard 与 Connector Action Guard 派生覆盖领域数、控制面记录数、已排空样本、Connector E2E evidence 与事故/缺口，避免“真实样本还没跑够”只停留在文档提醒。
 - 工作台复用已落地的 `list_domain_evidence`、Artifact Export Guard、Connector Action Guard、Review runs、Verification runs 与 Domain Quality runs，不新增后端表，也不绕过既有权限/审批。
-- 用户可在同一面板直接运行领域复核、推荐验证、运行验证、刷新全部守门状态，并把“下一步”证据缺口、交付/外部动作守门 check 或长跑审计事故一键转成 session task，不需要记 slash 命令或切到 Dashboard。
+- 用户可在同一面板直接运行领域复核、推荐验证、运行验证、刷新全部守门状态，并把“下一步”证据缺口、交付/外部动作守门 check、需复核 evidence 或长跑审计事故一键转成 session task，不需要记 slash 命令或切到 Dashboard。
 - Context Retrieval 候选行的「摘要」按钮会写入 `artifact_created` 摘要 evidence；「确认」按钮会创建 owner-side ask_user，并在用户回答后写入 `user_decision` evidence；「证据」按钮可把当前推荐来源/文档/会议/表格/决策落成 domain evidence，并刷新通用任务工作台；「冲突」按钮会写入 `claim_checked` 冲突证据；「转任务」按钮可把候选落成 session task，形成“看到缺口 -> 生成摘要 / 用户确认 / 补证据 / 标冲突 / 建任务 -> 守门和进度重新评估”的真实 owner action。
-- 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门、外部动作守门和 Soak incident 状态生成“下一步”提示；每条提示、每个守门 check 和每个长跑事故都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
+- 面板会根据证据缺口、P0/P1 review finding、验证失败、领域复核阻塞、交付守门、外部动作守门和 Soak incident 状态生成“下一步”提示；每条提示、每个守门 check、每条需复核 evidence 和每个长跑事故都可由用户显式点击「转任务」落入 TaskProgressPanel 追踪。
 - 最近 evidence 行展示 evidence type、domain、access scope、redaction status 与时间，让用户知道来源、草稿、批准、复核和决策证据是否已经真实落盘。
-- 交付守门与外部动作守门仍保持只读：它们提示能否交付/执行外部动作，check 行「转任务」只创建用户可见待办；真正发送、分享、修改外部系统仍必须走工具审批和连接器授权。
+- 交付守门与外部动作守门仍保持只读：它们提示能否交付/执行外部动作，check 行与需复核 evidence 行「转任务」只创建用户可见待办；真正发送、分享、修改外部系统仍必须走工具审批和连接器授权。
 
 ## 13. 推荐顺序
 

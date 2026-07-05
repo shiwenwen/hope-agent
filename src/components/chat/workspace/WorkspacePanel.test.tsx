@@ -2017,7 +2017,7 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("explicit_user_approval")).toBeTruthy()
   })
 
-  it("creates tasks from export and connector guard checks", async () => {
+  it("creates tasks from export guard evidence and connector guard checks", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
       if (name === "list_workflow_runs") return Promise.resolve([])
@@ -2051,6 +2051,19 @@ describe("WorkspacePanel workflow section", () => {
         content:
           "处理交付守门缺口：artifact_reviewed（0）- The delivery artifact has not been reviewed.",
         activeForm: "正在处理交付守门缺口：artifact_reviewed",
+      })
+    })
+
+    const exportEvidenceLabel = await screen.findByText("Private source")
+    const exportEvidenceRow = exportEvidenceLabel.parentElement
+    expect(exportEvidenceRow).toBeTruthy()
+    fireEvent.click(within(exportEvidenceRow as HTMLElement).getByRole("button", { name: "转任务" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content: "复核交付证据：Private source（sensitive_unreviewed）- connector / pending",
+        activeForm: "正在复核交付证据：Private source",
       })
     })
 
