@@ -3768,6 +3768,14 @@ function domainAcceptanceStatusLabel(
   return t("workspace.domainWorkbench.acceptanceIdle", "待采样")
 }
 
+function domainAcceptanceHasActionableSamplingWork(summary: DomainAcceptanceCoverageSummary): boolean {
+  return (
+    summary.gaps.length > 0 ||
+    summary.requirements.some((requirement) => !requirement.passed) ||
+    summary.sampleLanes.some((lane) => !lane.passed && lane.tone !== "info")
+  )
+}
+
 function domainAcceptanceVerdict(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
@@ -3987,6 +3995,10 @@ function domainAcceptancePlanTaskContent(
   const sampleLanes = domainAcceptanceSampleLaneChecklistLines(t, summary.sampleLanes, {
     includeRefreshTargets: true,
   })
+  const gapLines =
+    gaps.length > 0
+      ? gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`)
+      : [t("workspace.domainWorkbench.acceptanceReviewNoGaps", "- 暂无验收缺口")]
   const actions = [
     t(
       "workspace.domainWorkbench.acceptancePlanActionEvidence",
@@ -4033,7 +4045,7 @@ function domainAcceptancePlanTaskContent(
     ...sampleLanes,
     "",
     t("workspace.domainWorkbench.acceptancePlanGaps", "验收缺口："),
-    ...gaps.map((gap) => `- [${domainAcceptanceGapLabel(t, gap.severity)}] ${gap.message}`),
+    ...gapLines,
     "",
     t("workspace.domainWorkbench.acceptancePlanActions", "采样动作："),
     ...actions.map((action) => `- ${action}`),
@@ -4328,7 +4340,7 @@ function DomainAcceptanceCoverageCard({
             <Copy className="h-3.5 w-3.5" />
           </button>
         </IconTip>
-        {summary.gaps.length > 1 && onCreateGapPlan ? (
+        {domainAcceptanceHasActionableSamplingWork(summary) && onCreateGapPlan ? (
           <button
             type="button"
             onClick={() => onCreateGapPlan(summary.gaps)}
@@ -4923,7 +4935,14 @@ function DomainTaskWorkbenchSection({
   }
 
   const createAcceptancePlanTask = async (gaps: DomainAcceptanceGap[]) => {
-    if (!sessionId || disabled || creatingAcceptancePlanTask || gaps.length === 0) return
+    if (
+      !sessionId ||
+      disabled ||
+      creatingAcceptancePlanTask ||
+      !domainAcceptanceHasActionableSamplingWork(acceptanceSummary)
+    ) {
+      return
+    }
     setCreatingAcceptancePlanTask(true)
     try {
       await getTransport().call<Task[]>("create_session_task", {

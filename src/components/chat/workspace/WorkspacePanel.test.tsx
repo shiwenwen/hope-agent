@@ -2409,6 +2409,23 @@ describe("WorkspacePanel workflow section", () => {
     const acceptanceReport = String(writeText.mock.calls[0]?.[0] ?? "")
     expect(acceptanceReport).toContain("source_cited · research · public/none")
     expect(acceptanceReport).toContain("(e-source)")
+
+    fireEvent.click(screen.getByRole("button", { name: "采样清单" }))
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content: expect.stringContaining("补齐真实样本验收清单："),
+        activeForm: "正在补齐真实样本验收清单",
+      })
+    })
+    const acceptancePlanTask = transportMock.call.mock.calls.find(
+      ([name, args]) =>
+        name === "create_session_task" &&
+        String(args?.activeForm ?? "") === "正在补齐真实样本验收清单",
+    )?.[1]
+    const acceptancePlanContent = String(acceptancePlanTask?.content ?? "")
+    expect(acceptancePlanContent).toContain("验收结论：可局部复核")
+    expect(acceptancePlanContent).toContain("继续补其它通用领域样本，避免只证明单一场景。")
   })
 
   it("creates a task from domain soak incidents", async () => {
