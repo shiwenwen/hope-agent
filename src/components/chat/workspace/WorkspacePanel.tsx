@@ -4015,6 +4015,7 @@ function domainAcceptancePlanTaskContent(
   t: ReturnType<typeof useTranslation>["t"],
   summary: DomainAcceptanceCoverageSummary,
   gaps: DomainAcceptanceGap[],
+  context: DomainAcceptanceReviewContext,
 ): string {
   const verdict = domainAcceptanceVerdict(t, summary)
   const domains = summary.domains.length > 0 ? summary.domains.join(", ") : "0"
@@ -4096,7 +4097,7 @@ function domainAcceptancePlanTaskContent(
     ...metrics.map((metric) => `- ${metric}`),
     "",
     t("workspace.domainWorkbench.acceptanceAuditIndex", "审计索引："),
-    ...domainAcceptanceAuditIndexLines(t, summary),
+    ...domainAcceptanceAuditIndexLines(t, summary, context),
     "",
     t("workspace.domainWorkbench.acceptanceReviewProtocol", "复核协议："),
     ...domainAcceptanceReviewProtocolLines(t),
@@ -4824,6 +4825,14 @@ function DomainTaskWorkbenchSection({
     operationalGate,
     soakReport,
   })
+  const acceptanceReviewContext: DomainAcceptanceReviewContext = {
+    evidence,
+    exportGuard,
+    connectorGuard,
+    connectorE2eGate,
+    operationalGate,
+    soakReport,
+  }
   const recentEvidence = evidence.slice(0, 4)
   const error =
     evidenceError ??
@@ -5019,7 +5028,12 @@ function DomainTaskWorkbenchSection({
     try {
       await getTransport().call<Task[]>("create_session_task", {
         sessionId,
-        content: domainAcceptancePlanTaskContent(t, acceptanceSummary, gaps),
+        content: domainAcceptancePlanTaskContent(
+          t,
+          acceptanceSummary,
+          gaps,
+          acceptanceReviewContext,
+        ),
         activeForm: t(
           "workspace.domainWorkbench.acceptancePlanTaskActiveForm",
           "正在补齐真实样本验收清单",
@@ -5220,14 +5234,7 @@ function DomainTaskWorkbenchSection({
 
         <DomainAcceptanceCoverageCard
           summary={acceptanceSummary}
-          reviewContext={{
-            evidence,
-            exportGuard,
-            connectorGuard,
-            connectorE2eGate,
-            operationalGate,
-            soakReport,
-          }}
+          reviewContext={acceptanceReviewContext}
           creatingRequirementTaskKey={creatingAcceptanceRequirementTaskKey}
           creatingSampleLaneTaskKey={creatingAcceptanceSampleLaneTaskKey}
           creatingGapTaskKey={creatingAcceptanceGapTaskKey}
