@@ -2078,6 +2078,16 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("3 条")).toBeTruthy()
     expect(screen.getByText("长跑审计仍有事故需要收口。")).toBeTruthy()
 
+    fireEvent.click(screen.getByRole("button", { name: "采样清单" }))
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
+        sessionId: "s1",
+        content:
+          "补齐真实样本验收清单：\n- 缺少来源、草稿、复核或用户决策证据。\n- 长跑审计仍有事故需要收口。\n- 继续补其它通用领域样本，避免只证明单一场景。",
+        activeForm: "正在补齐真实样本验收清单",
+      })
+    })
+
     const acceptanceGap = screen.getByText("长跑审计仍有事故需要收口。")
     const acceptanceGapRow = acceptanceGap.parentElement
     expect(acceptanceGapRow).toBeTruthy()

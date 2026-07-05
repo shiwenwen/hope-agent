@@ -3137,11 +3137,15 @@ function domainAcceptanceStatusLabel(
 function DomainAcceptanceCoverageCard({
   summary,
   creatingGapTaskKey,
+  creatingPlanTask,
   onCreateGapTask,
+  onCreateGapPlan,
 }: {
   summary: DomainAcceptanceCoverageSummary
   creatingGapTaskKey?: string | null
+  creatingPlanTask?: boolean
   onCreateGapTask?: (gap: string, index: number) => void
+  onCreateGapPlan?: (gaps: string[]) => void
 }) {
   const { t } = useTranslation()
   return (
@@ -3152,6 +3156,21 @@ function DomainAcceptanceCoverageCard({
           {t("workspace.domainWorkbench.acceptanceTitle", "真实样本验收")}
         </span>
         <StatusPill label={domainAcceptanceStatusLabel(t, summary)} tone={summary.tone} />
+        {summary.gaps.length > 1 && onCreateGapPlan ? (
+          <button
+            type="button"
+            onClick={() => onCreateGapPlan(summary.gaps)}
+            disabled={Boolean(creatingGapTaskKey) || Boolean(creatingPlanTask)}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {creatingPlanTask ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" />
+            )}
+            <span>{t("workspace.domainWorkbench.createAcceptancePlan", "采样清单")}</span>
+          </button>
+        ) : null}
       </div>
       <div className="mt-2 grid grid-cols-4 gap-1.5">
         <DomainWorkbenchMetric
@@ -3214,7 +3233,7 @@ function DomainAcceptanceCoverageCard({
                   <button
                     type="button"
                     onClick={() => onCreateGapTask(gap, index)}
-                    disabled={Boolean(creatingGapTaskKey)}
+                    disabled={Boolean(creatingGapTaskKey) || Boolean(creatingPlanTask)}
                     className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md border border-border/55 bg-background/45 px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {creatingGapTaskKey === taskKey ? (
@@ -3431,6 +3450,7 @@ function DomainTaskWorkbenchSection({
   const [creatingAcceptanceGapTaskKey, setCreatingAcceptanceGapTaskKey] = useState<string | null>(
     null,
   )
+  const [creatingAcceptancePlanTask, setCreatingAcceptancePlanTask] = useState(false)
 
   const handleRefresh = () => {
     void refreshAll()
@@ -3515,6 +3535,32 @@ function DomainTaskWorkbenchSection({
       toast.error(message)
     } finally {
       setCreatingAcceptanceGapTaskKey(null)
+    }
+  }
+
+  const createAcceptancePlanTask = async (gaps: string[]) => {
+    if (!sessionId || disabled || creatingAcceptancePlanTask || gaps.length === 0) return
+    setCreatingAcceptancePlanTask(true)
+    try {
+      const items = gaps.map((gap) => `- ${gap}`).join("\n")
+      await getTransport().call<Task[]>("create_session_task", {
+        sessionId,
+        content: `${t(
+          "workspace.domainWorkbench.acceptancePlanTaskContent",
+          "补齐真实样本验收清单：",
+        )}\n${items}`,
+        activeForm: t(
+          "workspace.domainWorkbench.acceptancePlanTaskActiveForm",
+          "正在补齐真实样本验收清单",
+        ),
+      })
+      toast.success(t("workspace.domainWorkbench.acceptancePlanTaskCreated", "已创建真实样本清单"))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      logger.error("ui", "DomainTaskWorkbenchSection", "Create acceptance plan task failed", e)
+      toast.error(message)
+    } finally {
+      setCreatingAcceptancePlanTask(false)
     }
   }
 
@@ -3704,7 +3750,9 @@ function DomainTaskWorkbenchSection({
         <DomainAcceptanceCoverageCard
           summary={acceptanceSummary}
           creatingGapTaskKey={creatingAcceptanceGapTaskKey}
+          creatingPlanTask={creatingAcceptancePlanTask}
           onCreateGapTask={!disabled ? createAcceptanceGapTask : undefined}
+          onCreateGapPlan={!disabled ? createAcceptancePlanTask : undefined}
         />
 
         <div className="grid grid-cols-1 gap-2">
