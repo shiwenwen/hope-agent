@@ -1724,6 +1724,7 @@ fn build_router_with_cors(
             "/design/directions",
             post(routes::design::propose_directions),
         )
+        .route("/design/recipes", get(routes::design::list_recipes))
         .route(
             "/design/systems/{id}/design-md",
             get(routes::design::export_design_md),

@@ -90,6 +90,7 @@ import type {
   DesignArtifactView,
   DesignProject,
   DesignSystemMeta,
+  DesignRecipe,
   DesignSelectedElement,
   DesignDirection,
   DesignConfig,
@@ -205,6 +206,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     void loadSystems()
   }, [loadSystems])
+
+  // 设计模板目录（首屏模板快选）。
+  const [recipes, setRecipes] = useState<DesignRecipe[]>([])
+  useEffect(() => {
+    getTransport()
+      .call<DesignRecipe[]>("list_design_recipes_cmd")
+      .then((list) => setRecipes(list ?? []))
+      .catch(() => {})
+  }, [])
 
   // Export clarity/quality prefs (config-driven; undefined → export defaults).
   const [designConfig, setDesignConfig] = useState<DesignConfig | null>(null)
@@ -1097,6 +1107,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           projects={projects}
           loading={loadingProjects}
           systems={systems}
+          recipes={recipes}
+          onPickRecipe={(r) => {
+            setHomeKind(r.kind)
+            setHomePrompt(r.scenario || r.summary || r.name)
+          }}
           prompt={homePrompt}
           setPrompt={setHomePrompt}
           kind={homeKind}
@@ -1796,6 +1811,8 @@ function LaunchHome({
   projects,
   loading,
   systems,
+  recipes,
+  onPickRecipe,
   prompt,
   setPrompt,
   kind,
@@ -1812,6 +1829,8 @@ function LaunchHome({
   projects: DesignProject[]
   loading: boolean
   systems: DesignSystemMeta[]
+  recipes: DesignRecipe[]
+  onPickRecipe: (r: DesignRecipe) => void
   prompt: string
   setPrompt: (v: string) => void
   kind: ArtifactKind
@@ -1916,6 +1935,35 @@ function LaunchHome({
             )
           })}
         </div>
+
+        {/* Templates（从模板开始：点选 → 填入形态 + 场景 brief，可编辑后生成） */}
+        {recipes.length > 0 && (
+          <div className="mt-8">
+            <p className="mb-2 text-center text-xs font-medium text-muted-foreground">
+              {t("design.startFromTemplate", "从模板开始")}
+            </p>
+            <div className="flex gap-2.5 overflow-x-auto pb-2 [scrollbar-width:thin]">
+              {recipes.map((r) => {
+                const Icon = KIND_ICON[r.kind] ?? Monitor
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => onPickRecipe(r)}
+                    title={r.summary}
+                    className="group flex w-40 shrink-0 flex-col gap-1.5 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+                  >
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    <span className="truncate text-sm font-medium">{r.name}</span>
+                    <span className="line-clamp-2 text-xs text-muted-foreground">{r.summary}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Recent projects */}
         <div className="mt-12">

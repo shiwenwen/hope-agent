@@ -166,6 +166,7 @@
     "zoomFit": "フィット",
     "reload": "再読込",
     "systemNone": "デザインシステムなし",
+    "startFromTemplate": "テンプレートから始める",
     "launchHeading": "何をデザインしますか？",
     "launchSub": "一文で説明すれば、すぐ使えるデザインを生成——Web / スライド / ポスター / ドキュメント / モーション。",
     "launchPlaceholder": "作りたいデザインを説明してください。例：「SaaS製品の料金ページ、3プラン」…",

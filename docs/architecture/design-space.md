@@ -291,7 +291,7 @@ planned ──→ generating ──→ ready
 
 - **后端生成入口 `create_artifact_generating`**：body 为空且带 prompt 时——`image` 走 `image::generate_image_parts`（image_generate 栈）；**其余全部形态走 `design::generate::generate_design_parts`**（brief + kind 的 recipe 指导 + 设计系统 DESIGN.md/token 接地 → 一次 `build_analysis_agent` side-query 生成自包含 `body_html/css/js`）。生成**失败降级空壳**（`app_warn` 不 `bail`），用户可在对话里继续细化。
 - **生成输出格式**：`<<<BODY>>> / <<<CSS>>> / <<<JS>>>` 分节定界符（抗大段 HTML 的引号/换行转义，比 JSON 稳）；`strip_fence` 按行剥 ```` ```lang ```` 围栏（不能用 `trim_matches('`')`——会漏语言标签行污染内容）；**截断检测**：合规输出必含 `<<<CSS>>>`，缺失即视作 body 段被截断 → `bail` 走降级，不静默交付半截无样式产物。
-- **前端 `LaunchHome`（prompt-first 首屏）**：大标题 + 大输入框（Cmd/Ctrl+Enter 生成）+ 形态 chip + 内联设计系统选择器 + 生成按钮。`generateFromHome` = 建项目 → 带 prompt 建产物（后端生成）→ 打开；产物创建失败**回滚删除刚建的孤儿项目**；生成中禁用最近项目磁贴防导航被完成回调劫持。
+- **前端 `LaunchHome`（prompt-first 首屏）**：大标题 + 大输入框（Cmd/Ctrl+Enter 生成）+ 形态 chip + **模板快选行**（`list_design_recipes_cmd` 拉内置 recipe 目录，点选 → 填入该形态 + 场景 brief，可编辑后生成）+ 内联设计系统选择器 + 生成按钮。`generateFromHome` = 建项目 → 带 prompt 建产物（后端生成）→ 打开；产物创建失败**回滚删除刚建的孤儿项目**；生成中禁用最近项目磁贴防导航被完成回调劫持。
 - **真实缩略图墙（`ArtifactThumb` / `ProjectThumb`）**：首屏项目卡 = 该项目最近产物的**静态设计预览**——懒挂载（`IntersectionObserver`）+ `sandbox=""`（**不跑 JS**，画廊零动画开销、性能稳）+ `ResizeObserver` 等比缩放，复用产物 `index.html` 的 asset 服务，无独立缩略图存储管线。
 
 ---

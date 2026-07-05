@@ -166,6 +166,7 @@
     "zoomFit": "Ajustar",
     "reload": "Recargar",
     "systemNone": "Sin sistema de diseño",
+    "startFromTemplate": "Empezar con una plantilla",
     "launchHeading": "¿Qué quieres diseñar?",
     "launchSub": "Descríbelo en una frase y genera un diseño listo para entregar: web, presentación, póster, documento, animación.",
     "launchPlaceholder": "Describe el diseño que quieres, p. ej. «una página de precios para un producto SaaS, tres planes»…",

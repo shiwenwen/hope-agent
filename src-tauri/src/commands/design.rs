@@ -205,3 +205,10 @@ pub async fn save_design_config_cmd(config: DesignConfig) -> Result<(), CmdError
     })?;
     Ok(())
 }
+
+// ── Recipes（设计模板目录，供 GUI 首屏模板快选）─────────────────────
+
+#[tauri::command]
+pub async fn list_design_recipes_cmd() -> Result<Vec<ha_core::design::recipe::Recipe>, CmdError> {
+    Ok(ha_core::design::recipe::builtin_recipes())
+}

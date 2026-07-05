@@ -166,6 +166,7 @@
     "zoomFit": "Fit",
     "reload": "Reload",
     "systemNone": "No design system",
+    "startFromTemplate": "Start from a template",
     "launchHeading": "What do you want to design?",
     "launchSub": "Describe it in a sentence and generate a ready-to-ship design — web, deck, poster, doc, motion.",
     "launchPlaceholder": "Describe the design you want, e.g. \"a pricing page for a SaaS product, three tiers\"…",

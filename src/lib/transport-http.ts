@@ -233,6 +233,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   save_design_system_cmd:            { method: "POST",   path: "/api/design/systems" },
   extract_design_system_cmd:         { method: "POST",   path: "/api/design/systems/extract" },
   propose_design_directions_cmd:     { method: "POST",   path: "/api/design/directions" },
+  list_design_recipes_cmd:           { method: "GET",    path: "/api/design/recipes" },
   delete_design_system_cmd:          { method: "DELETE", path: "/api/design/systems/{id}" },
   get_design_config_cmd:             { method: "GET",    path: "/api/config/design" },
   save_design_config_cmd:            { method: "PUT",    path: "/api/config/design" },

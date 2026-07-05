@@ -136,6 +136,16 @@ export interface DesignConfig {
   critiqueModel?: string;
 }
 
+/** 设计模板（recipe）：某形态的常见场景，供首屏模板快选。 */
+export interface DesignRecipe {
+  id: string;
+  name: string;
+  kind: ArtifactKind;
+  scenario: string;
+  summary: string;
+  guidance: string;
+}
+
 /** 创建项目入参。 */
 export interface CreateProjectInput {
   title: string;

@@ -166,6 +166,7 @@
     "zoomFit": "Sığdır",
     "reload": "Yenile",
     "systemNone": "Tasarım sistemi yok",
+    "startFromTemplate": "Bir şablonla başla",
     "launchHeading": "Ne tasarlamak istiyorsun?",
     "launchSub": "Bir cümleyle anlat, teslime hazır bir tasarım üret — web, sunum, poster, doküman, animasyon.",
     "launchPlaceholder": "İstediğin tasarımı anlat, örn. \"bir SaaS ürünü için üç paketli fiyatlandırma sayfası\"…",

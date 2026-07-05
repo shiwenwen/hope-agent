@@ -166,6 +166,7 @@
     "zoomFit": "符合",
     "reload": "重新整理",
     "systemNone": "無設計系統",
+    "startFromTemplate": "從範本開始",
     "launchHeading": "你想設計什麼？",
     "launchSub": "一句話描述，直接生成可交付的設計——網頁 / 簡報 / 海報 / 文件 / 動效。",
     "launchPlaceholder": "描述你想要的設計，例如「一個 SaaS 產品的定價頁，三檔方案」…",

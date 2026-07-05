@@ -347,6 +347,11 @@ pub async fn propose_directions(
     ))
 }
 
+/// `GET /api/design/recipes` — built-in design template (recipe) catalog.
+pub async fn list_recipes() -> Result<Json<Vec<ha_core::design::recipe::Recipe>>, AppError> {
+    Ok(Json(ha_core::design::recipe::builtin_recipes()))
+}
+
 /// `GET /api/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}` —
 /// serve a file from an artifact directory (the preview iframe loads
 /// `…/index.html` through this route). Three-gate path containment.

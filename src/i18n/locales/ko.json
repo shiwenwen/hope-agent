@@ -166,6 +166,7 @@
     "zoomFit": "맞춤",
     "reload": "새로고침",
     "systemNone": "디자인 시스템 없음",
+    "startFromTemplate": "템플릿으로 시작",
     "launchHeading": "무엇을 디자인할까요?",
     "launchSub": "한 문장으로 설명하면 바로 쓸 수 있는 디자인을 생성합니다 — 웹 / 덱 / 포스터 / 문서 / 모션.",
     "launchPlaceholder": "원하는 디자인을 설명하세요. 예: \"SaaS 제품의 가격 페이지, 3개 요금제\"…",
