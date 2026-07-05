@@ -15709,6 +15709,7 @@ function WorkflowRunOverview({
       <WorkflowRecoveryHint
         run={run}
         snapshot={snapshot}
+        onSelectDetailTab={onSelectDetailTab}
         onCreateRepairDraft={onCreateRepairDraft}
       />
       {actions ? <div>{actions}</div> : null}
@@ -16197,31 +16198,77 @@ function WorkflowPermissionCallRow({ call }: { call: Record<string, unknown> }) 
 function WorkflowRecoveryHint({
   run,
   snapshot,
+  onSelectDetailTab,
   onCreateRepairDraft,
 }: {
   run: WorkflowRun
   snapshot: WorkflowRunSnapshot | null
+  onSelectDetailTab?: (tab: WorkflowDetailTab) => void
   onCreateRepairDraft?: (repairPrompt: string, run: WorkflowRun) => void
 }) {
   const { t } = useTranslation()
-  const failedOp = [...(snapshot?.ops ?? [])].reverse().find((op) => op.state === "failed")
+  const ops = snapshot?.ops ?? []
+  const failedOp = [...ops].reverse().find((op) => op.state === "failed")
   const failedError = asRecord(failedOp?.error)
   const failedMessage = stringField(failedError, "message")
   const blockedReason = run.blockedReason
-  const hasValidationFailure = (snapshot?.ops ?? []).some(workflowOpHasValidationFailure)
+  const hasValidationFailure = ops.some(workflowOpHasValidationFailure)
+  const activeOp = [...ops].reverse().find((op) => op.state === "started")
+  const pendingOp = ops.find((op) => op.state === "pending")
+  const focusOp = activeOp ?? pendingOp
+  const validationCount = ops.filter((op) => op.opType === "validate").length
   const repairPrompt = buildWorkflowRepairPrompt(run, snapshot)
 
   let title: string | null = null
   let body: string | null = null
-  let tone: "warn" | "danger" | "info" = "info"
+  let tone: "muted" | "good" | "warn" | "danger" | "info" = "info"
+  let Icon: LucideIcon = Lightbulb
+  let targetTab: WorkflowDetailTab | null = null
 
-  if (run.state === "awaiting_approval") {
+  if (run.state === "draft") {
+    title = t("workspace.workflow.nextDraftTitle", "下一步：启动工作流")
+    body = t(
+      "workspace.workflow.nextDraftBody",
+      "确认脚本、预算和运行位置后启动；需要隔离改动时先绑定 worktree。",
+    )
+    Icon = Play
+    targetTab = "trace"
+  } else if (run.state === "awaiting_approval") {
     title = t("workspace.workflow.nextApproveTitle", "下一步：确认授权")
     body = t(
       "workspace.workflow.nextApproveBody",
       "检查上面的授权清单，确认后批准；不符合预期就取消。",
     )
     tone = "warn"
+    Icon = ShieldAlert
+    targetTab = "trace"
+  } else if (run.state === "awaiting_user") {
+    title = t("workspace.workflow.nextUserTitle", "下一步：补充用户确认")
+    body = t(
+      "workspace.workflow.nextUserBody",
+      "回到对话里补充问题答案或外部确认；trace 会保留等待点。",
+    )
+    tone = "warn"
+    Icon = MessageCircle
+    targetTab = "trace"
+  } else if (run.state === "running" || run.state === "recovering") {
+    title =
+      run.state === "recovering"
+        ? t("workspace.workflow.nextRecoveringTitle", "下一步：观察恢复进度")
+        : t("workspace.workflow.nextRunningTitle", "下一步：观察运行进度")
+    body = focusOp
+      ? t(
+          "workspace.workflow.nextRunningOpBody",
+          "当前步骤是 {{op}}；如长时间无进展，可先看时间线，再决定暂停或取消。",
+          { op: truncateMiddle(workflowOpTitle(focusOp), 72) },
+        )
+      : t(
+          "workspace.workflow.nextRunningBody",
+          "保持运行并观察时间线；如卡住，可暂停保留现场或取消后从 trace 修复。",
+        )
+    tone = "info"
+    Icon = run.state === "recovering" ? Clock : Radio
+    targetTab = focusOp ? workflowOpDetailTab(focusOp) : "trace"
   } else if (run.state === "paused") {
     title = t("workspace.workflow.nextPausedTitle", "下一步：恢复或取消")
     body = t(
@@ -16229,6 +16276,8 @@ function WorkflowRecoveryHint({
       "当前运行已暂停，可恢复继续执行，也可取消并保留 trace。",
     )
     tone = "warn"
+    Icon = Pause
+    targetTab = focusOp ? workflowOpDetailTab(focusOp) : "trace"
   } else if (run.state === "blocked") {
     title = t("workspace.workflow.nextBlockedTitle", "下一步：处理阻塞")
     body =
@@ -16242,6 +16291,8 @@ function WorkflowRecoveryHint({
             140,
           )
     tone = "danger"
+    Icon = CircleAlert
+    targetTab = hasValidationFailure ? "validation" : "trace"
   } else if (run.state === "failed" || failedOp || hasValidationFailure) {
     title = hasValidationFailure
       ? t("workspace.workflow.nextValidationTitle", "下一步：修复验证失败")
@@ -16251,9 +16302,44 @@ function WorkflowRecoveryHint({
       failedOp?.opKey ??
       t("workspace.workflow.nextFailedBody", "查看 Trace 与 Validation，基于失败步骤继续修复。")
     tone = "danger"
+    Icon = CircleAlert
+    targetTab = hasValidationFailure
+      ? "validation"
+      : failedOp
+        ? workflowOpDetailTab(failedOp)
+        : "trace"
+  } else if (run.state === "completed") {
+    title = t("workspace.workflow.nextCompletedTitle", "下一步：复核完成证据")
+    body =
+      validationCount > 0
+        ? t(
+            "workspace.workflow.nextCompletedValidationBody",
+            "运行已完成；复核验证结果、产物和残余风险后再关闭 Goal 或继续派生后续工作。",
+          )
+        : t(
+            "workspace.workflow.nextCompletedBody",
+            "运行已完成；复核 trace、产物和残余风险后再关闭 Goal 或继续派生后续工作。",
+          )
+    tone = "good"
+    Icon = CheckCircle2
+    targetTab = validationCount > 0 ? "validation" : "trace"
+  } else if (run.state === "cancelled") {
+    title = t("workspace.workflow.nextCancelledTitle", "下一步：复盘或重建")
+    body = t(
+      "workspace.workflow.nextCancelledBody",
+      "运行已停止；可以从 trace 复盘原因，必要时基于当前目标创建新的工作流。",
+    )
+    tone = "muted"
+    Icon = X
+    targetTab = "trace"
   }
 
   if (!title || !body) return null
+  const tabLabel = targetTab ? workflowDetailTabLabel(t, targetTab) : null
+  const showRepairActions = Boolean(
+    repairPrompt &&
+      (run.state === "failed" || run.state === "blocked" || failedOp || hasValidationFailure),
+  )
 
   const copyRepairPrompt = async () => {
     if (!repairPrompt) return
@@ -16279,26 +16365,42 @@ function WorkflowRecoveryHint({
           ? "border-destructive/25 bg-destructive/10 text-destructive"
           : tone === "warn"
             ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
-            : "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+            : tone === "good"
+              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : tone === "info"
+                ? "border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                : "border-border/55 bg-secondary/20 text-muted-foreground",
       )}
     >
       <div className="flex min-w-0 items-center gap-1.5 font-medium">
-        {tone === "danger" ? (
-          <CircleAlert className="h-3.5 w-3.5 shrink-0" />
-        ) : (
-          <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-        )}
-        <span className="truncate">{title}</span>
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {targetTab && onSelectDetailTab && tabLabel ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-6 min-w-0 shrink-0 gap-1 border-current/25 bg-background/45 px-1.5 text-[10px] hover:bg-background/70"
+            onClick={() => onSelectDetailTab(targetTab)}
+          >
+            <Eye className="h-3 w-3" />
+            <span className="truncate">
+              {t("workspace.workflow.nextOpenTab", "查看 {{tab}}", { tab: tabLabel })}
+            </span>
+          </Button>
+        ) : null}
       </div>
       <div className="mt-0.5 truncate opacity-85">{body}</div>
-      {repairPrompt ? (
+      {showRepairActions ? (
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           <Button
             type="button"
             size="sm"
             variant="outline"
             className="h-7 min-w-0 gap-1.5 border-current/25 bg-background/45 text-[11px] hover:bg-background/70"
-            onClick={() => onCreateRepairDraft?.(repairPrompt, run)}
+            onClick={() => {
+              if (repairPrompt) onCreateRepairDraft?.(repairPrompt, run)
+            }}
           >
             <Sparkles className="h-3.5 w-3.5" />
             <span className="truncate">

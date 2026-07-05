@@ -3320,6 +3320,8 @@ describe("WorkspacePanel workflow section", () => {
 
     expect(await screen.findByText("当前焦点：等待授权")).toBeTruthy()
     expect(screen.queryByText("需要批准后继续")).toBeNull()
+    expect(await screen.findByText("下一步：确认授权")).toBeTruthy()
+    expect(screen.getAllByRole("button", { name: "查看 Trace" }).length).toBeGreaterThan(0)
     expect(await screen.findByText("授权清单")).toBeTruthy()
     expect(screen.getAllByText("调用").length).toBeGreaterThan(0)
     expect(screen.getAllByText("需批准").length).toBeGreaterThan(0)
@@ -3500,10 +3502,11 @@ describe("WorkspacePanel workflow section", () => {
     renderPanel(null)
 
     expect(await screen.findByText("当前焦点：正在执行 targeted-validation")).toBeTruthy()
+    expect(await screen.findByText("下一步：观察运行进度")).toBeTruthy()
     const validationTab = screen.getByRole("tab", { name: /Validation/ })
     expect(validationTab.getAttribute("aria-selected")).toBe("false")
 
-    fireEvent.click(screen.getByRole("button", { name: "查看 Validation" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "查看 Validation" })[0])
 
     expect(validationTab.getAttribute("aria-selected")).toBe("true")
   })
