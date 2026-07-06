@@ -414,7 +414,7 @@ describe("ChatInput", () => {
       )
     })
 
-    expect(await screen.findByText("chat.workflowMode.on")).toBeTruthy()
+    expect(await screen.findByText("自动")).toBeTruthy()
     expect(screen.getByText("chat.workflowMode.activeOnDetail")).toBeTruthy()
   })
 
@@ -563,9 +563,10 @@ describe("ChatInput", () => {
       renderChatInput({ currentSessionId: null, onEnsureSession })
 
       const workflowButton = await screen.findByRole("button", {
-        name: "chat.workflowMode.enable",
+        name: "工作流模式",
       })
       fireEvent.click(workflowButton)
+      fireEvent.click(await screen.findByRole("button", { name: /自动/ }))
 
       await waitFor(() => {
         expect(onEnsureSession).toHaveBeenCalledTimes(1)

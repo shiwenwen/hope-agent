@@ -23,6 +23,7 @@ import {
   Quote,
   Undo2,
   Target,
+  Check,
   GitPullRequest,
   Sparkles,
   Loader2,
@@ -110,34 +111,32 @@ function normalizeWorkflowMode(value: unknown): WorkflowMode {
   return raw === "on" || raw === "ultracode" ? raw : "off"
 }
 
-function nextWorkflowMode(mode: WorkflowMode): WorkflowMode {
-  if (mode === "off") return "on"
-  if (mode === "on") return "ultracode"
-  return "off"
-}
-
 function workflowModeLabel(t: ReturnType<typeof useTranslation>["t"], mode: WorkflowMode): string {
   switch (mode) {
     case "off":
-      return t("chat.workflowMode.off", "关闭")
+      return t("chat.workflowMode.off", { defaultValue: "关闭" })
     case "on":
-      return t("chat.workflowMode.on", "开启")
+      return t("chat.workflowMode.auto", { defaultValue: "自动" })
     case "ultracode":
-      return t("chat.workflowMode.ultracode", "Ultracode")
+      return t("chat.workflowMode.ultracode", { defaultValue: "Ultracode" })
   }
 }
 
-function workflowModeToggleTip(
+function workflowModeDescription(
   t: ReturnType<typeof useTranslation>["t"],
   mode: WorkflowMode,
 ): string {
   switch (mode) {
     case "off":
-      return t("chat.workflowMode.enable", "开启工作流模式")
+      return t("chat.workflowMode.offDesc", { defaultValue: "模型不会自动创建工作流运行" })
     case "on":
-      return t("chat.workflowMode.enableUltracode", "切换到 Ultracode")
+      return t("chat.workflowMode.autoDesc", {
+        defaultValue: "模型按需自主编排可观察、可恢复的工作流",
+      })
     case "ultracode":
-      return t("chat.workflowMode.disable", "关闭工作流模式")
+      return t("chat.workflowMode.ultracodeDesc", {
+        defaultValue: "更偏向长任务、深度验证和完整动态编排",
+      })
   }
 }
 
@@ -416,6 +415,7 @@ export default function ChatInput({
   const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("off")
   const [workflowModeLoading, setWorkflowModeLoading] = useState(false)
   const [workflowModeSaving, setWorkflowModeSaving] = useState<WorkflowMode | null>(null)
+  const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -962,9 +962,19 @@ export default function ChatInput({
     ? t("chat.goalMode.activeTip", "正在设置目标")
     : t("chat.goalMode.enter", "进入目标模式")
   const workflowToggleLabel = t("chat.workflowMode.label", "工作流")
-  const workflowToggleTip = workflowModeToggleTip(t, workflowMode)
   const workflowModeActive = workflowMode !== "off"
   const WorkflowModeIcon = workflowMode === "ultracode" ? Sparkles : GitPullRequest
+  const workflowMenuLabel = t("chat.workflowMode.menuTitle", { defaultValue: "工作流模式" })
+  const workflowButtonLabel = workflowModeActive
+    ? `${workflowToggleLabel} · ${workflowModeLabel(t, workflowMode)}`
+    : workflowToggleLabel
+  const workflowMenuDisabled = incognitoEnabled || workflowModeLoading || !!workflowModeSaving
+  const workflowButtonTone =
+    workflowMode === "on"
+      ? "bg-blue-500/10 text-blue-600"
+      : workflowMode === "ultracode"
+        ? "bg-purple-500/10 text-purple-600"
+        : "text-muted-foreground hover:text-foreground"
   const activeGoalStateLabel = (() => {
     switch (activeGoal?.state) {
       case "active":
@@ -1066,8 +1076,72 @@ export default function ChatInput({
     [currentSessionId, incognitoEnabled, onEnsureSession, t, workflowMode, workflowModeSaving],
   )
 
-  const handleWorkflowModeToggle = () => {
-    void updateWorkflowMode(nextWorkflowMode(workflowMode))
+  const renderWorkflowModeMenuItems = (onPicked?: () => void) => {
+    const options: WorkflowMode[] = ["off", "on", "ultracode"]
+    return (
+      <div className="flex flex-col gap-0.5">
+        {options.map((mode) => {
+          const selected = workflowMode === mode
+          const ModeIcon = mode === "ultracode" ? Sparkles : GitPullRequest
+          const savingThis = workflowModeSaving === mode
+          return (
+            <button
+              key={mode}
+              type="button"
+              className={cn(
+                "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-all duration-150",
+                selected
+                  ? "bg-secondary text-foreground font-medium shadow-sm"
+                  : "text-foreground/80 hover:bg-secondary/60 hover:text-foreground",
+              )}
+              disabled={workflowMenuDisabled}
+              onClick={() => {
+                onPicked?.()
+                void updateWorkflowMode(mode)
+              }}
+            >
+              {savingThis ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+              ) : selected ? (
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              ) : (
+                <ModeIcon
+                  className={cn(
+                    "mt-0.5 h-4 w-4 shrink-0",
+                    mode === "on" && "text-blue-600",
+                    mode === "ultracode" && "text-purple-600",
+                  )}
+                />
+              )}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[13px]">{workflowModeLabel(t, mode)}</span>
+                <span className="text-[11px] font-normal leading-snug text-muted-foreground">
+                  {workflowModeDescription(t, mode)}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+        {onOpenWorkspace ? (
+          <>
+            <div className="my-1 h-px bg-border/60" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 transition-all duration-150 hover:bg-secondary/60 hover:text-foreground"
+              onClick={() => {
+                onPicked?.()
+                onOpenWorkspace()
+              }}
+            >
+              <GitPullRequest className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">
+                {t("chat.workflowMode.viewRuns", { defaultValue: "查看工作流运行" })}
+              </span>
+            </button>
+          </>
+        ) : null}
+      </div>
+    )
   }
 
   const runGoalAction = (key: string, action?: () => Promise<boolean>) => {
@@ -1248,29 +1322,18 @@ export default function ChatInput({
             <Target className="h-4 w-4 shrink-0" />
             <span className="truncate">{goalToggleLabel}</span>
           </button>
-          <button
-            type="button"
-            aria-label={workflowToggleTip}
-            className={cn(
-              overflowMenuItemClass,
-              workflowMode === "on" && "text-blue-600",
-              workflowMode === "ultracode" && "text-purple-600",
-            )}
-            disabled={incognitoEnabled || workflowModeLoading || !!workflowModeSaving}
-            onClick={() => {
-              setShowOverflowMenu(false)
-              handleWorkflowModeToggle()
-            }}
-          >
-            {workflowModeSaving ? (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-            ) : (
-              <WorkflowModeIcon className="h-4 w-4 shrink-0" />
-            )}
-            <span className="truncate">
-              {workflowToggleLabel} · {workflowModeLabel(t, workflowMode)}
-            </span>
-          </button>
+          <div className="rounded-md border border-border/50 bg-background/35 p-1">
+            <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-medium text-muted-foreground">
+              {workflowModeSaving ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              ) : (
+                <WorkflowModeIcon className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span className="truncate">{workflowToggleLabel}</span>
+              <span className="ml-auto truncate">{workflowModeLabel(t, workflowMode)}</span>
+            </div>
+            {renderWorkflowModeMenuItems(() => setShowOverflowMenu(false))}
+          </div>
           <button
             type="button"
             aria-label={planToggleTip}
@@ -1974,29 +2037,39 @@ export default function ChatInput({
                 )}
 
                 {!toolbarTight && (
-                  <IconTip label={workflowToggleTip}>
-                    <button
-                      type="button"
-                      aria-label={workflowToggleTip}
-                      onClick={handleWorkflowModeToggle}
-                      disabled={incognitoEnabled || workflowModeLoading || !!workflowModeSaving}
-                      className={cn(
-                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
-                        workflowMode === "on"
-                          ? "bg-blue-500/10 text-blue-600"
-                          : workflowMode === "ultracode"
-                            ? "bg-purple-500/10 text-purple-600"
-                            : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {workflowModeSaving ? (
-                        <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                      ) : (
-                        <WorkflowModeIcon className="h-4 w-4 shrink-0" />
-                      )}
-                      <span>{workflowToggleLabel}</span>
-                    </button>
-                  </IconTip>
+                  <DropdownMenu.Root open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                    <IconTip label={workflowMenuLabel}>
+                      <DropdownMenu.Trigger asChild>
+                        <button
+                          type="button"
+                          aria-label={workflowMenuLabel}
+                          disabled={workflowMenuDisabled}
+                          className={cn(
+                            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
+                            workflowButtonTone,
+                          )}
+                        >
+                          {workflowModeSaving ? (
+                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                          ) : (
+                            <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                          )}
+                          <span>{workflowButtonLabel}</span>
+                          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                        </button>
+                      </DropdownMenu.Trigger>
+                    </IconTip>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content
+                        className="z-50 min-w-[280px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
+                        side="top"
+                        align="start"
+                        sideOffset={8}
+                      >
+                        {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
                 )}
 
                 {!toolbarTight && (

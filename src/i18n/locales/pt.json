@@ -491,17 +491,23 @@
       "active": "Workflow Mode",
       "activeOnDetail": "The model can create observable workflow runs when useful",
       "activeUltracodeDetail": "The model will prefer complete dynamic orchestration",
+      "auto": "Auto",
+      "autoDesc": "The model decides when to create observable, recoverable workflows",
       "disable": "Turn off Workflow Mode",
       "enable": "Turn on Workflow Mode",
       "enableUltracode": "Switch to Ultracode",
       "incognito": "Incognito sessions can't use Workflow Mode",
       "label": "Workflow",
+      "menuTitle": "Workflow Mode",
       "off": "Off",
+      "offDesc": "The model will not create workflow runs automatically",
       "on": "On",
       "saved": "Workflow Mode switched to {{mode}}; the model will see it next turn",
       "sessionRequired": "Create a session before enabling Workflow Mode",
       "turnOff": "Turn off Workflow Mode",
-      "ultracode": "Ultracode"
+      "ultracode": "Ultracode",
+      "ultracodeDesc": "Prefer long-running orchestration, deeper verification, and full dynamic planning",
+      "viewRuns": "View workflow runs"
     },
     "permissionMode": {
       "applyToAgentDefault": {

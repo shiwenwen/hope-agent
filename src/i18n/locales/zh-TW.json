@@ -491,17 +491,23 @@
       "active": "工作流模式",
       "activeOnDetail": "模型可按需創建可觀察的工作流運行",
       "activeUltracodeDetail": "模型會優先使用完整動態編排",
+      "auto": "自動",
+      "autoDesc": "模型按需自主編排可觀察、可恢復的工作流",
       "disable": "關閉工作流模式",
       "enable": "開啟工作流模式",
       "enableUltracode": "切換到 Ultracode",
       "incognito": "無痕會話不啟用工作流模式",
       "label": "工作流",
+      "menuTitle": "工作流模式",
       "off": "關閉",
+      "offDesc": "模型不會自動創建工作流運行",
       "on": "開啟",
       "saved": "工作流模式已切換為 {{mode}}，模型下一輪會感知",
       "sessionRequired": "先創建會話後再開啟工作流模式",
       "turnOff": "關閉工作流模式",
-      "ultracode": "Ultracode"
+      "ultracode": "Ultracode",
+      "ultracodeDesc": "更偏向長任務、深度驗證和完整動態編排",
+      "viewRuns": "查看工作流運行"
     },
     "permissionMode": {
       "applyToAgentDefault": {
