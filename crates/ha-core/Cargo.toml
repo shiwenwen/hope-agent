@@ -1,6 +1,6 @@
 [package]
 name = "ha-core"
-version = "0.15.0"
+version = "0.16.0"
 description = "Hope Agent core business logic — zero Tauri dependency"
 license.workspace = true
 authors.workspace = true
@@ -24,6 +24,7 @@ uuid = { workspace = true }
 rusqlite = { workspace = true }
 reqwest = { workspace = true }
 futures-util = { workspace = true }
+sse-stream = { workspace = true }
 sha2 = { workspace = true }
 base64 = { workspace = true }
 # Used by the macOS desktop-updater EXDEV guard (platform::redirect_updater_tmpdir_*)
