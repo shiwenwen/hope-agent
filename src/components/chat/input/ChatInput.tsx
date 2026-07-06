@@ -343,7 +343,16 @@ function toolbarHasWrappedItems(container: HTMLElement): boolean {
   return rects.some((rect) => rect.top > firstTop + 2)
 }
 
+function toolbarHasHorizontalOverflow(container: HTMLElement): boolean {
+  return container.scrollWidth > container.clientWidth + 2
+}
+
+function toolbarNeedsMoreCollapse(container: HTMLElement): boolean {
+  return toolbarHasHorizontalOverflow(container) || toolbarHasWrappedItems(container)
+}
+
 function toolbarFirstLineFreeSpace(container: HTMLElement): number {
+  if (toolbarHasHorizontalOverflow(container)) return 0
   const rects = visibleToolbarItemRects(container)
   if (rects.length === 0) return 0
   const containerRect = container.getBoundingClientRect()
@@ -777,10 +786,10 @@ export default function ChatInput({
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance follows the actual toolbar layout.
-  // Instead of static width thresholds, we let the toolbar render, measure
-  // whether items wrapped and how much first-line space remains, then collapse or
-  // expand one tier at a time. This keeps controls visible when there is real
-  // horizontal room, while still preventing awkward second-line toolbars.
+  // Instead of static width thresholds, we measure horizontal overflow and free
+  // first-line space, then collapse or expand one tier at a time. The toolbar
+  // itself is nowrap, so "too much content" never turns into a visible second
+  // row while the measurement catches up.
   useLayoutEffect(() => {
     if (!normalToolbarOpen || typeof window === "undefined") return
 
@@ -819,7 +828,7 @@ export default function ChatInput({
         setToolbarCollapseLevel((level) => {
           const currentLeft = toolbarLeftRef.current
           if (!currentLeft) return level
-          if (toolbarHasWrappedItems(currentLeft)) {
+          if (toolbarNeedsMoreCollapse(currentLeft)) {
             return Math.min(CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL, level + 1)
           }
           if (level <= 0) return level
@@ -2061,11 +2070,14 @@ export default function ChatInput({
             <div
               ref={toolbarRef}
               // Always two columns so Send/Stop stays pinned in its own column
-              // on a single row — the left group wraps internally but never
-              // pushes the send controls onto a line of their own.
+              // on a single row. The left group never wraps; overflow is a
+              // measurement signal that pushes controls into the "+" menu.
               className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-2 pb-2"
             >
-              <div ref={toolbarLeftRef} className="flex min-w-0 flex-wrap items-center gap-1">
+              <div
+                ref={toolbarLeftRef}
+                className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
+              >
                 <div
                   ref={addActionsRef}
                   className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}
