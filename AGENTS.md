@@ -474,12 +474,13 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 | 新增/删除子系统、架构文档、运行时 DB 或稳定 log category | [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/)（`diagnostic-playbook.md` 子系统速查） |
 | 新增/删除 Tauri 命令、HTTP 路由、`COMMAND_MAP` 条目 | [`api-reference.md`](docs/architecture/api-reference.md) 对应表格     |
 | 功能变化导致 README 过时                            | `README.md` + `README.en.md`（同一 PR 双语同步）                      |
-| 新增调研/对比分析                                   | `docs/research/` 新建调研文档                                         |
+| 新增调研/对比分析 / 阶段 roadmap / review packet      | 归档到本机 iCloud `HopeAI/Hope Agent/Plans/`，不要放入 `docs/architecture/`；最终实现事实落对应 architecture 文档 |
 | 修改 README 任一语言版本                            | 同一 PR 同步另一语言（`README.md` ↔ `README.en.md`）                  |
 | 新增/修改 Release Notes                             | 同一 PR 内中英双份（`docs/release-notes/vX.Y.Z.md` ↔ `vX.Y.Z.en.md`） |
 
 - **AGENTS.md 是契约面**——只放跨 PR 必守的规则、红线、文件入口；**实现细节、内部数据结构、迁移逻辑、边角行为一律下沉到对应 architecture 文档**
 - **架构文档强制**：子系统边界 / 数据流 / 持久化格式 / 跨模块 contract 改动须更新对应 `docs/architecture/`；新增架构级能力（新子系统 / 协议层）须同 PR 新建文档并登记到 `docs/README.md`
+- **规划归档强制**：调研、路线图、阶段计划、review packet 和原始参考材料归外部 iCloud Plans；仓库内不保留已完成 roadmap。落地完成后必须把最终设计决策同步到对应 architecture 文档，确保只看技术文档也能理解最终设计。
 - **ha-self-diagnosis 索引同步**：新增 / 删除子系统、`docs/architecture/` 文档、`~/.hope-agent/` 运行时 DB（`paths.rs`）或稳定 log `category` 时，同步更新 [`skills/ha-self-diagnosis/references/`](skills/ha-self-diagnosis/references/) 的 `diagnostic-playbook.md`（Subsystem Reference：入口模块 / DB·config / log category / 故障 gotcha）。此处是 agent 自查与排障的 fallback 真相源，过时会直接误导诊断；新增的 log `category` 须为稳定字符串便于 grep
 - **README 双语同步**：根目录 `README.md`（中文）+ `README.en.md`（英文），任一改动同次提交同步另一份
 - **Release Notes 双语同步**：每版本 `vX.Y.Z.md` + `vX.Y.Z.en.md`，顶部互加 `简体中文 · English` 切换链接

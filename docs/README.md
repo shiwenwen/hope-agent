@@ -4,14 +4,7 @@
 
 ---
 
-## 活跃路线图与规划归档
-
-当前仍在推进的路线图留在仓库：
-
-| 文档 | 说明 |
-| --- | --- |
-| [Goal v2 路线图](roadmap/goal-v2-roadmap.md) | 下一阶段活跃路线：把 Goal 从“目标标签 + 证据汇总”升级为长期任务目标控制台。 |
-| [Loop v2 路线图](roadmap/loop-v2-roadmap.md) | 下一阶段活跃路线：把 Loop 从“能触发”升级为可靠、可治理、可解释的持续推进器。 |
+## 规划归档
 
 历史调研、RFC、计划方案、roadmap、review packet 和原始参考材料已按任务归档到本机 iCloud：
 
@@ -19,7 +12,7 @@
 /Users/shiwenwen/Library/Mobile Documents/com~apple~CloudDocs/HopeAI/Hope Agent/Plans/hope-agent-control-plane-plans-2026-07-05
 ```
 
-仓库内 `docs/architecture/` 只保留已经实现并稳定下来的最终技术架构。重要设计决策已经沉淀到对应 architecture 文档的实现契约、非目标或后续边界中；历史规划材料进入外部 Plans 归档，当前马上要执行的 roadmap 继续留在 `docs/roadmap/`。
+仓库内 `docs/architecture/` 只保留已经实现并稳定下来的最终技术架构。重要设计决策已经沉淀到对应 architecture 文档的实现契约、非目标或后续边界中；历史规划材料、阶段 roadmap、review packet 和原始参考材料进入外部 Plans 归档。
 
 
 ---

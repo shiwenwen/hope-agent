@@ -314,8 +314,8 @@ Workspace / Workflow Control Center 内有 Goal strip：
 - `/loop` 的定时、重复、轮询调度，详见 [Loop 控制平面](loop.md)。
 - agent 工具面直接修改 Goal。
 - LLM side-query evaluator。
-- follow-up pool 迁移到独立 roadmap/task 的批量管理面。
+- follow-up pool 迁移到独立 task / backlog 的批量管理面。
 
-当前活跃的 [Goal v2 路线图](../roadmap/goal-v2-roadmap.md) 继续作为增强池；已实现事实以本文为准。后续最值得补的是更严格的真实运行 evidence profile、follow-up pool 批量治理，以及与 Loop v2 progress guard 的更深联动。
+Goal v2 过程 roadmap 已归档到外部 Plans；已实现事实以本文为准。后续最值得补的是更严格的真实运行 evidence profile、follow-up pool 批量治理，以及与 Loop progress guard 的更深联动。
 
 这些边界用于保证后续增强不推翻当前已实现契约：Goal 是终点和完成证据，不是执行引擎，也不是持续调度器。

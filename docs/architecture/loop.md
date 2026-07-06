@@ -243,6 +243,8 @@ Loop v2 当前已把 Loop 从“能触发”升级为可靠、可治理、可解
 - Condition workflow 仍等待 Workflow terminal event 能反写 condition result 后再放开；当前 `until` loop 继续依赖 conversation continuation + assistant marker，不能伪装成 workflow 完成。
 - 成本预算精确统计仍等待 provider cost ledger；在此之前 `cost_budget_micros` 继续保持保守拒绝，避免给用户错误安全感。
 
+Loop v2 过程 roadmap 已归档到外部 Plans；已实现事实以本文为准。
+
 这些边界保证后续增强不推翻当前契约：Loop 管触发、progress guard 和调度治理，不拥有 Goal 完成标准，也不绕过 Workflow、权限、预算和无痕红线。
 
 ## 测试覆盖

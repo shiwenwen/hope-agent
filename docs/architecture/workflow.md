@@ -546,4 +546,4 @@ Workspace / Workflow Control Center 是主要用户面，不要求用户记 slas
 - 独立 Review Engine 的判定逻辑本身。Workflow 通过 `workflow.review()` 调用 Review Engine，并把 review 结果纳入 trace / evidence；Review 的规则、证据模型和展示仍归 Review 子系统维护。
 - Workflow marketplace 或外部 npm workflow ecosystem。
 
-仍处于 `docs/roadmap/` 或外部 Plans 归档的规划项不能在 architecture 中描述为已实现事实；已经由 Workflow 调用但不归 Workflow 拥有的能力，应在对应子系统架构文档中维护实现细节与后续边界。
+仍处于外部 Plans 归档的规划项不能在 architecture 中描述为已实现事实；已经由 Workflow 调用但不归 Workflow 拥有的能力，应在对应子系统架构文档中维护实现细节与后续边界。
