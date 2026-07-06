@@ -423,11 +423,11 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 - **LOW**：UI 偏好、显示配额（theme / language / notification / canvas 等）
 - **MEDIUM**：行为调整，影响上下文 / 成本 / 输出质量（compact / memory_* / web_search / approval / multimodal / dreaming 等）
-- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / embedding / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` / `unattended_approval` / `auto_update` 等）——技能在 `update_settings` 前**必须二次确认**
+- **HIGH**：安全 / 网络暴露 / 全局键位 / 凭据 / 需要重启 / 权限规则 / 审批策略 / MCP 子系统级开关（proxy / shortcuts / server / skill_env / acp_control / `permission.global_yolo` / `smart_mode` / `mcp_global` / `protected_paths` / `dangerous_commands` / `unattended_approval` / `auto_update` 等）——技能在 `update_settings` 前**必须二次确认**（注：`embedding` 已改为只读，见下节「强制留 GUI 的例外」）
 
 ### 强制留 GUI 的例外（read-only via skill）
 
-四类不进 `update_settings`（凭据安全 + 运行时稳定性）：**Provider 列表与 API Key**、**IM Channel 账号（`channels`）**、**MCP 服务器配置（`mcp_servers`）**、**`active_model` / `fallback_models` 写入**。`get_settings` 仍可读但敏感字段 redact（`channels.accounts[*].credentials/settings`、`mcp_servers.env/headers/oauth`）。
+五类不进 `update_settings`（凭据安全 + 运行时稳定性）：**Provider 列表与 API Key**、**IM Channel 账号（`channels`）**、**MCP 服务器配置（`mcp_servers`）**、**`active_model` / `fallback_models` 写入**、**embedding 模型选择（`embedding`）——携 API Key + 重 reembed 副作用，写入走 Settings → Memory（`embedding_models` + `memory_embedding` owner 命令）**。`get_settings` 仍可读但敏感字段 redact（`channels.accounts[*].credentials/settings`、`mcp_servers.env/headers/oauth`、`embedding.apiKey`；embedding 读经 `resolve_memory_embedding_config` 解析真实启用模型）。
 
 ### 含凭据 category 的 read 脱敏（write 仍允许）
 

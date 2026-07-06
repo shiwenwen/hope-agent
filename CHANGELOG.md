@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **聊天消息可只复制选中内容**：在 AI 回复中拖拽选中部分文字后，右键复制与 `Ctrl/Cmd+C` 现在只复制所选文本而非整条消息；未选中时右键菜单仍可一键复制整条消息。 (#424)
+- **MCP SSE 传输恢复可用**：`kind: sse` 的 MCP 服务器不再被错误地按 Streamable HTTP 直连（导致 `400 session_id is required`），改为正确完成 SSE 握手（建立连接 → 取回 endpoint → 按 session 收发），并对服务器返回的 endpoint 地址二次做 SSRF 校验。此外，SSE 连接本地地址（`localhost` / 私网）时会自动绕过系统代理，避免「开代理连云端模型」时本地 MCP 被代理劫持。 (#421)
+- **技能可读取到已配置的 embedding**：`ha-settings` 技能的 `get_settings("embedding")` 不再返回全 null，改为反映设置中实际启用的 embedding 模型（API 密钥脱敏显示）；embedding 的写入统一改由设置界面管理。 (#423)
 - **聊天消息吸顶与耗时显示更准确**：用户消息悬浮吸顶不再只处理最后一条消息，会按当前可见回复体切换对应用户消息，并正确处理已处理折叠行、上下文压缩事件与长会话 DOM 裁剪；工具 / 思考耗时显示避免把同一轮耗时重复累加。聊天列表与输入框也收窄到更适合全屏阅读的最大宽度。
 - **MCP 配置编辑与热更新更可靠**：编辑 MCP server 时不再把界面中的 `<redacted>` 占位值写回覆盖真实 env / header / OAuth secret；服务名保持不可变，更新请求也不能改写已有 server id。禁用 / 重排 / 全局开关变更会即时同步到运行时，应用以 `mcpGlobal.enabled=false` 启动后再打开 MCP 也无需重启即可生效。
 - **MCP 工具目录与连接状态更稳定**：动态 MCP 工具名现在会处理 `foo-bar` / `foo.bar` 等清洗后重名的碰撞，避免工具互相覆盖；修改 URL / env / header / OAuth / 信任等级 / 并发上限后会重建连接，旧连接不会继续泄漏旧配置或把过期 catalog 写回工具索引；并发冷启动同一 MCP server 时也不会重复 spawn / handshake。

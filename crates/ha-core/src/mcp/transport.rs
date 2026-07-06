@@ -239,6 +239,58 @@ async fn authorized_headers(cfg: &McpServerConfig) -> McpResult<HashMap<HeaderNa
     Ok(headers)
 }
 
+/// True when `host` is loopback / private / link-local, i.e. a proxy must be
+/// bypassed to reach it. Remote hosts return `false` (the proxy still applies).
+///
+/// Why: a user who runs a system / env HTTP proxy to reach remote LLM APIs will
+/// otherwise have that proxy hijack a local MCP server — `http://localhost:PORT`
+/// gets routed through the proxy, which can't dial loopback and returns a 503 /
+/// hangs. reqwest picks up the OS proxy but does NOT honor its bypass list
+/// (macOS `ExceptionsList` / `ExcludeSimpleHostnames`), so we decide the bypass
+/// ourselves from the target host. Applied on the SSE path (ha-core's own
+/// reqwest); the Streamable HTTP path is on rmcp's reqwest and can't share it.
+fn host_bypasses_proxy(host: &str) -> bool {
+    use std::net::IpAddr;
+    // `url::Host` never yields brackets, but strip them defensively.
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    let lower = bare.to_ascii_lowercase();
+    if lower == "localhost" || lower.ends_with(".localhost") {
+        return true;
+    }
+    match bare.parse::<IpAddr>() {
+        Ok(IpAddr::V4(v4)) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        Ok(IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local()
+        }
+        // A resolvable remote hostname — keep the proxy (it may be how the user
+        // reaches the outside world). SSRF classification stays the security
+        // boundary; this only decides proxy routing.
+        Err(_) => false,
+    }
+}
+
+/// Build the reqwest client for the hand-rolled SSE transport. Mirrors rmcp's
+/// default client (`pool_max_idle_per_host(0)` to dodge TCP Delayed-ACK stalls)
+/// and additionally bypasses the system / env proxy when the target host is
+/// loopback / private (see [`host_bypasses_proxy`]).
+fn build_mcp_http_client(target_url: &str, server_name: &str) -> McpResult<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().pool_max_idle_per_host(0);
+    let bypass_proxy = url::Url::parse(target_url)
+        .ok()
+        .and_then(|u| u.host_str().map(host_bypasses_proxy))
+        .unwrap_or(false);
+    if bypass_proxy {
+        builder = builder.no_proxy();
+    }
+    builder.build().map_err(|e| McpError::Transport {
+        server: server_name.to_string(),
+        source: format!("failed to build MCP HTTP client: {e}"),
+    })
+}
+
 /// Classify a networked-transport error as `Auth` vs `Transport` using
 /// [`is_auth_challenge`]. The `verb` is the user-visible slice of the
 /// error message that names the phase that failed (e.g. `"handshake"`
@@ -269,6 +321,13 @@ pub async fn build_http_client(cfg: &McpServerConfig, url: &str) -> McpResult<Co
     ssrf_gate_url(cfg, &expanded_url).await?;
     let headers = authorized_headers(cfg).await?;
 
+    // NOTE: this path uses rmcp's own reqwest (0.13) client via `from_config`.
+    // We can't inject a proxy-bypassing client here the way `build_sse_client`
+    // does (ha-core is on reqwest 0.12; rmcp's `StreamableHttpClient` is impl'd
+    // only for its 0.13 `reqwest::Client`, and rmcp exposes no proxy knob), so a
+    // system proxy set for remote APIs can still hijack a *local* Streamable HTTP
+    // MCP server. Local MCP is overwhelmingly stdio / SSE, so this is left as a
+    // known limitation rather than pulling a second reqwest major into ha-core.
     let http_cfg =
         StreamableHttpClientTransportConfig::with_uri(expanded_url).custom_headers(headers);
     let transport = StreamableHttpClientTransport::from_config(http_cfg);
@@ -501,6 +560,188 @@ fn ws_to_http_equiv(url: &str) -> McpResult<String> {
     Ok(parsed.to_string())
 }
 
+/// Resolve the server-provided SSE `endpoint` value against the SSE base URL.
+/// The endpoint is usually a relative path carrying `?session_id=…`; absolute
+/// URLs are honored as-is. Extracted as a pure function so the resolution +
+/// same-origin behavior is unit-testable without real sockets.
+fn resolve_sse_endpoint(base_url: &str, endpoint: &str, server_name: &str) -> McpResult<url::Url> {
+    let base = url::Url::parse(base_url).map_err(|e| {
+        McpError::Config(format!("invalid SSE URL for server '{server_name}': {e}"))
+    })?;
+    base.join(endpoint.trim()).map_err(|e| McpError::Transport {
+        server: server_name.to_string(),
+        source: format!("SSE server returned an unresolvable endpoint '{endpoint}': {e}"),
+    })
+}
+
+/// Build a legacy MCP HTTP+SSE (2024-11-05 spec) client and complete the
+/// handshake. This is a DIFFERENT wire protocol from Streamable HTTP: the
+/// client GETs the SSE URL, the server replies with an `endpoint` event whose
+/// data is a session-scoped POST URL, and JSON-RPC then flows client→server via
+/// POST to that URL and server→client over the open SSE `message` stream.
+///
+/// rmcp 1.5 retired its standalone SSE client (only the `client-side-sse` frame
+/// parser remains), and routing `Sse` through the Streamable HTTP client fails
+/// because that client POSTs `initialize` directly and the legacy server rejects
+/// it with `400 session_id is required`. So we hand-roll the handshake and
+/// bridge it into rmcp's generic `(Sink, Stream)` serve path — exactly like
+/// `build_ws_client`.
+///
+/// SSRF is enforced twice: on the GET URL, and again on the server-provided
+/// `endpoint` URL before the first POST (server-controlled data is a fresh
+/// outbound surface the GET gate never saw).
+pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<ConnectedClient> {
+    use futures_util::StreamExt;
+    use sse_stream::SseStream;
+
+    let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
+    // SSRF gate #1: the GET URL, before any dial.
+    ssrf_gate_url(cfg, &expanded_url).await?;
+
+    // One reqwest client shared by the long-lived GET stream and the outbound
+    // POSTs. Auth headers (OAuth Bearer / user-pinned) are shared by both.
+    // `build_mcp_http_client` bypasses the system proxy for loopback / private
+    // targets so a proxy set for remote APIs can't hijack a local SSE server.
+    let auth_headers = authorized_headers(cfg).await?;
+    let mut header_map = reqwest::header::HeaderMap::with_capacity(auth_headers.len() + 1);
+    for (name, value) in auth_headers {
+        header_map.insert(name, value);
+    }
+    let client = build_mcp_http_client(&expanded_url, &cfg.name)?;
+
+    // 1) Open the SSE stream.
+    let response = client
+        .get(&expanded_url)
+        .headers(header_map.clone())
+        .header(reqwest::header::ACCEPT, "text/event-stream")
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| classify_network_error(&cfg.name, "SSE handshake", e))?;
+
+    // Box-pin the `!Unpin` parser so it can be driven by `.next()` here and then
+    // handed to `filter_map` without pin plumbing leaking into the Stream half.
+    let mut sse = Box::pin(SseStream::from_byte_stream(response.bytes_stream()));
+
+    // 2) Read up to the `endpoint` event to learn the session-scoped POST URL.
+    //    The whole handshake runs under `do_connect`'s connect_timeout, so a
+    //    server that never sends `endpoint` surfaces as a Timeout, not a hang.
+    let endpoint_data = loop {
+        match sse.next().await {
+            Some(Ok(frame)) if frame.event.as_deref() == Some("endpoint") => {
+                break frame.data.unwrap_or_default();
+            }
+            // Keep-alive comments / other pre-handshake frames: ignore and wait.
+            Some(Ok(_)) => continue,
+            Some(Err(e)) => {
+                return Err(McpError::Transport {
+                    server: cfg.name.clone(),
+                    source: format!("SSE handshake failed reading endpoint event: {e}"),
+                })
+            }
+            None => {
+                return Err(McpError::Transport {
+                    server: cfg.name.clone(),
+                    source: "SSE stream closed before sending an endpoint event".into(),
+                })
+            }
+        }
+    };
+
+    // 3) Resolve the endpoint (usually relative) against the SSE base, then SSRF
+    //    gate #2 — the endpoint is server-controlled and could point at an
+    //    internal host the GET gate never vetted.
+    let endpoint = resolve_sse_endpoint(&expanded_url, &endpoint_data, &cfg.name)?;
+    ssrf_gate_url(cfg, endpoint.as_str()).await?;
+    let endpoint = endpoint.to_string();
+
+    // 4) Stream half (server→client): remaining SSE `message` frames parsed as
+    //    JSON-RPC. Non-message frames (later endpoint pings, comments) are dropped.
+    let stream_server = cfg.name.clone();
+    let stream = sse.filter_map(move |frame| {
+        let server = stream_server.clone();
+        async move {
+            let frame = frame.ok()?;
+            // Per the SSE spec a missing / empty `event:` field defaults to "message".
+            if !matches!(frame.event.as_deref(), None | Some("") | Some("message")) {
+                return None;
+            }
+            let data = frame.data?;
+            match serde_json::from_str::<rmcp::service::RxJsonRpcMessage<RoleClient>>(&data) {
+                Ok(message) => Some(message),
+                Err(e) => {
+                    crate::app_warn!(
+                        "mcp",
+                        &format!("{server}:sse"),
+                        "dropping unparseable SSE message frame: {e}"
+                    );
+                    None
+                }
+            }
+        }
+    });
+    let stream: std::pin::Pin<
+        Box<dyn futures_util::Stream<Item = rmcp::service::RxJsonRpcMessage<RoleClient>> + Send>,
+    > = Box::pin(stream);
+
+    // 5) Sink half (client→server): each JSON-RPC message is POSTed to the
+    //    session endpoint. `Sink::start_send` is sync but the POST is async, so
+    //    route through a bounded channel drained by a background task and expose
+    //    the sender as a `Sink` via `PollSender` (natural backpressure). The task
+    //    exits when the sink is dropped (rmcp closing the transport).
+    let (tx, mut rx) =
+        tokio::sync::mpsc::channel::<rmcp::service::TxJsonRpcMessage<RoleClient>>(64);
+    let post_client = client;
+    let post_headers = header_map;
+    let post_server = cfg.name.clone();
+    tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            let body = match serde_json::to_vec(&message) {
+                Ok(body) => body,
+                Err(e) => {
+                    crate::app_warn!(
+                        "mcp",
+                        &format!("{post_server}:sse"),
+                        "failed to serialize outbound SSE message: {e}"
+                    );
+                    continue;
+                }
+            };
+            let result = post_client
+                .post(&endpoint)
+                .headers(post_headers.clone())
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(body)
+                .send()
+                .await;
+            match result {
+                Ok(response) if response.status().is_success() => {}
+                Ok(response) => crate::app_warn!(
+                    "mcp",
+                    &format!("{post_server}:sse"),
+                    "SSE message POST rejected with HTTP {}",
+                    response.status()
+                ),
+                Err(e) => crate::app_warn!(
+                    "mcp",
+                    &format!("{post_server}:sse"),
+                    "SSE message POST failed: {e}"
+                ),
+            }
+        }
+    });
+    let sink = tokio_util::sync::PollSender::new(tx);
+
+    let running = ()
+        .serve((sink, stream))
+        .await
+        .map_err(|e| classify_network_error(&cfg.name, "SSE handshake", e))?;
+    Ok(ConnectedClient {
+        running,
+        stderr: None,
+    })
+}
+
 /// Entry point used by `client::do_connect`. Dispatches on the transport
 /// kind, runs any gating policy (SSRF), constructs the appropriate
 /// rmcp transport, and returns a connected client ready for
@@ -509,20 +750,7 @@ pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedCl
     match &cfg.transport {
         McpTransportSpec::Stdio { .. } => build_stdio_client(cfg).await,
         McpTransportSpec::StreamableHttp { url } => build_http_client(cfg, url).await,
-        McpTransportSpec::Sse { url } => {
-            // rmcp 1.5 retired the standalone SSE client; Streamable HTTP
-            // speaks the same SSE sub-protocol on its GET channel, so we
-            // route legacy `Sse` entries through that. Servers that
-            // strictly require the old SSE-only transport need a rebuild
-            // or a newer server version.
-            crate::app_warn!(
-                "mcp",
-                &format!("{}:transport", cfg.name),
-                "Legacy SSE transport routed through Streamable HTTP; \
-                 update the server to the 2025-03-26 spec if behavior differs"
-            );
-            build_http_client(cfg, url).await
-        }
+        McpTransportSpec::Sse { url } => build_sse_client(cfg, url).await,
         McpTransportSpec::WebSocket { url } => build_ws_client(cfg, url).await,
     }
 }
@@ -644,6 +872,97 @@ mod tests {
             Err(McpError::Blocked { .. }) => {}
             Err(other) => panic!("expected Blocked, got: {other:?}"),
             Ok(_) => panic!("expected Blocked for private URL under Strict policy"),
+        }
+    }
+
+    #[tokio::test]
+    async fn sse_transport_honors_ssrf_policy() {
+        // Untrusted + private-network SSE GET URL → Blocked, before any dial.
+        // The server-provided endpoint is re-gated separately (integration),
+        // but the GET URL must be gated up front like HTTP/WS.
+        let mut cfg = stdio_cfg("echo");
+        cfg.transport = McpTransportSpec::Sse {
+            url: "http://127.0.0.1:9999/sse".into(),
+        };
+        cfg.trust_level = McpTrustLevel::Untrusted;
+        match build_transport_for(&cfg).await {
+            Err(McpError::Blocked { .. }) => {}
+            Err(other) => panic!("expected Blocked, got: {other:?}"),
+            Ok(_) => panic!("expected Blocked for private SSE URL under Strict policy"),
+        }
+    }
+
+    #[test]
+    fn resolve_sse_endpoint_relative_and_absolute() {
+        // Relative endpoint (the common shape) keeps the base origin + carries
+        // the session_id query the legacy handshake mints.
+        let resolved =
+            resolve_sse_endpoint("https://host.example/sse", "/messages?session_id=abc", "t")
+                .unwrap();
+        assert_eq!(
+            resolved.as_str(),
+            "https://host.example/messages?session_id=abc"
+        );
+
+        // Relative without a leading slash resolves against the base path dir.
+        let resolved =
+            resolve_sse_endpoint("https://host.example/mcp/sse", "message?session_id=x", "t")
+                .unwrap();
+        assert_eq!(
+            resolved.as_str(),
+            "https://host.example/mcp/message?session_id=x"
+        );
+
+        // An absolute endpoint is honored verbatim (it is still SSRF re-gated
+        // by the caller before any POST).
+        let resolved = resolve_sse_endpoint(
+            "https://host.example/sse",
+            "https://other.example/inbox?session_id=z",
+            "t",
+        )
+        .unwrap();
+        assert_eq!(
+            resolved.as_str(),
+            "https://other.example/inbox?session_id=z"
+        );
+    }
+
+    #[test]
+    fn host_bypasses_proxy_covers_loopback_and_private() {
+        // Loopback / localhost → bypass the proxy (local MCP servers).
+        for host in [
+            "localhost",
+            "app.localhost",
+            "LOCALHOST",
+            "127.0.0.1",
+            "127.1.2.3",
+            "::1",
+            "[::1]",
+        ] {
+            assert!(host_bypasses_proxy(host), "{host} should bypass proxy");
+        }
+        // Private / link-local ranges (LAN MCP servers) → bypass.
+        for host in [
+            "10.0.0.5",
+            "192.168.1.20",
+            "172.16.0.1",
+            "172.31.255.254",
+            "169.254.1.1",
+            "fd00::1", // unique-local IPv6
+            "fe80::1", // link-local IPv6
+        ] {
+            assert!(host_bypasses_proxy(host), "{host} should bypass proxy");
+        }
+        // Public hosts → keep the proxy (it may be how the user reaches them).
+        for host in [
+            "example.com",
+            "api.openai.com",
+            "8.8.8.8",
+            "1.1.1.1",
+            "172.32.0.1",   // just outside 172.16/12
+            "2606:4700::1", // public IPv6
+        ] {
+            assert!(!host_bypasses_proxy(host), "{host} should keep proxy");
         }
     }
 }

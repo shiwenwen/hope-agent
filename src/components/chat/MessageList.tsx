@@ -12,6 +12,7 @@ import { ArrowDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
+import { hasActiveTextSelection } from "@/lib/contextMenuGuard"
 import { AnimatedCollapse, AnimatedPresenceBox } from "@/components/ui/animated-presence"
 import {
   extractMessageFileAttachments,
@@ -1402,6 +1403,12 @@ export default function MessageList({
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     const msg = messagesRef.current[index]
     if (msg.role !== "assistant" || !msg.content) return
+    // Respect standard browser copy: when the user has highlighted part of the
+    // message and right-clicks inside that selection, don't hijack with our
+    // whole-message menu — let the native context menu (whose "Copy" honours
+    // the exact selection) through. The desktop guard defers for the same
+    // reason, so this is consistent in both Tauri and the web client.
+    if (hasActiveTextSelection(e.target)) return
     e.preventDefault()
     setContextMenu({ x: e.clientX, y: e.clientY, index })
   }, [])
