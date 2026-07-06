@@ -18,6 +18,7 @@
 use anyhow::{anyhow, bail, Result};
 use futures_util::StreamExt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::paths;
 
@@ -34,20 +35,26 @@ pub struct FfmpegSpec {
     pub binary_relpath: &'static str,
 }
 
-// Pinned static-build source per platform. We use martin-riedl.de because it
-// ships **zip** archives for every platform we target (macOS arm64/amd64,
-// Linux amd64/arm64, Windows amd64) — avoiding the tar.xz that BtbN/johnvansickle
-// use on Linux (we only vendor `zip`, not `xz`).
+// Pinned static-build source per platform. Two providers, both shipping **zip**
+// archives (we vendor `zip`, not `xz`, so tar.xz builds are out):
+//   • macOS (arm64/amd64) + Linux (amd64/arm64) → martin-riedl.de, which packs a
+//     single self-contained `ffmpeg` at the archive root.
+//   • Windows (amd64) → martin-riedl.de does **not** build Windows, so we use
+//     BtbN/FFmpeg-Builds' statically-linked `win64-gpl` zip. Its binary is
+//     nested at `ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe`, hence the
+//     per-platform `binary_relpath`.
 //
 // Bump procedure:
-// 1. Confirm `https://ffmpeg.martin-riedl.de/redirect/latest/<os>/<arch>/release/ffmpeg.zip`
-//    still 200s per platform (they publish rolling `latest` builds).
-// 2. Bump `CACHE_VERSION` so existing users re-download the newer build.
+// 1. Confirm each platform's `url` still 200s (both hosts publish rolling
+//    `latest` builds) and the archive still holds the binary at `binary_relpath`.
+// 2. Bump `CACHE_VERSION` so existing users re-download the newer build. The
+//    prior version's install dir is auto-reaped on the next successful install
+//    (`prune_stale_versions`), so bumps don't accumulate stale copies on disk.
 // 3. Run `ensure_ffmpeg` on each platform to confirm `-version` works.
 //
 // If a URL goes stale the download/extract/smoke test fails → `Err` →
 // the export flow degrades to guide-install + client WebCodecs. Nothing breaks.
-const CACHE_VERSION: &str = "mr-latest-1";
+const CACHE_VERSION: &str = "static-1";
 
 /// Resolve the [`FfmpegSpec`] for the current host, or `None` when we don't
 /// ship an auto-download source for this OS/arch (caller falls back to
@@ -87,10 +94,12 @@ pub fn spec_for_current_platform() -> Option<FfmpegSpec> {
     }
     #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
     {
+        // martin-riedl.de ships no Windows build → BtbN's static win64-gpl zip.
+        // The binary is nested under the archive's top-level folder.
         return Some(FfmpegSpec {
             version: CACHE_VERSION,
-            url: "https://ffmpeg.martin-riedl.de/redirect/latest/windows/amd64/release/ffmpeg.zip",
-            binary_relpath: "ffmpeg.exe",
+            url: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+            binary_relpath: "ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe",
         });
     }
     #[allow(unreachable_code)]
@@ -262,9 +271,8 @@ where
     let staging_dir = runtime_root.join(format!(".ffmpeg-{}.{}.tmp", spec.version, nonce));
 
     let install_result: Result<PathBuf> = async {
-        download_streaming(spec.url, &archive_path, &progress).await?;
-        extract_zip(&archive_path, &staging_dir)?;
-        let staged_binary = staging_dir.join(spec.binary_relpath);
+        download_archive(spec.url, &archive_path, &progress).await?;
+        let staged_binary = extract_binary(&archive_path, &staging_dir, spec.binary_relpath)?;
 
         #[cfg(unix)]
         chmod_executable(&staged_binary)?;
@@ -289,6 +297,9 @@ where
                 e
             )
         })?;
+        // Reap prior CACHE_VERSION installs so a bump doesn't leak the old
+        // ~90–170 MB build on disk. Best-effort, current version untouched.
+        prune_stale_versions(&runtime_root, spec.version);
         Ok(target_dir.join(spec.binary_relpath))
     }
     .await;
@@ -313,57 +324,223 @@ pub fn cached_binary_path() -> Option<PathBuf> {
     }
 }
 
-async fn download_streaming<F>(url: &str, dest: &Path, progress: &F) -> Result<()>
+/// Hard ceiling for a single ffmpeg archive. Static builds run ~30–170 MB (the
+/// Windows BtbN zip is the largest); the cap stops a stale/hijacked URL from
+/// streaming an unbounded blob into the user's home dir.
+const MAX_ARCHIVE_BYTES: u64 = 300 * 1024 * 1024;
+
+/// Download attempts before giving up (first try + 2 retries) — rides out
+/// transient network blips without hammering the host.
+const MAX_DOWNLOAD_ATTEMPTS: u32 = 3;
+
+/// Outcome of a single download attempt: retry (partial kept for resume) vs bail.
+enum DlAttempt {
+    Retryable(anyhow::Error),
+    Fatal(anyhow::Error),
+}
+
+/// Stream `url` → `dest` with retry + HTTP `Range` resume: a dropped connection
+/// mid-download resumes from the partial file instead of restarting (matters
+/// most for the ~170 MB Windows archive on flaky networks). `progress` gets
+/// `(downloaded, total)`. Mirrors the robustness of
+/// [`crate::updater::download::download_to`] but keeps the ffmpeg progress event.
+async fn download_archive<F>(url: &str, dest: &Path, progress: &F) -> Result<()>
 where
     F: Fn(u64, Option<u64>) + Send + Sync,
 {
-    use std::io::Write;
     let client = crate::provider::apply_proxy_for_url(reqwest::Client::builder(), url).build()?;
-    let resp = client
-        .get(url)
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        // Resume from whatever a prior aborted attempt left on disk.
+        let resume_from = tokio::fs::metadata(dest)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+        match download_archive_attempt(&client, url, dest, resume_from, progress).await {
+            Ok(()) => return Ok(()),
+            Err(DlAttempt::Fatal(e)) => return Err(e),
+            Err(DlAttempt::Retryable(e)) => {
+                if attempt >= MAX_DOWNLOAD_ATTEMPTS {
+                    return Err(e.context(format!(
+                        "ffmpeg download failed after {} attempts",
+                        MAX_DOWNLOAD_ATTEMPTS
+                    )));
+                }
+                let backoff = Duration::from_secs(1u64 << (attempt - 1));
+                crate::app_warn!(
+                    "design",
+                    "ffmpeg",
+                    "download attempt {}/{} for {} failed ({}); retrying in {}s (resume from {} bytes)",
+                    attempt,
+                    MAX_DOWNLOAD_ATTEMPTS,
+                    url,
+                    e,
+                    backoff.as_secs(),
+                    resume_from
+                );
+                tokio::time::sleep(backoff).await;
+            }
+        }
+    }
+}
+
+async fn download_archive_attempt<F>(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    resume_from: u64,
+    progress: &F,
+) -> std::result::Result<(), DlAttempt>
+where
+    F: Fn(u64, Option<u64>) + Send + Sync,
+{
+    use tokio::io::AsyncWriteExt;
+    let mut req = client.get(url);
+    if resume_from > 0 {
+        req = req.header(reqwest::header::RANGE, format!("bytes={}-", resume_from));
+    }
+    let resp = req
         .send()
         .await
-        .map_err(|e| anyhow!("HTTP GET {} failed: {}", url, e))?
-        .error_for_status()
-        .map_err(|e| anyhow!("HTTP error from {}: {}", url, e))?;
-    let total = resp.content_length();
+        .map_err(|e| DlAttempt::Retryable(anyhow!("HTTP GET {} failed: {}", url, e)))?;
+    let status = resp.status();
+
+    // 416: the partial is past EOF (already complete or corrupt) — wipe + restart.
+    if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+        let _ = tokio::fs::remove_file(dest).await;
+        return Err(DlAttempt::Retryable(anyhow!(
+            "HTTP 416 for {} (stale partial removed, will restart)",
+            url
+        )));
+    }
+    if !status.is_success() {
+        let msg = anyhow!("HTTP {} from {}", status, url);
+        // 5xx transient; 4xx (gone / auth) permanent.
+        return Err(if status.is_server_error() {
+            DlAttempt::Retryable(msg)
+        } else {
+            DlAttempt::Fatal(msg)
+        });
+    }
+
+    let is_partial = status == reqwest::StatusCode::PARTIAL_CONTENT && resume_from > 0;
+    // Full size: Content-Range total on a 206 resume, else Content-Length.
+    let total = if is_partial {
+        content_range_total(&resp).or_else(|| resp.content_length().map(|c| resume_from + c))
+    } else {
+        resp.content_length()
+    };
+    if let Some(t) = total {
+        if t > MAX_ARCHIVE_BYTES {
+            let _ = tokio::fs::remove_file(dest).await;
+            return Err(DlAttempt::Fatal(anyhow!(
+                "ffmpeg archive size {} exceeds cap {}",
+                t,
+                MAX_ARCHIVE_BYTES
+            )));
+        }
+    }
+
+    // 206 → append to the partial; else truncate + start fresh.
+    let (mut written, mut file) = if is_partial {
+        let f = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(dest)
+            .await
+            .map_err(|e| {
+                DlAttempt::Retryable(anyhow!("open {} for append: {}", dest.display(), e))
+            })?;
+        (resume_from, f)
+    } else {
+        let f = tokio::fs::File::create(dest)
+            .await
+            .map_err(|e| DlAttempt::Retryable(anyhow!("create {}: {}", dest.display(), e)))?;
+        (0u64, f)
+    };
+
     let mut stream = resp.bytes_stream();
-    let mut file = std::fs::File::create(dest)?;
-    let mut downloaded: u64 = 0;
     let mut last_emit = std::time::Instant::now();
+    progress(written, total);
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| anyhow!("stream chunk error: {}", e))?;
-        file.write_all(&chunk)?;
-        downloaded += chunk.len() as u64;
-        if last_emit.elapsed() >= std::time::Duration::from_millis(40) {
-            progress(downloaded, total);
+        let bytes =
+            chunk.map_err(|e| DlAttempt::Retryable(anyhow!("stream chunk error: {}", e)))?;
+        written += bytes.len() as u64;
+        if written > MAX_ARCHIVE_BYTES {
+            drop(file);
+            let _ = tokio::fs::remove_file(dest).await;
+            return Err(DlAttempt::Fatal(anyhow!(
+                "ffmpeg download exceeded cap {} — aborted",
+                MAX_ARCHIVE_BYTES
+            )));
+        }
+        file.write_all(&bytes)
+            .await
+            .map_err(|e| DlAttempt::Retryable(anyhow!("write to {}: {}", dest.display(), e)))?;
+        if last_emit.elapsed() >= Duration::from_millis(40) {
+            progress(written, total);
             last_emit = std::time::Instant::now();
         }
     }
-    progress(downloaded, total);
-    file.flush()?;
+    file.flush().await.ok();
+    file.sync_all().await.ok();
+    drop(file);
+
+    // Short-read guard: a truncated body fails extraction with a confusing error.
+    if let Some(t) = total {
+        if written < t {
+            return Err(DlAttempt::Retryable(anyhow!(
+                "incomplete download: {}/{} bytes from {}",
+                written,
+                t,
+                url
+            )));
+        }
+    }
+    progress(written, total);
     Ok(())
 }
 
-fn extract_zip(archive: &Path, target: &Path) -> Result<()> {
+/// Parse the total size out of a `Content-Range: bytes start-end/total` header.
+fn content_range_total(resp: &reqwest::Response) -> Option<u64> {
+    resp.headers()
+        .get(reqwest::header::CONTENT_RANGE)?
+        .to_str()
+        .ok()?
+        .rsplit('/')
+        .next()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+}
+
+/// Extract ONLY the binary at `wanted` from the zip into `target`, preserving
+/// its relative path (so the caller finds it at `target/wanted`). Static ffmpeg
+/// builds are self-contained single executables, so pulling just that one file
+/// avoids unpacking the ~290 MB of sibling tools (ffplay / ffprobe) the Windows
+/// archive bundles. Returns the extracted path; errors if `wanted` isn't in the
+/// archive — the caller's `-version` smoke test would fail anyway, so the export
+/// flow degrades cleanly rather than shipping a broken runtime.
+fn extract_binary(archive: &Path, target: &Path, wanted: &str) -> Result<PathBuf> {
     let file = std::fs::File::open(archive)?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|e| anyhow!("opening zip {}: {}", archive.display(), e))?;
     std::fs::create_dir_all(target)?;
+    let wanted_path = Path::new(wanted);
     for i in 0..zip.len() {
         let mut entry = zip
             .by_index(i)
             .map_err(|e| anyhow!("zip entry {}: {}", i, e))?;
-        // `mangled_name` keeps components within target (zip-slip guard).
-        let rel = entry.mangled_name();
-        if rel.as_os_str().is_empty() {
-            continue;
-        }
-        let out_path = target.join(rel);
         if entry.is_dir() {
-            std::fs::create_dir_all(&out_path)?;
             continue;
         }
+        // `mangled_name` keeps components within target (zip-slip guard);
+        // path-equality normalizes separators so the match is OS-agnostic.
+        let rel = entry.mangled_name();
+        if rel != wanted_path {
+            continue;
+        }
+        let out_path = target.join(&rel);
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -374,8 +551,13 @@ fn extract_zip(archive: &Path, target: &Path) -> Result<()> {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&out_path, std::fs::Permissions::from_mode(mode))?;
         }
+        return Ok(out_path);
     }
-    Ok(())
+    bail!(
+        "ffmpeg binary '{}' not found in archive {}",
+        wanted,
+        archive.display()
+    )
 }
 
 #[cfg(unix)]
@@ -432,6 +614,33 @@ fn write_ready_marker(target_dir: &Path, spec: &FfmpegSpec) -> Result<()> {
     Ok(())
 }
 
+/// Best-effort GC of *other* `CACHE_VERSION` install dirs under `runtime_root`
+/// (a version bump re-downloads into a fresh dir; without this the old
+/// ~90–170 MB build would linger forever). Deliberately conservative: only
+/// removes sibling **version** dirs, never `current_version`, and never the
+/// transient `.ffmpeg-*.tmp` staging dirs / `ffmpeg.*.tmp.*.zip` archives that a
+/// concurrent install may be writing right now. Errors are swallowed (e.g.
+/// Windows can refuse to delete a binary still open by an older running build).
+fn prune_stale_versions(runtime_root: &Path, current_version: &str) {
+    let Ok(entries) = std::fs::read_dir(runtime_root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        // Keep the current version + anything transient (leading `.` staging
+        // dirs, `.tmp`-tagged staging/zip artifacts of an in-flight install).
+        if name == current_version || name.starts_with('.') || name.contains(".tmp") {
+            continue;
+        }
+        if entry.path().is_dir() {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,5 +683,95 @@ mod tests {
     fn cached_binary_path_none_on_fresh_install() {
         // Must not panic when nothing's downloaded.
         let _ = cached_binary_path();
+    }
+
+    /// Build a zip at `path` containing each `(name, bytes)` entry.
+    fn write_test_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(path).expect("create zip"));
+        let opts = zip::write::SimpleFileOptions::default();
+        for (name, bytes) in entries {
+            zip.start_file(*name, opts).expect("start entry");
+            zip.write_all(bytes).expect("write entry");
+        }
+        zip.finish().expect("finish zip");
+    }
+
+    #[test]
+    fn extract_binary_pulls_root_entry() {
+        // martin-riedl.de layout: a single `ffmpeg` at the archive root.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("a.zip");
+        write_test_zip(&archive, &[("ffmpeg", b"ELF-ish")]);
+        let out = tmp.path().join("staging");
+        let got = extract_binary(&archive, &out, "ffmpeg").expect("extract");
+        assert_eq!(got, out.join("ffmpeg"));
+        assert_eq!(std::fs::read(&got).unwrap(), b"ELF-ish");
+    }
+
+    #[test]
+    fn extract_binary_pulls_nested_and_skips_siblings() {
+        // BtbN Windows layout: binary nested under a top-level folder, alongside
+        // ffplay/ffprobe we deliberately do NOT unpack (footprint guard).
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("win.zip");
+        write_test_zip(
+            &archive,
+            &[
+                ("ffmpeg-master-latest-win64-gpl/bin/ffplay.exe", b"decoy1"),
+                ("ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe", b"decoy2"),
+                ("ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe", b"WANT"),
+            ],
+        );
+        let out = tmp.path().join("staging");
+        let want = "ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe";
+        let got = extract_binary(&archive, &out, want).expect("extract");
+        assert_eq!(got, out.join(want));
+        assert_eq!(std::fs::read(&got).unwrap(), b"WANT");
+        // Siblings must be left in the archive, not written to disk.
+        assert!(!out
+            .join("ffmpeg-master-latest-win64-gpl/bin/ffplay.exe")
+            .exists());
+        assert!(!out
+            .join("ffmpeg-master-latest-win64-gpl/bin/ffprobe.exe")
+            .exists());
+    }
+
+    #[test]
+    fn extract_binary_errors_when_missing() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let archive = tmp.path().join("bad.zip");
+        write_test_zip(&archive, &[("something-else", b"x")]);
+        let out = tmp.path().join("staging");
+        assert!(extract_binary(&archive, &out, "ffmpeg").is_err());
+    }
+
+    #[test]
+    fn prune_stale_versions_reaps_old_keeps_current_and_transient() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+        for d in [
+            "static-0",                  // old version → should be reaped
+            "static-1",                  // current → keep
+            ".ffmpeg-static-1.7.tmp",    // in-flight staging (leading dot) → keep
+            "ffmpeg.static-1.tmp.9.zip", // in-flight zip artifact name → keep
+        ] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        // Also a stray zip file that happens to sit here — non-dir, left alone.
+        std::fs::write(root.join("static-0.leftover"), b"x").unwrap();
+
+        prune_stale_versions(root, "static-1");
+
+        assert!(!root.join("static-0").exists(), "old version dir reaped");
+        assert!(root.join("static-1").exists(), "current version kept");
+        assert!(
+            root.join(".ffmpeg-static-1.7.tmp").exists(),
+            "in-flight staging kept"
+        );
+        assert!(
+            root.join("ffmpeg.static-1.tmp.9.zip").exists(),
+            "in-flight zip-named dir kept"
+        );
     }
 }

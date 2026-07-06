@@ -278,6 +278,7 @@ pub(super) fn find_chrome_executable() -> Option<PathBuf> {
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
             "/Applications/Chromium.app/Contents/MacOS/Chromium",
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
         ] {
             let p = PathBuf::from(candidate);
             if p.exists() {
@@ -293,6 +294,9 @@ pub(super) fn find_chrome_executable() -> Option<PathBuf> {
         "chromium",
         "chromium-browser",
         "microsoft-edge",
+        "brave-browser",
+        "brave-browser-stable",
+        "brave",
     ] {
         if let Ok(p) = which::which(name) {
             return Some(p);

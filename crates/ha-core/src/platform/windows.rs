@@ -117,6 +117,7 @@ pub(super) fn find_chrome_executable() -> Option<PathBuf> {
         r"Google\Chrome\Application\chrome.exe",
         r"Microsoft\Edge\Application\msedge.exe",
         r"Chromium\Application\chrome.exe",
+        r"BraveSoftware\Brave-Browser\Application\brave.exe",
     ];
 
     for env_var in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
