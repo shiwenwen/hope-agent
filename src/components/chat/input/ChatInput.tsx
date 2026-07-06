@@ -1,4 +1,4 @@
-import { Fragment, useRef, useEffect, useCallback, useMemo, useState } from "react"
+import { Fragment, useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -74,12 +74,12 @@ import {
 } from "@/components/chat/tasks/taskProgress"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
-  CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
-  CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX,
-  CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX,
-  CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX,
+  CHAT_INPUT_TOOLBAR_EXPAND_BUFFER_PX,
+  CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
+  CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL,
   getChatInputOverflowActionIds,
+  getChatInputToolbarFlags,
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
 import MentionComposerInput from "./MentionComposerInput"
@@ -321,6 +321,54 @@ function chatGoalDraftKindLabel(
   }
 }
 
+type ToolbarGroupKey = keyof typeof CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS
+type ToolbarGroupWidths = Record<ToolbarGroupKey, number>
+
+function readToolbarItemWidth(el: HTMLElement | null, fallback: number): number {
+  if (!el) return fallback
+  const rect = el.getBoundingClientRect()
+  return rect.width > 0 ? Math.ceil(rect.width) : fallback
+}
+
+function visibleToolbarItemRects(container: HTMLElement): DOMRect[] {
+  return Array.from(container.children)
+    .map((child) => child.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+}
+
+function toolbarHasWrappedItems(container: HTMLElement): boolean {
+  const rects = visibleToolbarItemRects(container)
+  if (rects.length <= 1) return false
+  const firstTop = Math.min(...rects.map((rect) => rect.top))
+  return rects.some((rect) => rect.top > firstTop + 2)
+}
+
+function toolbarFirstLineFreeSpace(container: HTMLElement): number {
+  const rects = visibleToolbarItemRects(container)
+  if (rects.length === 0) return 0
+  const containerRect = container.getBoundingClientRect()
+  const firstTop = Math.min(...rects.map((rect) => rect.top))
+  const firstLineRight = Math.max(
+    ...rects.filter((rect) => rect.top <= firstTop + 2).map((rect) => rect.right),
+  )
+  return Math.max(0, Math.floor(containerRect.right - firstLineRight))
+}
+
+function widthNeededToExpandToolbar(level: number, widths: ToolbarGroupWidths): number {
+  switch (level) {
+    case 1:
+      return Math.max(0, widths.addActions - widths.overflowTrigger)
+    case 2:
+      return widths.semanticModes
+    case 3:
+      return widths.sandbox
+    case 4:
+      return widths.permission
+    default:
+      return Number.POSITIVE_INFINITY
+  }
+}
+
 export default function ChatInput({
   input,
   onInputChange,
@@ -393,15 +441,20 @@ export default function ChatInput({
   const inputHandleRef = useRef<ComposerInputHandle>(null)
   const inputShellRef = useRef<HTMLDivElement>(null)
   const toolbarRef = useRef<HTMLDivElement>(null)
+  const toolbarLeftRef = useRef<HTMLDivElement>(null)
+  const overflowTriggerRef = useRef<HTMLDivElement>(null)
+  const addActionsRef = useRef<HTMLDivElement>(null)
+  const semanticModesRef = useRef<HTMLDivElement>(null)
+  const sandboxModeRef = useRef<HTMLDivElement>(null)
+  const permissionModeRef = useRef<HTMLDivElement>(null)
+  const toolbarGroupWidthsRef = useRef<ToolbarGroupWidths>({
+    ...CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
+  })
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
-  const [toolbarCompact, setToolbarCompact] = useState(false)
-  // Narrower tier than `toolbarCompact`: Knowledge + Plan stay inline until the
-  // toolbar is genuinely cramped, then collapse into the "+" menu too.
-  const [toolbarTight, setToolbarTight] = useState(false)
-  // Progressively deeper tiers: sandbox collapses first, then permission mode.
-  // The floor — "+" · model · send/stop — never collapses and never wraps.
-  const [sandboxCollapsed, setSandboxCollapsed] = useState(false)
-  const [permissionCollapsed, setPermissionCollapsed] = useState(false)
+  // 0 = everything inline; 1 = add actions behind "+"; 2 = semantic modes behind
+  // "+"; 3 = sandbox behind "+"; 4 = permission behind "+". The level is chosen
+  // by live DOM measurement instead of fixed container-width breakpoints.
+  const [toolbarCollapseLevel, setToolbarCollapseLevel] = useState(0)
   const [toolbarMinHeight, setToolbarMinHeight] = useState<number | null>(null)
   const [pendingExpanded, setPendingExpanded] = useState(false)
   const [goalComposerMode, setGoalComposerMode] = useState(false)
@@ -416,6 +469,8 @@ export default function ChatInput({
   const [workflowModeLoading, setWorkflowModeLoading] = useState(false)
   const [workflowModeSaving, setWorkflowModeSaving] = useState<WorkflowMode | null>(null)
   const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false)
+  const { toolbarCompact, toolbarTight, sandboxCollapsed, permissionCollapsed } =
+    getChatInputToolbarFlags(toolbarCollapseLevel)
 
   const handlePermissionModeChange = useCallback(
     (mode: SessionMode, options?: PermissionModeChangeOptions) => {
@@ -721,33 +776,90 @@ export default function ChatInput({
     : input.trim().length > 0 || attachedFiles.length > 0 || (pendingQuotes?.length ?? 0) > 0
 
   // The chat column can shrink when a right-side panel opens while the viewport
-  // stays wide, so the overflow affordance has to follow the input container
-  // width instead of a viewport media query.
-  useEffect(() => {
-    const el = inputShellRef.current
-    if (!el || typeof window === "undefined") return
+  // stays wide, so the overflow affordance follows the actual toolbar layout.
+  // Instead of static width thresholds, we let the toolbar render, measure
+  // whether items wrapped and how much first-line space remains, then collapse or
+  // expand one tier at a time. This keeps controls visible when there is real
+  // horizontal room, while still preventing awkward second-line toolbars.
+  useLayoutEffect(() => {
+    if (!normalToolbarOpen || typeof window === "undefined") return
 
-    const update = (width = el.getBoundingClientRect().width) => {
-      setToolbarCompact(width <= CHAT_INPUT_OVERFLOW_BREAKPOINT_PX)
-      setToolbarTight(width <= CHAT_INPUT_TIGHT_TOOLBAR_BREAKPOINT_PX)
-      setSandboxCollapsed(width <= CHAT_INPUT_SANDBOX_COLLAPSE_BREAKPOINT_PX)
-      setPermissionCollapsed(width <= CHAT_INPUT_PERMISSION_COLLAPSE_BREAKPOINT_PX)
+    const left = toolbarLeftRef.current
+    if (!left) return
+
+    let raf: number | null = null
+
+    const updateMeasuredGroupWidths = () => {
+      toolbarGroupWidthsRef.current = {
+        addActions: readToolbarItemWidth(
+          addActionsRef.current,
+          toolbarGroupWidthsRef.current.addActions,
+        ),
+        overflowTrigger: readToolbarItemWidth(
+          overflowTriggerRef.current,
+          toolbarGroupWidthsRef.current.overflowTrigger,
+        ),
+        semanticModes: readToolbarItemWidth(
+          semanticModesRef.current,
+          toolbarGroupWidthsRef.current.semanticModes,
+        ),
+        sandbox: readToolbarItemWidth(sandboxModeRef.current, toolbarGroupWidthsRef.current.sandbox),
+        permission: readToolbarItemWidth(
+          permissionModeRef.current,
+          toolbarGroupWidthsRef.current.permission,
+        ),
+      }
+    }
+
+    const update = () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(() => {
+        raf = null
+        updateMeasuredGroupWidths()
+        setToolbarCollapseLevel((level) => {
+          const currentLeft = toolbarLeftRef.current
+          if (!currentLeft) return level
+          if (toolbarHasWrappedItems(currentLeft)) {
+            return Math.min(CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL, level + 1)
+          }
+          if (level <= 0) return level
+          const freeSpace = toolbarFirstLineFreeSpace(currentLeft)
+          const needed =
+            widthNeededToExpandToolbar(level, toolbarGroupWidthsRef.current) +
+            CHAT_INPUT_TOOLBAR_EXPAND_BUFFER_PX
+          return freeSpace >= needed ? level - 1 : level
+        })
+      })
     }
 
     update()
 
     if (typeof ResizeObserver === "undefined") {
-      const handleResize = () => update()
-      window.addEventListener("resize", handleResize)
-      return () => window.removeEventListener("resize", handleResize)
+      window.addEventListener("resize", update)
+      return () => {
+        if (raf !== null) window.cancelAnimationFrame(raf)
+        window.removeEventListener("resize", update)
+      }
     }
 
-    const observer = new ResizeObserver((entries) => {
-      update(entries[0]?.contentRect.width)
+    const observer = new ResizeObserver(update)
+    ;[
+      inputShellRef.current,
+      toolbarRef.current,
+      left,
+      overflowTriggerRef.current,
+      addActionsRef.current,
+      semanticModesRef.current,
+      sandboxModeRef.current,
+      permissionModeRef.current,
+    ].forEach((el) => {
+      if (el) observer.observe(el)
     })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+    return () => {
+      if (raf !== null) window.cancelAnimationFrame(raf)
+      observer.disconnect()
+    }
+  }, [normalToolbarOpen, toolbarCollapseLevel])
 
   useEffect(() => {
     if (showOverflowMenu && !toolbarCompact) setShowOverflowMenu(false)
@@ -755,7 +867,7 @@ export default function ChatInput({
 
   useEffect(() => {
     setToolbarMinHeight(null)
-  }, [toolbarCompact, sandboxCollapsed, permissionCollapsed])
+  }, [toolbarCollapseLevel])
 
   useEffect(() => {
     if (!normalToolbarOpen || typeof window === "undefined") {
@@ -795,7 +907,7 @@ export default function ChatInput({
       if (raf !== null) window.cancelAnimationFrame(raf)
       observer.disconnect()
     }
-  }, [normalToolbarOpen, toolbarCompact, sandboxCollapsed, permissionCollapsed])
+  }, [normalToolbarOpen, toolbarCollapseLevel])
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
@@ -1953,12 +2065,18 @@ export default function ChatInput({
               // pushes the send controls onto a line of their own.
               className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2 px-2 pb-2"
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-1">
-                <div className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>
+              <div ref={toolbarLeftRef} className="flex min-w-0 flex-wrap items-center gap-1">
+                <div
+                  ref={addActionsRef}
+                  className={toolbarCompact ? "hidden" : CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}
+                >
                   {renderInlineAddControls()}
                 </div>
 
-                <div className={toolbarCompact ? "block" : CHAT_INPUT_OVERFLOW_MENU_CLASS}>
+                <div
+                  ref={overflowTriggerRef}
+                  className={toolbarCompact ? "block shrink-0" : CHAT_INPUT_OVERFLOW_MENU_CLASS}
+                >
                   <DropdownMenu.Root open={showOverflowMenu} onOpenChange={setShowOverflowMenu}>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -2003,110 +2121,109 @@ export default function ChatInput({
                 <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
                 {/* Knowledge + Goal + Workflow + Plan — semantic mode controls,
-                    kept inline down to the `toolbarTight` tier (then they join
-                    the "+" overflow menu, see renderOverflowMenuItems). */}
+                    kept inline until the measured toolbar would wrap. */}
                 {!toolbarTight && (
-                  <KnowledgePicker
-                    sessionId={currentSessionId ?? null}
-                    projectId={projectId ?? null}
-                    disabled={incognitoEnabled}
-                    draftAttachments={draftKbAttachments}
-                    onDraftAttachChange={onDraftKbAttachChange}
-                  />
-                )}
-
-                {!toolbarTight && (
-                  <IconTip label={goalToggleTip}>
-                    <button
-                      aria-label={goalToggleTip}
-                      onClick={handleGoalModeToggle}
+                  <div ref={semanticModesRef} className="flex shrink-0 items-center gap-1">
+                    <KnowledgePicker
+                      sessionId={currentSessionId ?? null}
+                      projectId={projectId ?? null}
                       disabled={incognitoEnabled}
-                      className={cn(
-                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
-                        goalComposerMode
-                          ? "text-emerald-600 bg-emerald-500/10"
-                          : activeGoal
-                            ? "text-emerald-600/90 hover:text-emerald-700"
-                            : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <Target className="h-4 w-4 shrink-0" />
-                      <span>{goalToggleLabel}</span>
-                    </button>
-                  </IconTip>
-                )}
+                      draftAttachments={draftKbAttachments}
+                      onDraftAttachChange={onDraftKbAttachChange}
+                    />
 
-                {!toolbarTight && (
-                  <DropdownMenu.Root open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
-                    <IconTip label={workflowMenuLabel}>
-                      <DropdownMenu.Trigger asChild>
-                        <button
-                          type="button"
-                          aria-label={workflowMenuLabel}
-                          disabled={workflowMenuDisabled}
-                          className={cn(
-                            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
-                            workflowButtonTone,
-                          )}
-                        >
-                          {workflowModeSaving ? (
-                            <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-                          ) : (
-                            <WorkflowModeIcon className="h-4 w-4 shrink-0" />
-                          )}
-                          <span>{workflowButtonLabel}</span>
-                          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        </button>
-                      </DropdownMenu.Trigger>
-                    </IconTip>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content
-                        className="z-50 min-w-[280px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
-                        side="top"
-                        align="start"
-                        sideOffset={8}
-                      >
-                        {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu.Root>
-                )}
-
-                {!toolbarTight && (
-                  <IconTip label={planToggleTip}>
-                    <button
-                      aria-label={planToggleTip}
-                      onClick={handlePlanToggle}
-                      className={cn(
-                        "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                        planState === "planning"
-                          ? "text-blue-600 bg-blue-500/10"
-                          : planState === "review"
-                            ? "text-purple-600 bg-purple-500/10"
-                            : planState === "executing"
-                              ? "text-green-600 bg-green-500/10"
+                    <IconTip label={goalToggleTip}>
+                      <button
+                        aria-label={goalToggleTip}
+                        onClick={handleGoalModeToggle}
+                        disabled={incognitoEnabled}
+                        className={cn(
+                          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50",
+                          goalComposerMode
+                            ? "text-emerald-600 bg-emerald-500/10"
+                            : activeGoal
+                              ? "text-emerald-600/90 hover:text-emerald-700"
                               : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      <ClipboardList className="h-4 w-4 shrink-0" />
-                      <span>{planToggleLabel}</span>
-                    </button>
-                  </IconTip>
+                        )}
+                      >
+                        <Target className="h-4 w-4 shrink-0" />
+                        <span>{goalToggleLabel}</span>
+                      </button>
+                    </IconTip>
+
+                    <DropdownMenu.Root open={workflowMenuOpen} onOpenChange={setWorkflowMenuOpen}>
+                      <IconTip label={workflowMenuLabel}>
+                        <DropdownMenu.Trigger asChild>
+                          <button
+                            type="button"
+                            aria-label={workflowMenuLabel}
+                            disabled={workflowMenuDisabled}
+                            className={cn(
+                              "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 data-[state=open]:bg-secondary",
+                              workflowButtonTone,
+                            )}
+                          >
+                            {workflowModeSaving ? (
+                              <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                            ) : (
+                              <WorkflowModeIcon className="h-4 w-4 shrink-0" />
+                            )}
+                            <span>{workflowButtonLabel}</span>
+                            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                          </button>
+                        </DropdownMenu.Trigger>
+                      </IconTip>
+                      <DropdownMenu.Portal>
+                        <DropdownMenu.Content
+                          className="z-50 min-w-[280px] overflow-hidden rounded-floating border border-border-soft bg-surface-floating/95 p-1.5 text-popover-foreground shadow-floating backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150"
+                          side="top"
+                          align="start"
+                          sideOffset={8}
+                        >
+                          {renderWorkflowModeMenuItems(() => setWorkflowMenuOpen(false))}
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+
+                    <IconTip label={planToggleTip}>
+                      <button
+                        aria-label={planToggleTip}
+                        onClick={handlePlanToggle}
+                        className={cn(
+                          "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                          planState === "planning"
+                            ? "text-blue-600 bg-blue-500/10"
+                            : planState === "review"
+                              ? "text-purple-600 bg-purple-500/10"
+                              : planState === "executing"
+                                ? "text-green-600 bg-green-500/10"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <ClipboardList className="h-4 w-4 shrink-0" />
+                        <span>{planToggleLabel}</span>
+                      </button>
+                    </IconTip>
+                  </div>
                 )}
 
                 {/* Tool Permission Mode — collapses into the "+" menu last, at
                     the narrowest tier (kept inline longer than Sandbox). */}
                 {!permissionCollapsed && (
-                  <PermissionModeSwitcher
-                    permissionMode={permissionMode}
-                    onPermissionModeChange={handlePermissionModeChange}
-                  />
+                  <div ref={permissionModeRef} className="shrink-0">
+                    <PermissionModeSwitcher
+                      permissionMode={permissionMode}
+                      onPermissionModeChange={handlePermissionModeChange}
+                    />
+                  </div>
                 )}
                 {!sandboxCollapsed && (
-                  <SandboxModeSwitcher
-                    sandboxMode={sandboxMode}
-                    onSandboxModeChange={onSandboxModeChange}
-                  />
+                  <div ref={sandboxModeRef} className="shrink-0">
+                    <SandboxModeSwitcher
+                      sandboxMode={sandboxMode}
+                      onSandboxModeChange={onSandboxModeChange}
+                    />
+                  </div>
                 )}
               </div>
 
