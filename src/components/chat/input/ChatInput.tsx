@@ -75,12 +75,12 @@ import {
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
-  CHAT_INPUT_TOOLBAR_EXPAND_BUFFER_PX,
   CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
-  CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL,
   getChatInputOverflowActionIds,
   getChatInputToolbarFlags,
+  resolveChatInputToolbarCollapseLevel,
   type ChatInputOverflowActionId,
+  type ChatInputToolbarGroupWidths,
 } from "./toolbarOverflow"
 import MentionComposerInput from "./MentionComposerInput"
 import type { ComposerInputHandle } from "./composerInputHandle"
@@ -321,9 +321,6 @@ function chatGoalDraftKindLabel(
   }
 }
 
-type ToolbarGroupKey = keyof typeof CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS
-type ToolbarGroupWidths = Record<ToolbarGroupKey, number>
-
 function readToolbarItemWidth(el: HTMLElement | null, fallback: number): number {
   if (!el) return fallback
   const rect = el.getBoundingClientRect()
@@ -336,46 +333,12 @@ function visibleToolbarItemRects(container: HTMLElement): DOMRect[] {
     .filter((rect) => rect.width > 0 && rect.height > 0)
 }
 
-function toolbarHasWrappedItems(container: HTMLElement): boolean {
-  const rects = visibleToolbarItemRects(container)
-  if (rects.length <= 1) return false
-  const firstTop = Math.min(...rects.map((rect) => rect.top))
-  return rects.some((rect) => rect.top > firstTop + 2)
-}
-
-function toolbarHasHorizontalOverflow(container: HTMLElement): boolean {
-  return container.scrollWidth > container.clientWidth + 2
-}
-
-function toolbarNeedsMoreCollapse(container: HTMLElement): boolean {
-  return toolbarHasHorizontalOverflow(container) || toolbarHasWrappedItems(container)
-}
-
-function toolbarFirstLineFreeSpace(container: HTMLElement): number {
-  if (toolbarHasHorizontalOverflow(container)) return 0
+function toolbarVisibleWidth(container: HTMLElement): number {
   const rects = visibleToolbarItemRects(container)
   if (rects.length === 0) return 0
-  const containerRect = container.getBoundingClientRect()
-  const firstTop = Math.min(...rects.map((rect) => rect.top))
-  const firstLineRight = Math.max(
-    ...rects.filter((rect) => rect.top <= firstTop + 2).map((rect) => rect.right),
-  )
-  return Math.max(0, Math.floor(containerRect.right - firstLineRight))
-}
-
-function widthNeededToExpandToolbar(level: number, widths: ToolbarGroupWidths): number {
-  switch (level) {
-    case 1:
-      return Math.max(0, widths.addActions - widths.overflowTrigger)
-    case 2:
-      return widths.semanticModes
-    case 3:
-      return widths.sandbox
-    case 4:
-      return widths.permission
-    default:
-      return Number.POSITIVE_INFINITY
-  }
+  const left = Math.min(...rects.map((rect) => rect.left))
+  const right = Math.max(...rects.map((rect) => rect.right))
+  return Math.max(0, Math.ceil(right - left))
 }
 
 export default function ChatInput({
@@ -456,7 +419,7 @@ export default function ChatInput({
   const semanticModesRef = useRef<HTMLDivElement>(null)
   const sandboxModeRef = useRef<HTMLDivElement>(null)
   const permissionModeRef = useRef<HTMLDivElement>(null)
-  const toolbarGroupWidthsRef = useRef<ToolbarGroupWidths>({
+  const toolbarGroupWidthsRef = useRef<ChatInputToolbarGroupWidths>({
     ...CHAT_INPUT_TOOLBAR_GROUP_WIDTH_FALLBACKS,
   })
   const [showOverflowMenu, setShowOverflowMenu] = useState(false)
@@ -786,10 +749,9 @@ export default function ChatInput({
 
   // The chat column can shrink when a right-side panel opens while the viewport
   // stays wide, so the overflow affordance follows the actual toolbar layout.
-  // Instead of static width thresholds, we measure horizontal overflow and free
-  // first-line space, then collapse or expand one tier at a time. The toolbar
-  // itself is nowrap, so "too much content" never turns into a visible second
-  // row while the measurement catches up.
+  // Resolve the target collapse tier from measured widths in one pass; otherwise
+  // very narrow inputs can visibly crop controls while the UI collapses one tier
+  // at a time.
   useLayoutEffect(() => {
     if (!normalToolbarOpen || typeof window === "undefined") return
 
@@ -828,15 +790,12 @@ export default function ChatInput({
         setToolbarCollapseLevel((level) => {
           const currentLeft = toolbarLeftRef.current
           if (!currentLeft) return level
-          if (toolbarNeedsMoreCollapse(currentLeft)) {
-            return Math.min(CHAT_INPUT_TOOLBAR_MAX_COLLAPSE_LEVEL, level + 1)
-          }
-          if (level <= 0) return level
-          const freeSpace = toolbarFirstLineFreeSpace(currentLeft)
-          const needed =
-            widthNeededToExpandToolbar(level, toolbarGroupWidthsRef.current) +
-            CHAT_INPUT_TOOLBAR_EXPAND_BUFFER_PX
-          return freeSpace >= needed ? level - 1 : level
+          return resolveChatInputToolbarCollapseLevel({
+            currentLevel: level,
+            availableWidth: currentLeft.clientWidth,
+            visibleWidth: toolbarVisibleWidth(currentLeft),
+            widths: toolbarGroupWidthsRef.current,
+          })
         })
       })
     }

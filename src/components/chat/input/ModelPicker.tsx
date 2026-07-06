@@ -71,7 +71,7 @@ export default function ModelPicker({
   )
 
   return (
-    <div className="relative min-w-0" ref={menuRef}>
+    <div className="relative shrink-0" ref={menuRef}>
       <Tooltip>
         <TooltipTrigger asChild>
           <button
@@ -80,7 +80,7 @@ export default function ModelPicker({
               setShowMenu(!showMenu)
               setOpenPanel(null)
             }}
-            className="flex min-w-0 max-w-[220px] items-center gap-1 bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
+            className="flex max-w-[220px] items-center gap-1 overflow-hidden bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
           >
             <span className="min-w-0 truncate">{modelLabel}</span>
             {supportsThinking && (
