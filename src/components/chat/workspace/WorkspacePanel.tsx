@@ -12643,6 +12643,22 @@ function loopTriggerSummary(kind: LoopTriggerKind, spec: Record<string, unknown>
     const condition = typeof spec.condition === "string" ? spec.condition : "condition"
     return `until ${condition.length > 48 ? `${condition.slice(0, 48)}...` : condition}`
   }
+  if (kind === "event") {
+    const eventName = typeof spec.eventName === "string" ? spec.eventName : "event"
+    const filters =
+      typeof spec.filters === "object" && spec.filters !== null
+        ? (spec.filters as Record<string, unknown>)
+        : {}
+    const state =
+      typeof filters.workflowState === "string"
+        ? filters.workflowState
+        : typeof filters.goalState === "string"
+          ? filters.goalState
+          : typeof filters.taskStatus === "string"
+            ? filters.taskStatus
+            : null
+    return state ? `${eventName} · ${state}` : eventName
+  }
   if (kind === "cron") return "cron"
   return "event"
 }
@@ -12679,11 +12695,32 @@ function parseOptionalPositiveInt(input: string): number | null {
   return Number.isInteger(value) && value > 0 ? value : null
 }
 
+type LoopEventName = "workflow:updated" | "goal:updated" | "task_updated"
+
+function loopEventFilterKey(eventName: LoopEventName): "workflowState" | "goalState" | "taskStatus" {
+  if (eventName === "workflow:updated") return "workflowState"
+  if (eventName === "goal:updated") return "goalState"
+  return "taskStatus"
+}
+
+function loopEventStateOptions(eventName: LoopEventName): string[] {
+  if (eventName === "workflow:updated") {
+    return ["completed", "failed", "blocked", "cancelled", "awaiting_user"]
+  }
+  if (eventName === "goal:updated") {
+    return ["completed", "blocked", "failed", "cancelled", "evaluating", "active"]
+  }
+  return ["completed", "in_progress", "pending"]
+}
+
 function loopNextRunLabel(
   t: ReturnType<typeof useTranslation>["t"],
   loop: LoopSchedule,
 ): string | null {
   if (loop.state !== "active") return null
+  if (loop.triggerKind === "event") {
+    return t("workspace.loop.waitingEvent", "等待事件")
+  }
   if (!loop.nextRunAt) return t("workspace.loop.nextUnknown", "下次待定")
   return t("workspace.loop.nextRun", "下次 {{time}}", {
     time: formatMessageTime(loop.nextRunAt),
@@ -12926,11 +12963,14 @@ function LoopSchedulesSection({
   const [actionId, setActionId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
-  const [draftKind, setDraftKind] = useState<"interval" | "condition">("interval")
+  const [draftKind, setDraftKind] = useState<"interval" | "condition" | "event">("interval")
   const [draftExecutionStrategy, setDraftExecutionStrategy] =
     useState<LoopExecutionStrategy>("continue")
   const [draftInterval, setDraftInterval] = useState("10m")
   const [draftCondition, setDraftCondition] = useState("")
+  const [draftEventName, setDraftEventName] = useState<LoopEventName>("workflow:updated")
+  const [draftEventState, setDraftEventState] = useState("completed")
+  const [draftEventDebounce, setDraftEventDebounce] = useState("30s")
   const [draftPrompt, setDraftPrompt] = useState("")
   const [draftGoalCriterionId, setDraftGoalCriterionId] = useState(GOAL_CRITERION_NONE_VALUE)
   const [draftMaxRuns, setDraftMaxRuns] = useState("")
@@ -13000,6 +13040,13 @@ function LoopSchedulesSection({
       setDraftExecutionStrategy("continue")
     }
   }, [canUseWorkflowLoop, draftExecutionStrategy])
+
+  useEffect(() => {
+    const options = loopEventStateOptions(draftEventName)
+    if (!options.includes(draftEventState)) {
+      setDraftEventState(options[0] ?? "completed")
+    }
+  }, [draftEventName, draftEventState])
 
   useEffect(() => {
     if (draftGoalCriterionId === GOAL_CRITERION_NONE_VALUE) return
@@ -13194,9 +13241,15 @@ function LoopSchedulesSection({
       toast.error(t("workspace.loop.sessionRequired", "先选择一个会话"))
       return
     }
-    const intervalSecs = parseLoopDurationSecs(draftInterval)
-    if (!intervalSecs) {
+    const intervalSecs = draftKind === "event" ? null : parseLoopDurationSecs(draftInterval)
+    if (draftKind !== "event" && !intervalSecs) {
       toast.error(t("workspace.loop.intervalInvalid", "请输入有效间隔，例如 10m"))
+      return
+    }
+    const eventDebounceSecs =
+      draftKind === "event" ? parseLoopDurationSecs(draftEventDebounce) : null
+    if (draftKind === "event" && !eventDebounceSecs) {
+      toast.error(t("workspace.loop.eventDebounceInvalid", "请输入有效事件去重窗口，例如 30s"))
       return
     }
     const condition = draftCondition.trim()
@@ -13205,7 +13258,7 @@ function LoopSchedulesSection({
       return
     }
     const prompt = draftPrompt.trim()
-    if (draftKind === "interval" && !prompt && !activeGoal) {
+    if ((draftKind === "interval" || draftKind === "event") && !prompt && !activeGoal) {
       toast.error(
         t("workspace.loop.promptOrGoalRequired", "请输入 prompt，或先创建一个 active goal"),
       )
@@ -13255,13 +13308,23 @@ function LoopSchedulesSection({
       "Continue until this condition is true: {{condition}}. Check the condition first, stop when it is satisfied, otherwise take the next useful step.",
       { condition },
     )
+    const triggerSpec =
+      draftKind === "condition"
+        ? { condition, intervalSecs }
+        : draftKind === "event"
+          ? {
+              eventName: draftEventName,
+              filters: { [loopEventFilterKey(draftEventName)]: draftEventState },
+              debounceSecs: eventDebounceSecs,
+            }
+          : { intervalSecs }
     setCreateSaving(true)
     try {
       await getTransport().call("create_loop_schedule", {
         sessionId,
         prompt: draftKind === "condition" && !prompt ? defaultConditionPrompt : prompt,
         triggerKind: draftKind,
-        triggerSpec: draftKind === "condition" ? { condition, intervalSecs } : { intervalSecs },
+        triggerSpec,
         executionStrategy: draftExecutionStrategy,
         goalId: activeGoal?.id ?? undefined,
         goalCriterionId:
@@ -13289,6 +13352,9 @@ function LoopSchedulesSection({
     activeGoal,
     canUseWorkflowLoop,
     draftCondition,
+    draftEventDebounce,
+    draftEventName,
+    draftEventState,
     draftExecutionStrategy,
     draftGoalCriterionId,
     draftInterval,
@@ -13345,8 +13411,8 @@ function LoopSchedulesSection({
         </div>
         {createOpen ? (
           <div className="space-y-2 rounded-md border border-border/70 bg-background/70 p-2">
-            <div className="grid grid-cols-2 gap-1 rounded-md bg-secondary/40 p-1">
-              {(["interval", "condition"] as const).map((kind) => (
+            <div className="grid grid-cols-3 gap-1 rounded-md bg-secondary/40 p-1">
+              {(["interval", "condition", "event"] as const).map((kind) => (
                 <Button
                   key={kind}
                   type="button"
@@ -13357,7 +13423,9 @@ function LoopSchedulesSection({
                 >
                   {kind === "interval"
                     ? t("workspace.loop.kindInterval", "Every")
-                    : t("workspace.loop.kindCondition", "Until")}
+                    : kind === "condition"
+                      ? t("workspace.loop.kindCondition", "Until")
+                      : t("workspace.loop.kindEvent", "Event")}
                 </Button>
               ))}
             </div>
@@ -13424,13 +13492,35 @@ function LoopSchedulesSection({
               </div>
             ) : null}
             <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={draftInterval}
-                onChange={(e) => setDraftInterval(e.target.value)}
-                placeholder="10m"
-                className="h-8 text-xs"
-                aria-label={t("workspace.loop.interval", "间隔")}
-              />
+              {draftKind === "event" ? (
+                <Select
+                  value={draftEventName}
+                  onValueChange={(value) => setDraftEventName(value as LoopEventName)}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="workflow:updated">
+                      {t("workspace.loop.eventWorkflow", "Workflow 状态")}
+                    </SelectItem>
+                    <SelectItem value="goal:updated">
+                      {t("workspace.loop.eventGoal", "Goal 状态")}
+                    </SelectItem>
+                    <SelectItem value="task_updated">
+                      {t("workspace.loop.eventTask", "Task 状态")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={draftInterval}
+                  onChange={(e) => setDraftInterval(e.target.value)}
+                  placeholder="10m"
+                  className="h-8 text-xs"
+                  aria-label={t("workspace.loop.interval", "间隔")}
+                />
+              )}
               <Input
                 value={draftMaxRuns}
                 onChange={(e) => setDraftMaxRuns(e.target.value)}
@@ -13447,6 +13537,29 @@ function LoopSchedulesSection({
                 className="h-8 text-xs"
                 aria-label={t("workspace.loop.condition", "停止条件")}
               />
+            ) : null}
+            {draftKind === "event" ? (
+              <div className="grid grid-cols-2 gap-2">
+                <Select value={draftEventState} onValueChange={setDraftEventState}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {loopEventStateOptions(draftEventName).map((state) => (
+                      <SelectItem key={state} value={state}>
+                        {state}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  value={draftEventDebounce}
+                  onChange={(e) => setDraftEventDebounce(e.target.value)}
+                  placeholder={t("workspace.loop.eventDebouncePlaceholder", "debounce")}
+                  className="h-8 text-xs"
+                  aria-label={t("workspace.loop.eventDebounce", "事件去重窗口")}
+                />
+              </div>
             ) : null}
             <Textarea
               value={draftPrompt}
@@ -13669,7 +13782,7 @@ function LoopSchedulesSection({
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {!isLoopTerminal(loop.state) ? (
+                    {loop.state === "active" ? (
                       <IconTip label={t("workspace.loop.runNow", "立即运行")}>
                         <Button
                           variant="ghost"

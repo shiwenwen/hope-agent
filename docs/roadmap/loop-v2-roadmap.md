@@ -30,7 +30,7 @@ v1 Loop 已具备：
 - Workspace inline Loop 区块。
 - Loop run trace 和 WorkflowRun 派生索引。
 
-Loop v2 已完成从“能触发”到“可靠、不过度、可解释、可停止”的核心升级；后续继续增强 event trigger、外部系统触发和更复杂的模板化 loop 图。
+Loop v2 已完成从“能触发”到“可靠、不过度、可解释、可停止”的核心升级；后续继续增强外部系统触发和更复杂的模板化 loop 图。
 
 ## 当前落地摘要（2026-07-06）
 
@@ -42,11 +42,12 @@ Loop v2 已完成从“能触发”到“可靠、不过度、可解释、可停
 - Backoff / blocked：连续 `no_progress` 或 `failed` 会按 `backoff_secs` 降频，达到 `max_no_progress_runs` / `max_failures` 后 blocked 并暂停 Cron。
 - Policy edit / run-now：owner API 和 GUI 支持 `run_loop_schedule_now`、`update_loop_schedule_policy`，并同步 Cron job 的 `max_failures` / `job_timeout_secs`。
 - Workflow strategy 可观察性：Loop row 聚合 `origin=loop:<id>` 的 Workflow run，Loop run history 显示 `workflowRunId` / template version，GUI 可跳转 Workflow detail。
-- 验证：`cargo test -p ha-core loop_control --locked` 中 18 个相关测试通过；WorkspacePanel Loop Vitest 覆盖 view-more、run-now、policy edit、history。
+- Event-triggered Loop：内部 EventBus 白名单事件 `workflow:updated` / `goal:updated` / `task_updated` 已接入；支持 state/status filter、debounce 去重、durable event tick、`eventContext` trace 和 GUI 创建。
+- 验证：`cargo test -p ha-core loop_control --locked` 中 Loop 相关测试覆盖 progress guard、criteria guard、policy edit、event enqueue/dedup/context；WorkspacePanel Loop Vitest 覆盖 view-more、run-now、policy edit、history、event create。
 
 后续池：
 
-- Event-triggered Loop 仍未开放；`trigger_kind=event` 保留但创建时拒绝，等待内部 EventBus adapter / 去重 / debounce。
+- 外部事件源仍未开放；webhook / file watcher / CI provider / connector object stream 等需要独立治理事件风暴、鉴权、幂等和可见来源。
 - `until --workflow` 仍未开放；等待 Workflow terminal event 能可靠反写 condition result。
 - `cost_budget_micros` 仍保守拒绝；等待 provider cost ledger。
 
@@ -219,7 +220,7 @@ v1 condition 依赖 assistant marker。v2 增强：
 
 ### 8.3 Event-triggered Loop
 
-新增后续能力：
+新增能力：
 
 - workflow terminal event。
 - task state changed。
@@ -227,13 +228,13 @@ v1 condition 依赖 assistant marker。v2 增强：
 - connector object changed。
 - knowledge note changed。
 
-第一版 event trigger 不追求所有外部系统；先做内部 EventBus 事件：
+第一版 event trigger 已先做内部 EventBus 事件：
 
 - workflow completed/failed/blocked。
 - goal updated/completed/blocked。
-- task completed/blocked。
+- task pending/in_progress/completed。
 
-外部事件进入后续池。
+外部事件仍进入后续池。
 
 ## 9. Goal / Workflow 集成
 
@@ -315,21 +316,27 @@ Loop run 产生或更新 Task 时：
 - blocked reason 可见且可恢复。
 - Progress 判定有 deterministic tests，不只靠 LLM 文本。
 
-### L2.4 Trigger v2（后续池）
+### L2.4 Trigger v2（内部事件已完成，外部事件后续池）
 
 目标：把持续推进从纯时间触发扩展到内部事件触发。
 
-工作项：
+已落地：
 
 - internal EventBus trigger adapter。
 - 支持 workflow terminal、goal state、task state 三类事件。
 - Event trigger 与 Cron interval 共用 Loop store / run detail。
 - 去重与 debounce，避免事件风暴。
+- 事件 payload 先写 durable tick，再进入 run trace 和模型 `<event_context>`；运行中到来的事件不会丢失，会在当前 run 后继续排队消费。
+
+后续：
+
+- 外部 webhook / file watcher / CI provider / connector object stream。
+- 外部事件的来源鉴权、重放、幂等和用户可见审计。
 
 验收：
 
 - workflow failed 可触发 follow-up Loop。
-- task blocked 可触发 reminder / workflow。
+- task completed 可触发 follow-up / reminder；pending/in_progress 可作为轮询或看板状态变化触发。
 - 同一事件不会重复创建多个 run。
 
 ### L2.5 Workflow Strategy 可观察性（已完成核心）

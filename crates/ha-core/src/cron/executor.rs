@@ -898,6 +898,7 @@ async fn execute_session_loop_payload(
                 admission.goal_criterion_text.as_deref(),
                 admission.trigger_kind,
                 &admission.trigger_spec,
+                admission.event_context.as_ref(),
                 prompt,
             );
 
@@ -995,6 +996,11 @@ async fn execute_session_loop_payload(
     if action.pause_cron_job {
         let _ = cron_db.toggle_job(&job.id, false);
     }
+    let drain_next_event = admission.trigger_kind == crate::loop_control::LoopTriggerKind::Event
+        && !action.pause_cron_job
+        && session_db
+            .loop_has_pending_event_ticks(&admission.loop_id)
+            .unwrap_or(false);
 
     emit_cron_event(
         &job.id,
@@ -1007,6 +1013,10 @@ async fn execute_session_loop_payload(
         job.notify_on_complete,
         error.as_ref().map(|_| "loop_execution"),
     );
+
+    if drain_next_event {
+        Box::pin(execute_job_public(cron_db, session_db, job)).await;
+    }
 }
 
 /// §9 (C4) / §10: the terminal disposition of a cron run.

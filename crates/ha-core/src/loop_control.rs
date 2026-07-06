@@ -10,13 +10,18 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::broadcast::error::RecvError;
 
 use crate::cron::{CronDB, CronPayload, CronSchedule, NewCronJob};
+use crate::event_bus::AppEvent;
 use crate::goal::GoalState;
 use crate::session::{MessageRole, SessionDB};
 
 const LOOP_TRACE_MAX_BYTES: usize = 64 * 1024;
 const DEFAULT_UNTIL_INTERVAL_SECS: i64 = 300;
+const EVENT_LOOP_IDLE_INTERVAL_SECS: u64 = 366 * 24 * 60 * 60;
+const DEFAULT_EVENT_DEBOUNCE_SECS: i64 = 30;
+const MAX_EVENT_DEBOUNCE_SECS: i64 = 3600;
 const DEFAULT_LOOP_MAX_NO_PROGRESS_RUNS: i64 = 3;
 const DEFAULT_LOOP_MAX_FAILURES: i64 = 3;
 const DEFAULT_LOOP_BACKOFF_SECS: i64 = 300;
@@ -369,6 +374,7 @@ pub struct LoopRunAdmission {
     pub prompt: String,
     pub trigger_kind: LoopTriggerKind,
     pub trigger_spec: Value,
+    pub event_context: Option<Value>,
     pub execution_strategy: LoopExecutionStrategy,
     pub agent_id: String,
     pub goal_id: Option<String>,
@@ -423,6 +429,12 @@ struct GoalEvidenceDelta {
     total_count: usize,
     strong_count: usize,
     items: Vec<Value>,
+}
+
+#[derive(Debug, Clone)]
+struct LoopEventMatch {
+    fingerprint: String,
+    context: Value,
 }
 
 pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
@@ -484,6 +496,20 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS loop_event_ticks (
+            id TEXT PRIMARY KEY,
+            loop_id TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            event_fingerprint TEXT NOT NULL,
+            event_payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            consumed_at TEXT,
+            loop_run_id TEXT,
+            FOREIGN KEY (loop_id) REFERENCES loop_schedules(id) ON DELETE CASCADE,
+            FOREIGN KEY (loop_run_id) REFERENCES loop_runs(id) ON DELETE SET NULL,
+            UNIQUE(loop_id, event_fingerprint)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_loop_schedules_session_updated
             ON loop_schedules(session_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_loop_schedules_state
@@ -493,7 +519,9 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_loop_runs_loop_seq
             ON loop_runs(loop_id, seq DESC);
         CREATE INDEX IF NOT EXISTS idx_loop_runs_cron
-            ON loop_runs(cron_job_id, started_at DESC);",
+            ON loop_runs(cron_job_id, started_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_loop_event_ticks_loop_pending
+            ON loop_event_ticks(loop_id, consumed_at, created_at);",
     )?;
     ensure_loop_column(
         conn,
@@ -635,7 +663,7 @@ impl SessionDB {
         if input.execution_strategy == LoopExecutionStrategy::Workflow {
             if input.trigger_kind != LoopTriggerKind::Interval {
                 return Err(anyhow!(
-                    "loop workflow execution currently supports interval triggers only; condition loops still require conversation continuation"
+                    "loop workflow execution currently supports interval triggers only; condition and event loops still require conversation continuation"
                 ));
             }
             let goal_id = goal_id
@@ -701,6 +729,12 @@ impl SessionDB {
             permission_mode_override: None,
             sandbox_mode_override: None,
         })?;
+        if input.trigger_kind == LoopTriggerKind::Event {
+            if let Err(err) = cron_db.toggle_job(&cron_job.id, false) {
+                let _ = cron_db.delete_job(&cron_job.id);
+                return Err(err);
+            }
+        }
 
         let insert_result = {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
@@ -858,6 +892,48 @@ impl SessionDB {
         collect_rows(rows)
     }
 
+    pub fn enqueue_loop_event_triggers(&self, event: &AppEvent) -> Result<Vec<String>> {
+        if !is_loop_trigger_event_name(&event.name) {
+            return Ok(Vec::new());
+        }
+        let Some(session_id) = loop_event_session_id(event) else {
+            return Ok(Vec::new());
+        };
+        let schedules = self.list_active_event_loop_schedules_for_session(session_id)?;
+        let now = Utc::now();
+        let mut cron_job_ids = Vec::new();
+        for schedule in schedules {
+            let Some(event_match) = loop_event_matches_schedule(&schedule, event, &now)? else {
+                continue;
+            };
+            if self.insert_loop_event_tick(
+                &schedule.id,
+                &event.name,
+                &event_match.fingerprint,
+                &event_match.context,
+                &now.to_rfc3339(),
+            )? {
+                cron_job_ids.push(schedule.cron_job_id);
+            }
+        }
+        Ok(cron_job_ids)
+    }
+
+    pub fn loop_has_pending_event_ticks(&self, loop_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let exists: Option<i64> = conn
+            .query_row(
+                "SELECT 1 FROM loop_event_ticks
+                 WHERE loop_id = ?1 AND consumed_at IS NULL
+                 ORDER BY created_at ASC
+                 LIMIT 1",
+                params![loop_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(exists.is_some())
+    }
+
     pub fn pause_loop_schedule(&self, cron_db: &CronDB, loop_id: &str) -> Result<LoopSchedule> {
         let mut schedule = self.transition_loop_schedule(loop_id, LoopState::Paused, None)?;
         cron_db.toggle_job(&schedule.cron_job_id, false)?;
@@ -877,7 +953,10 @@ impl SessionDB {
             ));
         }
         let mut schedule = self.transition_loop_schedule(loop_id, LoopState::Active, None)?;
-        cron_db.toggle_job(&schedule.cron_job_id, true)?;
+        cron_db.toggle_job(
+            &schedule.cron_job_id,
+            schedule.trigger_kind != LoopTriggerKind::Event,
+        )?;
         hydrate_loop_schedule_from_cron(cron_db, &mut schedule)?;
         Ok(schedule)
     }
@@ -1095,7 +1174,7 @@ impl SessionDB {
 
         let run_id = format!("lrun_{}", uuid::Uuid::new_v4().simple());
         let seq = schedule.run_count + 1;
-        let trigger_reason = format!(
+        let mut trigger_reason = format!(
             "{} trigger from cron job {}",
             schedule.trigger_kind.as_str(),
             cron_job_id
@@ -1103,6 +1182,7 @@ impl SessionDB {
         let trace = json!({
             "triggerKind": schedule.trigger_kind,
             "triggerSpec": schedule.trigger_spec,
+            "eventContext": null,
             "executionStrategy": schedule.execution_strategy,
             "cronJobId": cron_job_id,
             "seq": seq,
@@ -1128,6 +1208,21 @@ impl SessionDB {
                 ],
             )?;
         }
+        let event_context = if schedule.trigger_kind == LoopTriggerKind::Event {
+            self.claim_next_loop_event_tick(&schedule.id, &run_id)?
+        } else {
+            None
+        };
+        if let Some(context) = event_context.as_ref() {
+            if let Some(event_name) = context.get("eventName").and_then(Value::as_str) {
+                trigger_reason = format!("event trigger {event_name} from cron job {cron_job_id}");
+            }
+            self.patch_loop_run_trace(
+                &run_id,
+                json!({ "eventContext": context }),
+                Some(&trigger_reason),
+            )?;
+        }
         Ok(LoopRunDecision::Admit(LoopRunAdmission {
             loop_id: schedule.id,
             run_id,
@@ -1135,6 +1230,7 @@ impl SessionDB {
             prompt: schedule.prompt,
             trigger_kind: schedule.trigger_kind,
             trigger_spec: schedule.trigger_spec,
+            event_context,
             execution_strategy: schedule.execution_strategy,
             agent_id: self
                 .get_session(session_id)?
@@ -1561,6 +1657,95 @@ impl SessionDB {
             .optional()?)
     }
 
+    fn list_active_event_loop_schedules_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<LoopSchedule>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, goal_id, goal_criterion_id, goal_criterion_text,
+                    goal_criterion_kind, goal_revision, cron_job_id, prompt, trigger_kind, trigger_spec_json,
+                    execution_strategy, state, max_runs, run_count, max_runtime_secs, token_budget, cost_budget_micros,
+                    progress_state, progress_summary, no_progress_streak, failure_streak,
+                    max_no_progress_runs, max_failures, backoff_secs,
+                    approval_policy_snapshot_json, created_at, updated_at, completed_at, blocked_reason
+             FROM loop_schedules
+             WHERE session_id = ?1 AND trigger_kind = 'event' AND state = 'active'
+             ORDER BY updated_at ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], row_to_loop_schedule)?;
+        collect_rows(rows)
+    }
+
+    fn insert_loop_event_tick(
+        &self,
+        loop_id: &str,
+        event_name: &str,
+        event_fingerprint: &str,
+        event_context: &Value,
+        created_at: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let rows = conn.execute(
+            "INSERT OR IGNORE INTO loop_event_ticks (
+                id, loop_id, event_name, event_fingerprint, event_payload_json, created_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                format!("letick_{}", uuid::Uuid::new_v4().simple()),
+                loop_id,
+                event_name,
+                event_fingerprint,
+                bounded_json(event_context)?,
+                created_at,
+            ],
+        )?;
+        Ok(rows > 0)
+    }
+
+    fn claim_next_loop_event_tick(
+        &self,
+        loop_id: &str,
+        loop_run_id: &str,
+    ) -> Result<Option<Value>> {
+        let now = now_rfc3339();
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let tick = conn
+            .query_row(
+                "SELECT id, event_name, event_fingerprint, event_payload_json, created_at
+                 FROM loop_event_ticks
+                 WHERE loop_id = ?1 AND consumed_at IS NULL
+                 ORDER BY created_at ASC
+                 LIMIT 1",
+                params![loop_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((id, event_name, event_fingerprint, payload_json, created_at)) = tick else {
+            return Ok(None);
+        };
+        conn.execute(
+            "UPDATE loop_event_ticks
+             SET consumed_at = ?2, loop_run_id = ?3
+             WHERE id = ?1 AND consumed_at IS NULL",
+            params![id, now, loop_run_id],
+        )?;
+        let payload: Value = serde_json::from_str(&payload_json).unwrap_or_else(|_| json!({}));
+        Ok(Some(json!({
+            "eventName": event_name,
+            "eventFingerprint": event_fingerprint,
+            "createdAt": created_at,
+            "payload": payload,
+        })))
+    }
+
     fn transition_loop_schedule(
         &self,
         loop_id: &str,
@@ -1770,6 +1955,41 @@ impl SessionDB {
         conn.execute(
             "UPDATE loop_runs SET scheduling_decision = ?2 WHERE id = ?1",
             params![run_id, scheduling_decision],
+        )?;
+        Ok(())
+    }
+
+    fn patch_loop_run_trace(
+        &self,
+        run_id: &str,
+        trace_patch: Value,
+        trigger_reason: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let existing_trace: Option<String> = conn
+            .query_row(
+                "SELECT trace_json FROM loop_runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let mut trace = existing_trace
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .unwrap_or_else(|| json!({}));
+        if let (Some(base), Some(patch)) = (trace.as_object_mut(), trace_patch.as_object()) {
+            for (key, value) in patch {
+                base.insert(key.clone(), value.clone());
+            }
+        } else {
+            trace = trace_patch;
+        }
+        conn.execute(
+            "UPDATE loop_runs
+             SET trigger_reason = COALESCE(?2, trigger_reason),
+                 trace_json = ?3
+             WHERE id = ?1",
+            params![run_id, trigger_reason, bounded_json(&trace)?],
         )?;
         Ok(())
     }
@@ -2070,9 +2290,10 @@ fn cron_schedule_from_loop(input: &CreateLoopScheduleInput) -> Result<CronSchedu
                 timezone,
             })
         }
-        LoopTriggerKind::Event => Err(anyhow!(
-            "event-triggered loops are reserved for a future event bus integration"
-        )),
+        LoopTriggerKind::Event => Ok(CronSchedule::Every {
+            interval_ms: EVENT_LOOP_IDLE_INTERVAL_SECS.saturating_mul(1000),
+            start_at: None,
+        }),
     }
 }
 
@@ -2102,7 +2323,36 @@ fn normalized_trigger_spec(kind: LoopTriggerKind, spec: &Value) -> Result<Value>
             }
             Ok(json!({ "intervalSecs": secs, "condition": condition }))
         }
-        LoopTriggerKind::Cron | LoopTriggerKind::Event => Ok(spec.clone()),
+        LoopTriggerKind::Event => {
+            let event_name = spec
+                .get("eventName")
+                .or_else(|| spec.get("event_name"))
+                .or_else(|| spec.get("event"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| anyhow!("event loop requires triggerSpec.eventName"))?;
+            if !is_supported_loop_event_name(event_name) {
+                return Err(anyhow!("unsupported loop event trigger: {event_name}"));
+            }
+            let filters = spec.get("filters").cloned().unwrap_or_else(|| json!({}));
+            if !filters.is_object() {
+                return Err(anyhow!("event loop triggerSpec.filters must be an object"));
+            }
+            validate_loop_event_filters(event_name, &filters)?;
+            let debounce_secs = spec
+                .get("debounceSecs")
+                .or_else(|| spec.get("debounce_secs"))
+                .and_then(Value::as_i64)
+                .unwrap_or(DEFAULT_EVENT_DEBOUNCE_SECS)
+                .clamp(1, MAX_EVENT_DEBOUNCE_SECS);
+            Ok(json!({
+                "eventName": event_name,
+                "filters": filters,
+                "debounceSecs": debounce_secs,
+            }))
+        }
+        LoopTriggerKind::Cron => Ok(spec.clone()),
     }
 }
 
@@ -2214,8 +2464,15 @@ fn loop_backoff_delay(base: Option<i64>, streak: i64) -> Option<i64> {
 
 fn hydrate_loop_schedule_from_cron(cron_db: &CronDB, schedule: &mut LoopSchedule) -> Result<()> {
     if let Some(job) = cron_db.get_job(&schedule.cron_job_id)? {
-        schedule.next_run_at = job.next_run_at;
+        schedule.next_run_at = if schedule.trigger_kind == LoopTriggerKind::Event {
+            None
+        } else {
+            job.next_run_at
+        };
         schedule.cron_status = Some(job.status.as_str().to_string());
+        if schedule.trigger_kind == LoopTriggerKind::Event && schedule.state == LoopState::Active {
+            schedule.cron_status = Some("event".to_string());
+        }
     }
     Ok(())
 }
@@ -2252,6 +2509,172 @@ fn json_string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
         .filter(|value| !value.is_empty())
 }
 
+fn is_supported_loop_event_name(event_name: &str) -> bool {
+    matches!(
+        event_name,
+        "workflow:updated" | "goal:updated" | "task_updated"
+    )
+}
+
+fn is_loop_trigger_event_name(event_name: &str) -> bool {
+    is_supported_loop_event_name(event_name)
+}
+
+fn validate_loop_event_filters(event_name: &str, filters: &Value) -> Result<()> {
+    let allowed = match event_name {
+        "workflow:updated" => &["workflowState"][..],
+        "goal:updated" => &["goalState"][..],
+        "task_updated" => &["taskStatus"][..],
+        _ => return Err(anyhow!("unsupported loop event trigger: {event_name}")),
+    };
+    let Some(object) = filters.as_object() else {
+        return Err(anyhow!("event loop triggerSpec.filters must be an object"));
+    };
+    for (key, value) in object {
+        if !allowed.contains(&key.as_str()) {
+            return Err(anyhow!(
+                "unsupported filter {key} for event loop trigger {event_name}"
+            ));
+        }
+        if !value.is_string() {
+            return Err(anyhow!("event loop filter {key} must be a string"));
+        }
+    }
+    Ok(())
+}
+
+fn loop_event_session_id(event: &AppEvent) -> Option<&str> {
+    event
+        .payload
+        .get("sessionId")
+        .or_else(|| event.payload.get("session_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn loop_event_matches_schedule(
+    schedule: &LoopSchedule,
+    event: &AppEvent,
+    now: &DateTime<Utc>,
+) -> Result<Option<LoopEventMatch>> {
+    let event_name = json_string(&schedule.trigger_spec, "eventName")
+        .or_else(|| json_string(&schedule.trigger_spec, "event_name"))
+        .or_else(|| json_string(&schedule.trigger_spec, "event"));
+    if event_name != Some(event.name.as_str()) {
+        return Ok(None);
+    }
+    let filters = schedule
+        .trigger_spec
+        .get("filters")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    validate_loop_event_filters(&event.name, &filters)?;
+    let Some(session_id) = loop_event_session_id(event) else {
+        return Ok(None);
+    };
+    if session_id != schedule.session_id {
+        return Ok(None);
+    }
+    let identity = match event.name.as_str() {
+        "workflow:updated" => {
+            let state = json_string(&event.payload, "state").unwrap_or("");
+            if !loop_filter_matches(&filters, "workflowState", state) {
+                return Ok(None);
+            }
+            json!({
+                "id": json_string(&event.payload, "id"),
+                "state": state,
+                "kind": json_string(&event.payload, "kind"),
+                "goalId": json_string(&event.payload, "goalId"),
+            })
+        }
+        "goal:updated" => {
+            let state = json_string(&event.payload, "state").unwrap_or("");
+            if !loop_filter_matches(&filters, "goalState", state) {
+                return Ok(None);
+            }
+            json!({
+                "id": json_string(&event.payload, "id"),
+                "state": state,
+                "revision": event.payload.get("revision").and_then(Value::as_i64),
+            })
+        }
+        "task_updated" => {
+            let task_status = filters
+                .get("taskStatus")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            let tasks = event
+                .payload
+                .get("tasks")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let matching: Vec<Value> = tasks
+                .into_iter()
+                .filter(|task| {
+                    let status = json_string(task, "status").unwrap_or("");
+                    task_status
+                        .map(|expected| expected == status)
+                        .unwrap_or(true)
+                })
+                .map(|task| {
+                    json!({
+                        "id": task.get("id").and_then(Value::as_i64),
+                        "status": json_string(&task, "status"),
+                        "content": json_string(&task, "content"),
+                    })
+                })
+                .collect();
+            if matching.is_empty() {
+                return Ok(None);
+            }
+            json!({ "tasks": matching })
+        }
+        _ => return Ok(None),
+    };
+    let debounce_secs = schedule
+        .trigger_spec
+        .get("debounceSecs")
+        .or_else(|| schedule.trigger_spec.get("debounce_secs"))
+        .and_then(Value::as_i64)
+        .unwrap_or(DEFAULT_EVENT_DEBOUNCE_SECS)
+        .clamp(1, MAX_EVENT_DEBOUNCE_SECS);
+    let bucket = now.timestamp().div_euclid(debounce_secs);
+    let fingerprint_input = stable_json(&json!({
+        "loopId": schedule.id,
+        "eventName": event.name,
+        "identity": identity,
+        "bucket": bucket,
+    }))?;
+    let fingerprint = blake3::hash(fingerprint_input.as_bytes())
+        .to_hex()
+        .to_string();
+    Ok(Some(LoopEventMatch {
+        fingerprint,
+        context: json!({
+            "eventName": event.name,
+            "sessionId": session_id,
+            "matched": identity,
+            "filters": filters,
+            "debounceSecs": debounce_secs,
+            "payload": event.payload,
+        }),
+    }))
+}
+
+fn loop_filter_matches(filters: &Value, key: &str, actual: &str) -> bool {
+    filters
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|expected| expected == actual)
+        .unwrap_or(true)
+}
+
 fn non_empty(value: &str) -> Option<&str> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -2264,12 +2687,18 @@ fn non_empty(value: &str) -> Option<&str> {
 fn loop_workflow_user_context(admission: &LoopRunAdmission) -> String {
     let trigger_spec =
         serde_json::to_string(&admission.trigger_spec).unwrap_or_else(|_| "{}".to_string());
+    let event_context = admission
+        .event_context
+        .as_ref()
+        .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()))
+        .unwrap_or_else(|| "none".to_string());
     format!(
-        "Loop trigger context:\n- loop_id: {}\n- loop_run_id: {}\n- trigger_kind: {}\n- trigger_spec: {}\n- recurring_prompt: {}\n",
+        "Loop trigger context:\n- loop_id: {}\n- loop_run_id: {}\n- trigger_kind: {}\n- trigger_spec: {}\n- event_context: {}\n- recurring_prompt: {}\n",
         admission.loop_id,
         admission.run_id,
         admission.trigger_kind.as_str(),
         trigger_spec,
+        event_context,
         admission.prompt
     )
 }
@@ -2328,6 +2757,7 @@ pub fn build_loop_trigger_message(
     goal_criterion_text: Option<&str>,
     trigger_kind: LoopTriggerKind,
     trigger_spec: &Value,
+    event_context: Option<&Value>,
     prompt: &str,
 ) -> String {
     let goal = goal_id
@@ -2367,6 +2797,15 @@ pub fn build_loop_trigger_message(
     } else {
         String::new()
     };
+    let event = event_context
+        .map(|context| {
+            let serialized = serde_json::to_string(context).unwrap_or_else(|_| "{}".to_string());
+            format!(
+                "<event_context>{}</event_context>\n",
+                escape_xml(&serialized)
+            )
+        })
+        .unwrap_or_default();
     format!(
         "<loop_trigger>\n\
          <loop_id>{}</loop_id>\n\
@@ -2374,7 +2813,8 @@ pub fn build_loop_trigger_message(
          {}\
          {}\
          {}\
-         A scheduled loop trigger has fired. Follow the recurring prompt below. \
+         {}\
+         A recurring loop trigger has fired. Follow the recurring prompt below. \
          If the goal or condition is already complete, say so clearly and stop; \
          otherwise make the next useful step, preserve normal permissions, and \
          leave evidence in the conversation.\n\
@@ -2385,6 +2825,7 @@ pub fn build_loop_trigger_message(
         goal,
         goal_criterion,
         condition,
+        event,
         escape_xml(prompt)
     )
 }
@@ -2415,6 +2856,96 @@ fn emit_loop_event(event: &str, schedule: &LoopSchedule) {
             }),
         );
     }
+}
+
+pub fn spawn_loop_event_trigger_watcher() {
+    if !crate::runtime_lock::is_primary() {
+        return;
+    }
+    let Some(bus) = crate::get_event_bus().cloned() else {
+        app_warn!(
+            "loop",
+            "event_trigger",
+            "EventBus not initialized — event-triggered loops disabled"
+        );
+        return;
+    };
+    let Some(session_db) = crate::get_session_db().cloned() else {
+        app_warn!(
+            "loop",
+            "event_trigger",
+            "SessionDB not initialized — event-triggered loops disabled"
+        );
+        return;
+    };
+    let Some(cron_db) = crate::get_cron_db().cloned() else {
+        app_warn!(
+            "loop",
+            "event_trigger",
+            "CronDB not initialized — event-triggered loops disabled"
+        );
+        return;
+    };
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let cron_job_ids = match session_db.enqueue_loop_event_triggers(&event) {
+                        Ok(ids) => ids,
+                        Err(err) => {
+                            app_warn!(
+                                "loop",
+                                "event_trigger",
+                                "Failed to enqueue loop event trigger {}: {}",
+                                event.name,
+                                err
+                            );
+                            continue;
+                        }
+                    };
+                    for cron_job_id in cron_job_ids {
+                        let job = match cron_db.get_job(&cron_job_id) {
+                            Ok(Some(job)) => job,
+                            Ok(None) => {
+                                app_warn!(
+                                    "loop",
+                                    "event_trigger",
+                                    "Loop event trigger references missing cron job {}",
+                                    cron_job_id
+                                );
+                                continue;
+                            }
+                            Err(err) => {
+                                app_warn!(
+                                    "loop",
+                                    "event_trigger",
+                                    "Failed to load loop cron job {}: {}",
+                                    cron_job_id,
+                                    err
+                                );
+                                continue;
+                            }
+                        };
+                        let cron_db = cron_db.clone();
+                        let session_db = session_db.clone();
+                        tokio::spawn(async move {
+                            crate::cron::execute_job_public(&cron_db, &session_db, &job).await;
+                        });
+                    }
+                }
+                Err(RecvError::Lagged(count)) => {
+                    app_warn!(
+                        "loop",
+                        "event_trigger",
+                        "Loop event trigger watcher lagged {} events",
+                        count
+                    );
+                }
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 #[cfg(test)]
@@ -2464,6 +2995,7 @@ mod tests {
             Some("finish <review> & ship"),
             LoopTriggerKind::Interval,
             &json!({ "intervalSecs": 60 }),
+            None,
             "check <CI> & continue",
         );
         assert!(msg.contains("<loop_id>loop&lt;&amp;</loop_id>"));
@@ -2486,11 +3018,33 @@ mod tests {
             None,
             LoopTriggerKind::Condition,
             &json!({ "condition": "CI <green> & deployed" }),
+            None,
             "inspect failures",
         );
         assert!(msg.contains("<condition>CI &lt;green&gt; &amp; deployed</condition>"));
         assert!(msg.contains("LOOP_CONDITION_SATISFIED:"));
         assert!(msg.contains("inspect failures"));
+    }
+
+    #[test]
+    fn event_trigger_message_includes_bounded_event_context() {
+        let msg = build_loop_trigger_message(
+            "loop",
+            "run",
+            None,
+            None,
+            None,
+            LoopTriggerKind::Event,
+            &json!({ "eventName": "workflow:updated" }),
+            Some(&json!({
+                "eventName": "workflow:updated",
+                "payload": { "id": "wf_1", "state": "completed" },
+            })),
+            "summarize workflow outcome",
+        );
+        assert!(msg.contains("<event_context>"));
+        assert!(msg.contains("workflow:updated"));
+        assert!(msg.contains("summarize workflow outcome"));
     }
 
     #[test]
@@ -2513,6 +3067,130 @@ mod tests {
             agent_id: None,
         };
         assert!(cron_schedule_from_loop(&input).is_err());
+    }
+
+    #[test]
+    fn event_loop_enqueue_dedups_and_consumes_event_context() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "summarize completed workflow".into(),
+                    trigger_kind: LoopTriggerKind::Event,
+                    trigger_spec: json!({
+                        "eventName": "workflow:updated",
+                        "filters": { "workflowState": "completed" },
+                        "debounceSecs": 30,
+                    }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("event loop");
+        let cron_job = cron_db
+            .get_job(&schedule.cron_job_id)
+            .expect("cron job")
+            .expect("cron job exists");
+        assert_eq!(cron_job.status.as_str(), "paused");
+
+        let event = AppEvent {
+            name: "workflow:updated".to_string(),
+            payload: json!({
+                "id": "wf_1",
+                "sessionId": session.id,
+                "kind": "analysis",
+                "state": "completed",
+            }),
+        };
+        let first = session_db
+            .enqueue_loop_event_triggers(&event)
+            .expect("enqueue first");
+        let second = session_db
+            .enqueue_loop_event_triggers(&event)
+            .expect("enqueue duplicate");
+        assert_eq!(first, vec![schedule.cron_job_id.clone()]);
+        assert!(second.is_empty());
+
+        let admission = session_db
+            .prepare_loop_cron_run(&schedule.cron_job_id, &schedule.session_id, &now_rfc3339())
+            .expect("prepare");
+        let LoopRunDecision::Admit(admission) = admission else {
+            panic!("event loop should admit");
+        };
+        let event_context = admission.event_context.expect("event context");
+        assert_eq!(event_context["eventName"], json!("workflow:updated"));
+        assert_eq!(
+            event_context["payload"]["matched"]["state"],
+            json!("completed")
+        );
+
+        let runs = session_db.list_loop_runs(&schedule.id, 1).expect("runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            runs[0].trace["eventContext"]["eventName"],
+            json!("workflow:updated")
+        );
+        assert!(!session_db
+            .loop_has_pending_event_ticks(&schedule.id)
+            .expect("pending"));
+    }
+
+    #[test]
+    fn event_loop_filter_mismatch_does_not_enqueue() {
+        let (_dir, session_db, cron_db) = temp_dbs();
+        let session = session_db.create_session("ha-main").expect("session");
+        let schedule = session_db
+            .create_loop_schedule(
+                &cron_db,
+                CreateLoopScheduleInput {
+                    session_id: session.id.clone(),
+                    goal_id: None,
+                    goal_criterion_id: None,
+                    prompt: "handle failed workflow".into(),
+                    trigger_kind: LoopTriggerKind::Event,
+                    trigger_spec: json!({
+                        "eventName": "workflow:updated",
+                        "filters": { "workflowState": "failed" },
+                    }),
+                    execution_strategy: LoopExecutionStrategy::Continue,
+                    max_runs: None,
+                    max_runtime_secs: None,
+                    token_budget: None,
+                    cost_budget_micros: None,
+                    max_no_progress_runs: None,
+                    max_failures: None,
+                    backoff_secs: None,
+                    agent_id: None,
+                },
+            )
+            .expect("event loop");
+        let event = AppEvent {
+            name: "workflow:updated".to_string(),
+            payload: json!({
+                "id": "wf_1",
+                "sessionId": session.id,
+                "state": "completed",
+            }),
+        };
+        let enqueued = session_db
+            .enqueue_loop_event_triggers(&event)
+            .expect("enqueue mismatch");
+        assert!(enqueued.is_empty());
+        assert!(!session_db
+            .loop_has_pending_event_ticks(&schedule.id)
+            .expect("pending"));
     }
 
     #[test]

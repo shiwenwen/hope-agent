@@ -3522,6 +3522,50 @@ describe("WorkspacePanel workflow section", () => {
     })
   })
 
+  it("creates event-triggered loops from the Loop Center", async () => {
+    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
+      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
+      if (name === "list_workflow_runs") return Promise.resolve([])
+      if (name === "list_loop_schedules") return Promise.resolve([])
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      if (name === "create_loop_schedule") return Promise.resolve(args ?? {})
+      return Promise.resolve([])
+    })
+
+    renderPanel({
+      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
+      git: null,
+    })
+
+    fireEvent.click(await screen.findByRole("button", { name: /Loop/ }))
+    fireEvent.click(screen.getByRole("button", { name: "新建" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Event" }))
+    fireEvent.click(screen.getByRole("button", { name: "创建 Loop" }))
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("create_loop_schedule", {
+        sessionId: "s1",
+        prompt: "",
+        triggerKind: "event",
+        triggerSpec: {
+          eventName: "workflow:updated",
+          filters: { workflowState: "completed" },
+          debounceSecs: 30,
+        },
+        executionStrategy: "continue",
+        goalId: "goal-auto",
+        goalCriterionId: undefined,
+        maxRuns: null,
+        maxRuntimeSecs: null,
+        tokenBudget: null,
+        maxNoProgressRuns: 3,
+        maxFailures: 3,
+        backoffSecs: 300,
+      })
+    })
+  })
+
   it("shows an actionable workflow empty state before any workflow run exists", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "list_workflow_runs") return Promise.resolve([])

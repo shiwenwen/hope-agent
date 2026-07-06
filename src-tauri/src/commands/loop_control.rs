@@ -1,7 +1,7 @@
 use crate::commands::CmdError;
 use ha_core::loop_control::{
-    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopSnapshot, LoopTriggerKind,
-    UpdateLoopSchedulePolicyInput,
+    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopSnapshot, LoopState,
+    LoopTriggerKind, UpdateLoopSchedulePolicyInput,
 };
 use serde_json::Value;
 
@@ -128,6 +128,13 @@ pub async fn run_loop_schedule_now(
     if schedule.state.is_terminal() {
         return Err(CmdError::msg(format!(
             "loop schedule {} is {}",
+            schedule.id,
+            schedule.state.as_str()
+        )));
+    }
+    if schedule.state != LoopState::Active {
+        return Err(CmdError::msg(format!(
+            "loop schedule {} must be active before run-now; current state is {}",
             schedule.id,
             schedule.state.as_str()
         )));

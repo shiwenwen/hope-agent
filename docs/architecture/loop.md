@@ -87,6 +87,16 @@ loop_runs
   scheduling_decision
   trace_json
   started_at / finished_at
+
+loop_event_ticks
+  id
+  loop_id
+  event_name
+  event_fingerprint
+  event_payload_json
+  created_at
+  consumed_at?
+  loop_run_id?
 ```
 
 `execution_strategy`：
@@ -103,6 +113,14 @@ Criteria 绑定：
 - Cron 注入的 `<loop_trigger>` 会包含 `<goal_criterion_id>` 与 `<goal_criterion_text>`，让模型在继续会话模式下也知道本轮优先推进哪条标准。
 
 Cron job 的 `CronPayload::SessionLoop` 保存 `loop_id`、原会话 `session_id`、prompt、agent、goal。真实执行策略以 `loop_schedules.execution_strategy` 为准，普通 Cron `AgentTurn` 路径不变。
+
+Event trigger：
+
+- `trigger_kind=event` 支持内部 EventBus 事件：`workflow:updated`、`goal:updated`、`task_updated`。
+- `trigger_spec_json` 规范形态为 `{ eventName, filters, debounceSecs }`。`workflow:updated` 支持 `filters.workflowState`，`goal:updated` 支持 `filters.goalState`，`task_updated` 支持 `filters.taskStatus`。
+- Event Loop 创建时仍复用一个 `CronPayload::SessionLoop` job，但底层 Cron job 保持 `paused`；事件 watcher 在 primary 进程订阅 EventBus，匹配后写 `loop_event_ticks` 并走 Cron `execute_job_public` immediate path。这样事件触发与 run-now、权限、预算、run history、primary-only 语义完全一致。
+- `loop_event_ticks` 的 `event_fingerprint` 由 loop id、event name、匹配身份和 debounce 时间桶生成，用于同一事件风暴去重。若事件到来时 Loop 正在运行，tick 会留在 durable 队列；当前 run 结束后还有 pending tick 时会自动再排一次 immediate run，避免吞事件。
+- `prepare_loop_cron_run` 消费最早 pending tick，把 `eventContext` 写入 `loop_runs.trace_json` 并注入 `<event_context>` 给模型。手动 run-now 触发 event loop 时允许没有 event context。
 
 ## 执行链
 
@@ -151,6 +169,7 @@ sequenceDiagram
 - run 结束后会计算 deterministic Progress Guard：优先读取 Goal durable evidence delta（workflow completed、validation passed、file changed、artifact created、source cited、domain quality passed 等 strong evidence），再看 Workflow trace / run state；不会把“Loop 跑了一次”本身当成进展。
 - `progressed` / `weak_progress` 会清空 no-progress / failure streak；`no_progress` 连续累计后先 backoff，达到 `max_no_progress_runs` 后 blocked；`failed` 连续累计后按 `max_failures` backoff / blocked；`blocked` 立即暂停。
 - backoff 通过 CronDB 的窄接口只推迟 active job 的 `next_run_at`，不改变原始 schedule，不复活 paused / terminal job。
+- Event Loop 不参与 Cron 时间轮；GUI 显示为“等待事件”。连续无进展 / 失败仍会累计 streak，达到上限后 blocked 并停止响应后续事件。
 
 ## Goal / Workflow / Mode 边界
 
@@ -181,13 +200,13 @@ Owner API：
 | `run_loop_schedule_now` | `POST /api/loops/{loopId}/run-now` |
 | `update_loop_schedule_policy` | `PATCH /api/loops/{loopId}/policy` |
 
-`create_loop_schedule` 额外接受 `executionStrategy?: "continue" | "workflow"`；省略时为 `continue`。Loop v2 还接受 `maxNoProgressRuns`、`maxFailures`、`backoffSecs`；省略时分别为 3 / 3 / 300s。`list_loop_schedules` 与 `get_loop_schedule` 会从 Cron job 派生 `nextRunAt` / `cronStatus`，前端不自行猜算下一次运行。
+`create_loop_schedule` 额外接受 `executionStrategy?: "continue" | "workflow"`；省略时为 `continue`。Loop v2 还接受 `maxNoProgressRuns`、`maxFailures`、`backoffSecs`；省略时分别为 3 / 3 / 300s。`triggerKind=event` 时 `triggerSpec` 必须包含 `eventName`，可选 `filters` 与 `debounceSecs`。`list_loop_schedules` 与 `get_loop_schedule` 会从 Cron job 派生 `nextRunAt` / `cronStatus`；Event Loop 的 `nextRunAt` 返回空，`cronStatus=event` 表示正在监听内部事件。
 
-`run_loop_schedule_now` 复用 Cron 的 `execute_job_public` / primary-only / immediate claim 路径，属于一次性手动触发，不改写 recurring schedule。`update_loop_schedule_policy` 更新 max runs、runtime、token budget、no-progress/failure/backoff 策略，并同步底层 Cron job 的 `max_failures` 与 `job_timeout_secs`；编辑 blocked Loop 的策略会清空当前 no-progress / failure streak，便于用户恢复。
+`run_loop_schedule_now` 复用 Cron 的 `execute_job_public` / primary-only / immediate claim 路径，属于 active Loop 的一次性手动触发，不改写 recurring schedule，也不绕过 paused / blocked 状态；需要先 resume。`update_loop_schedule_policy` 更新 max runs、runtime、token budget、no-progress/failure/backoff 策略，并同步底层 Cron job 的 `max_failures` 与 `job_timeout_secs`；编辑 blocked Loop 的策略会清空当前 no-progress / failure streak，便于用户恢复。
 
 Slash：`/loop every <duration> --workflow: <prompt>` 与 `/loop every <duration> --strategy workflow: <prompt>` 会创建 `executionStrategy=workflow` 的 interval loop；`/loop until ... --workflow` 当前会被拒绝，直到 Workflow terminal event 能反写 condition result。`/loop status` 会展示每个 schedule 的 strategy；`/loop status <id>` 的 Recent runs 会从 `loop_runs.trace_json` 展示派生 workflow run id、template version 和结果摘要。
 
-GUI：Workspace 面板中的 Loop Center 支持创建 `every` / `until` loop，填写 interval、condition、prompt、max runs、max runtime、token budget、no-progress 上限、failure 上限和 backoff 间隔；创建 `every` loop 且当前 active Goal 已选择领域模板时，用户可把执行方式从“继续会话”切到“创建工作流”。
+GUI：Workspace 面板中的 Loop Center 支持创建 `every` / `until` / `event` loop，填写 interval、condition、event name、event state filter、debounce window、prompt、max runs、max runtime、token budget、no-progress 上限、failure 上限和 backoff 间隔；创建 `every` loop 且当前 active Goal 已选择领域模板时，用户可把执行方式从“继续会话”切到“创建工作流”。
 
 Loop Center 按 blocked / active / paused / completed / cancelled 排序分组，超过 5 个时提供“查看更多 Loop”，不依赖 `/loop status` 完成管理。每行显示状态、progress state、strategy、bound criteria、trigger spec、prompt、run count、next run、runtime / token budget、guard streak、progress summary、blocked reason，并提供 run now / edit policy / history / pause / resume / stop。edit policy 内联编辑 max runs、runtime、token、no-progress、failure、backoff；run now 走 Cron primary-only immediate path。每个 Loop 行可展开“运行记录”，通过 `get_loop_schedule` 拉取最近 `loop_runs`，显示 run seq、state、progress state、调度决策、no-progress reason、错误/摘要、派生 `workflowRunId` 与 template version。
 
@@ -214,12 +233,13 @@ Loop v2 当前已把 Loop 从“能触发”升级为可靠、可治理、可解
 - Goal completed 会让绑定 Loop completed；Goal failed/cancelled/paused、Goal criteria 删除或 revision/text/kind 变更会让 Loop blocked，要求用户重新确认或编辑策略。
 - `run_loop_schedule_now` 复用 Cron immediate path；`update_loop_schedule_policy` 同步 Loop store 与 Cron guard，避免双状态分叉。
 - Workflow strategy 的 Loop run 记录 `workflowRunId` / template version，GUI 可从 Loop 跳到 Workflow detail；Workflow run `origin=loop:<id>` 可反向聚合到 Loop 行。
+- Event-triggered Loop 已支持内部 EventBus：workflow state、goal state、task status 变化可触发 Loop；事件 payload 会进入 durable tick、run trace 和 `<event_context>`。
 
 仍保持的保守边界：
 
 - Loop 仍只表示持续触发器，不重新承载执行强度；执行强度继续归 `/mode` / Execution Mode，具体执行继续归 Workflow。
 - Slash `/loop` 仍保持简单；v2 guard 策略主要在 GUI / owner API 暴露，slash 不解析 criteria id / policy edit。
-- Event-triggered Loop 仍是后续池。当前 `trigger_kind=event` 是数据模型预留，但创建时仍拒绝；先不接外部 webhook / file watcher / CI provider / connector object stream，避免引入未治理的事件风暴。
+- 外部 webhook / file watcher / CI provider / connector object stream 仍是后续池；当前 Event Loop 只接内部 EventBus 白名单，避免引入未治理的事件风暴。
 - Condition workflow 仍等待 Workflow terminal event 能反写 condition result 后再放开；当前 `until` loop 继续依赖 conversation continuation + assistant marker，不能伪装成 workflow 完成。
 - 成本预算精确统计仍等待 provider cost ledger；在此之前 `cost_budget_micros` 继续保持保守拒绝，避免给用户错误安全感。
 
@@ -234,4 +254,6 @@ Loop v2 当前已把 Loop 从“能触发”升级为可靠、可治理、可解
 - `goal_completed_stops_bound_loop_before_next_trigger` 覆盖绑定 Goal completed 后 Loop 自动 completed。
 - `criteria_revision_change_blocks_loop_until_rebind` 覆盖 Goal criteria 修改后 Loop blocked。
 - `loop_policy_update_persists_budget_and_cron_guard` 覆盖策略编辑会同时更新 Loop store 与 Cron job。
-- `WorkspacePanel` Loop 相关 Vitest 覆盖 derived workflow 行、run history、Loop Center view-more、run-now 和 policy edit。
+- `event_loop_enqueue_dedups_and_consumes_event_context` 覆盖 EventBus 事件入队、debounce 去重、tick 消费和 `eventContext` trace。
+- `event_loop_filter_mismatch_does_not_enqueue` 覆盖事件状态过滤不会误触发。
+- `WorkspacePanel` Loop 相关 Vitest 覆盖 derived workflow 行、run history、Loop Center view-more、run-now、policy edit 和 event loop 创建。

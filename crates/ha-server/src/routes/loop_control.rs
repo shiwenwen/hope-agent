@@ -1,8 +1,8 @@
 use axum::extract::Path;
 use axum::Json;
 use ha_core::loop_control::{
-    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopSnapshot, LoopTriggerKind,
-    UpdateLoopSchedulePolicyInput,
+    CreateLoopScheduleInput, LoopExecutionStrategy, LoopSchedule, LoopSnapshot, LoopState,
+    LoopTriggerKind, UpdateLoopSchedulePolicyInput,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -149,6 +149,13 @@ pub async fn run_loop_schedule_now(Path(loop_id): Path<String>) -> Result<Json<V
     if schedule.state.is_terminal() {
         return Err(AppError::bad_request(format!(
             "loop schedule {} is {}",
+            schedule.id,
+            schedule.state.as_str()
+        )));
+    }
+    if schedule.state != LoopState::Active {
+        return Err(AppError::bad_request(format!(
+            "loop schedule {} must be active before run-now; current state is {}",
             schedule.id,
             schedule.state.as_str()
         )));
