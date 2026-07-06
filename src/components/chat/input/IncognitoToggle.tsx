@@ -36,7 +36,7 @@ export default function IncognitoToggle({
   const tooltip = disabled
     ? t(DISABLED_REASON_KEY[disabledReason] ?? "chat.incognitoMutuallyExclusive")
     : enabled
-      ? t("chat.incognitoDisable", { defaultValue: "关闭无痕对话" })
+      ? t("chat.incognitoDisable", { defaultValue: "Turn off incognito chat" })
       : t(sessionId ? "chat.incognito" : "chat.incognitoPreset")
   const titlebar = variant === "titlebar"
 

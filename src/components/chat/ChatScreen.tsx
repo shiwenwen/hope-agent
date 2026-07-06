@@ -715,6 +715,7 @@ export default function ChatScreen({
     pendingMessage: "",
     pendingSendCount: 0,
   })
+  const clearDisposableIncognitoDraftRef = useRef<() => void>(() => {})
   const confirmedIncognitoLeaveSessionIdsRef = useRef<Set<string>>(new Set())
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
   const [incognitoLeaveIntent, setIncognitoLeaveIntent] = useState<IncognitoLeaveIntent | null>(
@@ -894,6 +895,7 @@ export default function ChatScreen({
     const intent = incognitoLeaveIntent
     if (!intent) return
     const sessionId = session.currentSessionId
+    clearDisposableIncognitoDraftRef.current()
     if (sessionId) confirmedIncognitoLeaveSessionIdsRef.current.add(sessionId)
     setIncognitoLeaveIntent(null)
     void runIncognitoLeaveIntent(intent)
@@ -1550,6 +1552,17 @@ export default function ChatScreen({
     stream.pendingQuotes.length,
     stream.pendingSends.length,
   ])
+
+  useLayoutEffect(() => {
+    clearDisposableIncognitoDraftRef.current = () => {
+      stream.setInput("")
+      stream.setAttachedFiles([])
+      stream.setPendingQuotes([])
+      for (const pending of stream.pendingSends) {
+        stream.discardPendingSend(pending.id)
+      }
+    }
+  }, [stream])
 
   useEffect(() => {
     return getTransport().listen("permission:mode_changed", (payload) => {
@@ -2667,19 +2680,20 @@ export default function ChatScreen({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("chat.incognitoLeaveConfirmTitle", {
-                defaultValue: "离开无痕对话？",
+                defaultValue: "Leave incognito chat?",
               })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t("chat.incognitoLeaveConfirmBody", {
-                defaultValue: "离开后，这次对话会从本机删除，无法从历史记录中恢复。",
+                defaultValue:
+                  "After you leave, this chat will be deleted from this device and can't be restored from history.",
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>
               {t("chat.incognitoLeaveConfirmCancel", {
-                defaultValue: "留在当前对话",
+                defaultValue: "Stay here",
               })}
             </AlertDialogCancel>
             <AlertDialogAction
@@ -2687,7 +2701,7 @@ export default function ChatScreen({
               onClick={handleConfirmIncognitoLeave}
             >
               {t("chat.incognitoLeaveConfirmAction", {
-                defaultValue: "删除并离开",
+                defaultValue: "Delete and leave",
               })}
             </AlertDialogAction>
           </AlertDialogFooter>
