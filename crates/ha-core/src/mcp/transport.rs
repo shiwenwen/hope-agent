@@ -277,7 +277,17 @@ fn host_bypasses_proxy(host: &str) -> bool {
 /// and additionally bypasses the system / env proxy when the target host is
 /// loopback / private (see [`host_bypasses_proxy`]).
 fn build_mcp_http_client(target_url: &str, server_name: &str) -> McpResult<reqwest::Client> {
-    let mut builder = reqwest::Client::builder().pool_max_idle_per_host(0);
+    let mut builder = reqwest::Client::builder()
+        .pool_max_idle_per_host(0)
+        // Do NOT follow redirects. The SSRF gate only validates the pre-redirect
+        // URL (the GET target and the server-provided POST endpoint), so a 30x
+        // would let an untrusted server bounce the handshake / POST to a
+        // loopback / link-local / metadata host the gate never saw. reqwest's
+        // redirect callback is sync and can't re-run the async DNS-resolving
+        // `check_url`, so the safe move is to not follow at all — a redirect is
+        // surfaced as an error instead (mirrors the WebSocket transport, which
+        // also never follows redirects).
+        .redirect(reqwest::redirect::Policy::none());
     let bypass_proxy = url::Url::parse(target_url)
         .ok()
         .and_then(|u| u.host_str().map(host_bypasses_proxy))
@@ -618,6 +628,19 @@ pub async fn build_sse_client(cfg: &McpServerConfig, url: &str) -> McpResult<Con
         .await
         .and_then(reqwest::Response::error_for_status)
         .map_err(|e| classify_network_error(&cfg.name, "SSE handshake", e))?;
+
+    // Redirects are disabled on the client (SSRF: a 30x could bounce to an
+    // internal host the gate never validated). `error_for_status` ignores 3xx,
+    // so reject it explicitly rather than parsing an empty redirect body.
+    if response.status().is_redirection() {
+        return Err(McpError::Transport {
+            server: cfg.name.clone(),
+            source: format!(
+                "SSE endpoint returned a redirect ({}); redirects are not followed",
+                response.status()
+            ),
+        });
+    }
 
     // Box-pin the `!Unpin` parser so it can be driven by `.next()` here and then
     // handed to `filter_map` without pin plumbing leaking into the Stream half.

@@ -372,7 +372,8 @@ stdio server 是任意 binary，潜在命令执行入口：
 
 ### redirect 处理
 
-- **HTTP / SSE**：reqwest `redirect::limited(5)`；每跳不重跑 SSRF（已知 gap，和其它 HTTP 客户端路径一致）
+- **SSE**：`build_mcp_http_client` 用 `redirect::Policy::none()` **不跟 redirect**——SSRF 只校验了 pre-redirect 的 GET URL 与 server 返回的 endpoint，30x 可绕过 gate 弹到内网；reqwest 的 redirect 回调是同步的、跑不了异步 DNS 解析的 `check_url`，故直接不跟（GET 拿到 3xx 显式报错）。与 WebSocket 一致
+- **Streamable HTTP**：走 rmcp 自带 reqwest client（default redirect），每跳不重跑 SSRF（**已知 gap**——ha-core 无法配置 rmcp 内部 client 的 redirect policy，见上文「代理绕行」同源的 0.12/0.13 版本墙）
 - **WebSocket**：`connect_async` **不**跟 HTTP redirect — RFC 6455 要求 101 Switching Protocols，3xx 直接算 handshake 失败，所以单次 SSRF 覆盖了全部 dial-out
 
 ---
