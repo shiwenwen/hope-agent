@@ -972,6 +972,26 @@ pub async fn save_image_generate_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/audio-generate` -- get audio generation config.
+pub async fn get_audio_generate_config(
+) -> Result<Json<ha_core::tools::audio_generate::AudioGenConfig>, AppError> {
+    let store = load_config()?;
+    let mut config = store.audio_generate;
+    ha_core::tools::audio_generate::backfill_providers(&mut config);
+    Ok(Json(config))
+}
+
+/// `PUT /api/config/audio-generate` -- save audio generation config.
+pub async fn save_audio_generate_config(
+    Json(body): Json<ConfigBody<ha_core::tools::audio_generate::AudioGenConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("audio_generate", "http"), |store| {
+        store.audio_generate = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 /// `GET /api/config/canvas` -- get canvas tool config.
 pub async fn get_canvas_config() -> Result<Json<ha_core::tools::canvas::CanvasConfig>, AppError> {
     let store = load_config()?;

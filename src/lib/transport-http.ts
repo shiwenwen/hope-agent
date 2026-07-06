@@ -216,6 +216,11 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   delete_design_project_cmd:         { method: "DELETE", path: "/api/design/projects/{id}" },
   list_design_artifacts_cmd:         { method: "GET",    path: "/api/design/projects/{projectId}/artifacts" },
   create_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts" },
+  generate_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/generate" },
+  design_ffmpeg_doctor_cmd:          { method: "GET",    path: "/api/design/ffmpeg/doctor" },
+  design_install_ffmpeg_cmd:         { method: "POST",   path: "/api/design/ffmpeg/install" },
+  design_browser_doctor_cmd:         { method: "GET",    path: "/api/design/browser/doctor" },
+  design_install_browser_cmd:        { method: "POST",   path: "/api/design/browser/install" },
   list_all_design_artifacts_cmd:     { method: "GET",    path: "/api/design/artifacts" },
   get_design_artifact_cmd:           { method: "GET",    path: "/api/design/artifacts/{id}" },
   delete_design_artifact_cmd:        { method: "DELETE", path: "/api/design/artifacts/{id}" },
@@ -501,6 +506,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Image generation --
   get_image_generate_config:       { method: "GET",    path: "/api/config/image-generate" },
   save_image_generate_config:      { method: "PUT",    path: "/api/config/image-generate" },
+  get_audio_generate_config:       { method: "GET",    path: "/api/config/audio-generate" },
+  save_audio_generate_config:      { method: "PUT",    path: "/api/config/audio-generate" },
 
   // -- Web search --
   get_web_search_config:           { method: "GET",    path: "/api/config/web-search" },

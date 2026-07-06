@@ -196,7 +196,6 @@
     "extract": "抽出",
     "extractedSystem": "抽出したデザインシステム",
     "systemNamePlaceholder": "デザインシステム名",
-    "generate": "生成",
     "newImage": "画像を生成",
     "imagePromptPlaceholder": "生成したい画像を説明…",
     "directionBriefPlaceholder": "製品 / ブランドを説明…",
@@ -272,7 +271,9 @@
       "document": "ドキュメント",
       "email": "メール",
       "image": "画像",
-      "motion": "モーション"
+      "motion": "モーション",
+      "audio": "オーディオ",
+      "component": "インタラクティブコンポーネント"
     },
     "editHint": "プレビューで要素をクリックして編集を開始",
     "exporting": "エクスポート中…",
@@ -292,7 +293,9 @@
       "propose": "方向性の生成に失敗しました",
       "restore": "復元に失敗しました",
       "setSystem": "デザインシステムの設定に失敗しました",
-      "importMd": "DESIGN.md の読み込みに失敗しました"
+      "importMd": "DESIGN.md の読み込みに失敗しました",
+      "generate": "生成に失敗しました。もう一度お試しください",
+      "depInstall": "依存関係のダウンロードに失敗しました。再試行するか低忠実度をご利用ください"
     },
     "ok": {
       "adopted": "デザインの方向性を適用しました",
@@ -308,7 +311,22 @@
     "importDesignMd": "DESIGN.md を読み込み",
     "exportDesignMd": "現在のシステムを書き出し (DESIGN.md)",
     "import": "読み込み",
-    "importDesignMdPlaceholder": "DESIGN.md テキストを貼り付け（9 段規約 + --ds-* トークン表。トークンが無ければ自動合成）…"
+    "importDesignMdPlaceholder": "DESIGN.md テキストを貼り付け（9 段規約 + --ds-* トークン表。トークンが無ければ自動合成）…",
+    "dep": {
+      "ffmpegTitle": "MP4 エンコーダー未準備",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "高品質な MP4 書き出しには ffmpeg エンコーダーが必要です（長さ自由・高忠実度）。ワンクリックでダウンロード（約40MB、初回のみ）するか、低忠実度のブラウザエンコーダーを使用します。",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "高品質な MP4 書き出しには ffmpeg が必要です。インストール後に再試行するか、低忠実度のブラウザエンコーダーを使用してください。",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "ダウンロード中…",
+      "envHint": "または環境変数 HA_FFMPEG_PATH に ffmpeg バイナリを指定してください。",
+      "useClient": "低忠実度で書き出す",
+      "installing": "インストール中…",
+      "download": "ダウンロードして書き出す"
+    },
+    "newAudio": "オーディオを生成",
+    "audioPromptPlaceholder": "ナレーション本文、または音楽/効果音の説明（[music] / [sfx] を先頭に付与可）…"
   },
   "channels": {
     "accountLabel": "アカウント名",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "推奨",
     "webSearchSaved": "保存しました",
     "webSearchTimeout": "タイムアウト（秒）",
-    "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)"
+    "webSearchTimeoutDesc": "検索リクエストの HTTP タイムアウト (5-120 秒)",
+    "audioGenerate": "オーディオ生成",
+    "audioGenerateDesc": "デザインスペースのオーディオ形態（TTSナレーション/音楽/効果音）向けに音声合成プロバイダー（BYOK）を設定。順にフェイルオーバー。",
+    "audioGenNoProvider": "オーディオプロバイダー未設定 — いずれかを有効にしてAPIキーを入力してください。",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "モデル",
+    "audioGenVoice": "音声 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "リクエストタイムアウト（秒）"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",

@@ -196,7 +196,6 @@
     "extract": "استخراج",
     "extractedSystem": "نظام تصميم مستخرَج",
     "systemNamePlaceholder": "اسم نظام التصميم",
-    "generate": "توليد",
     "newImage": "توليد صورة",
     "imagePromptPlaceholder": "صف الصورة التي تريدها…",
     "directionBriefPlaceholder": "صف منتجك / علامتك…",
@@ -272,7 +271,9 @@
       "document": "مستند",
       "email": "بريد",
       "image": "صورة",
-      "motion": "حركة"
+      "motion": "حركة",
+      "audio": "صوت",
+      "component": "مكوّن تفاعلي"
     },
     "editHint": "انقر على عنصر في المعاينة لبدء التحرير",
     "exporting": "جارٍ التصدير…",
@@ -292,7 +293,9 @@
       "propose": "فشل إنشاء الاتجاهات",
       "restore": "فشل الاستعادة",
       "setSystem": "فشل تعيين نظام التصميم",
-      "importMd": "فشل استيراد DESIGN.md"
+      "importMd": "فشل استيراد DESIGN.md",
+      "generate": "فشل الإنشاء — يرجى المحاولة مرة أخرى",
+      "depInstall": "فشل تنزيل التبعية — أعد المحاولة أو استخدم دقة أقل"
     },
     "ok": {
       "adopted": "تم تطبيق اتجاه التصميم",
@@ -308,7 +311,22 @@
     "importDesignMd": "استيراد DESIGN.md",
     "exportDesignMd": "تصدير النظام الحالي (DESIGN.md)",
     "import": "استيراد",
-    "importDesignMdPlaceholder": "الصق نص DESIGN.md (مواصفة من 9 أقسام + جدول رموز --ds-*؛ تُولَّد الرموز تلقائيًا عند غيابها)…"
+    "importDesignMdPlaceholder": "الصق نص DESIGN.md (مواصفة من 9 أقسام + جدول رموز --ds-*؛ تُولَّد الرموز تلقائيًا عند غيابها)…",
+    "dep": {
+      "ffmpegTitle": "مُرمِّز MP4 غير جاهز",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "يتطلب تصدير MP4 عالي الدقة مُرمِّز ffmpeg (أي مدة، جودة متجهة). نزّله بنقرة واحدة (~40 ميغابايت، أول مرة فقط)، أو استخدم مُرمِّز المتصفح الأقل دقة.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "يتطلب تصدير MP4 عالي الدقة ffmpeg. ثبّته وأعد المحاولة، أو استخدم مُرمِّز المتصفح الأقل دقة.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "جارٍ التنزيل…",
+      "envHint": "أو عيّن متغير البيئة HA_FFMPEG_PATH ليشير إلى ملف ffmpeg التنفيذي.",
+      "useClient": "تصدير بدقة أقل",
+      "installing": "جارٍ التثبيت…",
+      "download": "تنزيل وتصدير"
+    },
+    "newAudio": "توليد الصوت",
+    "audioPromptPlaceholder": "نص السرد، أو وصف موسيقى/مؤثرات صوتية (بادئة [music] / [sfx])…"
   },
   "channels": {
     "accountLabel": "اسم الحساب",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "موصى به",
     "webSearchSaved": "تم الحفظ",
     "webSearchTimeout": "المهلة (ثوانٍ)",
-    "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)"
+    "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)",
+    "audioGenerate": "توليد الصوت",
+    "audioGenerateDesc": "اضبط مزوّدي تركيب الصوت (BYOK) لصيغة الصوت في مساحة التصميم: سرد TTS / موسيقى / مؤثرات. تجاوز الفشل بالترتيب.",
+    "audioGenNoProvider": "لا يوجد مزوّد صوت مُهيّأ — فعّل واحدًا وأضف مفتاح API.",
+    "audioGenApiKey": "مفتاح API",
+    "audioGenModel": "النموذج",
+    "audioGenVoice": "الصوت (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "مهلة الطلب (ث)"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",

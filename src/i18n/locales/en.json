@@ -196,7 +196,6 @@
     "extract": "Extract",
     "extractedSystem": "Extracted design system",
     "systemNamePlaceholder": "Design system name",
-    "generate": "Generate",
     "newImage": "Generate image",
     "imagePromptPlaceholder": "Describe the image you want…",
     "directionBriefPlaceholder": "Describe your product / brand…",
@@ -272,7 +271,9 @@
       "document": "Document",
       "email": "Email",
       "image": "Image",
-      "motion": "Motion"
+      "motion": "Motion",
+      "audio": "Audio",
+      "component": "Interactive Component"
     },
     "editHint": "Click an element in the preview to start editing",
     "exporting": "Exporting…",
@@ -292,7 +293,9 @@
       "propose": "Failed to generate directions",
       "restore": "Restore failed",
       "setSystem": "Failed to set design system",
-      "importMd": "DESIGN.md import failed"
+      "importMd": "DESIGN.md import failed",
+      "generate": "Generation failed — please retry",
+      "depInstall": "Dependency download failed — retry or use lower fidelity"
     },
     "ok": {
       "adopted": "Design direction applied",
@@ -308,7 +311,22 @@
     "importDesignMd": "Import DESIGN.md",
     "exportDesignMd": "Export current system (DESIGN.md)",
     "import": "Import",
-    "importDesignMdPlaceholder": "Paste DESIGN.md text (9-section spec + --ds-* token table; tokens are synthesized if absent)…"
+    "importDesignMdPlaceholder": "Paste DESIGN.md text (9-section spec + --ds-* token table; tokens are synthesized if absent)…",
+    "dep": {
+      "ffmpegTitle": "MP4 encoder not ready",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "High-fidelity MP4 export needs the ffmpeg encoder (any length, vector-grade). Download it in one click (~40MB, first time only), or use the lower-fidelity in-browser encoder.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "High-fidelity MP4 export needs ffmpeg. Install it and retry, or use the lower-fidelity in-browser encoder.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "Downloading…",
+      "envHint": "Or set the HA_FFMPEG_PATH environment variable to your ffmpeg binary.",
+      "useClient": "Export at lower fidelity",
+      "installing": "Installing…",
+      "download": "Download & export"
+    },
+    "newAudio": "Generate audio",
+    "audioPromptPlaceholder": "Narration text, or a music / SFX description (prefix with [music] / [sfx])…"
   },
   "channels": {
     "accountLabel": "Account Name",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "Recommended",
     "webSearchSaved": "Saved",
     "webSearchTimeout": "Timeout (seconds)",
-    "webSearchTimeoutDesc": "HTTP timeout for search requests (5-120s)"
+    "webSearchTimeoutDesc": "HTTP timeout for search requests (5-120s)",
+    "audioGenerate": "Audio Generation",
+    "audioGenerateDesc": "Configure audio-synthesis providers (BYOK) for the design space audio form: TTS narration / music / SFX. Failover in order.",
+    "audioGenNoProvider": "No audio provider configured — enable one and add its API key.",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "Model",
+    "audioGenVoice": "Voice (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Request timeout (s)"
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",

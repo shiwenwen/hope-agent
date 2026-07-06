@@ -1027,6 +1027,11 @@ fn build_router_with_cors(
             "/config/image-generate",
             put(routes::config::save_image_generate_config),
         )
+        .route(
+            "/config/audio-generate",
+            get(routes::config::get_audio_generate_config)
+                .put(routes::config::save_audio_generate_config),
+        )
         .route("/config/canvas", get(routes::config::get_canvas_config))
         .route("/config/canvas", put(routes::config::save_canvas_config))
         .route("/config/design", get(routes::config::get_design_config))
@@ -1685,6 +1690,10 @@ fn build_router_with_cors(
             "/design/artifacts",
             get(routes::design::list_all_artifacts).post(routes::design::create_artifact),
         )
+        .route(
+            "/design/artifacts/generate",
+            post(routes::design::generate_artifact),
+        )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}/critique",
@@ -1728,6 +1737,19 @@ fn build_router_with_cors(
         .route(
             "/design/artifacts/{id}/native",
             get(routes::design::export_native),
+        )
+        .route("/design/ffmpeg/doctor", get(routes::design::ffmpeg_doctor))
+        .route(
+            "/design/ffmpeg/install",
+            post(routes::design::install_ffmpeg),
+        )
+        .route(
+            "/design/browser/doctor",
+            get(routes::design::browser_doctor),
+        )
+        .route(
+            "/design/browser/install",
+            post(routes::design::install_browser),
         )
         .route(
             "/design/systems/{id}/design-md",

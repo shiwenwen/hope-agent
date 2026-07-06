@@ -1,7 +1,10 @@
 //! 产物渲染器：把产物源（body/css/js）编译为**自包含 `index.html`**。
 //!
-//! 核心分水岭（见 `docs/architecture/design-space.md` §5）：产物是自包含 HTML，
-//! iframe 直接加载渲染，**绝不在浏览器里编译 React/JSX/Tailwind**。
+//! 核心分水岭（见 `docs/architecture/design-space.md` §5）：**编译只在 ha-core 后端，浏览器
+//! 零编译/零打包/零 JIT**——iframe 只加载已编译落盘的静态 `index.html`（旧版 atelier 因
+//! in-browser 编译白屏被推倒重做）。9 静态 kind + audio 是纯自包含 HTML；`component`（交互式
+//! React）经 `super::compile`（oxc 后端编译 JSX→JS）+ [`build_component_html`] 内联 vendored
+//! React UMD 组装，仍是「浏览器载静态、不编译」。
 //!
 //! Phase 1：骨架包裹 + 各 kind 视口 + 内联 css/js。
 //! Phase 3 追加：设计系统 token 注入（`:root --ds-*`）、`data-ds-oid` 标注 +
@@ -19,6 +22,9 @@ pub enum ArtifactKind {
     Email,
     Image,
     Motion,
+    Audio,
+    /// 交互式组件（React/JSX，后端 oxc 预编译，内联 React runtime）。
+    Component,
 }
 
 impl ArtifactKind {
@@ -33,6 +39,8 @@ impl ArtifactKind {
             "email" => Self::Email,
             "image" => Self::Image,
             "motion" => Self::Motion,
+            "audio" => Self::Audio,
+            "component" => Self::Component,
             _ => return None,
         })
     }
@@ -48,6 +56,8 @@ impl ArtifactKind {
             Self::Email => "email",
             Self::Image => "image",
             Self::Motion => "motion",
+            Self::Audio => "audio",
+            Self::Component => "component",
         }
     }
 
@@ -63,6 +73,8 @@ impl ArtifactKind {
             Self::Email => (600, 0),
             Self::Image => (0, 0),
             Self::Motion => (1280, 720),
+            Self::Audio => (640, 0),
+            Self::Component => (1024, 0),
         }
     }
 }
@@ -78,89 +90,46 @@ pub struct ArtifactParts {
     pub js: String,
 }
 
-/// 编译自包含 `index.html`。
-///
-/// `tokens` 是设计系统展开的 CSS 变量（`("--ds-color-primary","#..")`），注入
-/// `:root`；产物 CSS 引用变量即可换皮。空 = 不注入（用骨架默认值）。
-pub fn build_artifact_html(
-    kind: ArtifactKind,
-    title: &str,
-    parts: &ArtifactParts,
-    tokens: &[(String, String)],
-    editable: bool,
-) -> (String, Vec<super::patch::OidEntry>) {
-    let (vw, _vh) = kind.default_viewport();
-    let esc_title = html_escape(title);
-
-    // 编辑态注入 data-ds-oid（可视化微调锚点）+ 产出 oidmap；导出态用干净源码。
-    let (annotated_body, oidmap) = if editable {
-        super::patch::annotate(&parts.body_html)
-    } else {
-        (parts.body_html.clone(), Vec::new())
-    };
-
-    // inspector bridge（仅可编辑 kind）：dormant，收到父窗 ds_activate 才启用；
-    // 选中元素回传、样式/文本 live preview。沙箱零网络。导出态不注入（干净产物）。
-    let inspector_js = if editable { INSPECTOR_BRIDGE } else { "" };
-
-    // 设计系统 token → :root CSS 变量。
-    let root_css = if tokens.is_empty() {
-        String::new()
-    } else {
-        let mut vars = String::from(":root{");
-        for (k, v) in tokens {
-            // 仅允许 --ds-* 变量名；值滤除 `}`/`{`/`<`/`;` 防注入逃逸（`;` 防单个
-            // token 值塞入多条声明——extracted/url 来源的 token 由 LLM 可控）。
-            if !k.starts_with("--ds-") {
-                continue;
-            }
-            let safe_v: String = v
-                .chars()
-                .filter(|c| *c != '}' && *c != '{' && *c != '<' && *c != ';')
-                .collect();
-            vars.push_str(k);
-            vars.push(':');
-            vars.push_str(safe_v.trim());
-            vars.push(';');
+/// 设计系统 token → `:root{--ds-*}` CSS 变量串。空 tokens = 空串（用骨架默认值）。
+/// 单一来源——`build_artifact_html`（定稿产物）与 `build_stream_host_html`（流式占位页）
+/// 共用，保证明暗自适应变量在两态字节一致。
+fn tokens_root_css(tokens: &[(String, String)]) -> String {
+    if tokens.is_empty() {
+        return String::new();
+    }
+    let mut vars = String::from(":root{");
+    for (k, v) in tokens {
+        // 仅允许 --ds-* 变量名；值滤除 `}`/`{`/`<`/`;` 防注入逃逸（`;` 防单个
+        // token 值塞入多条声明——extracted/url 来源的 token 由 LLM 可控）。
+        if !k.starts_with("--ds-") {
+            continue;
         }
-        vars.push('}');
-        vars
-    };
+        let safe_v: String = v
+            .chars()
+            .filter(|c| *c != '}' && *c != '{' && *c != '<' && *c != ';')
+            .collect();
+        vars.push_str(k);
+        vars.push(':');
+        vars.push_str(safe_v.trim());
+        vars.push(';');
+    }
+    vars.push('}');
+    vars
+}
 
-    // deck 翻页器：一份文件多页，←/→/Space 切换，右下角页码。
-    let deck_js = if kind == ArtifactKind::Deck {
-        r#"<script>
-(function(){
-  var slides=[].slice.call(document.querySelectorAll('.ds-slide'));
-  if(!slides.length)return;var i=0;
-  var pager=document.createElement('div');
-  pager.style.cssText='position:fixed;right:16px;bottom:12px;font:12px system-ui;color:#888;z-index:9';
-  document.body.appendChild(pager);
-  function show(n){i=Math.max(0,Math.min(slides.length-1,n));
-    slides.forEach(function(s,k){s.classList.toggle('active',k===i)});
-    pager.textContent=(i+1)+' / '+slides.length;}
-  document.addEventListener('keydown',function(e){
-    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();show(i+1)}
-    else if(e.key==='ArrowLeft'){e.preventDefault();show(i-1)}});
-  document.addEventListener('click',function(e){
-    show(e.clientX>window.innerWidth/2?i+1:i-1)});
-  show(0);
-})();
-</script>"#
-    } else {
-        ""
-    };
-
-    // 骨架基础样式：中性 reset + 变量占位（Phase 3 由设计系统 token 覆盖）。
-    let base_css = r#"*,*::before,*::after{box-sizing:border-box}
+/// 骨架基础样式：中性 reset + 变量占位（设计系统 token 覆盖）。
+fn reset_base_css() -> &'static str {
+    r#"*,*::before,*::after{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{font-family:var(--ds-font-sans,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif);
 color:var(--ds-color-fg,#111827);background:var(--ds-color-bg,#ffffff);line-height:1.5;-webkit-font-smoothing:antialiased}
 img,svg,video{max-width:100%;height:auto;display:block}
-a{color:var(--ds-color-primary,#2563eb)}"#;
+a{color:var(--ds-color-primary,#2563eb)}"#
+}
 
-    // kind 专属容器样式。
-    let frame_css = match kind {
+/// kind 专属容器样式（`.ds-frame` / `.ds-slide` / `.ds-stage`）。
+fn kind_frame_css(kind: ArtifactKind) -> &'static str {
+    match kind {
         ArtifactKind::Mobile => {
             "body{display:flex;justify-content:center;background:#0b0b0c}\n\
              .ds-frame{width:390px;min-height:844px;background:var(--ds-color-bg,#fff);\
@@ -191,19 +160,79 @@ a{color:var(--ds-color-primary,#2563eb)}"#;
              background:var(--ds-color-bg,#0b0b0c)}"
         }
         _ => "",
-    };
+    }
+}
 
-    // body 包裹：mobile/poster/document/email 套 .ds-frame；motion 套 .ds-stage；其余直接放。
-    let wrapped_body = match kind {
+/// 流式期把 kind 内容容器包成产物同款结构（供 `ds-stream-body` 落位）。
+fn wrap_kind_body(kind: ArtifactKind, inner: &str) -> String {
+    match kind {
         ArtifactKind::Mobile
         | ArtifactKind::Poster
         | ArtifactKind::Document
-        | ArtifactKind::Email => {
-            format!("<div class=\"ds-frame\">{annotated_body}</div>")
-        }
-        ArtifactKind::Motion => format!("<div class=\"ds-stage\">{annotated_body}</div>"),
-        _ => annotated_body,
+        | ArtifactKind::Email => format!("<div class=\"ds-frame\">{inner}</div>"),
+        ArtifactKind::Motion => format!("<div class=\"ds-stage\">{inner}</div>"),
+        _ => inner.to_string(),
+    }
+}
+
+/// 编译自包含 `index.html`。
+///
+/// `tokens` 是设计系统展开的 CSS 变量（`("--ds-color-primary","#..")`），注入
+/// `:root`；产物 CSS 引用变量即可换皮。空 = 不注入（用骨架默认值）。
+pub fn build_artifact_html(
+    kind: ArtifactKind,
+    title: &str,
+    parts: &ArtifactParts,
+    tokens: &[(String, String)],
+    editable: bool,
+) -> (String, Vec<super::patch::OidEntry>) {
+    let (vw, _vh) = kind.default_viewport();
+    let esc_title = html_escape(title);
+
+    // 编辑态注入 data-ds-oid（可视化微调锚点）+ 产出 oidmap；导出态用干净源码。
+    let (annotated_body, oidmap) = if editable {
+        super::patch::annotate(&parts.body_html)
+    } else {
+        (parts.body_html.clone(), Vec::new())
     };
+
+    // inspector bridge（仅可编辑 kind）：dormant，收到父窗 ds_activate 才启用；
+    // 选中元素回传、样式/文本 live preview。沙箱零网络。导出态不注入（干净产物）。
+    let inspector_js = if editable { INSPECTOR_BRIDGE } else { "" };
+
+    // 设计系统 token → :root CSS 变量（单一来源 helper，与流式占位页共用）。
+    let root_css = tokens_root_css(tokens);
+
+    // deck 翻页器：一份文件多页，←/→/Space 切换，右下角页码。
+    let deck_js = if kind == ArtifactKind::Deck {
+        r#"<script>
+(function(){
+  var slides=[].slice.call(document.querySelectorAll('.ds-slide'));
+  if(!slides.length)return;var i=0;
+  var pager=document.createElement('div');
+  pager.style.cssText='position:fixed;right:16px;bottom:12px;font:12px system-ui;color:#888;z-index:9';
+  document.body.appendChild(pager);
+  function show(n){i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach(function(s,k){s.classList.toggle('active',k===i)});
+    pager.textContent=(i+1)+' / '+slides.length;}
+  document.addEventListener('keydown',function(e){
+    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();show(i+1)}
+    else if(e.key==='ArrowLeft'){e.preventDefault();show(i-1)}});
+  document.addEventListener('click',function(e){
+    show(e.clientX>window.innerWidth/2?i+1:i-1)});
+  show(0);
+})();
+</script>"#
+    } else {
+        ""
+    };
+
+    // 骨架基础样式 + kind 专属容器样式（单一来源 helper，与流式占位页共用）。
+    let base_css = reset_base_css();
+    let frame_css = kind_frame_css(kind);
+
+    // body 包裹：mobile/poster/document/email 套 .ds-frame；motion 套 .ds-stage；其余直接放。
+    let wrapped_body = wrap_kind_body(kind, &annotated_body);
 
     let viewport_meta = if vw > 0 {
         format!("width={vw}, initial-scale=1")
@@ -288,8 +317,209 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
 })();
 </script>"#;
 
+/// 流式占位页接收脚本：**dormant + postMessage + 零网络**（仿 `INSPECTOR_BRIDGE`）。
+/// 父窗流式期发 `ds_stream_css`（把最新完整 CSS 灌进 `<style id=ds-user-css>`，head 先定稿
+/// 故先有样式再有 body = 无 FOUC）/ `ds_stream_body`（把「到目前为止的完整 body」整体写进
+/// `#ds-stream-body`，累积快照语义，failover 重试自动收敛不拼接）。挂载即回 `ds_stream_ready`
+/// 让父窗补投最新快照。**不执行流式 body 里的 `<script>`**（innerHTML 不跑脚本）——JS 只在
+/// 定稿 index.html 生效，故流式期天然无副作用。
+/// 流式占位页的「生成中」spinner 样式（零文案，居中，尊重 prefers-reduced-motion）+ deck
+/// 流式覆盖：frame_css 把 `.ds-slide` 设 `display:none`（靠 pager JS 点亮 active），但流式期
+/// 不跑 JS，故这里同特异性、后出现地翻成 `display:block`——让 deck 各页流式期堆叠可见（定稿
+/// 的真 index.html 无本段、回到分页器）。
+const STREAM_HOST_STYLE: &str = "@keyframes ds-spin{to{transform:rotate(360deg)}}\n\
+.ds-gen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2147483647;pointer-events:none}\n\
+.ds-gen-r{width:28px;height:28px;border:2.5px solid rgba(130,140,155,.22);border-top-color:rgba(130,140,155,.8);border-radius:50%;animation:ds-spin .8s linear infinite}\n\
+@media(prefers-reduced-motion:reduce){.ds-gen-r{animation-duration:2.4s}}\n\
+.ds-slide{display:block;margin-bottom:16px}";
+
+const STREAM_HOST_SCRIPT: &str = r#"<script>
+(function(){
+  window.addEventListener('message',function(e){
+    var d=e.data||{};
+    if(d.type==='ds_stream_css'){
+      var s=document.getElementById('ds-user-css');if(s)s.textContent=d.css||'';
+    } else if(d.type==='ds_stream_body'){
+      // 仅非空 body 帧才替换 innerHTML（清掉内嵌 spinner）；CSS-only 首帧 body 为空时
+      // 不动，spinner 继续转、样式已就位。cumulative 语义下 body 只增不减（failover
+      // 重启短暂回空也不清，避免闪回空白）。
+      if(typeof d.html==='string'&&d.html.length){
+        var r=document.getElementById('ds-stream-body');if(r)r.innerHTML=d.html;
+      }
+    }
+  });
+  parent.postMessage({type:'ds_stream_ready'},'*');
+})();
+</script>"#;
+
+/// 流式占位页：与定稿产物**同款 head 铁序**（`root → base → frame`，token 一次注入不随流），
+/// 空 body 容器 `#ds-stream-body` + 空 `<style id=ds-user-css>` 供增量替换 + 常驻接收脚本。
+/// 编辑态语义 `false`——**不标 oid、不挂 inspector**（半流式 DOM 无法稳定算 oid）。定稿时由
+/// `finalize` 落盘真 `index.html`（editable=true）经单次受控 swap 生效。
+pub fn build_stream_host_html(
+    kind: ArtifactKind,
+    title: &str,
+    tokens: &[(String, String)],
+) -> String {
+    let (vw, _vh) = kind.default_viewport();
+    let esc_title = html_escape(title);
+    let root_css = tokens_root_css(tokens);
+    let base_css = reset_base_css();
+    let frame_css = kind_frame_css(kind);
+    // 首帧到达前（~1s TTFT）body 空 = 一屏空白；播一个居中 CSS spinner（零文案、免 i18n），
+    // 读作「生成中」而非「坏了」。spinner 放 `#ds-stream-body` **内部**——首个非空 body 帧
+    // 的 innerHTML 替换自然清掉它（放兄弟节点会永不移除、全程盖住内容）。
+    let inner =
+        "<div id=\"ds-stream-body\"><div class=\"ds-gen\"><div class=\"ds-gen-r\"></div></div></div>";
+    let wrapped_body = wrap_kind_body(kind, inner);
+    let viewport_meta = if vw > 0 {
+        format!("width={vw}, initial-scale=1")
+    } else {
+        "width=device-width, initial-scale=1".to_string()
+    };
+    format!(
+        "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"{kind}\" data-ds-streaming=\"1\">\n<head>\n\
+<meta charset=\"utf-8\">\n\
+<meta name=\"viewport\" content=\"{viewport}\">\n\
+<title>{title}</title>\n\
+<style>\n{root}\n{base}\n{frame}\n{host}\n</style>\n\
+<style id=\"ds-user-css\"></style>\n\
+</head>\n<body>\n{body}\n{host_js}\n</body>\n</html>\n",
+        kind = kind.as_str(),
+        viewport = viewport_meta,
+        title = esc_title,
+        root = root_css,
+        base = base_css,
+        frame = frame_css,
+        host = STREAM_HOST_STYLE,
+        body = wrapped_body,
+        host_js = STREAM_HOST_SCRIPT,
+    )
+}
+
+// ── 交互式组件（Component kind）：后端 oxc 预编译 + 内联 React runtime ────────────
+//
+// vendored React 18 production UMD（`include_str!`，零网络、锁版本）。React 19 已删 UMD 构建，
+// 故 pin React 18。编译在 ha-core（`design::compile`），iframe 只载已编译静态 JS——守红线。
+const REACT_UMD: &str = include_str!("assets/react.production.min.js");
+const REACT_DOM_UMD: &str = include_str!("assets/react-dom.production.min.js");
+
+/// 中和内联 `<script>`/`<style>` 块里会**提前闭合该块**的 `</script` / `</style`（大小写不敏感，
+/// HTML 解析器如此）——LLM 组件源里的字符串字面量 `"</script>"` 编译后会原样进 `<script>` 块、
+/// 提前关闭脚本破坏整页。`<\/script` 在 JS/CSS 里语义等价、无害。字节级、ASCII needle，UTF-8 安全。
+fn neutralize_closing(s: &str, needle_lower: &str) -> String {
+    let sb = s.as_bytes();
+    let nb = needle_lower.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(sb.len() + 16);
+    let mut i = 0;
+    while i < sb.len() {
+        if i + nb.len() <= sb.len() && sb[i..i + nb.len()].eq_ignore_ascii_case(nb) {
+            out.push(b'<');
+            out.push(b'\\');
+            out.extend_from_slice(&sb[i + 1..i + nb.len()]);
+            i += nb.len();
+        } else {
+            out.push(sb[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| s.to_string())
+}
+
+/// 空白 Component 的合法 JSX 占位源（新建无 brief 时用；直接 HTML 当 JSX 会编译失败）。
+pub fn placeholder_component_source() -> &'static str {
+    "function App() {\n\
+  return (\n\
+    <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px', textAlign: 'center', color: '#9ca3af', fontFamily: 'system-ui, -apple-system, sans-serif' }}>\n\
+      <div>在对话中描述你想要的交互组件，AI 会用 React 生成并即时运行。</div>\n\
+    </div>\n\
+  );\n\
+}"
+}
+
+/// 组装交互式组件产物：内联 vendored React UMD + 已编译组件 JS + bootstrap（`createRoot`
+/// 渲染全局 `App`）。**iframe 载静态、浏览器零编译**（守红线）；沙箱 `allow-scripts`、零网络。
+///
+/// `compiled_js` 是 `design::compile::compile_component` 的输出（classic JSX runtime，引用全局
+/// `React`）。head 复用 token → `:root` + reset，用户 CSS 内联。
+pub fn build_component_html(
+    title: &str,
+    compiled_js: &str,
+    css: &str,
+    tokens: &[(String, String)],
+) -> String {
+    let esc_title = html_escape(title);
+    let root_css = tokens_root_css(tokens);
+    let base_css = reset_base_css();
+    // 中和 LLM 源里会提前闭合内联块的 </script> / </style>（守自包含产物完整）。
+    let safe_component = neutralize_closing(compiled_js, "</script");
+    let safe_css = neutralize_closing(css, "</style");
+    format!(
+        "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"component\">\n<head>\n\
+<meta charset=\"utf-8\">\n\
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n\
+<title>{title}</title>\n\
+<style>\n{root}\n{base}\n{user_css}\n</style>\n\
+</head>\n<body>\n<div id=\"ds-root\"></div>\n\
+<script>{react}</script>\n\
+<script>{react_dom}</script>\n\
+<script>\n{component}\n</script>\n\
+<script>\n(function(){{\n\
+  try {{\n\
+    var el = (typeof App !== 'undefined') ? App : (typeof Component !== 'undefined' ? Component : null);\n\
+    if (!el) {{ throw new Error('No <App/> component defined'); }}\n\
+    ReactDOM.createRoot(document.getElementById('ds-root')).render(React.createElement(el));\n\
+  }} catch (e) {{\n\
+    document.getElementById('ds-root').innerHTML =\n\
+      '<pre style=\"color:#b23a34;padding:24px;white-space:pre-wrap;font:13px ui-monospace,monospace\">'\n\
+      + String(e && e.message || e) + '</pre>';\n\
+  }}\n\
+}})();\n\
+</script>\n\
+</body>\n</html>\n",
+        title = esc_title,
+        root = root_css,
+        base = base_css,
+        user_css = safe_css,
+        react = REACT_UMD,
+        react_dom = REACT_DOM_UMD,
+        component = safe_component,
+    )
+}
+
+/// 组件编译失败时的静态错误页（产物仍可打开、清晰展示编译错误，可重新生成）。
+pub fn build_component_error_html(title: &str, error: &str) -> String {
+    let esc_title = html_escape(title);
+    let esc_err = html_escape(error);
+    format!(
+        "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"component\">\n<head>\n\
+<meta charset=\"utf-8\">\n<title>{title}</title>\n\
+<style>body{{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#faf7f7;color:#16181d}}\
+.wrap{{max-width:720px;margin:8vh auto;padding:0 24px}}\
+.tag{{font:600 12px ui-monospace,monospace;color:#b23a34;letter-spacing:.08em;text-transform:uppercase}}\
+h1{{font-size:20px;margin:8px 0 12px}}\
+pre{{background:#fff;border:1px solid #e4d7d5;border-radius:10px;padding:16px;overflow-x:auto;\
+white-space:pre-wrap;font:12.5px ui-monospace,monospace;color:#8a2f2a}}</style>\n\
+</head>\n<body>\n<div class=\"wrap\">\
+<div class=\"tag\">Component compile failed</div>\
+<h1>{title}</h1>\
+<p style=\"color:#6b7280;font-size:13.5px\">组件源码未能编译。修正后可重新生成。</p>\
+<pre>{err}</pre></div>\n</body>\n</html>\n",
+        title = esc_title,
+        err = esc_err,
+    )
+}
+
 /// 占位产物（新建空产物时用，让预览 iframe 有内容）。
 pub fn placeholder_parts(kind: ArtifactKind, title: &str) -> ArtifactParts {
+    // Component 占位是**合法 JSX 源**（body_html 存 JSX，render() 会 oxc 编译；HTML 占位会编译失败）。
+    if kind == ArtifactKind::Component {
+        return ArtifactParts {
+            body_html: placeholder_component_source().to_string(),
+            css: String::new(),
+            js: String::new(),
+        };
+    }
     let esc = html_escape(title);
     let body = format!(
         "<main style=\"display:flex;flex-direction:column;align-items:center;justify-content:center;\
@@ -369,5 +599,44 @@ mod tests {
         let parts = ArtifactParts::default();
         let (html, _) = build_artifact_html(ArtifactKind::Web, "<script>", &parts, &[], true);
         assert!(html.contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn component_html_inlines_react_and_bootstraps() {
+        let html = build_component_html("T", "function App(){return null}", ".x{}", &[]);
+        assert!(html.contains("<div id=\"ds-root\"></div>"));
+        // vendored React UMD inlined (react.production.min.js banner) — zero network.
+        assert!(html.contains("react.production.min.js"));
+        assert!(html.contains("ReactDOM.createRoot"));
+        assert!(html.contains("function App(){return null}"));
+        assert!(html.contains(".x{}"));
+        // self-contained: no remote script/link src.
+        assert!(!html.contains("src=\"http"));
+        assert!(!html.contains("<script src"));
+    }
+
+    #[test]
+    fn component_error_html_shows_error_escaped() {
+        let html = build_component_error_html("My App", "Unexpected token <");
+        assert!(html.contains("compile failed"));
+        assert!(html.contains("Unexpected token &lt;"));
+        assert!(html.contains("My App"));
+    }
+
+    #[test]
+    fn placeholder_component_source_is_valid_app() {
+        let src = placeholder_component_source();
+        assert!(src.contains("function App"));
+    }
+
+    #[test]
+    fn component_html_neutralizes_closing_script_in_source() {
+        // A component string literal containing "</script>" must not break the page.
+        let js = "function App(){return React.createElement('div',null,'</script><img src=x onerror=alert(1)>')}";
+        let html = build_component_html("T", js, "a::after{content:'</style>'}", &[]);
+        // The raw closing sequences must be neutralized (backslash-escaped) inside the blocks.
+        assert!(!html.contains("'</script>"), "raw </script leaked: {html}");
+        assert!(html.contains("<\\/script"), "not neutralized: {html}");
+        assert!(!html.contains("'</style>"), "raw </style leaked");
     }
 }

@@ -14,6 +14,8 @@ use super::system::{self, DesignSystemFull};
 use crate::paths;
 use crate::platform::write_atomic;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
@@ -123,7 +125,20 @@ fn render(
     parts: &ArtifactParts,
     tokens: &[(String, String)],
 ) -> Result<(String, String)> {
-    let editable = kind != ArtifactKind::Image;
+    // Component：body_html 存 JSX 源，后端 oxc 编译成 JS 后内联 React runtime 组装。编译失败
+    // 不 bail、渲染静态错误页（产物仍可开、可重生），故不阻断创建/定稿。无 oid（编译产物≠源码）。
+    if kind == ArtifactKind::Component {
+        let html = match super::compile::compile_component(&parts.body_html) {
+            Ok(js) => renderer::build_component_html(title, &js, &parts.css, tokens),
+            Err(e) => {
+                crate::app_warn!("design", "compile", "component compile failed: {e}");
+                renderer::build_component_error_html(title, &e.to_string())
+            }
+        };
+        return Ok((html, "[]".to_string()));
+    }
+    // Image / Audio 是媒体产物（data-uri 内嵌），无源码 oid 可微调 → 不注 inspector/oid。
+    let editable = !matches!(kind, ArtifactKind::Image | ArtifactKind::Audio);
     let (html, oidmap) = renderer::build_artifact_html(kind, title, parts, tokens, editable);
     let oidmap_json = serde_json::to_string(&oidmap)?;
     Ok((html, oidmap_json))
@@ -313,6 +328,34 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .unwrap_or_else(|| input.title.clone());
         let parts = super::image::generate_image_parts(&prompt, &input.title).await?;
         input.body_html = Some(parts.body_html);
+    } else if body_empty && input.kind == "audio" {
+        // audio 形态：prompt → 音频合成（TTS/音乐/音效）→ 内嵌 data-uri <audio> 播放器。
+        let prompt = input
+            .prompt
+            .clone()
+            .filter(|p| !p.trim().is_empty())
+            .unwrap_or_else(|| input.title.clone());
+        let parts = super::audio::generate_audio_parts(&prompt, &input.title).await?;
+        input.body_html = Some(parts.body_html);
+    } else if body_empty && input.kind == "component" {
+        // component 形态：brief → 生成 React 组件源（JSX），render() 时后端 oxc 编译。
+        // 生成失败降级为合法占位组件源（不阻断创建）。
+        if let Some(brief) = input.prompt.clone().filter(|p| !p.trim().is_empty()) {
+            let (system_md, tokens) = resolve_system_for_generation(&input);
+            match super::generate::generate_component_source(&brief, &system_md, &tokens).await {
+                Ok(src) => input.body_html = Some(src),
+                Err(e) => {
+                    crate::app_warn!(
+                        "design",
+                        "generate",
+                        "component generation failed, blank shell: {e}"
+                    );
+                    input.body_html = Some(renderer::placeholder_component_source().to_string());
+                }
+            }
+        } else {
+            input.body_html = Some(renderer::placeholder_component_source().to_string());
+        }
     } else if body_empty {
         // 非 image 形态：有 brief 时用一次模型生成完整自包含设计（GUI prompt→生成，对齐
         // 参照品类）。生成失败**不阻断**——降级为空壳产物（用户可在对话里继续细化）。
@@ -497,12 +540,435 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     Ok(artifact)
 }
 
+// ── 真流式生成（owner/GUI「一句话 → 流式生成」，见 design-space.md §11）────────────
+//
+// 数据流：owner 入口 `generate_design_artifact` 同步建 generating 壳（有样式的空 body
+// 容器 + postMessage 接收脚本）立即返回 → 前端挂稳定 iframe → spawn `stream_generate_artifact`
+// 走 `generate::stream_design_parts`（CSS-first 真流式）→ 逐帧 emit `design:generate_delta`
+// → 前端 postMessage 增量灌进 iframe（无 FOUC）→ 定稿单次 render+落盘+status=ready+swap。
+// 任何失败降级为 status=failed + 保留壳（对齐 `create_artifact_generating` 的降级空壳）。
+
+/// 在途流式生成的协作取消旗（per-artifact）。regenerate 覆盖前翻旧旗，delete 时翻真。
+fn generation_cancels(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, Arc<AtomicBool>>> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CANCELS: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    CANCELS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn register_generation_cancel(artifact_id: &str) -> Arc<AtomicBool> {
+    let flag = Arc::new(AtomicBool::new(false));
+    let mut map = generation_cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // 同产物 regenerate：翻旧旗（止其白流 + finalize 覆盖），装新旗。
+    if let Some(old) = map.insert(artifact_id.to_string(), flag.clone()) {
+        old.store(true, Ordering::SeqCst);
+    }
+    flag
+}
+
+fn clear_generation_cancel(artifact_id: &str, flag: &Arc<AtomicBool>) {
+    let mut map = generation_cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // 仅当仍是自己这面旗时移除（regenerate 已换新旗则不动，防误删后来者）。
+    if map
+        .get(artifact_id)
+        .is_some_and(|cur| Arc::ptr_eq(cur, flag))
+    {
+        map.remove(artifact_id);
+    }
+}
+
+/// delete 时取消该产物在途流式生成（止其白流 + finalize 写已删目录）。
+fn cancel_generation(artifact_id: &str) {
+    if let Some(flag) = generation_cancels()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(artifact_id)
+    {
+        flag.store(true, Ordering::SeqCst);
+    }
+}
+
+/// 流式失败/崩溃降级：`artifact_lock` 下渲染**干净占位** index.html（不再是 spinner 壳）+ 置
+/// status。让失败产物预览是可读占位而非永久转圈（对齐 `create_artifact_generating` 非流式降级
+/// 产出可用占位）。
+///
+/// 返回 `Ok(true)` = 真降级了；`Ok(false)` = **未降级**（产物已删 → 不复活已删目录，守 #6；
+/// 或已非 generating → 不 clobber 已 finalize 的 ready）。调用方据此决定是否 emit
+/// `generate_error`——已删产物**不该**收到「生成失败」（与 finalize-None 静默契约对齐）。
+fn degrade_to_placeholder(id: &str, status: &str) -> Result<bool> {
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let db = open_db()?;
+    let Some(a) = db.get_artifact(id)? else {
+        return Ok(false);
+    };
+    // 只降级仍在 generating 的产物——锁内重查守卫，防在 lock 等待期间产物已被别的路径
+    // finalize 成 ready（reconcile / 晚到的失败回调）被误打回 failed 占位。
+    if a.status != "generating" {
+        return Ok(false);
+    }
+    let kind = ArtifactKind::from_str(&a.kind).unwrap_or(ArtifactKind::Web);
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = renderer::placeholder_parts(kind, &a.title);
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens)?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
+    db.update_artifact(id, None, Some(status), None, None, None, &now())?;
+    Ok(true)
+}
+
+/// 崩溃/重启孤儿对账：进程本地 cancel 注册表里没有、status 仍 `generating`、且 `updated_at`
+/// 陈旧（早于 grace，远超正常流式时长）的产物 = 上个进程流式到一半就挂了的孤儿——翻 `failed`
+/// + 落干净占位。owner library-wall 加载时调用（design 无专用启动钩子），只命中陈旧孤儿故开销
+/// 可忽略。**不用持久 replay 表**——注册表进程本地 + grace 足以区分在途 vs 孤儿。
+const ORPHAN_GENERATING_GRACE_SECS: i64 = 600;
+
+/// 对账**已取到的** rows（不再自己二次全表扫——由 `list_all_artifacts` 单次 fetch 传入）。
+/// 返回 `true` = 有孤儿被降级（调用方据此才需重取一次反映新 status）。
+fn reconcile_orphaned_generating(rows: &[DesignArtifact]) -> bool {
+    let now_ts = chrono::Utc::now();
+    let orphans: Vec<String> = {
+        let live = generation_cancels()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        rows.iter()
+            .filter(|a| {
+                a.status == "generating"
+                    && !live.contains_key(&a.id)
+                    && chrono::DateTime::parse_from_rfc3339(&a.updated_at)
+                        .map(|t| {
+                            (now_ts - t.with_timezone(&chrono::Utc)).num_seconds()
+                                > ORPHAN_GENERATING_GRACE_SECS
+                        })
+                        .unwrap_or(true)
+            })
+            .map(|a| a.id.clone())
+            .collect()
+    };
+    let mut degraded_any = false;
+    for id in orphans {
+        match degrade_to_placeholder(&id, "failed") {
+            Ok(true) => {
+                degraded_any = true;
+                crate::app_warn!(
+                    "design",
+                    "generate",
+                    "recovered orphaned generating artifact {}",
+                    id
+                );
+            }
+            Ok(false) => {}
+            Err(e) => crate::app_warn!(
+                "design",
+                "generate",
+                "reconcile orphan {} failed: {}",
+                id,
+                e
+            ),
+        }
+    }
+    degraded_any
+}
+
+/// 建 generating 壳：status=generating + 流式占位 index.html（CSS-first head 定稿 + 空 body
+/// 容器 + 常驻接收脚本），立即返回让前端挂稳定 iframe。内容由 `stream_generate_artifact` 回填。
+pub fn create_artifact_shell(input: &CreateArtifactInput) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let kind = ArtifactKind::from_str(&input.kind)
+        .with_context(|| format!("unknown artifact kind: {}", input.kind))?;
+    let project = db
+        .get_project(&input.project_id)?
+        .with_context(|| format!("project not found: {}", input.project_id))?;
+    let system_id = input
+        .system_id
+        .clone()
+        .or(project.default_system_id.clone())
+        .or_else(|| {
+            crate::config::cached_config()
+                .design
+                .default_system_id
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+        });
+    let ts = now();
+    let artifact_id = new_id();
+    let title = if input.title.trim().is_empty() {
+        format!("未命名{}", kind.as_str())
+    } else {
+        input.title.trim().to_string()
+    };
+
+    let dir = paths::design_artifact_dir(&input.project_id, &artifact_id)?;
+    let tokens = resolve_tokens(system_id.as_deref());
+    let host_html = renderer::build_stream_host_html(kind, &title, &tokens);
+    std::fs::create_dir_all(dir.join("source"))?;
+    write_atomic(&dir.join("index.html"), host_html.as_bytes())?;
+
+    let (vw, vh) = kind.default_viewport();
+    let artifact = DesignArtifact {
+        id: artifact_id.clone(),
+        project_id: input.project_id.clone(),
+        title: title.clone(),
+        kind: kind.as_str().to_string(),
+        system_id: system_id.clone(),
+        status: "generating".to_string(),
+        viewport_w: if vw > 0 { Some(vw) } else { None },
+        viewport_h: if vh > 0 { Some(vh) } else { None },
+        current_version: 1,
+        critique_score: None,
+        thumbnail_path: None,
+        created_at: ts.clone(),
+        updated_at: ts.clone(),
+        metadata: None,
+    };
+    let meta = ArtifactMeta {
+        id: artifact.id.clone(),
+        project_id: artifact.project_id.clone(),
+        title: artifact.title.clone(),
+        kind: artifact.kind.clone(),
+        system_id: artifact.system_id.clone(),
+        current_version: 1,
+    };
+    write_atomic(
+        &dir.join("artifact.json"),
+        serde_json::to_string_pretty(&meta)?.as_bytes(),
+    )?;
+
+    let persisted = (|| -> Result<()> {
+        db.create_artifact(&artifact)?;
+        db.touch_project(&input.project_id, &ts)?;
+        Ok(())
+    })();
+    if let Err(e) = persisted {
+        let _ = std::fs::remove_dir_all(&dir);
+        return Err(e);
+    }
+    emit(
+        "design:artifact_generating",
+        json!({
+            "projectId": input.project_id,
+            "artifactId": artifact_id,
+            "sessionId": input.session_id,
+        }),
+    );
+    Ok(artifact)
+}
+
+/// 轻量 status setter（不 bump 版本 / 不重渲染）——status 单点切换用。
+pub fn set_artifact_status(id: &str, status: &str) -> Result<()> {
+    open_db()?.update_artifact(id, None, Some(status), None, None, None, &now())
+}
+
+/// 定稿 generating 产物：`artifact_lock` 下单次 render(editable) + write_working +
+/// write_version_snapshot + status=ready + create_version(1)，随后 emit done。
+///
+/// 返回 `None` = 产物在定稿前已被删（`delete_artifact` 也持同一 `artifact_lock` 故二者互斥；
+/// get 到 None 即 mid-finalize 被删）→ **静默 no-op**：不写盘复活已删目录、不 emit
+/// generate_error（守 #6：不对已删产物误报「生成失败」、不产孤儿目录）。
+pub fn finalize_generating_artifact(
+    id: &str,
+    parts: &ArtifactParts,
+) -> Result<Option<DesignArtifact>> {
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let db = open_db()?;
+    let Some(a) = db.get_artifact(id)? else {
+        return Ok(None);
+    };
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let (html, oidmap_json) = render(kind, &a.title, parts, &tokens)?;
+    write_working(&dir, &html, parts, &oidmap_json)?;
+    write_version_snapshot(&dir, a.current_version, &html, parts, &oidmap_json)?;
+
+    let ts = now();
+    db.update_artifact(id, None, Some("ready"), None, None, None, &ts)?;
+    // 壳未建版本行——定稿补首版（避免 list_versions 为空）。
+    db.create_version(&DesignArtifactVersion {
+        id: 0,
+        artifact_id: a.id.clone(),
+        version_number: a.current_version,
+        message: Some("Generated".to_string()),
+        critique_score: None,
+        created_at: ts.clone(),
+    })?;
+    db.touch_project(&a.project_id, &ts)?;
+
+    // 只发 generate_done（前端据此做唯一一次受控 swap 到定稿 index.html）；不再叠发
+    // design:reload——否则前端 done + reload 两条都 previewKey++ = 双重 remount 双闪。
+    emit(
+        "design:generate_done",
+        json!({ "projectId": a.project_id, "artifactId": a.id }),
+    );
+    Ok(Some(db.get_artifact(id)?.unwrap_or(a)))
+}
+
+/// 后端流式编排（建壳后 spawn）：逐帧回填预览 → 定稿 / 降级 failed。
+pub async fn stream_generate_artifact(
+    artifact_id: String,
+    project_id: String,
+    brief: String,
+    kind: ArtifactKind,
+    system_md: String,
+    tokens: BTreeMap<String, String>,
+    cancel: Arc<AtomicBool>,
+) {
+    // 本流唯一 id + 单调 seq：前端按 streamId 变化重置累积、按 seq 丢乱序帧（EventBus 无 seq）。
+    // move 闭包持事件字段的独立克隆 + 内部 .clone()，保证是 Fn（可反复调）而非 FnOnce。
+    let stream_id = new_id();
+    let seq = std::sync::atomic::AtomicU64::new(0);
+    let ev_project = project_id.clone();
+    let ev_artifact = artifact_id.clone();
+    let on_snapshot = move |parts: &ArtifactParts| {
+        let n = seq.fetch_add(1, Ordering::SeqCst);
+        emit(
+            "design:generate_delta",
+            json!({
+                "projectId": ev_project.clone(),
+                "artifactId": ev_artifact.clone(),
+                "streamId": stream_id.clone(),
+                "seq": n,
+                "css": parts.css.clone(),
+                "bodyHtml": parts.body_html.clone(),
+                "done": false,
+            }),
+        );
+    };
+
+    let result = super::generate::stream_design_parts(
+        &brief,
+        kind,
+        &system_md,
+        &tokens,
+        &cancel,
+        &on_snapshot,
+    )
+    .await;
+
+    // 已取消（产物被删 / regenerate）：不 finalize（可能写已删目录）、不 emit。
+    if cancel.load(Ordering::SeqCst) {
+        return;
+    }
+
+    match result {
+        Ok(parts) => match finalize_generating_artifact(&artifact_id, &parts) {
+            // 成功定稿。
+            Ok(Some(_)) => {}
+            // 定稿前已被删 → 静默（不误报 generate_error、不复活目录）。
+            Ok(None) => {}
+            Err(e) => {
+                // 已删（degrade→Ok(false)）不 emit generate_error（对齐 #6 静默契约）；
+                // 真降级 / degrade 自身出错才报失败。
+                if !matches!(degrade_to_placeholder(&artifact_id, "failed"), Ok(false)) {
+                    emit(
+                        "design:generate_error",
+                        json!({ "projectId": project_id, "artifactId": artifact_id, "reason": e.to_string() }),
+                    );
+                    crate::app_warn!(
+                        "design",
+                        "generate",
+                        "finalize streaming artifact {} failed: {}",
+                        artifact_id,
+                        e
+                    );
+                }
+            }
+        },
+        Err(e) => {
+            // 失败降级为干净占位（非 spinner 壳），status=failed。已删则静默（守 #6）。
+            if !matches!(degrade_to_placeholder(&artifact_id, "failed"), Ok(false)) {
+                emit(
+                    "design:generate_error",
+                    json!({ "projectId": project_id, "artifactId": artifact_id, "reason": e.to_string() }),
+                );
+                crate::app_warn!(
+                    "design",
+                    "generate",
+                    "streaming generation for {} failed, degraded to placeholder: {}",
+                    artifact_id,
+                    e
+                );
+            }
+        }
+    }
+}
+
+/// owner/GUI「一句话 → 流式生成」入口：建壳同步返回 → spawn 流式回填。
+///
+/// image 形态 / 无 brief / 未知 kind → 回落阻塞 `create_artifact_generating`（无流式意义 +
+/// 兜底）。非流式路径完整保留作 agent 工具面 + 无 tokio runtime 时的退路。
+pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
+    let brief = input.prompt.clone().unwrap_or_default();
+    let kind_opt = ArtifactKind::from_str(&input.kind);
+    if input.kind == "image"
+        || input.kind == "audio"
+        || input.kind == "component"
+        || brief.trim().is_empty()
+        || kind_opt.is_none()
+    {
+        return create_artifact_generating(input).await;
+    }
+    let kind = kind_opt.expect("checked above");
+    let (system_md, tokens) = resolve_system_for_generation(&input);
+
+    let shell = create_artifact_shell(&input)?;
+    let cancel = register_generation_cancel(&shell.id);
+    let artifact_id = shell.id.clone();
+    let project_id = shell.project_id.clone();
+    tokio::spawn(async move {
+        use futures_util::future::FutureExt;
+        // catch_unwind：spawned future 内部 panic（generate / finalize 里的意外）不留持久
+        // generating 半态——降级为 failed 占位 + 清 cancel flag，而非永久转圈。
+        let ran = std::panic::AssertUnwindSafe(stream_generate_artifact(
+            artifact_id.clone(),
+            project_id.clone(),
+            brief,
+            kind,
+            system_md,
+            tokens,
+            cancel.clone(),
+        ))
+        .catch_unwind()
+        .await;
+        if ran.is_err() && !matches!(degrade_to_placeholder(&artifact_id, "failed"), Ok(false)) {
+            // 产物已删（degrade→Ok(false)）则整段静默（守 #6：不对已删产物报「生成失败」）。
+            emit(
+                "design:generate_error",
+                json!({ "projectId": project_id, "artifactId": artifact_id, "reason": "internal panic" }),
+            );
+            crate::app_warn!(
+                "design",
+                "generate",
+                "streaming generation for {} panicked, degraded to placeholder",
+                artifact_id
+            );
+        }
+        clear_generation_cancel(&artifact_id, &cancel);
+    });
+    Ok(shell)
+}
+
 pub fn list_artifacts(project_id: &str) -> Result<Vec<DesignArtifact>> {
     open_db()?.list_artifacts(project_id)
 }
 
 pub fn list_all_artifacts() -> Result<Vec<DesignArtifact>> {
-    open_db()?.list_all_artifacts()
+    let db = open_db()?;
+    let rows = db.list_all_artifacts()?;
+    // library-wall 加载时顺带对账上个进程崩溃留下的 generating 孤儿（design 无专用启动钩子）。
+    // 复用已取的 rows；仅真有孤儿被降级时才重取一次反映新 status（无孤儿常态零额外扫表）。
+    if reconcile_orphaned_generating(&rows) {
+        return db.list_all_artifacts();
+    }
+    Ok(rows)
 }
 
 pub fn get_artifact(id: &str) -> Result<Option<DesignArtifact>> {
@@ -510,6 +976,13 @@ pub fn get_artifact(id: &str) -> Result<Option<DesignArtifact>> {
 }
 
 pub fn delete_artifact(id: &str) -> Result<()> {
+    // 先取消在途流式生成，否则它会白流完 + finalize 往已删目录写。
+    cancel_generation(id);
+    // 持 artifact_lock：与 finalize_generating_artifact 互斥——要么 finalize 完整跑完（随后本
+    // delete 清干净），要么 delete 先删（finalize 内 get 到 None 静默跳过），二者不再交错产孤儿
+    // 目录 / 误 emit generate_error。
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     let db = open_db()?;
     if let Some(a) = db.get_artifact(id)? {
         db.delete_artifact(id)?;

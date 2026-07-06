@@ -1011,6 +1011,9 @@ pub struct AppConfig {
     /// Image generation configuration
     #[serde(default)]
     pub image_generate: crate::tools::image_generate::ImageGenConfig,
+    /// Audio generation configuration (design space `audio` artifact form).
+    #[serde(default)]
+    pub audio_generate: crate::tools::audio_generate::AudioGenConfig,
     /// GitHub issue reporting target and defaults. Token lives separately under
     /// `~/.hope-agent/credentials/github-issue.json`.
     #[serde(default)]
@@ -1301,6 +1304,7 @@ impl Default for AppConfig {
             notification: NotificationConfig::default(),
             startup_notification: StartupNotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
+            audio_generate: crate::tools::audio_generate::AudioGenConfig::default(),
             issue_reporting: crate::issue_reporting::IssueReportingConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
             design: crate::design::DesignConfig::default(),

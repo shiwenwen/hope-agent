@@ -196,7 +196,6 @@
     "extract": "Extrair",
     "extractedSystem": "Sistema de design extraído",
     "systemNamePlaceholder": "Nome do sistema de design",
-    "generate": "Gerar",
     "newImage": "Gerar imagem",
     "imagePromptPlaceholder": "Descreva a imagem que deseja…",
     "directionBriefPlaceholder": "Descreva seu produto / marca…",
@@ -272,7 +271,9 @@
       "document": "Documento",
       "email": "E-mail",
       "image": "Imagem",
-      "motion": "Animação"
+      "motion": "Animação",
+      "audio": "Áudio",
+      "component": "Componente interativo"
     },
     "editHint": "Clique num elemento na pré-visualização para começar a editar",
     "exporting": "A exportar…",
@@ -292,7 +293,9 @@
       "propose": "Falha ao gerar direções",
       "restore": "Falha ao restaurar",
       "setSystem": "Falha ao definir o sistema de design",
-      "importMd": "Falha ao importar DESIGN.md"
+      "importMd": "Falha ao importar DESIGN.md",
+      "generate": "A geração falhou — tente novamente",
+      "depInstall": "Falha ao baixar a dependência — tente novamente ou use menor fidelidade"
     },
     "ok": {
       "adopted": "Direção de design aplicada",
@@ -308,7 +311,22 @@
     "importDesignMd": "Importar DESIGN.md",
     "exportDesignMd": "Exportar sistema atual (DESIGN.md)",
     "import": "Importar",
-    "importDesignMdPlaceholder": "Cole o texto do DESIGN.md (especificação de 9 secções + tabela de tokens --ds-*; os tokens são sintetizados se faltarem)…"
+    "importDesignMdPlaceholder": "Cole o texto do DESIGN.md (especificação de 9 secções + tabela de tokens --ds-*; os tokens são sintetizados se faltarem)…",
+    "dep": {
+      "ffmpegTitle": "Codificador MP4 não pronto",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "A exportação MP4 de alta fidelidade precisa do codificador ffmpeg (qualquer duração, qualidade vetorial). Baixe-o com um clique (~40 MB, apenas na primeira vez) ou use o codificador do navegador de menor fidelidade.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "A exportação MP4 de alta fidelidade precisa do ffmpeg. Instale-o e tente novamente, ou use o codificador do navegador de menor fidelidade.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "Baixando…",
+      "envHint": "Ou defina a variável de ambiente HA_FFMPEG_PATH para o seu binário ffmpeg.",
+      "useClient": "Exportar com menor fidelidade",
+      "installing": "Instalando…",
+      "download": "Baixar e exportar"
+    },
+    "newAudio": "Gerar áudio",
+    "audioPromptPlaceholder": "Texto de narração, ou uma descrição de música/SFX (prefixe com [music] / [sfx])…"
   },
   "channels": {
     "accountLabel": "Nome da conta",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "Recomendado",
     "webSearchSaved": "Salvo",
     "webSearchTimeout": "Timeout (segundos)",
-    "webSearchTimeoutDesc": "Timeout HTTP para requisições de pesquisa (5-120 s)"
+    "webSearchTimeoutDesc": "Timeout HTTP para requisições de pesquisa (5-120 s)",
+    "audioGenerate": "Geração de áudio",
+    "audioGenerateDesc": "Configure provedores de síntese de áudio (BYOK) para a forma de áudio do espaço de design: narração TTS / música / SFX. Failover em ordem.",
+    "audioGenNoProvider": "Nenhum provedor de áudio configurado — ative um e adicione a chave de API.",
+    "audioGenApiKey": "Chave de API",
+    "audioGenModel": "Modelo",
+    "audioGenVoice": "Voz (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Tempo limite (s)"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",

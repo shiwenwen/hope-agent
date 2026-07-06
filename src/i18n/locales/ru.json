@@ -196,7 +196,6 @@
     "extract": "Извлечь",
     "extractedSystem": "Извлечённая дизайн-система",
     "systemNamePlaceholder": "Название дизайн-системы",
-    "generate": "Сгенерировать",
     "newImage": "Сгенерировать изображение",
     "imagePromptPlaceholder": "Опишите нужное изображение…",
     "directionBriefPlaceholder": "Опишите ваш продукт / бренд…",
@@ -272,7 +271,9 @@
       "document": "Документ",
       "email": "Письмо",
       "image": "Изображение",
-      "motion": "Анимация"
+      "motion": "Анимация",
+      "audio": "Аудио",
+      "component": "Интерактивный компонент"
     },
     "editHint": "Нажмите на элемент в предпросмотре, чтобы начать редактирование",
     "exporting": "Экспорт…",
@@ -292,7 +293,9 @@
       "propose": "Не удалось создать направления",
       "restore": "Не удалось восстановить",
       "setSystem": "Не удалось задать дизайн-систему",
-      "importMd": "Не удалось импортировать DESIGN.md"
+      "importMd": "Не удалось импортировать DESIGN.md",
+      "generate": "Не удалось сгенерировать — повторите попытку",
+      "depInstall": "Не удалось загрузить зависимость — повторите или используйте меньшее качество"
     },
     "ok": {
       "adopted": "Направление дизайна применено",
@@ -308,7 +311,22 @@
     "importDesignMd": "Импорт DESIGN.md",
     "exportDesignMd": "Экспорт текущей системы (DESIGN.md)",
     "import": "Импорт",
-    "importDesignMdPlaceholder": "Вставьте текст DESIGN.md (9 разделов + таблица токенов --ds-*; токены синтезируются при отсутствии)…"
+    "importDesignMdPlaceholder": "Вставьте текст DESIGN.md (9 разделов + таблица токенов --ds-*; токены синтезируются при отсутствии)…",
+    "dep": {
+      "ffmpegTitle": "Кодировщик MP4 не готов",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "Для высококачественного экспорта MP4 нужен кодировщик ffmpeg (любая длительность, векторное качество). Скачайте его в один клик (~40 МБ, только в первый раз) или используйте браузерный кодировщик с меньшим качеством.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "Для высококачественного экспорта MP4 нужен ffmpeg. Установите его и повторите, или используйте браузерный кодировщик с меньшим качеством.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "Загрузка…",
+      "envHint": "Или укажите переменную окружения HA_FFMPEG_PATH с бинарником ffmpeg.",
+      "useClient": "Экспорт с меньшим качеством",
+      "installing": "Установка…",
+      "download": "Скачать и экспортировать"
+    },
+    "newAudio": "Сгенерировать аудио",
+    "audioPromptPlaceholder": "Текст озвучки или описание музыки/звуковых эффектов (префикс [music] / [sfx])…"
   },
   "channels": {
     "accountLabel": "Имя аккаунта",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "Рекомендуется",
     "webSearchSaved": "Сохранено",
     "webSearchTimeout": "Таймаут (секунд)",
-    "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)"
+    "webSearchTimeoutDesc": "HTTP-таймаут поисковых запросов (5-120 с)",
+    "audioGenerate": "Генерация аудио",
+    "audioGenerateDesc": "Настройте провайдеров синтеза аудио (BYOK) для аудиоформата дизайн-пространства: озвучка TTS / музыка / эффекты. Отказоустойчивость по порядку.",
+    "audioGenNoProvider": "Провайдер аудио не настроен — включите один и добавьте API-ключ.",
+    "audioGenApiKey": "API-ключ",
+    "audioGenModel": "Модель",
+    "audioGenVoice": "Голос (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Тайм-аут запроса (с)"
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",

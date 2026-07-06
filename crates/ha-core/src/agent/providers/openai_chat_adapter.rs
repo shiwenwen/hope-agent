@@ -705,7 +705,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
 
 /// Parse OpenAI Chat Completions SSE stream.
 /// Returns `(collected_text, tool_calls, usage, thinking, ttft_ms)`.
-async fn parse_chat_completions_sse(
+pub(in crate::agent) async fn parse_chat_completions_sse(
     resp: reqwest::Response,
     request_start: std::time::Instant,
     reasoning_effort: Option<&str>,

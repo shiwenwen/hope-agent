@@ -196,7 +196,6 @@
     "extract": "Ekstrak",
     "extractedSystem": "Sistem reka bentuk diekstrak",
     "systemNamePlaceholder": "Nama sistem reka bentuk",
-    "generate": "Jana",
     "newImage": "Jana imej",
     "imagePromptPlaceholder": "Terangkan imej yang anda mahu…",
     "directionBriefPlaceholder": "Terangkan produk / jenama anda…",
@@ -272,7 +271,9 @@
       "document": "Dokumen",
       "email": "E-mel",
       "image": "Imej",
-      "motion": "Animasi"
+      "motion": "Animasi",
+      "audio": "Audio",
+      "component": "Komponen interaktif"
     },
     "editHint": "Klik satu elemen dalam pratonton untuk mula menyunting",
     "exporting": "Mengeksport…",
@@ -292,7 +293,9 @@
       "propose": "Gagal menjana arah",
       "restore": "Gagal memulihkan",
       "setSystem": "Gagal menetapkan sistem reka bentuk",
-      "importMd": "Import DESIGN.md gagal"
+      "importMd": "Import DESIGN.md gagal",
+      "generate": "Penjanaan gagal — sila cuba lagi",
+      "depInstall": "Muat turun kebergantungan gagal — cuba semula atau guna fideliti lebih rendah"
     },
     "ok": {
       "adopted": "Arah reka bentuk diterapkan",
@@ -308,7 +311,22 @@
     "importDesignMd": "Import DESIGN.md",
     "exportDesignMd": "Eksport sistem semasa (DESIGN.md)",
     "import": "Import",
-    "importDesignMdPlaceholder": "Tampal teks DESIGN.md (spesifikasi 9 bahagian + jadual token --ds-*; token disintesis jika tiada)…"
+    "importDesignMdPlaceholder": "Tampal teks DESIGN.md (spesifikasi 9 bahagian + jadual token --ds-*; token disintesis jika tiada)…",
+    "dep": {
+      "ffmpegTitle": "Pengekod MP4 belum sedia",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "Eksport MP4 fideliti tinggi memerlukan pengekod ffmpeg (sebarang tempoh, kualiti vektor). Muat turun dengan satu klik (~40MB, kali pertama sahaja), atau guna pengekod pelayar fideliti lebih rendah.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "Eksport MP4 fideliti tinggi memerlukan ffmpeg. Pasang dan cuba semula, atau guna pengekod pelayar fideliti lebih rendah.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "Memuat turun…",
+      "envHint": "Atau tetapkan pemboleh ubah persekitaran HA_FFMPEG_PATH ke binari ffmpeg anda.",
+      "useClient": "Eksport pada fideliti lebih rendah",
+      "installing": "Memasang…",
+      "download": "Muat turun & eksport"
+    },
+    "newAudio": "Jana audio",
+    "audioPromptPlaceholder": "Teks naratif, atau penerangan muzik/SFX (awalan [music] / [sfx])…"
   },
   "channels": {
     "accountLabel": "Nama akaun",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "Disyorkan",
     "webSearchSaved": "Disimpan",
     "webSearchTimeout": "Tamat masa (saat)",
-    "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)"
+    "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)",
+    "audioGenerate": "Penjanaan audio",
+    "audioGenerateDesc": "Konfigurasi penyedia sintesis audio (BYOK) untuk bentuk audio ruang reka bentuk: naratif TTS / muzik / SFX. Failover mengikut urutan.",
+    "audioGenNoProvider": "Tiada penyedia audio dikonfigurasikan — dayakan satu dan tambah kunci API.",
+    "audioGenApiKey": "Kunci API",
+    "audioGenModel": "Model",
+    "audioGenVoice": "Suara (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Had masa permintaan (s)"
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",

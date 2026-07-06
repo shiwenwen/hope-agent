@@ -18,6 +18,7 @@ mod related_notes;
 pub mod resolver;
 pub(crate) mod runtime_ledger;
 mod side_query;
+mod side_query_stream;
 mod streaming_adapter;
 mod streaming_loop;
 mod types;

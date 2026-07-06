@@ -73,6 +73,15 @@ portable-pty = "0.9"
 bollard = "0.20"
 image = { version = "0.25", features = ["jpeg", "png", "gif", "webp"] }
 encoding_rs = "0.8"
+# oxc: pure-Rust JS/TS/JSX toolchain. Used by the design space to **backend-compile**
+# interactive `Component` artifacts (JSX/TSX → JS) so the iframe loads static
+# compiled output — zero in-browser compilation (design red line). No system libs.
+oxc_allocator = "0.138"
+oxc_parser = "0.138"
+oxc_span = "0.138"
+oxc_semantic = "0.138"
+oxc_transformer = "0.138"
+oxc_codegen = "0.138"
 # Desktop-only crates. Gated behind the `desktop-tools` feature so headless
 # server builds (e.g. the Docker image shipped from `ha-server`) don't pull
 # their Linux system libs (wayland / pipewire / gbm / egl / gtk-3).

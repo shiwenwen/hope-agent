@@ -196,7 +196,6 @@
     "extract": "Trích xuất",
     "extractedSystem": "Hệ thống thiết kế đã trích xuất",
     "systemNamePlaceholder": "Tên hệ thống thiết kế",
-    "generate": "Tạo",
     "newImage": "Tạo hình ảnh",
     "imagePromptPlaceholder": "Mô tả hình ảnh bạn muốn…",
     "directionBriefPlaceholder": "Mô tả sản phẩm / thương hiệu của bạn…",
@@ -272,7 +271,9 @@
       "document": "Tài liệu",
       "email": "Email",
       "image": "Hình ảnh",
-      "motion": "Chuyển động"
+      "motion": "Chuyển động",
+      "audio": "Âm thanh",
+      "component": "Thành phần tương tác"
     },
     "editHint": "Nhấp vào một phần tử trong bản xem trước để bắt đầu chỉnh sửa",
     "exporting": "Đang xuất…",
@@ -292,7 +293,9 @@
       "propose": "Tạo hướng thất bại",
       "restore": "Khôi phục thất bại",
       "setSystem": "Đặt hệ thống thiết kế thất bại",
-      "importMd": "Nhập DESIGN.md thất bại"
+      "importMd": "Nhập DESIGN.md thất bại",
+      "generate": "Tạo không thành công — vui lòng thử lại",
+      "depInstall": "Tải phụ thuộc thất bại — thử lại hoặc dùng chất lượng thấp hơn"
     },
     "ok": {
       "adopted": "Đã áp dụng hướng thiết kế",
@@ -308,7 +311,22 @@
     "importDesignMd": "Nhập DESIGN.md",
     "exportDesignMd": "Xuất hệ thống hiện tại (DESIGN.md)",
     "import": "Nhập",
-    "importDesignMdPlaceholder": "Dán văn bản DESIGN.md (đặc tả 9 mục + bảng token --ds-*; token được tổng hợp nếu thiếu)…"
+    "importDesignMdPlaceholder": "Dán văn bản DESIGN.md (đặc tả 9 mục + bảng token --ds-*; token được tổng hợp nếu thiếu)…",
+    "dep": {
+      "ffmpegTitle": "Bộ mã hóa MP4 chưa sẵn sàng",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "Xuất MP4 chất lượng cao cần bộ mã hóa ffmpeg (mọi độ dài, chất lượng vector). Tải xuống bằng một cú nhấp (~40MB, chỉ lần đầu) hoặc dùng bộ mã hóa trình duyệt chất lượng thấp hơn.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "Xuất MP4 chất lượng cao cần ffmpeg. Cài đặt rồi thử lại, hoặc dùng bộ mã hóa trình duyệt chất lượng thấp hơn.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "Đang tải xuống…",
+      "envHint": "Hoặc đặt biến môi trường HA_FFMPEG_PATH trỏ tới tệp ffmpeg.",
+      "useClient": "Xuất với chất lượng thấp hơn",
+      "installing": "Đang cài đặt…",
+      "download": "Tải xuống và xuất"
+    },
+    "newAudio": "Tạo âm thanh",
+    "audioPromptPlaceholder": "Văn bản lời kể, hoặc mô tả nhạc/hiệu ứng ([music] / [sfx] ở đầu)…"
   },
   "channels": {
     "accountLabel": "Tên tài khoản",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "Khuyến nghị",
     "webSearchSaved": "Đã lưu",
     "webSearchTimeout": "Hết thời gian (giây)",
-    "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)"
+    "webSearchTimeoutDesc": "Thời gian chờ HTTP cho yêu cầu tìm kiếm (5-120 giây)",
+    "audioGenerate": "Tạo âm thanh",
+    "audioGenerateDesc": "Cấu hình nhà cung cấp tổng hợp âm thanh (BYOK) cho dạng âm thanh của không gian thiết kế: lời kể TTS / nhạc / hiệu ứng. Chuyển đổi dự phòng theo thứ tự.",
+    "audioGenNoProvider": "Chưa cấu hình nhà cung cấp âm thanh — bật một cái và thêm khóa API.",
+    "audioGenApiKey": "Khóa API",
+    "audioGenModel": "Mô hình",
+    "audioGenVoice": "Giọng (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "Thời gian chờ (giây)"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",

@@ -294,6 +294,30 @@ planned ──→ generating ──→ ready
 - **前端 `LaunchHome`（prompt-first 首屏）**：大标题 + 大输入框（Cmd/Ctrl+Enter 生成）+ 形态 chip + **模板快选行**（`list_design_recipes_cmd` 拉内置 recipe 目录，点选 → 填入该形态 + 场景 brief，可编辑后生成）+ 内联设计系统选择器 + 生成按钮。`generateFromHome` = 建项目 → 带 prompt 建产物（后端生成）→ 打开；产物创建失败**回滚删除刚建的孤儿项目**；生成中禁用最近项目磁贴防导航被完成回调劫持。
 - **真实缩略图墙（`ArtifactThumb` / `ProjectThumb`）**：首屏项目卡 = 该项目最近产物的**静态设计预览**——懒挂载（`IntersectionObserver`）+ `sandbox=""`（**不跑 JS**，画廊零动画开销、性能稳）+ `ResizeObserver` 等比缩放，复用产物 `index.html` 的 asset 服务，无独立缩略图存储管线。
 
+### 5.6 真流式生成（CSS-first + 增量渲染，比裸流更稳）
+
+owner/GUI 生成走**真 token 流式**——边生成边成形预览，而非等整份产出。核心目标是**无 FOUC**（不先闪一屏无样式内容）+ 稳定不重挂。
+
+- **CRUX：流式 LLM 原语**（不碰共享 `side_query`）。SSE parser 机器已在主对话循环中久经考验，只差一条「单轮 prompt → 增量 token」的入口：
+  - `LlmApiAdapter::one_shot_stream`（`agent/llm_adapter.rs`）——`one_shot` 的流式姊妹方法，4 个 provider impl 复用现成 body 构造器（Anthropic/OpenAIChat/OpenAIResponses 构造后 post-process 插 `stream:true`，不改 body 构造器故 prompt-cache body-shape 单测全绿；Codex 本就 `stream:true`），喂对应 `parse_*_sse`。**parser 的 `on_delta` 收的是主循环事件信封 `{"type":"text_delta","content":…}`**，故 `one_shot_stream` 内经 `unwrap_text_delta` 解信封、**只吐裸文本**（thinking/tool 信封丢弃），与 parser 的 `collected_text` 口径一致。
+  - `AssistantAgent::side_query_streaming`（`agent/side_query_stream.rs`）——与 `side_query` 平行（复用 cache-safe prefix + `execute_with_failover`），差别仅「`side_query` 丢 delta / `side_query_streaming` 转发 delta」。`on_text` 收**当前 attempt 的累积文本**（非裸 delta）：failover 重试时累加器重启，调用方据新鲜快照幂等重渲染，不跨 attempt 拼接。
+- **生成输出 CSS-first**（`generate.rs`）：分节顺序改 `<<<CSS>>> → <<<BODY>>> → <<<JS>>>`——CSS 段在 `<<<BODY>>>` 一出现即完整，预览可**先把最终样式注入 iframe，再流式追加 body** = 无裸奔无重排。截断检测据此改判「必含 `<<<BODY>>>`」（缺失=CSS 段被截断 → `bail` 走降级）。`strip_trailing_partial_marker` 剥尾部未闭合 marker，**只在尾部后缀是某完整 marker 的严格前缀时才截**（正文里合法的 `<<<`——git 冲突标记 / `content:"<<<"` / ASCII art——不误截、不冻结预览）。
+- **端到端数据流**：owner 入口 `generate_design_artifact`（Tauri `generate_design_artifact_cmd` / HTTP `POST /api/design/artifacts/generate`）→ ① `create_artifact_shell` 建 `status=generating` 壳（`build_stream_host_html`：CSS-first head 一次定稿 + 空 body 容器 + 常驻接收脚本 + 居中 spinner）**同步返回**，前端挂稳定 iframe；② `tokio::spawn`（`AssertUnwindSafe.catch_unwind` panic 兜底）跑 `stream_generate_artifact` → `generate::stream_design_parts`（走 `side_query_streaming`，按字节增长节流）逐帧 emit `design:generate_delta`；③ 前端独立 `useEffect` 监听 delta，按 `streamId` 重置累积、按 `seq` 丢乱序帧，经 `postToIframe` 发 `ds_stream_css`（替换 `<style id=ds-user-css>`）/ `ds_stream_body`（非空才替换 `#ds-stream-body` innerHTML，清掉内嵌 spinner）——**纯 DOM 插入不编译 JSX**（守红线①）；④ `finalize_generating_artifact`（`artifact_lock` 下单次 render+落盘+`status=ready`+建首版）emit `design:generate_done` → 前端 `refreshView` + **唯一一次受控** `previewKey++` swap 到定稿 `index.html`（editable，挂 oid + inspector bridge）。
+- **流式期 `editable=false` 语义**：半流式 DOM 无法稳定算 oid、半截 `<script>` 会抛错，故壳页不标 oid / 不挂 bridge / 不跑 body 内 `<script>`（`innerHTML` 天然不执行脚本 → 流式期无副作用）；oid/bridge 仅在定稿 index.html 生效。
+- **降级 / 韧性 / 安全**：生成失败（截断 / 空 body / 无后端 / panic）经 `degrade_to_placeholder` 落**干净占位** index.html（非永久 spinner）+ `status=failed`，emit `design:generate_error`；产物已删则**静默**（`degrade` 返 `false` → 不 emit，对齐 `finalize` 已删返 `None` 静默契约）。`delete_artifact` 与 `finalize` 同持 `artifact_lock` 互斥（不产孤儿目录）。崩溃留下的 `generating` 孤儿由 `reconcile_orphaned_generating`（library-wall 加载时，注册表不含 + 陈旧 grace）翻 failed 占位。**非流式 `create_artifact_generating` 完整保留**作 agent 工具面 + image / 无 brief / 无 tokio runtime 兜底；`side_query` / recap / judge 等非流式路径字节不变。iframe 恒 `sandbox="allow-scripts"`（opaque origin，postMessage-only）、接收脚本零网络。
+
+### 5.7 音频与交互组件形态（第 10、11 种）
+
+在 9 个纯静态 HTML 形态之外，两种媒体/交互形态——都仍是「自包含 HTML + iframe 直载、浏览器零编译」。
+
+- **`audio`（第 10 形态，媒体产物）**：prompt → 音频合成 → mp3 base64 **data-uri 内嵌 `<audio controls>` 播放器**（纯静态、零运行时、零网络，比 motion 还轻）。provider 栈 `tools/audio_generate/`（1:1 镜像 `image_generate` 的 trait + BYOK + failover），首发 `openai`（TTS `/v1/audio/speech`）+ `elevenlabs`（TTS `/v1/text-to-speech/{voice}` + Music `/v1/music`）；`AudioKind{Speech|Music|Sfx}` 让 failover **只在支持该 kind 的候选间轮换**。`design/audio.rs::infer_audio_kind` 从 prompt（`[music]`/`[sfx]` 前缀 / 关键词）判子能力。`editable=false`（同 Image，无 oid）。设置三件套 `audio_generate`（GUI `AudioGeneratePanel` + `ha-settings` redact + SKILL）+ dedicated `get/save_audio_generate_config`。
+- **`component`（第 11 形态，交互式 React）——后端编译，浏览器零编译**：达到 Claude Artifacts 级真交互（state / 事件 / hooks / mini-app）而**不重蹈 atelier 白屏**——关键是编译搬到后端：
+  - **`design/compile.rs`（oxc，纯 Rust、进程内、零外部二进制、零网络）**：LLM 产出的 JSX/TSX 源（classic runtime、全局 `React`、无 import/export）→ `Parser` → `SemanticBuilder::into_scoping()` → `Transformer`（`JsxRuntime::Classic` → `React.createElement`，默认 env = 只 JSX 转换 + TS 剥离、不降级现代语法）→ `Codegen` → 浏览器可执行 JS。
+  - **`renderer::build_component_html`**：内联 **vendored React 18 production UMD**（`design/assets/{react,react-dom}.production.min.js`，`include_str!`、锁 React 18 因 19 删了 UMD、零网络）+ 编译产物 + bootstrap（`ReactDOM.createRoot(...).render(React.createElement(App))`）→ 静态 `index.html`。iframe 载已编译静态产物、`sandbox="allow-scripts"` opaque origin、零网络。
+  - **失败必降级不白屏**：编译 `Err` → `build_component_error_html`（静态错误页，产物仍可开、可重生），**绝不 bail 阻断创建、绝不后端 panic**；`design::compile` 对畸形/截断源返 `Err`（单测锁「不 panic」）。
+  - **生成**：`generate::generate_component_source`（side_query 产 JSX，早筛必含 `App`）；空白 Component 用 `placeholder_component_source`（合法 JSX 占位，非 HTML——HTML 当 JSX 会编译失败）。
+  - **能力边界（刻意）**：Component 编译产物 ≠ 源码，故**不支持 oid 字节级可视化微调**（微调仍只归 9 静态 kind）；不走流式（回落阻塞 `create_artifact_generating`，编译一次 + 单次落盘）。
+
 ---
 
 ## 6. 设计系统层（品牌契约 + Token 编译）
@@ -523,6 +547,7 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 | 列出项目 | `list_design_projects_cmd` | `GET /api/design/projects` | 同名 |
 | 项目 CRUD | `create/update/delete_design_project_cmd` | `POST/PUT/DELETE /api/design/projects[/{id}]` | 同名 |
 | 列/取/删产物 | `list/get/delete_design_artifact_cmd` | `GET/DELETE /api/design/projects/{pid}/artifacts[/{aid}]` | 同名 |
+| 建/流式生成产物 | `create/generate_design_artifact_cmd` | `POST /api/design/artifacts[/generate]` | 同名（generate 返 generating 壳、内容走 `design:generate_delta`，见 §5.6） |
 | 版本/恢复 | `design_artifact_versions/restore_cmd` | `GET/POST …/artifacts/{aid}/versions` | 同名 |
 | 可视化回写 | `design_patch_element_cmd` | `POST …/artifacts/{aid}/patch` | 同名 |
 | 设计系统 CRUD | `list/get/save/delete_design_system_cmd` | `…/api/design/systems[/{id}]` | 同名 |

@@ -29,6 +29,8 @@ import {
   Download,
   Gauge,
   Film,
+  Music,
+  Blocks,
   History,
   Wand2,
   RotateCcw,
@@ -49,6 +51,7 @@ import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -122,6 +125,15 @@ const KIND_ICON: Record<ArtifactKind, typeof Monitor> = {
   email: Mail,
   image: Sparkles,
   motion: Film,
+  audio: Music,
+  component: Blocks,
+}
+
+// 仅纯静态 HTML kind 支持可视化 oid 微调；image/audio 是媒体（data-uri）、component 是编译产物
+// （产物≠源码），后端 render() 都不注 inspector bridge/oid，前端也不该暴露微调入口（否则 editMode
+// 发 ds_activate 给无接收脚本的 iframe，「点选元素开始微调」横幅常驻点不掉）。与后端 editable 对齐。
+function isEditableKind(kind: ArtifactKind): boolean {
+  return kind !== "image" && kind !== "audio" && kind !== "component"
 }
 
 type ZoomMode = "fit" | 0.5 | 1
@@ -168,6 +180,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
+
+  // 流式生成态：streamRef 追当前流（streamId 变化=新流重置、seq 丢乱序帧）；
+  // snapshotRef 存最新 css/body 供 iframe 加载完 `ds_stream_ready` 时补投。
+  const streamRef = useRef<{ artifactId: string; streamId: string; seq: number } | null>(null)
+  const streamSnapshotRef = useRef<{ artifactId: string; css: string; bodyHtml: string } | null>(
+    null,
+  )
 
   const kindLabel = useCallback(
     (kind: ArtifactKind) => t(`design.kind.${kind}`, kind),
@@ -317,7 +336,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     async (kind: ArtifactKind, prompt?: string) => {
       if (!activeProject) return
       try {
-        const artifact = await tx.call<DesignArtifact>("create_design_artifact_cmd", {
+        // 有 brief → 走流式生成（返回 generating 壳，内容经 design:generate_delta 回填）；
+        // 无 brief 的空白产物走原阻塞建。image 由后端回落阻塞出图。
+        const cmd = prompt ? "generate_design_artifact_cmd" : "create_design_artifact_cmd"
+        const artifact = await tx.call<DesignArtifact>(cmd, {
           input: {
             projectId: activeProject.id,
             title: kind === "image" && prompt ? prompt.slice(0, 40) : `${kindLabel(kind)}`,
@@ -345,9 +367,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [imagePromptOpen, setImagePromptOpen] = useState(false)
   const [imagePrompt, setImagePrompt] = useState("")
   const [creatingImage, setCreatingImage] = useState(false)
+  const [promptKind, setPromptKind] = useState<ArtifactKind>("image")
   const onPickKind = useCallback(
     (kind: ArtifactKind) => {
-      if (kind === "image") {
+      // image / audio 是媒体形态：需要一段描述（图像描述 / 旁白文本或音乐提示）→ 收集 prompt。
+      if (kind === "image" || kind === "audio") {
+        setPromptKind(kind)
         setImagePrompt("")
         setImagePromptOpen(true)
       } else {
@@ -361,14 +386,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (!imagePrompt.trim()) return
     setCreatingImage(true)
     try {
-      await createArtifact("image", imagePrompt.trim())
+      await createArtifact(promptKind, imagePrompt.trim())
       setImagePromptOpen(false) // only on success — createArtifact throws on failure
     } catch {
       // error already surfaced via toast in createArtifact; keep dialog open to retry
     } finally {
       setCreatingImage(false)
     }
-  }, [createArtifact, imagePrompt])
+  }, [createArtifact, imagePrompt, promptKind])
 
   // ── Prompt-first launch (home hero → generate) ───────────────
 
@@ -389,7 +414,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         input: { title: prompt.slice(0, 40) },
       })
       createdProjectId = project.id
-      const artifact = await tx.call<DesignArtifact>("create_design_artifact_cmd", {
+      // 首屏一句话 → 流式生成（返回 generating 壳，前端挂稳定 iframe 后逐帧灌入）。
+      const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
         input: {
           projectId: project.id,
           title: kindLabel(homeKind),
@@ -504,15 +530,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [commitPatch],
   )
 
-  // Receive selection from the iframe bridge.
+  // Receive selection from the iframe bridge + stream-host ready handshake.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const d = e.data as { type?: string; payload?: DesignSelectedElement }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
+      // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
+      else if (d?.type === "ds_stream_ready") {
+        const snap = streamSnapshotRef.current
+        if (snap && snap.artifactId === activeArtifactRef.current?.id) {
+          postToIframe({ type: "ds_stream_css", css: snap.css })
+          postToIframe({ type: "ds_stream_body", html: snap.bodyHtml })
+        }
+      }
     }
     window.addEventListener("message", onMsg)
     return () => window.removeEventListener("message", onMsg)
-  }, [])
+  }, [postToIframe])
 
   // Toggle bridge activation with edit mode.
   useEffect(() => {
@@ -536,6 +570,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // ── Export (D3): HTML/MD/ZIP（后端）+ PNG/PDF/PPTX/MP4（客户端栅格化） ──
   type ExportFormat = "html" | "md" | "zip" | "png" | "pdf" | "pptx" | "video"
   const [exporting, setExporting] = useState<null | ExportFormat>(null)
+
+  // 导出强路依赖门：MP4 需 ffmpeg 编码器、PDF/PNG 需浏览器引擎。未就绪时弹门让用户主动选
+  // （下载依赖 / 引导安装 / 用较低保真客户端栅格化），不静默降级。ffmpeg 与 browser 共用一个门。
+  type DepStatus = {
+    ready: boolean
+    source: string
+    binaryPath: string | null
+    canAutoInstall: boolean
+  }
+  type ExportDep = "ffmpeg" | "browser"
+  const [exportGate, setExportGate] = useState<{
+    dep: ExportDep
+    status: DepStatus
+    base: string
+    html: string
+    format: ExportFormat
+  } | null>(null)
+  const [gateInstalling, setGateInstalling] = useState(false)
+  const [gateProgress, setGateProgress] = useState<number | null>(null)
   const handleExport = useCallback(
     async (format: ExportFormat) => {
       if (!activeArtifact || exporting) return
@@ -592,8 +645,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           onProgress,
         }
         if (format === "png" || format === "pdf") {
-          // 强路优先：真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）。无浏览器后端
-          // 或原生失败时，回退客户端栅格化（html2canvas / jsPDF），保证始终可导出。
+          // PDF/PNG 强路 = 真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）。先预检浏览器
+          // 引擎：未就绪则弹门让用户主动选（下载 Chromium runtime / 引导 / 用较低保真客户端）。
+          const doc = await tx
+            .call<DepStatus>("design_browser_doctor_cmd")
+            .catch(() => null)
+          if (doc && !doc.ready) {
+            setExportGate({ dep: "browser", status: doc, base, html: res.content, format })
+            if (toastId !== undefined) toast.dismiss(toastId)
+            return
+          }
           try {
             const nat = await tx.call<{ data: string; mime: string }>(
               "export_design_native_cmd",
@@ -604,7 +665,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             logger.error(
               "design",
               "DesignView::handleExport",
-              `native ${format} unavailable, using client fallback`,
+              `native ${format} failed after ready engine, using client fallback`,
               e,
             )
             if (format === "png") {
@@ -619,8 +680,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             `${base}.pptx`,
           )
         } else if (format === "video") {
-          // 强路优先：真实浏览器逐帧真渲染 + ffmpeg 编码（任意时长/分辨率、跨浏览器无关）。
-          // 无浏览器后端 / 无 ffmpeg / 失败时回退客户端 WebCodecs 逐帧编码。
+          // MP4 强路 = 真实浏览器逐帧渲染 + ffmpeg 编码，**两个依赖都要**（ffmpeg 编码器 + 浏览器
+          // 引擎）。两个都预检，任一未就绪即弹门让用户主动选，不静默降级（缺浏览器时若只检
+          // ffmpeg 会在 acquire_backend 处失败后静默回退低保真 WebCodecs）。
+          const [ffdoc, brdoc] = await Promise.all([
+            tx.call<DepStatus>("design_ffmpeg_doctor_cmd").catch(() => null),
+            tx.call<DepStatus>("design_browser_doctor_cmd").catch(() => null),
+          ])
+          if (ffdoc && !ffdoc.ready) {
+            setExportGate({ dep: "ffmpeg", status: ffdoc, base, html: res.content, format: "video" })
+            if (toastId !== undefined) toast.dismiss(toastId)
+            return
+          }
+          if (brdoc && !brdoc.ready) {
+            setExportGate({ dep: "browser", status: brdoc, base, html: res.content, format: "video" })
+            if (toastId !== undefined) toast.dismiss(toastId)
+            return
+          }
+          // 就绪（或探针不可用 → 乐观尝试强路）；强路失败仍回退客户端保证可导出。
           try {
             const nat = await tx.call<{ data: string; mime: string }>(
               "export_design_native_cmd",
@@ -631,7 +708,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             logger.error(
               "design",
               "DesignView::handleExport",
-              "native video unavailable, using client WebCodecs fallback",
+              "native video failed after ready ffmpeg, using client WebCodecs fallback",
               e,
             )
             downloadBlob(
@@ -653,6 +730,81 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [tx, activeArtifact, exporting, t, designConfig],
   )
+
+  // 导出门：下载缺失依赖（ffmpeg 编码器 / Chromium runtime）后重试对应强路。
+  // **全程持 `exporting` 锁**（关模态后仍串行）——否则模态关闭到 await 完成的窗口里工具栏导出
+  // 按钮会重新可点，第二次原生导出与本次并发争用全局浏览器单例 → 截错帧 / 关掉对方导出页。
+  const gateDownloadAndRetry = useCallback(async () => {
+    const g = exportGate
+    if (!g || !activeArtifact) return
+    setExporting(g.format)
+    setGateInstalling(true)
+    setGateProgress(null)
+    try {
+      await tx.call(g.dep === "ffmpeg" ? "design_install_ffmpeg_cmd" : "design_install_browser_cmd")
+      setExportGate(null)
+      const tid = toast.loading(t("design.exporting", "正在导出…"))
+      const nat = await tx.call<{ data: string; mime: string }>("export_design_native_cmd", {
+        id: activeArtifact.id,
+        format: g.format === "video" ? "video" : g.format,
+      })
+      const ext = g.format === "video" ? "mp4" : g.format
+      downloadBlob(base64ToBlob(nat.data, nat.mime), `${g.base}.${ext}`)
+      toast.success(t("design.ok.exported", "已导出"), { id: tid })
+    } catch (e) {
+      logger.error("design", "DesignView::gateInstall", `${g.dep} install/export failed`, e)
+      toast.error(t("design.err.depInstall", "依赖下载失败，请重试或改用较低保真"))
+    } finally {
+      setGateInstalling(false)
+      setGateProgress(null)
+      setExporting(null)
+    }
+  }, [exportGate, activeArtifact, tx, t])
+
+  // 导出门：用较低保真的客户端栅格化（末位显式可选，非静默默认）。持 `exporting` 锁串行。
+  const gateUseClient = useCallback(async () => {
+    const g = exportGate
+    if (!g || !activeArtifact) return
+    setExporting(g.format)
+    setExportGate(null)
+    const tid = toast.loading(t("design.exporting", "正在导出…"))
+    const opts = { scale: designConfig?.exportScale, jpegQuality: designConfig?.exportJpegQuality }
+    try {
+      if (g.format === "video") {
+        downloadBlob(
+          await exportVideo(g.html, activeArtifact.viewportW, activeArtifact.viewportH, {
+            scale: designConfig?.exportScale,
+          }),
+          `${g.base}.mp4`,
+        )
+      } else if (g.format === "png") {
+        downloadBlob(await exportPng(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.png`)
+      } else if (g.format === "pdf") {
+        downloadBlob(await exportPdf(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.pdf`)
+      }
+      toast.success(t("design.ok.exported", "已导出"), { id: tid })
+    } catch (e) {
+      logger.error("design", "DesignView::gateClient", "client export failed", e)
+      toast.error(t("design.err.export", "导出失败"), { id: tid })
+    } finally {
+      setExporting(null)
+    }
+  }, [exportGate, activeArtifact, designConfig, t])
+
+  // 依赖下载进度（ffmpeg 与 Chromium 各自的 emit 通道）。
+  useEffect(() => {
+    const onProg = (raw: unknown) => {
+      const p = parsePayload<{ stage?: string; percent?: number }>(raw)
+      if (p?.stage === "ready") setGateProgress(100)
+      else if (p?.stage === "downloading")
+        setGateProgress(typeof p.percent === "number" ? p.percent : null)
+    }
+    const offs = [
+      tx.listen("design:ffmpeg_download_progress", onProg),
+      tx.listen("browser:chromium_download_progress", onProg),
+    ]
+    return () => offs.forEach((f) => f())
+  }, [tx])
 
   // 项目级 ZIP：打包该项目全部产物（每产物一目录 + 根 index.html 画廊）。
   const [exportingProject, setExportingProject] = useState(false)
@@ -920,6 +1072,67 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         const proj = activeProjectRef.current
         if (proj) void loadArtifacts(proj.id)
       }),
+      // ── 流式生成：壳建成 / 逐帧回填 / 定稿 / 失败 ────────────────
+      tx.listen("design:artifact_generating", () => {
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
+      }),
+      tx.listen("design:generate_delta", (raw) => {
+        const p = parsePayload<{
+          artifactId?: string
+          streamId?: string
+          seq?: number
+          css?: string
+          bodyHtml?: string
+        }>(raw)
+        if (!p?.artifactId || !p.streamId) return
+        // 只预览当前打开的产物；后台其它产物的流忽略（其磁盘定稿仍会落地）。
+        if (p.artifactId !== activeArtifactRef.current?.id) return
+        const cur = streamRef.current
+        // 新流（首帧 / streamId 变 = failover 重试）→ 重置 seq 基线。
+        if (!cur || cur.streamId !== p.streamId || cur.artifactId !== p.artifactId) {
+          streamRef.current = { artifactId: p.artifactId, streamId: p.streamId, seq: -1 }
+        }
+        const seq = typeof p.seq === "number" ? p.seq : 0
+        if (seq <= streamRef.current!.seq) return // 丢乱序 / 重复帧
+        streamRef.current!.seq = seq
+        const css = p.css ?? ""
+        const bodyHtml = p.bodyHtml ?? ""
+        streamSnapshotRef.current = { artifactId: p.artifactId, css, bodyHtml }
+        // CSS 先落（head 已定稿）再灌 body → 无 FOUC。
+        postToIframe({ type: "ds_stream_css", css })
+        postToIframe({ type: "ds_stream_body", html: bodyHtml })
+      }),
+      tx.listen("design:generate_done", (raw) => {
+        const p = parsePayload<{ artifactId?: string }>(raw)
+        const active = activeArtifactRef.current
+        if (p?.artifactId && active?.id === p.artifactId) {
+          streamRef.current = null
+          streamSnapshotRef.current = null
+          // 唯一一次受控 swap：刷新视图（status=ready + 新 bodyHash）+ 重挂到定稿 index.html
+          // （editable，挂 oid + inspector bridge）。
+          void refreshView()
+          setPreviewKey((k) => k + 1)
+        }
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
+      }),
+      tx.listen("design:generate_error", (raw) => {
+        const p = parsePayload<{ artifactId?: string }>(raw)
+        const active = activeArtifactRef.current
+        if (p?.artifactId && active?.id === p.artifactId) {
+          streamRef.current = null
+          streamSnapshotRef.current = null
+          void refreshView() // status=failed + 刷新 bodyHash
+          // 后端已把 index.html 降级为干净占位（非 spinner 壳）→ 重挂加载它，避免预览永久转圈。
+          setPreviewKey((k) => k + 1)
+          // 仅对正在预览的产物提示失败（与 generate_done 对齐）——否则切到别的项目/产物后，
+          // 后台产物的失败会给正看着无关视图的用户弹红色误报。
+          toast.error(t("design.err.generate", "生成失败，请重试"))
+        }
+        const proj = activeProjectRef.current
+        if (proj) void loadArtifacts(proj.id)
+      }),
       tx.listen("design:project_changed", () => {
         if (!activeProjectRef.current) void loadProjects()
       }),
@@ -955,7 +1168,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       }),
     ]
     return () => off.forEach((f) => f())
-  }, [tx, loadArtifacts, loadProjects, loadSystems, openProject, openArtifact, refreshView])
+  }, [
+    tx,
+    loadArtifacts,
+    loadProjects,
+    loadSystems,
+    openProject,
+    openArtifact,
+    refreshView,
+    postToIframe,
+    t,
+  ])
 
   // ── Preview iframe src ───────────────────────────────────────
 
@@ -1227,7 +1450,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     {activeArtifact.title}
                   </span>
                   <div className="ml-auto flex items-center gap-1">
-                    {activeArtifact.kind !== "image" && (
+                    {isEditableKind(activeArtifact.kind) && (
                       <IconTip
                         label={t("design.editMode", "可视化微调：点选元素改属性")}
                         side="bottom"
@@ -1267,7 +1490,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         <RefreshCw className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
-                    {activeArtifact.kind !== "image" && (
+                    {activeArtifact.kind !== "image" && activeArtifact.kind !== "audio" && (
                       <IconTip label={t("design.critique", "质量评审")} side="bottom">
                         <Button
                           variant="ghost"
@@ -1448,7 +1671,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4" />
-              {t("design.newImage", "生成图像")}
+              {promptKind === "audio"
+                ? t("design.newAudio", "生成音频")
+                : t("design.newImage", "生成图像")}
             </DialogTitle>
           </DialogHeader>
           <Textarea
@@ -1456,7 +1681,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             value={imagePrompt}
             onChange={(e) => setImagePrompt(e.target.value)}
             rows={3}
-            placeholder={t("design.imagePromptPlaceholder", "描述你想要的图像…")}
+            placeholder={
+              promptKind === "audio"
+                ? t("design.audioPromptPlaceholder", "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…")
+                : t("design.imagePromptPlaceholder", "描述你想要的图像…")
+            }
             className="resize-none"
           />
           <DialogFooter>
@@ -1467,6 +1696,86 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               {creatingImage && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.generate", "生成")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导出强路依赖门（MP4→ffmpeg / PDF·PNG→浏览器引擎）：未就绪让用户主动选，不静默降级。 */}
+      <Dialog
+        open={!!exportGate}
+        onOpenChange={(o) => {
+          if (!o && !gateInstalling) setExportGate(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {exportGate?.dep === "ffmpeg"
+                ? t("design.dep.ffmpegTitle", "MP4 编码器未就绪")
+                : t("design.dep.browserTitle", "浏览器渲染引擎未就绪")}
+            </DialogTitle>
+          </DialogHeader>
+          {exportGate?.status.canAutoInstall ? (
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                {exportGate?.dep === "ffmpeg"
+                  ? t(
+                      "design.dep.ffmpegAutoDesc",
+                      "MP4 强路导出需要 ffmpeg 编码器（矢量保真、任意时长）。可一键下载安装（约 40MB，仅首次），或改用较低保真的浏览器编码。",
+                    )
+                  : t(
+                      "design.dep.browserAutoDesc",
+                      "PDF/PNG 强路导出（矢量可搜 PDF / 全保真 PNG）需要浏览器渲染引擎。可一键下载内置 Chromium（约 150MB，仅首次），或改用较低保真的客户端栅格化。",
+                    )}
+              </p>
+              {gateInstalling && (
+                <div className="space-y-1">
+                  <Progress value={gateProgress ?? undefined} />
+                  <p className="text-xs">
+                    {gateProgress != null
+                      ? `${gateProgress}%`
+                      : t("design.dep.downloading", "下载中…")}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                {exportGate?.dep === "ffmpeg"
+                  ? t("design.dep.ffmpegManualDesc", "MP4 强路导出需要 ffmpeg。请安装后重试，或改用较低保真的浏览器编码。")
+                  : t("design.dep.browserManualDesc", "PDF/PNG 强路导出需要浏览器引擎。请安装 Chrome / Edge / Brave 后重试，或改用较低保真的客户端栅格化。")}
+              </p>
+              {exportGate?.dep === "ffmpeg" && (
+                <>
+                  <pre className="overflow-x-auto rounded bg-muted p-2 text-xs">
+                    brew install ffmpeg{"\n"}winget install ffmpeg{"\n"}apt install ffmpeg
+                  </pre>
+                  <p className="text-xs">
+                    {t("design.dep.envHint", "或设置环境变量 HA_FFMPEG_PATH 指向 ffmpeg 二进制。")}
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setExportGate(null)} disabled={gateInstalling}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void gateUseClient()}
+              disabled={gateInstalling}
+            >
+              {t("design.dep.useClient", "用较低保真导出")}
+            </Button>
+            {exportGate?.status.canAutoInstall && (
+              <Button onClick={() => void gateDownloadAndRetry()} disabled={gateInstalling}>
+                {gateInstalling
+                  ? t("design.dep.installing", "安装中…")
+                  : t("design.dep.download", "下载并导出")}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

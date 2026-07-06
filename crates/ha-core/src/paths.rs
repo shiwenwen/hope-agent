@@ -104,6 +104,18 @@ pub fn permission_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("permission"))
 }
 
+// ── ffmpeg runtime (on-demand static build for MP4 export) ───────
+
+/// ffmpeg runtime root: ~/.hope-agent/ffmpeg/
+pub fn ffmpeg_runtime_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("ffmpeg"))
+}
+
+/// Versioned ffmpeg install dir: ~/.hope-agent/ffmpeg/{version}/
+pub fn ffmpeg_version_dir(version: &str) -> Result<PathBuf> {
+    Ok(ffmpeg_runtime_dir()?.join(version))
+}
+
 // ── Agent Home ───────────────────────────────────────────────────
 
 /// Main agent home directory: ~/.hope-agent/home/

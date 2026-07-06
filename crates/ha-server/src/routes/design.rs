@@ -178,6 +178,19 @@ pub async fn create_artifact(
     ))
 }
 
+/// `POST /api/design/artifacts/generate` — streaming generate (returns generating
+/// shell immediately; content streams via `design:generate_delta` over WS).
+pub async fn generate_artifact(
+    Json(body): Json<CreateArtifactBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&body.input.project_id)?;
+    Ok(Json(
+        service::generate_design_artifact(body.input)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 /// `GET /api/design/artifacts` — all artifacts across projects (library wall).
 pub async fn list_all_artifacts() -> Result<Json<Vec<DesignArtifact>>, AppError> {
     Ok(Json(
@@ -365,6 +378,35 @@ pub async fn export_native(
         .await
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "data": data, "mime": mime })))
+}
+
+/// `GET /api/design/ffmpeg/doctor` — MP4-export ffmpeg encoder three-state probe.
+pub async fn ffmpeg_doctor() -> Result<Json<ha_core::ffmpeg::FfmpegStatus>, AppError> {
+    Ok(Json(ha_core::ffmpeg::doctor().await))
+}
+
+/// `POST /api/design/ffmpeg/install` — on-demand download the static ffmpeg
+/// encoder (progress on `design:ffmpeg_download_progress` WS event).
+pub async fn install_ffmpeg() -> Result<Json<Value>, AppError> {
+    let binary = ha_core::ffmpeg::install_with_event_bus_progress()
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "binaryPath": binary.display().to_string() })))
+}
+
+/// `GET /api/design/browser/doctor` — PDF/PNG-export browser-engine three-state probe.
+pub async fn browser_doctor(
+) -> Result<Json<ha_core::design::render_native::BrowserExportStatus>, AppError> {
+    Ok(Json(ha_core::design::render_native::browser_export_status()))
+}
+
+/// `POST /api/design/browser/install` — on-demand download the Chromium runtime
+/// (progress on `browser:chromium_download_progress` WS event).
+pub async fn install_browser() -> Result<Json<Value>, AppError> {
+    let binary = ha_core::browser::runtime::install_with_event_bus_progress()
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "binaryPath": binary.display().to_string() })))
 }
 
 /// `GET /api/design/projects/{project_id}/artifacts/{artifact_id}/{*rest}` —

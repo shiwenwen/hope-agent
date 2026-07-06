@@ -14,7 +14,9 @@ export type ArtifactKind =
   | "document"
   | "email"
   | "image"
-  | "motion";
+  | "motion"
+  | "audio"
+  | "component";
 
 /** 产物生成状态。 */
 export type ArtifactStatus = "planned" | "generating" | "ready" | "failed";
@@ -179,6 +181,8 @@ export const ARTIFACT_KINDS: ArtifactKind[] = [
   "email",
   "image",
   "motion",
+  "audio",
+  "component",
 ];
 
 /** 设计系统正文（`get_design_system_cmd` 返回）。 */

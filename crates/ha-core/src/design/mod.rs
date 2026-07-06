@@ -5,7 +5,9 @@
 //!
 //! **零 Tauri 依赖**：业务全在此，`src-tauri` / `ha-server` 只做薄壳。
 
+pub mod audio;
 mod brands;
+pub mod compile;
 pub mod critique;
 pub mod db;
 pub mod design_md;

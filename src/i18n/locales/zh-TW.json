@@ -170,7 +170,7 @@
     "launchHeading": "你想設計什麼？",
     "launchSub": "一句話描述，直接生成可交付的設計——網頁 / 簡報 / 海報 / 文件 / 動效。",
     "launchPlaceholder": "描述你想要的設計，例如「一個 SaaS 產品的定價頁，三檔方案」…",
-    "generate": "生成",
+    "generate": "產生",
     "generating": "生成中…",
     "recentProjects": "最近的專案",
     "newBlankProject": "空白專案",
@@ -196,7 +196,6 @@
     "extract": "擷取",
     "extractedSystem": "擷取的設計系統",
     "systemNamePlaceholder": "設計系統名稱",
-    "generate": "產生",
     "newImage": "產生圖像",
     "imagePromptPlaceholder": "描述你想要的圖像…",
     "directionBriefPlaceholder": "描述你的產品 / 品牌…",
@@ -272,7 +271,9 @@
       "document": "文件",
       "email": "郵件",
       "image": "圖像",
-      "motion": "動態"
+      "motion": "動態",
+      "audio": "音訊",
+      "component": "互動元件"
     },
     "editHint": "在預覽中點選一個元素開始微調",
     "exporting": "正在匯出…",
@@ -292,7 +293,9 @@
       "propose": "產生方向失敗",
       "restore": "還原失敗",
       "setSystem": "設定設計系統失敗",
-      "importMd": "DESIGN.md 匯入失敗"
+      "importMd": "DESIGN.md 匯入失敗",
+      "generate": "生成失敗，請重試",
+      "depInstall": "相依項下載失敗，請重試或改用較低保真"
     },
     "ok": {
       "adopted": "已套用設計方向",
@@ -308,7 +311,22 @@
     "importDesignMd": "匯入 DESIGN.md",
     "exportDesignMd": "匯出目前系統 (DESIGN.md)",
     "import": "匯入",
-    "importDesignMdPlaceholder": "貼上 DESIGN.md 文字（9 段規範 + --ds-* Token 表；缺 token 時自動合成）…"
+    "importDesignMdPlaceholder": "貼上 DESIGN.md 文字（9 段規範 + --ds-* Token 表；缺 token 時自動合成）…",
+    "dep": {
+      "ffmpegTitle": "MP4 編碼器尚未就緒",
+      "browserTitle": "瀏覽器算繪引擎尚未就緒",
+      "ffmpegAutoDesc": "MP4 強路匯出需要 ffmpeg 編碼器（向量保真、任意時長）。可一鍵下載安裝（約 40MB，僅首次），或改用較低保真的瀏覽器編碼。",
+      "browserAutoDesc": "PDF/PNG 強路匯出（向量可搜 PDF / 全保真 PNG）需要瀏覽器算繪引擎。可一鍵下載內建 Chromium（約 150MB，僅首次），或改用較低保真的用戶端點陣化。",
+      "ffmpegManualDesc": "MP4 強路匯出需要 ffmpeg。請安裝後重試，或改用較低保真的瀏覽器編碼。",
+      "browserManualDesc": "PDF/PNG 強路匯出需要瀏覽器引擎。請安裝 Chrome / Edge / Brave 後重試，或改用較低保真的用戶端點陣化。",
+      "downloading": "下載中…",
+      "envHint": "或設定環境變數 HA_FFMPEG_PATH 指向 ffmpeg 二進位檔。",
+      "useClient": "用較低保真匯出",
+      "installing": "安裝中…",
+      "download": "下載並匯出"
+    },
+    "newAudio": "生成音訊",
+    "audioPromptPlaceholder": "旁白文字，或音樂/音效描述（可加 [music] / [sfx] 前綴）…"
   },
   "channels": {
     "accountLabel": "賬戶名稱",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "推薦",
     "webSearchSaved": "已保存",
     "webSearchTimeout": "超時（秒）",
-    "webSearchTimeoutDesc": "搜索請求 HTTP 超時時間（5-120 秒）"
+    "webSearchTimeoutDesc": "搜索請求 HTTP 超時時間（5-120 秒）",
+    "audioGenerate": "音訊生成",
+    "audioGenerateDesc": "設定音訊合成 Provider（BYOK），用於設計空間「音訊」形態：語音旁白 / 音樂 / 音效。依序 failover。",
+    "audioGenNoProvider": "尚未設定音訊 Provider — 啟用其一並填入 API Key。",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "模型",
+    "audioGenVoice": "語音 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "請求逾時（秒）"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",

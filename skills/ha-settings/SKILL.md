@@ -64,6 +64,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `image` | `maxImages` |
 | `pdf` | `maxPdfs`, `maxVisionPages` |
 | `image_generate` | `provider`, `model`, `defaultSize` (e.g. `1024x1024`), `timeoutSeconds`, `providers` (per-provider entries — `id`, `enabled`, `apiKey`, `baseUrl`). **Read responses redact `providers[*].apiKey` to `"[REDACTED]"`**, so the model can list configured providers but never sees existing keys; writes still flow through (so the user can ask the skill to set a key, but the skill won't echo it back on next read). For best UX prefer Settings → Image Generate. |
+| `audio_generate` | Audio-synthesis providers for the design space **audio** artifact form (TTS narration / music / SFX). `timeoutSeconds`, `providers` (per-provider entries — `id` (`openai` = TTS, `elevenlabs` = TTS + Music), `enabled`, `apiKey`, `baseUrl`, `model`, `voice`). **Read responses redact `providers[*].apiKey` to `"[REDACTED]"`** (same handling as `image_generate`). For best UX prefer Settings → Audio Generation. |
 | `temperature` | `temperature` (0.0–2.0, null = API default) |
 | `tool_timeout` | `toolTimeout` (seconds, 0 = unlimited) |
 | `default_agent` | `defaultAgentId` (string id; `null` / empty falls back to hardcoded `"default"` agent) |
@@ -238,5 +239,5 @@ Returns `{id, timestamp, kind, category, source}` newest first.
 - **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `approvalTimeoutEnabled`, `askUserQuestionTimeoutEnabled`, `askUserQuestionTimeoutSecs`).
 - **Security restrictions** — cannot modify Providers or API Keys through this tool; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
-- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `server` / `web_search` / `image_generate` / `acp_control` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
+- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `server` / `web_search` / `image_generate` / `audio_generate` / `acp_control` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
 - **Rollback is built-in** — if a change goes wrong, offer `restore_settings_backup` instead of trying to reconstruct the old values manually.

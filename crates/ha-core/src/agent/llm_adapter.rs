@@ -14,17 +14,25 @@
 //!   and a single user message — used by Tier 3 summarization.
 //! - [`OneShotMode::Bare`]: minimal user-only request, no system, no tools.
 //!
-//! Streaming + tool-loop chat is **not** in scope here — see Phase 2.
+//! Tool-loop chat is **not** in scope here. A streaming *sibling*
+//! [`LlmApiAdapter::one_shot_stream`] does exist — same body/prefix/SSE
+//! machinery as `one_shot`, but it forwards per-token text deltas to a callback
+//! (used by the design space's live generation preview). The non-streaming
+//! `one_shot` path — and every caller of it (side_query / recap / judge) — is
+//! byte-for-byte untouched.
 
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use super::config::{build_api_url, ANTHROPIC_API_VERSION, CODEX_API_URL};
 use super::errors::parse_error_response;
+use super::providers::anthropic_adapter::parse_anthropic_sse;
 use super::providers::codex_adapter::{apply_codex_headers, codex_user_agent};
+use super::providers::openai_chat_adapter::parse_chat_completions_sse;
 use super::providers::openai_responses_adapter::parse_openai_sse;
 use super::types::{AssistantAgent, CacheSafeParams, ChatUsage, LlmProvider, ProviderFormat};
 
@@ -72,6 +80,48 @@ pub(super) trait LlmApiAdapter: Send + Sync {
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult>;
+
+    /// Streaming sibling of [`one_shot`](Self::one_shot): identical body /
+    /// cache-prefix / SSE machinery, but forwards each text delta to `on_delta`
+    /// as it arrives instead of discarding it. Reuses the same battle-tested SSE
+    /// parsers the main chat loop runs. Only the design-space live-preview path
+    /// calls this; every non-streaming caller keeps using `one_shot` unchanged.
+    async fn one_shot_stream(
+        &self,
+        client: &reqwest::Client,
+        req: OneShotRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+    ) -> Result<OneShotResult>;
+}
+
+/// Build an error from a non-2xx streaming response by reading its (non-SSE)
+/// error body — mirrors [`send_json_request`]'s error path for SSE endpoints
+/// where we consume the body stream ourselves.
+async fn stream_error(resp: reqwest::Response) -> anyhow::Error {
+    let status = resp.status().as_u16();
+    let err_text = resp.text().await.unwrap_or_default();
+    anyhow::anyhow!("{}", parse_error_response(status, &err_text))
+}
+
+/// The SSE parsers wrap each text increment in the main-loop streaming envelope
+/// `{"type":"text_delta","content":"…"}` (via `events::emit_text_delta`) before
+/// calling `on_delta`. `one_shot_stream`'s contract is **raw text deltas**, so
+/// this unwraps the envelope: forward only `content` for `text_delta` events,
+/// dropping `thinking_delta` / `tool_call` envelopes. Keeps the streamed text
+/// byte-aligned with the parser's own `collected_text` (which is also text-only).
+fn unwrap_text_delta<'a>(
+    on_text: &'a (dyn for<'s> Fn(&'s str) + Send + Sync),
+) -> impl Fn(&str) + Send + Sync + 'a {
+    move |envelope: &str| {
+        if let Ok(v) = serde_json::from_str::<Value>(envelope) {
+            if v.get("type").and_then(|t| t.as_str()) == Some("text_delta") {
+                if let Some(c) = v.get("content").and_then(|c| c.as_str()) {
+                    on_text(c);
+                }
+            }
+        }
+    }
 }
 
 impl LlmProvider {
@@ -149,6 +199,40 @@ impl<'a> LlmApiAdapter for AnthropicAdapter<'a> {
             usage: extract_anthropic_usage(&result),
         })
     }
+
+    async fn one_shot_stream(
+        &self,
+        client: &reqwest::Client,
+        req: OneShotRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+    ) -> Result<OneShotResult> {
+        let mut body = build_anthropic_body(self.model, &req);
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("stream".into(), json!(true));
+        }
+        let api_url = build_api_url(self.base_url, "/v1/messages");
+        let request_start = std::time::Instant::now();
+        let resp = client
+            .post(&api_url)
+            .header("x-api-key", self.key)
+            .header("anthropic-version", ANTHROPIC_API_VERSION)
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("Anthropic stream request failed: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(stream_error(resp).await);
+        }
+        let fwd = unwrap_text_delta(on_delta);
+        let (text, _tool_calls, _stop, mut usage, _thinking, _ttft) =
+            parse_anthropic_sse(resp, request_start, cancel, &fwd).await?;
+        usage.last_input_tokens = usage.input_tokens;
+        usage.last_cache_creation_input_tokens = usage.cache_creation_input_tokens;
+        usage.last_cache_read_input_tokens = usage.cache_read_input_tokens;
+        Ok(OneShotResult { text, usage })
+    }
 }
 
 fn build_anthropic_body(model: &str, req: &OneShotRequest<'_>) -> Value {
@@ -219,6 +303,41 @@ impl<'a> LlmApiAdapter for OpenAIChatAdapter<'a> {
             usage: extract_openai_usage(&result),
         })
     }
+
+    async fn one_shot_stream(
+        &self,
+        client: &reqwest::Client,
+        req: OneShotRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+    ) -> Result<OneShotResult> {
+        let mut body = build_openai_chat_body(self.model, &req);
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("stream".into(), json!(true));
+            // Chat Completions only reports usage in the stream when asked.
+            obj.insert("stream_options".into(), json!({ "include_usage": true }));
+        }
+        let api_url = build_api_url(self.base_url, "/v1/chat/completions");
+        let bearer = format!("Bearer {}", self.key);
+        let request_start = std::time::Instant::now();
+        let resp = client
+            .post(&api_url)
+            .header("content-type", "application/json")
+            .header("Authorization", &bearer)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("OpenAI chat stream request failed: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(stream_error(resp).await);
+        }
+        let fwd = unwrap_text_delta(on_delta);
+        let (text, _tool_calls, mut usage, _thinking, _ttft) =
+            parse_chat_completions_sse(resp, request_start, None, cancel, &fwd).await?;
+        usage.last_input_tokens = usage.input_tokens;
+        usage.last_cache_read_input_tokens = usage.cache_read_input_tokens;
+        Ok(OneShotResult { text, usage })
+    }
 }
 
 fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
@@ -284,6 +403,39 @@ impl<'a> LlmApiAdapter for OpenAIResponsesAdapter<'a> {
             usage: extract_openai_usage(&result),
         })
     }
+
+    async fn one_shot_stream(
+        &self,
+        client: &reqwest::Client,
+        req: OneShotRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+    ) -> Result<OneShotResult> {
+        let mut body = build_responses_body(self.model, &req, ProviderFormat::OpenAIResponses);
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("stream".into(), json!(true));
+        }
+        let api_url = build_api_url(self.base_url, "/v1/responses");
+        let bearer = format!("Bearer {}", self.key);
+        let request_start = std::time::Instant::now();
+        let resp = client
+            .post(&api_url)
+            .header("content-type", "application/json")
+            .header("Authorization", &bearer)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("OpenAI responses stream request failed: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(stream_error(resp).await);
+        }
+        let fwd = unwrap_text_delta(on_delta);
+        let (text, _tool_calls, mut usage, _thinking, _ttft) =
+            parse_openai_sse(resp, request_start, cancel.as_ref(), &fwd).await?;
+        usage.last_input_tokens = usage.input_tokens;
+        usage.last_cache_read_input_tokens = usage.cache_read_input_tokens;
+        Ok(OneShotResult { text, usage })
+    }
 }
 
 // ── Codex adapter (OpenAI Responses protocol + OAuth headers) ────────
@@ -300,6 +452,35 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
         &self,
         client: &reqwest::Client,
         req: OneShotRequest<'_>,
+    ) -> Result<OneShotResult> {
+        // Codex already streams internally (its backend rejects `stream:false`);
+        // the non-streaming path just discards deltas via a noop, exactly as
+        // before this method was factored into `codex_call`.
+        let cancel = AtomicBool::new(false);
+        self.codex_call(client, req, &cancel, &|_: &str| {}).await
+    }
+
+    async fn one_shot_stream(
+        &self,
+        client: &reqwest::Client,
+        req: OneShotRequest<'_>,
+        cancel: &Arc<AtomicBool>,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
+    ) -> Result<OneShotResult> {
+        // Unwrap the text_delta envelope here (not in codex_call) so the
+        // non-streaming `one_shot` noop path stays envelope-parse-free.
+        let fwd = unwrap_text_delta(on_delta);
+        self.codex_call(client, req, cancel.as_ref(), &fwd).await
+    }
+}
+
+impl<'a> CodexAdapter<'a> {
+    async fn codex_call(
+        &self,
+        client: &reqwest::Client,
+        req: OneShotRequest<'_>,
+        cancel: &AtomicBool,
+        on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<OneShotResult> {
         let body = build_responses_body(self.model, &req, ProviderFormat::Codex);
         let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
@@ -395,13 +576,11 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
             return Err(anyhow::anyhow!("{}", friendly));
         }
 
-        let cancel = AtomicBool::new(false);
-        let noop = |_: &str| {};
         let (text, _tool_calls, mut usage, _thinking, _ttft) = match parse_openai_sse(
             resp,
             request_start,
-            &cancel,
-            &noop,
+            cancel,
+            on_delta,
         )
         .await
         {
@@ -1028,6 +1207,27 @@ mod tests {
     }
 
     // ── Response parsing ─────────────────────────────────────────────
+
+    #[test]
+    fn unwrap_text_delta_forwards_only_raw_text_content() {
+        use std::sync::Mutex;
+        let acc = Mutex::new(String::new());
+        let sink: &(dyn for<'s> Fn(&'s str) + Send + Sync) =
+            &|s: &str| acc.lock().unwrap().push_str(s);
+        let fwd = unwrap_text_delta(sink);
+        // text_delta → content forwarded; thinking / tool / non-JSON envelopes dropped.
+        fwd(&json!({"type": "text_delta", "content": "<<<CSS>>>\n"}).to_string());
+        fwd(&json!({"type": "thinking_delta", "content": "pondering"}).to_string());
+        fwd(&json!({"type": "tool_call", "name": "x"}).to_string());
+        fwd(&json!({"type": "text_delta", "content": "body{}"}).to_string());
+        fwd("not json at all");
+        let out = acc.lock().unwrap().clone();
+        // Streamed text is byte-identical to the model's raw output — the JSON
+        // envelope never leaks into the design preview parser.
+        assert_eq!(out, "<<<CSS>>>\nbody{}");
+        assert!(!out.contains("thinking"));
+        assert!(!out.contains("text_delta"));
+    }
 
     #[test]
     fn extract_anthropic_text_picks_first_text_block() {

@@ -229,6 +229,26 @@ pub async fn save_image_generate_config(
     .map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn get_audio_generate_config() -> Result<tools::audio_generate::AudioGenConfig, CmdError>
+{
+    let store = ha_core::config::load_config()?;
+    let mut config = store.audio_generate;
+    tools::audio_generate::backfill_providers(&mut config);
+    Ok(config)
+}
+
+#[tauri::command]
+pub async fn save_audio_generate_config(
+    config: tools::audio_generate::AudioGenConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("audio_generate", "settings-ui"), |store| {
+        store.audio_generate = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
 /// Core logic for desktop manual context compaction.
 pub(crate) async fn compact_context_now_core(
     session_id: &str,

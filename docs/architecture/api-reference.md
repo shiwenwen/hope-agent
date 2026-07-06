@@ -137,6 +137,8 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` | 画布面板 |
 | `canvas_snapshot_request` / `canvas_eval_request` | 画布工具流 |
 | `design:show` / `design:reload` / `design:artifact_ready` / `design:artifact_deleted` / `design:project_changed` / `design:system_changed` / `design:critiqued` | 设计空间（产物生成 / 预览刷新 / 系统变更 / 质量评审） |
+| `design:artifact_generating` / `design:generate_delta` / `design:generate_done` / `design:generate_error` | 设计空间真流式生成（建 generating 壳 / 逐帧回填预览 / 定稿受控 swap / 失败降级）。`generate_delta` payload `{ projectId, artifactId, streamId, seq, css, bodyHtml, done }` |
+| `design:ffmpeg_download_progress` | MP4 导出编码器（ffmpeg）按需下载进度。Payload `{ stage: "downloading"\|"ready", percent?, downloadedBytes?, totalBytes?, binaryPath? }` |
 | `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底 |
 
 ### MCP
@@ -419,6 +421,9 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `delete_design_project_cmd` | `DELETE /api/design/projects/{id}` | ✅ |
 | `list_design_artifacts_cmd` | `GET /api/design/projects/{projectId}/artifacts` | ✅ |
 | `create_design_artifact_cmd` | `POST /api/design/artifacts` | ✅ |
+| `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate` | ✅ |
+| `design_ffmpeg_doctor_cmd` | `GET /api/design/ffmpeg/doctor` | ✅ |
+| `design_install_ffmpeg_cmd` | `POST /api/design/ffmpeg/install` | ✅ |
 | `list_all_design_artifacts_cmd` | `GET /api/design/artifacts` | ✅ |
 | `get_design_artifact_cmd` | `GET /api/design/artifacts/{id}` | ✅ |
 | `delete_design_artifact_cmd` | `DELETE /api/design/artifacts/{id}` | ✅ |

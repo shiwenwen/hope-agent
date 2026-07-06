@@ -53,6 +53,7 @@ fn risk_level(category: &str) -> &'static str {
         | "image"
         | "pdf"
         | "image_generate"
+        | "audio_generate"
         | "temperature"
         | "tool_timeout"
         | "default_agent"
@@ -483,6 +484,10 @@ fn read_category(category: &str) -> Result<Value> {
         "image_generate" => Ok(redact_image_generate_value(serde_json::to_value(
             &cfg.image_generate,
         )?)),
+        // Audio providers share the `{providers:[{apiKey}]}` shape → same redactor.
+        "audio_generate" => Ok(redact_image_generate_value(serde_json::to_value(
+            &cfg.audio_generate,
+        )?)),
         "canvas" => Ok(serde_json::to_value(&cfg.canvas)?),
         "design" => Ok(serde_json::to_value(&cfg.design)?),
         "image" => Ok(serde_json::to_value(&cfg.image)?),
@@ -694,7 +699,7 @@ fn get_all_overview() -> Result<String> {
     let risk_levels = json!({
         "low": [
             "user", "theme", "language", "ui_effects", "prevent_sleep", "sidebar_ui", "notification", "startup_notification",
-            "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
+            "canvas", "image", "pdf", "image_generate", "audio_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
         "medium": [
@@ -950,6 +955,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
         }
         "image_generate" => merge_field(&mut store.image_generate, values)?,
+        "audio_generate" => merge_field(&mut store.audio_generate, values)?,
         "canvas" => merge_field(&mut store.canvas, values)?,
         "design" => merge_field(&mut store.design, values)?,
         "image" => merge_field(&mut store.image, values)?,

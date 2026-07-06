@@ -4,6 +4,7 @@ import ToolGeneralPanel from "@/components/settings/ToolGeneralPanel"
 import WebSearchPanel from "@/components/settings/WebSearchPanel"
 import WebFetchPanel from "@/components/settings/WebFetchPanel"
 import ImageGeneratePanel from "@/components/settings/ImageGeneratePanel"
+import AudioGeneratePanel from "@/components/settings/AudioGeneratePanel"
 import IssueReportingPanel from "@/components/settings/IssueReportingPanel"
 import CanvasSettingsPanel from "@/components/settings/CanvasSettingsPanel"
 import DesignSettingsPanel from "@/components/settings/DesignSettingsPanel"
@@ -20,6 +21,7 @@ export default function ToolSettingsPanel() {
           <TabsTrigger value="webSearch">{t("settings.webSearch")}</TabsTrigger>
           <TabsTrigger value="webFetch">{t("settings.webFetch")}</TabsTrigger>
           <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
+          <TabsTrigger value="audioGenerate">{t("settings.audioGenerate", "音频生成")}</TabsTrigger>
           <TabsTrigger value="canvas">{t("settings.canvas")}</TabsTrigger>
           <TabsTrigger value="design">{t("design.title", "设计空间")}</TabsTrigger>
           <TabsTrigger value="asyncTools">{t("settings.asyncTools")}</TabsTrigger>
@@ -37,6 +39,9 @@ export default function ToolSettingsPanel() {
       </TabsContent>
       <TabsContent value="imageGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <ImageGeneratePanel />
+      </TabsContent>
+      <TabsContent value="audioGenerate" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
+        <AudioGeneratePanel />
       </TabsContent>
       <TabsContent value="canvas" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <CanvasSettingsPanel />

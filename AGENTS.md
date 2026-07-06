@@ -187,7 +187,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 
 详见 [`design-space.md`](docs/architecture/design-space.md)（架构）+ [`design-space-roadmap.md`](docs/architecture/design-space-roadmap.md)（迭代计划/决策账本）。对外名「设计空间」（侧边栏「知识空间」正下方），代码标识 `design`（模块 `design/`、agent 工具 `design`、库 `design.db`、视图 `DesignView`）。**本节只列跨 PR 红线，实现细节一律在架构文档**。
 
-- **轻量自包含 HTML（红线）**：产物是 agent 直接产出的自包含 HTML，iframe 直载渲染——**绝不在浏览器里编译 React/JSX/Tailwind**（这是"不白屏、启动快"的根本；旧版 `feat/atelier` 因重型运行时被推倒重做，勿引入 esbuild-wasm 类方案）
+- **编译只在后端 / 浏览器零编译（红线，精修自「轻量自包含 HTML」）**：产物 iframe 只加载**已编译落盘的静态产物**，**浏览器端零编译 / 零打包 / 零 JIT**（不引 in-browser Babel / esbuild-wasm / Tailwind JIT——这是旧版 `feat/atelier` 白屏卡顿被推倒重做的根因）。9 个静态 kind（web/mobile/deck/dashboard/poster/document/email/image/motion）+ audio 是纯自包含 HTML；**`component`（交互式 React）kind 走 `design::compile`（纯 Rust `oxc`，进程内编译 JSX/TSX→JS）在 ha-core 后端编译一次**，内联 vendored React 18 UMD（`design/assets/`，锁版本、零网络）+ 编译产物落成静态 `index.html`。**编译失败必降级为静态错误页 / 占位，绝不白屏 / 绝不后端 panic**。Component 编译产物 ≠ 源码故**不支持 oid 可视化微调**（微调仍只归 9 静态 kind）
 - **产物墙非画布（红线）**：主编辑面是产物库缩略图墙 + 单产物稳定 iframe 预览（纯 CSS 缩放），**刻意不做无限画布**（旧版卡顿之源）
 - **可视化微调确定性回写**：纯 HTML → 渲染期注入 `data-ds-oid` + 产出 oidmap（映射源码字节范围），`patch::apply_{style,text}_patch` 走单一命中 + `expected_hash`（磁盘 body BLAKE3）stale-write 守卫；预览态注入 dormant inspector bridge（收 `ds_activate` 才启用），**导出态 `editable=false` 不注入 bridge/oid**（干净产物）
 - **文件即真相源**：产物 `index.html`/`source/`/`versions/`、设计系统 `SYSTEM.md`/`tokens.json` 都是磁盘真实文件；`design.db` 是可重建元数据注册表

@@ -38,6 +38,46 @@ impl CaptureKind {
     }
 }
 
+/// 导出强路的浏览器引擎依赖三态（PDF/PNG 强路预检用）。与 [`crate::ffmpeg::FfmpegStatus`]
+/// 同 camelCase JSON 形，前端共用一个类型。`ready` = 有系统浏览器或已下载的 Chromium runtime。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserExportStatus {
+    pub ready: bool,
+    /// `system` | `runtime` | `missing`.
+    pub source: String,
+    pub binary_path: Option<String>,
+    pub can_auto_install: bool,
+}
+
+/// 探测导出强路可用的浏览器引擎：系统 Chrome/Edge/Brave/Chromium → 已下载的 Chromium runtime
+/// → 缺失。`can_auto_install` = 本平台有 Chromium 按需下载源。
+pub fn browser_export_status() -> BrowserExportStatus {
+    let can_auto_install = crate::browser::runtime::spec_for_current_platform().is_some();
+    if let Some(p) = crate::platform::find_chrome_executable() {
+        return BrowserExportStatus {
+            ready: true,
+            source: "system".into(),
+            binary_path: Some(p.to_string_lossy().into_owned()),
+            can_auto_install,
+        };
+    }
+    if let Some(p) = crate::browser::runtime::cached_binary_path() {
+        return BrowserExportStatus {
+            ready: true,
+            source: "runtime".into(),
+            binary_path: Some(p.to_string_lossy().into_owned()),
+            can_auto_install,
+        };
+    }
+    BrowserExportStatus {
+        ready: false,
+        source: "missing".into(),
+        binary_path: None,
+        can_auto_install,
+    }
+}
+
 /// 用真实浏览器渲染产物 `index.html` 并原生捕获为 PDF / PNG 字节。
 ///
 /// 失败（无后端 / 渲染出错）返回 `Err`，由 owner 层决定回退客户端路径。
@@ -152,13 +192,11 @@ const VIDEO_HARNESS: &str = r#"<script>
 })();
 </script>"#;
 
-/// ffmpeg 二进制：`HA_FFMPEG_PATH` 覆盖 → 否则 PATH 上的 `ffmpeg`。缺失则整体 Err，前端回退
-/// 客户端 WebCodecs。
+/// ffmpeg 二进制：`HA_FFMPEG_PATH` 覆盖 → 按需下载的缓存 runtime → PATH 上的 `ffmpeg`
+/// （单一真相源 [`crate::ffmpeg::resolve_bin`]）。全缺失则编码整体 Err，前端回退客户端
+/// WebCodecs——导出流程会先经 `ffmpeg::doctor` 预检、缺则引导下载/安装，不再静默降级。
 fn ffmpeg_bin() -> String {
-    std::env::var("HA_FFMPEG_PATH")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "ffmpeg".to_string())
+    crate::ffmpeg::resolve_bin()
 }
 
 /// 视频强路：真实浏览器逐帧渲染（确定性时钟定格）→ 每帧原生截图 → ffmpeg 编码 MP4。

@@ -196,7 +196,6 @@
     "extract": "Çıkar",
     "extractedSystem": "Çıkarılan tasarım sistemi",
     "systemNamePlaceholder": "Tasarım sistemi adı",
-    "generate": "Üret",
     "newImage": "Görsel üret",
     "imagePromptPlaceholder": "İstediğin görseli tarif et…",
     "directionBriefPlaceholder": "Ürününü / markanı tarif et…",
@@ -272,7 +271,9 @@
       "document": "Belge",
       "email": "E-posta",
       "image": "Görsel",
-      "motion": "Animasyon"
+      "motion": "Animasyon",
+      "audio": "Ses",
+      "component": "Etkileşimli bileşen"
     },
     "editHint": "Düzenlemeye başlamak için önizlemede bir öğeye tıklayın",
     "exporting": "Dışa aktarılıyor…",
@@ -292,7 +293,9 @@
       "propose": "Yönler oluşturulamadı",
       "restore": "Geri yüklenemedi",
       "setSystem": "Tasarım sistemi ayarlanamadı",
-      "importMd": "DESIGN.md içe aktarılamadı"
+      "importMd": "DESIGN.md içe aktarılamadı",
+      "generate": "Oluşturma başarısız — lütfen tekrar deneyin",
+      "depInstall": "Bağımlılık indirilemedi — yeniden deneyin veya düşük kalite kullanın"
     },
     "ok": {
       "adopted": "Tasarım yönü uygulandı",
@@ -308,7 +311,22 @@
     "importDesignMd": "DESIGN.md içe aktar",
     "exportDesignMd": "Geçerli sistemi dışa aktar (DESIGN.md)",
     "import": "İçe aktar",
-    "importDesignMdPlaceholder": "DESIGN.md metnini yapıştır (9 bölümlü şema + --ds-* token tablosu; token yoksa otomatik üretilir)…"
+    "importDesignMdPlaceholder": "DESIGN.md metnini yapıştır (9 bölümlü şema + --ds-* token tablosu; token yoksa otomatik üretilir)…",
+    "dep": {
+      "ffmpegTitle": "MP4 kodlayıcı hazır değil",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "Yüksek kaliteli MP4 dışa aktarımı ffmpeg kodlayıcısını gerektirir (her süre, vektör kalitesi). Tek tıkla indirin (~40MB, yalnızca ilk kez) veya daha düşük kaliteli tarayıcı kodlayıcısını kullanın.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "Yüksek kaliteli MP4 dışa aktarımı ffmpeg gerektirir. Kurup yeniden deneyin veya daha düşük kaliteli tarayıcı kodlayıcısını kullanın.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "İndiriliyor…",
+      "envHint": "Veya HA_FFMPEG_PATH ortam değişkenini ffmpeg ikili dosyanıza ayarlayın.",
+      "useClient": "Daha düşük kalitede dışa aktar",
+      "installing": "Kuruluyor…",
+      "download": "İndir ve dışa aktar"
+    },
+    "newAudio": "Ses oluştur",
+    "audioPromptPlaceholder": "Anlatım metni veya bir müzik/SFX açıklaması ([music] / [sfx] önekiyle)…"
   },
   "channels": {
     "accountLabel": "Hesap adı",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "Önerilen",
     "webSearchSaved": "Kaydedildi",
     "webSearchTimeout": "Zaman aşımı (saniye)",
-    "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)"
+    "webSearchTimeoutDesc": "Arama istekleri için HTTP zaman aşımı (5-120 sn)",
+    "audioGenerate": "Ses üretimi",
+    "audioGenerateDesc": "Tasarım alanı ses biçimi için ses sentezi sağlayıcılarını (BYOK) yapılandırın: TTS anlatım / müzik / SFX. Sırayla yük devretme.",
+    "audioGenNoProvider": "Ses sağlayıcısı yapılandırılmadı — birini etkinleştirip API anahtarını girin.",
+    "audioGenApiKey": "API Anahtarı",
+    "audioGenModel": "Model",
+    "audioGenVoice": "Ses (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "İstek zaman aşımı (sn)"
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",

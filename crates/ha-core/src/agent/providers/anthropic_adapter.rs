@@ -404,7 +404,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
 ///
 /// Free function (not a `&self` method) because none of the streaming state
 /// lives on `AssistantAgent` — only `cancel`, `on_delta`, and accumulators.
-async fn parse_anthropic_sse(
+pub(in crate::agent) async fn parse_anthropic_sse(
     resp: reqwest::Response,
     request_start: std::time::Instant,
     cancel: &Arc<AtomicBool>,

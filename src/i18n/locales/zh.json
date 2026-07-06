@@ -196,7 +196,6 @@
     "extract": "提取",
     "extractedSystem": "提取的设计系统",
     "systemNamePlaceholder": "设计系统名称",
-    "generate": "生成",
     "newImage": "生成图像",
     "imagePromptPlaceholder": "描述你想要的图像…",
     "directionBriefPlaceholder": "描述你的产品 / 品牌…",
@@ -272,7 +271,9 @@
       "document": "文档",
       "email": "邮件",
       "image": "图像",
-      "motion": "动效"
+      "motion": "动效",
+      "audio": "音频",
+      "component": "交互组件"
     },
     "editHint": "在预览中点选一个元素开始微调",
     "exporting": "正在导出…",
@@ -292,7 +293,9 @@
       "propose": "生成方向失败",
       "restore": "恢复失败",
       "setSystem": "设置设计系统失败",
-      "importMd": "DESIGN.md 导入失败"
+      "importMd": "DESIGN.md 导入失败",
+      "generate": "生成失败，请重试",
+      "depInstall": "依赖下载失败，请重试或改用较低保真"
     },
     "ok": {
       "adopted": "已应用设计方向",
@@ -308,7 +311,22 @@
     "importDesignMd": "导入 DESIGN.md",
     "exportDesignMd": "导出当前系统 (DESIGN.md)",
     "import": "导入",
-    "importDesignMdPlaceholder": "粘贴 DESIGN.md 文本（9 段规范 + --ds-* Token 表；缺 token 时自动合成）…"
+    "importDesignMdPlaceholder": "粘贴 DESIGN.md 文本（9 段规范 + --ds-* Token 表；缺 token 时自动合成）…",
+    "dep": {
+      "ffmpegTitle": "MP4 编码器未就绪",
+      "browserTitle": "浏览器渲染引擎未就绪",
+      "ffmpegAutoDesc": "MP4 强路导出需要 ffmpeg 编码器（矢量保真、任意时长）。可一键下载安装（约 40MB，仅首次），或改用较低保真的浏览器编码。",
+      "browserAutoDesc": "PDF/PNG 强路导出（矢量可搜 PDF / 全保真 PNG）需要浏览器渲染引擎。可一键下载内置 Chromium（约 150MB，仅首次），或改用较低保真的客户端栅格化。",
+      "ffmpegManualDesc": "MP4 强路导出需要 ffmpeg。请安装后重试，或改用较低保真的浏览器编码。",
+      "browserManualDesc": "PDF/PNG 强路导出需要浏览器引擎。请安装 Chrome / Edge / Brave 后重试，或改用较低保真的客户端栅格化。",
+      "downloading": "下载中…",
+      "envHint": "或设置环境变量 HA_FFMPEG_PATH 指向 ffmpeg 二进制。",
+      "useClient": "用较低保真导出",
+      "installing": "安装中…",
+      "download": "下载并导出"
+    },
+    "newAudio": "生成音频",
+    "audioPromptPlaceholder": "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…"
   },
   "channels": {
     "accountLabel": "账户名称",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "推荐",
     "webSearchSaved": "已保存",
     "webSearchTimeout": "超时（秒）",
-    "webSearchTimeoutDesc": "搜索请求 HTTP 超时时间（5-120 秒）"
+    "webSearchTimeoutDesc": "搜索请求 HTTP 超时时间（5-120 秒）",
+    "audioGenerate": "音频生成",
+    "audioGenerateDesc": "配置音频合成 Provider（BYOK），用于设计空间「音频」形态：语音旁白 / 音乐 / 音效。按顺序 failover。",
+    "audioGenNoProvider": "尚未配置音频 Provider — 启用其一并填入 API Key。",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "模型",
+    "audioGenVoice": "语音 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "请求超时（秒）"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",

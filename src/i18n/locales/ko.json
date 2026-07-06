@@ -196,7 +196,6 @@
     "extract": "추출",
     "extractedSystem": "추출한 디자인 시스템",
     "systemNamePlaceholder": "디자인 시스템 이름",
-    "generate": "생성",
     "newImage": "이미지 생성",
     "imagePromptPlaceholder": "원하는 이미지를 설명하세요…",
     "directionBriefPlaceholder": "제품 / 브랜드를 설명하세요…",
@@ -272,7 +271,9 @@
       "document": "문서",
       "email": "이메일",
       "image": "이미지",
-      "motion": "모션"
+      "motion": "모션",
+      "audio": "오디오",
+      "component": "인터랙티브 컴포넌트"
     },
     "editHint": "미리보기에서 요소를 클릭하여 편집 시작",
     "exporting": "내보내는 중…",
@@ -292,7 +293,9 @@
       "propose": "방향 생성 실패",
       "restore": "복원 실패",
       "setSystem": "디자인 시스템 설정 실패",
-      "importMd": "DESIGN.md 가져오기 실패"
+      "importMd": "DESIGN.md 가져오기 실패",
+      "generate": "생성에 실패했습니다. 다시 시도해 주세요",
+      "depInstall": "종속성 다운로드 실패 — 다시 시도하거나 저충실도를 사용하세요"
     },
     "ok": {
       "adopted": "디자인 방향 적용됨",
@@ -308,7 +311,22 @@
     "importDesignMd": "DESIGN.md 가져오기",
     "exportDesignMd": "현재 시스템 내보내기 (DESIGN.md)",
     "import": "가져오기",
-    "importDesignMdPlaceholder": "DESIGN.md 텍스트 붙여넣기(9개 섹션 규격 + --ds-* 토큰 표; 토큰이 없으면 자동 합성)…"
+    "importDesignMdPlaceholder": "DESIGN.md 텍스트 붙여넣기(9개 섹션 규격 + --ds-* 토큰 표; 토큰이 없으면 자동 합성)…",
+    "dep": {
+      "ffmpegTitle": "MP4 인코더가 준비되지 않음",
+      "browserTitle": "Browser rendering engine not ready",
+      "ffmpegAutoDesc": "고품질 MP4 내보내기에는 ffmpeg 인코더가 필요합니다(길이 제한 없음, 고충실도). 원클릭으로 다운로드(약 40MB, 최초 1회)하거나 저충실도 브라우저 인코더를 사용하세요.",
+      "browserAutoDesc": "High-fidelity PDF/PNG export (searchable-vector PDF / pixel-perfect PNG) needs a browser rendering engine. Download the bundled Chromium in one click (~150MB, first time only), or use the lower-fidelity client rasterizer.",
+      "ffmpegManualDesc": "고품질 MP4 내보내기에는 ffmpeg가 필요합니다. 설치 후 다시 시도하거나 저충실도 브라우저 인코더를 사용하세요.",
+      "browserManualDesc": "High-fidelity PDF/PNG export needs a browser engine. Install Chrome / Edge / Brave and retry, or use the lower-fidelity client rasterizer.",
+      "downloading": "다운로드 중…",
+      "envHint": "또는 환경 변수 HA_FFMPEG_PATH를 ffmpeg 바이너리로 설정하세요.",
+      "useClient": "저충실도로 내보내기",
+      "installing": "설치 중…",
+      "download": "다운로드 후 내보내기"
+    },
+    "newAudio": "오디오 생성",
+    "audioPromptPlaceholder": "내레이션 텍스트 또는 음악/효과음 설명([music] / [sfx] 접두사 가능)…"
   },
   "channels": {
     "accountLabel": "계정 이름",
@@ -5079,7 +5097,15 @@
     "webSearchRecommended": "권장",
     "webSearchSaved": "저장됨",
     "webSearchTimeout": "시간 초과 (초)",
-    "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)"
+    "webSearchTimeoutDesc": "검색 요청의 HTTP 시간 초과 (5-120 초)",
+    "audioGenerate": "오디오 생성",
+    "audioGenerateDesc": "디자인 스페이스 오디오 형태(TTS 내레이션/음악/효과음)를 위한 오디오 합성 제공자(BYOK)를 설정합니다. 순서대로 페일오버.",
+    "audioGenNoProvider": "오디오 제공자가 없습니다 — 하나를 켜고 API 키를 입력하세요.",
+    "audioGenApiKey": "API Key",
+    "audioGenModel": "모델",
+    "audioGenVoice": "음성 (TTS)",
+    "audioGenBaseUrl": "Base URL",
+    "audioGenTimeout": "요청 시간 초과(초)"
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",

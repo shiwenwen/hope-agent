@@ -65,6 +65,17 @@ pub async fn create_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// 「一句话 → 流式生成」：建 generating 壳同步返回，内容经 `design:generate_delta` 流式回填。
+/// image / 无 brief / 未知 kind 自动回落阻塞生成。
+#[tauri::command]
+pub async fn generate_design_artifact_cmd(
+    input: CreateArtifactInput,
+) -> Result<DesignArtifact, CmdError> {
+    service::generate_design_artifact(input)
+        .await
+        .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn list_all_design_artifacts_cmd() -> Result<Vec<DesignArtifact>, CmdError> {
     service::list_all_artifacts().map_err(Into::into)
@@ -111,6 +122,44 @@ pub async fn restore_design_version_cmd(
     version_id: i64,
 ) -> Result<DesignArtifact, CmdError> {
     service::restore_version(&artifact_id, version_id).map_err(Into::into)
+}
+
+/// 导出强路依赖预检：ffmpeg（MP4 编码器）三态状态。导出面板在走 MP4 强路前调它。
+#[tauri::command]
+pub async fn design_ffmpeg_doctor_cmd() -> Result<ha_core::ffmpeg::FfmpegStatus, CmdError> {
+    Ok(ha_core::ffmpeg::doctor().await)
+}
+
+/// 导出强路依赖预检：浏览器引擎（PDF/PNG 矢量/全保真捕获）三态状态。
+#[tauri::command]
+pub async fn design_browser_doctor_cmd(
+) -> Result<ha_core::design::render_native::BrowserExportStatus, CmdError> {
+    Ok(ha_core::design::render_native::browser_export_status())
+}
+
+/// 按需下载 Chromium runtime（PDF/PNG 强路引擎）。进度经 `browser:chromium_download_progress`。
+#[tauri::command]
+pub async fn design_install_browser_cmd() -> Result<FfmpegRuntimeResult, CmdError> {
+    let binary = ha_core::browser::runtime::install_with_event_bus_progress().await?;
+    Ok(FfmpegRuntimeResult {
+        binary_path: binary.display().to_string(),
+    })
+}
+
+/// 按需下载 + 解包静态 ffmpeg（MP4 强路编码器）。幂等；进度经
+/// `design:ffmpeg_download_progress` 事件推给导出面板渲染进度条。
+#[tauri::command]
+pub async fn design_install_ffmpeg_cmd() -> Result<FfmpegRuntimeResult, CmdError> {
+    let binary = ha_core::ffmpeg::install_with_event_bus_progress().await?;
+    Ok(FfmpegRuntimeResult {
+        binary_path: binary.display().to_string(),
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FfmpegRuntimeResult {
+    pub binary_path: String,
 }
 
 /// PPTX：前端栅格化的整页 PNG（base64）→ 后端组装 → 返回 `{ pptx: base64 }`。

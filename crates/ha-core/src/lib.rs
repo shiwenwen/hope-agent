@@ -44,6 +44,7 @@ pub mod design;
 pub mod dev_tools;
 pub mod docker;
 pub mod failover;
+pub mod ffmpeg;
 pub mod file_extract;
 pub mod filesystem;
 pub mod guardian;
