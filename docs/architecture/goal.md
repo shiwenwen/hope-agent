@@ -261,7 +261,7 @@ Workspace / Workflow Control Center 内有 Goal strip：
 - agent 工具面直接修改 Goal。
 - LLM side-query evaluator。
 
-已归档的 Goal v2 设计决策只作为后续边界，不能被当成当前已实现能力：
+当前活跃的 [Goal v2 路线图](../roadmap/goal-v2-roadmap.md) 只作为后续边界，不能被当成当前已实现能力：
 
 - Goal v2 的方向是把 Goal 从“目标标签 + 证据汇总”升级为长期任务目标控制台，核心问题是“目标是什么、现在做到哪、还差什么、为什么没结束、哪些进入后续池”。
 - 后续可引入 structured criteria：把 completion criteria 派生为稳定 item，并区分 `required` / `optional` / `follow_up`。只有 required blocker 阻塞 Goal 关闭。
