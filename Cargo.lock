@@ -3102,6 +3102,7 @@ dependencies = [
  "signal-hook",
  "similar",
  "sqlite-vec",
+ "sse-stream",
  "sysinfo",
  "tar",
  "teloxide",

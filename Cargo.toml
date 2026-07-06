@@ -115,6 +115,10 @@ uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 reqwest = { version = "0.12", features = ["json", "blocking", "stream", "native-tls", "multipart"] }
 futures-util = "0.3"
+# SSE frame parser (same crate rmcp pulls in via `client-side-sse`). Powers the
+# hand-rolled legacy MCP HTTP+SSE client transport — rmcp 1.5 dropped its own
+# standalone SSE client, so ha-core owns the handshake.
+sse-stream = "0.2"
 sha2 = "0.10"
 base64 = "0.22"
 dirs = "6"

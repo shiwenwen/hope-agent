@@ -31,7 +31,7 @@ MCP 客户端把 hope-agent 变成一个 **MCP Host**——就像 Claude Desktop
 
 设计范围覆盖：
 
-- **四种 transport**：stdio、Streamable HTTP、SSE（走 Streamable HTTP 的 SSE 子协议）、WebSocket
+- **四种 transport**：stdio、Streamable HTTP、SSE（legacy HTTP+SSE handshake，`build_sse_client` 手写）、WebSocket
 - **完整 OAuth 2.1 + PKCE**：discovery（RFC 8414）、Dynamic Client Registration（RFC 7591）、loopback callback（RFC 8252）、refresh 自动执行
 - **凭据安全**：0600 原子写 + ErrorKind::NotFound 无 TOCTOU；删除 server 自动清理
 - **三种使用形态**：MCP 工具通过 `mcp__<server>__<tool>` 命名空间调度；`mcp_resource(action=list|read)` / `mcp_prompt(action=list|get)` 作为独立 internal tool 访问被动数据
@@ -132,10 +132,19 @@ stateDiagram-v2
 
 ### Streamable HTTP
 
-- rmcp 1.5 首选的远程协议；SSE 从 rmcp 1.5 起退役，`McpTransportSpec::Sse` 路由到同一 client（带一次 warn 日志）
+- rmcp 1.5 首选的远程协议（2025-03-26 spec）：直接 POST `initialize`，session 走 `Mcp-Session-Id` 响应头
 - 出站前 `ssrf_gate_url` — `Trusted` 用 `default_policy`，`Untrusted` 用 `Strict`
 - `authorized_headers` 注入 user headers + OAuth Bearer（若 `cfg.oauth.is_some()` 且磁盘有凭据且用户未显式设 `Authorization`）
 - handshake 401/403/unauthorized/invalid_token → `McpError::Auth` → `ServerState::NeedsAuth`
+
+### SSE（legacy HTTP+SSE，2024-11-05 spec）
+
+- **与 Streamable HTTP 是两套 wire 协议**：rmcp 1.5 退役了独立 SSE client（只留 `client-side-sse` 帧解析器），但 `Sse` **不能**路由到 Streamable HTTP client——后者直接 POST `initialize`，legacy SSE server 无 session 会回 `400 session_id is required`
+- `build_sse_client` 手写握手：GET SSE URL → 读到 `endpoint` 事件拿 session-scoped POST URL → 之后 client→server 走 POST 到该 URL、server→client 走 SSE `message` 帧；用 `sse-stream` 解析帧，桥接到 rmcp 的 `IntoTransport for (Si, St)`（Stream 半 = `message` 帧 → `RxJsonRpcMessage`；Sink 半 = `PollSender` + 后台 POST 任务，`start_send` 同步 / POST 异步）
+- **SSRF 两道门（红线）**：① GET URL 出站前 `ssrf_gate_url`；② server 返回的 `endpoint` URL 是 server-controlled、首次 POST 前经 `resolve_sse_endpoint`（相对路径按 base 解析）后**再过一次** `ssrf_gate_url`——防恶意 server 把 POST 引到内网
+- handshake 错误经 `classify_network_error(cfg_name, "SSE handshake", e)`，401/403 → `Auth` → `NeedsAuth`
+- 整个握手在 `do_connect` 的 `connect_timeout_secs` 内：server 不发 `endpoint` 就超时（`Timeout`），不会挂死
+- **代理绕行（loopback/私网）**：reqwest 会抓系统/环境代理但**不遵守 OS bypass 列表**（macOS `ExceptionsList` / `ExcludeSimpleHostnames`），导致「开代理连云端 LLM」时本地 MCP（`http://localhost:PORT`）被代理劫持 → 503。`build_mcp_http_client` 按 `host_bypasses_proxy(host)`（`localhost`/`*.localhost` + IPv4 loopback/private/link-local + IPv6 loopback/ULA/link-local）对本地目标 `.no_proxy()`，远程目标仍走代理。**仅 SSE 路径**——Streamable HTTP 走 rmcp 自带 reqwest（0.13，ha-core 是 0.12），无注入点，本地 Streamable HTTP + 代理仍会被劫持（已知限制，本地 MCP 绝大多数是 stdio / SSE，不为此引入第二个 reqwest 大版本）
 
 ### WebSocket
 
@@ -338,6 +347,7 @@ struct McpCredentials {
 | 出站点 | Policy | 备注 |
 |---|---|---|
 | HTTP / SSE transport handshake | `Trusted` → `default_policy`; `Untrusted` → `Strict` | `check_url` 失败 → `McpError::Blocked` |
+| SSE server-provided `endpoint` URL | 同上 | server-controlled，首次 POST 前 `resolve_sse_endpoint` + **再过一次** `check_url`（红线） |
 | WebSocket handshake | 同上 | ws→http / wss→https 重写给 `check_url` 理解 |
 | OAuth discovery / DCR / token / refresh | **固定 `Default`** | OAuth server 必然是公网，`Strict` 会误伤；metadata IP 仍拒 |
 | stdio transport | 不涉网络 | 跳过 SSRF |
@@ -362,7 +372,8 @@ stdio server 是任意 binary，潜在命令执行入口：
 
 ### redirect 处理
 
-- **HTTP / SSE**：reqwest `redirect::limited(5)`；每跳不重跑 SSRF（已知 gap，和其它 HTTP 客户端路径一致）
+- **SSE**：`build_mcp_http_client` 用 `redirect::Policy::none()` **不跟 redirect**——SSRF 只校验了 pre-redirect 的 GET URL 与 server 返回的 endpoint，30x 可绕过 gate 弹到内网；reqwest 的 redirect 回调是同步的、跑不了异步 DNS 解析的 `check_url`，故直接不跟（GET 拿到 3xx 显式报错）。与 WebSocket 一致
+- **Streamable HTTP**：走 rmcp 自带 reqwest client（default redirect），每跳不重跑 SSRF（**已知 gap**——ha-core 无法配置 rmcp 内部 client 的 redirect policy，见上文「代理绕行」同源的 0.12/0.13 版本墙）
 - **WebSocket**：`connect_async` **不**跟 HTTP redirect — RFC 6455 要求 101 Switching Protocols，3xx 直接算 handshake 失败，所以单次 SSRF 覆盖了全部 dial-out
 
 ---
