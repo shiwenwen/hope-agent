@@ -425,6 +425,34 @@ struct ArtifactMeta {
     current_version: i64,
 }
 
+/// 反 AI-slop 确定性自查：开启 `design.self_check` 时对产物正文跑无 LLM 检测，返回
+/// `(status, metadata)`。命中翻 `needs_review` + 合并 `selfCheck` 键；未命中 / 关闭 →
+/// `ready` + 清 `selfCheck` 键（回收自动标记，保留其它 metadata）。见 selfcheck.rs。
+fn resolve_self_check(existing_meta: Option<&str>, body_html: &str) -> (String, Option<String>) {
+    let enabled = crate::config::cached_config().design.self_check;
+    let verdict = if enabled {
+        super::selfcheck::evaluate(body_html)
+    } else {
+        None
+    };
+    if let Some(v) = &verdict {
+        crate::app_info!(
+            "design",
+            "selfcheck",
+            "artifact flagged needs_review: {} ({})",
+            v.flag,
+            v.detail
+        );
+    }
+    let status = if verdict.is_some() {
+        "needs_review"
+    } else {
+        "ready"
+    };
+    let metadata = super::selfcheck::merge_into_metadata(existing_meta, verdict.as_ref());
+    (status.to_string(), metadata)
+}
+
 pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
     let db = open_db()?;
     let kind = ArtifactKind::from_str(&input.kind)
@@ -454,7 +482,10 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         input.title.trim().to_string()
     };
 
-    let parts = if input.body_html.as_deref().unwrap_or("").trim().is_empty() {
+    // 空正文 = 起草占位模板（非 slop，不自查，避免误标 needs_review）；
+    // 有正文（模型生成 / 用户提供）才跑确定性自查。
+    let had_body = !input.body_html.as_deref().unwrap_or("").trim().is_empty();
+    let parts = if !had_body {
         renderer::placeholder_parts(kind, &title)
     } else {
         ArtifactParts {
@@ -462,6 +493,11 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
             css: input.css.unwrap_or_default(),
             js: input.js.unwrap_or_default(),
         }
+    };
+    let (status, self_check_meta) = if had_body {
+        resolve_self_check(None, &parts.body_html)
+    } else {
+        ("ready".to_string(), None)
     };
 
     // 磁盘落地：artifact_dir / index.html / source/ / versions/1 / artifact.json
@@ -478,7 +514,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         title: title.clone(),
         kind: kind.as_str().to_string(),
         system_id: system_id.clone(),
-        status: "ready".to_string(),
+        status,
         viewport_w: if vw > 0 { Some(vw) } else { None },
         viewport_h: if vh > 0 { Some(vh) } else { None },
         current_version: 1,
@@ -486,7 +522,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         thumbnail_path: None,
         created_at: ts.clone(),
         updated_at: ts.clone(),
-        metadata: None,
+        metadata: self_check_meta,
     };
     let meta = ArtifactMeta {
         id: artifact.id.clone(),
@@ -790,7 +826,9 @@ pub fn finalize_generating_artifact(
     write_version_snapshot(&dir, a.current_version, &html, parts, &oidmap_json)?;
 
     let ts = now();
-    db.update_artifact(id, None, Some("ready"), None, None, None, &ts)?;
+    // 生成定稿：对模型产出的正文跑确定性自查，命中翻 needs_review + 写 selfCheck 元数据。
+    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html);
+    db.update_artifact_review(id, None, &status, None, self_check_meta.as_deref(), &ts)?;
     // 壳未建版本行——定稿补首版（避免 list_versions 为空）。
     db.create_version(&DesignArtifactVersion {
         id: 0,
@@ -1191,13 +1229,14 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
     write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
 
     let ts = now();
-    db.update_artifact(
+    // 编辑落新版本：重跑确定性自查——改好的正文清 selfCheck 标记回 ready，仍 slop 保持标记。
+    let (status, self_check_meta) = resolve_self_check(a.metadata.as_deref(), &parts.body_html);
+    db.update_artifact_review(
         &a.id,
         input.title.as_deref(),
-        Some("ready"),
+        &status,
         Some(next),
-        None,
-        None,
+        self_check_meta.as_deref(),
         &ts,
     )?;
     db.create_version(&DesignArtifactVersion {

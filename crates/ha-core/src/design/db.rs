@@ -455,6 +455,33 @@ impl DesignDb {
         Ok(())
     }
 
+    /// 反 slop 自查专用：设 `status` + 覆写 `metadata`（含合并后的 `selfCheck` 键），可选
+    /// 一并更新 `title` / `current_version`。`update_artifact` 刻意不碰 metadata，故自查
+    /// 落盘走此方法（`metadata=None` 清空该列 = 回收自动标记）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_artifact_review(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        status: &str,
+        current_version: Option<i64>,
+        metadata: Option<&str>,
+        updated_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_artifacts SET
+                title = COALESCE(?2, title),
+                status = ?3,
+                current_version = COALESCE(?4, current_version),
+                metadata = ?5,
+                updated_at = ?6
+             WHERE id = ?1",
+            rusqlite::params![id, title, status, current_version, metadata, updated_at],
+        )?;
+        Ok(())
+    }
+
     pub fn delete_artifact(&self, id: &str) -> Result<()> {
         let conn = self.lock()?;
         conn.execute(
