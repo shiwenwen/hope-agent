@@ -6,7 +6,7 @@
  * 点条目 → 通知 bridge 聚焦对应钉。纯受控，父层负责 owner 命令与 iframe 通信。
  */
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { MessageSquare, X, Check, Trash2, Pencil, Send, CornerDownLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -45,6 +45,11 @@ export default function DesignCommentPanel({
   const [draft, setDraft] = useState("")
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState("")
+
+  // 新钉锚点变了（落到另一元素）→ 清空新建草稿，避免上一次输入带到新钉（review #6）。
+  useEffect(() => {
+    setDraft("")
+  }, [pending?.oid, pending?.relX, pending?.relY])
 
   const open = comments.filter((c) => !c.resolved)
   const resolved = comments.filter((c) => c.resolved)

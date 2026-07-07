@@ -372,8 +372,11 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
       layer.appendChild(dot);
     });
   }
-  window.addEventListener('scroll',function(){if(commentMode)renderPins()},true);
-  window.addEventListener('resize',function(){if(commentMode)renderPins()});
+  var reflowRaf=0;
+  function scheduleReflow(){if(!commentMode||reflowRaf)return;
+    reflowRaf=requestAnimationFrame(function(){reflowRaf=0;renderPins()})}
+  window.addEventListener('scroll',scheduleReflow,true);
+  window.addEventListener('resize',scheduleReflow);
   document.addEventListener('mouseover',function(e){
     if(!active||editing)return;var el=e.target.closest('[data-ds-oid]');if(!el||el===selected)return;
     clearHover();hovered=el;el.style.outline='1px solid rgba(37,99,235,.5)';
@@ -381,9 +384,9 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   document.addEventListener('mouseout',function(){if(active&&!editing)clearHover()},true);
   document.addEventListener('click',function(e){
     if(commentMode){
+      e.preventDefault();e.stopPropagation(); // 批注态吞掉所有点击，不泄漏到设计自身 handler
       var cel=e.target.closest('[data-ds-oid]');
-      if(!cel)return; // 点在钉 / 空白 → 交给钉自身或忽略，不落新钉
-      e.preventDefault();e.stopPropagation();
+      if(!cel)return; // 点在钉 / 空白 → 已吞事件、不落新钉（钉自身走 pointerup）
       var cr=cel.getBoundingClientRect();
       parent.postMessage({type:'ds_comment_place',
         oid:Number(cel.getAttribute('data-ds-oid')),

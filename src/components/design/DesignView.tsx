@@ -1248,6 +1248,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           suppressReloadRef.current = false
         } else if (!active || !p?.artifactId || p.artifactId === active.id) {
           setPreviewKey((k) => k + 1)
+          // 外部重挂（agent 编辑 / 批注精修）→ 待填钉锚点随 oidmap 重生成而失效，清掉让用户
+          // 在新设计上重新点选（review #5）；选中同理失效。
+          setPendingPlacement(null)
+          setSelected(null)
           // External change (e.g. agent edit) → resync bodyHash/currentVersion so the
           // next visual edit doesn't trip the stale-write guard and get lost.
           if (active && (!p?.artifactId || p.artifactId === active.id)) void refreshView()

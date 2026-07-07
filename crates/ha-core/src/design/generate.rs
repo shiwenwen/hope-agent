@@ -183,6 +183,62 @@ pub async fn generate_design_parts(
     validate_not_truncated(&res.text, kind)
 }
 
+/// 「按反馈精修现有设计」prompt：与 `build_generation_prompt` 关键差异——当前设计
+/// （css/body/js）**完整注入、绝不截断**（否则模型看不到被截断的部分，会以为要删，静默毁
+/// 内容——批注钉 review #1 红线）。只 `instruction` / `system` 参与截断。
+fn build_refine_prompt(
+    instruction: &str,
+    current: &ArtifactParts,
+    kind: ArtifactKind,
+    system_md: &str,
+    tokens: &BTreeMap<String, String>,
+) -> Result<String> {
+    if instruction.trim().is_empty() {
+        anyhow::bail!("refine instruction is empty");
+    }
+    let token_list = tokens.keys().cloned().collect::<Vec<_>>().join(", ");
+    let system_block = if system_md.trim().is_empty() {
+        String::new()
+    } else {
+        format!("\n\nDESIGN SYSTEM:\n{}\n", truncate(system_md, 8000))
+    };
+    Ok(format!(
+        "You are a senior product designer REFINING an existing **{kind}** design. Apply ONLY the \
+feedback below and PRESERVE everything else exactly — structure, real content, and any styling not \
+mentioned. Return the COMPLETE refined design (never drop or summarize unmentioned parts).\n\n\
+Reference design tokens as var(--x): {tokens}{system}\n\n\
+Output EXACTLY three sections in this order, CSS FIRST, and NOTHING else (no prose, no code fences):\n\
+<<<CSS>>>\n(all CSS)\n<<<BODY>>>\n(the inner HTML inside <body>)\n<<<JS>>>\n(optional JS; may be empty)\n\n\
+Hard rules: self-contained, ZERO network (no CDN / remote fonts / remote images); keep unmentioned \
+parts byte-for-byte where possible.\n\n\
+USER FEEDBACK:\n{instruction}\n\n\
+CURRENT DESIGN — refine this exact design in place:\n\
+<<<CSS>>>\n{css}\n<<<BODY>>>\n{body}\n<<<JS>>>\n{js}",
+        kind = kind.as_str(),
+        tokens = token_list,
+        system = system_block,
+        instruction = truncate(instruction, 4000),
+        css = current.css,
+        body = current.body_html,
+        js = current.js,
+    ))
+}
+
+/// 按反馈精修现有设计：完整注入当前 css/body/js（不截断），只精改反馈所指、保留其余。
+pub async fn refine_design_parts(
+    instruction: &str,
+    current: &ArtifactParts,
+    kind: ArtifactKind,
+    system_md: &str,
+    tokens: &BTreeMap<String, String>,
+) -> Result<ArtifactParts> {
+    let prompt = build_refine_prompt(instruction, current, kind, system_md, tokens)?;
+    let config = crate::config::cached_config();
+    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
+    let res = agent.side_query(&prompt, 16000).await?;
+    validate_not_truncated(&res.text, kind)
+}
+
 /// 真流式生成：走 `side_query_streaming`，把「到目前为止的完整 CSS + 正在增长的 body」经
 /// `on_snapshot` 逐段回调（按字节增长节流），供上层 live 预览。返回定稿完整 parts（权威真相，
 /// 落盘用）。失败（截断 / 空 body / 无后端）返回 `Err`，由上层降级空壳。

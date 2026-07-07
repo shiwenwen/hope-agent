@@ -1840,22 +1840,17 @@ pub fn delete_comment(artifact_id: &str, comment_id: i64) -> Result<bool> {
     open_db()?.delete_comment(artifact_id, comment_id)
 }
 
-/// 组装「按批注精修」的 refine brief：保留整体设计、只针对该反馈精改。
-fn compose_refine_brief(comment: &DesignComment, title: &str, current_html: &str) -> String {
+/// 组装「按批注精修」的**短指令**（反馈 + 元素定位；**不含**当前设计——设计经
+/// `refine_design_parts` 完整注入、不走截断，见 review #1）。
+fn compose_refine_instruction(comment: &DesignComment) -> String {
     let mut b = String::new();
-    b.push_str(&format!(
-        "你在精修一个已有设计「{title}」。请**保留整体设计与所有未提及的部分**，只针对下面这条用户反馈做精准修改，输出完整的修改后设计。\n\n"
-    ));
-    b.push_str(&format!("用户反馈：{}\n", comment.body));
-    if let Some(tag) = &comment.tag {
-        b.push_str(&format!("反馈针对的元素：<{tag}>\n"));
+    b.push_str(&comment.body);
+    if let Some(tag) = comment.tag.as_deref().filter(|s| !s.is_empty()) {
+        b.push_str(&format!("\n（反馈针对元素 <{tag}>）"));
     }
     if let Some(snippet) = comment.snippet.as_deref().filter(|s| !s.is_empty()) {
-        b.push_str(&format!("元素片段：\n```html\n{snippet}\n```\n"));
+        b.push_str(&format!("\n元素片段：{snippet}"));
     }
-    b.push_str(&format!(
-        "\n当前完整设计（在此基础上修改）：\n```html\n{current_html}\n```\n"
-    ));
     b
 }
 
@@ -1895,7 +1890,7 @@ pub async fn refine_artifact_with_comment(
         prompt: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
-    let brief = compose_refine_brief(&comment, &a.title, &current.body_html);
+    let instruction = compose_refine_instruction(&comment);
     crate::app_info!(
         "design",
         "comment",
@@ -1903,7 +1898,12 @@ pub async fn refine_artifact_with_comment(
         artifact_id,
         comment_id
     );
-    let parts = super::generate::generate_design_parts(&brief, kind, &system_md, &tokens).await?;
+    // 完整注入当前设计（不截断）→ 只精改反馈所指、保留其余（review #1）。
+    let parts =
+        super::generate::refine_design_parts(&instruction, &current, kind, &system_md, &tokens)
+            .await?;
+    // 传 expected_body_hash：LLM 调用期间若有并发编辑改了源，则中止精修（stale-write 守卫，
+    // 不静默丢用户改动，review #2）。
     update_artifact(UpdateArtifactInput {
         id: a.id.clone(),
         title: None,
@@ -1911,7 +1911,7 @@ pub async fn refine_artifact_with_comment(
         css: Some(parts.css),
         js: Some(parts.js),
         message: Some(format!("按批注 #{comment_id} 精修")),
-        expected_body_hash: None,
+        expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
 }
 
