@@ -6,6 +6,57 @@ use std::time::Duration;
 const REQUEST_TIMEOUT_SECS: u64 = 30;
 const MAX_LOG_LINES: usize = 200;
 
+fn record_diagnosis_usage(
+    provider: &ProviderConfig,
+    model_id: &str,
+    operation: &'static str,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+    response_body: Option<&serde_json::Value>,
+) {
+    let mut event =
+        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_PROVIDER_TEST);
+    event.operation = Some(operation.to_string());
+    event.source = Some("self_diagnosis".to_string());
+    event.provider_id = Some(provider.id.clone());
+    event.provider_name = Some(provider.name.clone());
+    event.model_id = Some(model_id.to_string());
+    event.duration_ms = Some(duration_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(serde_json::json!({ "api_type": provider.api_type.display_name() }));
+
+    if let Some(usage) = response_body.and_then(|body| body.get("usage")) {
+        event.input_tokens = usage
+            .get("input_tokens")
+            .or_else(|| usage.get("prompt_tokens"))
+            .and_then(|v| v.as_u64());
+        event.output_tokens = usage
+            .get("output_tokens")
+            .or_else(|| usage.get("completion_tokens"))
+            .and_then(|v| v.as_u64());
+        event.cache_creation_input_tokens = usage
+            .get("cache_creation_input_tokens")
+            .and_then(|v| v.as_u64());
+        event.cache_read_input_tokens = usage
+            .get("cache_read_input_tokens")
+            .or_else(|| {
+                usage
+                    .get("prompt_tokens_details")
+                    .and_then(|d| d.get("cached_tokens"))
+            })
+            .or_else(|| {
+                usage
+                    .get("input_tokens_details")
+                    .and_then(|d| d.get("cached_tokens"))
+            })
+            .and_then(|v| v.as_u64());
+    }
+
+    crate::model_usage::record_model_usage_best_effort(event);
+}
+
 // ── Public API ─────────────────────────────────────────────────────
 
 /// Run self-diagnosis using available LLM providers.
@@ -240,24 +291,55 @@ fn call_anthropic(
         ]
     });
 
-    let resp = client
+    let started = std::time::Instant::now();
+    let resp = match client
         .post(&url)
         .header("x-api-key", &provider.api_key)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("Anthropic request failed: {}", e))?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            record_diagnosis_usage(
+                provider,
+                model_id,
+                "self_diagnosis.anthropic",
+                started.elapsed().as_millis() as u64,
+                false,
+                Some(format!("Anthropic request failed: {}", e)),
+                None,
+            );
+            return Err(format!("Anthropic request failed: {}", e));
+        }
+    };
 
     if !resp.status().is_success() {
-        return Err(format!(
-            "Anthropic API error: {} {}",
-            resp.status(),
-            resp.text().unwrap_or_default()
-        ));
+        let status = resp.status();
+        let text = resp.text().unwrap_or_default();
+        record_diagnosis_usage(
+            provider,
+            model_id,
+            "self_diagnosis.anthropic",
+            started.elapsed().as_millis() as u64,
+            false,
+            Some(format!("Anthropic API error: {} {}", status, text)),
+            None,
+        );
+        return Err(format!("Anthropic API error: {} {}", status, text));
     }
 
     let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
+    record_diagnosis_usage(
+        provider,
+        model_id,
+        "self_diagnosis.anthropic",
+        started.elapsed().as_millis() as u64,
+        true,
+        None,
+        Some(&resp_json),
+    );
     resp_json["content"][0]["text"]
         .as_str()
         .map(|s| s.to_string())
@@ -282,23 +364,54 @@ fn call_openai(
         ]
     });
 
-    let resp = client
+    let started = std::time::Instant::now();
+    let resp = match client
         .post(&url)
         .header("Authorization", format!("Bearer {}", provider.api_key))
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("OpenAI request failed: {}", e))?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            record_diagnosis_usage(
+                provider,
+                model_id,
+                "self_diagnosis.openai_chat",
+                started.elapsed().as_millis() as u64,
+                false,
+                Some(format!("OpenAI request failed: {}", e)),
+                None,
+            );
+            return Err(format!("OpenAI request failed: {}", e));
+        }
+    };
 
     if !resp.status().is_success() {
-        return Err(format!(
-            "OpenAI API error: {} {}",
-            resp.status(),
-            resp.text().unwrap_or_default()
-        ));
+        let status = resp.status();
+        let text = resp.text().unwrap_or_default();
+        record_diagnosis_usage(
+            provider,
+            model_id,
+            "self_diagnosis.openai_chat",
+            started.elapsed().as_millis() as u64,
+            false,
+            Some(format!("OpenAI API error: {} {}", status, text)),
+            None,
+        );
+        return Err(format!("OpenAI API error: {} {}", status, text));
     }
 
     let resp_json: serde_json::Value = resp.json().map_err(|e| format!("Parse error: {}", e))?;
+    record_diagnosis_usage(
+        provider,
+        model_id,
+        "self_diagnosis.openai_chat",
+        started.elapsed().as_millis() as u64,
+        true,
+        None,
+        Some(&resp_json),
+    );
     resp_json["choices"][0]["message"]["content"]
         .as_str()
         .map(|s| s.to_string())

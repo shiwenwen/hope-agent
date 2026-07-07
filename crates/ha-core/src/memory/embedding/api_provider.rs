@@ -38,6 +38,42 @@ impl Drop for ApiEmbeddingProvider {
 }
 
 impl ApiEmbeddingProvider {
+    fn provider_label(&self) -> &'static str {
+        match self.provider_type {
+            EmbeddingProviderType::OpenaiCompatible => "openai_compatible",
+            EmbeddingProviderType::Google => "google",
+            EmbeddingProviderType::Local => "local",
+            EmbeddingProviderType::Auto => "auto",
+        }
+    }
+
+    fn record_embedding_usage(
+        &self,
+        operation: &'static str,
+        text_count: usize,
+        duration_ms: u64,
+        input_tokens: Option<u64>,
+        success: bool,
+        error: Option<String>,
+    ) {
+        let mut event =
+            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_EMBEDDING);
+        event.operation = Some(operation.to_string());
+        event.source = Some("embedding".to_string());
+        event.provider_name = Some(self.provider_label().to_string());
+        event.model_id = Some(self.model.clone());
+        event.input_tokens = input_tokens;
+        event.duration_ms = Some(duration_ms);
+        event.success = success;
+        event.error = error;
+        event.metadata = Some(serde_json::json!({
+            "text_count": text_count,
+            "dimensions": self.dimensions,
+            "base_url": &self.base_url,
+        }));
+        crate::model_usage::record_model_usage_best_effort(event);
+    }
+
     /// Drive `self.client` on a fresh non-tokio OS thread.
     ///
     /// `reqwest::blocking::Client` 的方法（`.send()` / `.text()` / `.bytes()`）
@@ -228,10 +264,26 @@ impl ApiEmbeddingProvider {
         }
 
         if !status.is_success() {
+            self.record_embedding_usage(
+                "embedding.openai_compatible",
+                texts.len(),
+                ttfb_ms,
+                None,
+                false,
+                Some(format!("HTTP {}", status.as_u16())),
+            );
             anyhow::bail!("Embedding API error {}: {}", status, resp_text);
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+        let usage_tokens = resp_json
+            .get("usage")
+            .and_then(|u| {
+                u.get("prompt_tokens")
+                    .or_else(|| u.get("input_tokens"))
+                    .or_else(|| u.get("total_tokens"))
+            })
+            .and_then(|v| v.as_u64());
         let data = resp_json["data"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("Invalid embedding API response"))?;
@@ -247,6 +299,14 @@ impl ApiEmbeddingProvider {
             results.push(embedding);
         }
 
+        self.record_embedding_usage(
+            "embedding.openai_compatible",
+            texts.len(),
+            ttfb_ms,
+            usage_tokens,
+            true,
+            None,
+        );
         Ok(results)
     }
 
@@ -404,10 +464,26 @@ impl ApiEmbeddingProvider {
         }
 
         if !status.is_success() {
+            self.record_embedding_usage(
+                "embedding.google_batch",
+                texts.len(),
+                ttfb_ms,
+                None,
+                false,
+                Some(format!("HTTP {}", status.as_u16())),
+            );
             anyhow::bail!("Google Batch Embedding API error {}: {}", status, resp_text);
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+        let usage_tokens = resp_json
+            .get("usageMetadata")
+            .and_then(|u| {
+                u.get("totalTokenCount")
+                    .or_else(|| u.get("promptTokenCount"))
+                    .or_else(|| u.get("inputTokenCount"))
+            })
+            .and_then(|v| v.as_u64());
         let embeddings = resp_json["embeddings"].as_array().ok_or_else(|| {
             anyhow::anyhow!("Invalid Google batch embedding response: missing 'embeddings' array")
         })?;
@@ -424,6 +500,14 @@ impl ApiEmbeddingProvider {
             results.push(embedding);
         }
 
+        self.record_embedding_usage(
+            "embedding.google_batch",
+            texts.len(),
+            ttfb_ms,
+            usage_tokens,
+            true,
+            None,
+        );
         Ok(results)
     }
 
@@ -533,14 +617,38 @@ impl ApiEmbeddingProvider {
         }
 
         if !status.is_success() {
+            self.record_embedding_usage(
+                "embedding.google_single",
+                1,
+                ttfb_ms,
+                None,
+                false,
+                Some(format!("HTTP {}", status.as_u16())),
+            );
             anyhow::bail!("Google Embedding API error {}: {}", status, resp_text);
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+        let usage_tokens = resp_json
+            .get("usageMetadata")
+            .and_then(|u| {
+                u.get("totalTokenCount")
+                    .or_else(|| u.get("promptTokenCount"))
+                    .or_else(|| u.get("inputTokenCount"))
+            })
+            .and_then(|v| v.as_u64());
         let values = resp_json["embedding"]["values"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("Invalid Google embedding response"))?;
 
+        self.record_embedding_usage(
+            "embedding.google_single",
+            1,
+            ttfb_ms,
+            usage_tokens,
+            true,
+            None,
+        );
         Ok(values
             .iter()
             .map(|v| v.as_f64().unwrap_or(0.0) as f32)
@@ -642,6 +750,14 @@ impl ApiEmbeddingProvider {
         }
 
         if !status.is_success() {
+            self.record_embedding_usage(
+                "embedding.google_multimodal",
+                1,
+                ttfb_ms,
+                None,
+                false,
+                Some(format!("HTTP {}", status.as_u16())),
+            );
             anyhow::bail!(
                 "Google Multimodal Embedding API error {}: {}",
                 status,
@@ -650,10 +766,26 @@ impl ApiEmbeddingProvider {
         }
 
         let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
+        let usage_tokens = resp_json
+            .get("usageMetadata")
+            .and_then(|u| {
+                u.get("totalTokenCount")
+                    .or_else(|| u.get("promptTokenCount"))
+                    .or_else(|| u.get("inputTokenCount"))
+            })
+            .and_then(|v| v.as_u64());
         let values = resp_json["embedding"]["values"]
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("Invalid Google multimodal embedding response"))?;
 
+        self.record_embedding_usage(
+            "embedding.google_multimodal",
+            1,
+            ttfb_ms,
+            usage_tokens,
+            true,
+            None,
+        );
         Ok(values
             .iter()
             .map(|v| v.as_f64().unwrap_or(0.0) as f32)

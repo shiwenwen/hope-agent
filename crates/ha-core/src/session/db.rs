@@ -180,6 +180,37 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
             CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);
 
+            -- Unified model usage ledger. Dashboard token/cost totals read this
+            -- table so non-chat model calls (side_query / embedding / STT /
+            -- judge / maintenance) are counted alongside normal chat turns.
+            CREATE TABLE IF NOT EXISTS model_usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_key TEXT UNIQUE,
+                timestamp TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                operation TEXT,
+                source TEXT,
+                provider_id TEXT,
+                provider_name TEXT,
+                model_id TEXT,
+                session_id TEXT,
+                agent_id TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cache_creation_input_tokens INTEGER,
+                cache_read_input_tokens INTEGER,
+                duration_ms INTEGER,
+                ttft_ms INTEGER,
+                success INTEGER NOT NULL DEFAULT 1,
+                error TEXT,
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_model_usage_timestamp ON model_usage_events(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_kind_timestamp ON model_usage_events(kind, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_session ON model_usage_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_provider_model ON model_usage_events(provider_id, model_id);
+
             -- FTS5 full-text search for message history
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
                 content,
@@ -356,6 +387,8 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
         }
 
+        Self::ensure_model_usage_table(&conn)?;
+        Self::backfill_model_usage_from_messages(&conn)?;
         Self::ensure_chat_turns_table(&conn)?;
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause

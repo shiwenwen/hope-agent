@@ -269,6 +269,7 @@ pub(super) async fn transcribe_inbound_voice_attachments(
                 fallback,
                 payload,
                 &crate::stt::TranscriptOptions::default(),
+                None,
             )
             .await;
             (name, result)

@@ -3,7 +3,9 @@ use anyhow::Result;
 use super::helpers::{
     build_search_client, read_json_capped, read_text_capped, JSON_RESPONSE_BYTE_CAP,
 };
-use super::{SearchParams, SearchResult};
+use super::{record_llm_web_search_usage, SearchParams, SearchResult, WebSearchUsageContext};
+
+const MODEL_ID: &str = "sonar";
 
 pub(super) async fn search_perplexity(
     api_key: &str,
@@ -11,13 +13,14 @@ pub(super) async fn search_perplexity(
     count: usize,
     params: &SearchParams,
     timeout_secs: u64,
+    usage_ctx: &WebSearchUsageContext,
 ) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Perplexity API key not configured"));
     }
     let client = build_search_client(timeout_secs)?;
     let mut body = serde_json::json!({
-        "model": "sonar",
+        "model": MODEL_ID,
         "messages": [{"role": "user", "content": query}],
         "max_tokens": 1024,
         "return_citations": true
@@ -25,21 +28,60 @@ pub(super) async fn search_perplexity(
     if let Some(ref freshness) = params.freshness {
         body["search_recency_filter"] = serde_json::Value::String(freshness.clone());
     }
-    let resp = client
+    let started = std::time::Instant::now();
+    let resp = match client
         .post("https://api.perplexity.ai/chat/completions")
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&body)
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Perplexity request failed: {}", e))?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            record_llm_web_search_usage(
+                usage_ctx,
+                "web_search.perplexity",
+                "perplexity",
+                "Perplexity",
+                MODEL_ID,
+                started.elapsed().as_millis() as u64,
+                false,
+                Some(format!("Perplexity request failed: {}", e)),
+                None,
+            );
+            return Err(anyhow::anyhow!("Perplexity request failed: {}", e));
+        }
+    };
     if !resp.status().is_success() {
         let status = resp.status();
         let text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
             .await
             .unwrap_or_default();
+        record_llm_web_search_usage(
+            usage_ctx,
+            "web_search.perplexity",
+            "perplexity",
+            "Perplexity",
+            MODEL_ID,
+            started.elapsed().as_millis() as u64,
+            false,
+            Some(format!("Perplexity failed ({}): {}", status, text)),
+            None,
+        );
         return Err(anyhow::anyhow!("Perplexity failed ({}): {}", status, text));
     }
     let data = read_json_capped(resp, JSON_RESPONSE_BYTE_CAP, "Perplexity").await?;
+    record_llm_web_search_usage(
+        usage_ctx,
+        "web_search.perplexity",
+        "perplexity",
+        "Perplexity",
+        MODEL_ID,
+        started.elapsed().as_millis() as u64,
+        true,
+        None,
+        Some(&data),
+    );
 
     // Extract citations as search results
     let citations = data.get("citations").and_then(|v| v.as_array());

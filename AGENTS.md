@@ -305,6 +305,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 详见 [`dashboard.md`](docs/architecture/dashboard.md) / [`recap.md`](docs/architecture/recap.md)。
 
 - `dashboard/insights.rs`：overview delta / cost trend / heatmap / health score / `query_insights` orchestrator
+- **模型用量总账**：所有会触发模型推理 / one-shot / side_query / summarize / embedding / STT / judge / web_search / image_generation / provider_test 的新调用入口，必须通过 [`model_usage.rs`](crates/ha-core/src/model_usage.rs) 写入 `session.db.model_usage_events`；Dashboard token / cost 总量以该表为准。Provider 原始 usage 返回多少就记录多少，未返回 token 的本地模型 / STT / embedding / 生图只记录调用次数与耗时，**禁止用字符估算冒充准确 token**。无痕会话不得入账。
 - Learning Tracker 落 `session.db.learning_events`，目前埋点：`skills::author` CRUD + `tool_recall_memory` 命中 + MCP tool 调用
 - `/recap` 独立 `~/.hope-agent/recap/recap.db` 缓存按 `last_message_ts` 失效；`recap.analysisAgent` 与主对话 Agent 解耦
 

@@ -55,6 +55,7 @@ pub fn resolve_candidates(
                 agent_id: None,
                 provider_id: None,
                 model_id: None,
+                usage_kind: None,
             };
             (start, end, filters)
         }

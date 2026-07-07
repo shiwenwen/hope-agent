@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
+use crate::tools::execution::ToolExecContext;
 use crate::ttl_cache::TtlCache;
 
 mod bocha;
@@ -250,8 +251,65 @@ fn resolve_providers(config: &WebSearchConfig) -> Vec<&WebSearchProviderEntry> {
 
 // ── Tool Entry Point ─────────────────────────────────────────────
 
-pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
+#[derive(Debug, Clone, Default)]
+pub(super) struct WebSearchUsageContext {
+    session_id: Option<String>,
+    agent_id: Option<String>,
+}
+
+pub(super) fn record_llm_web_search_usage(
+    ctx: &WebSearchUsageContext,
+    operation: &'static str,
+    provider_id: &'static str,
+    provider_name: &'static str,
+    model_id: &'static str,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+    response_body: Option<&Value>,
+) {
+    let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_WEB_SEARCH);
+    event.operation = Some(operation.to_string());
+    event.source = Some("web_search".to_string());
+    event.provider_id = Some(provider_id.to_string());
+    event.provider_name = Some(provider_name.to_string());
+    event.model_id = Some(model_id.to_string());
+    event.session_id = ctx.session_id.clone();
+    event.agent_id = ctx.agent_id.clone();
+    event.duration_ms = Some(duration_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(serde_json::json!({ "provider": provider_name }));
+
+    if let Some(usage) = response_body.and_then(|body| body.get("usage")) {
+        event.input_tokens = usage
+            .get("input_tokens")
+            .or_else(|| usage.get("prompt_tokens"))
+            .and_then(|v| v.as_u64());
+        event.output_tokens = usage
+            .get("output_tokens")
+            .or_else(|| usage.get("completion_tokens"))
+            .and_then(|v| v.as_u64());
+        event.cache_read_input_tokens = usage
+            .get("prompt_tokens_details")
+            .and_then(|d| d.get("cached_tokens"))
+            .or_else(|| {
+                usage
+                    .get("input_tokens_details")
+                    .and_then(|d| d.get("cached_tokens"))
+            })
+            .and_then(|v| v.as_u64());
+    }
+
+    crate::model_usage::record_model_usage_best_effort(event);
+}
+
+pub(crate) async fn tool_web_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let config = crate::config::cached_config().web_search.clone();
+    let usage_ctx = WebSearchUsageContext {
+        session_id: ctx.session_id.clone(),
+        agent_id: ctx.agent_id.clone(),
+    };
 
     let query = args
         .get("query")
@@ -347,7 +405,7 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
             }
             WebSearchProvider::Perplexity => {
                 let key = entry.api_key.as_deref().unwrap_or("");
-                perplexity::search_perplexity(key, query, count, &params, timeout).await
+                perplexity::search_perplexity(key, query, count, &params, timeout, &usage_ctx).await
             }
             WebSearchProvider::Google => {
                 let key = entry.api_key.as_deref().unwrap_or("");
@@ -356,11 +414,11 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
             }
             WebSearchProvider::Grok => {
                 let key = entry.api_key.as_deref().unwrap_or("");
-                grok::search_grok(key, query, count, timeout).await
+                grok::search_grok(key, query, count, timeout, &usage_ctx).await
             }
             WebSearchProvider::Kimi => {
                 let key = entry.api_key.as_deref().unwrap_or("");
-                kimi::search_kimi(key, query, count, timeout).await
+                kimi::search_kimi(key, query, count, timeout, &usage_ctx).await
             }
             WebSearchProvider::Tavily => {
                 let key = entry.api_key.as_deref().unwrap_or("");

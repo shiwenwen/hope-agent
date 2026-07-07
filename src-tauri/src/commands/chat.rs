@@ -825,6 +825,40 @@ pub async fn chat(
                         .or(usage.cache_read_input_tokens);
                 }
                 let assistant_id = db.append_message(&sid, &assistant_msg).ok();
+                if let Some(message_id) = assistant_id {
+                    if let Ok(usage) = captured_usage.lock() {
+                        let mut event = ha_core::model_usage::ModelUsageEvent::new(
+                            ha_core::model_usage::KIND_CHAT,
+                        )
+                        .with_usage(
+                            usage.input_tokens.unwrap_or(0) as u64,
+                            usage.output_tokens.unwrap_or(0) as u64,
+                            usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                            usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                        );
+                        event.request_key = Some(format!("message:{message_id}"));
+                        event.operation = Some("chat".to_string());
+                        event.source = Some(
+                            ha_core::chat_engine::ChatSource::Desktop
+                                .as_str()
+                                .to_string(),
+                        );
+                        event.model_id = usage.model.clone();
+                        event.session_id = Some(sid.clone());
+                        event.agent_id = Some(current_agent_id.clone());
+                        event.duration_ms = Some(duration_ms);
+                        event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
+                        if let Err(e) = db.insert_model_usage_event(&event) {
+                            ha_core::app_warn!(
+                                "model_usage",
+                                "chat",
+                                "failed to record fallback chat usage for message {}: {}",
+                                message_id,
+                                e
+                            );
+                        }
+                    }
+                }
                 if cancel.load(Ordering::SeqCst) {
                     crate::chat_engine::save_agent_context(&db, &sid, agent);
                     let partial = ha_core::chat_engine::finalize::PartialMeta {

@@ -1459,6 +1459,7 @@ async fn transcribe_media_bytes(
             filename: provenance.file_name.clone(),
         },
         &options,
+        None,
     )
     .await
     .map_err(|e| anyhow!("media transcription failed: {e}"))?;

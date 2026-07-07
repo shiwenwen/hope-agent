@@ -7,6 +7,7 @@ export interface DashboardFilter {
   agentId: string | null
   providerId: string | null
   modelId: string | null
+  usageKind: string | null
 }
 
 export interface OverviewStats {
@@ -43,9 +44,22 @@ export interface TokenByModel {
   avgTtftMs: number | null
 }
 
+export interface TokenByKind {
+  kind: string
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  estimatedCostUsd: number
+  avgDurationMs: number | null
+  avgTtftMs: number | null
+}
+
 export interface DashboardTokenData {
   trend: TokenUsageTrend[]
   byModel: TokenByModel[]
+  byKind: TokenByKind[]
   totalCostUsd: number
 }
 

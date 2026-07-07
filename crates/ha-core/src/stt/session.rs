@@ -86,6 +86,7 @@ impl SttSessionManager {
         provider_id: Option<String>,
         model_id: Option<String>,
         options: TranscriptOptions,
+        chat_session_id: Option<String>,
     ) -> SttResult<String> {
         let active = match (provider_id, model_id) {
             (Some(p), Some(m)) => ActiveSttModel {
@@ -106,6 +107,7 @@ impl SttSessionManager {
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (final_tx, final_rx) = oneshot::channel();
 
+        let open_started = Instant::now();
         let stream = match provider.kind {
             SttProviderKind::DeepgramWs => {
                 deepgram::open_stream(&provider, &model, &profile, &options).await?
@@ -133,6 +135,23 @@ impl SttSessionManager {
                 )));
             }
         };
+        let open_duration_ms = open_started.elapsed().as_millis() as u64;
+        let mut usage_event =
+            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_STT);
+        usage_event.request_key = Some(format!("stt_stream:{session_id}"));
+        usage_event.operation = Some("stt.open_stream".to_string());
+        usage_event.source = Some("stt".to_string());
+        usage_event.provider_id = Some(provider.id.clone());
+        usage_event.provider_name = Some(provider.name.clone());
+        usage_event.model_id = Some(model.id.clone());
+        usage_event.session_id = chat_session_id;
+        usage_event.duration_ms = Some(open_duration_ms);
+        usage_event.metadata = Some(serde_json::json!({
+            "provider_kind": provider.kind.display_name(),
+            "language": &options.language,
+            "stream_session_id": session_id,
+        }));
+        crate::model_usage::record_model_usage_best_effort(usage_event);
         let audio_tx = stream.audio_tx;
         let delta_rx = stream.delta_rx;
 
@@ -367,7 +386,7 @@ mod tests {
         crate::config::replace_cache_for_test(AppConfig::default());
         let manager = SttSessionManager::new();
         let err = manager
-            .start(None, None, TranscriptOptions::default())
+            .start(None, None, TranscriptOptions::default(), None)
             .await
             .unwrap_err();
         assert_eq!(err.code(), "no_active_model");

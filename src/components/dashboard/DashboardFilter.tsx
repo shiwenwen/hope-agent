@@ -28,6 +28,18 @@ interface Provider {
 }
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all" | "custom"
+const USAGE_KIND_OPTIONS = [
+  { value: "__all__", label: "All usage" },
+  { value: "chat", label: "Chat" },
+  { value: "side_query", label: "Side query" },
+  { value: "embedding", label: "Embedding" },
+  { value: "stt", label: "Speech-to-text" },
+  { value: "judge", label: "Judge" },
+  { value: "summarize", label: "Summarize" },
+  { value: "web_search", label: "Web search" },
+  { value: "image_generation", label: "Image generation" },
+  { value: "provider_test", label: "Provider test" },
+]
 
 function computeDateRange(key: RangeKey): { start: string | null; end: string | null } {
   if (key === "all") return { start: null, end: null }
@@ -113,12 +125,13 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       agentId: null,
       providerId: null,
       modelId: null,
+      usageKind: null,
     })
   }, [onChange])
 
   const hasActiveFilters = useMemo(
-    () => filter.agentId || filter.providerId || filter.modelId,
-    [filter.agentId, filter.providerId, filter.modelId],
+    () => filter.agentId || filter.providerId || filter.modelId || filter.usageKind,
+    [filter.agentId, filter.providerId, filter.modelId, filter.usageKind],
   )
   const selectedAgent = agents.find((a) => a.id === filter.agentId)
 
@@ -203,6 +216,24 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
           {providers.map((p) => (
             <SelectItem key={p.id} value={p.id}>
               {p.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={filter.usageKind ?? "__all__"}
+        onValueChange={(v) =>
+          onChange({ ...filter, usageKind: v === "__all__" ? null : v })
+        }
+      >
+        <SelectTrigger className="h-7 w-40 text-xs">
+          <SelectValue placeholder="All usage" />
+        </SelectTrigger>
+        <SelectContent>
+          {USAGE_KIND_OPTIONS.map((opt) => (
+            <SelectItem key={opt.value} value={opt.value}>
+              {opt.label}
             </SelectItem>
           ))}
         </SelectContent>

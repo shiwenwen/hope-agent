@@ -29,6 +29,18 @@ const PIE_COLORS = [
   "#f97316",
 ]
 
+const USAGE_KIND_LABELS: Record<string, string> = {
+  chat: "Chat",
+  side_query: "Side query",
+  embedding: "Embedding",
+  stt: "Speech-to-text",
+  judge: "Judge",
+  summarize: "Summarize",
+  web_search: "Web search",
+  image_generation: "Image generation",
+  provider_test: "Provider test",
+}
+
 interface TokenUsageSectionProps {
   data: DashboardTokenData | null
   loading: boolean
@@ -145,6 +157,47 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
             </AreaChart>
           </ResponsiveContainer>
         )}
+      </div>
+
+      <div className="bg-card border rounded-xl p-4">
+        <h3 className="text-sm font-medium mb-4">Usage by type</h3>
+        <div className="overflow-auto">
+          <div className="grid grid-cols-8 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b min-w-[760px]">
+            <div>Type</div>
+            <div className="text-right">Calls</div>
+            <div className="text-right">{t("dashboard.token.input")}</div>
+            <div className="text-right">{t("dashboard.token.output")}</div>
+            <div className="text-right">Cache write</div>
+            <div className="text-right">Cache read</div>
+            <div className="text-right">{t("dashboard.token.cost")}</div>
+            <div className="text-right">Avg duration</div>
+          </div>
+          {(data.byKind ?? []).length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              {t("dashboard.noData")}
+            </div>
+          ) : (
+            data.byKind.map((row) => (
+              <div
+                key={row.kind}
+                className="grid grid-cols-8 gap-2 text-xs py-2 border-b border-border/50 min-w-[760px]"
+              >
+                <div className="truncate font-medium">
+                  {USAGE_KIND_LABELS[row.kind] ?? row.kind}
+                </div>
+                <div className="text-right">{formatNumber(row.callCount)}</div>
+                <div className="text-right">{formatNumber(row.inputTokens)}</div>
+                <div className="text-right">{formatNumber(row.outputTokens)}</div>
+                <div className="text-right">{formatNumber(row.cacheCreationInputTokens)}</div>
+                <div className="text-right">{formatNumber(row.cacheReadInputTokens)}</div>
+                <div className="text-right">{formatCost(row.estimatedCostUsd)}</div>
+                <div className="text-right">
+                  {row.avgDurationMs != null ? formatDuration(row.avgDurationMs) : "-"}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -335,7 +335,7 @@ export default function ChatInput({
     agentId: currentAgentId,
   }
   const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
-  const voice = useVoiceInput()
+  const voice = useVoiceInput(currentSessionId)
   const normalToolbarOpen = voice.state !== "recording" && voice.state !== "transcribing"
   // Read the latest `input` when transcription resolves — the user can keep
   // typing during the STT round-trip, and capturing `input` in the closure

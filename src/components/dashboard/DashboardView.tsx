@@ -65,6 +65,7 @@ function defaultFilter(): DashboardFilterState {
     agentId: null,
     providerId: null,
     modelId: null,
+    usageKind: null,
   }
 }
 

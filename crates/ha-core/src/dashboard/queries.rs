@@ -9,7 +9,9 @@ use crate::logging::LogDB;
 use crate::session::SessionDB;
 
 use super::cost::estimate_cost;
-use super::filters::{build_log_filter, build_session_filter, params_ref};
+use super::filters::{
+    build_log_filter, build_model_usage_filter, build_session_filter, params_ref,
+};
 use super::types::*;
 
 /// Overview stats: session/message/token counts, tool calls, errors, active agents/cron.
@@ -31,12 +33,12 @@ pub fn query_overview(
         crate::sql_u64(r, 0)
     })?;
 
-    // Message count + token sums + tool calls + errors
+    // Message count + tool calls + errors. Token/cost totals come from the
+    // unified model usage ledger below so side_query / embedding / STT calls
+    // are included too.
     let f = build_session_filter(filter, "s", Some("m"));
     let sql = format!(
         "SELECT COUNT(m.id),
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0),
                 COALESCE(SUM(CASE WHEN m.tool_name IS NOT NULL THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN m.is_error = 1 THEN 1 ELSE 0 END), 0)
          FROM messages m
@@ -44,9 +46,26 @@ pub fn query_overview(
          {}",
         f.where_sql
     );
-    let (total_messages, total_input_tokens, total_output_tokens, total_tool_calls, total_errors): (u64, u64, u64, u64, u64) =
+    let (total_messages, total_tool_calls, total_errors): (u64, u64, u64) =
         sess_conn.query_row(&sql, params_ref(&f.params).as_slice(), |r| {
-            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?, crate::sql_u64(r, 2)?, crate::sql_u64(r, 3)?, crate::sql_u64(r, 4)?))
+            Ok((
+                crate::sql_u64(r, 0)?,
+                crate::sql_u64(r, 1)?,
+                crate::sql_u64(r, 2)?,
+            ))
+        })?;
+
+    let f_usage = build_model_usage_filter(filter, "u");
+    let sql = format!(
+        "SELECT COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0)
+         FROM model_usage_events u
+         {}",
+        f_usage.where_sql
+    );
+    let (total_input_tokens, total_output_tokens): (u64, u64) =
+        sess_conn.query_row(&sql, params_ref(&f_usage.params).as_slice(), |r| {
+            Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
         })?;
 
     // Active agents (distinct agent_ids in sessions within filter period)
@@ -59,13 +78,12 @@ pub fn query_overview(
         crate::sql_u64(r, 0)
     })?;
 
-    // Query average TTFT
-    let f = build_session_filter(filter, "s", Some("m"));
+    // Query average TTFT from the usage ledger.
+    let f = build_model_usage_filter(filter, "u");
     let sql = format!(
-        "SELECT AVG(m.ttft_ms)
-         FROM messages m
-         JOIN sessions s ON s.id = m.session_id
-         {} AND m.ttft_ms IS NOT NULL AND m.role = 'assistant'",
+        "SELECT AVG(u.ttft_ms)
+         FROM model_usage_events u
+         {} AND u.ttft_ms IS NOT NULL",
         if f.where_sql.is_empty() {
             "WHERE 1=1".to_string()
         } else {
@@ -95,15 +113,14 @@ pub fn query_overview(
         .conn
         .lock()
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-    let f = build_session_filter(filter, "s", Some("m"));
+    let f = build_model_usage_filter(filter, "u");
     let sql = format!(
-        "SELECT COALESCE(s.model_id, 'unknown'),
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0)
-         FROM messages m
-         JOIN sessions s ON s.id = m.session_id
+        "SELECT COALESCE(u.model_id, 'unknown'),
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0)
+         FROM model_usage_events u
          {}
-         GROUP BY s.model_id",
+         GROUP BY u.model_id",
         f.where_sql
     );
     let mut stmt = sess_conn.prepare(&sql)?;
@@ -145,14 +162,13 @@ pub fn query_token_usage(
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
     // Daily trend (with avg TTFT)
-    let f = build_session_filter(filter, "s", Some("m"));
+    let f = build_model_usage_filter(filter, "u");
     let sql = format!(
-        "SELECT DATE(m.timestamp) as d,
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0),
-                AVG(CASE WHEN m.ttft_ms IS NOT NULL AND m.role = 'assistant' THEN m.ttft_ms END)
-         FROM messages m
-         JOIN sessions s ON s.id = m.session_id
+        "SELECT DATE(u.timestamp) as d,
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
+                AVG(u.ttft_ms)
+         FROM model_usage_events u
          {}
          GROUP BY d
          ORDER BY d ASC",
@@ -170,18 +186,17 @@ pub fn query_token_usage(
     let trend: Vec<TokenUsageTrend> = rows.collect::<std::result::Result<_, _>>()?;
 
     // By model (with avg TTFT)
-    let f = build_session_filter(filter, "s", Some("m"));
+    let f = build_model_usage_filter(filter, "u");
     let sql = format!(
-        "SELECT COALESCE(s.model_id, 'unknown'),
-                COALESCE(s.provider_name, 'unknown'),
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0),
-                AVG(CASE WHEN m.ttft_ms IS NOT NULL AND m.role = 'assistant' THEN m.ttft_ms END)
-         FROM messages m
-         JOIN sessions s ON s.id = m.session_id
+        "SELECT COALESCE(u.model_id, 'unknown'),
+                COALESCE(u.provider_name, 'unknown'),
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
+                AVG(u.ttft_ms)
+         FROM model_usage_events u
          {}
-         GROUP BY s.model_id, s.provider_name
-         ORDER BY SUM(m.tokens_in) + SUM(m.tokens_out) DESC",
+         GROUP BY u.model_id, u.provider_name
+         ORDER BY SUM(u.input_tokens) + SUM(u.output_tokens) DESC",
         f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;
@@ -202,11 +217,89 @@ pub fn query_token_usage(
     })?;
     let by_model: Vec<TokenByModel> = rows.collect::<std::result::Result<_, _>>()?;
 
+    let f = build_model_usage_filter(filter, "u");
+    let sql = format!(
+        "SELECT u.kind,
+                COALESCE(u.model_id, 'unknown'),
+                COUNT(*) as call_count,
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
+                COALESCE(SUM(u.cache_creation_input_tokens), 0),
+                COALESCE(SUM(u.cache_read_input_tokens), 0),
+                AVG(u.duration_ms),
+                AVG(u.ttft_ms)
+         FROM model_usage_events u
+         {}
+         GROUP BY u.kind, u.model_id
+         ORDER BY u.kind ASC",
+        f.where_sql
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_ref(&f.params).as_slice(), |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            crate::sql_u64(r, 2)?,
+            crate::sql_u64(r, 3)?,
+            crate::sql_u64(r, 4)?,
+            crate::sql_u64(r, 5)?,
+            crate::sql_u64(r, 6)?,
+            r.get::<_, Option<f64>>(7)?,
+            r.get::<_, Option<f64>>(8)?,
+        ))
+    })?;
+    let mut by_kind_map: std::collections::BTreeMap<String, TokenByKind> =
+        std::collections::BTreeMap::new();
+    for row in rows {
+        let (
+            kind,
+            model_id,
+            call_count,
+            input_tokens,
+            output_tokens,
+            cache_creation_input_tokens,
+            cache_read_input_tokens,
+            avg_duration_ms,
+            avg_ttft_ms,
+        ) = row?;
+        let entry = by_kind_map.entry(kind.clone()).or_insert(TokenByKind {
+            kind,
+            call_count: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+            estimated_cost_usd: 0.0,
+            avg_duration_ms: None,
+            avg_ttft_ms: None,
+        });
+        let old_calls = entry.call_count;
+        entry.call_count += call_count;
+        entry.input_tokens += input_tokens;
+        entry.output_tokens += output_tokens;
+        entry.cache_creation_input_tokens += cache_creation_input_tokens;
+        entry.cache_read_input_tokens += cache_read_input_tokens;
+        entry.estimated_cost_usd += estimate_cost(&model_id, input_tokens, output_tokens);
+        if let Some(avg) = avg_duration_ms {
+            let total =
+                entry.avg_duration_ms.unwrap_or(0.0) * old_calls as f64 + avg * call_count as f64;
+            entry.avg_duration_ms = Some(total / entry.call_count.max(1) as f64);
+        }
+        if let Some(avg) = avg_ttft_ms {
+            let total =
+                entry.avg_ttft_ms.unwrap_or(0.0) * old_calls as f64 + avg * call_count as f64;
+            entry.avg_ttft_ms = Some(total / entry.call_count.max(1) as f64);
+        }
+    }
+    let mut by_kind: Vec<TokenByKind> = by_kind_map.into_values().collect();
+    by_kind.sort_by_key(|k| std::cmp::Reverse(k.input_tokens + k.output_tokens));
+
     let total_cost_usd = by_model.iter().map(|m| m.estimated_cost_usd).sum();
 
     Ok(DashboardTokenData {
         trend,
         by_model,
+        by_kind,
         total_cost_usd,
     })
 }

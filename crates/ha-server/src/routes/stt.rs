@@ -215,6 +215,8 @@ pub struct TranscribeBlobBody {
     pub provider_id: Option<String>,
     #[serde(default)]
     pub model_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
     pub mime_type: String,
     pub filename: String,
     pub base64: String,
@@ -264,9 +266,15 @@ pub async fn stt_transcribe_blob(
         filename: body.filename,
     };
 
-    let transcript = stt::failover_transcribe_batch(primary, fallback, payload, &body.options)
-        .await
-        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    let transcript = stt::failover_transcribe_batch(
+        primary,
+        fallback,
+        payload,
+        &body.options,
+        body.session_id.as_deref(),
+    )
+    .await
+    .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(transcript))
 }
 
@@ -279,6 +287,8 @@ pub struct StartSessionBody {
     pub provider_id: Option<String>,
     #[serde(default)]
     pub model_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
     #[serde(default)]
     pub options: TranscriptOptions,
 }
@@ -294,7 +304,12 @@ pub async fn stt_start_session(
     Json(body): Json<StartSessionBody>,
 ) -> Result<Json<StartSessionResponse>, AppError> {
     let session_id = SttSessionManager::global()
-        .start(body.provider_id, body.model_id, body.options)
+        .start(
+            body.provider_id,
+            body.model_id,
+            body.options,
+            body.session_id,
+        )
         .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(StartSessionResponse { session_id }))
