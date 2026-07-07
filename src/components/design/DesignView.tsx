@@ -533,8 +533,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // Receive selection from the iframe bridge + stream-host ready handshake.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      const d = e.data as { type?: string; payload?: DesignSelectedElement }
+      const d = e.data as {
+        type?: string
+        payload?: DesignSelectedElement
+        oid?: number | string
+        text?: string
+      }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
+      // 就地文本编辑提交：双击叶子元素改文案 → 走同一确定性回写（apply_text_patch +
+      // expectedHash）。仅编辑态受理；oid 直接来自被编辑元素。
+      else if (d?.type === "ds_text_commit" && d.oid != null && editModeRef.current) {
+        void commitPatch({ oid: Number(d.oid), text: String(d.text ?? "") })
+      }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
       else if (d?.type === "ds_stream_ready") {
         const snap = streamSnapshotRef.current
@@ -546,7 +556,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
     window.addEventListener("message", onMsg)
     return () => window.removeEventListener("message", onMsg)
-  }, [postToIframe])
+  }, [postToIframe, commitPatch])
 
   // Toggle bridge activation with edit mode.
   useEffect(() => {

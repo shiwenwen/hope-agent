@@ -270,10 +270,12 @@ pub fn build_artifact_html(
 
 /// Inspector bridge：dormant，收到父窗 `ds_activate` 才启用点选；选中元素回传父窗
 /// （oid / tag / 关键样式 / 文本 / 是否叶子），支持 `ds_preview_style` / `ds_set_text`
-/// live preview。**沙箱零网络**，只通过 postMessage 通信。
+/// live preview。**就地文本编辑**：双击叶子文本元素 → `contenteditable` 原地改，
+/// Enter / 失焦提交（发 `ds_text_commit`，父窗走 `apply_text_patch` + `expected_hash`
+/// 确定性回写）、Esc 取消（还原）。**沙箱零网络**，只通过 postMessage 通信。
 const INSPECTOR_BRIDGE: &str = r#"<script>
 (function(){
-  var active=false, hovered=null, selected=null;
+  var active=false, hovered=null, selected=null, editing=null, editOrig=null;
   var CSS_PROPS=['color','background-color','font-size','font-weight','font-style','text-align',
     'text-transform','text-decoration','line-height','letter-spacing',
     'padding','margin','gap','width','height','max-width','min-height',
@@ -290,21 +292,50 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   }
   function clearHover(){if(hovered){hovered.style.outline='';hovered=null}}
   function clearSel(){if(selected){selected.style.outline='';selected=null}}
+  // 结束就地编辑：commit 时把新 textContent（拍平任何 contenteditable 插入的标记）发父窗
+  // 走确定性回写并回传最新 info 同步 inspector；取消 / 无变化则还原原文。先置 editing=null 防 blur 重入。
+  function endEdit(commit){
+    var el=editing;if(!el)return;editing=null;
+    el.removeAttribute('contenteditable');el.style.outline='2px solid #2563eb';
+    var newText=el.textContent||'',oid=el.getAttribute('data-ds-oid');
+    if(commit&&newText!==editOrig){
+      parent.postMessage({type:'ds_text_commit',oid:oid,text:newText},'*');
+      parent.postMessage({type:'ds_selected',payload:info(el)},'*');
+    }else{el.textContent=editOrig}
+    editOrig=null;
+  }
   document.addEventListener('mouseover',function(e){
-    if(!active)return;var el=e.target.closest('[data-ds-oid]');if(!el||el===selected)return;
+    if(!active||editing)return;var el=e.target.closest('[data-ds-oid]');if(!el||el===selected)return;
     clearHover();hovered=el;el.style.outline='1px solid rgba(37,99,235,.5)';
   },true);
-  document.addEventListener('mouseout',function(){if(active)clearHover()},true);
+  document.addEventListener('mouseout',function(){if(active&&!editing)clearHover()},true);
   document.addEventListener('click',function(e){
-    if(!active)return;var el=e.target.closest('[data-ds-oid]');if(!el)return;
+    if(!active)return;
+    if(editing){if(editing.contains(e.target))return;endEdit(true)} // 编辑内点=移光标；点外=提交
+    var el=e.target.closest('[data-ds-oid]');if(!el)return;
     e.preventDefault();e.stopPropagation();
     clearSel();clearHover();selected=el;el.style.outline='2px solid #2563eb';
     parent.postMessage({type:'ds_selected',payload:info(el)},'*');
   },true);
+  document.addEventListener('dblclick',function(e){
+    if(!active)return;var el=e.target.closest('[data-ds-oid]');
+    if(!el||el.childElementCount!==0)return; // 仅叶子文本元素（有子元素则改会拍平内部标记）
+    e.preventDefault();e.stopPropagation();
+    if(editing&&editing!==el)endEdit(true);
+    clearHover();clearSel();selected=el;editing=el;editOrig=el.textContent||'';
+    el.setAttribute('contenteditable','true');el.style.outline='2px dashed #16a34a';el.focus();
+    var s=window.getSelection(),r=document.createRange();r.selectNodeContents(el);s.removeAllRanges();s.addRange(r);
+  },true);
+  document.addEventListener('keydown',function(e){
+    if(!editing)return;
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();endEdit(true)}
+    else if(e.key==='Escape'){e.preventDefault();endEdit(false)}
+  },true);
+  document.addEventListener('blur',function(e){if(editing&&e.target===editing)endEdit(true)},true);
   window.addEventListener('message',function(e){
     var d=e.data||{};
     if(d.type==='ds_activate'){active=true}
-    else if(d.type==='ds_deactivate'){active=false;clearSel();clearHover()}
+    else if(d.type==='ds_deactivate'){active=false;endEdit(false);clearSel();clearHover()}
     else if(d.type==='ds_preview_style'){
       var el=elByOid(d.oid);if(!el)return;
       (d.props||[]).forEach(function(kv){el.style.setProperty(kv[0],kv[1])});
