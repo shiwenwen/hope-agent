@@ -391,6 +391,16 @@
       "forkHint": "Built-in systems are read-only; saving creates your copy",
       "saveCopy": "Save as copy",
       "sourceDropped": "{{count}} line(s) are invalid (missing “:”) and were not saved"
+    },
+    "exportTokens": "Export tokens (multi-platform code)…",
+    "export": {
+      "title": "Export tokens",
+      "desc": "Export your design variables as ready-to-use developer code for each platform.",
+      "loadErr": "Failed to generate export",
+      "copyErr": "Copy failed",
+      "empty": "This design system has no exportable variables",
+      "copy": "Copy",
+      "download": "Download"
     }
   },
   "channels": {

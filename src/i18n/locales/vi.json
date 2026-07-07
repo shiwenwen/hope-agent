@@ -391,6 +391,16 @@
       "forkHint": "Hệ thống dựng sẵn chỉ đọc; lưu sẽ tạo bản sao của bạn",
       "saveCopy": "Lưu thành bản sao",
       "sourceDropped": "{{count}} dòng không hợp lệ (thiếu “:”) nên không được lưu"
+    },
+    "exportTokens": "Xuất token (mã đa nền tảng)…",
+    "export": {
+      "title": "Xuất token",
+      "desc": "Xuất các biến thiết kế thành mã lập trình sẵn dùng cho từng nền tảng.",
+      "loadErr": "Tạo bản xuất thất bại",
+      "copyErr": "Sao chép thất bại",
+      "empty": "Hệ thống thiết kế này không có biến nào để xuất",
+      "copy": "Sao chép",
+      "download": "Tải xuống"
     }
   },
   "channels": {

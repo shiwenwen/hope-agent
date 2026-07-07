@@ -178,12 +178,12 @@ pub fn get_design_tool() -> ToolDefinition {
                     "type": "string",
                     "enum": [
                         "list_recipes", "get_recipe", "list_systems", "get_system", "extract_system",
-                        "import_design_md", "export_system",
+                        "import_design_md", "export_system", "export_tokens",
                         "propose_directions", "list_projects", "list_artifacts", "get_artifact",
                         "create_artifact", "update_artifact", "delete_artifact",
                         "versions", "restore", "critique", "save_to_knowledge", "show"
                     ],
-                    "description": "Design operation to perform. import_design_md = import a DESIGN.md-spec design system from 'content' (interop format); export_system = export a design system as a portable DESIGN.md."
+                    "description": "Design operation to perform. import_design_md = import a DESIGN.md-spec design system from 'content' (interop format); export_system = export a design system as a portable DESIGN.md; export_tokens = export a design system's tokens as developer code (CSS/SCSS/TS/Swift/Android XML/DTCG JSON) — optionally pass 'format' for a single target."
                 },
                 "kind": {
                     "type": "string",
@@ -207,7 +207,8 @@ pub fn get_design_tool() -> ToolDefinition {
                 "css": { "type": "string", "description": "Artifact CSS (inline). Reference var(--ds-*) design tokens." },
                 "js": { "type": "string", "description": "Optional artifact JavaScript (inline)." },
                 "version_id": { "type": "integer", "description": "Version number (for restore)" },
-                "version_message": { "type": "string", "description": "Optional message for update" }
+                "version_message": { "type": "string", "description": "Optional message for update" },
+                "format": { "type": "string", "enum": ["css", "scss", "ts", "swift", "android", "dtcg"], "description": "Single export target for export_tokens (omit to return all six)." }
             },
             "required": ["action"],
             "additionalProperties": false

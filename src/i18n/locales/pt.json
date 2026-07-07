@@ -391,6 +391,16 @@
       "forkHint": "Sistemas integrados são só de leitura; guardar cria a sua cópia",
       "saveCopy": "Guardar como cópia",
       "sourceDropped": "{{count}} linha(s) inválida(s) (sem “:”) não foram salvas"
+    },
+    "exportTokens": "Exportar tokens (código multiplataforma)…",
+    "export": {
+      "title": "Exportar tokens",
+      "desc": "Exporte suas variáveis de design como código pronto para desenvolvedores em cada plataforma.",
+      "loadErr": "Falha ao gerar a exportação",
+      "copyErr": "Falha ao copiar",
+      "empty": "Este sistema de design não tem variáveis exportáveis",
+      "copy": "Copiar",
+      "download": "Baixar"
     }
   },
   "channels": {

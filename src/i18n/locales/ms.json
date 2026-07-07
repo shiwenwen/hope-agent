@@ -391,6 +391,16 @@
       "forkHint": "Sistem terbina dalam baca sahaja; menyimpan mencipta salinan anda",
       "saveCopy": "Simpan sebagai salinan",
       "sourceDropped": "{{count}} baris tidak sah (tiada “:”) dan tidak disimpan"
+    },
+    "exportTokens": "Eksport token (kod pelbagai platform)…",
+    "export": {
+      "title": "Eksport token",
+      "desc": "Eksport pemboleh ubah reka bentuk anda sebagai kod pembangun sedia guna untuk setiap platform.",
+      "loadErr": "Gagal menjana eksport",
+      "copyErr": "Gagal menyalin",
+      "empty": "Sistem reka bentuk ini tiada pemboleh ubah untuk dieksport",
+      "copy": "Salin",
+      "download": "Muat turun"
     }
   },
   "channels": {

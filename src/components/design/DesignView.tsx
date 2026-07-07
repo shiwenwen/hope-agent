@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next"
 import {
   ArrowLeft,
   Plus,
+  Braces,
   Trash2,
   RefreshCw,
   Settings2,
@@ -52,6 +53,7 @@ import DesignInspector from "@/components/design/DesignInspector"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
+import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -162,6 +164,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [systemPickerOpen, setSystemPickerOpen] = useState(false)
   const [tokenEditorOpen, setTokenEditorOpen] = useState(false)
   const [tokenEditorSystem, setTokenEditorSystem] = useState<DesignSystemMeta | null>(null)
+  const [tokenExportOpen, setTokenExportOpen] = useState(false)
+  const [tokenExportSystem, setTokenExportSystem] = useState<DesignSystemMeta | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<
     { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
@@ -1610,6 +1614,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         {t("design.exportDesignMd", "导出当前系统 (DESIGN.md)")}
                       </Button>
                     )}
+                    {activeProject.defaultSystemId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        onClick={() => {
+                          const sys = systems.find((s) => s.id === activeProject.defaultSystemId)
+                          if (!sys) return
+                          setSystemPickerOpen(false)
+                          setTokenExportSystem(sys)
+                          setTokenExportOpen(true)
+                        }}
+                      >
+                        <Braces className="h-3.5 w-3.5" />
+                        {t("design.exportTokens", "导出 Token（多平台代码）…")}
+                      </Button>
+                    )}
                   </div>
                 }
               />
@@ -2150,6 +2171,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             void setProjectSystem(systemId)
           }
         }}
+      />
+
+      {/* 多平台 Token 导出（P3 工程轴 A） */}
+      <DesignTokenExport
+        system={tokenExportSystem}
+        open={tokenExportOpen}
+        onOpenChange={setTokenExportOpen}
       />
 
       {/* 导出强路依赖门（MP4→ffmpeg / PDF·PNG→浏览器引擎）：未就绪让用户主动选，不静默降级。 */}

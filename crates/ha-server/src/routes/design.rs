@@ -390,6 +390,15 @@ pub async fn export_design_md(
     Ok(Json(json!({ "designMd": md })))
 }
 
+/// `GET /api/design/systems/{id}/tokens/export` — export tokens to multi-platform
+/// developer formats (CSS/SCSS/TS/Swift/Android/DTCG).
+pub async fn export_design_tokens(
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<Vec<ha_core::design::token_export::TokenExport>>, AppError> {
+    let out = service::export_tokens(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(out))
+}
+
 /// `POST /api/design/directions` — propose N design direction candidates.
 pub async fn propose_directions(
     Json(body): Json<ProposeDirectionsBody>,

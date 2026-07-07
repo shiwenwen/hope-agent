@@ -29,6 +29,7 @@ pub(crate) async fn tool_design(
         "extract_system" => action_extract_system(args, session_id).await,
         "import_design_md" => action_import_design_md(args).await,
         "export_system" => action_export_system(args),
+        "export_tokens" => action_export_tokens(args),
         "propose_directions" => action_propose_directions(args).await,
         "list_projects" => action_list_projects(),
         "list_artifacts" => action_list_artifacts(args, session_id),
@@ -105,6 +106,22 @@ fn action_export_system(args: &Value) -> Result<String> {
     let id = require_str(args, "system_id")?;
     let md = service::export_design_md(id)?;
     ok(json!({ "systemId": id, "designMd": md }))
+}
+
+/// 导出设计系统 Token 为多平台开发者格式（CSS/SCSS/TS/Swift/Android/DTCG）。
+/// 可选 `format` 只取单个目标；缺省返回全部。
+fn action_export_tokens(args: &Value) -> Result<String> {
+    let id = require_str(args, "system_id")?;
+    let mut exports = service::export_tokens(id)?;
+    if let Some(fmt) = str_arg(args, "format") {
+        exports.retain(|e| e.format == fmt);
+        if exports.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Unknown format '{fmt}'; expected one of css/scss/ts/swift/android/dtcg"
+            ));
+        }
+    }
+    ok(json!({ "systemId": id, "exports": exports }))
 }
 
 async fn action_extract_system(args: &Value, session_id: Option<&str>) -> Result<String> {

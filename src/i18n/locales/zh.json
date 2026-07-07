@@ -391,6 +391,16 @@
       "forkHint": "内置系统只读，保存将创建你的副本",
       "saveCopy": "存为副本",
       "sourceDropped": "{{count}} 行格式无效（缺少「：」），未保存这些变量"
+    },
+    "exportTokens": "导出 Token（多平台代码）…",
+    "export": {
+      "title": "导出 Token",
+      "desc": "把设计变量导出为各平台可直接落地的开发者代码，供工程侧接入。",
+      "loadErr": "生成导出失败",
+      "copyErr": "复制失败",
+      "empty": "该设计系统没有可导出的变量",
+      "copy": "复制",
+      "download": "下载"
     }
   },
   "channels": {

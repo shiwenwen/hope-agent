@@ -1777,6 +1777,10 @@ fn build_router_with_cors(
             get(routes::design::export_design_md),
         )
         .route(
+            "/design/systems/{id}/tokens/export",
+            get(routes::design::export_design_tokens),
+        )
+        .route(
             "/design/systems/{id}",
             get(routes::design::get_system).delete(routes::design::delete_system),
         )

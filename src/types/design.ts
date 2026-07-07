@@ -234,3 +234,12 @@ export interface DesignDirection {
   summary: string;
   tokens: Record<string, string>;
 }
+
+/** 多平台 Token 导出产物（`export_design_tokens_cmd`）。 */
+export interface TokenExport {
+  format: "css" | "scss" | "ts" | "swift" | "android" | "dtcg";
+  label: string;
+  filename: string;
+  language: string;
+  content: string;
+}

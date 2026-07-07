@@ -391,6 +391,16 @@
       "forkHint": "內建系統唯讀，儲存將建立你的副本",
       "saveCopy": "另存為副本",
       "sourceDropped": "{{count}} 行格式無效（缺少「：」），未儲存這些變數"
+    },
+    "exportTokens": "匯出 Token（多平台程式碼）…",
+    "export": {
+      "title": "匯出 Token",
+      "desc": "把設計變數匯出為各平台可直接落地的開發者程式碼，供工程端接入。",
+      "loadErr": "產生匯出失敗",
+      "copyErr": "複製失敗",
+      "empty": "此設計系統沒有可匯出的變數",
+      "copy": "複製",
+      "download": "下載"
     }
   },
   "channels": {

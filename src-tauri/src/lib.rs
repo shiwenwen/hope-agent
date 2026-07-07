@@ -775,6 +775,7 @@ pub fn run() {
             commands::design::extract_design_system_cmd,
             commands::design::import_design_md_cmd,
             commands::design::export_design_md_cmd,
+            commands::design::export_design_tokens_cmd,
             commands::design::propose_design_directions_cmd,
             commands::design::list_design_recipes_cmd,
             commands::design::export_design_native_cmd,

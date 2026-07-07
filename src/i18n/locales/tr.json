@@ -391,6 +391,16 @@
       "forkHint": "Yerleşik sistemler salt okunurdur; kaydetmek kopyanızı oluşturur",
       "saveCopy": "Kopya olarak kaydet",
       "sourceDropped": "{{count}} satır geçersiz (“:” eksik) ve kaydedilmedi"
+    },
+    "exportTokens": "Token'ları dışa aktar (çok platformlu kod)…",
+    "export": {
+      "title": "Token'ları dışa aktar",
+      "desc": "Tasarım değişkenlerinizi her platform için kullanıma hazır geliştirici koduna aktarın.",
+      "loadErr": "Dışa aktarma oluşturulamadı",
+      "copyErr": "Kopyalama başarısız",
+      "empty": "Bu tasarım sisteminde dışa aktarılabilir değişken yok",
+      "copy": "Kopyala",
+      "download": "İndir"
     }
   },
   "channels": {

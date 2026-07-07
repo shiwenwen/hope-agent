@@ -11,6 +11,7 @@ use ha_core::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
     ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
+use ha_core::design::token_export::TokenExport;
 use ha_core::design::{
     CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignComment, DesignConfig,
     DesignProject, DesignSystemFull, DesignSystemMeta,
@@ -226,6 +227,12 @@ pub async fn import_design_md_cmd(name: String, md: String) -> Result<DesignSyst
 pub async fn export_design_md_cmd(system_id: String) -> Result<serde_json::Value, CmdError> {
     let md = service::export_design_md(&system_id)?;
     Ok(serde_json::json!({ "designMd": md }))
+}
+
+/// 导出设计系统 Token 为多平台开发者格式（CSS/SCSS/TS/Swift/Android/DTCG）。owner 平面。
+#[tauri::command]
+pub async fn export_design_tokens_cmd(system_id: String) -> Result<Vec<TokenExport>, CmdError> {
+    Ok(service::export_tokens(&system_id)?)
 }
 
 /// 设计方向候选（无品牌 brief 时的选择器）。

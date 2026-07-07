@@ -1679,6 +1679,14 @@ pub fn export_design_md(system_id: &str) -> Result<String> {
     ))
 }
 
+/// 导出一个设计系统的 Token 为多平台开发者格式（CSS / SCSS / TS / Swift / Android / DTCG）。
+pub fn export_tokens(system_id: &str) -> Result<Vec<super::token_export::TokenExport>> {
+    let db = open_db()?;
+    system::ensure_builtins(&db)?;
+    let full = system::read_full(&db, system_id)?;
+    Ok(super::token_export::export_all(&full.tokens))
+}
+
 /// 反向提取设计系统（D2）。`from = brief | codebase | url | image`。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

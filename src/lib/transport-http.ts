@@ -232,6 +232,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   export_design_zip_cmd:             { method: "POST",   path: "/api/design/zip" },
   import_design_md_cmd:              { method: "POST",   path: "/api/design/systems/import" },
   export_design_md_cmd:              { method: "GET",    path: "/api/design/systems/{systemId}/design-md" },
+  export_design_tokens_cmd:          { method: "GET",    path: "/api/design/systems/{systemId}/tokens/export" },
   critique_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/{id}/critique" },
   list_design_systems_cmd:           { method: "GET",    path: "/api/design/systems" },
   get_design_system_cmd:             { method: "GET",    path: "/api/design/systems/{id}" },
