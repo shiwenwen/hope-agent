@@ -13,6 +13,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
+import { Slider } from "@/components/ui/slider"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { DesignSelectedElement } from "@/types/design"
 
 interface Props {
@@ -148,6 +156,77 @@ function NumberRow({
   )
 }
 
+/** 自由 CSS 值输入（宽/高等，允许 `auto` / `%` / `px`）；渲染期 prev-prop 同步。 */
+function TextRow({
+  label,
+  prop,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string
+  prop: string
+  value: string
+  placeholder?: string
+  onCommit: (prop: string, v: string) => void
+}) {
+  const [v, setV] = useState(value)
+  const [prev, setPrev] = useState(value)
+  if (value !== prev) {
+    setPrev(value)
+    setV(value)
+  }
+  const commit = () => onCommit(prop, v.trim())
+  return (
+    <label className="flex items-center justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <Input
+        value={v}
+        placeholder={placeholder}
+        onChange={(e) => setV(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit()
+        }}
+        className="h-7 w-24 text-xs"
+      />
+    </label>
+  )
+}
+
+/** 带标签的枚举下拉（display / border-style 等）。 */
+function SelectRow({
+  label,
+  prop,
+  value,
+  options,
+  onCommit,
+}: {
+  label: string
+  prop: string
+  value: string
+  options: [string, string][]
+  onCommit: (prop: string, v: string) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <Select value={value} onValueChange={(v) => onCommit(prop, v)}>
+        <SelectTrigger className="h-7 w-28 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map(([val, lbl]) => (
+            <SelectItem key={val} value={val} className="text-xs">
+              {lbl}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
 export default function DesignInspector({
   selected,
   onLiveStyle,
@@ -168,6 +247,9 @@ export default function DesignInspector({
   }
 
   const align = s["text-align"] || "left"
+  const display = s["display"] || "block"
+  const isFlexish = display === "flex" || display === "inline-flex" || display === "grid"
+  const opacity = parseFloat(s["opacity"] || "1")
 
   return (
     <div className="flex h-full w-72 shrink-0 flex-col overflow-y-auto border-l bg-background">
@@ -272,6 +354,161 @@ export default function DesignInspector({
           value={px(s["border-radius"] || "0")}
           onCommit={onCommitStyle}
         />
+      </Section>
+
+      <Section title={t("design.insp.layout", "布局")}>
+        <SelectRow
+          label={t("design.insp.display", "显示")}
+          prop="display"
+          value={display}
+          options={[
+            ["block", "block"],
+            ["flex", "flex"],
+            ["inline-flex", "inline-flex"],
+            ["grid", "grid"],
+            ["inline-block", "inline-block"],
+            ["none", "none"],
+          ]}
+          onCommit={onCommitStyle}
+        />
+        {isFlexish && (
+          <>
+            <SelectRow
+              label={t("design.insp.alignItems", "纵向对齐")}
+              prop="align-items"
+              value={s["align-items"] || "stretch"}
+              options={[
+                ["flex-start", t("design.insp.start", "起始")],
+                ["center", t("design.insp.center", "居中")],
+                ["flex-end", t("design.insp.end", "末尾")],
+                ["stretch", t("design.insp.stretch", "拉伸")],
+                ["baseline", t("design.insp.baseline", "基线")],
+              ]}
+              onCommit={onCommitStyle}
+            />
+            <SelectRow
+              label={t("design.insp.justify", "横向分布")}
+              prop="justify-content"
+              value={s["justify-content"] || "flex-start"}
+              options={[
+                ["flex-start", t("design.insp.start", "起始")],
+                ["center", t("design.insp.center", "居中")],
+                ["flex-end", t("design.insp.end", "末尾")],
+                ["space-between", t("design.insp.between", "两端")],
+                ["space-around", t("design.insp.around", "环绕")],
+                ["space-evenly", t("design.insp.evenly", "均匀")],
+              ]}
+              onCommit={onCommitStyle}
+            />
+            <NumberRow
+              label={t("design.insp.gap", "间隙")}
+              prop="gap"
+              value={px(s["gap"] || "0")}
+              onCommit={onCommitStyle}
+            />
+          </>
+        )}
+      </Section>
+
+      <Section title={t("design.insp.size", "尺寸")}>
+        <TextRow
+          label={t("design.insp.width", "宽")}
+          prop="width"
+          value={s["width"] || ""}
+          placeholder="auto"
+          onCommit={onCommitStyle}
+        />
+        <TextRow
+          label={t("design.insp.height", "高")}
+          prop="height"
+          value={s["height"] || ""}
+          placeholder="auto"
+          onCommit={onCommitStyle}
+        />
+        <TextRow
+          label={t("design.insp.maxWidth", "最大宽")}
+          prop="max-width"
+          value={s["max-width"] || ""}
+          placeholder="none"
+          onCommit={onCommitStyle}
+        />
+        <TextRow
+          label={t("design.insp.minHeight", "最小高")}
+          prop="min-height"
+          value={s["min-height"] || ""}
+          placeholder="0"
+          onCommit={onCommitStyle}
+        />
+      </Section>
+
+      <Section title={t("design.insp.stroke", "描边")}>
+        <NumberRow
+          label={t("design.insp.borderWidth", "边框宽")}
+          prop="border-width"
+          value={px(s["border-width"] || "0")}
+          onCommit={onCommitStyle}
+        />
+        <SelectRow
+          label={t("design.insp.borderStyle", "边框样式")}
+          prop="border-style"
+          value={s["border-style"] || "none"}
+          options={[
+            ["none", "none"],
+            ["solid", "solid"],
+            ["dashed", "dashed"],
+            ["dotted", "dotted"],
+          ]}
+          onCommit={onCommitStyle}
+        />
+        <ColorRow
+          label={t("design.insp.borderColor", "边框色")}
+          prop="border-color"
+          value={s["border-color"] || ""}
+          onLive={onLiveStyle}
+          onCommit={onCommitStyle}
+        />
+      </Section>
+
+      <Section title={t("design.insp.effects", "效果")}>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">{t("design.insp.opacity", "不透明度")}</span>
+            <span className="font-mono text-xs text-muted-foreground">
+              {Math.round(opacity * 100)}%
+            </span>
+          </div>
+          <Slider
+            min={0}
+            max={1}
+            step={0.01}
+            value={[opacity]}
+            onValueChange={(v) => onLiveStyle("opacity", String(v[0]))}
+            onValueCommit={(v) => onCommitStyle("opacity", String(v[0]))}
+          />
+        </div>
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">{t("design.insp.shadow", "阴影")}</span>
+          <div className="flex gap-0.5">
+            {(
+              [
+                ["none", t("design.insp.shadowNone", "无")],
+                ["0 1px 2px rgba(0,0,0,.08)", "S"],
+                ["0 4px 12px rgba(0,0,0,.12)", "M"],
+                ["0 12px 32px rgba(0,0,0,.18)", "L"],
+              ] as const
+            ).map(([val, lbl]) => (
+              <Button
+                key={lbl}
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => onCommitStyle("box-shadow", val)}
+              >
+                {lbl}
+              </Button>
+            ))}
+          </div>
+        </div>
       </Section>
     </div>
   )
