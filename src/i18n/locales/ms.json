@@ -389,7 +389,8 @@
       "saveErr": "Gagal menyimpan",
       "copySuffix": "salinan",
       "forkHint": "Sistem terbina dalam baca sahaja; menyimpan mencipta salinan anda",
-      "saveCopy": "Simpan sebagai salinan"
+      "saveCopy": "Simpan sebagai salinan",
+      "sourceDropped": "{{count}} baris tidak sah (tiada “:”) dan tidak disimpan"
     }
   },
   "channels": {

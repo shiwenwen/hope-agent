@@ -389,7 +389,8 @@
       "saveErr": "Lưu thất bại",
       "copySuffix": "bản sao",
       "forkHint": "Hệ thống dựng sẵn chỉ đọc; lưu sẽ tạo bản sao của bạn",
-      "saveCopy": "Lưu thành bản sao"
+      "saveCopy": "Lưu thành bản sao",
+      "sourceDropped": "{{count}} dòng không hợp lệ (thiếu “:”) nên không được lưu"
     }
   },
   "channels": {

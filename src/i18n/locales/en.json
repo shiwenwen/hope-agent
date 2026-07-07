@@ -389,7 +389,8 @@
       "saveErr": "Save failed",
       "copySuffix": "copy",
       "forkHint": "Built-in systems are read-only; saving creates your copy",
-      "saveCopy": "Save as copy"
+      "saveCopy": "Save as copy",
+      "sourceDropped": "{{count}} line(s) are invalid (missing “:”) and were not saved"
     }
   },
   "channels": {

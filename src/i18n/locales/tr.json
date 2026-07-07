@@ -389,7 +389,8 @@
       "saveErr": "Kaydetme başarısız",
       "copySuffix": "kopya",
       "forkHint": "Yerleşik sistemler salt okunurdur; kaydetmek kopyanızı oluşturur",
-      "saveCopy": "Kopya olarak kaydet"
+      "saveCopy": "Kopya olarak kaydet",
+      "sourceDropped": "{{count}} satır geçersiz (“:” eksik) ve kaydedilmedi"
     }
   },
   "channels": {

@@ -24,14 +24,53 @@ import { logger } from "@/lib/logger"
 import { toast } from "sonner"
 import type { DesignSystemFull, DesignSystemMeta } from "@/types/design"
 
-/** 值是否像颜色（给取色器）。 */
+/** 值是否像颜色（给取色器）。hex / 现代函数式记法 / **任意浏览器可解析的命名色**。 */
 function isColorValue(v: string): boolean {
   const s = v.trim().toLowerCase()
-  return (
-    /^#[0-9a-f]{3,8}$/.test(s) ||
-    /^(rgb|hsl)a?\(/.test(s) ||
-    /^(transparent|currentcolor|white|black|red|green|blue|gray|grey)$/.test(s)
-  )
+  if (!s || s.includes("var(") || s.includes("gradient")) return false
+  if (/^#[0-9a-f]{3,8}$/.test(s)) return true
+  if (/^(rgb|hsl|hwb|lab|lch|oklab|oklch|color)a?\(/.test(s)) return true
+  // 命名色 / 其它：canvas 双哨兵——有效颜色对两个哨兵解析出同一规范值（font 栈 / 尺寸值等不会）。
+  try {
+    const ctx = document.createElement("canvas").getContext("2d")
+    if (!ctx) return false
+    ctx.fillStyle = "#000000"
+    ctx.fillStyle = s
+    const a = ctx.fillStyle
+    ctx.fillStyle = "#ffffff"
+    ctx.fillStyle = s
+    return a === ctx.fillStyle
+  } catch {
+    return false
+  }
+}
+
+/** 从含 alpha 的颜色值取出 alpha（`rgba()/hsla()` 尾参 或 `#rrggbbaa`）；无则 null。 */
+function parseAlpha(v: string): number | null {
+  const s = v.trim().toLowerCase()
+  const fn = s.match(/^(?:rgba|hsla)\([^)]*[,/]\s*([\d.]+%?)\s*\)$/)
+  if (fn) return fn[1].endsWith("%") ? parseFloat(fn[1]) / 100 : parseFloat(fn[1])
+  const hex8 = s.match(/^#[0-9a-f]{6}([0-9a-f]{2})$/)
+  if (hex8) return parseInt(hex8[1], 16) / 255
+  return null
+}
+
+/** 取色器选了新 RGB → 若原值带 alpha(<1)，保留 alpha 回写 rgba（否则丢半透明，review #2）。 */
+function applyPickedColor(current: string, hex: string): string {
+  const a = parseAlpha(current)
+  if (a == null || a >= 1) return hex
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
+/** 源码模式：非空非注释但无 `:` 分隔的行数（保存时会被丢弃，需提示，review #3）。 */
+function sourceMalformedCount(text: string): number {
+  return text.split("\n").filter((line) => {
+    const t = line.trim().replace(/;$/, "")
+    return t.length > 0 && t.indexOf(":") <= 0
+  }).length
 }
 
 /** 任意颜色 → `#rrggbb`（`<input type=color>` 可接受）；解析失败回退黑。 */
@@ -140,6 +179,17 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
   const save = async () => {
     if (!full || !system) return
     const finalTokens = mode === "source" ? parseSource(sourceText) : tokens
+    // 源码模式：无 `:` 分隔的非空行会被丢弃，显式提示避免静默丢 token。
+    if (mode === "source") {
+      const dropped = sourceMalformedCount(sourceText)
+      if (dropped > 0) {
+        toast.warning(
+          t("design.token.sourceDropped", "{{count}} 行格式无效（缺少「：」），未保存这些变量", {
+            count: dropped,
+          }),
+        )
+      }
+    }
     setSaving(true)
     try {
       const res = await tx.call<DesignSystemMeta>("save_design_system_cmd", {
@@ -243,7 +293,7 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
                             <input
                               type="color"
                               value={toHex(v)}
-                              onChange={(e) => setToken(k, e.target.value)}
+                              onChange={(e) => setToken(k, applyPickedColor(v, e.target.value))}
                               className="h-6 w-7 shrink-0 cursor-pointer rounded border bg-transparent p-0"
                             />
                           )}

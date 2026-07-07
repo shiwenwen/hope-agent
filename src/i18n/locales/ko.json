@@ -389,7 +389,8 @@
       "saveErr": "저장 실패",
       "copySuffix": "사본",
       "forkHint": "기본 제공 시스템은 읽기 전용입니다. 저장하면 사본이 생성됩니다",
-      "saveCopy": "사본으로 저장"
+      "saveCopy": "사본으로 저장",
+      "sourceDropped": "{{count}}개 줄이 잘못되어(“:” 없음) 저장되지 않았습니다"
     }
   },
   "channels": {

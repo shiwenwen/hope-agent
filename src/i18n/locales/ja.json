@@ -389,7 +389,8 @@
       "saveErr": "保存に失敗しました",
       "copySuffix": "コピー",
       "forkHint": "組み込みシステムは読み取り専用です。保存するとコピーを作成します",
-      "saveCopy": "コピーとして保存"
+      "saveCopy": "コピーとして保存",
+      "sourceDropped": "{{count}} 行が無効（「:」がありません）のため保存されませんでした"
     }
   },
   "channels": {

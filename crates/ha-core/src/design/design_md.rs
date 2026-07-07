@@ -122,6 +122,23 @@ pub fn to_design_md(system_md: &str, tokens: &BTreeMap<String, String>) -> Strin
     }
 }
 
+/// 用当前 tokens **重建**末尾 Token 表（剥掉旧 `## Tokens` 段 + 附新表），保留正文 prose。
+/// 落盘 chokepoint 用它保证 DESIGN.md ↔ tokens.json ↔ 导出/回灌永远一致——否则编辑 tokens
+/// 却留旧表会让「唯一真相源」漂移、导出/再导入静默回退（token 编辑器 review #1）。
+pub fn replace_tokens_table(system_md: &str, tokens: &BTreeMap<String, String>) -> String {
+    // `## Tokens` 段在文末（`tokens_table` 追加处）；取最后一个 `## Tokens` 之前的正文。
+    let body = match system_md.rfind("## Tokens") {
+        Some(i) => &system_md[..i],
+        None => system_md,
+    }
+    .trim_end();
+    if tokens.is_empty() {
+        format!("{body}\n")
+    } else {
+        format!("{body}\n{}", tokens_table(tokens))
+    }
+}
+
 /// 空白 9 段 DESIGN.md 模板（供 agent / 用户按规范填写）。
 pub fn template(name: &str, summary: &str) -> String {
     let mut s = format!("# {name} 设计系统\n\n> {summary}\n\n");
@@ -184,6 +201,22 @@ mod tests {
         // 已有表则不重复追加。
         let again = to_design_md(&md, &tokens);
         assert_eq!(again.matches("## Tokens").count(), 1);
+    }
+
+    #[test]
+    fn replace_tokens_table_reflects_edits_and_keeps_prose() {
+        let mut old = BTreeMap::new();
+        old.insert("--ds-color-primary".to_string(), "#2563eb".to_string());
+        let md = to_design_md("# S\n\n> prose\n\n## Palette\n\n正文内容", &old);
+        // 编辑：改主色 + 加新 token（模拟 token 编辑器保存旧 md + 新 tokens）。
+        let mut edited = BTreeMap::new();
+        edited.insert("--ds-color-primary".to_string(), "#ff0000".to_string());
+        edited.insert("--ds-space-4".to_string(), "1rem".to_string());
+        let rebuilt = replace_tokens_table(&md, &edited);
+        assert!(rebuilt.contains("prose") && rebuilt.contains("正文内容"), "正文保留");
+        assert!(!rebuilt.contains("#2563eb"), "旧 token 值应被剥掉");
+        assert_eq!(rebuilt.matches("## Tokens").count(), 1, "不重复表");
+        assert_eq!(extract_tokens(&rebuilt), edited, "回读 == 编辑后 tokens（真相源一致）");
     }
 
     #[test]

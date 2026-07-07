@@ -389,7 +389,8 @@
       "saveErr": "Error al guardar",
       "copySuffix": "copia",
       "forkHint": "Los sistemas integrados son de solo lectura; al guardar se crea tu copia",
-      "saveCopy": "Guardar como copia"
+      "saveCopy": "Guardar como copia",
+      "sourceDropped": "{{count}} línea(s) no válidas (falta «:») no se guardaron"
     }
   },
   "channels": {

@@ -539,9 +539,12 @@ pub fn save_system(
 ) -> Result<DesignSystemMeta> {
     let dir = paths::design_system_dir(id)?;
     std::fs::create_dir_all(&dir)?;
+    // 落盘前用当前 tokens 重建 DESIGN.md 的 Token 表，保证 DESIGN.md ↔ tokens.json 一致
+    // （编辑 tokens 不改正文时旧表会漂移；覆盖 editor / import / extract 所有路径）。
+    let normalized_md = super::design_md::replace_tokens_table(system_md, tokens);
     write_atomic(
         &dir.join(super::design_md::DESIGN_MD_FILE),
-        system_md.as_bytes(),
+        normalized_md.as_bytes(),
     )?;
     write_atomic(
         &dir.join("tokens.json"),

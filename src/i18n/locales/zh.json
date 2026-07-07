@@ -389,7 +389,8 @@
       "saveErr": "保存失败",
       "copySuffix": "副本",
       "forkHint": "内置系统只读，保存将创建你的副本",
-      "saveCopy": "存为副本"
+      "saveCopy": "存为副本",
+      "sourceDropped": "{{count}} 行格式无效（缺少「：」），未保存这些变量"
     }
   },
   "channels": {
