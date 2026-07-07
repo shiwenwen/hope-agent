@@ -146,6 +146,28 @@ fn render(
     Ok((html, oidmap_json))
 }
 
+/// 渲染**干净可交付** HTML（`editable=false`，无 inspector/oid）。**Component 走 oxc 编译**（与
+/// `render` 同分支），失败降级静态错误页——所有导出路径（artifact / zip / handoff）统一经此，
+/// 保证导出的 `index.html` 与预览一致、可直接打开，绝不把未编译 JSX 塞进交付物。
+fn render_clean(
+    kind: ArtifactKind,
+    title: &str,
+    parts: &ArtifactParts,
+    tokens: &[(String, String)],
+) -> String {
+    if kind == ArtifactKind::Component {
+        return match super::compile::compile_component(&parts.body_html) {
+            Ok(js) => renderer::build_component_html(title, &js, &parts.css, tokens),
+            Err(e) => {
+                crate::app_warn!("design", "compile", "component export compile failed: {e}");
+                renderer::build_component_error_html(title, &e.to_string())
+            }
+        };
+    }
+    let (html, _) = renderer::build_artifact_html(kind, title, parts, tokens, false);
+    html
+}
+
 /// 产物目录绝对路径（前端 iframe / 事件 payload 用）。
 pub fn artifact_dir_str(project_id: &str, artifact_id: &str) -> String {
     paths::design_artifact_dir(project_id, artifact_id)
@@ -1423,8 +1445,8 @@ pub fn export_artifact(id: &str, format: &str) -> Result<ExportResult> {
         "html" => {
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
-            // editable=false → 无 inspector bridge / 无 oid，干净可交付。
-            let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
+            // editable=false → 无 inspector bridge / 无 oid，干净可交付；Component 走编译。
+            let html = render_clean(kind, &a.title, &parts, &tokens);
             Ok(ExportResult {
                 filename: format!("{}.html", safe_filename(&a.title)),
                 mime: "text/html".to_string(),
@@ -1486,7 +1508,7 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
         let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
         let parts = read_source(&dir)?;
         let tokens = resolve_tokens(a.system_id.as_deref());
-        let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
+        let html = render_clean(kind, &a.title, &parts, &tokens);
         (
             vec![super::export::ZipArtifact {
                 folder: String::new(),
@@ -1511,7 +1533,7 @@ pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result
             let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
-            let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens, false);
+            let html = render_clean(kind, &a.title, &parts, &tokens);
             let folder = format!(
                 "{}-{}",
                 safe_filename(&a.title),
@@ -1562,31 +1584,61 @@ pub fn export_pptx(slides_b64: &[String], title: &str) -> Result<String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
-/// 判断源码是否引用了 `var({name})`（要求 name 后紧跟 `)` / `,` / 空白 / 结尾，避免
-/// `--ds-color` 误命中 `--ds-color-primary`）。
+/// 判断源码是否引用了 `var(name)`：扫每个 `var(`、跳过 `(` 后空白（`var( --x )` 合法 CSS）、
+/// 匹配 name、再要求 name 后紧跟 `)` / `,` / 空白 / 结尾（避免 `--ds-color` 误命中
+/// `--ds-color-primary`）。
 fn css_var_referenced(hay: &str, name: &str) -> bool {
-    let needle = format!("var({name}");
     let mut from = 0;
-    while let Some(rel) = hay[from..].find(&needle) {
-        let after = from + rel + needle.len();
-        match hay.as_bytes().get(after) {
-            None | Some(b')') | Some(b',') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') => {
-                return true
+    while let Some(rel) = hay[from..].find("var(") {
+        let after_paren = from + rel + 4;
+        let rest = &hay[after_paren..];
+        let ws = rest.len() - rest.trim_start().len();
+        let name_start = after_paren + ws;
+        if hay[name_start..].starts_with(name) {
+            let after_name = name_start + name.len();
+            match hay.as_bytes().get(after_name) {
+                None | Some(b')') | Some(b',') | Some(b' ') | Some(b'\t') | Some(b'\n')
+                | Some(b'\r') => return true,
+                _ => {}
             }
-            _ => {}
         }
-        from = after;
+        from = after_paren;
     }
     false
 }
 
+/// 剥掉 `/* … */` 块注释（CSS/JS 通用、无歧义；`//` 行注释在 CSS/URL 里有歧义故不剥）——
+/// 避免注释里出现的 token 名被误判为引用。UTF-8 安全。
+fn strip_block_comments(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find("/*") {
+        out.push_str(&rest[..start]);
+        match rest[start + 2..].find("*/") {
+            Some(end) => rest = &rest[start + 2 + end + 2..],
+            None => {
+                rest = "";
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// 扫描产物源码，返回其**实际引用**的 `--ds-*` token（name, value），按名排序。
 fn referenced_tokens(parts: &ArtifactParts, all: &[(String, String)]) -> Vec<(String, String)> {
-    let hay = format!("{}\n{}\n{}", parts.body_html, parts.css, parts.js);
+    let raw = format!("{}\n{}\n{}", parts.body_html, parts.css, parts.js);
+    let hay = strip_block_comments(&raw);
     all.iter()
         .filter(|(name, _)| css_var_referenced(&hay, name))
         .cloned()
         .collect()
+}
+
+/// GFM 表格单元格转义：`|`→`\|`、换行→空格、反引号→单引号（防破表 / 破代码跨度）。
+fn md_table_cell(s: &str) -> String {
+    s.replace('|', "\\|").replace(['\n', '\r'], " ").replace('`', "'")
 }
 
 /// 组装开发交付包的 `HANDOFF.md`（目录说明 + 本产物引用的设计变量 + token 格式清单）。
@@ -1613,7 +1665,8 @@ fn build_handoff_md(
     } else {
         s.push_str("## 本产物引用的设计变量\n\n| Token | 值 (value) |\n| --- | --- |\n");
         for (name, value) in referenced {
-            s.push_str(&format!("| `{name}` | `{value}` |\n"));
+            // GFM 表格单元格：转义 `|`、换行→空格、反引号→单引号（否则破表 / 破代码跨度）。
+            s.push_str(&format!("| `{}` | `{}` |\n", md_table_cell(name), md_table_cell(value)));
         }
         s.push('\n');
     }
@@ -1641,8 +1694,8 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
     let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
     let parts = read_source(&dir)?;
     let tokens_vec = resolve_tokens(a.system_id.as_deref());
-    // editable=false → 干净可交付（无 inspector bridge / 无 oid）。
-    let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens_vec, false);
+    // 干净可交付（editable=false，无 inspector/oid）；Component 走 oxc 编译，绝不塞未编译 JSX。
+    let html = render_clean(kind, &a.title, &parts, &tokens_vec);
 
     let tokens_map: std::collections::BTreeMap<String, String> = tokens_vec.iter().cloned().collect();
     let dev = super::token_export::export_all(&tokens_map);
@@ -2111,9 +2164,30 @@ mod handoff_tests {
         assert!(css_var_referenced("color: var(--ds-color-primary)", "--ds-color-primary"));
         assert!(css_var_referenced("var(--ds-color-primary, #fff)", "--ds-color-primary"));
         assert!(css_var_referenced("var(--ds-radius )", "--ds-radius"));
+        // 容 `(` 后空白（合法 CSS，review #3/#6/#7）。
+        assert!(css_var_referenced("var( --ds-color-primary )", "--ds-color-primary"));
+        assert!(css_var_referenced("var(\n  --ds-space-4\n)", "--ds-space-4"));
         // --ds-color 不应被 var(--ds-color-primary) 误命中。
         assert!(!css_var_referenced("var(--ds-color-primary)", "--ds-color"));
         assert!(!css_var_referenced("no vars here", "--ds-color"));
+    }
+
+    #[test]
+    fn referenced_tokens_ignores_comments_and_escapes_cells() {
+        // 注释里的 token 名不算引用（review #4）。
+        let parts = ArtifactParts {
+            body_html: String::new(),
+            css: "/* uses var(--ds-unused) here */ .x{color:var(--ds-color-primary)}".into(),
+            js: String::new(),
+        };
+        let all = vec![
+            ("--ds-color-primary".to_string(), "#2563eb".to_string()),
+            ("--ds-unused".to_string(), "x".to_string()),
+        ];
+        let got = referenced_tokens(&parts, &all);
+        assert_eq!(got, vec![("--ds-color-primary".to_string(), "#2563eb".to_string())]);
+        // 表格单元格转义（review #5）。
+        assert_eq!(super::md_table_cell("a|b\nc`d"), "a\\|b c'd");
     }
 
     #[test]
