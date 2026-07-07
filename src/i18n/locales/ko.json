@@ -276,6 +276,12 @@
       "component": "인터랙티브 컴포넌트"
     },
     "editHint": "요소를 클릭해 속성을, 텍스트를 더블클릭해 문구를 편집",
+    "fromImage": "참조 이미지에서 생성…",
+    "fromImageTitle": "참조 이미지에 맞춰 생성",
+    "fromImageKind": "출력 형태",
+    "fromImageDrop": "참조 디자인 이미지를 클릭하거나 드롭",
+    "fromImageExtra": "추가 지시(선택): 예 “영어로”, “브랜드 색 사용”…",
+    "fromImageErr": "참조 이미지에서 생성 실패",
     "comment": {
       "title": "댓글",
       "mode": "댓글: 요소를 클릭해 피드백 남기기",

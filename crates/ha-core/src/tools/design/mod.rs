@@ -233,6 +233,8 @@ async fn action_create_artifact(
         prompt: str_arg(args, "prompt")
             .or_else(|| str_arg(args, "brief"))
             .map(str::to_string),
+        reference_image_b64: None,
+        reference_image_mime: None,
     };
     let artifact = service::create_artifact_generating(input).await?;
     ok(json!({

@@ -276,6 +276,12 @@
       "component": "Interactive Component"
     },
     "editHint": "Click an element to edit its style; double-click text to edit the copy",
+    "fromImage": "From a reference image…",
+    "fromImageTitle": "Generate a matching design from an image",
+    "fromImageKind": "Output kind",
+    "fromImageDrop": "Click or drop a reference design image",
+    "fromImageExtra": "Extra instructions (optional): e.g. “translate to English”, “use my brand colors”…",
+    "fromImageErr": "Failed to generate from reference image",
     "comment": {
       "title": "Comments",
       "mode": "Comment: click an element to leave feedback",

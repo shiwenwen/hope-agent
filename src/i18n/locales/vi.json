@@ -276,6 +276,12 @@
       "component": "Thành phần tương tác"
     },
     "editHint": "Nhấp vào phần tử để chỉnh thuộc tính; nhấp đúp vào văn bản để sửa nội dung",
+    "fromImage": "Từ ảnh tham chiếu…",
+    "fromImageTitle": "Tạo thiết kế khớp từ một ảnh",
+    "fromImageKind": "Loại đầu ra",
+    "fromImageDrop": "Nhấp hoặc thả ảnh thiết kế tham chiếu",
+    "fromImageExtra": "Hướng dẫn thêm (tùy chọn): vd. “dịch sang tiếng Anh”, “dùng màu thương hiệu của tôi”…",
+    "fromImageErr": "Không thể tạo từ ảnh tham chiếu",
     "comment": {
       "title": "Bình luận",
       "mode": "Bình luận: nhấp vào phần tử để để lại phản hồi",

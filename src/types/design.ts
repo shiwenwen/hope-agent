@@ -192,6 +192,9 @@ export interface CreateArtifactInput {
   js?: string;
   /** 生成用一句话 brief：image 走 image_generate；其余形态走模型一次生成自包含设计。 */
   prompt?: string;
+  /** 参考图 base64（「照着这张图生成匹配产物」）：非媒体形态经 vision 描述后走生成管线。 */
+  referenceImageB64?: string;
+  referenceImageMime?: string;
 }
 
 /** 产物形态元数据（前端展示：标签 + 图标语义）。 */

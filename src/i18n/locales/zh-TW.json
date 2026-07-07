@@ -276,6 +276,12 @@
       "component": "互動元件"
     },
     "editHint": "點選元素改屬性，雙擊文字改文案",
+    "fromImage": "從參考圖生成…",
+    "fromImageTitle": "從參考圖生成匹配產物",
+    "fromImageKind": "生成形態",
+    "fromImageDrop": "點擊或拖入參考設計圖",
+    "fromImageExtra": "額外要求（可選）：如「文案改成中文」「用我的品牌色」…",
+    "fromImageErr": "從參考圖生成失敗",
     "comment": {
       "title": "批註",
       "mode": "批註：點選元素留回饋",

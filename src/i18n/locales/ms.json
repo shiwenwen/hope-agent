@@ -276,6 +276,12 @@
       "component": "Komponen interaktif"
     },
     "editHint": "Klik elemen untuk sifatnya; klik dua kali teks untuk mengedit kandungan",
+    "fromImage": "Daripada imej rujukan…",
+    "fromImageTitle": "Jana reka bentuk sepadan daripada imej",
+    "fromImageKind": "Jenis output",
+    "fromImageDrop": "Klik atau lepas imej reka bentuk rujukan",
+    "fromImageExtra": "Arahan tambahan (pilihan): cth. “terjemah ke BM”, “guna warna jenama saya”…",
+    "fromImageErr": "Gagal menjana daripada imej rujukan",
     "comment": {
       "title": "Komen",
       "mode": "Komen: klik elemen untuk beri maklum balas",

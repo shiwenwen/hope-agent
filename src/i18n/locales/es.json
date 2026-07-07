@@ -276,6 +276,12 @@
       "component": "Componente interactivo"
     },
     "editHint": "Haz clic en un elemento para editar su estilo; doble clic en el texto para editarlo",
+    "fromImage": "Desde una imagen de referencia…",
+    "fromImageTitle": "Genera un diseño a juego desde una imagen",
+    "fromImageKind": "Tipo de salida",
+    "fromImageDrop": "Haz clic o suelta una imagen de diseño de referencia",
+    "fromImageExtra": "Instrucciones extra (opcional): p. ej. “traducir al inglés”, “usar mis colores”…",
+    "fromImageErr": "Error al generar desde la imagen de referencia",
     "comment": {
       "title": "Comentarios",
       "mode": "Comentar: haz clic en un elemento para dar feedback",

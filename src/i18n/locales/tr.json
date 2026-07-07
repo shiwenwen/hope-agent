@@ -276,6 +276,12 @@
       "component": "Etkileşimli bileşen"
     },
     "editHint": "Öğeye tıklayarak özelliklerini, metne çift tıklayarak içeriğini düzenleyin",
+    "fromImage": "Referans görselden…",
+    "fromImageTitle": "Bir görselden eşleşen tasarım üret",
+    "fromImageKind": "Çıktı türü",
+    "fromImageDrop": "Referans tasarım görselini tıklayın veya sürükleyin",
+    "fromImageExtra": "Ek talimatlar (isteğe bağlı): örn. “Türkçeye çevir”, “marka renklerimi kullan”…",
+    "fromImageErr": "Referans görselden üretim başarısız",
     "comment": {
       "title": "Yorumlar",
       "mode": "Yorum: geri bildirim için bir öğeye tıklayın",

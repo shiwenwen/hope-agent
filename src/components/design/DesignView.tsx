@@ -407,6 +407,70 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
   }, [createArtifact, imagePrompt, promptKind])
 
+  // ── 从参考图生成匹配产物（「照着这张图做」）─────────────────
+  const [refDialogOpen, setRefDialogOpen] = useState(false)
+  const [refKind, setRefKind] = useState<ArtifactKind>("web")
+  const [refImage, setRefImage] = useState<{ b64: string; mime: string; url: string } | null>(null)
+  const [refExtra, setRefExtra] = useState("")
+  const [refGenerating, setRefGenerating] = useState(false)
+
+  // 客户端先降采样（≤1600px、JPEG q85）再 base64：payload 小、HTTP body 不超限、上传快
+  // （后端 downscale_for_vision 再兜一次）。
+  const onPickRefImage = useCallback((file: File | null) => {
+    if (!file || !file.type.startsWith("image/")) return
+    const img = new window.Image()
+    const objUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(objUrl)
+      const MAX = 1600
+      let w = img.naturalWidth || img.width
+      let h = img.naturalHeight || img.height
+      if (Math.max(w, h) > MAX) {
+        const s = MAX / Math.max(w, h)
+        w = Math.round(w * s)
+        h = Math.round(h * s)
+      }
+      const canvas = document.createElement("canvas")
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+      ctx.drawImage(img, 0, 0, w, h)
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.85)
+      const b64 = dataUrl.split(",")[1] || ""
+      if (b64) setRefImage({ b64, mime: "image/jpeg", url: dataUrl })
+    }
+    img.onerror = () => URL.revokeObjectURL(objUrl)
+    img.src = objUrl
+  }, [])
+
+  const createFromReferenceImage = useCallback(async () => {
+    if (!activeProject || !refImage) return
+    setRefGenerating(true)
+    try {
+      const artifact = await tx.call<DesignArtifact>("generate_design_artifact_cmd", {
+        input: {
+          projectId: activeProject.id,
+          title: kindLabel(refKind),
+          kind: refKind,
+          referenceImageB64: refImage.b64,
+          referenceImageMime: refImage.mime,
+          prompt: refExtra.trim() || undefined,
+        },
+      })
+      setRefDialogOpen(false)
+      setRefImage(null)
+      setRefExtra("")
+      await loadArtifacts(activeProject.id)
+      if (artifact) void openArtifact(artifact)
+    } catch (e) {
+      logger.error("design", "DesignView::createFromReferenceImage", "generate from image failed", e)
+      toast.error(t("design.fromImageErr", "从参考图生成失败"))
+    } finally {
+      setRefGenerating(false)
+    }
+  }, [tx, activeProject, refImage, refKind, refExtra, kindLabel, loadArtifacts, openArtifact, t])
+
   // ── Prompt-first launch (home hero → generate) ───────────────
 
   const [homePrompt, setHomePrompt] = useState("")
@@ -1517,6 +1581,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     </DropdownMenuItem>
                   )
                 })}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setRefImage(null)
+                    setRefExtra("")
+                    setRefDialogOpen(true)
+                  }}
+                >
+                  <ImageIcon className="mr-2 h-4 w-4" />
+                  {t("design.fromImage", "从参考图生成…")}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -1918,6 +1993,93 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             </Button>
             <Button onClick={() => void confirmImagePrompt()} disabled={creatingImage || !imagePrompt.trim()}>
               {creatingImage && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
+              {t("design.generate", "生成")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 从参考图生成匹配产物（vision 描述 → 生成管线） */}
+      <Dialog
+        open={refDialogOpen}
+        onOpenChange={(o) => {
+          if (!o && !refGenerating) setRefDialogOpen(false)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ImageIcon className="h-4 w-4" />
+              {t("design.fromImageTitle", "从参考图生成匹配产物")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {t("design.fromImageKind", "生成形态")}
+              </span>
+              <Select value={refKind} onValueChange={(v) => setRefKind(v as ArtifactKind)}>
+                <SelectTrigger className="h-8 w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ARTIFACT_KINDS.filter(
+                    (k) => !["image", "audio", "component"].includes(k),
+                  ).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {kindLabel(k)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <label
+              className="flex min-h-32 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground hover:border-primary/50 hover:bg-muted/30"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                onPickRefImage(e.dataTransfer.files?.[0] ?? null)
+              }}
+            >
+              {refImage ? (
+                <img
+                  src={refImage.url}
+                  alt=""
+                  className="max-h-48 max-w-full rounded object-contain"
+                />
+              ) : (
+                <>
+                  <ImageIcon className="h-6 w-6 opacity-60" />
+                  <span>{t("design.fromImageDrop", "点击或拖入参考设计图")}</span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => onPickRefImage(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            <Textarea
+              value={refExtra}
+              onChange={(e) => setRefExtra(e.target.value)}
+              rows={2}
+              placeholder={t(
+                "design.fromImageExtra",
+                "额外要求（可选）：如「文案改成中文」「用我的品牌色」…",
+              )}
+              className="resize-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRefDialogOpen(false)} disabled={refGenerating}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button
+              onClick={() => void createFromReferenceImage()}
+              disabled={refGenerating || !refImage}
+            >
+              {refGenerating && <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />}
               {t("design.generate", "生成")}
             </Button>
           </DialogFooter>

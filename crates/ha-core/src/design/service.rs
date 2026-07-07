@@ -316,6 +316,12 @@ pub struct CreateArtifactInput {
     /// image 形态：图片描述 prompt（走 image_generate 生成并内嵌）。
     #[serde(default)]
     pub prompt: Option<String>,
+    /// 参考图 base64（「照着这张图生成匹配产物」）：非媒体形态经 vision 描述成重建 brief
+    /// 后走生成管线。与 `prompt` 可叠加（图 = 视觉参照，prompt = 额外要求）。
+    #[serde(default)]
+    pub reference_image_b64: Option<String>,
+    #[serde(default)]
+    pub reference_image_mime: Option<String>,
 }
 
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
@@ -946,17 +952,46 @@ pub async fn stream_generate_artifact(
 /// image 形态 / 无 brief / 未知 kind → 回落阻塞 `create_artifact_generating`（无流式意义 +
 /// 兜底）。非流式路径完整保留作 agent 工具面 + 无 tokio runtime 时的退路。
 pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
-    let brief = input.prompt.clone().unwrap_or_default();
+    let text_brief = input.prompt.clone().unwrap_or_default();
+    let has_ref = input
+        .reference_image_b64
+        .as_deref()
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
     let kind_opt = ArtifactKind::from_str(&input.kind);
+    // 媒体 / 组件 / 未知 kind → 阻塞 / 空壳路径（图→产物只对 HTML 形态）。
+    // 无任何生成信号（无 brief 且无参考图）→ 空壳。
     if input.kind == "image"
         || input.kind == "audio"
         || input.kind == "component"
-        || brief.trim().is_empty()
         || kind_opt.is_none()
+        || (text_brief.trim().is_empty() && !has_ref)
     {
         return create_artifact_generating(input).await;
     }
     let kind = kind_opt.expect("checked above");
+    // 参考图 → vision 描述成重建 brief（+ 叠加文本要求）；描述失败回退文本 brief。
+    let brief = if has_ref {
+        let b64 = input.reference_image_b64.as_deref().unwrap_or_default();
+        match super::extract::describe_reference_image(b64, kind).await {
+            Ok(desc) if text_brief.trim().is_empty() => desc,
+            Ok(desc) => format!("{desc}\n\n额外要求：{text_brief}"),
+            Err(e) => {
+                crate::app_warn!(
+                    "design",
+                    "generate",
+                    "reference image describe failed ({e}), falling back to text brief"
+                );
+                text_brief
+            }
+        }
+    } else {
+        text_brief
+    };
+    if brief.trim().is_empty() {
+        // 参考图描述失败且无文本 brief → 空壳（不阻断创建）。
+        return create_artifact_generating(input).await;
+    }
     let (system_md, tokens) = resolve_system_for_generation(&input);
 
     let shell = create_artifact_shell(&input)?;
@@ -1888,6 +1923,8 @@ pub async fn refine_artifact_with_comment(
         js: None,
         session_id: None,
         prompt: None,
+        reference_image_b64: None,
+        reference_image_mime: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
     let instruction = compose_refine_instruction(&comment);

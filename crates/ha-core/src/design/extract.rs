@@ -299,6 +299,40 @@ pub async fn from_image(path: &Path) -> Result<ExtractedSystem> {
     parse(&text)
 }
 
+/// 把参考图（base64）经 vision 模型**描述成详细重建 brief**，供「照着这张图生成匹配 `{kind}`
+/// 产物」。与 [`from_image`]（图→设计系统 token）区别：这里产出可直接喂生成管线的重建指令
+/// （布局 / 逐字文案 / 配色 / 字体 / 组件），生成一个视觉高度匹配的可交付产物。
+pub async fn describe_reference_image(
+    b64: &str,
+    kind: super::renderer::ArtifactKind,
+) -> Result<String> {
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(b64.trim())
+        .context("invalid reference image base64")?;
+    if raw.is_empty() {
+        anyhow::bail!("reference image is empty");
+    }
+    let limit_mb = crate::config::cached_config().design.max_extract_image_mb;
+    if limit_mb > 0 && raw.len() as u64 > (limit_mb as u64) * 1024 * 1024 {
+        anyhow::bail!(
+            "reference image is over the {} MB limit (raise it in Settings → Tools → Design Space)",
+            limit_mb
+        );
+    }
+    let mime = sniff_image_mime(&raw); // 以魔数为准
+    let (bytes, mime) = downscale_for_vision(raw, mime);
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let prompt = format!(
+        "你是资深产品设计师。仔细观察这张参考设计图，产出一份**足够详细、可据以从零重建**的设计说明，\
+用于生成一个视觉上高度匹配的 **{kind}** 设计产物。请覆盖：整体布局与分区结构；每个区块的**真实可见\
+文案**（逐字照抄图中文字，绝不用占位）；配色（主色 / 辅色 / 背景 / 文字色，尽量给近似色值）；字体风格\
+与层级；间距与密度；关键组件（按钮 / 卡片 / 导航 / 表单等）及其样式；图形 / 插画 / 图标（生成时用内联 \
+SVG 或 CSS 近似、无外链）。只输出这份重建说明本身，不寒暄、不加代码围栏。",
+        kind = kind.as_str(),
+    );
+    super::vision::vision_extract(&prompt, mime, &b64).await
+}
+
 /// 把过大 / 过重的图缩到 vision provider 友好尺寸（长边 ≤ 1568px）并重编码 JPEG(q82)。
 /// 任何解码 / 编码失败都**回退原图原 mime**（绝不阻断提取）。
 fn downscale_for_vision(bytes: Vec<u8>, mime: &'static str) -> (Vec<u8>, &'static str) {

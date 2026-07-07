@@ -276,6 +276,12 @@
       "component": "交互组件"
     },
     "editHint": "点选元素改属性，双击文字改文案",
+    "fromImage": "从参考图生成…",
+    "fromImageTitle": "从参考图生成匹配产物",
+    "fromImageKind": "生成形态",
+    "fromImageDrop": "点击或拖入参考设计图",
+    "fromImageExtra": "额外要求（可选）：如「文案改成中文」「用我的品牌色」…",
+    "fromImageErr": "从参考图生成失败",
     "comment": {
       "title": "批注",
       "mode": "批注：点选元素留反馈",
