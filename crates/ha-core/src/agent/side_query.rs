@@ -506,6 +506,7 @@ impl AssistantAgent {
         model_id: &str,
         instruction: &str,
         max_tokens: u32,
+        session_id: Option<&str>,
     ) -> Result<String> {
         let started = std::time::Instant::now();
         let client = crate::provider::apply_proxy(
@@ -537,6 +538,7 @@ impl AssistantAgent {
                 event.provider_id = Some(provider_config.id.clone());
                 event.provider_name = Some(provider_config.name.clone());
                 event.model_id = Some(model_id.to_string());
+                event.session_id = session_id.map(str::to_string);
                 event.duration_ms = Some(started.elapsed().as_millis() as u64);
                 event.success = false;
                 event.error = Some(e.to_string());
@@ -557,6 +559,7 @@ impl AssistantAgent {
         event.provider_id = Some(provider_config.id.clone());
         event.provider_name = Some(provider_config.name.clone());
         event.model_id = Some(model_id.to_string());
+        event.session_id = session_id.map(str::to_string);
         event.duration_ms = Some(started.elapsed().as_millis() as u64);
         event.metadata = Some(json!({ "max_tokens": max_tokens }));
         crate::model_usage::record_model_usage_best_effort(event);

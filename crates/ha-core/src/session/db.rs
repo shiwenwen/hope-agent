@@ -388,7 +388,15 @@ impl SessionDB {
         }
 
         Self::ensure_model_usage_table(&conn)?;
-        Self::backfill_model_usage_from_messages(&conn)?;
+        const SCHEMA_FLAG_MODEL_USAGE_BACKFILLED: i64 = 0x4;
+        let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if schema_flags & SCHEMA_FLAG_MODEL_USAGE_BACKFILLED == 0 {
+            Self::backfill_model_usage_from_messages(&conn)?;
+            conn.execute_batch(&format!(
+                "PRAGMA user_version = {};",
+                schema_flags | SCHEMA_FLAG_MODEL_USAGE_BACKFILLED
+            ))?;
+        }
         Self::ensure_chat_turns_table(&conn)?;
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -449,8 +457,9 @@ impl SessionDB {
         // `PRAGMA user_version` is unused elsewhere here (all other migrations
         // are probe-based `SELECT col ... is_ok()`), so we claim it as a bitflag
         // sentinel: bit 0 = "FTS rebuild already run"; bit 1 = "trigram FTS
-        // rebuild already run". Future schema versioning can use the remaining
-        // bits. The corruption-recovery rebuild in
+        // rebuild already run"; bit 2 = "model usage message backfill already
+        // run". Future schema versioning can use the remaining bits. The
+        // corruption-recovery rebuild in
         // `delete_session` (the only other rebuild caller) is unaffected — it
         // fires on a caught error, not on open.
         const SCHEMA_FLAG_FTS_REBUILT: i64 = 0x1;

@@ -65,6 +65,9 @@ pub struct JudgeResponse {
 /// unaffected. Only a scheduled (cron) run populates these.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JudgeContext<'a> {
+    /// Session that owns the tool call. Used only for usage accounting so
+    /// incognito sessions remain non-persistent.
+    pub session_id: Option<&'a str>,
     /// `true` when no human can approve this call (a scheduled/cron run). The
     /// judge should lean conservative on irreversible out-of-scope actions but
     /// may allow actions consistent with `task_intent`.
@@ -98,7 +101,13 @@ pub async fn judge(
     let start = Instant::now();
     let raw = match tokio::time::timeout(
         JUDGE_TIMEOUT,
-        AssistantAgent::judge_one_shot(provider_cfg, &config.model, &prompt, JUDGE_MAX_TOKENS),
+        AssistantAgent::judge_one_shot(
+            provider_cfg,
+            &config.model,
+            &prompt,
+            JUDGE_MAX_TOKENS,
+            jctx.session_id,
+        ),
     )
     .await
     {
@@ -436,6 +445,7 @@ mod tests {
     fn build_prompt_unattended_adds_intent_and_calibration() {
         let args = json!({"command": "rm -rf ./tmp"});
         let jctx = JudgeContext {
+            session_id: None,
             unattended: true,
             task_intent: Some("delete the project's ./tmp directory nightly"),
         };
@@ -458,6 +468,7 @@ mod tests {
     fn build_prompt_unattended_without_intent_still_calibrates() {
         let args = json!({"path": "/x"});
         let jctx = JudgeContext {
+            session_id: None,
             unattended: true,
             task_intent: None,
         };
@@ -470,14 +481,17 @@ mod tests {
     fn context_discriminator_separates_contexts() {
         let base = context_discriminator(JudgeContext::default());
         let unattended = context_discriminator(JudgeContext {
+            session_id: Some("session-a"),
             unattended: true,
             task_intent: None,
         });
         let with_intent = context_discriminator(JudgeContext {
+            session_id: Some("session-a"),
             unattended: true,
             task_intent: Some("delete temp"),
         });
         let other_intent = context_discriminator(JudgeContext {
+            session_id: Some("session-b"),
             unattended: true,
             task_intent: Some("send a summary"),
         });
