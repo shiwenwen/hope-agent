@@ -7,7 +7,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::db::{DesignArtifact, DesignArtifactVersion, DesignDb, DesignProject, DesignSystemMeta};
+use super::db::{
+    DesignArtifact, DesignArtifactVersion, DesignComment, DesignDb, DesignProject, DesignSystemMeta,
+};
 use super::patch;
 use super::renderer::{self, ArtifactKind, ArtifactParts};
 use super::system::{self, DesignSystemFull};
@@ -1728,4 +1730,135 @@ pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignA
         message: Some(format!("Restored from v{version_number}")),
         expected_body_hash: None,
     })
+}
+
+// ── Comments (批注钉) ──────────────────────────────────────────────
+//
+// owner 平面：本机 / API key 信任。坐标是沙箱回传的**不可信**数值——所有 rel 位经
+// `clamp_rel`（NaN/极值 → 0，钳 `[0,1]`）、oid 经 `sanitize_oid`（负值 → None）双校验后
+// 才落盘（红线，对齐 atelier 的 finite/clamp 双校验）。snippet/body 截断防超长。
+
+const SNIPPET_MAX_BYTES: usize = 400;
+const BODY_MAX_BYTES: usize = 4000;
+
+/// 沙箱回传坐标净化：非有限（NaN/Inf）→ 0，其余钳到 `[0,1]`。
+fn clamp_rel(v: f64) -> f64 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// oid 净化：负值 / 缺省 → None（脱锚）。
+fn sanitize_oid(oid: Option<i64>) -> Option<i64> {
+    oid.filter(|v| *v >= 0)
+}
+
+/// 新建批注钉。校验产物存在；坐标钳制、摘要 / 正文截断。
+pub fn add_comment(
+    artifact_id: &str,
+    oid: Option<i64>,
+    rel_x: f64,
+    rel_y: f64,
+    tag: Option<&str>,
+    snippet: Option<&str>,
+    body: &str,
+) -> Result<DesignComment> {
+    let body = body.trim();
+    if body.is_empty() {
+        anyhow::bail!("comment body is empty");
+    }
+    let db = open_db()?;
+    db.get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    // `truncate_utf8` 返回借用切片，故 snippet_owned 已是 Option<&str>（无需 as_deref）。
+    let snippet_owned = snippet.map(|s| crate::truncate_utf8(s, SNIPPET_MAX_BYTES));
+    let comment = db.add_comment(
+        artifact_id,
+        sanitize_oid(oid),
+        clamp_rel(rel_x),
+        clamp_rel(rel_y),
+        tag.filter(|s| !s.is_empty()),
+        snippet_owned,
+        crate::truncate_utf8(body, BODY_MAX_BYTES),
+        &now(),
+    )?;
+    crate::app_info!(
+        "design",
+        "comment",
+        "add comment {} on artifact {} oid={:?}",
+        comment.id,
+        artifact_id,
+        comment.oid
+    );
+    Ok(comment)
+}
+
+/// 列一个产物的全部批注钉（按 id）。
+pub fn list_comments(artifact_id: &str) -> Result<Vec<DesignComment>> {
+    open_db()?.list_comments(artifact_id)
+}
+
+/// 重锚：拖拽 / 设计变更后回写 oid + rel 位。
+pub fn relocate_comment(
+    artifact_id: &str,
+    comment_id: i64,
+    oid: Option<i64>,
+    rel_x: f64,
+    rel_y: f64,
+) -> Result<bool> {
+    open_db()?.update_comment_anchor(
+        artifact_id,
+        comment_id,
+        sanitize_oid(oid),
+        clamp_rel(rel_x),
+        clamp_rel(rel_y),
+    )
+}
+
+/// 编辑批注正文。
+pub fn update_comment_body(artifact_id: &str, comment_id: i64, body: &str) -> Result<bool> {
+    let body = body.trim();
+    if body.is_empty() {
+        anyhow::bail!("comment body is empty");
+    }
+    open_db()?.update_comment_body(
+        artifact_id,
+        comment_id,
+        crate::truncate_utf8(body, BODY_MAX_BYTES),
+    )
+}
+
+/// 标记已解决 / 取消解决。
+pub fn set_comment_resolved(artifact_id: &str, comment_id: i64, resolved: bool) -> Result<bool> {
+    open_db()?.set_comment_resolved(artifact_id, comment_id, resolved)
+}
+
+/// 删除批注钉。
+pub fn delete_comment(artifact_id: &str, comment_id: i64) -> Result<bool> {
+    open_db()?.delete_comment(artifact_id, comment_id)
+}
+
+#[cfg(test)]
+mod comment_tests {
+    use super::{clamp_rel, sanitize_oid};
+
+    #[test]
+    fn clamp_rel_sanitizes_untrusted_coords() {
+        assert_eq!(clamp_rel(0.5), 0.5);
+        assert_eq!(clamp_rel(-1.0), 0.0, "负值钳到 0");
+        assert_eq!(clamp_rel(2.0), 1.0, "超 1 钳到 1");
+        assert_eq!(clamp_rel(f64::NAN), 0.0, "NaN → 0");
+        assert_eq!(clamp_rel(f64::INFINITY), 0.0, "Inf → 0");
+        assert_eq!(clamp_rel(f64::NEG_INFINITY), 0.0);
+    }
+
+    #[test]
+    fn sanitize_oid_rejects_negative() {
+        assert_eq!(sanitize_oid(Some(5)), Some(5));
+        assert_eq!(sanitize_oid(Some(0)), Some(0));
+        assert_eq!(sanitize_oid(Some(-1)), None, "负 oid → 脱锚");
+        assert_eq!(sanitize_oid(None), None);
+    }
 }

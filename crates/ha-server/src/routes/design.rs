@@ -17,7 +17,9 @@ use ha_core::design::service::{
     self, CreateArtifactInput, CreateProjectInput, ElementPatch, ExtractSystemInput,
     SaveSystemInput, UpdateProjectInput,
 };
-use ha_core::design::{DesignArtifact, DesignArtifactVersion, DesignProject, DesignSystemMeta};
+use ha_core::design::{
+    DesignArtifact, DesignArtifactVersion, DesignComment, DesignProject, DesignSystemMeta,
+};
 use ha_core::paths;
 
 use crate::error::AppError;
@@ -108,6 +110,45 @@ pub struct ExportZipBody {
 #[serde(rename_all = "camelCase")]
 pub struct RestoreBody {
     pub version_id: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddCommentBody {
+    #[serde(default)]
+    pub oid: Option<i64>,
+    #[serde(default)]
+    pub rel_x: f64,
+    #[serde(default)]
+    pub rel_y: f64,
+    #[serde(default)]
+    pub tag: Option<String>,
+    #[serde(default)]
+    pub snippet: Option<String>,
+    pub body: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelocateCommentBody {
+    #[serde(default)]
+    pub oid: Option<i64>,
+    #[serde(default)]
+    pub rel_x: f64,
+    #[serde(default)]
+    pub rel_y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCommentBody {
+    pub body: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveCommentBody {
+    pub resolved: bool,
 }
 
 // ── Projects ───────────────────────────────────────────────────────
@@ -451,6 +492,87 @@ pub async fn serve_artifact_file(
     );
 
     Ok(response)
+}
+
+// ── Comments (批注钉) ────────────────────────────────────────────────
+
+/// `GET /api/design/artifacts/{id}/comments`
+pub async fn list_comments(
+    Path(artifact_id): Path<String>,
+) -> Result<Json<Vec<DesignComment>>, AppError> {
+    validate_id(&artifact_id)?;
+    Ok(Json(
+        service::list_comments(&artifact_id).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts/{id}/comments`
+pub async fn add_comment(
+    Path(artifact_id): Path<String>,
+    Json(payload): Json<AddCommentBody>,
+) -> Result<Json<DesignComment>, AppError> {
+    validate_id(&artifact_id)?;
+    Ok(Json(
+        service::add_comment(
+            &artifact_id,
+            payload.oid,
+            payload.rel_x,
+            payload.rel_y,
+            payload.tag.as_deref(),
+            payload.snippet.as_deref(),
+            &payload.body,
+        )
+        .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts/{id}/comments/{comment_id}/relocate`
+pub async fn relocate_comment(
+    Path((artifact_id, comment_id)): Path<(String, i64)>,
+    Json(payload): Json<RelocateCommentBody>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&artifact_id)?;
+    let ok = service::relocate_comment(
+        &artifact_id,
+        comment_id,
+        payload.oid,
+        payload.rel_x,
+        payload.rel_y,
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": ok })))
+}
+
+/// `PUT /api/design/artifacts/{id}/comments/{comment_id}`
+pub async fn update_comment(
+    Path((artifact_id, comment_id)): Path<(String, i64)>,
+    Json(payload): Json<UpdateCommentBody>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&artifact_id)?;
+    let ok = service::update_comment_body(&artifact_id, comment_id, &payload.body)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": ok })))
+}
+
+/// `POST /api/design/artifacts/{id}/comments/{comment_id}/resolve`
+pub async fn resolve_comment(
+    Path((artifact_id, comment_id)): Path<(String, i64)>,
+    Json(payload): Json<ResolveCommentBody>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&artifact_id)?;
+    let ok = service::set_comment_resolved(&artifact_id, comment_id, payload.resolved)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": ok })))
+}
+
+/// `DELETE /api/design/artifacts/{id}/comments/{comment_id}`
+pub async fn delete_comment(
+    Path((artifact_id, comment_id)): Path<(String, i64)>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&artifact_id)?;
+    let ok = service::delete_comment(&artifact_id, comment_id)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": ok })))
 }
 
 #[cfg(test)]

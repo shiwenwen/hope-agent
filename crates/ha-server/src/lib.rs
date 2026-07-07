@@ -1715,6 +1715,22 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/restore",
             post(routes::design::restore_version),
         )
+        .route(
+            "/design/artifacts/{id}/comments",
+            get(routes::design::list_comments).post(routes::design::add_comment),
+        )
+        .route(
+            "/design/artifacts/{id}/comments/{comment_id}",
+            put(routes::design::update_comment).delete(routes::design::delete_comment),
+        )
+        .route(
+            "/design/artifacts/{id}/comments/{comment_id}/relocate",
+            post(routes::design::relocate_comment),
+        )
+        .route(
+            "/design/artifacts/{id}/comments/{comment_id}/resolve",
+            post(routes::design::resolve_comment),
+        )
         .route("/design/pptx", post(routes::design::export_pptx))
         .route("/design/zip", post(routes::design::export_zip))
         .route(

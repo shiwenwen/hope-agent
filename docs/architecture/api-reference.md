@@ -446,6 +446,12 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `delete_design_system_cmd` | `DELETE /api/design/systems/{id}` | ✅ |
 | `get_design_config_cmd` | `GET /api/config/design` | ✅ |
 | `save_design_config_cmd` | `PUT /api/config/design` | ✅ |
+| `design_comment_add_cmd` | `POST /api/design/artifacts/{artifactId}/comments` | ✅ |
+| `design_comment_list_cmd` | `GET /api/design/artifacts/{artifactId}/comments` | ✅ |
+| `design_comment_relocate_cmd` | `POST /api/design/artifacts/{artifactId}/comments/{commentId}/relocate` | ✅ |
+| `design_comment_update_cmd` | `PUT /api/design/artifacts/{artifactId}/comments/{commentId}` | ✅ |
+| `design_comment_resolve_cmd` | `POST /api/design/artifacts/{artifactId}/comments/{commentId}/resolve` | ✅ |
+| `design_comment_delete_cmd` | `DELETE /api/design/artifacts/{artifactId}/comments/{commentId}` | ✅ |
 | （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
 
 ### Models

@@ -12,8 +12,8 @@ use ha_core::design::service::{
     ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
-    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignConfig, DesignProject,
-    DesignSystemFull, DesignSystemMeta,
+    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignComment, DesignConfig,
+    DesignProject, DesignSystemFull, DesignSystemMeta,
 };
 
 // ── Projects ────────────────────────────────────────────────────
@@ -272,4 +272,71 @@ pub async fn export_design_native_cmd(
 ) -> Result<serde_json::Value, CmdError> {
     let (data, mime) = ha_core::design::render_native::capture_artifact_b64(&id, &format).await?;
     Ok(serde_json::json!({ "data": data, "mime": mime }))
+}
+
+// ── Comments (批注钉) ────────────────────────────────────────────
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn design_comment_add_cmd(
+    artifact_id: String,
+    oid: Option<i64>,
+    rel_x: f64,
+    rel_y: f64,
+    tag: Option<String>,
+    snippet: Option<String>,
+    body: String,
+) -> Result<DesignComment, CmdError> {
+    service::add_comment(
+        &artifact_id,
+        oid,
+        rel_x,
+        rel_y,
+        tag.as_deref(),
+        snippet.as_deref(),
+        &body,
+    )
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn design_comment_list_cmd(artifact_id: String) -> Result<Vec<DesignComment>, CmdError> {
+    service::list_comments(&artifact_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn design_comment_relocate_cmd(
+    artifact_id: String,
+    comment_id: i64,
+    oid: Option<i64>,
+    rel_x: f64,
+    rel_y: f64,
+) -> Result<bool, CmdError> {
+    service::relocate_comment(&artifact_id, comment_id, oid, rel_x, rel_y).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn design_comment_update_cmd(
+    artifact_id: String,
+    comment_id: i64,
+    body: String,
+) -> Result<bool, CmdError> {
+    service::update_comment_body(&artifact_id, comment_id, &body).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn design_comment_resolve_cmd(
+    artifact_id: String,
+    comment_id: i64,
+    resolved: bool,
+) -> Result<bool, CmdError> {
+    service::set_comment_resolved(&artifact_id, comment_id, resolved).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn design_comment_delete_cmd(
+    artifact_id: String,
+    comment_id: i64,
+) -> Result<bool, CmdError> {
+    service::delete_comment(&artifact_id, comment_id).map_err(Into::into)
 }

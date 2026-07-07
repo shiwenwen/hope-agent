@@ -784,6 +784,12 @@ pub fn run() {
             commands::design::design_install_browser_cmd,
             commands::design::get_design_config_cmd,
             commands::design::save_design_config_cmd,
+            commands::design::design_comment_add_cmd,
+            commands::design::design_comment_list_cmd,
+            commands::design::design_comment_relocate_cmd,
+            commands::design::design_comment_update_cmd,
+            commands::design::design_comment_resolve_cmd,
+            commands::design::design_comment_delete_cmd,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,

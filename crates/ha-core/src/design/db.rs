@@ -104,6 +104,28 @@ pub struct DesignSystemMeta {
     pub updated_at: String,
 }
 
+/// 元素锚定的批注钉（回灌对话让 AI 精修 + 标记已解决）。锚在 `(artifact, oid)`，
+/// `rel_x/rel_y` 是钉相对锚元素包围盒的偏移（`0..1`，重锚渲染用）；`oid=None` = 脱锚。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesignComment {
+    pub id: i64,
+    pub artifact_id: String,
+    /// 锚定元素的 `data-ds-oid`（脱锚为 None）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oid: Option<i64>,
+    pub rel_x: f64,
+    pub rel_y: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// 命中元素摘要（≤400 字符，回灌对话上下文用）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+    pub body: String,
+    pub resolved: bool,
+    pub created_at: String,
+}
+
 // ── Column lists / row mappers ─────────────────────────────────────
 
 const PROJECT_COLUMNS: &str = "SELECT p.id, p.title, p.description, p.color, p.default_system_id, \
@@ -167,6 +189,25 @@ fn map_system_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignSystemMeta>
         thumbnail_path: row.get(6)?,
         created_at: row.get(7)?,
         updated_at: row.get(8)?,
+    })
+}
+
+const COMMENT_COLUMNS: &str =
+    "SELECT id, artifact_id, oid, rel_x, rel_y, tag, snippet, body, resolved, created_at \
+     FROM design_comments";
+
+fn map_comment_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignComment> {
+    Ok(DesignComment {
+        id: row.get(0)?,
+        artifact_id: row.get(1)?,
+        oid: row.get(2)?,
+        rel_x: row.get(3)?,
+        rel_y: row.get(4)?,
+        tag: row.get(5)?,
+        snippet: row.get(6)?,
+        body: row.get(7)?,
+        resolved: row.get::<_, i64>(8)? != 0,
+        created_at: row.get(9)?,
     })
 }
 
@@ -236,12 +277,27 @@ impl DesignDb {
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS design_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_id TEXT NOT NULL REFERENCES design_artifacts(id) ON DELETE CASCADE,
+                oid INTEGER,
+                rel_x REAL NOT NULL DEFAULT 0,
+                rel_y REAL NOT NULL DEFAULT 0,
+                tag TEXT,
+                snippet TEXT,
+                body TEXT NOT NULL,
+                resolved INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_design_artifacts_project
                 ON design_artifacts(project_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_design_versions_artifact
                 ON design_artifact_versions(artifact_id, version_number DESC);
             CREATE INDEX IF NOT EXISTS idx_design_projects_session
-                ON design_projects(session_id, updated_at DESC);",
+                ON design_projects(session_id, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_design_comments_artifact
+                ON design_comments(artifact_id, resolved, id);",
         )?;
 
         // `category` 为后加列：对已存在的旧 design.db 幂等补列（列已存在则忽略错误）。
@@ -605,5 +661,235 @@ impl DesignDb {
             rusqlite::params![id],
         )?;
         Ok(())
+    }
+
+    // ── Comments (批注钉) ───────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_comment(
+        &self,
+        artifact_id: &str,
+        oid: Option<i64>,
+        rel_x: f64,
+        rel_y: f64,
+        tag: Option<&str>,
+        snippet: Option<&str>,
+        body: &str,
+        created_at: &str,
+    ) -> Result<DesignComment> {
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT INTO design_comments
+                (artifact_id, oid, rel_x, rel_y, tag, snippet, body, resolved, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8)",
+            rusqlite::params![
+                artifact_id,
+                oid,
+                rel_x,
+                rel_y,
+                tag,
+                snippet,
+                body,
+                created_at
+            ],
+        )?;
+        let id = conn.last_insert_rowid();
+        Ok(DesignComment {
+            id,
+            artifact_id: artifact_id.to_string(),
+            oid,
+            rel_x,
+            rel_y,
+            tag: tag.map(str::to_string),
+            snippet: snippet.map(str::to_string),
+            body: body.to_string(),
+            resolved: false,
+            created_at: created_at.to_string(),
+        })
+    }
+
+    pub fn list_comments(&self, artifact_id: &str) -> Result<Vec<DesignComment>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(&format!(
+            "{COMMENT_COLUMNS} WHERE artifact_id = ?1 ORDER BY id"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params![artifact_id], map_comment_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn get_comment(&self, artifact_id: &str, comment_id: i64) -> Result<Option<DesignComment>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(&format!(
+            "{COMMENT_COLUMNS} WHERE artifact_id = ?1 AND id = ?2"
+        ))?;
+        let mut rows =
+            stmt.query_map(rusqlite::params![artifact_id, comment_id], map_comment_row)?;
+        match rows.next() {
+            Some(Ok(c)) => Ok(Some(c)),
+            Some(Err(e)) => Err(e.into()),
+            None => Ok(None),
+        }
+    }
+
+    /// 重锚：更新 `oid` + `rel` 位（用户拖拽 / 设计变更脱锚）。坐标由 owner 平面校验 + 钳制。
+    pub fn update_comment_anchor(
+        &self,
+        artifact_id: &str,
+        comment_id: i64,
+        oid: Option<i64>,
+        rel_x: f64,
+        rel_y: f64,
+    ) -> Result<bool> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "UPDATE design_comments SET oid = ?3, rel_x = ?4, rel_y = ?5
+             WHERE artifact_id = ?1 AND id = ?2",
+            rusqlite::params![artifact_id, comment_id, oid, rel_x, rel_y],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// 编辑批注正文。
+    pub fn update_comment_body(
+        &self,
+        artifact_id: &str,
+        comment_id: i64,
+        body: &str,
+    ) -> Result<bool> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "UPDATE design_comments SET body = ?3 WHERE artifact_id = ?1 AND id = ?2",
+            rusqlite::params![artifact_id, comment_id, body],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn set_comment_resolved(
+        &self,
+        artifact_id: &str,
+        comment_id: i64,
+        resolved: bool,
+    ) -> Result<bool> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "UPDATE design_comments SET resolved = ?3 WHERE artifact_id = ?1 AND id = ?2",
+            rusqlite::params![artifact_id, comment_id, resolved as i64],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn delete_comment(&self, artifact_id: &str, comment_id: i64) -> Result<bool> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "DELETE FROM design_comments WHERE artifact_id = ?1 AND id = ?2",
+            rusqlite::params![artifact_id, comment_id],
+        )?;
+        Ok(n > 0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn open_temp() -> (tempfile::TempDir, DesignDb) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = DesignDb::open(&dir.path().join("design.db")).expect("open");
+        (dir, db)
+    }
+
+    /// 播一个 project + artifact（批注钉 FK 依赖）。返回 artifact id。
+    fn seed_artifact(db: &DesignDb) -> String {
+        db.create_project(&DesignProject {
+            id: "p1".into(),
+            title: "P".into(),
+            description: None,
+            color: None,
+            default_system_id: None,
+            ha_project_id: None,
+            session_id: None,
+            agent_id: None,
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            artifact_count: 0,
+            metadata: None,
+        })
+        .unwrap();
+        db.create_artifact(&DesignArtifact {
+            id: "a1".into(),
+            project_id: "p1".into(),
+            title: "A".into(),
+            kind: "web".into(),
+            system_id: None,
+            status: "ready".into(),
+            viewport_w: None,
+            viewport_h: None,
+            current_version: 1,
+            critique_score: None,
+            thumbnail_path: None,
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            metadata: None,
+        })
+        .unwrap();
+        "a1".into()
+    }
+
+    #[test]
+    fn comment_crud_roundtrip() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        let c = db
+            .add_comment(
+                &aid,
+                Some(3),
+                0.5,
+                0.25,
+                Some("h1"),
+                Some("<h1>Hi</h1>"),
+                "改大点",
+                "t",
+            )
+            .unwrap();
+        assert_eq!(c.oid, Some(3));
+        assert!(!c.resolved);
+        assert_eq!(db.list_comments(&aid).unwrap().len(), 1);
+        // resolve
+        assert!(db.set_comment_resolved(&aid, c.id, true).unwrap());
+        assert!(db.get_comment(&aid, c.id).unwrap().unwrap().resolved);
+        // relocate + detach (oid=None)
+        assert!(db
+            .update_comment_anchor(&aid, c.id, None, 0.1, 0.9)
+            .unwrap());
+        let got = db.get_comment(&aid, c.id).unwrap().unwrap();
+        assert_eq!(got.oid, None);
+        assert_eq!(got.rel_x, 0.1);
+        // edit body
+        assert!(db.update_comment_body(&aid, c.id, "再大点").unwrap());
+        assert_eq!(db.get_comment(&aid, c.id).unwrap().unwrap().body, "再大点");
+        // delete
+        assert!(db.delete_comment(&aid, c.id).unwrap());
+        assert!(db.list_comments(&aid).unwrap().is_empty());
+    }
+
+    #[test]
+    fn comment_cascades_on_artifact_delete() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        db.add_comment(&aid, None, 0.0, 0.0, None, None, "x", "t")
+            .unwrap();
+        db.delete_artifact(&aid).unwrap();
+        assert!(
+            db.list_comments(&aid).unwrap().is_empty(),
+            "artifact 删除应级联删批注"
+        );
+    }
+
+    #[test]
+    fn update_missing_comment_returns_false() {
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        assert!(!db.set_comment_resolved(&aid, 999, true).unwrap());
+        assert!(!db.delete_comment(&aid, 999).unwrap());
     }
 }
