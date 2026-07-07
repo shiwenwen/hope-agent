@@ -318,6 +318,12 @@ export default function ChatSidebar({
     }
   }, [showNewChatMenu])
 
+  useEffect(() => {
+    if (agents.length <= 1 && showNewChatMenu) {
+      setShowNewChatMenu(false)
+    }
+  }, [agents.length, showNewChatMenu])
+
   const getAgentInfo = useCallback(
     (agentId: string) => {
       return agents.find((a) => a.id === agentId)
@@ -493,7 +499,7 @@ export default function ChatSidebar({
                       onClick={() => {
                         if (agents.length === 1) {
                           onNewChat(agents[0].id)
-                        } else {
+                        } else if (agents.length > 1) {
                           setShowNewChatMenu(!showNewChatMenu)
                         }
                       }}
@@ -503,7 +509,7 @@ export default function ChatSidebar({
                   </IconTip>
                   {/* Agent selector popup */}
                   <FloatingMenu
-                    open={showNewChatMenu}
+                    open={showNewChatMenu && agents.length > 1}
                     positionClassName="right-0 top-full mt-1"
                     originClassName="origin-top-right"
                     className="ha-menu-from-top min-w-[180px] p-1.5"
@@ -582,18 +588,20 @@ export default function ChatSidebar({
               ) : (
                 <>
                   {/* Collapsible Agents section */}
-                  <AgentSection
-                    agents={agents}
-                    agentsExpanded={agentsExpanded}
-                    setAgentsExpanded={setAgentsExpanded}
-                    selectedAgentId={selectedAgentId}
-                    toggleAgentFilter={toggleAgentFilter}
-                    onNewChat={onNewChat}
-                    onEditAgent={onEditAgent}
-                    onReorderAgents={onReorderAgents}
-                    panelWidth={panelWidth}
-                    displayMode={sidebarDisplayMode}
-                  />
+                  {agents.length > 1 && (
+                    <AgentSection
+                      agents={agents}
+                      agentsExpanded={agentsExpanded}
+                      setAgentsExpanded={setAgentsExpanded}
+                      selectedAgentId={selectedAgentId}
+                      toggleAgentFilter={toggleAgentFilter}
+                      onNewChat={onNewChat}
+                      onEditAgent={onEditAgent}
+                      onReorderAgents={onReorderAgents}
+                      panelWidth={panelWidth}
+                      displayMode={sidebarDisplayMode}
+                    />
+                  )}
 
                   {/* Projects section — shown below agents. Falls back silently
                       when no handler is wired (backwards-compat). */}
