@@ -377,7 +377,20 @@
       "download": "Download & export"
     },
     "newAudio": "Generate audio",
-    "audioPromptPlaceholder": "Narration text, or a music / SFX description (prefix with [music] / [sfx])…"
+    "audioPromptPlaceholder": "Narration text, or a music / SFX description (prefix with [music] / [sfx])…",
+    "editTokens": "Edit design tokens…",
+    "token": {
+      "title": "Edit design tokens",
+      "visual": "Visual",
+      "source": "Source",
+      "empty": "This design system has no editable tokens",
+      "loadErr": "Failed to load tokens",
+      "saved": "Design tokens saved",
+      "saveErr": "Save failed",
+      "copySuffix": "copy",
+      "forkHint": "Built-in systems are read-only; saving creates your copy",
+      "saveCopy": "Save as copy"
+    }
   },
   "channels": {
     "accountLabel": "Account Name",

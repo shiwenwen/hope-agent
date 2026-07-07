@@ -377,7 +377,20 @@
       "download": "Muat turun & eksport"
     },
     "newAudio": "Jana audio",
-    "audioPromptPlaceholder": "Teks naratif, atau penerangan muzik/SFX (awalan [music] / [sfx])…"
+    "audioPromptPlaceholder": "Teks naratif, atau penerangan muzik/SFX (awalan [music] / [sfx])…",
+    "editTokens": "Sunting pemboleh ubah reka bentuk…",
+    "token": {
+      "title": "Sunting pemboleh ubah reka bentuk",
+      "visual": "Visual",
+      "source": "Sumber",
+      "empty": "Sistem reka bentuk ini tiada pemboleh ubah boleh sunting",
+      "loadErr": "Gagal memuatkan pemboleh ubah",
+      "saved": "Pemboleh ubah disimpan",
+      "saveErr": "Gagal menyimpan",
+      "copySuffix": "salinan",
+      "forkHint": "Sistem terbina dalam baca sahaja; menyimpan mencipta salinan anda",
+      "saveCopy": "Simpan sebagai salinan"
+    }
   },
   "channels": {
     "accountLabel": "Nama akaun",

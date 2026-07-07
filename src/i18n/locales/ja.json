@@ -377,7 +377,20 @@
       "download": "ダウンロードして書き出す"
     },
     "newAudio": "オーディオを生成",
-    "audioPromptPlaceholder": "ナレーション本文、または音楽/効果音の説明（[music] / [sfx] を先頭に付与可）…"
+    "audioPromptPlaceholder": "ナレーション本文、または音楽/効果音の説明（[music] / [sfx] を先頭に付与可）…",
+    "editTokens": "デザイン変数を編集…",
+    "token": {
+      "title": "デザイン変数を編集",
+      "visual": "ビジュアル",
+      "source": "ソース",
+      "empty": "この設計システムに編集可能な変数はありません",
+      "loadErr": "変数の読み込みに失敗しました",
+      "saved": "デザイン変数を保存しました",
+      "saveErr": "保存に失敗しました",
+      "copySuffix": "コピー",
+      "forkHint": "組み込みシステムは読み取り専用です。保存するとコピーを作成します",
+      "saveCopy": "コピーとして保存"
+    }
   },
   "channels": {
     "accountLabel": "アカウント名",

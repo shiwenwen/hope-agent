@@ -377,7 +377,20 @@
       "download": "下載並匯出"
     },
     "newAudio": "生成音訊",
-    "audioPromptPlaceholder": "旁白文字，或音樂/音效描述（可加 [music] / [sfx] 前綴）…"
+    "audioPromptPlaceholder": "旁白文字，或音樂/音效描述（可加 [music] / [sfx] 前綴）…",
+    "editTokens": "編輯設計變數…",
+    "token": {
+      "title": "編輯設計變數",
+      "visual": "可視化",
+      "source": "源碼",
+      "empty": "該設計系統沒有可編輯的變數",
+      "loadErr": "載入設計變數失敗",
+      "saved": "設計變數已儲存",
+      "saveErr": "儲存失敗",
+      "copySuffix": "副本",
+      "forkHint": "內建系統唯讀，儲存將建立你的副本",
+      "saveCopy": "另存為副本"
+    }
   },
   "channels": {
     "accountLabel": "賬戶名稱",

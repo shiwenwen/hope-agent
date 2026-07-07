@@ -377,7 +377,20 @@
       "download": "다운로드 후 내보내기"
     },
     "newAudio": "오디오 생성",
-    "audioPromptPlaceholder": "내레이션 텍스트 또는 음악/효과음 설명([music] / [sfx] 접두사 가능)…"
+    "audioPromptPlaceholder": "내레이션 텍스트 또는 음악/효과음 설명([music] / [sfx] 접두사 가능)…",
+    "editTokens": "디자인 변수 편집…",
+    "token": {
+      "title": "디자인 변수 편집",
+      "visual": "비주얼",
+      "source": "소스",
+      "empty": "이 디자인 시스템에는 편집 가능한 변수가 없습니다",
+      "loadErr": "변수 로드 실패",
+      "saved": "디자인 변수 저장됨",
+      "saveErr": "저장 실패",
+      "copySuffix": "사본",
+      "forkHint": "기본 제공 시스템은 읽기 전용입니다. 저장하면 사본이 생성됩니다",
+      "saveCopy": "사본으로 저장"
+    }
   },
   "channels": {
     "accountLabel": "계정 이름",

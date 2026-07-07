@@ -377,7 +377,20 @@
       "download": "Baixar e exportar"
     },
     "newAudio": "Gerar áudio",
-    "audioPromptPlaceholder": "Texto de narração, ou uma descrição de música/SFX (prefixe com [music] / [sfx])…"
+    "audioPromptPlaceholder": "Texto de narração, ou uma descrição de música/SFX (prefixe com [music] / [sfx])…",
+    "editTokens": "Editar variáveis de design…",
+    "token": {
+      "title": "Editar variáveis de design",
+      "visual": "Visual",
+      "source": "Código",
+      "empty": "Este sistema de design não tem variáveis editáveis",
+      "loadErr": "Falha ao carregar as variáveis",
+      "saved": "Variáveis guardadas",
+      "saveErr": "Falha ao guardar",
+      "copySuffix": "cópia",
+      "forkHint": "Sistemas integrados são só de leitura; guardar cria a sua cópia",
+      "saveCopy": "Guardar como cópia"
+    }
   },
   "channels": {
     "accountLabel": "Nome da conta",

@@ -27,6 +27,7 @@ import {
   Sparkles,
   MousePointerClick,
   MessageSquare,
+  SlidersHorizontal,
   Download,
   Gauge,
   Film,
@@ -50,6 +51,7 @@ import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
+import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -158,6 +160,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [newProjectTitle, setNewProjectTitle] = useState("")
   const [creatingProject, setCreatingProject] = useState(false)
   const [systemPickerOpen, setSystemPickerOpen] = useState(false)
+  const [tokenEditorOpen, setTokenEditorOpen] = useState(false)
+  const [tokenEditorSystem, setTokenEditorSystem] = useState<DesignSystemMeta | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<
     { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
@@ -1570,6 +1574,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         size="sm"
                         className="h-8 gap-1.5"
                         onClick={() => {
+                          const sys = systems.find((s) => s.id === activeProject.defaultSystemId)
+                          if (!sys) return
+                          setSystemPickerOpen(false)
+                          setTokenEditorSystem(sys)
+                          setTokenEditorOpen(true)
+                        }}
+                      >
+                        <SlidersHorizontal className="h-3.5 w-3.5" />
+                        {t("design.editTokens", "编辑设计变量…")}
+                      </Button>
+                    )}
+                    {activeProject.defaultSystemId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        onClick={() => {
                           const sid = activeProject.defaultSystemId
                           if (!sid) return
                           const name = systems.find((s) => s.id === sid)?.name ?? sid
@@ -2108,6 +2129,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 设计变量可视化编辑器（P2） */}
+      <DesignTokenEditor
+        system={tokenEditorSystem}
+        open={tokenEditorOpen}
+        onOpenChange={setTokenEditorOpen}
+        onSaved={(systemId) => {
+          void loadSystems()
+          // fork 出新系统（内置只读）→ 设为项目默认；就地更新 id 不变，无需改。
+          if (activeProjectRef.current && systemId !== activeProjectRef.current.defaultSystemId) {
+            void setProjectSystem(systemId)
+          }
+        }}
+      />
 
       {/* 导出强路依赖门（MP4→ffmpeg / PDF·PNG→浏览器引擎）：未就绪让用户主动选，不静默降级。 */}
       <Dialog

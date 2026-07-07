@@ -377,7 +377,20 @@
       "download": "Tải xuống và xuất"
     },
     "newAudio": "Tạo âm thanh",
-    "audioPromptPlaceholder": "Văn bản lời kể, hoặc mô tả nhạc/hiệu ứng ([music] / [sfx] ở đầu)…"
+    "audioPromptPlaceholder": "Văn bản lời kể, hoặc mô tả nhạc/hiệu ứng ([music] / [sfx] ở đầu)…",
+    "editTokens": "Sửa biến thiết kế…",
+    "token": {
+      "title": "Sửa biến thiết kế",
+      "visual": "Trực quan",
+      "source": "Mã nguồn",
+      "empty": "Hệ thiết kế này không có biến chỉnh sửa được",
+      "loadErr": "Không tải được biến",
+      "saved": "Đã lưu biến thiết kế",
+      "saveErr": "Lưu thất bại",
+      "copySuffix": "bản sao",
+      "forkHint": "Hệ thống dựng sẵn chỉ đọc; lưu sẽ tạo bản sao của bạn",
+      "saveCopy": "Lưu thành bản sao"
+    }
   },
   "channels": {
     "accountLabel": "Tên tài khoản",

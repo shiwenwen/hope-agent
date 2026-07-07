@@ -377,7 +377,20 @@
       "download": "İndir ve dışa aktar"
     },
     "newAudio": "Ses oluştur",
-    "audioPromptPlaceholder": "Anlatım metni veya bir müzik/SFX açıklaması ([music] / [sfx] önekiyle)…"
+    "audioPromptPlaceholder": "Anlatım metni veya bir müzik/SFX açıklaması ([music] / [sfx] önekiyle)…",
+    "editTokens": "Tasarım değişkenlerini düzenle…",
+    "token": {
+      "title": "Tasarım değişkenlerini düzenle",
+      "visual": "Görsel",
+      "source": "Kaynak",
+      "empty": "Bu tasarım sisteminde düzenlenebilir değişken yok",
+      "loadErr": "Değişkenler yüklenemedi",
+      "saved": "Değişkenler kaydedildi",
+      "saveErr": "Kaydetme başarısız",
+      "copySuffix": "kopya",
+      "forkHint": "Yerleşik sistemler salt okunurdur; kaydetmek kopyanızı oluşturur",
+      "saveCopy": "Kopya olarak kaydet"
+    }
   },
   "channels": {
     "accountLabel": "Hesap adı",

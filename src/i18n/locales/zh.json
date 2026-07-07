@@ -377,7 +377,20 @@
       "download": "下载并导出"
     },
     "newAudio": "生成音频",
-    "audioPromptPlaceholder": "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…"
+    "audioPromptPlaceholder": "旁白文本，或音乐/音效描述（可加 [music] / [sfx] 前缀）…",
+    "editTokens": "编辑设计变量…",
+    "token": {
+      "title": "编辑设计变量",
+      "visual": "可视化",
+      "source": "源码",
+      "empty": "该设计系统没有可编辑的变量",
+      "loadErr": "加载设计变量失败",
+      "saved": "设计变量已保存",
+      "saveErr": "保存失败",
+      "copySuffix": "副本",
+      "forkHint": "内置系统只读，保存将创建你的副本",
+      "saveCopy": "存为副本"
+    }
   },
   "channels": {
     "accountLabel": "账户名称",
