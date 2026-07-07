@@ -299,8 +299,13 @@ async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
     let trusted = ssrf_cfg.trusted_hosts.clone();
     let parsed = crate::security::ssrf::check_url(url, policy, &trusted).await?;
 
+    // 禁跟随重定向：本请求携带 Figma 凭据（X-Figma-Token 是自定义 header，reqwest 跨主机
+    // 重定向只剥 Authorization/Cookie 等、不剥自定义 header），若跟随 3xx 会把令牌重发到未经
+    // SSRF 复检的主机。Figma REST 端点不合法重定向，3xx 直接落到下面 !is_success 分支报错。
     let client = crate::provider::apply_proxy(
-        reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none()),
     )
     .build()
     .map_err(|e| anyhow::anyhow!("http client error: {e}"))?;
@@ -333,20 +338,31 @@ async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
     serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("Figma JSON parse error: {e}"))
 }
 
-/// Figma color（`{r,g,b,a}` 0..1 浮点）→ `#rrggbb[aa]`。
-fn figma_color_hex(c: &serde_json::Value) -> Option<String> {
+/// Figma color（`{r,g,b,a}` 0..1 浮点）→ `#rrggbb[aa]`，`alpha_mult` 叠加外层不透明度。
+fn figma_color_hex_alpha(c: &serde_json::Value, alpha_mult: f64) -> Option<String> {
     let (r, g, b) = (
         c.get("r")?.as_f64()?,
         c.get("g")?.as_f64()?,
         c.get("b")?.as_f64()?,
     );
-    let a = c.get("a").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let a = c.get("a").and_then(|v| v.as_f64()).unwrap_or(1.0) * alpha_mult;
     let to = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
     if a >= 0.999 {
         Some(format!("#{:02x}{:02x}{:02x}", to(r), to(g), to(b)))
     } else {
         Some(format!("#{:02x}{:02x}{:02x}{:02x}", to(r), to(g), to(b), to(a)))
     }
+}
+
+fn figma_color_hex(c: &serde_json::Value) -> Option<String> {
+    figma_color_hex_alpha(c, 1.0)
+}
+
+/// Figma paint（fill）→ hex：有效 alpha = `color.a × paint.opacity`（paint 级 opacity 单列，
+/// 忽略它会把半透明填充误报成不透明色）。
+fn paint_hex(paint: &serde_json::Value) -> Option<String> {
+    let mult = paint.get("opacity").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    figma_color_hex_alpha(paint.get("color")?, mult)
 }
 
 /// 从「已发布 styles + 其节点值」组装可读 material（颜色 hex / 文字排印 / 阴影）。
@@ -362,7 +378,7 @@ fn material_from_styles(styles: &serde_json::Value, nodes: &serde_json::Value) -
                 if let Some(hex) = doc["fills"]
                     .as_array()
                     .and_then(|f| f.iter().find(|p| p["type"] == "SOLID"))
-                    .and_then(|p| figma_color_hex(&p["color"]))
+                    .and_then(paint_hex)
                 {
                     colors.push(format!("- '{name}': {hex}"));
                 }
@@ -417,7 +433,7 @@ fn material_from_document(doc: &serde_json::Value, cap: usize) -> String {
         if let Some(fills) = node.get("fills").and_then(|f| f.as_array()) {
             for p in fills {
                 if p["type"] == "SOLID" {
-                    if let Some(hex) = figma_color_hex(&p["color"]) {
+                    if let Some(hex) = paint_hex(p) {
                         seen.insert(hex);
                     }
                 }
@@ -766,6 +782,19 @@ mod tests {
         assert!(m.contains("'Primary': #1a33e6"), "color: {m}");
         assert!(m.contains("'Heading': Inter 24px weight 700"), "text: {m}");
         assert!(m.contains("'Card':") && m.contains("blur 8px"), "effect: {m}");
+    }
+
+    #[test]
+    fn figma_paint_level_opacity_folds_into_alpha() {
+        // paint.opacity=0.5 × color.a=1 → 半透明 → 8 位 hex（否则误报不透明）。
+        let paint = serde_json::json!({
+            "type": "SOLID", "opacity": 0.5,
+            "color": { "r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0 }
+        });
+        assert_eq!(paint_hex(&paint).as_deref(), Some("#00000080"));
+        // 无 opacity 字段 → 默认 1.0 → 不透明。
+        let opaque = serde_json::json!({ "type": "SOLID", "color": { "r": 1.0, "g": 1.0, "b": 1.0 } });
+        assert_eq!(paint_hex(&opaque).as_deref(), Some("#ffffff"));
     }
 
     #[test]

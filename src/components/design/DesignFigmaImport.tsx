@@ -6,7 +6,7 @@
  * 也不进模型面（凭据安全）。走 owner 命令 `import_figma_system_cmd`。
  */
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2 } from "lucide-react"
 import {
@@ -38,6 +38,15 @@ export function DesignFigmaImport({ open, onOpenChange, onImported }: Props) {
   const [token, setToken] = useState("")
   const [name, setName] = useState("")
   const [importing, setImporting] = useState(false)
+
+  // 关闭即清空（取消 / Esc / 点遮罩都算）——凭据不在内存里滞留（review #5）。
+  useEffect(() => {
+    if (!open) {
+      setUrl("")
+      setToken("")
+      setName("")
+    }
+  }, [open])
 
   const run = async () => {
     if (!url.trim() || !token.trim()) return
