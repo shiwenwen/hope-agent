@@ -326,7 +326,9 @@ pub struct BindingsQuery {
 }
 
 /// `POST /api/design/bindings` — bind a design system to a code project (write-gated).
-pub async fn bind_code(Json(body): Json<BindCodeBody>) -> Result<Json<DesignCodeBinding>, AppError> {
+pub async fn bind_code(
+    Json(body): Json<BindCodeBody>,
+) -> Result<Json<DesignCodeBinding>, AppError> {
     ensure_design_writes_allowed()?;
     let b = service::bind_code_project(
         &body.system_id,

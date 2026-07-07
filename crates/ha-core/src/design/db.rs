@@ -860,7 +860,8 @@ impl DesignDb {
 
     pub fn list_code_bindings(&self, system_id: Option<&str>) -> Result<Vec<DesignCodeBinding>> {
         let conn = self.lock()?;
-        let base = "SELECT id, system_id, target_dir, subfolder, formats, created_at, last_synced_at \
+        let base =
+            "SELECT id, system_id, target_dir, subfolder, formats, created_at, last_synced_at \
                     FROM design_code_bindings";
         let mut out = Vec::new();
         match system_id {
@@ -1033,7 +1034,10 @@ mod tests {
             .add_code_binding("sys-a", "/tmp/p2", "", &formats, "t")
             .unwrap();
         db.delete_system("sys-a").unwrap();
-        assert!(db.get_code_binding(b2.id).unwrap().is_none(), "系统删除应级联删绑定");
+        assert!(
+            db.get_code_binding(b2.id).unwrap().is_none(),
+            "系统删除应级联删绑定"
+        );
     }
 
     #[test]

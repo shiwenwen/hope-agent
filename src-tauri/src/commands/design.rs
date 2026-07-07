@@ -7,11 +7,11 @@
 
 use crate::commands::CmdError;
 use ha_core::design::extract::Direction;
+use ha_core::design::service::BindingSyncReport;
 use ha_core::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
     ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
-use ha_core::design::service::BindingSyncReport;
 use ha_core::design::token_export::TokenExport;
 use ha_core::design::{
     CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment,

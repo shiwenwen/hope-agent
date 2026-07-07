@@ -91,7 +91,9 @@ pub fn classify(name: &str, value: &str) -> TokenType {
     if is_color(v) {
         return TokenType::Color;
     }
-    if n.contains("font-family") || n.contains("fontfamily") || (n.contains("font") && v.contains(','))
+    if n.contains("font-family")
+        || n.contains("fontfamily")
+        || (n.contains("font") && v.contains(','))
     {
         return TokenType::FontFamily;
     }
@@ -118,7 +120,8 @@ pub fn classify(name: &str, value: &str) -> TokenType {
 
 /// `--ds-color-primary` → `color-primary`（无 ds 前缀则剥 `--`）。
 fn core_name(k: &str) -> &str {
-    k.strip_prefix("--ds-").unwrap_or_else(|| k.trim_start_matches("--"))
+    k.strip_prefix("--ds-")
+        .unwrap_or_else(|| k.trim_start_matches("--"))
 }
 
 /// `--ds-color-primary` → `colorPrimary`。
@@ -269,8 +272,9 @@ fn is_plain_hex(v: &str) -> bool {
 }
 
 fn gen_swift(tokens: &BTreeMap<String, String>) -> TokenExport {
-    let mut body =
-        String::from("import UIKit\n\n/// 设计系统 Token（自动生成，请勿手改）。\npublic enum DesignTokens {\n");
+    let mut body = String::from(
+        "import UIKit\n\n/// 设计系统 Token（自动生成，请勿手改）。\npublic enum DesignTokens {\n",
+    );
     let mut has_color = false;
     for (k, v) in tokens {
         let name = to_camel(k);
@@ -290,12 +294,20 @@ fn gen_swift(tokens: &BTreeMap<String, String>) -> TokenExport {
             )),
             TokenType::Dimension | TokenType::Number | TokenType::FontWeight => {
                 if let Some(n) = leading_number(v) {
-                    body.push_str(&format!("    public static let {name}: CGFloat = {n} // {v}\n"));
+                    body.push_str(&format!(
+                        "    public static let {name}: CGFloat = {n} // {v}\n"
+                    ));
                 } else {
-                    body.push_str(&format!("    public static let {name} = {}\n", swift_string(v)));
+                    body.push_str(&format!(
+                        "    public static let {name} = {}\n",
+                        swift_string(v)
+                    ));
                 }
             }
-            _ => body.push_str(&format!("    public static let {name} = {}\n", swift_string(v))),
+            _ => body.push_str(&format!(
+                "    public static let {name} = {}\n",
+                swift_string(v)
+            )),
         }
     }
     body.push_str("}\n");
@@ -444,7 +456,11 @@ fn gen_dtcg(tokens: &BTreeMap<String, String>) -> TokenExport {
 }
 
 /// 把叶子插入嵌套树；遇到分支/叶子撞名返回 false（由调用方退化处理）。
-fn insert_nested(node: &mut serde_json::Map<String, serde_json::Value>, path: &[&str], leaf: serde_json::Value) -> bool {
+fn insert_nested(
+    node: &mut serde_json::Map<String, serde_json::Value>,
+    path: &[&str],
+    leaf: serde_json::Value,
+) -> bool {
     use serde_json::Value;
     match path {
         [] => false,
@@ -475,20 +491,35 @@ mod tests {
     use super::*;
 
     fn toks(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn classify_covers_types() {
         assert_eq!(classify("--ds-color-primary", "#2563eb"), TokenType::Color);
-        assert_eq!(classify("--ds-color-overlay", "rgba(0,0,0,.5)"), TokenType::Color);
+        assert_eq!(
+            classify("--ds-color-overlay", "rgba(0,0,0,.5)"),
+            TokenType::Color
+        );
         assert_eq!(classify("--ds-space-4", "16px"), TokenType::Dimension);
         assert_eq!(classify("--ds-radius-md", "0.5rem"), TokenType::Dimension);
         assert_eq!(classify("--ds-motion-fast", "200ms"), TokenType::Duration);
-        assert_eq!(classify("--ds-font-body", "Inter, sans-serif"), TokenType::FontFamily);
-        assert_eq!(classify("--ds-font-weight-bold", "700"), TokenType::FontWeight);
+        assert_eq!(
+            classify("--ds-font-body", "Inter, sans-serif"),
+            TokenType::FontFamily
+        );
+        assert_eq!(
+            classify("--ds-font-weight-bold", "700"),
+            TokenType::FontWeight
+        );
         assert_eq!(classify("--ds-z-modal", "1000"), TokenType::Number);
-        assert_eq!(classify("--ds-shadow-sm", "0 1px 2px rgba(0,0,0,.1)"), TokenType::Other);
+        assert_eq!(
+            classify("--ds-shadow-sm", "0 1px 2px rgba(0,0,0,.1)"),
+            TokenType::Other
+        );
     }
 
     #[test]
@@ -513,7 +544,10 @@ mod tests {
         let c = gen_swift(&t).content;
         assert!(c.contains("public static let colorPrimary = UIColor(ds: \"#2563eb\")"));
         assert!(c.contains("public static let space4: CGFloat = 16 // 16px"));
-        assert!(c.contains("convenience init(ds hex: String)"), "含 hex 时应附 UIColor 扩展");
+        assert!(
+            c.contains("convenience init(ds hex: String)"),
+            "含 hex 时应附 UIColor 扩展"
+        );
     }
 
     #[test]
@@ -533,8 +567,12 @@ mod tests {
         assert_eq!(to_android_dimen("50vw"), None);
         let t = toks(&[("--ds-color-primary", "#2563eb"), ("--ds-space-4", "16px")]);
         let c = gen_android(&t);
-        assert!(c.content.contains("<color name=\"ds_color_primary\">#2563eb</color>"));
-        assert!(c.content.contains("<dimen name=\"ds_space_4\">16dp</dimen>"));
+        assert!(c
+            .content
+            .contains("<color name=\"ds_color_primary\">#2563eb</color>"));
+        assert!(c
+            .content
+            .contains("<dimen name=\"ds_space_4\">16dp</dimen>"));
     }
 
     #[test]
@@ -551,11 +589,20 @@ mod tests {
     #[test]
     fn swift_non_hex_color_stays_visible() {
         // rgba / 4 位 hex 颜色不走 UIColor(ds:)（内置 init 只解 3/6/8 位，否则运行时透明）。
-        let t = toks(&[("--ds-color-overlay", "rgba(0,0,0,.5)"), ("--ds-color-tint", "#f00c")]);
+        let t = toks(&[
+            ("--ds-color-overlay", "rgba(0,0,0,.5)"),
+            ("--ds-color-tint", "#f00c"),
+        ]);
         let c = gen_swift(&t).content;
-        assert!(!c.contains("UIColor(ds:"), "非 hex 颜色不应路由给 UIColor(ds:)");
+        assert!(
+            !c.contains("UIColor(ds:"),
+            "非 hex 颜色不应路由给 UIColor(ds:)"
+        );
         assert!(c.contains("rgba(0,0,0,.5)") && c.contains("non-hex color"));
-        assert!(!c.contains("convenience init(ds hex"), "无真 hex 颜色不应附 UIColor 扩展");
+        assert!(
+            !c.contains("convenience init(ds hex"),
+            "无真 hex 颜色不应附 UIColor 扩展"
+        );
         // 真 hex 仍走 UIColor + 附扩展。
         let t2 = toks(&[("--ds-color-primary", "#2563eb")]);
         let c2 = gen_swift(&t2).content;
@@ -581,7 +628,10 @@ mod tests {
 
     #[test]
     fn swift_string_escapes_control_chars() {
-        assert_eq!(swift_string("Inter,\nsans-serif"), "\"Inter,\\nsans-serif\"");
+        assert_eq!(
+            swift_string("Inter,\nsans-serif"),
+            "\"Inter,\\nsans-serif\""
+        );
         assert_eq!(swift_string("a\tb"), "\"a\\tb\"");
         assert_eq!(swift_string("q\"x\\y"), "\"q\\\"x\\\\y\"");
         // 含换行的字体族 token 经 gen_swift 不产出裸换行（否则 .swift 编不过）。
@@ -607,7 +657,9 @@ mod tests {
         fn has_conflict(v: &serde_json::Value) -> bool {
             if let Some(obj) = v.as_object() {
                 let leaf = obj.contains_key("$value");
-                let group_child = obj.iter().any(|(k, cv)| !k.starts_with('$') && cv.is_object());
+                let group_child = obj
+                    .iter()
+                    .any(|(k, cv)| !k.starts_with('$') && cv.is_object());
                 if leaf && group_child {
                     return true;
                 }
@@ -623,11 +675,17 @@ mod tests {
             let t = toks(pairs);
             let c = gen_dtcg(&t).content;
             let v: serde_json::Value = serde_json::from_str(&c).unwrap();
-            assert!(!has_conflict(&v), "DTCG 不应有既 token 又 group 的节点: {c}");
+            assert!(
+                !has_conflict(&v),
+                "DTCG 不应有既 token 又 group 的节点: {c}"
+            );
             let mut vals = Vec::new();
             collect_values(&v, &mut vals);
             for (_, expect) in pairs {
-                assert!(vals.iter().any(|x| x == expect), "缺 token 值 {expect}: {c}");
+                assert!(
+                    vals.iter().any(|x| x == expect),
+                    "缺 token 值 {expect}: {c}"
+                );
             }
         }
     }
@@ -640,7 +698,9 @@ mod tests {
         let formats: Vec<_> = all.iter().map(|e| e.format.as_str()).collect();
         assert_eq!(formats, ["css", "scss", "ts", "swift", "android", "dtcg"]);
         // 每个都非空、有文件名。
-        assert!(all.iter().all(|e| !e.content.is_empty() && !e.filename.is_empty()));
+        assert!(all
+            .iter()
+            .all(|e| !e.content.is_empty() && !e.filename.is_empty()));
     }
 
     #[test]

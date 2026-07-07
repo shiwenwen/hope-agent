@@ -1498,70 +1498,69 @@ li span{{margin-left:auto;font-size:12px;color:#9ca3af;text-transform:uppercase;
 pub fn export_zip(artifact_id: Option<&str>, project_id: Option<&str>) -> Result<String> {
     use base64::Engine;
     let db = open_db()?;
-    let (items, index_html): (Vec<super::export::ZipArtifact>, Option<String>) = if let Some(aid) =
-        artifact_id.filter(|s| !s.is_empty())
-    {
-        let a = db
-            .get_artifact(aid)?
-            .with_context(|| format!("artifact not found: {aid}"))?;
-        let kind =
-            ArtifactKind::from_str(&a.kind).with_context(|| format!("unknown kind: {}", a.kind))?;
-        let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
-        let parts = read_source(&dir)?;
-        let tokens = resolve_tokens(a.system_id.as_deref());
-        let html = render_clean(kind, &a.title, &parts, &tokens);
-        (
-            vec![super::export::ZipArtifact {
-                folder: String::new(),
-                html,
-                source: Some((parts.body_html, parts.css, parts.js)),
-                title: a.title,
-                kind: a.kind,
-            }],
-            None,
-        )
-    } else if let Some(pid) = project_id.filter(|s| !s.is_empty()) {
-        let project = db
-            .get_project(pid)?
-            .with_context(|| format!("project not found: {pid}"))?;
-        let artifacts = db.list_artifacts(pid)?;
-        let mut zitems = Vec::new();
-        let mut gallery = String::new();
-        for a in &artifacts {
-            let Some(kind) = ArtifactKind::from_str(&a.kind) else {
-                continue;
-            };
+    let (items, index_html): (Vec<super::export::ZipArtifact>, Option<String>) =
+        if let Some(aid) = artifact_id.filter(|s| !s.is_empty()) {
+            let a = db
+                .get_artifact(aid)?
+                .with_context(|| format!("artifact not found: {aid}"))?;
+            let kind = ArtifactKind::from_str(&a.kind)
+                .with_context(|| format!("unknown kind: {}", a.kind))?;
             let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
             let parts = read_source(&dir)?;
             let tokens = resolve_tokens(a.system_id.as_deref());
             let html = render_clean(kind, &a.title, &parts, &tokens);
-            let folder = format!(
-                "{}-{}",
-                safe_filename(&a.title),
-                a.id.get(..8).unwrap_or(&a.id)
-            );
-            gallery.push_str(&format!(
-                "<li><a href=\"{f}/index.html\">{t}</a><span>{k}</span></li>\n",
-                f = folder,
-                t = renderer::html_escape(&a.title),
-                k = renderer::html_escape(&a.kind),
-            ));
-            zitems.push(super::export::ZipArtifact {
-                folder,
-                html,
-                // 项目整包也带各产物的可编辑源码分离目录（source/），与单产物包一致。
-                source: Some((parts.body_html, parts.css, parts.js)),
-                title: a.title.clone(),
-                kind: a.kind.clone(),
-            });
-        }
-        if zitems.is_empty() {
-            anyhow::bail!("project has no artifacts to export");
-        }
-        (zitems, Some(project_gallery_html(&project.title, &gallery)))
-    } else {
-        anyhow::bail!("export_zip needs an artifactId or projectId");
-    };
+            (
+                vec![super::export::ZipArtifact {
+                    folder: String::new(),
+                    html,
+                    source: Some((parts.body_html, parts.css, parts.js)),
+                    title: a.title,
+                    kind: a.kind,
+                }],
+                None,
+            )
+        } else if let Some(pid) = project_id.filter(|s| !s.is_empty()) {
+            let project = db
+                .get_project(pid)?
+                .with_context(|| format!("project not found: {pid}"))?;
+            let artifacts = db.list_artifacts(pid)?;
+            let mut zitems = Vec::new();
+            let mut gallery = String::new();
+            for a in &artifacts {
+                let Some(kind) = ArtifactKind::from_str(&a.kind) else {
+                    continue;
+                };
+                let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+                let parts = read_source(&dir)?;
+                let tokens = resolve_tokens(a.system_id.as_deref());
+                let html = render_clean(kind, &a.title, &parts, &tokens);
+                let folder = format!(
+                    "{}-{}",
+                    safe_filename(&a.title),
+                    a.id.get(..8).unwrap_or(&a.id)
+                );
+                gallery.push_str(&format!(
+                    "<li><a href=\"{f}/index.html\">{t}</a><span>{k}</span></li>\n",
+                    f = folder,
+                    t = renderer::html_escape(&a.title),
+                    k = renderer::html_escape(&a.kind),
+                ));
+                zitems.push(super::export::ZipArtifact {
+                    folder,
+                    html,
+                    // 项目整包也带各产物的可编辑源码分离目录（source/），与单产物包一致。
+                    source: Some((parts.body_html, parts.css, parts.js)),
+                    title: a.title.clone(),
+                    kind: a.kind.clone(),
+                });
+            }
+            if zitems.is_empty() {
+                anyhow::bail!("project has no artifacts to export");
+            }
+            (zitems, Some(project_gallery_html(&project.title, &gallery)))
+        } else {
+            anyhow::bail!("export_zip needs an artifactId or projectId");
+        };
     let bytes = super::export::build_zip(&items, index_html.as_deref())?;
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
@@ -1639,7 +1638,9 @@ fn referenced_tokens(parts: &ArtifactParts, all: &[(String, String)]) -> Vec<(St
 
 /// GFM 表格单元格转义：`|`→`\|`、换行→空格、反引号→单引号（防破表 / 破代码跨度）。
 fn md_table_cell(s: &str) -> String {
-    s.replace('|', "\\|").replace(['\n', '\r'], " ").replace('`', "'")
+    s.replace('|', "\\|")
+        .replace(['\n', '\r'], " ")
+        .replace('`', "'")
 }
 
 /// 组装开发交付包的 `HANDOFF.md`（目录说明 + 本产物引用的设计变量 + token 格式清单）。
@@ -1667,7 +1668,11 @@ fn build_handoff_md(
         s.push_str("## 本产物引用的设计变量\n\n| Token | 值 (value) |\n| --- | --- |\n");
         for (name, value) in referenced {
             // GFM 表格单元格：转义 `|`、换行→空格、反引号→单引号（否则破表 / 破代码跨度）。
-            s.push_str(&format!("| `{}` | `{}` |\n", md_table_cell(name), md_table_cell(value)));
+            s.push_str(&format!(
+                "| `{}` | `{}` |\n",
+                md_table_cell(name),
+                md_table_cell(value)
+            ));
         }
         s.push('\n');
     }
@@ -1698,7 +1703,8 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
     // 干净可交付（editable=false，无 inspector/oid）；Component 走 oxc 编译，绝不塞未编译 JSX。
     let html = render_clean(kind, &a.title, &parts, &tokens_vec);
 
-    let tokens_map: std::collections::BTreeMap<String, String> = tokens_vec.iter().cloned().collect();
+    let tokens_map: std::collections::BTreeMap<String, String> =
+        tokens_vec.iter().cloned().collect();
     let dev = super::token_export::export_all(&tokens_map);
     let referenced = referenced_tokens(&parts, &tokens_vec);
     let system_name = a
@@ -1715,7 +1721,10 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
         ("source/script.js".to_string(), parts.js.into_bytes()),
     ];
     for e in &dev {
-        files.push((format!("tokens/{}", e.filename), e.content.clone().into_bytes()));
+        files.push((
+            format!("tokens/{}", e.filename),
+            e.content.clone().into_bytes(),
+        ));
     }
     let bytes = super::export::build_files_zip(&files)?;
     Ok(ExportResult {
@@ -1812,7 +1821,9 @@ pub fn sync_code_binding(id: i64) -> Result<BindingSyncReport> {
         .get_code_binding(id)?
         .with_context(|| format!("绑定不存在: {id}"))?;
     let tokens_map: std::collections::BTreeMap<String, String> =
-        resolve_tokens(Some(&binding.system_id)).into_iter().collect();
+        resolve_tokens(Some(&binding.system_id))
+            .into_iter()
+            .collect();
     let dev = super::token_export::export_all(&tokens_map);
     let dir = resolve_binding_write_dir(&binding.target_dir, &binding.subfolder)?;
 
@@ -1841,7 +1852,10 @@ pub fn sync_code_binding(id: i64) -> Result<BindingSyncReport> {
         written.len(),
         dir.display()
     );
-    emit("design:binding_changed", json!({ "systemId": binding.system_id }));
+    emit(
+        "design:binding_changed",
+        json!({ "systemId": binding.system_id }),
+    );
     Ok(BindingSyncReport {
         binding_id: id,
         dir: dir.to_string_lossy().into_owned(),
@@ -2300,12 +2314,24 @@ mod handoff_tests {
     #[test]
     fn css_var_ref_avoids_prefix_false_match() {
         // 精确边界：紧跟 ) / , / 空白 / 结尾算命中；作为更长名的前缀不算。
-        assert!(css_var_referenced("color: var(--ds-color-primary)", "--ds-color-primary"));
-        assert!(css_var_referenced("var(--ds-color-primary, #fff)", "--ds-color-primary"));
+        assert!(css_var_referenced(
+            "color: var(--ds-color-primary)",
+            "--ds-color-primary"
+        ));
+        assert!(css_var_referenced(
+            "var(--ds-color-primary, #fff)",
+            "--ds-color-primary"
+        ));
         assert!(css_var_referenced("var(--ds-radius )", "--ds-radius"));
         // 容 `(` 后空白（合法 CSS，review #3/#6/#7）。
-        assert!(css_var_referenced("var( --ds-color-primary )", "--ds-color-primary"));
-        assert!(css_var_referenced("var(\n  --ds-space-4\n)", "--ds-space-4"));
+        assert!(css_var_referenced(
+            "var( --ds-color-primary )",
+            "--ds-color-primary"
+        ));
+        assert!(css_var_referenced(
+            "var(\n  --ds-space-4\n)",
+            "--ds-space-4"
+        ));
         // --ds-color 不应被 var(--ds-color-primary) 误命中。
         assert!(!css_var_referenced("var(--ds-color-primary)", "--ds-color"));
         assert!(!css_var_referenced("no vars here", "--ds-color"));
@@ -2324,7 +2350,10 @@ mod handoff_tests {
             ("--ds-unused".to_string(), "x".to_string()),
         ];
         let got = referenced_tokens(&parts, &all);
-        assert_eq!(got, vec![("--ds-color-primary".to_string(), "#2563eb".to_string())]);
+        assert_eq!(
+            got,
+            vec![("--ds-color-primary".to_string(), "#2563eb".to_string())]
+        );
         // 表格单元格转义（review #5）。
         assert_eq!(super::md_table_cell("a|b\nc`d"), "a\\|b c'd");
     }

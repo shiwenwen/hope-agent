@@ -332,7 +332,10 @@ async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
         let chunk = chunk.map_err(|e| anyhow::anyhow!("stream error: {e}"))?;
         bytes.extend_from_slice(&chunk);
         if bytes.len() > MAX_BYTES {
-            anyhow::bail!("Figma response exceeds {} MB cap", MAX_BYTES / (1024 * 1024));
+            anyhow::bail!(
+                "Figma response exceeds {} MB cap",
+                MAX_BYTES / (1024 * 1024)
+            );
         }
     }
     serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("Figma JSON parse error: {e}"))
@@ -350,7 +353,13 @@ fn figma_color_hex_alpha(c: &serde_json::Value, alpha_mult: f64) -> Option<Strin
     if a >= 0.999 {
         Some(format!("#{:02x}{:02x}{:02x}", to(r), to(g), to(b)))
     } else {
-        Some(format!("#{:02x}{:02x}{:02x}{:02x}", to(r), to(g), to(b), to(a)))
+        Some(format!(
+            "#{:02x}{:02x}{:02x}{:02x}",
+            to(r),
+            to(g),
+            to(b),
+            to(a)
+        ))
     }
 }
 
@@ -463,7 +472,11 @@ pub async fn from_figma(url_or_key: &str, token: &str) -> Result<ExtractedSystem
     let key = parse_figma_key(url_or_key)?;
 
     // 1) 已发布 styles + 其节点值。
-    let styles = figma_get(&format!("https://api.figma.com/v1/files/{key}/styles"), token).await?;
+    let styles = figma_get(
+        &format!("https://api.figma.com/v1/files/{key}/styles"),
+        token,
+    )
+    .await?;
     let node_ids: Vec<String> = styles["meta"]["styles"]
         .as_array()
         .map(|a| {
@@ -478,7 +491,10 @@ pub async fn from_figma(url_or_key: &str, token: &str) -> Result<ExtractedSystem
         // Figma nodes 端点对 ids 数量有实际上限，取前 200 个足够覆盖一套设计系统。
         let ids: Vec<String> = node_ids.into_iter().take(200).collect();
         let nodes = figma_get(
-            &format!("https://api.figma.com/v1/files/{key}/nodes?ids={}", ids.join(",")),
+            &format!(
+                "https://api.figma.com/v1/files/{key}/nodes?ids={}",
+                ids.join(",")
+            ),
             token,
         )
         .await?;
@@ -487,7 +503,11 @@ pub async fn from_figma(url_or_key: &str, token: &str) -> Result<ExtractedSystem
 
     // 2) 无已发布 styles → 回退采样文档填充色。
     if material.trim().is_empty() {
-        let file = figma_get(&format!("https://api.figma.com/v1/files/{key}?depth=4"), token).await?;
+        let file = figma_get(
+            &format!("https://api.figma.com/v1/files/{key}?depth=4"),
+            token,
+        )
+        .await?;
         material = material_from_document(&file["document"], 60);
     }
 
@@ -781,7 +801,10 @@ mod tests {
         let m = material_from_styles(&styles, &nodes);
         assert!(m.contains("'Primary': #1a33e6"), "color: {m}");
         assert!(m.contains("'Heading': Inter 24px weight 700"), "text: {m}");
-        assert!(m.contains("'Card':") && m.contains("blur 8px"), "effect: {m}");
+        assert!(
+            m.contains("'Card':") && m.contains("blur 8px"),
+            "effect: {m}"
+        );
     }
 
     #[test]
@@ -793,7 +816,8 @@ mod tests {
         });
         assert_eq!(paint_hex(&paint).as_deref(), Some("#00000080"));
         // 无 opacity 字段 → 默认 1.0 → 不透明。
-        let opaque = serde_json::json!({ "type": "SOLID", "color": { "r": 1.0, "g": 1.0, "b": 1.0 } });
+        let opaque =
+            serde_json::json!({ "type": "SOLID", "color": { "r": 1.0, "g": 1.0, "b": 1.0 } });
         assert_eq!(paint_hex(&opaque).as_deref(), Some("#ffffff"));
     }
 

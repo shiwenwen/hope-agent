@@ -213,10 +213,17 @@ mod tests {
         edited.insert("--ds-color-primary".to_string(), "#ff0000".to_string());
         edited.insert("--ds-space-4".to_string(), "1rem".to_string());
         let rebuilt = replace_tokens_table(&md, &edited);
-        assert!(rebuilt.contains("prose") && rebuilt.contains("正文内容"), "正文保留");
+        assert!(
+            rebuilt.contains("prose") && rebuilt.contains("正文内容"),
+            "正文保留"
+        );
         assert!(!rebuilt.contains("#2563eb"), "旧 token 值应被剥掉");
         assert_eq!(rebuilt.matches("## Tokens").count(), 1, "不重复表");
-        assert_eq!(extract_tokens(&rebuilt), edited, "回读 == 编辑后 tokens（真相源一致）");
+        assert_eq!(
+            extract_tokens(&rebuilt),
+            edited,
+            "回读 == 编辑后 tokens（真相源一致）"
+        );
     }
 
     #[test]
