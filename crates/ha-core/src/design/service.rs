@@ -1769,8 +1769,26 @@ fn resolve_binding_write_dir(target_dir: &str, subfolder: &str) -> Result<std::p
         }
     }
     let dir = root.join(sub);
+    // **先校验包含性再动文件系统**：canonicalize 最深的已存在祖先，确保仍在 root 内——否则一个
+    // 指向 root 外的目录符号链接会让 `create_dir_all` 在 root 外留下空目录副作用（review #2）。
+    let mut ancestor = dir.as_path();
+    let existing = loop {
+        if ancestor.exists() {
+            break ancestor;
+        }
+        match ancestor.parent() {
+            Some(p) => ancestor = p,
+            None => break ancestor,
+        }
+    };
+    let real_ancestor = std::fs::canonicalize(existing)
+        .with_context(|| format!("canonicalize {}", existing.display()))?;
+    if !real_ancestor.starts_with(&root) {
+        anyhow::bail!("写入路径经符号链接逃出目标目录");
+    }
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("创建写入目录失败: {}", dir.display()))?;
+    // 创建后再 canonicalize 校验一次（兜底 TOCTOU / 深层 symlink）。
     let real = std::fs::canonicalize(&dir)?;
     if !real.starts_with(&root) {
         anyhow::bail!("解析后的写入目录逃出目标目录");
@@ -1814,16 +1832,43 @@ pub fn bind_code_project(
     Ok(binding)
 }
 
+/// **严格**读取系统 tokens：区分「tokens.json 不存在=合法空」与「读/解析错误=上抛」。供外部
+/// 写盘的绑定同步用——`resolve_tokens` 把读错误静默当空集，会用空骨架覆盖用户工程里的真实
+/// token 文件（review #1）；这里 fail-closed 上抛，绝不静默降级为空。
+fn parse_tokens_json(raw: &str) -> Result<Vec<(String, String)>> {
+    let map: std::collections::BTreeMap<String, String> =
+        serde_json::from_str(raw).context("tokens.json 解析失败")?;
+    Ok(map.into_iter().collect())
+}
+
+fn resolve_tokens_strict(system_id: &str) -> Result<Vec<(String, String)>> {
+    let dir = paths::design_system_dir(system_id)?;
+    let path = dir.join("tokens.json");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(anyhow::anyhow!("读取 tokens.json 失败: {e}")),
+    };
+    parse_tokens_json(&raw)
+}
+
 /// 同步：把绑定系统的多平台 token 文件写入其代码工程目录（复用 `token_export`）。
 pub fn sync_code_binding(id: i64) -> Result<BindingSyncReport> {
     let db = open_db()?;
     let binding = db
         .get_code_binding(id)?
         .with_context(|| format!("绑定不存在: {id}"))?;
+    // fail-closed 读 token：读/解析错误上抛、空集拒同步——绝不用空骨架覆盖工程里已有的真实文件。
     let tokens_map: std::collections::BTreeMap<String, String> =
-        resolve_tokens(Some(&binding.system_id))
+        resolve_tokens_strict(&binding.system_id)?
             .into_iter()
             .collect();
+    if tokens_map.is_empty() {
+        anyhow::bail!(
+            "设计系统「{}」没有可同步的 token，已跳过（避免用空文件覆盖工程里的现有 token）",
+            binding.system_id
+        );
+    }
     let dev = super::token_export::export_all(&tokens_map);
     let dir = resolve_binding_write_dir(&binding.target_dir, &binding.subfolder)?;
 
@@ -2383,7 +2428,38 @@ mod handoff_tests {
 
 #[cfg(test)]
 mod binding_tests {
-    use super::{normalize_binding_formats, resolve_binding_write_dir};
+    use super::{normalize_binding_formats, parse_tokens_json, resolve_binding_write_dir};
+
+    #[test]
+    fn parse_tokens_json_fails_closed_on_corrupt() {
+        // 合法 → 有序键值。
+        let ok = parse_tokens_json(r##"{"--ds-color-primary":"#2563eb"}"##).unwrap();
+        assert_eq!(
+            ok,
+            vec![("--ds-color-primary".to_string(), "#2563eb".to_string())]
+        );
+        // 损坏 JSON → Err（绝不静默当空集，否则同步会用空骨架覆盖工程真实文件，review #1）。
+        assert!(parse_tokens_json("{ not json").is_err());
+        // 空对象 → 空集（同步侧的 is_empty 守卫会据此拒同步）。
+        assert!(parse_tokens_json("{}").unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_write_dir_rejects_symlink_escape_without_side_effect() {
+        use std::os::unix::fs::symlink;
+        let root_tmp = tempfile::tempdir().unwrap();
+        let outside_tmp = tempfile::tempdir().unwrap();
+        // root/link → 外部目录。
+        symlink(outside_tmp.path(), root_tmp.path().join("link")).unwrap();
+        let res = resolve_binding_write_dir(&root_tmp.path().to_string_lossy(), "link/tokens");
+        assert!(res.is_err(), "经符号链接逃逸应被拒");
+        // 关键（review #2）：拒绝前不得在 root 外留下 mkdir 副作用。
+        assert!(
+            !outside_tmp.path().join("tokens").exists(),
+            "拒绝前不应在 root 外创建目录"
+        );
+    }
 
     #[test]
     fn resolve_write_dir_contains_and_rejects_escape() {
