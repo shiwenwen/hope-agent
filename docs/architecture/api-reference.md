@@ -431,6 +431,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `restore_design_version_cmd` | `POST /api/design/artifacts/{artifactId}/restore` | ✅ |
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
 | `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |
+| `export_design_handoff_cmd` | `GET /api/design/artifacts/{id}/handoff`（代码交付包 ZIP：index.html + source/ + 多平台 tokens/ + HANDOFF.md，base64） | ✅ |
 | `export_design_pptx_cmd` | `POST /api/design/pptx`（前端整页 PNG → OOXML 组装） | ✅ |
 | `export_design_zip_cmd` | `POST /api/design/zip`（artifactId=单产物源码包 / projectId=项目级全产物包） | ✅ |
 | `critique_design_artifact_cmd` | `POST /api/design/artifacts/{id}/critique` | ✅ |

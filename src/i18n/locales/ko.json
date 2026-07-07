@@ -414,7 +414,8 @@
       "import": "가져오기",
       "ok": "Figma에서 디자인 시스템을 가져왔습니다",
       "err": "Figma 가져오기 실패 — URL과 토큰을 확인하세요"
-    }
+    },
+    "exportHandoff": "개발 핸드오프 (ZIP)"
   },
   "channels": {
     "accountLabel": "계정 이름",

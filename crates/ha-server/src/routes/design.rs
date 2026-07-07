@@ -282,6 +282,14 @@ pub async fn export_artifact(
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
 }
 
+/// `GET /api/design/artifacts/{id}/handoff` — developer handoff ZIP (base64 in `content`):
+/// clean index.html + source/ + multi-platform tokens/ + HANDOFF.md.
+pub async fn export_handoff(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let res = service::export_handoff(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
+}
+
 /// `POST /api/design/artifacts/{id}/critique` — 5-dimension quality review.
 pub async fn critique_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;

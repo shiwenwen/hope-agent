@@ -414,7 +414,8 @@
       "import": "Nhập",
       "ok": "Đã nhập hệ thống thiết kế từ Figma",
       "err": "Nhập Figma thất bại — kiểm tra URL và token"
-    }
+    },
+    "exportHandoff": "Gói bàn giao code (ZIP)"
   },
   "channels": {
     "accountLabel": "Tên tài khoản",

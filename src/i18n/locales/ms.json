@@ -414,7 +414,8 @@
       "import": "Import",
       "ok": "Sistem reka bentuk diimport dari Figma",
       "err": "Import Figma gagal — semak URL dan token"
-    }
+    },
+    "exportHandoff": "Pakej serahan kod (ZIP)"
   },
   "channels": {
     "accountLabel": "Nama akaun",

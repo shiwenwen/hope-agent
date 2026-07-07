@@ -414,7 +414,8 @@
       "import": "Importar",
       "ok": "Sistema de design importado do Figma",
       "err": "Falha ao importar do Figma — verifique a URL e o token"
-    }
+    },
+    "exportHandoff": "Pacote para devs (ZIP)"
   },
   "channels": {
     "accountLabel": "Nome da conta",

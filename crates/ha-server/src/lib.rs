@@ -1713,6 +1713,10 @@ fn build_router_with_cors(
             get(routes::design::export_artifact),
         )
         .route(
+            "/design/artifacts/{id}/handoff",
+            get(routes::design::export_handoff),
+        )
+        .route(
             "/design/artifacts/{id}/restore",
             post(routes::design::restore_version),
         )

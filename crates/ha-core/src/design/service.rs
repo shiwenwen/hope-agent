@@ -1562,6 +1562,115 @@ pub fn export_pptx(slides_b64: &[String], title: &str) -> Result<String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
+/// 判断源码是否引用了 `var({name})`（要求 name 后紧跟 `)` / `,` / 空白 / 结尾，避免
+/// `--ds-color` 误命中 `--ds-color-primary`）。
+fn css_var_referenced(hay: &str, name: &str) -> bool {
+    let needle = format!("var({name}");
+    let mut from = 0;
+    while let Some(rel) = hay[from..].find(&needle) {
+        let after = from + rel + needle.len();
+        match hay.as_bytes().get(after) {
+            None | Some(b')') | Some(b',') | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') => {
+                return true
+            }
+            _ => {}
+        }
+        from = after;
+    }
+    false
+}
+
+/// 扫描产物源码，返回其**实际引用**的 `--ds-*` token（name, value），按名排序。
+fn referenced_tokens(parts: &ArtifactParts, all: &[(String, String)]) -> Vec<(String, String)> {
+    let hay = format!("{}\n{}\n{}", parts.body_html, parts.css, parts.js);
+    all.iter()
+        .filter(|(name, _)| css_var_referenced(&hay, name))
+        .cloned()
+        .collect()
+}
+
+/// 组装开发交付包的 `HANDOFF.md`（目录说明 + 本产物引用的设计变量 + token 格式清单）。
+fn build_handoff_md(
+    a: &DesignArtifact,
+    system_name: Option<&str>,
+    referenced: &[(String, String)],
+    dev_formats: &[super::token_export::TokenExport],
+) -> String {
+    let mut s = String::new();
+    s.push_str(&format!("# {} — 开发交付包\n\n", a.title));
+    s.push_str(&format!("- 形态（kind）：`{}`\n", a.kind));
+    if let Some(name) = system_name {
+        s.push_str(&format!("- 设计系统：{name}\n"));
+    }
+    s.push_str(
+        "\n## 目录结构\n\n\
+- `index.html` — 自包含产物（零外部依赖，浏览器直接打开）\n\
+- `source/` — 源码（`body.html` / `style.css` / `script.js`）\n\
+- `tokens/` — 设计变量的多平台开发者代码\n\n",
+    );
+    if referenced.is_empty() {
+        s.push_str("## 本产物引用的设计变量\n\n（未检测到 `var(--ds-*)` 引用）\n\n");
+    } else {
+        s.push_str("## 本产物引用的设计变量\n\n| Token | 值 (value) |\n| --- | --- |\n");
+        for (name, value) in referenced {
+            s.push_str(&format!("| `{name}` | `{value}` |\n"));
+        }
+        s.push('\n');
+    }
+    s.push_str("## Token 导出格式\n\n");
+    for e in dev_formats {
+        s.push_str(&format!("- `tokens/{}` — {}\n", e.filename, e.label));
+    }
+    s.push_str(
+        "\n> 接入时用 `tokens/` 里对应平台的文件注入设计变量；产物 CSS 以 `var(--ds-*)` 引用，\
+换设计系统即换皮、一致性由 token 锁定。\n",
+    );
+    s
+}
+
+/// 导出**代码交付包**（开发者 handoff）：把产物的干净 `index.html` + `source/` + 多平台
+/// token（复用 `token_export`）+ `HANDOFF.md` 规范打成一个 ZIP。返回 base64 的 `ExportResult`。
+pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
+    use base64::Engine;
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let kind =
+        ArtifactKind::from_str(&a.kind).with_context(|| format!("unknown kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    let tokens_vec = resolve_tokens(a.system_id.as_deref());
+    // editable=false → 干净可交付（无 inspector bridge / 无 oid）。
+    let (html, _) = renderer::build_artifact_html(kind, &a.title, &parts, &tokens_vec, false);
+
+    let tokens_map: std::collections::BTreeMap<String, String> = tokens_vec.iter().cloned().collect();
+    let dev = super::token_export::export_all(&tokens_map);
+    let referenced = referenced_tokens(&parts, &tokens_vec);
+    let system_name = a
+        .system_id
+        .as_deref()
+        .and_then(|id| system::read_full(&db, id).ok().map(|f| f.meta.name));
+    let spec = build_handoff_md(&a, system_name.as_deref(), &referenced, &dev);
+
+    let mut files: Vec<(String, Vec<u8>)> = vec![
+        ("index.html".to_string(), html.into_bytes()),
+        ("HANDOFF.md".to_string(), spec.into_bytes()),
+        ("source/body.html".to_string(), parts.body_html.into_bytes()),
+        ("source/style.css".to_string(), parts.css.into_bytes()),
+        ("source/script.js".to_string(), parts.js.into_bytes()),
+    ];
+    for e in &dev {
+        files.push((format!("tokens/{}", e.filename), e.content.clone().into_bytes()));
+    }
+    let bytes = super::export::build_files_zip(&files)?;
+    Ok(ExportResult {
+        filename: format!("{}-handoff.zip", safe_filename(&a.title)),
+        mime: "application/zip".to_string(),
+        content: base64::engine::general_purpose::STANDARD.encode(&bytes),
+    })
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// 列出设计系统（首次调用懒 seed 内置系统）。
@@ -1989,6 +2098,45 @@ pub async fn refine_artifact_with_comment(
         message: Some(format!("按批注 #{comment_id} 精修")),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
+}
+
+#[cfg(test)]
+mod handoff_tests {
+    use super::{css_var_referenced, referenced_tokens};
+    use crate::design::ArtifactParts;
+
+    #[test]
+    fn css_var_ref_avoids_prefix_false_match() {
+        // 精确边界：紧跟 ) / , / 空白 / 结尾算命中；作为更长名的前缀不算。
+        assert!(css_var_referenced("color: var(--ds-color-primary)", "--ds-color-primary"));
+        assert!(css_var_referenced("var(--ds-color-primary, #fff)", "--ds-color-primary"));
+        assert!(css_var_referenced("var(--ds-radius )", "--ds-radius"));
+        // --ds-color 不应被 var(--ds-color-primary) 误命中。
+        assert!(!css_var_referenced("var(--ds-color-primary)", "--ds-color"));
+        assert!(!css_var_referenced("no vars here", "--ds-color"));
+    }
+
+    #[test]
+    fn referenced_tokens_filters_and_sorts() {
+        let parts = ArtifactParts {
+            body_html: "<div style=\"color:var(--ds-color-primary)\"></div>".into(),
+            css: ".x{gap:var(--ds-space-4)}".into(),
+            js: String::new(),
+        };
+        let all = vec![
+            ("--ds-color-primary".to_string(), "#2563eb".to_string()),
+            ("--ds-space-4".to_string(), "16px".to_string()),
+            ("--ds-unused".to_string(), "nope".to_string()),
+        ];
+        let got = referenced_tokens(&parts, &all);
+        assert_eq!(
+            got,
+            vec![
+                ("--ds-color-primary".to_string(), "#2563eb".to_string()),
+                ("--ds-space-4".to_string(), "16px".to_string()),
+            ]
+        );
+    }
 }
 
 #[cfg(test)]

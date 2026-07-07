@@ -414,7 +414,8 @@
       "import": "İçe aktar",
       "ok": "Tasarım sistemi Figma'dan içe aktarıldı",
       "err": "Figma içe aktarma başarısız — URL ve token'ı kontrol edin"
-    }
+    },
+    "exportHandoff": "Geliştirici paketi (ZIP)"
   },
   "channels": {
     "accountLabel": "Hesap adı",

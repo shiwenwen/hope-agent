@@ -414,7 +414,8 @@
       "import": "匯入",
       "ok": "已從 Figma 匯入設計系統",
       "err": "Figma 匯入失敗，請檢查 URL 與權杖"
-    }
+    },
+    "exportHandoff": "程式交付包 (ZIP)"
   },
   "channels": {
     "accountLabel": "賬戶名稱",

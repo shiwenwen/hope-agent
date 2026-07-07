@@ -857,7 +857,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   }, [postToIframe])
 
   // ── Export (D3): HTML/MD/ZIP（后端）+ PNG/PDF/PPTX/MP4（客户端栅格化） ──
-  type ExportFormat = "html" | "md" | "zip" | "png" | "pdf" | "pptx" | "video"
+  type ExportFormat = "html" | "md" | "zip" | "handoff" | "png" | "pdf" | "pptx" | "video"
   const [exporting, setExporting] = useState<null | ExportFormat>(null)
 
   // 导出强路依赖门：MP4 需 ffmpeg 编码器、PDF/PNG 需浏览器引擎。未就绪时弹门让用户主动选
@@ -916,6 +916,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           })
           if (!res?.zip) return
           downloadBlob(base64ToBlob(res.zip, "application/zip"), `${base}.zip`)
+          if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
+          return
+        }
+        // Handoff — 代码交付包（index.html + source/ + 多平台 tokens/ + HANDOFF.md，base64 zip）。
+        if (format === "handoff") {
+          const res = await tx.call<{ filename: string; mime: string; content: string }>(
+            "export_design_handoff_cmd",
+            { id: activeArtifact.id },
+          )
+          if (!res?.content) return
+          downloadBlob(
+            base64ToBlob(res.content, res.mime || "application/zip"),
+            res.filename || `${base}-handoff.zip`,
+          )
           if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
           return
         }
@@ -1935,6 +1949,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         <DropdownMenuItem onSelect={() => void handleExport("zip")}>
                           <FileArchive className="mr-2 h-4 w-4" />
                           {t("design.exportZip", "源码包 (ZIP)")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => void handleExport("handoff")}>
+                          <Braces className="mr-2 h-4 w-4" />
+                          {t("design.exportHandoff", "代码交付包 (ZIP)")}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

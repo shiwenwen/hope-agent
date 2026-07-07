@@ -338,9 +338,35 @@ pub fn build_zip(artifacts: &[ZipArtifact], index_html: Option<&str>) -> Result<
     Ok(zip.finish()?.into_inner())
 }
 
+/// 从任意「归档内路径 → 字节」列表构建 ZIP（通用，供代码交付包等自定义打包用）。
+pub fn build_files_zip(files: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
+    if files.is_empty() {
+        anyhow::bail!("nothing to zip");
+    }
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, data) in files {
+        zip_write(&mut zip, opts, name, data)?;
+    }
+    Ok(zip.finish()?.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_files_zip_roundtrip() {
+        let files = vec![
+            ("index.html".to_string(), b"<h1>x</h1>".to_vec()),
+            ("tokens/tokens.css".to_string(), b":root{}".to_vec()),
+        ];
+        let bytes = build_files_zip(&files).unwrap();
+        let mut r = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(r.len(), 2);
+        assert!(r.by_name("tokens/tokens.css").is_ok());
+        assert!(build_files_zip(&[]).is_err());
+    }
 
     #[test]
     fn build_zip_single_and_project() {

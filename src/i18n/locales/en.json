@@ -414,7 +414,8 @@
       "import": "Import",
       "ok": "Imported design system from Figma",
       "err": "Figma import failed — check the URL and token"
-    }
+    },
+    "exportHandoff": "Dev handoff (ZIP)"
   },
   "channels": {
     "accountLabel": "Account Name",

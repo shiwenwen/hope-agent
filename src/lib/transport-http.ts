@@ -228,6 +228,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   restore_design_version_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/restore" },
   patch_design_element_cmd:          { method: "POST",   path: "/api/design/patch" },
   export_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/export" },
+  export_design_handoff_cmd:         { method: "GET",    path: "/api/design/artifacts/{id}/handoff" },
   export_design_pptx_cmd:            { method: "POST",   path: "/api/design/pptx" },
   export_design_zip_cmd:             { method: "POST",   path: "/api/design/zip" },
   import_design_md_cmd:              { method: "POST",   path: "/api/design/systems/import" },

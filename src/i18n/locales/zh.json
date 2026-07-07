@@ -414,7 +414,8 @@
       "import": "导入",
       "ok": "已从 Figma 导入设计系统",
       "err": "Figma 导入失败，请检查 URL 与令牌"
-    }
+    },
+    "exportHandoff": "代码交付包 (ZIP)"
   },
   "channels": {
     "accountLabel": "账户名称",

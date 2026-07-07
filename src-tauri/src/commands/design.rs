@@ -117,6 +117,12 @@ pub async fn critique_design_artifact_cmd(id: String) -> Result<CritiqueResult, 
     service::critique_artifact(&id).await.map_err(Into::into)
 }
 
+/// 导出代码交付包（handoff ZIP，content 为 base64）。owner 平面。
+#[tauri::command]
+pub async fn export_design_handoff_cmd(id: String) -> Result<ExportResult, CmdError> {
+    service::export_handoff(&id).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn restore_design_version_cmd(
     artifact_id: String,

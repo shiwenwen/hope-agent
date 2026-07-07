@@ -414,7 +414,8 @@
       "import": "取り込む",
       "ok": "Figma からデザインシステムを取り込みました",
       "err": "Figma の取り込みに失敗しました。URL とトークンを確認してください"
-    }
+    },
+    "exportHandoff": "開発ハンドオフ (ZIP)"
   },
   "channels": {
     "accountLabel": "アカウント名",
