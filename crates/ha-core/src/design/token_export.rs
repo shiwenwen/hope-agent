@@ -40,13 +40,20 @@ pub struct TokenExport {
 
 /// 生成全部目标格式（顺序固定）。空 token 也产出骨架文件（不 panic）。
 pub fn export_all(tokens: &BTreeMap<String, String>) -> Vec<TokenExport> {
+    // 值先 trim：padding 混入字面量会出错——Swift 尤其会让 `is_plain_hex` 判真但 `UIColor(ds:)`
+    // 拿到带空格的字符串静默变透明（review 复验 #1）。各 helper 内部虽多处 trim，统一在入口归一
+    // 保证所有格式一致。
+    let tokens: BTreeMap<String, String> = tokens
+        .iter()
+        .map(|(k, v)| (k.clone(), v.trim().to_string()))
+        .collect();
     vec![
-        gen_css(tokens),
-        gen_scss(tokens),
-        gen_ts(tokens),
-        gen_swift(tokens),
-        gen_android(tokens),
-        gen_dtcg(tokens),
+        gen_css(&tokens),
+        gen_scss(&tokens),
+        gen_ts(&tokens),
+        gen_swift(&tokens),
+        gen_android(&tokens),
+        gen_dtcg(&tokens),
     ]
 }
 
@@ -304,8 +311,23 @@ fn gen_swift(tokens: &BTreeMap<String, String>) -> TokenExport {
     }
 }
 
+/// Swift 字符串字面量（双引号 + 转义控制字符）。单行 `"..."` 字面量禁裸换行，故必须转义
+/// `\n`/`\r`/`\t`，否则含换行的 token 值会产出编不过的文件（review 复验 #2）。
 fn swift_string(s: &str) -> String {
-    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// CSS 颜色 → Android hex（`#AARRGGBB` / `#RRGGBB`）；非 hex 返回 None。
@@ -538,6 +560,35 @@ mod tests {
         let t2 = toks(&[("--ds-color-primary", "#2563eb")]);
         let c2 = gen_swift(&t2).content;
         assert!(c2.contains("UIColor(ds: \"#2563eb\")") && c2.contains("convenience init(ds hex"));
+    }
+
+    #[test]
+    fn export_all_trims_padded_hex_for_swift() {
+        // 带首尾空格的 hex → export_all 归一后 Swift 侧发干净 hex 给 UIColor(ds:)，不静默透明。
+        let t = toks(&[("--ds-color-primary", "  #2563eb  ")]);
+        let all = export_all(&t);
+        let swift = all.iter().find(|e| e.format == "swift").unwrap();
+        assert!(
+            swift.content.contains("UIColor(ds: \"#2563eb\")"),
+            "{}",
+            swift.content
+        );
+        assert!(!swift.content.contains("#2563eb  "), "padding 不应进字面量");
+        // CSS 也不带 padding。
+        let css = all.iter().find(|e| e.format == "css").unwrap();
+        assert!(css.content.contains("--ds-color-primary: #2563eb;"));
+    }
+
+    #[test]
+    fn swift_string_escapes_control_chars() {
+        assert_eq!(swift_string("Inter,\nsans-serif"), "\"Inter,\\nsans-serif\"");
+        assert_eq!(swift_string("a\tb"), "\"a\\tb\"");
+        assert_eq!(swift_string("q\"x\\y"), "\"q\\\"x\\\\y\"");
+        // 含换行的字体族 token 经 gen_swift 不产出裸换行（否则 .swift 编不过）。
+        let t = toks(&[("--ds-font-body", "Inter,\nsans-serif")]);
+        let c = gen_swift(&t).content;
+        assert!(!c.contains("Inter,\nsans-serif"), "不应有裸换行");
+        assert!(c.contains("Inter,\\nsans-serif"));
     }
 
     #[test]
