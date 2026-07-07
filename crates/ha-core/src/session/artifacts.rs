@@ -54,6 +54,21 @@ pub struct UrlSource {
     pub origin: String,
 }
 
+/// One browser automation activity emitted by the browser tool.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserActivity {
+    pub action: String,
+    pub op: Option<String>,
+    pub target_id: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub backend: Option<String>,
+    pub session_id: Option<String>,
+    pub call_id: Option<String>,
+    pub at: Option<i64>,
+}
+
 /// Aggregated artifacts for a whole session. `*_truncated` flags whether the
 /// corresponding list was capped at [`MAX_ARTIFACTS_PER_KIND`].
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -61,8 +76,10 @@ pub struct UrlSource {
 pub struct SessionArtifacts {
     pub files: Vec<FileArtifact>,
     pub sources: Vec<UrlSource>,
+    pub browser: Vec<BrowserActivity>,
     pub files_truncated: bool,
     pub sources_truncated: bool,
+    pub browser_truncated: bool,
 }
 
 /// `   URL: https://…` lines inside `web_search` tool results (see the
@@ -116,11 +133,14 @@ pub fn aggregate_session_artifacts(db: &SessionDB, session_id: &str) -> Result<S
     let messages = db.load_session_messages(session_id)?;
     let (files, files_truncated) = aggregate_files(&messages);
     let (sources, sources_truncated) = aggregate_sources(&messages);
+    let (browser, browser_truncated) = aggregate_browser(&messages);
     Ok(SessionArtifacts {
         files,
         sources,
+        browser,
         files_truncated,
         sources_truncated,
+        browser_truncated,
     })
 }
 
@@ -317,6 +337,57 @@ fn aggregate_sources(messages: &[SessionMessage]) -> (Vec<UrlSource>, bool) {
     (sources, truncated)
 }
 
+fn aggregate_browser(messages: &[SessionMessage]) -> (Vec<BrowserActivity>, bool) {
+    let mut entries: Vec<BrowserActivity> = Vec::new();
+
+    for msg in messages {
+        let Some(meta) = msg
+            .tool_metadata
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        else {
+            continue;
+        };
+        if meta.get("kind").and_then(Value::as_str) != Some("browser_activity") {
+            continue;
+        }
+        let Some(action) = meta.get("action").and_then(Value::as_str) else {
+            continue;
+        };
+        entries.push(BrowserActivity {
+            action: action.to_string(),
+            op: meta.get("op").and_then(Value::as_str).map(str::to_string),
+            target_id: meta
+                .get("targetId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            url: meta.get("url").and_then(Value::as_str).map(str::to_string),
+            title: meta
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            backend: meta
+                .get("backend")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            session_id: meta
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            call_id: meta
+                .get("callId")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            at: meta.get("at").and_then(Value::as_i64),
+        });
+    }
+
+    let truncated = entries.len() > MAX_ARTIFACTS_PER_KIND;
+    entries.reverse();
+    entries.truncate(MAX_ARTIFACTS_PER_KIND);
+    (entries, truncated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -487,5 +558,39 @@ mod tests {
         assert_eq!(sources.len(), 1);
         assert_eq!(sources[0].url, "https://cdn.site.com/report.pdf");
         assert_eq!(sources[0].origin, "web_search");
+    }
+
+    #[test]
+    fn browser_activity_extracts_metadata_most_recent_first() {
+        let messages = vec![
+            msg(
+                1,
+                MessageRole::Tool,
+                "",
+                Some("browser"),
+                Some("ok"),
+                Some(
+                    r#"{"kind":"browser_activity","action":"navigate","op":"go","targetId":"1","url":"https://a.example","title":"A","backend":"extension","sessionId":"s1","callId":"c1","at":100}"#,
+                ),
+            ),
+            msg(
+                2,
+                MessageRole::Tool,
+                "",
+                Some("browser"),
+                Some("ok"),
+                Some(
+                    r#"{"kind":"browser_activity","action":"act","op":"click","targetId":"1","url":"https://a.example","title":"A","backend":"extension","sessionId":"s1","callId":"c2","at":200}"#,
+                ),
+            ),
+        ];
+        let (activities, truncated) = aggregate_browser(&messages);
+        assert!(!truncated);
+        assert_eq!(activities.len(), 2);
+        assert_eq!(activities[0].action, "act");
+        assert_eq!(activities[0].op.as_deref(), Some("click"));
+        assert_eq!(activities[0].call_id.as_deref(), Some("c2"));
+        assert_eq!(activities[1].action, "navigate");
+        assert_eq!(activities[1].url.as_deref(), Some("https://a.example"));
     }
 }

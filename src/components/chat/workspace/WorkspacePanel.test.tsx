@@ -54,8 +54,10 @@ vi.mock("./useWorkspaceArtifacts", () => ({
   useWorkspaceArtifacts: () => ({
     files: [],
     sources: [],
+    browser: [],
     filesTruncated: false,
     sourcesTruncated: false,
+    browserTruncated: false,
   }),
 }))
 
