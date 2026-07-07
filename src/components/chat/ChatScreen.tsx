@@ -643,6 +643,7 @@ export default function ChatScreen({
     reorderProjects,
     moveSessionToProject,
     reloadProjects,
+    initialLoading: projectsInitialLoading,
   } = useProjects({
     includeArchived: true,
     activeSessionIdRef: activeSessionIdForProjectsRef,
@@ -2570,6 +2571,7 @@ export default function ChatScreen({
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
+    !session.historyLoading &&
     !session.loading &&
     !planMode.pendingQuestionGroup &&
     !planMode.planCardInfo &&
@@ -2588,8 +2590,10 @@ export default function ChatScreen({
         sessions={session.sessions}
         agents={session.agents}
         projects={projects}
+        projectsLoading={projectsInitialLoading}
         currentSessionId={session.currentSessionId}
         loadingSessionIds={session.loadingSessionIds}
+        sessionsLoading={session.sessionsLoading}
         panelWidth={panelWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
@@ -2853,6 +2857,7 @@ export default function ChatScreen({
             <FileActionsContext.Provider value={fileActionsValue}>
               <MessageList
                 messages={session.messages}
+                historyLoading={session.historyLoading}
                 loading={session.loading}
                 executionState={
                   session.currentSessionId

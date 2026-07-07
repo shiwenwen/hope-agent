@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Markdown 文件链接复用统一文件类型图标**：本地文件超链接现在使用与下挂文件一致的彩色文件类型图标，可按 CSS / TSX / Rust / Markdown 等后缀显示对应图标，而不是统一显示通用代码图标。
 - **插件浏览器控制会唤出实时 BrowserPanel**：通过 Chrome 扩展接管真实浏览器标签页时，BrowserPanel 截帧不再只查全局 CDP 缓存；`browser:frame` 与 `browser_capture_frame` 现在按会话优先捕获 extension claimed tab，并在前端按 `sessionId` 过滤，避免其它会话的浏览器动作误打开当前右侧面板。
+- **切换长会话与重载侧边栏更顺滑**：切换未缓存会话时先立即切换会话 shell、异步加载历史消息，并用非布局占位避免历史加载动画推挤内容；启动 / reload 期间侧边栏会等会话、项目与显示模式首屏数据稳定后再渲染列表，且仅在用户首次交互后恢复展开动画，减少长会话和会话列表的卡顿与重影。
 
 ## [0.16.0] - 2026-07-06
 

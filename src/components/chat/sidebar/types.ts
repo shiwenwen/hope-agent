@@ -21,8 +21,10 @@ export interface ChatSidebarProps {
   agents: AgentSummaryForSidebar[]
   /** Projects visible in the sidebar. Empty array when none exist. */
   projects?: ProjectMeta[]
+  projectsLoading?: boolean
   currentSessionId: string | null
   loadingSessionIds: Set<string>
+  sessionsLoading?: boolean
   panelWidth: number
   sidebarCollapsed: boolean
   onPanelWidthChange: (width: number) => void
