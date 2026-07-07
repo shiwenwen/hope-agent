@@ -502,7 +502,7 @@
       "off": "Off",
       "offDesc": "The model will not create workflow runs automatically",
       "on": "On",
-      "saved": "Workflow Mode switched to {{mode}}; the model will see it next turn",
+      "saved": "Workflow Mode enabled: {{mode}}",
       "sessionRequired": "Create a session before enabling Workflow Mode",
       "turnOff": "Turn off Workflow Mode",
       "ultracode": "Ultracode",
@@ -5533,6 +5533,9 @@
     "openPanel": "Open workspace",
     "resizePanel": "Resize workspace panel",
     "sourceFromSearch": "Search",
+    "advancedDiagnostics": {
+      "title": "Advanced diagnostics"
+    },
     "truncatedNote": "Showing the most recent 1000",
     "environment": {
       "archived": "Archived",
@@ -5595,6 +5598,29 @@
       "gitDiffFailed": "Reading Git diff failed",
       "loadingDiff": "Read diff",
       "noTextDiff": "No text to display diff"
+    },
+    "worktree": {
+      "manualLabel": "Manual worktree",
+      "created": "Created isolated worktree",
+      "archived": "Archived worktree",
+      "restored": "Restored worktree",
+      "handoffDone": "Handed off to current session",
+      "managed": "Managed worktrees",
+      "create": "Create isolated worktree",
+      "empty": "No managed worktree",
+      "restore": "Restore",
+      "handoff": "Hand off to current session",
+      "archive": "Archive",
+      "more": "{{count}} more",
+      "stateActive": "Active",
+      "stateArchived": "Archived",
+      "stateHandoff": "Handoff",
+      "purposeWorkflow": "Workflow",
+      "purposeSubagent": "Subagent",
+      "purposeManual": "Manual",
+      "pathMissing": "Path cleaned up",
+      "clean": "No local changes",
+      "changed": "{{count}} changes"
     },
     "action": {
       "create": "New",
@@ -5703,7 +5729,7 @@
       "modeOffHint": "No autonomous orchestration",
       "modeOnHint": "Model orchestrates when useful",
       "modeUltracodeHint": "Long tasks with full verification",
-      "modeSaved": "Workflow Mode switched to {{mode}}; the model will see it next turn",
+      "modeSaved": "Workflow Mode enabled: {{mode}}",
       "workflowMode": "Workflow Mode",
       "metricOps": "Ops",
       "metricDone": "Done",

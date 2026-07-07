@@ -1136,7 +1136,7 @@ export default function ChatInput({
         toast.success(
           nextMode === "off"
             ? t("chat.workflowMode.draftOff", "工作流模式已关闭")
-            : t("chat.workflowMode.draftSaved", "工作流模式将在下一条消息生效：{{mode}}", {
+            : t("chat.workflowMode.draftSaved", "工作流模式已开启：{{mode}}", {
                 mode: workflowModeLabel(t, nextMode),
               }),
         )
@@ -1156,9 +1156,11 @@ export default function ChatInput({
           }),
         )
         toast.success(
-          t("chat.workflowMode.saved", "工作流模式已切换为 {{mode}}，模型下一轮会感知", {
-            mode: workflowModeLabel(t, saved),
-          }),
+          saved === "off"
+            ? t("chat.workflowMode.draftOff", "工作流模式已关闭")
+            : t("chat.workflowMode.saved", "工作流模式已开启：{{mode}}", {
+                mode: workflowModeLabel(t, saved),
+              }),
         )
       } catch (e) {
         logger.error("ui", "ChatInput::updateWorkflowMode", "Failed to update workflow mode", e)

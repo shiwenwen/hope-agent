@@ -286,7 +286,7 @@ interface WorkspacePanelProps {
   openLoopCreateRequest?: number
   /** 草稿态新对话里创建 workflow 前,由 ChatScreen 物化一个真实会话并切过去。 */
   onEnsureSession?: () => Promise<string | null>
-  /** 无 session 草稿态工作流模式:只影响下一条消息,不提前创建会话。 */
+  /** 无 session 草稿态工作流模式:不提前创建会话。 */
   draftWorkflowMode?: WorkflowAutonomyMode
   onDraftWorkflowModeChange?: (mode: WorkflowAutonomyMode) => void
   onClose: () => void
@@ -1305,7 +1305,7 @@ function ManagedWorktreesMiniPanel({
       <div className="flex min-w-0 items-center gap-2 px-2 py-1.5">
         <FolderGit2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground/85">
-          {t("workspace.worktree.managed", "Managed worktrees")}
+          {t("workspace.worktree.managed", "托管工作树")}
         </span>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
         <IconTip label={t("workspace.worktree.create", "创建隔离工作树")}>
@@ -1331,7 +1331,7 @@ function ManagedWorktreesMiniPanel({
         </div>
       ) : visible.length === 0 ? (
         <div className="border-t border-border/60 px-2 py-1.5 text-[10px] text-muted-foreground">
-          {t("workspace.worktree.empty", "暂无 managed worktree")}
+          {t("workspace.worktree.empty", "暂无托管工作树")}
         </div>
       ) : (
         <div className="space-y-1 border-t border-border/60 p-1.5">
@@ -5263,7 +5263,8 @@ function DomainTaskWorkbenchSection({
     (sampledSoakReport?.incidents?.length ?? 0)
 
   const focusSignal = focusRequest?.nonce ?? 0
-  const shouldAutoExpand = !incognito && (tone !== "muted" || Boolean(error))
+  const shouldAutoExpand =
+    !incognito && (tone === "danger" || Boolean(error) || Boolean(focusRequest))
   const [creatingStepTaskKey, setCreatingStepTaskKey] = useState<string | null>(null)
   const [creatingAcceptanceGapTaskKey, setCreatingAcceptanceGapTaskKey] = useState<string | null>(
     null,
@@ -5494,7 +5495,7 @@ function DomainTaskWorkbenchSection({
           loading={loading}
         />
       }
-      defaultExpanded={!incognito}
+      defaultExpanded={false}
     >
       <div className="space-y-2">
         <div className="grid grid-cols-3 gap-1.5">
@@ -11436,105 +11437,6 @@ function workflowAutonomyModeHint(
   }
 }
 
-function workflowRunHasHardProblem(run: WorkflowRun): boolean {
-  return run.state === "failed" || run.state === "blocked"
-}
-
-function loopScheduleNeedsAttention(schedule: LoopSchedule): boolean {
-  return schedule.state === "blocked"
-}
-
-function activeLoopSchedules(schedules: LoopSchedule[]): LoopSchedule[] {
-  return schedules.filter(
-    (schedule) =>
-      schedule.state === "active" || schedule.state === "paused" || schedule.state === "blocked",
-  )
-}
-
-function readinessStatusTone(args: {
-  incognito?: boolean
-  activeGoal: Goal | null
-  workflowMode: WorkflowAutonomyMode
-  executionMode: ExecutionMode
-  workflowProblems: number
-  loopProblems: number
-  controlRecords?: number
-  exportStatus?: string | null
-  connectorStatus?: string | null
-  connectorE2EStatus?: string | null
-  operationalStatus?: string | null
-  soakStatus?: string | null
-}): StatusTone {
-  if (args.incognito) return "muted"
-  const hasObservedRuns =
-    args.workflowProblems > 0 || args.loopProblems > 0 || (args.controlRecords ?? 0) > 0
-  const hasHardFailedGate =
-    args.exportStatus === "failed" ||
-    args.connectorStatus === "failed" ||
-    args.connectorE2EStatus === "failed"
-  const hasRuntimeFailedGate =
-    args.operationalStatus === "failed" ||
-    args.soakStatus === "failed"
-  if (
-    args.workflowProblems > 0 ||
-    args.loopProblems > 0 ||
-    hasHardFailedGate ||
-    (hasObservedRuns && hasRuntimeFailedGate)
-  ) {
-    return "danger"
-  }
-  if (!args.activeGoal || args.workflowMode === "off" || args.executionMode === "off") {
-    return "warn"
-  }
-  if (hasRuntimeFailedGate && !hasObservedRuns) {
-    return "info"
-  }
-  if (
-    args.exportStatus === "insufficient_data" ||
-    args.connectorStatus === "insufficient_data" ||
-    args.connectorE2EStatus === "insufficient_data" ||
-    args.operationalStatus === "insufficient_data" ||
-    args.soakStatus === "insufficient_data"
-  ) {
-    return "info"
-  }
-  return "good"
-}
-
-function readinessStatusLabel(
-  t: ReturnType<typeof useTranslation>["t"],
-  tone: StatusTone,
-  loading: boolean,
-): string {
-  if (loading) return t("workspace.autonomousReadiness.loading", "同步中")
-  if (tone === "danger") return t("workspace.autonomousReadiness.blocked", "需处理")
-  if (tone === "warn") return t("workspace.autonomousReadiness.needsSetup", "待配置")
-  if (tone === "info") return t("workspace.autonomousReadiness.observing", "观察中")
-  if (tone === "good") return t("workspace.autonomousReadiness.ready", "自主就绪")
-  return t("workspace.autonomousReadiness.idle", "未开始")
-}
-
-function readinessTitle(t: ReturnType<typeof useTranslation>["t"], tone: StatusTone): string {
-  if (tone === "danger") return t("workspace.autonomousReadiness.titleBlocked", "自主推进需处理")
-  if (tone === "warn") return t("workspace.autonomousReadiness.titleSetup", "自主推进待配置")
-  if (tone === "info") return t("workspace.autonomousReadiness.titleObserving", "自主推进观察中")
-  if (tone === "good") return t("workspace.autonomousReadiness.titleReady", "自主推进就绪")
-  return t("workspace.autonomousReadiness.titleIdle", "自主推进待开始")
-}
-
-function readinessMetricTone(ready: boolean, warning = false): StatusTone {
-  if (warning) return "warn"
-  return ready ? "good" : "muted"
-}
-
-function readinessGuardStatusNeedsAttention(status?: string | null): boolean {
-  return Boolean(status && status !== "passed")
-}
-
-function readinessGuardStatusFailed(status?: string | null): boolean {
-  return status === "failed"
-}
-
 function hasMeaningfulScopeValue(value?: string | null): boolean {
   const normalized = value?.trim().toLowerCase()
   return Boolean(
@@ -11643,509 +11545,351 @@ function domainSoakReportHasSamples(report?: DomainSoakReport | null): boolean {
   )
 }
 
-function autonomousReadinessNextSteps(
-  t: ReturnType<typeof useTranslation>["t"],
-  args: {
-    incognito?: boolean
-    activeGoal: Goal | null
-    workflowMode: WorkflowAutonomyMode
-    executionMode: ExecutionMode
-    workflowProblems: number
-    loopProblems: number
-    workflowLoopCount: number
-    exportGuard: DomainArtifactExportGuardReport | null
-    connectorGuard: DomainConnectorActionGuardReport | null
-    connectorE2eGate: DomainConnectorE2EGateReport | null
-    operationalGate: DomainOperationalGateReport | null
-    soakReport: DomainSoakReport | null
-  },
-): string[] {
-  if (args.incognito) {
-    return [t("workspace.autonomousReadiness.nextIncognito", "无痕会话不持久化 Goal、Loop 或 Workflow。")]
-  }
-  const steps: string[] = []
-  if (!args.activeGoal) {
-    steps.push(t("workspace.autonomousReadiness.nextGoal", "先创建目标，明确最终结果和完成标准。"))
-  }
-  if (args.workflowMode === "off") {
-    steps.push(t("workspace.autonomousReadiness.nextWorkflowMode", "开启工作流模式，让模型可按需动态编排。"))
-  }
-  if (args.executionMode === "off") {
-    steps.push(t("workspace.autonomousReadiness.nextExecutionMode", "选择守护、深入或自主执行模式。"))
-  }
-  if (args.workflowProblems > 0 || args.loopProblems > 0) {
-    steps.push(t("workspace.autonomousReadiness.nextProblems", "处理失败或阻塞的 Workflow / Loop。"))
-  }
-  if (args.activeGoal?.workflowTemplateId && args.workflowLoopCount === 0) {
-    steps.push(
-      t(
-        "workspace.autonomousReadiness.nextWorkflowLoop",
-        "可创建按工作流执行的持续推进，让目标按周期自动推进。",
-      ),
-    )
-  } else if (args.activeGoal && !args.activeGoal.workflowTemplateId) {
-    steps.push(t("workspace.autonomousReadiness.nextTemplate", "为目标绑定领域模板后，可启用工作流 Loop。"))
-  }
-  if (args.exportGuard?.status && args.exportGuard.status !== "passed") {
-    steps.push(
-      args.exportGuard.recommendedNextSteps[0] ??
-        t("workspace.autonomousReadiness.nextExport", "补齐最终产物、复核和脱敏证据。"),
-    )
-  }
-  if (args.connectorGuard?.status && args.connectorGuard.status !== "passed") {
-    steps.push(
-      args.connectorGuard.recommendedNextSteps[0] ??
-        t("workspace.autonomousReadiness.nextConnector", "补齐外部动作批准和回滚证据。"),
-    )
-  }
-  if (args.connectorE2eGate?.status && args.connectorE2eGate.status !== "passed") {
-    steps.push(
-      args.connectorE2eGate.recommendedNextSteps[0] ??
-        t("workspace.autonomousReadiness.nextConnectorE2E", "补齐连接器端到端执行、复核和回滚证据。"),
-    )
-  }
-  if (args.operationalGate?.status && args.operationalGate.status !== "passed") {
-    steps.push(
-      args.operationalGate.recommendedNextSteps[0] ??
-        t("workspace.autonomousReadiness.nextOperational", "等待运行排空或补齐运行样本。"),
-    )
-  }
-  if (args.soakReport?.status && args.soakReport.status !== "passed") {
-    steps.push(
-      args.soakReport.recommendedNextSteps[0] ??
-        t("workspace.autonomousReadiness.nextSoak", "查看长跑审计里的事故与待排空项。"),
-    )
-  }
-  return steps.length > 0
-    ? steps.slice(0, 4)
-    : [t("workspace.autonomousReadiness.nextReady", "自主推进基础已就绪；运行中仍可随时暂停、恢复或取消。")]
-}
-
-type AutonomousReadinessQuickAction = {
-  key: string
-  label: string
-  icon: LucideIcon
-  disabled?: boolean
-  loading?: boolean
-  onClick: () => void
-}
-
-function AutonomousReadinessCard({
-  activeGoal,
-  workflowMode,
-  workflowModeLoading,
-  workflowModeSaving,
-  executionMode,
-  executionModeLoading,
-  executionModeSaving,
-  workflowRunsState,
-  loopSchedulesState,
-  domainWorkbenchState,
+function GoalWorkspaceSection({
+  sessionId,
   incognito,
-  canCreateLoop,
-  onChangeWorkflowMode,
-  onChangeExecutionMode,
-  onOpenGoalCreate,
-  onOpenGoalEdit,
-  onOpenLoopCreate,
-  onOpenWorkflowProblem,
-  onOpenLoopProblem,
-  onOpenExportGuard,
-  onOpenConnectorGuard,
-  onOpenConnectorE2EGate,
-  onOpenOperationalGate,
-  onOpenSoakReport,
+  onEnsureSession,
+  goalState,
 }: {
-  activeGoal: Goal | null
-  workflowMode: WorkflowAutonomyMode
-  workflowModeLoading?: boolean
-  workflowModeSaving?: WorkflowAutonomyMode | null
-  executionMode: ExecutionMode
-  executionModeLoading?: boolean
-  executionModeSaving?: ExecutionMode | null
-  workflowRunsState: WorkflowRunsState
-  loopSchedulesState: LoopSchedulesState
-  domainWorkbenchState: DomainTaskWorkbenchState
+  sessionId?: string | null
   incognito?: boolean
-  canCreateLoop?: boolean
-  onChangeWorkflowMode?: (mode: WorkflowAutonomyMode) => void
-  onChangeExecutionMode?: (mode: ExecutionMode) => void
-  onOpenGoalCreate?: () => void
-  onOpenGoalEdit?: () => void
-  onOpenLoopCreate?: () => void
-  onOpenWorkflowProblem?: (runId: string) => void
-  onOpenLoopProblem?: (loopId: string) => void
-  onOpenExportGuard?: () => void
-  onOpenConnectorGuard?: () => void
-  onOpenConnectorE2EGate?: () => void
-  onOpenOperationalGate?: () => void
-  onOpenSoakReport?: () => void
+  onEnsureSession?: () => Promise<string | null>
+  goalState: GoalStateSnapshot
 }) {
   const { t } = useTranslation()
-  const problemWorkflow = workflowRunsState.runs.find(workflowRunHasHardProblem) ?? null
-  const problemLoops = loopSchedulesState.schedules.filter(loopScheduleNeedsAttention)
-  const problemLoop = problemLoops[0] ?? null
-  const workflowProblems = workflowRunsState.runs.filter(workflowRunHasHardProblem).length
-  const activeWorkflows = workflowRunsState.activeCount
-  const liveLoops = activeLoopSchedules(loopSchedulesState.schedules)
-  const workflowLoopCount = loopSchedulesState.schedules.filter(
-    (schedule) => schedule.executionStrategy === "workflow",
-  ).length
-  const loopProblems = problemLoops.length
-  const soakControlRecords =
-    domainWorkbenchState.soakReport?.summary.totalRecords ??
-    ((domainWorkbenchState.soakReport?.summary.workflowRuns ?? 0) +
-      (domainWorkbenchState.soakReport?.summary.loopRuns ?? 0) +
-      (domainWorkbenchState.soakReport?.summary.campaignItems ?? 0))
-  const operationalControlRecords =
-    (domainWorkbenchState.operationalGate?.summary.workflowRuns ?? 0) +
-    (domainWorkbenchState.operationalGate?.summary.loopRuns ?? 0) +
-    (domainWorkbenchState.operationalGate?.summary.campaignItems ?? 0)
-  const readinessControlRecords = Math.max(
-    soakControlRecords,
-    operationalControlRecords,
-    domainWorkbenchState.evidence.length,
-  )
-  const hasReadinessSamples =
-    readinessControlRecords > 0 || workflowProblems > 0 || loopProblems > 0
-  const readinessExportGuard = domainArtifactExportGuardHasScope(domainWorkbenchState.exportGuard)
-    ? domainWorkbenchState.exportGuard
-    : null
-  const readinessConnectorGuard = domainConnectorActionGuardHasScope(
-    domainWorkbenchState.connectorGuard,
-  )
-    ? domainWorkbenchState.connectorGuard
-    : null
-  const readinessConnectorE2eGate = domainConnectorE2EGateHasScope(
-    domainWorkbenchState.connectorE2eGate,
-  )
-    ? domainWorkbenchState.connectorE2eGate
-    : null
-  const readinessOperationalGate =
-    hasReadinessSamples && domainOperationalGateHasSamples(domainWorkbenchState.operationalGate)
-      ? domainWorkbenchState.operationalGate
-      : null
-  const readinessSoakReport =
-    hasReadinessSamples && domainSoakReportHasSamples(domainWorkbenchState.soakReport)
-      ? domainWorkbenchState.soakReport
-      : null
-  const loading =
-    workflowModeLoading ||
-    executionModeLoading ||
-    workflowRunsState.loading ||
-    loopSchedulesState.loading ||
-    domainWorkbenchState.exportGuardLoading ||
-    domainWorkbenchState.connectorGuardLoading ||
-    domainWorkbenchState.connectorE2eGateLoading ||
-    domainWorkbenchState.operationalGateLoading ||
-    domainWorkbenchState.soakReportLoading
-  const tone = readinessStatusTone({
+  const [goalActionKey, setGoalActionKey] = useState<string | null>(null)
+  const [goalCreateOpen, setGoalCreateOpen] = useState(false)
+  const [goalObjective, setGoalObjective] = useState("")
+  const [goalCriteria, setGoalCriteria] = useState("")
+  const [goalTemplateId, setGoalTemplateId] = useState(GOAL_DOMAIN_FREE_VALUE)
+  const [goalTaskType, setGoalTaskType] = useState("")
+  const [goalSaving, setGoalSaving] = useState(false)
+  const [domainTemplates, setDomainTemplates] = useState<DomainWorkflowTemplate[]>([])
+  const [domainTemplatesLoading, setDomainTemplatesLoading] = useState(false)
+  const [domainTemplatesError, setDomainTemplatesError] = useState<string | null>(null)
+  const ensureSessionRef = useRef<Promise<string | null> | null>(null)
+  const domainTemplatesReqRef = useRef(0)
+  const domainTemplatesRequestedRef = useRef(false)
+  const activeGoal = goalState.snapshot?.goal ?? null
+  const selectedGoalTemplate =
+    goalTemplateId === GOAL_DOMAIN_FREE_VALUE
+      ? null
+      : findDomainTemplateByValue(domainTemplates, goalTemplateId)
+  const canMaterializeSession = Boolean(sessionId || onEnsureSession)
+
+  const ensureGoalSession = useCallback(async () => {
+    if (sessionId) return sessionId
+    if (!onEnsureSession) {
+      toast.error(t("workspace.goal.sessionRequired", "先选择或创建一个会话后再创建目标"))
+      return null
+    }
+    if (!ensureSessionRef.current) {
+      ensureSessionRef.current = onEnsureSession().finally(() => {
+        ensureSessionRef.current = null
+      })
+    }
+    const nextSessionId = await ensureSessionRef.current
+    if (!nextSessionId) {
+      toast.error(t("workspace.goal.sessionRequired", "先选择或创建一个会话后再创建目标"))
+    }
+    return nextSessionId
+  }, [onEnsureSession, sessionId, t])
+
+  const loadDomainWorkflowTemplates = useCallback(() => {
+    if (incognito) {
+      domainTemplatesReqRef.current += 1
+      domainTemplatesRequestedRef.current = false
+      setDomainTemplates([])
+      setDomainTemplatesLoading(false)
+      setDomainTemplatesError(null)
+      return
+    }
+    domainTemplatesRequestedRef.current = true
+    const req = ++domainTemplatesReqRef.current
+    setDomainTemplatesLoading(true)
+    setDomainTemplatesError(null)
+    getTransport()
+      .call<DomainWorkflowTemplate[]>("list_domain_workflow_templates", { limit: 24 })
+      .then((next) => {
+        if (domainTemplatesReqRef.current !== req) return
+        setDomainTemplates(Array.isArray(next) ? next.filter((template) => template.enabled) : [])
+        setDomainTemplatesLoading(false)
+      })
+      .catch((e) => {
+        if (domainTemplatesReqRef.current !== req) return
+        logger.error(
+          "ui",
+          "GoalWorkspaceSection::loadDomainWorkflowTemplates",
+          "Failed to load domain workflow templates",
+          e,
+        )
+        setDomainTemplates([])
+        setDomainTemplatesError(e instanceof Error ? e.message : String(e))
+        setDomainTemplatesLoading(false)
+      })
+  }, [incognito])
+
+  useEffect(() => {
+    if (incognito || domainTemplatesRequestedRef.current) return
+    if (!goalCreateOpen && !activeGoal?.workflowTemplateId) return
+    loadDomainWorkflowTemplates()
+  }, [activeGoal?.workflowTemplateId, goalCreateOpen, incognito, loadDomainWorkflowTemplates])
+
+  useEffect(() => {
+    if (goalTemplateId === GOAL_DOMAIN_FREE_VALUE) {
+      if (goalTaskType) setGoalTaskType("")
+      return
+    }
+    const selected = findDomainTemplateByValue(domainTemplates, goalTemplateId)
+    if (!selected) {
+      setGoalTemplateId(GOAL_DOMAIN_FREE_VALUE)
+      setGoalTaskType("")
+      return
+    }
+    if (selected.taskTypes.length === 0) {
+      if (goalTaskType) setGoalTaskType("")
+      return
+    }
+    if (!selected.taskTypes.includes(goalTaskType)) {
+      setGoalTaskType(selected.taskTypes[0] ?? "")
+    }
+  }, [domainTemplates, goalTaskType, goalTemplateId])
+
+  const createGoalFromDraft = useCallback(async () => {
+    if (incognito) return
+    const objective = goalObjective.trim()
+    if (!objective) {
+      toast.error(t("workspace.goal.objectiveRequired", "请输入目标"))
+      return
+    }
+    const targetSessionId = await ensureGoalSession()
+    if (!targetSessionId) return
+    setGoalSaving(true)
+    try {
+      const snapshot = await getTransport().call<GoalSnapshot>("create_goal", {
+        sessionId: targetSessionId,
+        objective,
+        completionCriteria: goalCriteria.trim(),
+        domain: selectedGoalTemplate?.domain ?? undefined,
+        workflowTemplateId: selectedGoalTemplate?.id ?? undefined,
+        workflowTemplateVersion: selectedGoalTemplate?.version ?? undefined,
+        workflowTaskType: selectedGoalTemplate
+          ? goalTaskType || selectedGoalTemplate.taskTypes[0] || undefined
+          : undefined,
+      })
+      goalState.setSnapshot(snapshot)
+      setGoalObjective("")
+      setGoalCriteria("")
+      setGoalTemplateId(GOAL_DOMAIN_FREE_VALUE)
+      setGoalTaskType("")
+      setGoalCreateOpen(false)
+      toast.success(t("workspace.goal.created", "已创建目标"))
+    } catch (e) {
+      logger.error("ui", "GoalWorkspaceSection::createGoal", "Failed to create goal", e)
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setGoalSaving(false)
+    }
+  }, [
+    ensureGoalSession,
+    goalCriteria,
+    goalObjective,
+    goalState,
+    goalTaskType,
     incognito,
-    activeGoal,
-    workflowMode,
-    executionMode,
-    workflowProblems,
-    loopProblems,
-    controlRecords: readinessControlRecords,
-    exportStatus: readinessExportGuard?.status,
-    connectorStatus: readinessConnectorGuard?.status,
-    connectorE2EStatus: readinessConnectorE2eGate?.status,
-    operationalStatus: readinessOperationalGate?.status,
-    soakStatus: readinessSoakReport?.status,
-  })
-  const nextSteps = autonomousReadinessNextSteps(t, {
-    incognito,
-    activeGoal,
-    workflowMode,
-    executionMode,
-    workflowProblems,
-    loopProblems,
-    workflowLoopCount,
-    exportGuard: readinessExportGuard,
-    connectorGuard: readinessConnectorGuard,
-    connectorE2eGate: readinessConnectorE2eGate,
-    operationalGate: readinessOperationalGate,
-    soakReport: readinessSoakReport,
-  })
-  const goalReady = Boolean(activeGoal)
-  const workflowReady = workflowMode !== "off"
-  const executionReady = executionMode !== "off"
-  const guardStatuses = [
-    readinessExportGuard?.status,
-    readinessConnectorGuard?.status,
-    readinessConnectorE2eGate?.status,
-    readinessOperationalGate?.status,
-    readinessSoakReport?.status,
-  ]
-  const guardAttentionCount = guardStatuses.filter(readinessGuardStatusNeedsAttention).length
-  const hardFailedGuardCount = [
-    readinessExportGuard?.status,
-    readinessConnectorGuard?.status,
-    readinessConnectorE2eGate?.status,
-  ].filter(readinessGuardStatusFailed).length
-  const runtimeFailedGuardCount = [
-    readinessOperationalGate?.status,
-    readinessSoakReport?.status,
-  ].filter(readinessGuardStatusFailed).length
-  const failedGuardCount =
-    hardFailedGuardCount + (hasReadinessSamples ? runtimeFailedGuardCount : 0)
-  const runProblemCount = workflowProblems + loopProblems
-  const runHealthReady = runProblemCount === 0 && guardAttentionCount === 0
-  const runHealthWarning = failedGuardCount > 0
-  const healthValue =
-    runProblemCount > 0
-      ? t("workspace.autonomousReadiness.healthProblems", "{{count}} 个问题", {
-          count: runProblemCount,
+    selectedGoalTemplate,
+    t,
+  ])
+
+  const runGoalAction = useCallback(
+    async (command: "pause_goal" | "resume_goal" | "clear_goal" | "evaluate_goal") => {
+      if (!activeGoal) return
+      const key = `${command}:${activeGoal.id}`
+      setGoalActionKey(key)
+      try {
+        const snapshot = await getTransport().call<GoalSnapshot>(command, { goalId: activeGoal.id })
+        goalState.setSnapshot(command === "clear_goal" ? null : snapshot)
+        if (command === "clear_goal") {
+          toast.success(t("workspace.goal.cleared", "目标已清除"))
+        } else if (command === "evaluate_goal") {
+          toast.success(t("workspace.goal.evaluated", "目标评估已更新"))
+        } else {
+          toast.success(t("workspace.goal.updated", "目标状态已更新"))
+        }
+        goalState.refresh()
+      } catch (e) {
+        logger.error("ui", "GoalWorkspaceSection::goalAction", `Goal action failed: ${command}`, e)
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setGoalActionKey(null)
+      }
+    },
+    [activeGoal, goalState, t],
+  )
+
+  const updateActiveGoal = useCallback(
+    async (
+      objective: string,
+      completionCriteria: string,
+      domainSelection?: {
+        template: DomainWorkflowTemplate | null
+        taskType: string
+      },
+    ) => {
+      if (!activeGoal) return false
+      const trimmedObjective = objective.trim()
+      if (!trimmedObjective) {
+        toast.error(t("workspace.goal.objectiveRequired", "请输入目标"))
+        return false
+      }
+      const key = `update_goal:${activeGoal.id}`
+      setGoalActionKey(key)
+      try {
+        const payload: Record<string, unknown> = {
+          goalId: activeGoal.id,
+          objective: trimmedObjective,
+          completionCriteria: completionCriteria.trim(),
+        }
+        if (domainSelection) {
+          payload.domain = domainSelection.template?.domain ?? ""
+          payload.workflowTemplateId = domainSelection.template?.id ?? ""
+          payload.workflowTemplateVersion = domainSelection.template?.version ?? ""
+          payload.workflowTaskType =
+            domainSelection.taskType || domainSelection.template?.taskTypes[0] || ""
+        }
+        const snapshot = await getTransport().call<GoalSnapshot>("update_goal", payload)
+        goalState.setSnapshot(snapshot)
+        toast.success(t("workspace.goal.updated", "目标状态已更新"))
+        goalState.refresh()
+        return true
+      } catch (e) {
+        logger.error("ui", "GoalWorkspaceSection::updateGoal", "Failed to update goal", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+        return false
+      } finally {
+        setGoalActionKey(null)
+      }
+    },
+    [activeGoal, goalState, t],
+  )
+
+  const closeActiveGoal = useCallback(
+    async (decision: GoalClosureDecision, reason?: string, followUpItems: string[] = []) => {
+      if (!activeGoal) return
+      const key = `close_goal:${decision}:${activeGoal.id}`
+      setGoalActionKey(key)
+      try {
+        const snapshot = await getTransport().call<GoalSnapshot>("close_goal", {
+          goalId: activeGoal.id,
+          decision,
+          reason,
+          followUpItems,
         })
-      : failedGuardCount > 0
-        ? t("workspace.autonomousReadiness.healthGuardProblems", "{{count}} 个守门", {
-            count: failedGuardCount,
-          })
-        : guardAttentionCount > 0
-          ? t("workspace.autonomousReadiness.healthNeedsEvidence", "待证据")
-          : activeWorkflows > 0 || liveLoops.length > 0
-            ? t("workspace.autonomousReadiness.healthActive", "{{count}} 活跃", {
-                count: activeWorkflows + liveLoops.length,
-              })
-            : t("workspace.autonomousReadiness.healthClean", "干净")
-  const quickActions: AutonomousReadinessQuickAction[] = []
-  if (!incognito && problemWorkflow && onOpenWorkflowProblem) {
-    quickActions.push({
-      key: "workflow-problem",
-      label: t("workspace.autonomousReadiness.actionViewWorkflow", "查看工作流"),
-      icon: Eye,
-      onClick: () => onOpenWorkflowProblem(problemWorkflow.id),
-    })
-  }
-  if (!incognito && problemLoop && onOpenLoopProblem) {
-    quickActions.push({
-      key: "loop-problem",
-      label: t("workspace.autonomousReadiness.actionViewLoop", "查看持续推进"),
-      icon: Radio,
-      onClick: () => onOpenLoopProblem(problemLoop.id),
-    })
-  }
-  if (
-    !incognito &&
-    readinessExportGuard?.status &&
-    readinessExportGuard.status !== "passed" &&
-    onOpenExportGuard
-  ) {
-    quickActions.push({
-      key: "export-guard",
-      label: t("workspace.autonomousReadiness.actionViewExport", "查看交付"),
-      icon: Shield,
-      onClick: onOpenExportGuard,
-    })
-  }
-  if (
-    !incognito &&
-    readinessConnectorGuard?.status &&
-    readinessConnectorGuard.status !== "passed" &&
-    onOpenConnectorGuard
-  ) {
-    quickActions.push({
-      key: "connector-guard",
-      label: t("workspace.autonomousReadiness.actionViewConnector", "查看外部动作"),
-      icon: ShieldAlert,
-      onClick: onOpenConnectorGuard,
-    })
-  }
-  if (
-    !incognito &&
-    readinessConnectorE2eGate?.status &&
-    readinessConnectorE2eGate.status !== "passed" &&
-    onOpenConnectorE2EGate
-  ) {
-    quickActions.push({
-      key: "connector-e2e",
-      label: t("workspace.autonomousReadiness.actionViewConnectorE2E", "查看 E2E"),
-      icon: GitCompare,
-      onClick: onOpenConnectorE2EGate,
-    })
-  }
-  if (
-    !incognito &&
-    readinessOperationalGate?.status &&
-    readinessOperationalGate.status !== "passed" &&
-    onOpenOperationalGate
-  ) {
-    quickActions.push({
-      key: "operational-gate",
-      label: t("workspace.autonomousReadiness.actionViewOperational", "查看稳定性"),
-      icon: Gauge,
-      onClick: onOpenOperationalGate,
-    })
-  }
-  if (
-    !incognito &&
-    readinessSoakReport?.status &&
-    readinessSoakReport.status !== "passed" &&
-    onOpenSoakReport
-  ) {
-    quickActions.push({
-      key: "soak-report",
-      label: t("workspace.autonomousReadiness.actionViewSoak", "查看长跑"),
-      icon: Clock,
-      onClick: onOpenSoakReport,
-    })
-  }
-  if (!incognito && !activeGoal && onOpenGoalCreate) {
-    quickActions.push({
-      key: "goal",
-      label: t("workspace.autonomousReadiness.actionCreateGoal", "创建目标"),
-      icon: Sparkles,
-      onClick: onOpenGoalCreate,
-    })
-  }
-  if (!incognito && activeGoal && !activeGoal.workflowTemplateId && onOpenGoalEdit) {
-    quickActions.push({
-      key: "template",
-      label: t("workspace.autonomousReadiness.actionBindTemplate", "绑定模板"),
-      icon: ClipboardCheck,
-      onClick: onOpenGoalEdit,
-    })
-  }
-  if (!incognito && workflowMode === "off" && onChangeWorkflowMode) {
-    quickActions.push({
-      key: "workflow-mode",
-      label: t("workspace.autonomousReadiness.actionEnableWorkflow", "开启编排"),
-      icon: GitPullRequest,
-      disabled: Boolean(workflowModeLoading || workflowModeSaving),
-      loading: workflowModeSaving === "on",
-      onClick: () => onChangeWorkflowMode("on"),
-    })
-  }
-  if (!incognito && executionMode === "off" && onChangeExecutionMode) {
-    quickActions.push({
-      key: "execution-mode",
-      label: t("workspace.autonomousReadiness.actionGuardedMode", "设为守护"),
-      icon: Shield,
-      disabled: Boolean(executionModeLoading || executionModeSaving),
-      loading: executionModeSaving === "guarded",
-      onClick: () => onChangeExecutionMode("guarded"),
-    })
-  }
-  if (
-    !incognito &&
-    activeGoal?.workflowTemplateId &&
-    workflowLoopCount === 0 &&
-    onOpenLoopCreate
-  ) {
-    quickActions.push({
-      key: "workflow-loop",
-      label: t("workspace.autonomousReadiness.actionCreateLoop", "新建持续推进"),
-      icon: Radio,
-      disabled: !canCreateLoop,
-      onClick: onOpenLoopCreate,
-    })
-  }
+        goalState.setSnapshot(decision === "accepted_v1" || decision === "cancelled" ? null : snapshot)
+        toast.success(
+          decision === "accepted_v1"
+            ? t("workspace.goal.closedAccepted", "目标已按当前证据关闭")
+            : t("workspace.goal.strictEvidenceRequested", "已要求补充严格证据"),
+        )
+        goalState.refresh()
+      } catch (e) {
+        logger.error("ui", "GoalWorkspaceSection::closeGoal", "Failed to close goal", e)
+        toast.error(e instanceof Error ? e.message : String(e))
+      } finally {
+        setGoalActionKey(null)
+      }
+    },
+    [activeGoal, goalState, t],
+  )
+
+  const appendActiveGoalFollowUp = useCallback(
+    async (items: string[]) => {
+      if (!activeGoal) return false
+      const normalizedItems = items.map((item) => item.trim()).filter(Boolean)
+      if (normalizedItems.length === 0) return false
+      const key = `append_goal_follow_up:${activeGoal.id}`
+      setGoalActionKey(key)
+      try {
+        const snapshot = await getTransport().call<GoalSnapshot>("append_goal_follow_up", {
+          goalId: activeGoal.id,
+          items: normalizedItems,
+          source: "workspace",
+        })
+        goalState.setSnapshot(snapshot)
+        toast.success(t("workspace.goal.followUpAdded", "后续项已加入目标"))
+        goalState.refresh()
+        return true
+      } catch (e) {
+        logger.error(
+          "ui",
+          "GoalWorkspaceSection::appendGoalFollowUp",
+          "Failed to append goal follow-up",
+          e,
+        )
+        toast.error(e instanceof Error ? e.message : String(e))
+        return false
+      } finally {
+        setGoalActionKey(null)
+      }
+    },
+    [activeGoal, goalState, t],
+  )
 
   return (
-    <div className={cn("rounded-md border p-2", STATUS_TONE_CLASS[tone])}>
-      <div className="flex min-w-0 items-center gap-2">
-        <Bot className="h-3.5 w-3.5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-xs font-medium">
-            {readinessTitle(t, tone)}
-          </div>
-          <div className="truncate text-[10px] opacity-75">
-            {activeGoal?.objective ??
-              t("workspace.autonomousReadiness.emptyGoal", "还没有目标")}
-          </div>
-        </div>
-        <StatusPill label={readinessStatusLabel(t, tone, Boolean(loading))} tone={tone} loading={loading} />
-      </div>
-
-      <div className="mt-2 grid grid-cols-4 gap-1.5">
-        <div
-          className={cn(
-            "rounded-md border px-2 py-1.5",
-            STATUS_TONE_CLASS[readinessMetricTone(goalReady)],
-          )}
-        >
-          <div className="truncate text-[10px]">{t("workspace.autonomousReadiness.goal", "目标")}</div>
-          <div className="truncate text-xs font-semibold">
-            {goalReady
-              ? activeGoal?.workflowTemplateId
-                ? t("workspace.autonomousReadiness.goalTemplate", "模板")
-                : t("workspace.autonomousReadiness.goalSet", "已设置")
-              : t("workspace.autonomousReadiness.goalMissing", "缺失")}
-          </div>
-        </div>
-        <div
-          className={cn(
-            "rounded-md border px-2 py-1.5",
-            STATUS_TONE_CLASS[readinessMetricTone(workflowReady)],
-          )}
-        >
-          <div className="truncate text-[10px]">
-            {t("workspace.autonomousReadiness.workflow", "编排")}
-          </div>
-          <div className="truncate text-xs font-semibold">
-            {workflowAutonomyModeLabel(t, workflowMode)}
-          </div>
-        </div>
-        <div
-          className={cn(
-            "rounded-md border px-2 py-1.5",
-            STATUS_TONE_CLASS[readinessMetricTone(executionReady)],
-          )}
-        >
-          <div className="truncate text-[10px]">
-            {t("workspace.autonomousReadiness.execution", "强度")}
-          </div>
-          <div className="truncate text-xs font-semibold">
-            {executionModeLabel(t, executionMode)}
-          </div>
-        </div>
-        <div
-          className={cn(
-            "rounded-md border px-2 py-1.5",
-            STATUS_TONE_CLASS[readinessMetricTone(runHealthReady, runHealthWarning)],
-          )}
-        >
-          <div className="truncate text-[10px]">
-            {t("workspace.autonomousReadiness.health", "运行")}
-          </div>
-          <div className="truncate text-xs font-semibold">{healthValue}</div>
-        </div>
-      </div>
-
-      <div className="mt-2 space-y-1">
-        {nextSteps.map((step, index) => (
-          <div key={`${index}:${step}`} className="line-clamp-2 text-[11px] leading-snug opacity-85">
-            {step}
-          </div>
-        ))}
-      </div>
-
-      {quickActions.length > 0 ? (
-        <div className="mt-2 grid grid-cols-2 gap-1.5">
-          {quickActions.slice(0, 4).map((action) => {
-            const Icon = action.icon
-            return (
-              <Button
-                key={action.key}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 min-w-0 gap-1 px-2 text-[11px]"
-                disabled={action.disabled}
-                onClick={action.onClick}
-              >
-                {action.loading ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                ) : (
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                )}
-                <span className="truncate">{action.label}</span>
-              </Button>
-            )
-          })}
-        </div>
-      ) : null}
-    </div>
+    <WorkspaceSection
+      title={t("workspace.goal.sectionTitle", "目标")}
+      count={activeGoal ? 1 : 0}
+      icon={Sparkles}
+      meta={
+        activeGoal ? (
+          <StatusPill
+            label={goalStateLabel(t, activeGoal.state)}
+            tone={goalStateTone(activeGoal.state)}
+            loading={activeGoal.state === "evaluating"}
+          />
+        ) : (
+          <StatusPill label={t("workspace.goal.noActive", "未设置")} tone="muted" />
+        )
+      }
+    >
+      {incognito ? (
+        <EmptyHint>{t("workspace.goal.incognito", "无痕会话不持久化目标")}</EmptyHint>
+      ) : (
+        <GoalControlStrip
+          snapshot={goalState.snapshot}
+          loading={goalState.loading}
+          error={goalState.error}
+          createOpen={goalCreateOpen}
+          objective={goalObjective}
+          criteria={goalCriteria}
+          domainTemplates={domainTemplates}
+          domainTemplatesLoading={domainTemplatesLoading}
+          domainTemplatesError={domainTemplatesError}
+          selectedTemplate={selectedGoalTemplate}
+          selectedTaskType={goalTaskType}
+          saving={goalSaving}
+          actionKey={goalActionKey}
+          disabled={!canMaterializeSession}
+          editRequest={0}
+          onCreateOpenChange={setGoalCreateOpen}
+          onObjectiveChange={setGoalObjective}
+          onCriteriaChange={setGoalCriteria}
+          onReloadDomainTemplates={loadDomainWorkflowTemplates}
+          onTemplateChange={setGoalTemplateId}
+          onTaskTypeChange={setGoalTaskType}
+          onCreate={() => void createGoalFromDraft()}
+          onPause={() => void runGoalAction("pause_goal")}
+          onResume={() => void runGoalAction("resume_goal")}
+          onClear={() => void runGoalAction("clear_goal")}
+          onEvaluate={() => void runGoalAction("evaluate_goal")}
+          onUpdate={updateActiveGoal}
+          onCloseGoal={(decision, reason, followUpItems) =>
+            void closeActiveGoal(decision, reason, followUpItems)
+          }
+          onAppendFollowUp={appendActiveGoalFollowUp}
+        />
+      )}
+    </WorkspaceSection>
   )
 }
 
@@ -12379,7 +12123,7 @@ function workflowPermissionDecisionLabel(
 ): string {
   const decision = stringField(call, "decision")
   if (boolField(call, "dynamic")) return t("workspace.workflow.permissionDecisionDynamic", "动态")
-  if (boolField(call, "strict")) return t("workspace.workflow.permissionDecisionStrict", "Strict")
+  if (boolField(call, "strict")) return t("workspace.workflow.permissionDecisionStrict", "严格")
   switch (decision) {
     case "allow":
       return t("workspace.workflow.permissionDecisionAllow", "自动")
@@ -12483,11 +12227,11 @@ function workflowDetailTabLabel(
 ): string {
   switch (tab) {
     case "trace":
-      return t("workspace.workflow.tabTrace", "Trace")
+      return t("workspace.workflow.tabTrace", "轨迹")
     case "validation":
-      return t("workspace.workflow.tabValidation", "Validation")
+      return t("workspace.workflow.tabValidation", "验证")
     case "agents":
-      return t("workspace.workflow.tabAgents", "Agents")
+      return t("workspace.workflow.tabAgents", "子 Agent")
   }
 }
 
@@ -12788,7 +12532,7 @@ function workflowEventTitle(
     case "guarded_repair_validation_passed":
       return t("workspace.workflow.eventRepairValidationPassed", "修复验证通过")
     case "trace":
-      return stringField(payload, "label") ?? t("workspace.workflow.eventTrace", "Trace")
+      return stringField(payload, "label") ?? t("workspace.workflow.eventTrace", "轨迹")
     default:
       return event.eventType
   }
@@ -13862,7 +13606,7 @@ function LoopSchedulesSection({
           maxFailures,
           backoffSecs,
         })
-        toast.success(t("workspace.loop.policySaved", "Loop 策略已更新"))
+        toast.success(t("workspace.loop.policySaved", "持续推进策略已更新"))
         setPolicyLoopId(null)
         refresh()
         if (detailLoopId === loop.id) {
@@ -14034,6 +13778,7 @@ function LoopSchedulesSection({
       count={schedules.length}
       icon={Radio}
       expandSignal={(createRequest ?? 0) + (inspectRequest?.nonce ?? 0)}
+      autoExpandWhen={activeCount > 0}
       meta={
         activeCount > 0 ? (
           <StatusPill
@@ -14139,7 +13884,7 @@ function LoopSchedulesSection({
                 <Input
                   value={draftEventDebounce}
                   onChange={(e) => setDraftEventDebounce(e.target.value)}
-                  placeholder={t("workspace.loop.eventDebouncePlaceholder", "debounce")}
+                  placeholder={t("workspace.loop.eventDebouncePlaceholder", "例如 30s")}
                   className="h-8 text-xs"
                   aria-label={t("workspace.loop.eventDebounce", "事件去重窗口")}
                 />
@@ -14157,7 +13902,7 @@ function LoopSchedulesSection({
               <Input
                 value={draftCondition}
                 onChange={(e) => setDraftCondition(e.target.value)}
-                placeholder={t("workspace.loop.conditionPlaceholder", "CI is green")}
+                placeholder={t("workspace.loop.conditionPlaceholder", "例如 CI 已通过")}
                 className="h-8 text-xs"
                 aria-label={t("workspace.loop.condition", "停止条件")}
               />
@@ -14235,21 +13980,21 @@ function LoopSchedulesSection({
                   <Input
                     value={draftMaxRuns}
                     onChange={(e) => setDraftMaxRuns(e.target.value)}
-                    placeholder={t("workspace.loop.maxRunsPlaceholder", "max runs")}
+                    placeholder={t("workspace.loop.maxRunsPlaceholder", "最大次数")}
                     className="h-8 text-xs"
                     aria-label={t("workspace.loop.maxRunsLabel", "最大次数")}
                   />
                   <Input
                     value={draftMaxRuntime}
                     onChange={(e) => setDraftMaxRuntime(e.target.value)}
-                    placeholder={t("workspace.loop.maxRuntimePlaceholder", "max runtime")}
+                    placeholder={t("workspace.loop.maxRuntimePlaceholder", "最长时间")}
                     className="h-8 text-xs"
                     aria-label={t("workspace.loop.maxRuntimeLabel", "最长运行时间")}
                   />
                   <Input
                     value={draftTokens}
                     onChange={(e) => setDraftTokens(e.target.value)}
-                    placeholder={t("workspace.loop.tokensPlaceholder", "tokens")}
+                    placeholder={t("workspace.loop.tokensPlaceholder", "Token 预算")}
                     className="h-8 text-xs"
                     aria-label={t("workspace.loop.tokensLabel", "Token 预算")}
                   />
@@ -14258,21 +14003,21 @@ function LoopSchedulesSection({
                   <Input
                     value={draftMaxNoProgress}
                     onChange={(e) => setDraftMaxNoProgress(e.target.value)}
-                    placeholder={t("workspace.loop.maxNoProgressPlaceholder", "no progress")}
+                    placeholder={t("workspace.loop.maxNoProgressPlaceholder", "无进展次数")}
                     className="h-8 text-xs"
                     aria-label={t("workspace.loop.maxNoProgressLabel", "无进展上限")}
                   />
                   <Input
                     value={draftMaxFailures}
                     onChange={(e) => setDraftMaxFailures(e.target.value)}
-                    placeholder={t("workspace.loop.maxFailuresPlaceholder", "failures")}
+                    placeholder={t("workspace.loop.maxFailuresPlaceholder", "失败次数")}
                     className="h-8 text-xs"
                     aria-label={t("workspace.loop.maxFailuresLabel", "失败上限")}
                   />
                   <Input
                     value={draftBackoff}
                     onChange={(e) => setDraftBackoff(e.target.value)}
-                    placeholder={t("workspace.loop.backoffPlaceholder", "backoff")}
+                    placeholder={t("workspace.loop.backoffPlaceholder", "降频间隔")}
                     className="h-8 text-xs"
                     aria-label={t("workspace.loop.backoffLabel", "降频间隔")}
                   />
@@ -14533,21 +14278,21 @@ function LoopSchedulesSection({
                       <Input
                         value={policyMaxRuns}
                         onChange={(e) => setPolicyMaxRuns(e.target.value)}
-                        placeholder={t("workspace.loop.maxRunsPlaceholder", "max runs")}
+                        placeholder={t("workspace.loop.maxRunsPlaceholder", "最大次数")}
                         className="h-8 text-xs"
                         aria-label={t("workspace.loop.maxRunsLabel", "最大次数")}
                       />
                       <Input
                         value={policyMaxRuntime}
                         onChange={(e) => setPolicyMaxRuntime(e.target.value)}
-                        placeholder={t("workspace.loop.maxRuntimePlaceholder", "max runtime")}
+                        placeholder={t("workspace.loop.maxRuntimePlaceholder", "最长时间")}
                         className="h-8 text-xs"
                         aria-label={t("workspace.loop.maxRuntimeLabel", "最长运行时间")}
                       />
                       <Input
                         value={policyTokens}
                         onChange={(e) => setPolicyTokens(e.target.value)}
-                        placeholder={t("workspace.loop.tokensPlaceholder", "tokens")}
+                        placeholder={t("workspace.loop.tokensPlaceholder", "Token 预算")}
                         className="h-8 text-xs"
                         aria-label={t("workspace.loop.tokensLabel", "Token 预算")}
                       />
@@ -14556,21 +14301,21 @@ function LoopSchedulesSection({
                       <Input
                         value={policyMaxNoProgress}
                         onChange={(e) => setPolicyMaxNoProgress(e.target.value)}
-                        placeholder={t("workspace.loop.maxNoProgressPlaceholder", "no progress")}
+                        placeholder={t("workspace.loop.maxNoProgressPlaceholder", "无进展次数")}
                         className="h-8 text-xs"
                         aria-label={t("workspace.loop.maxNoProgressLabel", "无进展上限")}
                       />
                       <Input
                         value={policyMaxFailures}
                         onChange={(e) => setPolicyMaxFailures(e.target.value)}
-                        placeholder={t("workspace.loop.maxFailuresPlaceholder", "failures")}
+                        placeholder={t("workspace.loop.maxFailuresPlaceholder", "失败次数")}
                         className="h-8 text-xs"
                         aria-label={t("workspace.loop.maxFailuresLabel", "失败上限")}
                       />
                       <Input
                         value={policyBackoff}
                         onChange={(e) => setPolicyBackoff(e.target.value)}
-                        placeholder={t("workspace.loop.backoffPlaceholder", "backoff")}
+                        placeholder={t("workspace.loop.backoffPlaceholder", "降频间隔")}
                         className="h-8 text-xs"
                         aria-label={t("workspace.loop.backoffLabel", "降频间隔")}
                       />
@@ -14654,13 +14399,8 @@ function WorkflowRunsSection({
   draftWorkflowMode = "off",
   onDraftWorkflowModeChange,
   onViewSubagentSession,
-  onOpenLoopCreate,
-  onOpenLoopProblem,
-  onOpenDomainWorkbench,
   workflowRunsState,
-  loopSchedulesState,
   goalState,
-  domainWorkbenchState,
   focusedRunTarget,
 }: {
   sessionId?: string | null
@@ -14671,15 +14411,8 @@ function WorkflowRunsSection({
   draftWorkflowMode?: WorkflowAutonomyMode
   onDraftWorkflowModeChange?: (mode: WorkflowAutonomyMode) => void
   onViewSubagentSession?: (sessionId: string) => void
-  onOpenLoopCreate?: () => void
-  onOpenLoopProblem?: (loopId: string) => void
-  onOpenDomainWorkbench?: (
-    target: "export" | "connector" | "connector-e2e" | "operational" | "soak",
-  ) => void
   workflowRunsState?: WorkflowRunsState
-  loopSchedulesState: LoopSchedulesState
   goalState: GoalStateSnapshot
-  domainWorkbenchState: DomainTaskWorkbenchState
   focusedRunTarget?: WorkflowFocusTarget | null
 }) {
   const { t } = useTranslation()
@@ -14724,14 +14457,6 @@ function WorkflowRunsSection({
   const [showAllRuns, setShowAllRuns] = useState(false)
   const [pendingCancelRun, setPendingCancelRun] = useState<WorkflowRun | null>(null)
   const [creatingRepairTaskRunId, setCreatingRepairTaskRunId] = useState<string | null>(null)
-  const [goalActionKey, setGoalActionKey] = useState<string | null>(null)
-  const [goalCreateOpen, setGoalCreateOpen] = useState(false)
-  const [goalObjective, setGoalObjective] = useState("")
-  const [goalCriteria, setGoalCriteria] = useState("")
-  const [goalTemplateId, setGoalTemplateId] = useState(GOAL_DOMAIN_FREE_VALUE)
-  const [goalTaskType, setGoalTaskType] = useState("")
-  const [goalSaving, setGoalSaving] = useState(false)
-  const [goalEditRequest, setGoalEditRequest] = useState(0)
   const snapshotReqRef = useRef(0)
   const workflowModeReqRef = useRef(0)
   const executionModeReqRef = useRef(0)
@@ -14751,10 +14476,6 @@ function WorkflowRunsSection({
     domainTemplates,
     selectedDomainTemplateId,
   )
-  const selectedGoalTemplate =
-    goalTemplateId === GOAL_DOMAIN_FREE_VALUE
-      ? null
-      : findDomainTemplateByValue(domainTemplates, goalTemplateId)
   const draftWorktrees = managedWorktreesState.worktrees.filter(
     (worktree) => worktree.state !== "archived" && worktree.pathExists,
   )
@@ -14831,15 +14552,9 @@ function WorkflowRunsSection({
   }, [incognito])
 
   useEffect(() => {
-    if (
-      (!createOpen && !goalCreateOpen && !activeGoal) ||
-      incognito ||
-      domainTemplatesRequestedRef.current
-    ) {
-      return
-    }
+    if (!createOpen || incognito || domainTemplatesRequestedRef.current) return
     loadDomainWorkflowTemplates()
-  }, [activeGoal, createOpen, goalCreateOpen, incognito, loadDomainWorkflowTemplates])
+  }, [createOpen, incognito, loadDomainWorkflowTemplates])
 
   useEffect(() => {
     if (domainTemplates.length === 0) {
@@ -14862,26 +14577,6 @@ function WorkflowRunsSection({
       setSelectedDomainTaskType(selected.taskTypes[0] ?? "")
     }
   }, [domainTemplates, selectedDomainTaskType, selectedDomainTemplateId])
-
-  useEffect(() => {
-    if (goalTemplateId === GOAL_DOMAIN_FREE_VALUE) {
-      if (goalTaskType) setGoalTaskType("")
-      return
-    }
-    const selected = findDomainTemplateByValue(domainTemplates, goalTemplateId)
-    if (!selected) {
-      setGoalTemplateId(GOAL_DOMAIN_FREE_VALUE)
-      setGoalTaskType("")
-      return
-    }
-    if (selected.taskTypes.length === 0) {
-      if (goalTaskType) setGoalTaskType("")
-      return
-    }
-    if (!selected.taskTypes.includes(goalTaskType)) {
-      setGoalTaskType(selected.taskTypes[0] ?? "")
-    }
-  }, [domainTemplates, goalTaskType, goalTemplateId])
 
   useEffect(() => {
     if (!activeGoal?.workflowTemplateId || domainTemplates.length === 0 || domainDraft) return
@@ -14963,17 +14658,6 @@ function WorkflowRunsSection({
         setSnapshotLoading(false)
       })
   }, [])
-
-  const focusWorkflowRun = useCallback(
-    (runId: string) => {
-      setSelectedRunId(runId)
-      if (!runs.slice(0, WORKFLOW_RUN_PREVIEW).some((run) => run.id === runId)) {
-        setShowAllRuns(true)
-      }
-      loadSnapshot(runId)
-    },
-    [loadSnapshot, runs],
-  )
 
   const loadWorkflowMode = useCallback(() => {
     if (!sessionId || incognito) {
@@ -15072,7 +14756,7 @@ function WorkflowRunsSection({
         toast.success(
           nextMode === "off"
             ? t("workspace.workflow.modeDraftOff", "工作流模式已关闭")
-            : t("workspace.workflow.modeDraftSaved", "工作流模式将在下一条消息生效：{{mode}}", {
+            : t("workspace.workflow.modeDraftSaved", "工作流模式已开启：{{mode}}", {
                 mode: workflowAutonomyModeLabel(t, nextMode),
               }),
         )
@@ -15094,9 +14778,11 @@ function WorkflowRunsSection({
           }),
         )
         toast.success(
-          t("workspace.workflow.modeSaved", "工作流模式已切换为 {{mode}}，模型下一轮会感知", {
-            mode: workflowAutonomyModeLabel(t, saved),
-          }),
+          saved === "off"
+            ? t("workspace.workflow.modeDraftOff", "工作流模式已关闭")
+            : t("workspace.workflow.modeSaved", "工作流模式已开启：{{mode}}", {
+                mode: workflowAutonomyModeLabel(t, saved),
+              }),
         )
       } catch (e) {
         logger.error(
@@ -15135,7 +14821,7 @@ function WorkflowRunsSection({
         const saved = normalizeExecutionMode(next)
         setExecutionMode(saved)
         toast.success(
-          t("workspace.workflow.executionModeSaved", "Execution mode 已切换为 {{mode}}", {
+          t("workspace.workflow.executionModeSaved", "执行模式已切换为 {{mode}}", {
             mode: executionModeLabel(t, saved),
           }),
         )
@@ -15152,200 +14838,6 @@ function WorkflowRunsSection({
       }
     },
     [ensureWorkflowSession, incognito, executionMode, executionModeSaving, sessionId, t],
-  )
-
-  const createGoalFromDraft = useCallback(async () => {
-    if (incognito) return
-    const objective = goalObjective.trim()
-    if (!objective) {
-      toast.error(t("workspace.goal.objectiveRequired", "请输入目标"))
-      return
-    }
-    const targetSessionId = await ensureWorkflowSession()
-    if (!targetSessionId) return
-    setGoalSaving(true)
-    try {
-      const snapshot = await getTransport().call<GoalSnapshot>("create_goal", {
-        sessionId: targetSessionId,
-        objective,
-        completionCriteria: goalCriteria.trim(),
-        domain: selectedGoalTemplate?.domain ?? undefined,
-        workflowTemplateId: selectedGoalTemplate?.id ?? undefined,
-        workflowTemplateVersion: selectedGoalTemplate?.version ?? undefined,
-        workflowTaskType: selectedGoalTemplate
-          ? goalTaskType || selectedGoalTemplate.taskTypes[0] || undefined
-          : undefined,
-      })
-      goalState.setSnapshot(snapshot)
-      if (selectedGoalTemplate) {
-        setSelectedDomainTemplateId(domainTemplateOptionValue(selectedGoalTemplate))
-        setSelectedDomainTaskType(goalTaskType || selectedGoalTemplate.taskTypes[0] || "")
-        setDraftKind(`domain:${selectedGoalTemplate.domain}`)
-        setDraftMode(normalizeExecutionMode(selectedGoalTemplate.defaultMode))
-      }
-      setGoalObjective("")
-      setGoalCriteria("")
-      setGoalTemplateId(GOAL_DOMAIN_FREE_VALUE)
-      setGoalTaskType("")
-      setGoalCreateOpen(false)
-      toast.success(t("workspace.goal.created", "已创建 Goal"))
-    } catch (e) {
-      logger.error("ui", "WorkflowRunsSection::createGoal", "Failed to create goal", e)
-      toast.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      setGoalSaving(false)
-    }
-  }, [
-    ensureWorkflowSession,
-    goalCriteria,
-    goalObjective,
-    goalState,
-    goalTaskType,
-    incognito,
-    selectedGoalTemplate,
-    t,
-  ])
-
-  const runGoalAction = useCallback(
-    async (command: "pause_goal" | "resume_goal" | "clear_goal" | "evaluate_goal") => {
-      if (!activeGoal) return
-      const key = `${command}:${activeGoal.id}`
-      setGoalActionKey(key)
-      try {
-        const snapshot = await getTransport().call<GoalSnapshot>(command, { goalId: activeGoal.id })
-        goalState.setSnapshot(command === "clear_goal" ? null : snapshot)
-        if (command === "clear_goal") {
-          toast.success(t("workspace.goal.cleared", "Goal 已清除"))
-        } else if (command === "evaluate_goal") {
-          toast.success(t("workspace.goal.evaluated", "Goal audit 已更新"))
-        } else {
-          toast.success(t("workspace.goal.updated", "Goal 状态已更新"))
-        }
-        goalState.refresh()
-      } catch (e) {
-        logger.error("ui", "WorkflowRunsSection::goalAction", `Goal action failed: ${command}`, e)
-        toast.error(e instanceof Error ? e.message : String(e))
-      } finally {
-        setGoalActionKey(null)
-      }
-    },
-    [activeGoal, goalState, t],
-  )
-
-  const updateActiveGoal = useCallback(
-    async (
-      objective: string,
-      completionCriteria: string,
-      domainSelection?: {
-        template: DomainWorkflowTemplate | null
-        taskType: string
-      },
-    ) => {
-      if (!activeGoal) return false
-      const trimmedObjective = objective.trim()
-      if (!trimmedObjective) {
-        toast.error(t("workspace.goal.objectiveRequired", "请输入目标"))
-        return false
-      }
-      const key = `update_goal:${activeGoal.id}`
-      setGoalActionKey(key)
-      try {
-        const payload: Record<string, unknown> = {
-          goalId: activeGoal.id,
-          objective: trimmedObjective,
-          completionCriteria: completionCriteria.trim(),
-        }
-        if (domainSelection) {
-          payload.domain = domainSelection.template?.domain ?? ""
-          payload.workflowTemplateId = domainSelection.template?.id ?? ""
-          payload.workflowTemplateVersion = domainSelection.template?.version ?? ""
-          payload.workflowTaskType =
-            domainSelection.taskType || domainSelection.template?.taskTypes[0] || ""
-        }
-        const snapshot = await getTransport().call<GoalSnapshot>("update_goal", payload)
-        goalState.setSnapshot(snapshot)
-        if (domainSelection?.template) {
-          setSelectedDomainTemplateId(domainTemplateOptionValue(domainSelection.template))
-          setSelectedDomainTaskType(
-            domainSelection.taskType || domainSelection.template.taskTypes[0] || "",
-          )
-          setDraftKind(`domain:${domainSelection.template.domain}`)
-          setDraftMode(normalizeExecutionMode(domainSelection.template.defaultMode))
-        }
-        toast.success(t("workspace.goal.updated", "Goal 状态已更新"))
-        goalState.refresh()
-        return true
-      } catch (e) {
-        logger.error("ui", "WorkflowRunsSection::updateGoal", "Failed to update goal", e)
-        toast.error(e instanceof Error ? e.message : String(e))
-        return false
-      } finally {
-        setGoalActionKey(null)
-      }
-    },
-    [activeGoal, goalState, t],
-  )
-
-  const closeActiveGoal = useCallback(
-    async (decision: GoalClosureDecision, reason?: string, followUpItems: string[] = []) => {
-      if (!activeGoal) return
-      const key = `close_goal:${decision}:${activeGoal.id}`
-      setGoalActionKey(key)
-      try {
-        const snapshot = await getTransport().call<GoalSnapshot>("close_goal", {
-          goalId: activeGoal.id,
-          decision,
-          reason,
-          followUpItems,
-        })
-        goalState.setSnapshot(decision === "accepted_v1" || decision === "cancelled" ? null : snapshot)
-        toast.success(
-          decision === "accepted_v1"
-            ? t("workspace.goal.closedAccepted", "Goal 已按当前证据关闭")
-            : t("workspace.goal.strictEvidenceRequested", "已要求补充严格证据"),
-        )
-        goalState.refresh()
-      } catch (e) {
-        logger.error("ui", "WorkflowRunsSection::closeGoal", "Failed to close goal", e)
-        toast.error(e instanceof Error ? e.message : String(e))
-      } finally {
-        setGoalActionKey(null)
-      }
-    },
-    [activeGoal, goalState, t],
-  )
-
-  const appendActiveGoalFollowUp = useCallback(
-    async (items: string[]) => {
-      if (!activeGoal) return false
-      const normalizedItems = items.map((item) => item.trim()).filter(Boolean)
-      if (normalizedItems.length === 0) return false
-      const key = `append_goal_follow_up:${activeGoal.id}`
-      setGoalActionKey(key)
-      try {
-        const snapshot = await getTransport().call<GoalSnapshot>("append_goal_follow_up", {
-          goalId: activeGoal.id,
-          items: normalizedItems,
-          source: "workspace",
-        })
-        goalState.setSnapshot(snapshot)
-        toast.success(t("workspace.goal.followUpAdded", "后续项已加入 Goal"))
-        goalState.refresh()
-        return true
-      } catch (e) {
-        logger.error(
-          "ui",
-          "WorkflowRunsSection::appendGoalFollowUp",
-          "Failed to append goal follow-up",
-          e,
-        )
-        toast.error(e instanceof Error ? e.message : String(e))
-        return false
-      } finally {
-        setGoalActionKey(null)
-      }
-    },
-    [activeGoal, goalState, t],
   )
 
   const clearDraftPreview = useCallback(() => {
@@ -15848,6 +15340,8 @@ ${repairPrompt}`
         title={t("workspace.workflow.title", "工作流")}
         count={runs.length}
         icon={GitPullRequest}
+        defaultExpanded={activeCount > 0 || runs.length > 0 || workflowMode !== "off"}
+        autoExpandWhen={activeCount > 0 || runs.length > 0 || workflowMode !== "off"}
         meta={
           loading ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
@@ -15865,32 +15359,6 @@ ${repairPrompt}`
           <EmptyHint>{t("workspace.workflow.incognito", "无痕会话不持久化工作流")}</EmptyHint>
         ) : (
           <div className="space-y-2">
-            <AutonomousReadinessCard
-              activeGoal={activeGoal}
-              workflowMode={workflowMode}
-              workflowModeLoading={workflowModeLoading}
-              workflowModeSaving={workflowModeSaving}
-              executionMode={executionMode}
-              executionModeLoading={executionModeLoading}
-              executionModeSaving={executionModeSaving}
-              workflowRunsState={workflowRunsState ?? ownedWorkflowRuns}
-              loopSchedulesState={loopSchedulesState}
-              domainWorkbenchState={domainWorkbenchState}
-              incognito={incognito}
-              canCreateLoop={Boolean(sessionId) && !incognito}
-              onChangeWorkflowMode={(mode) => void updateWorkflowMode(mode)}
-              onChangeExecutionMode={(mode) => void updateExecutionMode(mode)}
-              onOpenGoalCreate={() => setGoalCreateOpen(true)}
-              onOpenGoalEdit={() => setGoalEditRequest((value) => value + 1)}
-              onOpenLoopCreate={onOpenLoopCreate}
-              onOpenWorkflowProblem={focusWorkflowRun}
-              onOpenLoopProblem={onOpenLoopProblem}
-              onOpenExportGuard={() => onOpenDomainWorkbench?.("export")}
-              onOpenConnectorGuard={() => onOpenDomainWorkbench?.("connector")}
-              onOpenConnectorE2EGate={() => onOpenDomainWorkbench?.("connector-e2e")}
-              onOpenOperationalGate={() => onOpenDomainWorkbench?.("operational")}
-              onOpenSoakReport={() => onOpenDomainWorkbench?.("soak")}
-            />
             <WorkflowAutonomyModeControl
               mode={workflowMode}
               loading={workflowModeLoading}
@@ -15902,39 +15370,6 @@ ${repairPrompt}`
               loading={executionModeLoading}
               saving={executionModeSaving}
               onChange={(mode) => void updateExecutionMode(mode)}
-            />
-            <GoalControlStrip
-              snapshot={goalState.snapshot}
-              loading={goalState.loading}
-              error={goalState.error}
-              createOpen={goalCreateOpen}
-              objective={goalObjective}
-              criteria={goalCriteria}
-              domainTemplates={domainTemplates}
-              domainTemplatesLoading={domainTemplatesLoading}
-              domainTemplatesError={domainTemplatesError}
-              selectedTemplate={selectedGoalTemplate}
-              selectedTaskType={goalTaskType}
-              saving={goalSaving}
-              actionKey={goalActionKey}
-              disabled={!canMaterializeSession}
-              editRequest={goalEditRequest}
-              onCreateOpenChange={setGoalCreateOpen}
-              onObjectiveChange={setGoalObjective}
-              onCriteriaChange={setGoalCriteria}
-              onReloadDomainTemplates={loadDomainWorkflowTemplates}
-              onTemplateChange={setGoalTemplateId}
-              onTaskTypeChange={setGoalTaskType}
-              onCreate={() => void createGoalFromDraft()}
-              onPause={() => void runGoalAction("pause_goal")}
-              onResume={() => void runGoalAction("resume_goal")}
-              onClear={() => void runGoalAction("clear_goal")}
-              onEvaluate={() => void runGoalAction("evaluate_goal")}
-              onUpdate={updateActiveGoal}
-              onCloseGoal={(decision, reason, followUpItems) =>
-                void closeActiveGoal(decision, reason, followUpItems)
-              }
-              onAppendFollowUp={appendActiveGoalFollowUp}
             />
             <WorkflowCreateComposer
               open={createOpen}
@@ -16043,7 +15478,7 @@ ${repairPrompt}`
                               <>
                                 <span className="px-1 text-muted-foreground/50">·</span>
                                 <span className="text-muted-foreground">
-                                  {t("workspace.workflow.worktreeBadge", "worktree")}
+                                  {t("workspace.workflow.worktreeBadge", "工作树")}
                                 </span>
                               </>
                             ) : null}
@@ -16125,7 +15560,7 @@ ${repairPrompt}`
                     {snapshotLoading ? (
                       <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted-foreground">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        {t("workspace.workflow.loadingTrace", "加载 trace")}
+                        {t("workspace.workflow.loadingTrace", "加载轨迹")}
                       </div>
                     ) : snapshot ? (
                       <div className="space-y-1.5">
@@ -16136,10 +15571,10 @@ ${repairPrompt}`
                         >
                           <TabsList className="grid h-8 w-full grid-cols-3">
                             <TabsTrigger value="trace" className="text-[11px]">
-                              {t("workspace.workflow.tabTrace", "Trace")}
+                              {t("workspace.workflow.tabTrace", "轨迹")}
                             </TabsTrigger>
                             <TabsTrigger value="validation" className="text-[11px]">
-                              {t("workspace.workflow.tabValidation", "Validation")}
+                              {t("workspace.workflow.tabValidation", "验证")}
                               {validationCount > 0 ? (
                                 <span className="ml-1 text-[10px] text-muted-foreground">
                                   {validationCount}
@@ -16147,7 +15582,7 @@ ${repairPrompt}`
                               ) : null}
                             </TabsTrigger>
                             <TabsTrigger value="agents" className="text-[11px]">
-                              {t("workspace.workflow.tabAgents", "Agents")}
+                              {t("workspace.workflow.tabAgents", "子 Agent")}
                               {agentCount > 0 ? (
                                 <span className="ml-1 text-[10px] text-muted-foreground">
                                   {agentCount}
@@ -16173,7 +15608,7 @@ ${repairPrompt}`
                         </Tabs>
                       </div>
                     ) : (
-                      <EmptyHint>{t("workspace.workflow.emptyTrace", "暂无 trace")}</EmptyHint>
+                      <EmptyHint>{t("workspace.workflow.emptyTrace", "暂无轨迹")}</EmptyHint>
                     )}
                   </div>
                 ) : null}
@@ -16196,7 +15631,7 @@ ${repairPrompt}`
             <AlertDialogDescription>
               {t(
                 "workspace.workflow.cancelConfirmBody",
-                "会停止这个运行，并尽量取消它拥有的后台任务、验证命令和子 Agent；已有 trace 会保留，方便之后复盘或生成修复草稿。",
+                "会停止这个运行，并尽量取消它拥有的后台任务、验证命令和子 Agent；已有轨迹会保留，方便之后复盘或生成修复草稿。",
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -16704,20 +16139,20 @@ function WorkflowCreateComposer({
 
           <div className="space-y-1">
             <label className="block text-[10px] font-medium text-muted-foreground">
-              {t("workspace.workflow.createKind", "Kind")}
+              {t("workspace.workflow.createKind", "类型")}
             </label>
             <Input
               value={kind}
               disabled={saving || previewLoading}
               onChange={(event) => onKindChange(event.target.value)}
               className="h-8 text-xs"
-              aria-label={t("workspace.workflow.createKind", "Kind")}
+              aria-label={t("workspace.workflow.createKind", "类型")}
             />
           </div>
 
           <div className="space-y-1">
             <div className="text-[10px] font-medium text-muted-foreground">
-              {t("workspace.workflow.createMode", "Execution mode")}
+              {t("workspace.workflow.createMode", "执行模式")}
             </div>
             <div className="grid grid-cols-2 gap-1">
               {WORKFLOW_MODE_OPTIONS.map((option) => {
@@ -16844,7 +16279,7 @@ function WorkflowCreateComposer({
             <AnimatedCollapse open={advancedOpen}>
               <div className="space-y-1 border-t border-border/60 p-2">
                 <label className="block text-[10px] font-medium text-muted-foreground">
-                  {t("workspace.workflow.createScript", "Script")}
+                  {t("workspace.workflow.createScript", "脚本")}
                 </label>
                 <Textarea
                   value={script}
@@ -16855,7 +16290,7 @@ function WorkflowCreateComposer({
                     "Paste or edit workflow.js",
                   )}
                   className="min-h-44 resize-y font-mono text-[11px]"
-                  aria-label={t("workspace.workflow.createScript", "Script")}
+                  aria-label={t("workspace.workflow.createScript", "脚本")}
                   spellCheck={false}
                 />
               </div>
@@ -17139,7 +16574,7 @@ function WorkflowScriptPreviewPanel({
         </div>
       ) : (
         <div className="rounded-md bg-background/40 px-2 py-1 text-[10px] opacity-85">
-          {t("workspace.workflow.noGateIssues", "Script Gate 未发现阻塞项")}
+          {t("workspace.workflow.noGateIssues", "脚本门禁未发现阻塞项")}
         </div>
       )}
 
@@ -17271,7 +16706,7 @@ function WorkflowExecutionModeControl({
       <div className="mb-1.5 flex min-w-0 items-center gap-2">
         <Gauge className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
-          {t("workspace.workflow.executionMode", "Execution Mode")}
+          {t("workspace.workflow.executionMode", "执行模式")}
         </span>
         {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
       </div>
@@ -18027,7 +17462,7 @@ function GoalControlStrip({
         <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
           {goal
             ? truncateMiddle(goal.objective.replace(/\s+/g, " "), 96)
-            : t("workspace.goal.title", "Goal")}
+            : t("workspace.goal.title", "目标")}
         </span>
         {loading ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
@@ -18074,7 +17509,7 @@ function GoalControlStrip({
                 onChange={(event) => onObjectiveChange(event.target.value)}
                 placeholder={t(
                   "workspace.goal.objectivePlaceholder",
-                  "例如：完整实现 Goal 模式，并通过针对性检查",
+                  "例如：完整实现目标模式，并通过针对性检查",
                 )}
                 className="min-h-16 resize-y text-xs"
               />
@@ -18117,7 +17552,7 @@ function GoalControlStrip({
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              <span className="truncate">{t("workspace.goal.create", "创建 Goal")}</span>
+              <span className="truncate">{t("workspace.goal.create", "创建目标")}</span>
             </Button>
           </form>
         </AnimatedCollapse>
@@ -18157,15 +17592,15 @@ function GoalControlStrip({
 
           <div className="grid grid-cols-3 gap-1 text-[10px]">
             <WorkflowMetric
-              label={t("workspace.goal.metricWorkflows", "Workflows")}
+              label={t("workspace.goal.metricWorkflows", "工作流")}
               value={workflowCount.toString()}
             />
             <WorkflowMetric
-              label={t("workspace.goal.metricTasks", "Tasks")}
+              label={t("workspace.goal.metricTasks", "任务")}
               value={`${taskDone}/${taskCount}`}
             />
             <WorkflowMetric
-              label={t("workspace.goal.metricEvidence", "Evidence")}
+              label={t("workspace.goal.metricEvidence", "证据")}
               value={evidenceCount.toString()}
             />
           </div>
@@ -18195,7 +17630,7 @@ function GoalControlStrip({
             <div className="rounded-md bg-background/45 px-2 py-1.5 text-[11px] text-muted-foreground">
               {t(
                 "workspace.goal.noAudit",
-                "还没有 final audit；workflow 完成后会自动评估，也可以手动评估。",
+                "还没有最终评估；工作流完成后会自动评估，也可以手动评估。",
               )}
             </div>
           )}
@@ -18540,15 +17975,15 @@ function GoalDetailSection({
           <div className="space-y-1.5">
             <div className="grid grid-cols-3 gap-1 text-[10px]">
               <GoalWorktreeMetric
-                label={t("workspace.goal.revision", "Revision")}
+                label={t("workspace.goal.revision", "修订")}
                 value={`r${snapshot.goal.revision ?? 1}`}
               />
               <GoalWorktreeMetric
-                label={t("workspace.goal.requiredProgress", "Required")}
+                label={t("workspace.goal.requiredProgress", "必须")}
                 value={`${requiredDone}/${requiredTotal}`}
               />
               <GoalWorktreeMetric
-                label={t("workspace.goal.followUps", "Follow-ups")}
+                label={t("workspace.goal.followUps", "后续")}
                 value={`${followUpItems.length + auditFollowUps.length}`}
               />
             </div>
@@ -18682,7 +18117,7 @@ function GoalDetailSection({
 
         {worktreeEvidence.length > 0 ? (
           <GoalDetailBlock
-            title={t("workspace.goal.detailWorktrees", "Worktrees")}
+            title={t("workspace.goal.detailWorktrees", "工作树")}
             count={worktreeEvidence.length}
           >
             <div className="space-y-1">
@@ -18715,15 +18150,15 @@ function GoalDetailSection({
                     </div>
                     <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
                       <GoalWorktreeMetric
-                        label={t("workspace.goal.worktreeBase", "Base")}
+                        label={t("workspace.goal.worktreeBase", "基线")}
                         value={goalWorktreeBaseLabel(worktree)}
                       />
                       <GoalWorktreeMetric
-                        label={t("workspace.goal.worktreeDirty", "Changes")}
+                        label={t("workspace.goal.worktreeDirty", "改动")}
                         value={goalWorktreeDirtyLabel(t, worktree)}
                       />
                       <GoalWorktreeMetric
-                        label={t("workspace.goal.worktreeHandoff", "Handoff")}
+                        label={t("workspace.goal.worktreeHandoff", "交接")}
                         value={
                           worktree.handedOffAt
                             ? formatMessageTime(worktree.handedOffAt)
@@ -18801,15 +18236,15 @@ function GoalDetailSection({
                     ) : null}
                     <div className="mt-1 grid grid-cols-3 gap-1 text-[10px]">
                       <GoalWorktreeMetric
-                        label={t("workspace.goal.domainConfidence", "Confidence")}
+                        label={t("workspace.goal.domainConfidence", "置信度")}
                         value={domainEvidenceConfidenceLabel(evidenceItem.confidence)}
                       />
                       <GoalWorktreeMetric
-                        label={t("workspace.goal.domainAccess", "Access")}
+                        label={t("workspace.goal.domainAccess", "访问")}
                         value={evidenceItem.accessScope ?? "-"}
                       />
                       <GoalWorktreeMetric
-                        label={t("workspace.goal.domainWorkflow", "Workflow")}
+                        label={t("workspace.goal.domainWorkflow", "工作流")}
                         value={
                           evidenceItem.workflowOpKey
                             ? truncateMiddle(evidenceItem.workflowOpKey, 28)
@@ -18847,13 +18282,13 @@ function GoalDetailSection({
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
                       <StatusPill
-                        label={t("workspace.goal.criterionWorkflowCount", "Workflow {{count}}", {
+                        label={t("workspace.goal.criterionWorkflowCount", "工作流 {{count}}", {
                           count: runs.filter((run) => run.goalCriterionId === criterion.id).length,
                         })}
                         tone="muted"
                       />
                       <StatusPill
-                        label={t("workspace.goal.criterionLoopCount", "Loop {{count}}", {
+                        label={t("workspace.goal.criterionLoopCount", "循环 {{count}}", {
                           count: snapshot.links.filter(
                             (link) =>
                               (link.targetType === "loop_schedule" ||
@@ -18864,7 +18299,7 @@ function GoalDetailSection({
                         tone="muted"
                       />
                       <StatusPill
-                        label={t("workspace.goal.criterionEvidenceCount", "Evidence {{count}}", {
+                        label={t("workspace.goal.criterionEvidenceCount", "证据 {{count}}", {
                           count: evidence.filter(
                             (item) => goalCriterionMetadataId(item.metadata) === criterion.id,
                           ).length,
@@ -18947,7 +18382,7 @@ function GoalDetailSection({
             </div>
           ) : (
             <div className="rounded-md bg-secondary/25 px-2 py-1.5 text-[11px] text-muted-foreground">
-              {t("workspace.goal.detailNoEvidence", "还没有 workflow / validation / diff 证据")}
+              {t("workspace.goal.detailNoEvidence", "还没有工作流 / 验证 / diff 证据")}
             </div>
           )}
         </GoalDetailBlock>
@@ -18993,18 +18428,18 @@ function GoalDetailSection({
 
         <div className="grid grid-cols-2 gap-1.5 text-[10px]">
           <GoalLinkedSummary
-            title={t("workspace.goal.detailWorkflows", "Workflows")}
+            title={t("workspace.goal.detailWorkflows", "工作流")}
             value={`${runs.filter((run) => run.state === "completed").length}/${runs.length}`}
             detail={
               runs[0]
                 ? `${runs[0].kind} · ${workflowRunStateLabel(t, runs[0].state)}`
-                : t("workspace.goal.detailNoWorkflow", "暂无 workflow")
+                : t("workspace.goal.detailNoWorkflow", "暂无工作流")
             }
           />
           <GoalLinkedSummary
-            title={t("workspace.goal.detailTasks", "Tasks")}
+            title={t("workspace.goal.detailTasks", "任务")}
             value={`${tasks.filter((task) => task.status === "completed").length}/${tasks.length}`}
-            detail={tasks[0]?.content ?? t("workspace.goal.detailNoTask", "暂无 task")}
+            detail={tasks[0]?.content ?? t("workspace.goal.detailNoTask", "暂无任务")}
           />
         </div>
       </div>
@@ -19030,7 +18465,7 @@ function GoalBudgetCard({ budget }: { budget: GoalBudgetSnapshot }) {
       </div>
       <div className="grid grid-cols-3 gap-1 text-[10px]">
         <GoalBudgetMetric
-          label={t("workspace.goal.budgetTokens", "Tokens")}
+          label={t("workspace.goal.budgetTokens", "Token")}
           value={
             budget.tokenLimit
               ? `${compactCount(budget.tokensUsed)}/${compactCount(budget.tokenLimit)}`
@@ -19039,7 +18474,7 @@ function GoalBudgetCard({ budget }: { budget: GoalBudgetSnapshot }) {
           ratio={goalBudgetRatioText(budget.tokenRatio)}
         />
         <GoalBudgetMetric
-          label={t("workspace.goal.budgetTime", "Time")}
+          label={t("workspace.goal.budgetTime", "时间")}
           value={
             budget.timeLimitSecs
               ? `${formatDurationCompact(budget.elapsedSecs)}/${formatDurationCompact(budget.timeLimitSecs)}`
@@ -19048,7 +18483,7 @@ function GoalBudgetCard({ budget }: { budget: GoalBudgetSnapshot }) {
           ratio={goalBudgetRatioText(budget.timeRatio)}
         />
         <GoalBudgetMetric
-          label={t("workspace.goal.budgetTurns", "Turns")}
+          label={t("workspace.goal.budgetTurns", "回合")}
           value={
             budget.turnLimit
               ? `${compactCount(budget.turnsUsed)}/${compactCount(budget.turnLimit)}`
@@ -19263,7 +18698,7 @@ function WorkflowRunOverview({
         </div>
         <div className="grid grid-cols-4 gap-1 text-[10px]">
           <WorkflowMetric
-            label={t("workspace.workflow.metricOps", "Ops")}
+            label={t("workspace.workflow.metricOps", "步骤")}
             value={total.toString()}
           />
           <WorkflowMetric
@@ -19275,7 +18710,7 @@ function WorkflowRunOverview({
             value={validationCount.toString()}
           />
           <WorkflowMetric
-            label={t("workspace.workflow.metricAgents", "Agents")}
+            label={t("workspace.workflow.metricAgents", "子 Agent")}
             value={agentCount.toString()}
           />
         </div>
@@ -19464,19 +18899,19 @@ function WorkflowRunWorktreeCard({ info }: { info: WorkflowRunWorktreeInfo }) {
         </div>
         <div className="grid grid-cols-3 gap-1 text-[10px]">
           <GoalWorktreeMetric
-            label={t("workspace.workflow.worktreeBase", "Base")}
+            label={t("workspace.workflow.worktreeBase", "基线")}
             value={info.baseLabel ?? "-"}
           />
           <GoalWorktreeMetric
-            label={t("workspace.workflow.worktreeChanges", "Changes")}
+            label={t("workspace.workflow.worktreeChanges", "改动")}
             value={info.dirtyLabel ?? "-"}
           />
           <GoalWorktreeMetric
-            label={t("workspace.workflow.worktreeSource", "Source")}
+            label={t("workspace.workflow.worktreeSource", "来源")}
             value={
               info.source === "managed"
-                ? t("workspace.workflow.worktreeSourceManaged", "Managed")
-                : t("workspace.workflow.worktreeSourceTrace", "Trace")
+                ? t("workspace.workflow.worktreeSourceManaged", "托管")
+                : t("workspace.workflow.worktreeSourceTrace", "轨迹")
             }
           />
         </div>
@@ -19523,13 +18958,13 @@ function WorkflowRunFocusCard({
 
   if (run.state === "draft") {
     title = t("workspace.workflow.focusDraftTitle", "当前焦点：草稿待启动")
-    body = t("workspace.workflow.focusDraftBody", "脚本已保存，运行前仍会保留 trace 与审批记录。")
+    body = t("workspace.workflow.focusDraftBody", "脚本已保存，运行前仍会保留轨迹与审批记录。")
     Icon = Play
   } else if (run.state === "awaiting_approval") {
     title = t("workspace.workflow.focusApprovalTitle", "当前焦点：等待授权")
     body =
       workflowPermissionSummaryText(t, permissionPreview?.summary) ||
-      t("workspace.workflow.focusApprovalBody", "有调用需要确认，批准后 run 会继续。")
+      t("workspace.workflow.focusApprovalBody", "有调用需要确认，批准后运行会继续。")
     tone = "warn"
     Icon = ShieldAlert
     targetTab = "trace"
@@ -19571,10 +19006,10 @@ function WorkflowRunFocusCard({
   } else if (run.state === "paused") {
     title = t("workspace.workflow.focusPausedTitle", "当前焦点：已暂停")
     body = focusOp
-      ? t("workspace.workflow.focusPausedBodyWithOp", "暂停在 {{op}}，恢复后会继续该 run。", {
+      ? t("workspace.workflow.focusPausedBodyWithOp", "暂停在 {{op}}，恢复后会继续该运行。", {
           op: truncateMiddle(workflowOpTitle(focusOp), 64),
         })
-      : t("workspace.workflow.focusPausedBody", "恢复后会从当前 trace 继续，取消则保留已有记录。")
+      : t("workspace.workflow.focusPausedBody", "恢复后会从当前轨迹继续，取消则保留已有记录。")
     tone = "warn"
     Icon = Pause
     targetTab = focusOp ? workflowOpDetailTab(focusOp) : "trace"
@@ -19593,7 +19028,7 @@ function WorkflowRunFocusCard({
       : t("workspace.workflow.focusFailedTitle", "当前焦点：步骤失败")
     body = truncateMiddle(
       failedMessage ??
-        t("workspace.workflow.nextFailedBody", "查看 Trace 与 Validation，基于失败步骤继续修复。"),
+        t("workspace.workflow.nextFailedBody", "查看轨迹与验证，基于失败步骤继续修复。"),
       140,
     )
     tone = "danger"
@@ -19615,13 +19050,13 @@ function WorkflowRunFocusCard({
               total,
             },
           )
-        : t("workspace.workflow.focusCompletedBodyNoOps", "运行已完成，trace 已保留。")
+        : t("workspace.workflow.focusCompletedBodyNoOps", "运行已完成，轨迹已保留。")
     tone = "good"
     Icon = CheckCircle2
     targetTab = "trace"
   } else {
     title = t("workspace.workflow.focusCancelledTitle", "当前焦点：已取消")
-    body = t("workspace.workflow.focusCancelledBody", "运行已停止，已有 trace 可用于复盘。")
+    body = t("workspace.workflow.focusCancelledBody", "运行已停止，已有轨迹可用于复盘。")
     tone = "muted"
     Icon = X
     targetTab = "trace"
@@ -19765,7 +19200,7 @@ function WorkflowPermissionPreviewCard({ preview }: { preview: WorkflowPermissio
         ) : null}
         {typeof strict === "number" ? (
           <WorkflowMetric
-            label={t("workspace.workflow.permissionMetricStrict", "Strict")}
+            label={t("workspace.workflow.permissionMetricStrict", "严格")}
             value={String(strict)}
           />
         ) : null}
@@ -19951,7 +19386,7 @@ function WorkflowRecoveryHint({
     body =
       failedMessage ??
       failedOp?.opKey ??
-      t("workspace.workflow.nextFailedBody", "查看 Trace 与 Validation，基于失败步骤继续修复。")
+      t("workspace.workflow.nextFailedBody", "查看轨迹与验证，基于失败步骤继续修复。")
     tone = "danger"
     Icon = CircleAlert
     targetTab = hasValidationFailure
@@ -20117,7 +19552,7 @@ function WorkflowTraceTimeline({ snapshot }: { snapshot: WorkflowRunSnapshot }) 
     .slice(-WORKFLOW_EVENT_PREVIEW)
     .filter((event) => !importantEventIds.has(event.id))
   if (snapshot.ops.length === 0 && snapshot.events.length === 0) {
-    return <EmptyHint>{t("workspace.workflow.emptyTrace", "暂无 trace")}</EmptyHint>
+    return <EmptyHint>{t("workspace.workflow.emptyTrace", "暂无轨迹")}</EmptyHint>
   }
 
   return (
@@ -20645,7 +20080,7 @@ function WorkflowAgentsTab({
     <div className="space-y-1.5">
       <div className="grid grid-cols-4 gap-1 text-[10px]">
         <WorkflowMetric
-          label={t("workspace.workflow.agentMetricTotal", "Agents")}
+          label={t("workspace.workflow.agentMetricTotal", "子 Agent")}
           value={String(agentOps.length)}
         />
         <WorkflowMetric
@@ -20772,10 +20207,6 @@ export default function WorkspacePanel({
   const loopSchedulesState = useLoopSchedules(sessionId, { incognito, turnActive })
   const goalState = useGoal(sessionId, { incognito })
   const [loopCreateRequest, setLoopCreateRequest] = useState(0)
-  const [loopInspectRequest, setLoopInspectRequest] = useState<{
-    loopId: string
-    nonce: number
-  } | null>(null)
   const loopSectionRef = useRef<HTMLDivElement | null>(null)
   const lastExternalLoopCreateRequestRef = useRef(0)
   const reviewRunsState = useReviewRuns(sessionId, { incognito, turnActive })
@@ -20783,10 +20214,6 @@ export default function WorkspacePanel({
   const domainQualityRunsState = useDomainQualityRuns(sessionId, { incognito, turnActive })
   const domainTaskWorkbenchState = useDomainTaskWorkbench(sessionId, { incognito, turnActive })
   const domainWorkbenchRef = useRef<HTMLDivElement | null>(null)
-  const [domainWorkbenchFocusRequest, setDomainWorkbenchFocusRequest] = useState<{
-    target: "export" | "connector" | "connector-e2e" | "operational" | "soak"
-    nonce: number
-  } | null>(null)
   const workflowSectionRef = useRef<HTMLDivElement | null>(null)
   const [workflowFocusTarget, setWorkflowFocusTarget] = useState<WorkflowFocusTarget | null>(null)
   const openLoopCreate = useCallback(() => {
@@ -20801,18 +20228,6 @@ export default function WorkspacePanel({
     if (openLoopCreateRequest <= 0) return
     openLoopCreate()
   }, [openLoopCreate, openLoopCreateRequest])
-  const focusDomainWorkbench = useCallback(
-    (target: "export" | "connector" | "connector-e2e" | "operational" | "soak") => {
-      setDomainWorkbenchFocusRequest((current) => ({
-        target,
-        nonce: (current?.nonce ?? 0) + 1,
-      }))
-      window.setTimeout(() => {
-        domainWorkbenchRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" })
-      }, 0)
-    },
-    [],
-  )
   const focusWorkflowRun = useCallback((runId: string) => {
     setWorkflowFocusTarget((current) => ({
       runId,
@@ -20854,7 +20269,25 @@ export default function WorkspacePanel({
       {/* 上下边缘柔化淡出 —— 内容滚到边界时渐隐不硬切（mask 渐变到透明，露出面板底色）。
           Tauri = WebKit,补 `-webkit-mask-image` 兜底。 */}
       <div className={cn("flex-1 space-y-2 overflow-auto p-2", PANEL_SCROLL_FADE)}>
-        {/* 会话 — 复刻状态悬浮窗的能力(模型 / 上下文 / 动作),核心常驻 + 展开更多。 */}
+        <EnvironmentSection
+          sessionId={sessionId}
+          sessionMeta={sessionMeta}
+          project={project}
+          effectiveWorkingDir={effectiveWorkingDir}
+          workingDirSource={workingDirSource}
+          permissionMode={permissionMode}
+          planState={planState}
+          turnActive={turnActive}
+          onOpenDiff={onOpenDiff}
+        />
+
+        <GoalWorkspaceSection
+          sessionId={sessionId}
+          incognito={incognito}
+          onEnsureSession={onEnsureSession}
+          goalState={goalState}
+        />
+
         <SessionSection
           sessionId={sessionId}
           sessionMeta={sessionMeta}
@@ -20873,17 +20306,111 @@ export default function WorkspacePanel({
           systemPromptLoading={systemPromptLoading}
         />
 
-        <EnvironmentSection
-          sessionId={sessionId}
-          sessionMeta={sessionMeta}
-          project={project}
-          effectiveWorkingDir={effectiveWorkingDir}
-          workingDirSource={workingDirSource}
-          permissionMode={permissionMode}
-          planState={planState}
-          turnActive={turnActive}
-          onOpenDiff={onOpenDiff}
+        {taskSnapshot && taskSnapshot.total > 0 ? (
+          <TaskProgressPanel
+            snapshot={taskSnapshot}
+            variant="card"
+            executionState={taskExecutionState}
+          />
+        ) : (
+          <WorkspaceSection
+            title={t("workspace.sectionProgress", "进度")}
+            count={0}
+            icon={LayoutDashboard}
+          >
+            <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
+          </WorkspaceSection>
+        )}
+
+        <div ref={workflowSectionRef}>
+          <WorkflowRunsSection
+            sessionId={sessionId}
+            incognito={incognito}
+            turnActive={turnActive}
+            workingDir={effectiveWorkingDir}
+            onEnsureSession={onEnsureSession}
+            draftWorkflowMode={draftWorkflowMode}
+            onDraftWorkflowModeChange={onDraftWorkflowModeChange}
+            onViewSubagentSession={onViewSubagentSession}
+            workflowRunsState={sharedWorkflowRunsState}
+            goalState={goalState}
+            focusedRunTarget={workflowFocusTarget}
+          />
+        </div>
+
+        <div ref={loopSectionRef}>
+          <LoopSchedulesSection
+            sessionId={sessionId}
+            incognito={incognito}
+            turnActive={turnActive}
+            workflowRuns={sharedWorkflowRunsState.runs}
+            onSelectWorkflowRun={focusWorkflowRun}
+            loopSchedulesState={loopSchedulesState}
+            goalState={goalState}
+            createRequest={loopCreateRequest}
+          />
+        </div>
+
+        <BackgroundJobsSection
+          jobs={backgroundJobs}
+          jobExpansionOverrides={backgroundJobExpansionOverrides}
+          onJobExpandedChange={onBackgroundJobExpandedChange}
+          onOpenPanel={onOpenBackgroundJobs}
+          onViewSubagentSession={onViewSubagentSession}
         />
+
+        <WorkspaceSection
+          title={t("workspace.sectionOutput", "输出")}
+          count={files.length}
+          icon={Files}
+        >
+          {files.length > 0 ? (
+            <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-0.5">
+              {visibleFiles.map((entry) => (
+                <FileRow
+                  key={entry.path}
+                  entry={entry}
+                  sessionId={sessionId}
+                  onOpenDiff={onOpenDiff}
+                  onPreviewFile={onPreviewFile}
+                />
+              ))}
+              {hasMoreFiles && <div ref={setFilesSentinel} className="h-px" />}
+              {filesTruncated && <TruncatedNote />}
+            </div>
+          ) : (
+            <EmptyHint>{t("workspace.emptyOutput", "还没有碰到文件")}</EmptyHint>
+          )}
+        </WorkspaceSection>
+
+        <WorkspaceSection
+          title={t("workspace.sectionSources", "来源")}
+          count={sources.length}
+          icon={Globe}
+        >
+          {sources.length > 0 ? (
+            <div className="max-h-[40vh] space-y-0.5 overflow-y-auto pr-0.5">
+              {visibleSources.map((source) => (
+                <SourceRow key={source.url} source={source} />
+              ))}
+              {hasMoreSources && <div ref={setSourcesSentinel} className="h-px" />}
+              {sourcesTruncated && <TruncatedNote />}
+            </div>
+          ) : (
+            <EmptyHint>{t("workspace.emptySources", "还没有引用来源")}</EmptyHint>
+          )}
+        </WorkspaceSection>
+
+        <KnowledgeSection
+          sessionId={sessionId}
+          projectId={project?.id ?? sessionMeta?.projectId ?? null}
+          incognito={incognito}
+          messages={messages}
+        />
+
+        <div className="px-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/75">
+          {t("workspace.advancedDiagnostics.title", "高级诊断")}
+        </div>
 
         <ContextRetrievalSection
           sessionId={sessionId}
@@ -20903,7 +20430,6 @@ export default function WorkspacePanel({
             verificationRunsState={verificationRunsState}
             domainQualityRunsState={domainQualityRunsState}
             domainWorkbenchState={domainTaskWorkbenchState}
-            focusRequest={domainWorkbenchFocusRequest}
           />
         </div>
 
@@ -20938,126 +20464,6 @@ export default function WorkspacePanel({
         />
 
         <CodingTrendSection sessionId={sessionId} incognito={incognito} turnActive={turnActive} />
-
-        {/* 进度 — 复用 TaskProgressPanel(自带「任务 · N/M」折叠头)。 */}
-        {taskSnapshot && taskSnapshot.total > 0 ? (
-          <TaskProgressPanel
-            snapshot={taskSnapshot}
-            variant="card"
-            executionState={taskExecutionState}
-          />
-        ) : (
-          <WorkspaceSection
-            title={t("workspace.sectionProgress", "进度")}
-            count={0}
-            icon={LayoutDashboard}
-          >
-            <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
-          </WorkspaceSection>
-        )}
-
-        {/* Workflow — 动态脚本 run 的可观察、可暂停、可批准控制面。 */}
-        <div ref={workflowSectionRef}>
-          <WorkflowRunsSection
-            sessionId={sessionId}
-            incognito={incognito}
-            turnActive={turnActive}
-            workingDir={effectiveWorkingDir}
-            onEnsureSession={onEnsureSession}
-            draftWorkflowMode={draftWorkflowMode}
-            onDraftWorkflowModeChange={onDraftWorkflowModeChange}
-            onViewSubagentSession={onViewSubagentSession}
-            onOpenLoopCreate={openLoopCreate}
-            onOpenLoopProblem={(loopId) =>
-              setLoopInspectRequest((current) => ({
-                loopId,
-                nonce: (current?.nonce ?? 0) + 1,
-              }))
-            }
-            onOpenDomainWorkbench={focusDomainWorkbench}
-            workflowRunsState={sharedWorkflowRunsState}
-            loopSchedulesState={loopSchedulesState}
-            goalState={goalState}
-            domainWorkbenchState={domainTaskWorkbenchState}
-            focusedRunTarget={workflowFocusTarget}
-          />
-        </div>
-
-        {/* 持续推进 — 定时 / 条件 / 事件触发的长期任务控制面。 */}
-        <div ref={loopSectionRef}>
-          <LoopSchedulesSection
-            sessionId={sessionId}
-            incognito={incognito}
-            turnActive={turnActive}
-            workflowRuns={sharedWorkflowRunsState.runs}
-            onSelectWorkflowRun={focusWorkflowRun}
-            loopSchedulesState={loopSchedulesState}
-            goalState={goalState}
-            createRequest={loopCreateRequest}
-            inspectRequest={loopInspectRequest}
-          />
-        </div>
-
-        {/* 后台任务 — R4 复用独立面板的任务行能力,工作台内保留紧凑展示。 */}
-        <BackgroundJobsSection
-          jobs={backgroundJobs}
-          jobExpansionOverrides={backgroundJobExpansionOverrides}
-          onJobExpandedChange={onBackgroundJobExpandedChange}
-          onOpenPanel={onOpenBackgroundJobs}
-          onViewSubagentSession={onViewSubagentSession}
-        />
-
-        {/* 输出 — 本会话碰到的文件(读 + 改),定高内部滚动 + 滚动增量渲染。 */}
-        <WorkspaceSection
-          title={t("workspace.sectionOutput", "输出")}
-          count={files.length}
-          icon={Files}
-        >
-          {files.length > 0 ? (
-            <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-0.5">
-              {visibleFiles.map((entry) => (
-                <FileRow
-                  key={entry.path}
-                  entry={entry}
-                  sessionId={sessionId}
-                  onOpenDiff={onOpenDiff}
-                  onPreviewFile={onPreviewFile}
-                />
-              ))}
-              {hasMoreFiles && <div ref={setFilesSentinel} className="h-px" />}
-              {filesTruncated && <TruncatedNote />}
-            </div>
-          ) : (
-            <EmptyHint>{t("workspace.emptyOutput", "还没有碰到文件")}</EmptyHint>
-          )}
-        </WorkspaceSection>
-
-        {/* 来源 — web_search 命中 + 正文链接,定高内部滚动 + 滚动增量渲染。 */}
-        <WorkspaceSection
-          title={t("workspace.sectionSources", "来源")}
-          count={sources.length}
-          icon={Globe}
-        >
-          {sources.length > 0 ? (
-            <div className="max-h-[40vh] space-y-0.5 overflow-y-auto pr-0.5">
-              {visibleSources.map((source) => (
-                <SourceRow key={source.url} source={source} />
-              ))}
-              {hasMoreSources && <div ref={setSourcesSentinel} className="h-px" />}
-              {sourcesTruncated && <TruncatedNote />}
-            </div>
-          ) : (
-            <EmptyHint>{t("workspace.emptySources", "还没有引用来源")}</EmptyHint>
-          )}
-        </WorkspaceSection>
-
-        {/* 知识空间 — 挂载的库(读/写)+ 本会话笔记活动。 */}
-        <KnowledgeSection
-          sessionId={sessionId}
-          projectId={project?.id ?? sessionMeta?.projectId ?? null}
-          incognito={incognito}
-          messages={messages}
-        />
       </div>
     </div>
   )
