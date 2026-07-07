@@ -790,6 +790,7 @@ pub fn run() {
             commands::design::design_comment_update_cmd,
             commands::design::design_comment_resolve_cmd,
             commands::design::design_comment_delete_cmd,
+            commands::design::design_comment_refine_cmd,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,

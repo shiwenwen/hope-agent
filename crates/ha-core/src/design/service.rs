@@ -1840,6 +1840,81 @@ pub fn delete_comment(artifact_id: &str, comment_id: i64) -> Result<bool> {
     open_db()?.delete_comment(artifact_id, comment_id)
 }
 
+/// 组装「按批注精修」的 refine brief：保留整体设计、只针对该反馈精改。
+fn compose_refine_brief(comment: &DesignComment, title: &str, current_html: &str) -> String {
+    let mut b = String::new();
+    b.push_str(&format!(
+        "你在精修一个已有设计「{title}」。请**保留整体设计与所有未提及的部分**，只针对下面这条用户反馈做精准修改，输出完整的修改后设计。\n\n"
+    ));
+    b.push_str(&format!("用户反馈：{}\n", comment.body));
+    if let Some(tag) = &comment.tag {
+        b.push_str(&format!("反馈针对的元素：<{tag}>\n"));
+    }
+    if let Some(snippet) = comment.snippet.as_deref().filter(|s| !s.is_empty()) {
+        b.push_str(&format!("元素片段：\n```html\n{snippet}\n```\n"));
+    }
+    b.push_str(&format!(
+        "\n当前完整设计（在此基础上修改）：\n```html\n{current_html}\n```\n"
+    ));
+    b
+}
+
+/// 回灌对话 = 让 AI 按批注**精修产物**（design-space 原生：产物就地更新、无需切走）。
+/// 复用生成管线：读当前设计 + 反馈 → `generate_design_parts` → 落新版本（`design:reload`
+/// 刷新视图）。image/audio/component 形态不支持。
+pub async fn refine_artifact_with_comment(
+    artifact_id: &str,
+    comment_id: i64,
+) -> Result<DesignArtifact> {
+    let (a, comment, current) = {
+        let db = open_db()?;
+        let a = db
+            .get_artifact(artifact_id)?
+            .with_context(|| format!("artifact not found: {artifact_id}"))?;
+        let comment = db
+            .get_comment(artifact_id, comment_id)?
+            .with_context(|| format!("comment not found: {comment_id}"))?;
+        let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+        let current = read_source(&dir)?;
+        (a, comment, current)
+    };
+    if matches!(a.kind.as_str(), "image" | "audio" | "component") {
+        anyhow::bail!("批注精修暂不支持 {} 形态", a.kind);
+    }
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    let sys_input = CreateArtifactInput {
+        project_id: a.project_id.clone(),
+        title: a.title.clone(),
+        kind: a.kind.clone(),
+        system_id: a.system_id.clone(),
+        body_html: None,
+        css: None,
+        js: None,
+        session_id: None,
+        prompt: None,
+    };
+    let (system_md, tokens) = resolve_system_for_generation(&sys_input);
+    let brief = compose_refine_brief(&comment, &a.title, &current.body_html);
+    crate::app_info!(
+        "design",
+        "comment",
+        "refine artifact {} per comment {}",
+        artifact_id,
+        comment_id
+    );
+    let parts = super::generate::generate_design_parts(&brief, kind, &system_md, &tokens).await?;
+    update_artifact(UpdateArtifactInput {
+        id: a.id.clone(),
+        title: None,
+        body_html: Some(parts.body_html),
+        css: Some(parts.css),
+        js: Some(parts.js),
+        message: Some(format!("按批注 #{comment_id} 精修")),
+        expected_body_hash: None,
+    })
+}
+
 #[cfg(test)]
 mod comment_tests {
     use super::{clamp_rel, sanitize_oid};

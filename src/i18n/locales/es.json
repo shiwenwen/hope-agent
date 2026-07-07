@@ -289,7 +289,10 @@
       "emptyHint": "Haz clic en un elemento de la vista previa para comentar",
       "resolvedSection": "Resueltos",
       "addFailed": "No se pudo añadir el comentario",
-      "sendSoon": "Enviar a la IA disponible pronto"
+      "sendSoon": "Enviar a la IA disponible pronto",
+      "refining": "Refinando según tu comentario…",
+      "refined": "Refinado: revisa la nueva versión",
+      "refineFailed": "Error al refinar"
     },
     "exporting": "Exportando…",
     "exportProgressSlide": "Exportando {{done}}/{{total}}",

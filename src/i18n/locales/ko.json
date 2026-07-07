@@ -289,7 +289,10 @@
       "emptyHint": "미리보기에서 요소를 클릭해 댓글 남기기",
       "resolvedSection": "해결됨",
       "addFailed": "댓글 추가 실패",
-      "sendSoon": "AI 보내기 곧 지원"
+      "sendSoon": "AI 보내기 곧 지원",
+      "refining": "댓글에 따라 다듬는 중…",
+      "refined": "다듬었습니다. 새 버전을 확인하세요",
+      "refineFailed": "다듬기 실패"
     },
     "exporting": "내보내는 중…",
     "exportProgressSlide": "내보내는 중 {{done}}/{{total}}",

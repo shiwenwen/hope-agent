@@ -289,7 +289,10 @@
       "emptyHint": "Yorum bırakmak için önizlemede bir öğeye tıklayın",
       "resolvedSection": "Çözüldü",
       "addFailed": "Yorum eklenemedi",
-      "sendSoon": "Yapay zekâya gönderme yakında"
+      "sendSoon": "Yapay zekâya gönderme yakında",
+      "refining": "Yoruma göre iyileştiriliyor…",
+      "refined": "İyileştirildi — yeni sürüme bakın",
+      "refineFailed": "İyileştirme başarısız"
     },
     "exporting": "Dışa aktarılıyor…",
     "exportProgressSlide": "Dışa aktarılıyor {{done}}/{{total}}",

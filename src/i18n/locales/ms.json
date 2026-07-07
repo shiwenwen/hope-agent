@@ -289,7 +289,10 @@
       "emptyHint": "Klik elemen dalam pratonton untuk beri komen",
       "resolvedSection": "Selesai",
       "addFailed": "Gagal menambah komen",
-      "sendSoon": "Hantar ke AI akan datang"
+      "sendSoon": "Hantar ke AI akan datang",
+      "refining": "Menambah baik ikut komen…",
+      "refined": "Ditambah baik — lihat versi baharu",
+      "refineFailed": "Gagal menambah baik"
     },
     "exporting": "Mengeksport…",
     "exportProgressSlide": "Mengeksport {{done}}/{{total}}",

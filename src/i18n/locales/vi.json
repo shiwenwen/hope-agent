@@ -289,7 +289,10 @@
       "emptyHint": "Nhấp vào phần tử trong bản xem trước để bình luận",
       "resolvedSection": "Đã giải quyết",
       "addFailed": "Không thể thêm bình luận",
-      "sendSoon": "Gửi cho AI sắp ra mắt"
+      "sendSoon": "Gửi cho AI sắp ra mắt",
+      "refining": "Đang tinh chỉnh theo bình luận…",
+      "refined": "Đã tinh chỉnh — xem phiên bản mới",
+      "refineFailed": "Tinh chỉnh thất bại"
     },
     "exporting": "Đang xuất…",
     "exportProgressSlide": "Đang xuất {{done}}/{{total}}",

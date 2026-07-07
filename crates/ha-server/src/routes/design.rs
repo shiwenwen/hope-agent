@@ -575,6 +575,18 @@ pub async fn delete_comment(
     Ok(Json(json!({ "ok": ok })))
 }
 
+/// `POST /api/design/artifacts/{id}/comments/{comment_id}/refine` — 让 AI 按批注精修产物。
+pub async fn refine_comment(
+    Path((artifact_id, comment_id)): Path<(String, i64)>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&artifact_id)?;
+    Ok(Json(
+        service::refine_artifact_with_comment(&artifact_id, comment_id)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

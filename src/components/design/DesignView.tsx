@@ -635,13 +635,27 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, loadComments],
   )
 
-  // L4：回灌对话——把批注结构化上下文注入项目会话让 AI 精修（下一层实现）。
+  // 回灌对话：让 AI 按批注精修产物。design-space 原生——产物就地更新新版本、无需切走；
+  // `design:reload` 事件自动刷新预览。
   const handleSendCommentToChat = useCallback(
-    (id: number) => {
-      void id
-      toast.info(t("design.comment.sendSoon", "回灌对话即将上线"))
+    async (id: number) => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid) return
+      const p = tx.call("design_comment_refine_cmd", { artifactId: aid, commentId: id })
+      toast.promise(p, {
+        loading: t("design.comment.refining", "AI 正在按批注精修…"),
+        success: t("design.comment.refined", "已按批注精修，查看新版本"),
+        error: (e: unknown) =>
+          e instanceof Error ? e.message : t("design.comment.refineFailed", "精修失败"),
+      })
+      try {
+        await p
+        await refreshView()
+      } catch (e) {
+        logger.error("design", "DesignView::refineComment", "refine failed", e)
+      }
     },
-    [t],
+    [tx, t, refreshView],
   )
 
   // 载入 / 清空批注：进批注模式或切产物时拉取；退出清空。

@@ -249,6 +249,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   design_comment_update_cmd:         { method: "PUT",    path: "/api/design/artifacts/{artifactId}/comments/{commentId}" },
   design_comment_resolve_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments/{commentId}/resolve" },
   design_comment_delete_cmd:         { method: "DELETE", path: "/api/design/artifacts/{artifactId}/comments/{commentId}" },
+  design_comment_refine_cmd:         { method: "POST",   path: "/api/design/artifacts/{artifactId}/comments/{commentId}/refine" },
 
   // -- MCP servers --
   mcp_list_servers:                { method: "GET",    path: "/api/mcp/servers" },

@@ -289,7 +289,10 @@
       "emptyHint": "Clique num elemento na pré-visualização para comentar",
       "resolvedSection": "Resolvidos",
       "addFailed": "Falha ao adicionar comentário",
-      "sendSoon": "Enviar para a IA em breve"
+      "sendSoon": "Enviar para a IA em breve",
+      "refining": "A refinar conforme o comentário…",
+      "refined": "Refinado: veja a nova versão",
+      "refineFailed": "Falha ao refinar"
     },
     "exporting": "A exportar…",
     "exportProgressSlide": "A exportar {{done}}/{{total}}",

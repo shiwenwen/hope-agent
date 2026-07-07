@@ -289,7 +289,10 @@
       "emptyHint": "點選預覽中的元素即可留下批註",
       "resolvedSection": "已解決",
       "addFailed": "新增批註失敗",
-      "sendSoon": "回灌對話即將上線"
+      "sendSoon": "回灌對話即將上線",
+      "refining": "依批註精修中…",
+      "refined": "已依批註精修，查看新版本",
+      "refineFailed": "精修失敗"
     },
     "exporting": "正在匯出…",
     "exportProgressSlide": "正在匯出 {{done}}/{{total}}",

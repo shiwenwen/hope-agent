@@ -340,3 +340,14 @@ pub async fn design_comment_delete_cmd(
 ) -> Result<bool, CmdError> {
     service::delete_comment(&artifact_id, comment_id).map_err(Into::into)
 }
+
+/// 回灌对话：让 AI 按批注精修产物（产物就地更新新版本）。
+#[tauri::command]
+pub async fn design_comment_refine_cmd(
+    artifact_id: String,
+    comment_id: i64,
+) -> Result<DesignArtifact, CmdError> {
+    service::refine_artifact_with_comment(&artifact_id, comment_id)
+        .await
+        .map_err(Into::into)
+}

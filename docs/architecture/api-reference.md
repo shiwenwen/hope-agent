@@ -452,6 +452,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `design_comment_update_cmd` | `PUT /api/design/artifacts/{artifactId}/comments/{commentId}` | ✅ |
 | `design_comment_resolve_cmd` | `POST /api/design/artifacts/{artifactId}/comments/{commentId}/resolve` | ✅ |
 | `design_comment_delete_cmd` | `DELETE /api/design/artifacts/{artifactId}/comments/{commentId}` | ✅ |
+| `design_comment_refine_cmd` | `POST /api/design/artifacts/{artifactId}/comments/{commentId}/refine`（回灌对话：AI 按批注精修产物、落新版本） | ✅ |
 | （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |
 
 ### Models

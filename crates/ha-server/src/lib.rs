@@ -1731,6 +1731,10 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/comments/{comment_id}/resolve",
             post(routes::design::resolve_comment),
         )
+        .route(
+            "/design/artifacts/{id}/comments/{comment_id}/refine",
+            post(routes::design::refine_comment),
+        )
         .route("/design/pptx", post(routes::design::export_pptx))
         .route("/design/zip", post(routes::design::export_zip))
         .route(

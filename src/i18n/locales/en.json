@@ -289,7 +289,10 @@
       "emptyHint": "Click an element in the preview to leave a comment",
       "resolvedSection": "Resolved",
       "addFailed": "Failed to add comment",
-      "sendSoon": "Send-to-chat coming soon"
+      "sendSoon": "Send-to-chat coming soon",
+      "refining": "Refining per your comment…",
+      "refined": "Refined — check the new version",
+      "refineFailed": "Refine failed"
     },
     "exporting": "Exporting…",
     "exportProgressSlide": "Exporting {{done}}/{{total}}",
