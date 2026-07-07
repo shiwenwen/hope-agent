@@ -276,6 +276,7 @@ pub fn build_artifact_html(
 const INSPECTOR_BRIDGE: &str = r#"<script>
 (function(){
   var active=false, hovered=null, selected=null, editing=null, editOrig=null;
+  var commentMode=false, comments=[], pinLayer=null;
   var CSS_PROPS=['color','background-color','font-size','font-weight','font-style','text-align',
     'text-transform','text-decoration','line-height','letter-spacing',
     'padding','margin','gap','width','height','max-width','min-height',
@@ -304,12 +305,60 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     }else{el.textContent=editOrig}
     editOrig=null;
   }
+  // ── 批注钉：iframe 内渲染（坐标随锚元素、zoom 无关）；点钉回传父窗 ──
+  function ensurePinLayer(){
+    if(pinLayer)return pinLayer;
+    pinLayer=document.createElement('div');
+    pinLayer.setAttribute('data-ds-pinlayer','1');
+    pinLayer.style.cssText='position:fixed;inset:0;pointer-events:none;z-index:2147483646';
+    document.documentElement.appendChild(pinLayer);
+    return pinLayer;
+  }
+  function pinPos(c,i){
+    if(c.oid!=null){var el=elByOid(String(c.oid));
+      if(el){var r=el.getBoundingClientRect();
+        return {x:r.left+(c.relX||0)*r.width,y:r.top+(c.relY||0)*r.height}}}
+    return {x:window.innerWidth-22,y:22+i*26}; // 脱锚：右上角堆叠，不丢
+  }
+  function renderPins(){
+    if(!commentMode){if(pinLayer)pinLayer.style.display='none';return}
+    var layer=ensurePinLayer();layer.style.display='';layer.textContent='';
+    comments.forEach(function(c,i){
+      var p=pinPos(c,i),dot=document.createElement('button');
+      dot.type='button';
+      dot.style.cssText='position:absolute;transform:translate(-50%,-50%);pointer-events:auto;'+
+        'width:22px;height:22px;border-radius:50% 50% 50% 2px;border:2px solid #fff;cursor:pointer;'+
+        'font:600 11px system-ui;color:#fff;display:flex;align-items:center;justify-content:center;'+
+        'box-shadow:0 1px 4px rgba(0,0,0,.35);left:'+p.x+'px;top:'+p.y+'px;'+
+        'background:'+(c.resolved?'#16a34a':'#f59e0b');
+      dot.textContent=String(i+1);
+      dot.title=(c.body||'').slice(0,80);
+      dot.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();
+        parent.postMessage({type:'ds_comment_click',id:c.id},'*')});
+      layer.appendChild(dot);
+    });
+  }
+  window.addEventListener('scroll',function(){if(commentMode)renderPins()},true);
+  window.addEventListener('resize',function(){if(commentMode)renderPins()});
   document.addEventListener('mouseover',function(e){
     if(!active||editing)return;var el=e.target.closest('[data-ds-oid]');if(!el||el===selected)return;
     clearHover();hovered=el;el.style.outline='1px solid rgba(37,99,235,.5)';
   },true);
   document.addEventListener('mouseout',function(){if(active&&!editing)clearHover()},true);
   document.addEventListener('click',function(e){
+    if(commentMode){
+      var cel=e.target.closest('[data-ds-oid]');
+      if(!cel)return; // 点在钉 / 空白 → 交给钉自身或忽略，不落新钉
+      e.preventDefault();e.stopPropagation();
+      var cr=cel.getBoundingClientRect();
+      parent.postMessage({type:'ds_comment_place',
+        oid:Number(cel.getAttribute('data-ds-oid')),
+        relX:cr.width?(e.clientX-cr.left)/cr.width:0.5,
+        relY:cr.height?(e.clientY-cr.top)/cr.height:0.5,
+        tag:cel.tagName.toLowerCase(),
+        snippet:(cel.outerHTML||'').slice(0,200)},'*');
+      return;
+    }
     if(!active)return;
     if(editing){if(editing.contains(e.target))return;endEdit(true)} // 编辑内点=移光标；点外=提交
     var el=e.target.closest('[data-ds-oid]');if(!el)return;
@@ -344,6 +393,12 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     else if(d.type==='ds_reselect'){var el=elByOid(d.oid);
       if(el){clearSel();selected=el;el.style.outline='2px solid #2563eb';
         parent.postMessage({type:'ds_selected',payload:info(el)},'*')}}
+    else if(d.type==='ds_comment_mode'){commentMode=!!d.on;renderPins()}
+    else if(d.type==='ds_comments_set'){comments=Array.isArray(d.comments)?d.comments:[];renderPins()}
+    else if(d.type==='ds_comment_focus'){
+      var fc=comments.filter(function(x){return x.id===d.id})[0];
+      if(fc&&fc.oid!=null){var fe=elByOid(String(fc.oid));
+        if(fe){fe.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(renderPins,320)}}}
   });
 })();
 </script>"#;

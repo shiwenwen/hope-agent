@@ -276,6 +276,21 @@
       "component": "インタラクティブコンポーネント"
     },
     "editHint": "要素をクリックしてスタイルを、テキストをダブルクリックして文言を編集",
+    "comment": {
+      "title": "コメント",
+      "mode": "コメント：要素をクリックしてフィードバック",
+      "locate": "ピンへ移動",
+      "detached": "未固定",
+      "sendToChat": "AI に送る",
+      "reopen": "未解決に戻す",
+      "resolve": "解決済みにする",
+      "add": "コメントを追加",
+      "placeholder": "この要素へのフィードバックを入力…",
+      "emptyHint": "プレビューで要素をクリックしてコメント",
+      "resolvedSection": "解決済み",
+      "addFailed": "コメントの追加に失敗",
+      "sendSoon": "AI 連携は近日対応"
+    },
     "exporting": "エクスポート中…",
     "exportProgressSlide": "エクスポート中 {{done}}/{{total}}",
     "noDirections": "方向性が生成されませんでした。説明を変えて再試行してください",

@@ -1,0 +1,253 @@
+/**
+ * 批注钉面板（P0 ①，右侧与 DesignInspector 并列互斥）。
+ *
+ * 钉本身由 iframe bridge 渲染在预览上（坐标随锚元素、zoom 无关）；本面板做数据交互：
+ * 列表 / 新建（点选元素落钉后填正文）/ 标记已解决 / 编辑 / 删除 / **回灌对话让 AI 精修**。
+ * 点条目 → 通知 bridge 聚焦对应钉。纯受控，父层负责 owner 命令与 iframe 通信。
+ */
+
+import { useState } from "react"
+import { useTranslation } from "react-i18next"
+import { MessageSquare, X, Check, Trash2, Pencil, Send, CornerDownLeft } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { IconTip } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
+import type { CommentPlacement, DesignComment } from "@/types/design"
+
+interface Props {
+  comments: DesignComment[]
+  /** 待填正文的新钉锚点（bridge 落钉后置入）；null = 无待填。 */
+  pending: CommentPlacement | null
+  onCreate: (body: string) => void
+  onCancelPending: () => void
+  onResolve: (id: number, resolved: boolean) => void
+  onEdit: (id: number, body: string) => void
+  onDelete: (id: number) => void
+  onFocus: (id: number) => void
+  onSendToChat: (id: number) => void
+  onClose: () => void
+}
+
+export default function DesignCommentPanel({
+  comments,
+  pending,
+  onCreate,
+  onCancelPending,
+  onResolve,
+  onEdit,
+  onDelete,
+  onFocus,
+  onSendToChat,
+  onClose,
+}: Props) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState("")
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editDraft, setEditDraft] = useState("")
+
+  const open = comments.filter((c) => !c.resolved)
+  const resolved = comments.filter((c) => c.resolved)
+
+  const submitNew = () => {
+    const body = draft.trim()
+    if (!body) return
+    onCreate(body)
+    setDraft("")
+  }
+
+  const startEdit = (c: DesignComment) => {
+    setEditingId(c.id)
+    setEditDraft(c.body)
+  }
+  const submitEdit = (id: number) => {
+    const body = editDraft.trim()
+    if (body) onEdit(id, body)
+    setEditingId(null)
+  }
+
+  const renderCard = (c: DesignComment, index: number) => (
+    <div
+      key={c.id}
+      className={cn(
+        "group rounded-lg border p-2.5 text-sm transition-colors",
+        c.resolved ? "bg-muted/40 opacity-70" : "bg-card hover:border-primary/40",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={() => onFocus(c.id)}
+          className={cn(
+            "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
+            c.resolved ? "bg-emerald-600" : "bg-amber-500",
+          )}
+          title={t("design.comment.locate", "定位到钉")}
+        >
+          {index + 1}
+        </button>
+        <div className="min-w-0 flex-1">
+          {c.snippet && (
+            <div className="mb-1 truncate font-mono text-[10px] text-muted-foreground">
+              {c.oid == null ? `⚠ ${t("design.comment.detached", "已脱锚")} · ` : ""}
+              {c.snippet}
+            </div>
+          )}
+          {editingId === c.id ? (
+            <div className="space-y-1.5">
+              <Textarea
+                value={editDraft}
+                onChange={(e) => setEditDraft(e.target.value)}
+                rows={2}
+                className="text-sm"
+                autoFocus
+              />
+              <div className="flex gap-1.5">
+                <Button size="sm" className="h-6 px-2 text-xs" onClick={() => submitEdit(c.id)}>
+                  {t("common.save", "保存")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setEditingId(null)}
+                >
+                  {t("common.cancel", "取消")}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className={cn("whitespace-pre-wrap break-words", c.resolved && "line-through")}>
+              {c.body}
+            </div>
+          )}
+        </div>
+      </div>
+      {editingId !== c.id && (
+        <div className="mt-1.5 flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
+          <IconTip label={t("design.comment.sendToChat", "发给 AI 精修")}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              onClick={() => onSendToChat(c.id)}
+            >
+              <Send className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+          <IconTip
+            label={
+              c.resolved
+                ? t("design.comment.reopen", "取消解决")
+                : t("design.comment.resolve", "标记已解决")
+            }
+          >
+            <Button
+              size="icon"
+              variant="ghost"
+              className={cn("h-6 w-6", c.resolved && "text-emerald-600")}
+              onClick={() => onResolve(c.id, !c.resolved)}
+            >
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+          <IconTip label={t("common.edit", "编辑")}>
+            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => startEdit(c)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+          <IconTip label={t("common.delete", "删除")}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6 text-destructive"
+              onClick={() => onDelete(c.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+        </div>
+      )}
+    </div>
+  )
+
+  return (
+    <aside className="flex w-72 shrink-0 flex-col overflow-hidden border-l bg-background">
+      <div className="flex items-center justify-between border-b px-3 py-2.5">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <MessageSquare className="h-4 w-4 text-amber-500" />
+          {t("design.comment.title", "批注")}
+          {comments.length > 0 && (
+            <span className="rounded-full bg-muted px-1.5 text-[11px] font-medium text-muted-foreground">
+              {comments.length}
+            </span>
+          )}
+        </div>
+        <IconTip label={t("common.close", "关闭")}>
+          <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </IconTip>
+      </div>
+
+      <div className="flex-1 space-y-2 overflow-y-auto p-2.5">
+        {/* 待填的新钉 */}
+        {pending ? (
+          <div className="rounded-lg border border-amber-400/60 bg-amber-50/50 p-2.5 dark:bg-amber-950/20">
+            {pending.snippet && (
+              <div className="mb-1.5 truncate font-mono text-[10px] text-muted-foreground">
+                {pending.tag ? `<${pending.tag}> ` : ""}
+                {pending.snippet}
+              </div>
+            )}
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault()
+                  submitNew()
+                }
+              }}
+              rows={2}
+              placeholder={t("design.comment.placeholder", "写下对这个元素的反馈…")}
+              className="text-sm"
+              autoFocus
+            />
+            <div className="mt-1.5 flex items-center gap-1.5">
+              <Button size="sm" className="h-6 px-2 text-xs" onClick={submitNew} disabled={!draft.trim()}>
+                {t("design.comment.add", "添加批注")}
+                <CornerDownLeft className="ml-1 h-3 w-3 opacity-60" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                onClick={() => {
+                  setDraft("")
+                  onCancelPending()
+                }}
+              >
+                {t("common.cancel", "取消")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          comments.length === 0 && (
+            <div className="px-1 py-6 text-center text-xs text-muted-foreground">
+              {t("design.comment.emptyHint", "点选预览中的元素即可留下批注")}
+            </div>
+          )
+        )}
+
+        {open.map((c) => renderCard(c, comments.indexOf(c)))}
+        {resolved.length > 0 && (
+          <div className="pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("design.comment.resolvedSection", "已解决")} · {resolved.length}
+          </div>
+        )}
+        {resolved.map((c) => renderCard(c, comments.indexOf(c)))}
+      </div>
+    </aside>
+  )
+}

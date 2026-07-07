@@ -276,6 +276,21 @@
       "component": "인터랙티브 컴포넌트"
     },
     "editHint": "요소를 클릭해 속성을, 텍스트를 더블클릭해 문구를 편집",
+    "comment": {
+      "title": "댓글",
+      "mode": "댓글: 요소를 클릭해 피드백 남기기",
+      "locate": "핀으로 이동",
+      "detached": "앵커 해제됨",
+      "sendToChat": "AI에 보내기",
+      "reopen": "다시 열기",
+      "resolve": "해결됨으로 표시",
+      "add": "댓글 추가",
+      "placeholder": "이 요소에 대한 피드백을 남기세요…",
+      "emptyHint": "미리보기에서 요소를 클릭해 댓글 남기기",
+      "resolvedSection": "해결됨",
+      "addFailed": "댓글 추가 실패",
+      "sendSoon": "AI 보내기 곧 지원"
+    },
     "exporting": "내보내는 중…",
     "exportProgressSlide": "내보내는 중 {{done}}/{{total}}",
     "noDirections": "생성된 방향이 없습니다. 다른 설명으로 다시 시도하세요",

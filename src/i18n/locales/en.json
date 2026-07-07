@@ -276,6 +276,21 @@
       "component": "Interactive Component"
     },
     "editHint": "Click an element to edit its style; double-click text to edit the copy",
+    "comment": {
+      "title": "Comments",
+      "mode": "Comment: click an element to leave feedback",
+      "locate": "Jump to pin",
+      "detached": "detached",
+      "sendToChat": "Send to AI",
+      "reopen": "Reopen",
+      "resolve": "Mark resolved",
+      "add": "Add comment",
+      "placeholder": "Write feedback for this element…",
+      "emptyHint": "Click an element in the preview to leave a comment",
+      "resolvedSection": "Resolved",
+      "addFailed": "Failed to add comment",
+      "sendSoon": "Send-to-chat coming soon"
+    },
     "exporting": "Exporting…",
     "exportProgressSlide": "Exporting {{done}}/{{total}}",
     "noDirections": "No directions generated — try a different brief",

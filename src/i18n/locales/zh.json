@@ -276,6 +276,21 @@
       "component": "交互组件"
     },
     "editHint": "点选元素改属性，双击文字改文案",
+    "comment": {
+      "title": "批注",
+      "mode": "批注：点选元素留反馈",
+      "locate": "定位到钉",
+      "detached": "已脱锚",
+      "sendToChat": "发给 AI 精修",
+      "reopen": "取消解决",
+      "resolve": "标记已解决",
+      "add": "添加批注",
+      "placeholder": "写下对这个元素的反馈…",
+      "emptyHint": "点选预览中的元素即可留下批注",
+      "resolvedSection": "已解决",
+      "addFailed": "添加批注失败",
+      "sendSoon": "回灌对话即将上线"
+    },
     "exporting": "正在导出…",
     "exportProgressSlide": "正在导出 {{done}}/{{total}}",
     "noDirections": "未生成方向，换个描述再试",

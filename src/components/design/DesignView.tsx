@@ -26,6 +26,7 @@ import {
   Mail,
   Sparkles,
   MousePointerClick,
+  MessageSquare,
   Download,
   Gauge,
   Film,
@@ -47,6 +48,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
+import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
@@ -98,6 +100,8 @@ import type {
   DesignDirection,
   DesignConfig,
   CritiqueResult,
+  DesignComment,
+  CommentPlacement,
 } from "@/types/design"
 import { ARTIFACT_KINDS } from "@/types/design"
 import {
@@ -170,6 +174,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   selectedRef.current = selected
   const editModeRef = useRef(false)
   editModeRef.current = editMode
+  // 批注钉：模式 / 数据 / 待填新钉锚点。与 editMode 互斥（都用 bridge + 右面板）。
+  const [commentMode, setCommentMode] = useState(false)
+  const commentModeRef = useRef(false)
+  commentModeRef.current = commentMode
+  const [comments, setComments] = useState<DesignComment[]>([])
+  const commentsRef = useRef<DesignComment[]>([])
+  commentsRef.current = comments
+  const [pendingPlacement, setPendingPlacement] = useState<CommentPlacement | null>(null)
   // Live refs so the EventBus subscription can read current project/artifact without
   // being a dependency (avoids re-subscribing — and dropping events — on every edit).
   const activeProjectRef = useRef<DesignProject | null>(null)
@@ -530,6 +542,109 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [commitPatch],
   )
 
+  // ── 批注钉 handlers ──
+  const loadComments = useCallback(async () => {
+    const aid = activeArtifactRef.current?.id
+    if (!aid) return
+    try {
+      const list = await tx.call<DesignComment[]>("design_comment_list_cmd", { artifactId: aid })
+      setComments(Array.isArray(list) ? list : [])
+    } catch (e) {
+      logger.error("design", "DesignView::loadComments", "load comments failed", e)
+    }
+  }, [tx])
+
+  const handleCreateComment = useCallback(
+    async (body: string) => {
+      const aid = activeArtifactRef.current?.id
+      const p = pendingPlacement
+      if (!aid || !p) return
+      try {
+        await tx.call("design_comment_add_cmd", {
+          artifactId: aid,
+          oid: p.oid,
+          relX: p.relX,
+          relY: p.relY,
+          tag: p.tag,
+          snippet: p.snippet,
+          body,
+        })
+        setPendingPlacement(null)
+        await loadComments()
+      } catch (e) {
+        logger.error("design", "DesignView::createComment", "add comment failed", e)
+        toast.error(t("design.comment.addFailed", "添加批注失败"))
+      }
+    },
+    [tx, pendingPlacement, loadComments, t],
+  )
+
+  const handleResolveComment = useCallback(
+    async (id: number, resolved: boolean) => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid) return
+      try {
+        await tx.call("design_comment_resolve_cmd", { artifactId: aid, commentId: id, resolved })
+        await loadComments()
+      } catch (e) {
+        logger.error("design", "DesignView::resolveComment", "resolve failed", e)
+      }
+    },
+    [tx, loadComments],
+  )
+
+  const handleEditComment = useCallback(
+    async (id: number, body: string) => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid) return
+      try {
+        await tx.call("design_comment_update_cmd", { artifactId: aid, commentId: id, body })
+        await loadComments()
+      } catch (e) {
+        logger.error("design", "DesignView::editComment", "edit failed", e)
+      }
+    },
+    [tx, loadComments],
+  )
+
+  const handleDeleteComment = useCallback(
+    async (id: number) => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid) return
+      try {
+        await tx.call("design_comment_delete_cmd", { artifactId: aid, commentId: id })
+        await loadComments()
+      } catch (e) {
+        logger.error("design", "DesignView::deleteComment", "delete failed", e)
+      }
+    },
+    [tx, loadComments],
+  )
+
+  // L4：回灌对话——把批注结构化上下文注入项目会话让 AI 精修（下一层实现）。
+  const handleSendCommentToChat = useCallback(
+    (id: number) => {
+      void id
+      toast.info(t("design.comment.sendSoon", "回灌对话即将上线"))
+    },
+    [t],
+  )
+
+  // 载入 / 清空批注：进批注模式或切产物时拉取；退出清空。
+  useEffect(() => {
+    if (commentMode && activeArtifactRef.current) void loadComments()
+    else setComments([])
+    setPendingPlacement(null)
+  }, [commentMode, activeArtifact?.id, loadComments])
+
+  // 同步批注模式 + 数据到 iframe（钉由 bridge 渲染）。
+  useEffect(() => {
+    postToIframe({ type: "ds_comment_mode", on: commentMode })
+  }, [commentMode, postToIframe])
+  useEffect(() => {
+    if (commentMode) postToIframe({ type: "ds_comments_set", comments })
+  }, [comments, commentMode, postToIframe])
+
   // Receive selection from the iframe bridge + stream-host ready handshake.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -538,12 +653,27 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         payload?: DesignSelectedElement
         oid?: number | string
         text?: string
+        id?: number
+        relX?: number
+        relY?: number
+        tag?: string
+        snippet?: string
       }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
       // 就地文本编辑提交：双击叶子元素改文案 → 走同一确定性回写（apply_text_patch +
       // expectedHash）。仅编辑态受理；oid 直接来自被编辑元素。
       else if (d?.type === "ds_text_commit" && d.oid != null && editModeRef.current) {
         void commitPatch({ oid: Number(d.oid), text: String(d.text ?? "") })
+      }
+      // 批注模式点选元素落钉 → 开新钉待填表单（正文在面板里填）。
+      else if (d?.type === "ds_comment_place" && commentModeRef.current) {
+        setPendingPlacement({
+          oid: d.oid != null ? Number(d.oid) : null,
+          relX: Number(d.relX ?? 0.5),
+          relY: Number(d.relY ?? 0.5),
+          tag: d.tag,
+          snippet: d.snippet,
+        })
       }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
       else if (d?.type === "ds_stream_ready") {
@@ -568,6 +698,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     setEditMode(false)
     setSelected(null)
+    setCommentMode(false)
   }, [activeArtifact?.id])
 
   // Re-arm bridge + restore selection after an iframe (re)mount.
@@ -575,6 +706,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (editModeRef.current) postToIframe({ type: "ds_activate" })
     const oid = selectedRef.current?.oid
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
+    // 重挂后重发批注模式 + 钉数据（bridge 是全新实例）。
+    if (commentModeRef.current) {
+      postToIframe({ type: "ds_comment_mode", on: true })
+      postToIframe({ type: "ds_comments_set", comments: commentsRef.current })
+    }
   }, [postToIframe])
 
   // ── Export (D3): HTML/MD/ZIP（后端）+ PNG/PDF/PPTX/MP4（客户端栅格化） ──
@@ -1461,19 +1597,40 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   </span>
                   <div className="ml-auto flex items-center gap-1">
                     {isEditableKind(activeArtifact.kind) && (
-                      <IconTip
-                        label={t("design.editMode", "可视化微调：点选元素改属性")}
-                        side="bottom"
-                      >
-                        <Button
-                          variant={editMode ? "default" : "ghost"}
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => setEditMode((v) => !v)}
+                      <>
+                        <IconTip
+                          label={t("design.editMode", "可视化微调：点选元素改属性")}
+                          side="bottom"
                         >
-                          <MousePointerClick className="h-3.5 w-3.5" />
-                        </Button>
-                      </IconTip>
+                          <Button
+                            variant={editMode ? "default" : "ghost"}
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setEditMode((v) => !v)
+                              setCommentMode(false)
+                            }}
+                          >
+                            <MousePointerClick className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                        <IconTip
+                          label={t("design.comment.mode", "批注：点选元素留反馈")}
+                          side="bottom"
+                        >
+                          <Button
+                            variant={commentMode ? "default" : "ghost"}
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setCommentMode((v) => !v)
+                              setEditMode(false)
+                            }}
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                      </>
                     )}
                     <Select
                       value={String(zoom)}
@@ -1670,6 +1827,22 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onLiveText={handleLiveText}
               onCommitText={handleCommitText}
               onClose={() => setSelected(null)}
+            />
+          )}
+
+          {/* Comment panel (right) — 批注钉（与 Inspector 互斥） */}
+          {commentMode && activeArtifact && (
+            <DesignCommentPanel
+              comments={comments}
+              pending={pendingPlacement}
+              onCreate={handleCreateComment}
+              onCancelPending={() => setPendingPlacement(null)}
+              onResolve={handleResolveComment}
+              onEdit={handleEditComment}
+              onDelete={handleDeleteComment}
+              onFocus={(id) => postToIframe({ type: "ds_comment_focus", id })}
+              onSendToChat={handleSendCommentToChat}
+              onClose={() => setCommentMode(false)}
             />
           )}
         </div>

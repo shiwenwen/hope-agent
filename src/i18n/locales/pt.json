@@ -276,6 +276,21 @@
       "component": "Componente interativo"
     },
     "editHint": "Clique num elemento para editar o estilo; duplo clique no texto para editá-lo",
+    "comment": {
+      "title": "Comentários",
+      "mode": "Comentar: clique num elemento para dar feedback",
+      "locate": "Ir para o pino",
+      "detached": "sem âncora",
+      "sendToChat": "Enviar para a IA",
+      "reopen": "Reabrir",
+      "resolve": "Marcar como resolvido",
+      "add": "Adicionar comentário",
+      "placeholder": "Escreva o seu feedback sobre este elemento…",
+      "emptyHint": "Clique num elemento na pré-visualização para comentar",
+      "resolvedSection": "Resolvidos",
+      "addFailed": "Falha ao adicionar comentário",
+      "sendSoon": "Enviar para a IA em breve"
+    },
     "exporting": "A exportar…",
     "exportProgressSlide": "A exportar {{done}}/{{total}}",
     "noDirections": "Nenhuma direção gerada — tente uma descrição diferente",

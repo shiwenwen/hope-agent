@@ -72,6 +72,30 @@ export interface DesignSelectedElement {
   rect: { x: number; y: number; w: number; h: number };
 }
 
+/** 元素锚定的批注钉（`design_comment_*_cmd`）。 */
+export interface DesignComment {
+  id: number;
+  artifactId: string;
+  /** 锚定元素的 data-ds-oid；脱锚为 null/undefined。 */
+  oid?: number | null;
+  relX: number;
+  relY: number;
+  tag?: string;
+  snippet?: string;
+  body: string;
+  resolved: boolean;
+  createdAt: string;
+}
+
+/** bridge 在批注模式下点选元素落钉时回传父窗的锚点信息。 */
+export interface CommentPlacement {
+  oid: number | null;
+  relX: number;
+  relY: number;
+  tag?: string;
+  snippet?: string;
+}
+
 /** 5 维质量评审结果（`critique_design_artifact_cmd`）。 */
 export interface CritiqueResult {
   brand: number;

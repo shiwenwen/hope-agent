@@ -276,6 +276,21 @@
       "component": "Komponen interaktif"
     },
     "editHint": "Klik elemen untuk sifatnya; klik dua kali teks untuk mengedit kandungan",
+    "comment": {
+      "title": "Komen",
+      "mode": "Komen: klik elemen untuk beri maklum balas",
+      "locate": "Pergi ke pin",
+      "detached": "tanpa sauh",
+      "sendToChat": "Hantar ke AI",
+      "reopen": "Buka semula",
+      "resolve": "Tanda selesai",
+      "add": "Tambah komen",
+      "placeholder": "Tulis maklum balas untuk elemen ini…",
+      "emptyHint": "Klik elemen dalam pratonton untuk beri komen",
+      "resolvedSection": "Selesai",
+      "addFailed": "Gagal menambah komen",
+      "sendSoon": "Hantar ke AI akan datang"
+    },
     "exporting": "Mengeksport…",
     "exportProgressSlide": "Mengeksport {{done}}/{{total}}",
     "noDirections": "Tiada arah dijana — cuba huraian lain",

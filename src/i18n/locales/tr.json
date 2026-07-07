@@ -276,6 +276,21 @@
       "component": "Etkileşimli bileşen"
     },
     "editHint": "Öğeye tıklayarak özelliklerini, metne çift tıklayarak içeriğini düzenleyin",
+    "comment": {
+      "title": "Yorumlar",
+      "mode": "Yorum: geri bildirim için bir öğeye tıklayın",
+      "locate": "Pime git",
+      "detached": "bağlantısı koptu",
+      "sendToChat": "Yapay zekâya gönder",
+      "reopen": "Yeniden aç",
+      "resolve": "Çözüldü olarak işaretle",
+      "add": "Yorum ekle",
+      "placeholder": "Bu öğe için geri bildirim yazın…",
+      "emptyHint": "Yorum bırakmak için önizlemede bir öğeye tıklayın",
+      "resolvedSection": "Çözüldü",
+      "addFailed": "Yorum eklenemedi",
+      "sendSoon": "Yapay zekâya gönderme yakında"
+    },
     "exporting": "Dışa aktarılıyor…",
     "exportProgressSlide": "Dışa aktarılıyor {{done}}/{{total}}",
     "noDirections": "Yön oluşturulmadı — farklı bir açıklama deneyin",

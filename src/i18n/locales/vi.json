@@ -276,6 +276,21 @@
       "component": "Thành phần tương tác"
     },
     "editHint": "Nhấp vào phần tử để chỉnh thuộc tính; nhấp đúp vào văn bản để sửa nội dung",
+    "comment": {
+      "title": "Bình luận",
+      "mode": "Bình luận: nhấp vào phần tử để để lại phản hồi",
+      "locate": "Đến ghim",
+      "detached": "đã mất neo",
+      "sendToChat": "Gửi cho AI",
+      "reopen": "Mở lại",
+      "resolve": "Đánh dấu đã giải quyết",
+      "add": "Thêm bình luận",
+      "placeholder": "Viết phản hồi cho phần tử này…",
+      "emptyHint": "Nhấp vào phần tử trong bản xem trước để bình luận",
+      "resolvedSection": "Đã giải quyết",
+      "addFailed": "Không thể thêm bình luận",
+      "sendSoon": "Gửi cho AI sắp ra mắt"
+    },
     "exporting": "Đang xuất…",
     "exportProgressSlide": "Đang xuất {{done}}/{{total}}",
     "noDirections": "Chưa tạo hướng nào — hãy thử mô tả khác",

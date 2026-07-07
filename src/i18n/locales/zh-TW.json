@@ -276,6 +276,21 @@
       "component": "互動元件"
     },
     "editHint": "點選元素改屬性，雙擊文字改文案",
+    "comment": {
+      "title": "批註",
+      "mode": "批註：點選元素留回饋",
+      "locate": "定位到釘",
+      "detached": "已脫錨",
+      "sendToChat": "傳給 AI 精修",
+      "reopen": "取消解決",
+      "resolve": "標記已解決",
+      "add": "新增批註",
+      "placeholder": "寫下對這個元素的回饋…",
+      "emptyHint": "點選預覽中的元素即可留下批註",
+      "resolvedSection": "已解決",
+      "addFailed": "新增批註失敗",
+      "sendSoon": "回灌對話即將上線"
+    },
     "exporting": "正在匯出…",
     "exportProgressSlide": "正在匯出 {{done}}/{{total}}",
     "noDirections": "未產生方向，換個描述再試",
