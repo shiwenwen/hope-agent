@@ -275,7 +275,7 @@
       "audio": "Áudio",
       "component": "Componente interativo"
     },
-    "editHint": "Clique num elemento na pré-visualização para começar a editar",
+    "editHint": "Clique num elemento para editar o estilo; duplo clique no texto para editá-lo",
     "exporting": "A exportar…",
     "exportProgressSlide": "A exportar {{done}}/{{total}}",
     "noDirections": "Nenhuma direção gerada — tente uma descrição diferente",

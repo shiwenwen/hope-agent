@@ -275,7 +275,7 @@
       "audio": "音訊",
       "component": "互動元件"
     },
-    "editHint": "在預覽中點選一個元素開始微調",
+    "editHint": "點選元素改屬性，雙擊文字改文案",
     "exporting": "正在匯出…",
     "exportProgressSlide": "正在匯出 {{done}}/{{total}}",
     "noDirections": "未產生方向，換個描述再試",

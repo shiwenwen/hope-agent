@@ -275,7 +275,7 @@
       "audio": "音频",
       "component": "交互组件"
     },
-    "editHint": "在预览中点选一个元素开始微调",
+    "editHint": "点选元素改属性，双击文字改文案",
     "exporting": "正在导出…",
     "exportProgressSlide": "正在导出 {{done}}/{{total}}",
     "noDirections": "未生成方向，换个描述再试",

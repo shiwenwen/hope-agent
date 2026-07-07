@@ -275,7 +275,7 @@
       "audio": "Ses",
       "component": "Etkileşimli bileşen"
     },
-    "editHint": "Düzenlemeye başlamak için önizlemede bir öğeye tıklayın",
+    "editHint": "Öğeye tıklayarak özelliklerini, metne çift tıklayarak içeriğini düzenleyin",
     "exporting": "Dışa aktarılıyor…",
     "exportProgressSlide": "Dışa aktarılıyor {{done}}/{{total}}",
     "noDirections": "Yön oluşturulmadı — farklı bir açıklama deneyin",

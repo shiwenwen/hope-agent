@@ -275,7 +275,7 @@
       "audio": "Âm thanh",
       "component": "Thành phần tương tác"
     },
-    "editHint": "Nhấp vào một phần tử trong bản xem trước để bắt đầu chỉnh sửa",
+    "editHint": "Nhấp vào phần tử để chỉnh thuộc tính; nhấp đúp vào văn bản để sửa nội dung",
     "exporting": "Đang xuất…",
     "exportProgressSlide": "Đang xuất {{done}}/{{total}}",
     "noDirections": "Chưa tạo hướng nào — hãy thử mô tả khác",

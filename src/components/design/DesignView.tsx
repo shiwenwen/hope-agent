@@ -1583,7 +1583,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   {editMode && !selected && (
                     <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
                       <span className="rounded-full bg-primary/90 px-3 py-1 text-xs text-primary-foreground shadow-md">
-                        {t("design.editHint", "在预览中点选一个元素开始微调")}
+                        {t("design.editHint", "点选元素改属性，双击文字改文案")}
                       </span>
                     </div>
                   )}

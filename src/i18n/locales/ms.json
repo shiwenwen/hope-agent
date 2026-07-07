@@ -275,7 +275,7 @@
       "audio": "Audio",
       "component": "Komponen interaktif"
     },
-    "editHint": "Klik satu elemen dalam pratonton untuk mula menyunting",
+    "editHint": "Klik elemen untuk sifatnya; klik dua kali teks untuk mengedit kandungan",
     "exporting": "Mengeksport…",
     "exportProgressSlide": "Mengeksport {{done}}/{{total}}",
     "noDirections": "Tiada arah dijana — cuba huraian lain",

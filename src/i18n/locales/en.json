@@ -275,7 +275,7 @@
       "audio": "Audio",
       "component": "Interactive Component"
     },
-    "editHint": "Click an element in the preview to start editing",
+    "editHint": "Click an element to edit its style; double-click text to edit the copy",
     "exporting": "Exporting…",
     "exportProgressSlide": "Exporting {{done}}/{{total}}",
     "noDirections": "No directions generated — try a different brief",
