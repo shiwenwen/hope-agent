@@ -167,6 +167,7 @@ fn validate_http_chat_attachments(
         match (att.source.as_deref(), att.file_path.as_deref()) {
             (_, None) => {}
             (Some("upload") | Some("quote"), Some(_)) => {}
+            (Some(source), Some(_)) if source == ha_core::attachments::PASTED_TEXT_SOURCE => {}
             (Some("mention"), Some(path)) => validate_http_mention_attachment(session_id, path)?,
             _ => {
                 return Err(AppError::bad_request(
@@ -985,6 +986,20 @@ mod tests {
             source: Some("upload".to_string()),
             data: None,
             file_path: Some("/tmp/upload.txt".to_string()),
+            quote_lines: None,
+        }];
+
+        assert!(validate_http_chat_attachments("missing-session", &attachments).is_ok());
+    }
+
+    #[test]
+    fn http_chat_allows_pasted_text_file_path_attachments() {
+        let attachments = vec![Attachment {
+            name: "pasted-text.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some(ha_core::attachments::PASTED_TEXT_SOURCE.to_string()),
+            data: None,
+            file_path: Some("/tmp/pasted-text.txt".to_string()),
             quote_lines: None,
         }];
 
