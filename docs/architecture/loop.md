@@ -210,7 +210,7 @@ GUI：Workspace 面板中的「持续推进」中心支持创建 `every` / `unti
 
 「持续推进」中心按 blocked / active / paused / completed / cancelled 排序分组，超过 5 个时提供“查看更多持续推进”，不依赖 `/loop status` 完成管理。每行先给一句可读状态故事，解释最近一次推进、下一次触发、阻塞或完成原因；随后显示 prompt、guard streak、runtime / token budget、progress summary、blocked reason，并提供 run now / edit policy / history / pause / resume / stop。edit policy 内联编辑 max runs、runtime、token、no-progress、failure、backoff；run now 走 Cron primary-only immediate path。每个 Loop 行可展开“运行记录”，通过 `get_loop_schedule` 拉取最近 `loop_runs`，显示 run seq、state、progress state、调度决策、no-progress reason、错误/摘要、派生 `workflowRunId` 与 template version。
 
-创建 `executionStrategy=workflow` 的 Loop 后，列表会用 `Workflow` 标记，并根据同会话 Workflow run 的 `origin=loop:<loop_id>` 显示最近派生 run 的 kind、state、更新时间和跳转按钮。点击后 Workspace 会选中对应 Workflow run detail，继续查看审批、trace、validation、agents、pause/resume/cancel 等控制面。Workspace 顶层共享同一份 `useGoal`、`useWorkflowRuns` 与 `useLoopSchedules` state 给 Workflow 与 Loop 区块，避免重复请求并确保 active Goal 模板、派生 Workflow run 和 Loop 状态一致；readiness 卡片请求创建 loop 时，Loop 区块会展开创建器并预选 `every + workflow`，但仍由用户显式点击“创建持续推进”。当 readiness 卡片发现 blocked loop 时，“查看持续推进”会展开 Loop 区块并打开对应运行记录；它不自动 resume / stop。
+创建 `executionStrategy=workflow` 的 Loop 后，列表会用 `Workflow` 标记，并根据同会话 Workflow run 的 `origin=loop:<loop_id>` 显示最近派生 run 的 kind、state、更新时间和跳转按钮。点击后 Workspace 会选中对应 Workflow run detail，继续查看审批、trace、validation、agents、pause/resume/cancel 等控制面。Workspace 顶层共享同一份 `useGoal`、`useWorkflowRuns` 与 `useLoopSchedules` state 给 Goal、Workflow 与 Loop 区块，避免重复请求并确保 active Goal 模板、派生 Workflow run 和 Loop 状态一致。输入框「持续推进」或其它 owner 入口请求创建 loop 时，Loop 区块会展开创建器并预选合适策略，但仍由用户显式点击“创建持续推进”；查看 blocked loop 只展开 Loop 区块并打开对应运行记录，不自动 resume / stop。
 
 ## 安全与可靠性
 

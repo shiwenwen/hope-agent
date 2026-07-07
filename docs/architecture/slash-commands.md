@@ -311,7 +311,7 @@ stateDiagram-v2
 
 ## `/goal` 子命令详解
 
-`/goal` 是当前会话 active Goal 的轻量控制面；完整状态、证据指标和操作按钮在 [Goal 控制平面](goal.md) 的 Workspace / Workflow Control Center Goal strip 中展示。
+`/goal` 是当前会话 active Goal 的轻量控制面；完整状态、证据指标和操作按钮在 [Goal 控制平面](goal.md) 的 Workspace 独立 Goal section 中展示。
 
 | 用法 | 行为 |
 |---|---|

@@ -25,7 +25,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 | 斜杠命令 | `crates/ha-core/src/slash_commands/handlers/goal.rs` | `/goal` 文本控制面。 |
 | Tauri owner API | `src-tauri/src/commands/goal.rs` | 桌面 owner 平面命令。 |
 | HTTP owner API | `crates/ha-server/src/routes/goal.rs` | Server/Web owner 平面端点。 |
-| GUI | `src/components/chat/workspace/useGoal.ts`、`WorkspacePanel.tsx`、`ChatInput.tsx` | Workflow Control Center 内 Goal strip、Goal detail、closure packet、输入框目标模式、composer 上方 active Goal 状态条、创建/更新/暂停/恢复/清除/评估/关闭取舍、证据摘要。 |
+| GUI | `src/components/chat/workspace/useGoal.ts`、`WorkspacePanel.tsx`、`ChatInput.tsx` | Workspace 独立 Goal section、Goal detail、closure packet、输入框目标模式、composer 上方 active Goal 状态条、创建/更新/暂停/恢复/清除/评估/关闭取舍、证据摘要。 |
 
 红线：
 
@@ -276,11 +276,11 @@ EventBus：
 
 ### GUI
 
-Workspace / Workflow Control Center 内有 Goal strip：
+Workspace 内有独立 Goal section；Goal 不再藏在 Workflow 区域里：
 
 - 无 active Goal：可直接创建 objective + completion criteria，可选 domain workflow template 与 task type；默认“自由任务”。
 - 有 active Goal：展示目标摘要、状态、domain/template/task type、workflow/task/evidence 指标，并支持编辑 objective / completion criteria / domain workflow 绑定；completion criteria 文本编辑器会即时预览 parser 派生出的 required / optional / follow-up item，后端 parser 仍是 durable 真相源。
-- 点击 active Goal strip 可展开 Goal detail，查看 criteria 覆盖、预算、下一步证据、结构化 evidence、timeline、workflow/task 摘要。
+- 点击 active Goal section 可展开 Goal detail，查看 criteria 覆盖、预算、下一步证据、结构化 evidence、timeline、workflow/task 摘要。
 - 若存在 `worktree_attached` evidence，Goal detail 会显示 Worktrees 区块，直接展示改动落点、worktree state、path 是否存在、base、dirty snapshot 与 handoff / run 关联。
 - 若存在 `domain_evidence`，Goal detail 会显示「领域证据」分组，展示 domain、evidence type、source URL/path/dataset、confidence、access scope、connector/account、redaction status、导出前复核提示与 workflow run/op provenance。
 - audit 后展示 final summary、blocked reason、missing/blocker/achieved 摘要。

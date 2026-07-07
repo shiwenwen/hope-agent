@@ -13,13 +13,13 @@ describe("RightPanelShell", () => {
         reservedMainWidth={420}
         overlay
       >
-        <div>Workflow Control Center</div>
+        <div>Workspace Control Panel</div>
       </RightPanelShell>,
     )
 
     const shell = container.firstElementChild
     expect(shell?.className).toContain("fixed")
     expect(shell?.className).toContain("inset-0")
-    expect(screen.getByText("Workflow Control Center")).toBeTruthy()
+    expect(screen.getByText("Workspace Control Panel")).toBeTruthy()
   })
 })

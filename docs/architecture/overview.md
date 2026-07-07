@@ -271,6 +271,7 @@ graph LR
 | 模块 | 文档 |
 |------|------|
 | Goal 顶层目标与完成审计 | [Goal 控制平面](goal.md) |
+| Workspace / 工作台总览 | [Workspace Control Panel](workspace.md) |
 | Durable Workflow / Execution Mode | [Workflow Mode、Workflow Run 与 Execution Mode](workflow.md) |
 | Loop 持续触发 | [Loop 控制平面](loop.md) |
 | Managed Worktree | [Managed Worktree 控制平面](worktree.md) |

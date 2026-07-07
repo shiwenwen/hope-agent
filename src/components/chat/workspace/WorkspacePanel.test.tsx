@@ -2339,7 +2339,7 @@ describe("WorkspacePanel domain quality section", () => {
 })
 
 describe("WorkspacePanel workflow section", () => {
-  it("summarizes autonomous readiness from goal workflow and loop state", async () => {
+  it("keeps goal workflow and loop state in separate workspace sections", async () => {
     const run = workflowRun({
       id: "wf-loop",
       kind: "domain:research",
@@ -2367,17 +2367,20 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("自主推进就绪")).toBeTruthy()
-    expect(await screen.findByText("自主就绪")).toBeTruthy()
+    expect(await screen.findByRole("button", { name: /目标/ })).toBeTruthy()
+    expect(await screen.findByRole("button", { name: /^工作流/ })).toBeTruthy()
+    expect(await screen.findByRole("button", { name: /^持续推进/ })).toBeTruthy()
+    expect((await screen.findAllByText("高级诊断")).length).toBeGreaterThan(0)
     expect(screen.getAllByText("Keep the research brief fresh").length).toBeGreaterThan(0)
     expect(screen.getAllByText("自主").length).toBeGreaterThan(0)
+    expect(screen.queryByText("自主推进就绪")).toBeNull()
     await waitFor(() => {
       const goalCalls = transportMock.call.mock.calls.filter(([name]) => name === "get_active_goal")
       expect(goalCalls).toHaveLength(1)
     })
   })
 
-  it("offers setup actions from the autonomous readiness card", async () => {
+  it("updates workflow and execution mode from the workflow section", async () => {
     transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
       if (name === "list_workflow_runs") return Promise.resolve([])
@@ -2397,9 +2400,9 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    expect(await screen.findByText("待配置")).toBeTruthy()
+    await clickSectionHeader("工作流")
 
-    fireEvent.click(screen.getByRole("button", { name: "开启编排" }))
+    fireEvent.click(screen.getByRole("button", { name: /^开启/ }))
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("set_workflow_mode", {
         sessionId: "s1",
@@ -2407,7 +2410,7 @@ describe("WorkspacePanel workflow section", () => {
       })
     })
 
-    fireEvent.click(screen.getByRole("button", { name: "设为守护" }))
+    fireEvent.click(screen.getByRole("button", { name: /^守护/ }))
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("set_execution_mode", {
         sessionId: "s1",
@@ -2415,73 +2418,10 @@ describe("WorkspacePanel workflow section", () => {
       })
     })
 
-    fireEvent.click(screen.getAllByRole("button", { name: "新建持续推进" })[0])
+    await clickSectionHeader("持续推进")
+    fireEvent.click(screen.getAllByRole("button", { name: /新建持续推进/ })[0])
     expect(await screen.findByRole("button", { name: "创建持续推进" })).toBeTruthy()
     expect(screen.getByRole("button", { name: "按工作流执行" })).toBeTruthy()
-  })
-
-  it("opens failed workflow and blocked loop details from readiness actions", async () => {
-    const healthyRun = workflowRun({
-      id: "wf-ok",
-      state: "completed",
-      completedAt: "2026-01-01T00:04:00Z",
-      updatedAt: "2026-01-01T00:04:00Z",
-    })
-    const failedRun = workflowRun({
-      id: "wf-failed",
-      state: "failed",
-      blockedReason: "validation failed",
-      updatedAt: "2026-01-01T00:05:00Z",
-    })
-    const blockedLoop = loopSchedule({
-      id: "loop-blocked",
-      state: "blocked",
-      blockedReason: "approval required",
-    })
-    const blockedLoopSnapshot = loopSnapshot({
-      schedule: blockedLoop,
-      runs: loopSnapshot().runs.map((run) => ({ ...run, loopId: blockedLoop.id })),
-    })
-    const snapshots = new Map([
-      [healthyRun.id, workflowSnapshot(healthyRun)],
-      [failedRun.id, workflowSnapshot(failedRun)],
-    ])
-    transportMock.call.mockImplementation((name: string, args?: Record<string, unknown>) => {
-      if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
-      if (name === "list_workflow_runs") return Promise.resolve([healthyRun, failedRun])
-      if (name === "get_workflow_run") {
-        return Promise.resolve(snapshots.get(String(args?.runId)) ?? null)
-      }
-      if (name === "list_loop_schedules") return Promise.resolve([blockedLoop])
-      if (name === "get_loop_schedule") return Promise.resolve(blockedLoopSnapshot)
-      if (name === "get_workflow_mode") return Promise.resolve({ mode: "on" })
-      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
-      if (name === "evaluate_domain_operational_gate") return Promise.resolve(null)
-      if (name === "generate_domain_soak_report") return Promise.resolve(null)
-      if (name === "get_background_job") return Promise.resolve(null)
-      return Promise.resolve([])
-    })
-
-    renderPanel({
-      workingDir: { path: "/repo", source: "session", exists: true, name: "repo" },
-      git: null,
-    })
-
-    expect((await screen.findAllByText("需处理")).length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getByRole("button", { name: "查看工作流" }))
-    await waitFor(() => {
-      expect(transportMock.call).toHaveBeenCalledWith("get_workflow_run", {
-        runId: "wf-failed",
-      })
-    })
-
-    fireEvent.click(screen.getByRole("button", { name: "查看持续推进" }))
-    await waitFor(() => {
-      expect(transportMock.call).toHaveBeenCalledWith("get_loop_schedule", {
-        loopId: "loop-blocked",
-      })
-    })
   })
 
   it("keeps empty workflow acceptance neutral before any samples exist", async () => {
@@ -2527,7 +2467,7 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.queryByText(/Record the target connector/)).toBeNull()
   })
 
-  it("opens operational and soak evidence from readiness actions", async () => {
+  it("opens operational and soak evidence from the advanced diagnostics workbench", async () => {
     const writeText = vi.fn(async (_value: string) => {})
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText },
@@ -3039,7 +2979,7 @@ describe("WorkspacePanel workflow section", () => {
     expect(screen.getByText("缺少守门通过样本")).toBeTruthy()
   })
 
-  it("opens export and connector guard evidence from readiness actions", async () => {
+  it("opens export and connector guard evidence from the advanced diagnostics workbench", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
       if (name === "list_workflow_runs") return Promise.resolve([])
@@ -3393,7 +3333,7 @@ describe("WorkspacePanel workflow section", () => {
     })
   })
 
-  it("surfaces connector E2E gate evidence from readiness actions", async () => {
+  it("surfaces connector E2E gate evidence from the advanced diagnostics workbench", async () => {
     transportMock.call.mockImplementation((name: string) => {
       if (name === "get_active_goal") return Promise.resolve(goalSnapshotWithWorkflowTemplate())
       if (name === "list_workflow_runs") return Promise.resolve([])

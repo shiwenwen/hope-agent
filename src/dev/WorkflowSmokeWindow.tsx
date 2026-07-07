@@ -70,7 +70,7 @@ function workflowSnapshot(scenario: SmokeScenario): WorkflowRunSnapshot {
       opType: "spawnAgent",
       effectClass: "non_idempotent",
       inputHash: "hash-agent",
-      input: { label: "implement-target", task: "Tighten Workflow Control Center UX" },
+      input: { label: "implement-target", task: "Tighten Workspace workflow UX" },
       state: scenario === "approval" ? "pending" : "completed",
       output:
         scenario === "approval"
@@ -80,7 +80,7 @@ function workflowSnapshot(scenario: SmokeScenario): WorkflowRunSnapshot {
               status: "completed",
               runId: "subagent-smoke-1",
               sessionId: "subagent-session-smoke",
-              task: "Tighten Workflow Control Center UX",
+              task: "Tighten Workspace workflow UX",
             },
       error: null,
       childHandle: "subagent-smoke-1",
@@ -416,7 +416,7 @@ export default function WorkflowSmokeWindow() {
             <div className="min-w-0">
               <h1 className="truncate text-sm font-semibold">Workflow GUI Smoke</h1>
               <p className="truncate text-xs text-muted-foreground">
-                Dev-only viewport harness for Workflow Control Center
+                Dev-only viewport harness for Workspace workflow UI
               </p>
             </div>
             <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
