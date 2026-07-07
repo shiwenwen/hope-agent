@@ -3006,11 +3006,11 @@ describe("WorkspacePanel workflow section", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "查看交付" }))
     expect(await screen.findByText("交付守门")).toBeTruthy()
-    expect(screen.getByText("artifact_reviewed")).toBeTruthy()
+    expect(screen.getByText("产物已复核")).toBeTruthy()
 
     fireEvent.click(screen.getByRole("button", { name: "查看外部动作" }))
     expect(await screen.findByText("外部动作守门")).toBeTruthy()
-    expect(screen.getByText("explicit_user_approval")).toBeTruthy()
+    expect(screen.getByText("用户明确批准")).toBeTruthy()
   })
 
   it("runs artifact-scoped domain quality from export guard", async () => {
@@ -3289,7 +3289,7 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
-    const exportCheckLabel = (await screen.findAllByText("artifact_reviewed"))[0]
+    const exportCheckLabel = (await screen.findAllByText("产物已复核"))[0]
     const exportCheckRow = exportCheckLabel.parentElement
     expect(exportCheckRow).toBeTruthy()
     fireEvent.click(within(exportCheckRow as HTMLElement).getByRole("button", { name: "转任务" }))
@@ -3297,9 +3297,8 @@ describe("WorkspacePanel workflow section", () => {
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
-        content:
-          "处理交付守门缺口：artifact_reviewed（0）- The delivery artifact has not been reviewed.",
-        activeForm: "正在处理交付守门缺口：artifact_reviewed",
+        content: "处理交付守门缺口：产物已复核（0）- The delivery artifact has not been reviewed.",
+        activeForm: "正在处理交付守门缺口：产物已复核",
       })
     })
 
@@ -3311,12 +3310,12 @@ describe("WorkspacePanel workflow section", () => {
     await waitFor(() => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
-        content: "复核交付证据：Private source（sensitive_unreviewed）- connector / pending",
+        content: "复核交付证据：Private source（敏感证据未复核）- 连接器 / 待脱敏",
         activeForm: "正在复核交付证据：Private source",
       })
     })
 
-    const connectorCheckLabel = (await screen.findAllByText("explicit_user_approval"))[0]
+    const connectorCheckLabel = (await screen.findAllByText("用户明确批准"))[0]
     const connectorCheckRow = connectorCheckLabel.parentElement
     expect(connectorCheckRow).toBeTruthy()
     fireEvent.click(
@@ -3327,8 +3326,8 @@ describe("WorkspacePanel workflow section", () => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
         content:
-          "处理外部动作守门缺口：explicit_user_approval（0）- No explicit user approval evidence exists for the external action.",
-        activeForm: "正在处理外部动作守门缺口：explicit_user_approval",
+          "处理外部动作守门缺口：用户明确批准（0）- No explicit user approval evidence exists for the external action.",
+        activeForm: "正在处理外部动作守门缺口：用户明确批准",
       })
     })
   })
@@ -3356,12 +3355,13 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
+    await clickSectionHeader("通用任务工作台")
     expect((await screen.findAllByText("连接器 E2E")).length).toBeGreaterThan(0)
-    expect(screen.getByText("execution_result")).toBeTruthy()
-    expect(screen.getByText("post_action_verification")).toBeTruthy()
+    expect(screen.getByText("执行结果")).toBeTruthy()
+    expect(screen.getByText("执行后复核")).toBeTruthy()
     expect(screen.getByText("外部动作还缺端到端执行与复核样本。")).toBeTruthy()
 
-    const e2eCheckLabel = screen.getByText("execution_result")
+    const e2eCheckLabel = screen.getByText("执行结果")
     const e2eCheckRow = e2eCheckLabel.parentElement
     expect(e2eCheckRow).toBeTruthy()
     fireEvent.click(within(e2eCheckRow as HTMLElement).getByRole("button", { name: "转任务" }))
@@ -3370,13 +3370,20 @@ describe("WorkspacePanel workflow section", () => {
       expect(transportMock.call).toHaveBeenCalledWith("create_session_task", {
         sessionId: "s1",
         content:
-          "处理连接器 E2E 缺口：execution_result（0）- The connector action has not produced an execution result yet.",
-        activeForm: "正在处理连接器 E2E 缺口：execution_result",
+          "处理连接器 E2E 缺口：执行结果（0）- The connector action has not produced an execution result yet.",
+        activeForm: "正在处理连接器 E2E 缺口：执行结果",
       })
     })
 
-    fireEvent.click(screen.getByRole("button", { name: "查看 E2E" }))
+    const e2eEvaluationsBeforeRefresh = transportMock.call.mock.calls.filter(
+      ([name]) => name === "evaluate_domain_connector_e2e_gate",
+    ).length
+    fireEvent.click(screen.getByRole("button", { name: "刷新连接器 E2E" }))
     await waitFor(() => {
+      const e2eEvaluations = transportMock.call.mock.calls.filter(
+        ([name]) => name === "evaluate_domain_connector_e2e_gate",
+      )
+      expect(e2eEvaluations.length).toBeGreaterThan(e2eEvaluationsBeforeRefresh)
       expect(transportMock.call).toHaveBeenCalledWith("evaluate_domain_connector_e2e_gate", {
         input: {
           sessionId: "s1",
@@ -3435,6 +3442,7 @@ describe("WorkspacePanel workflow section", () => {
       git: null,
     })
 
+    await clickSectionHeader("通用任务工作台")
     expect((await screen.findAllByText("连接器 E2E")).length).toBeGreaterThan(0)
     expect(screen.getByText("下一步：记录执行结果")).toBeTruthy()
     expect(

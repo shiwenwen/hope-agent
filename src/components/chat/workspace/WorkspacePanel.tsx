@@ -323,7 +323,7 @@ function WorkspaceSection({
   expandSignal?: number
   autoExpandWhen?: boolean
 }) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [expanded, setExpanded] = useState(defaultExpanded || Boolean(autoExpandWhen))
   const lastExpandSignalRef = useRef(expandSignal ?? 0)
   const lastAutoExpandWhenRef = useRef(Boolean(autoExpandWhen))
 
@@ -1704,6 +1704,59 @@ function contextCandidateTone(candidate: ContextCandidate): StatusTone {
   return "muted"
 }
 
+function diagnosticStatusLabel(t: ReturnType<typeof useTranslation>["t"], status: string): string {
+  const normalized = status.toLowerCase()
+  switch (normalized) {
+    case "open":
+      return t("workspace.diagnosticStatus.open", "待处理")
+    case "closed":
+    case "resolved":
+      return t("workspace.diagnosticStatus.resolved", "已处理")
+    case "completed":
+    case "passed":
+    case "success":
+    case "succeeded":
+      return t("workspace.diagnosticStatus.completed", "已完成")
+    case "failed":
+    case "error":
+      return t("workspace.diagnosticStatus.failed", "失败")
+    case "blocked":
+      return t("workspace.diagnosticStatus.blocked", "阻塞")
+    case "pending":
+    case "queued":
+      return t("workspace.diagnosticStatus.pending", "等待中")
+    case "running":
+    case "in_progress":
+      return t("workspace.diagnosticStatus.running", "运行中")
+    case "skipped":
+      return t("workspace.diagnosticStatus.skipped", "已跳过")
+    case "warning":
+    case "warn":
+      return t("workspace.diagnosticStatus.warning", "警告")
+    case "timed_out":
+    case "timeout":
+      return t("workspace.diagnosticStatus.timedOut", "超时")
+    case "awaiting":
+    case "awaiting_approval":
+    case "awaiting_user":
+      return t("workspace.diagnosticStatus.awaiting", "等待确认")
+    case "cancelled":
+    case "canceled":
+      return t("workspace.diagnosticStatus.cancelled", "已取消")
+    case "critical":
+      return t("workspace.diagnosticStatus.critical", "严重")
+    case "information":
+    case "info":
+      return t("workspace.diagnosticStatus.info", "信息")
+    case "hint":
+      return t("workspace.diagnosticStatus.hint", "提示")
+    case "unknown":
+      return t("workspace.diagnosticStatus.unknown", "未知")
+    default:
+      return status
+  }
+}
+
 function contextLocationLabel(candidate: ContextCandidate): string | null {
   const path = candidate.path ?? candidate.url ?? candidate.subtitle ?? null
   if (!path) return null
@@ -2293,7 +2346,10 @@ function ContextFileCandidateRow({
                 {candidate.title}
               </span>
               {candidate.status ? (
-                <StatusPill label={candidate.status} tone={contextCandidateTone(candidate)} />
+                <StatusPill
+                  label={diagnosticStatusLabel(t, candidate.status)}
+                  tone={contextCandidateTone(candidate)}
+                />
               ) : null}
             </div>
             <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
@@ -2365,7 +2421,10 @@ function ContextGenericCandidateRow({
             {candidate.title}
           </span>
           {candidate.status ? (
-            <StatusPill label={candidate.status} tone={contextCandidateTone(candidate)} />
+            <StatusPill
+              label={diagnosticStatusLabel(t, candidate.status)}
+              tone={contextCandidateTone(candidate)}
+            />
           ) : null}
         </div>
         <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
@@ -2878,6 +2937,90 @@ function domainEvidenceTypeLabel(
       return t("workspace.domainWorkbench.evidenceUserDecision", "用户决策")
     default:
       return type.replace(/_/g, " ")
+  }
+}
+
+function domainGuardCheckNameLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  name: string,
+): string {
+  switch (name) {
+    case "evidence_scope":
+      return t("workspace.domainGuardCheck.evidenceScope", "证据范围")
+    case "artifact_created":
+      return t("workspace.domainGuardCheck.artifactCreated", "产物已创建")
+    case "artifact_reviewed":
+      return t("workspace.domainGuardCheck.artifactReviewed", "产物已复核")
+    case "redaction_status":
+      return t("workspace.domainGuardCheck.redactionStatus", "脱敏状态")
+    case "sensitive_evidence":
+      return t("workspace.domainGuardCheck.sensitiveEvidence", "敏感证据")
+    case "action_scope":
+      return t("workspace.domainGuardCheck.actionScope", "动作范围")
+    case "explicit_user_approval":
+      return t("workspace.domainGuardCheck.explicitUserApproval", "用户明确批准")
+    case "rollback_plan":
+      return t("workspace.domainGuardCheck.rollbackPlan", "回滚方案")
+    case "artifact_export_guard":
+      return t("workspace.domainGuardCheck.artifactExportGuard", "交付守门")
+    case "connector_input":
+      return t("workspace.domainGuardCheck.connectorInput", "连接器输入")
+    case "draft_or_preview":
+      return t("workspace.domainGuardCheck.draftOrPreview", "草稿或预览")
+    case "action_execution":
+      return t("workspace.domainGuardCheck.actionExecution", "动作执行")
+    case "execution_result":
+      return t("workspace.domainGuardCheck.executionResult", "执行结果")
+    case "post_action_verification":
+      return t("workspace.domainGuardCheck.postActionVerification", "执行后复核")
+    case "connector_action_guard":
+      return t("workspace.domainGuardCheck.connectorActionGuard", "外部动作守门")
+    case "sensitive_unreviewed":
+      return t("workspace.domainGuardCheck.sensitiveUnreviewed", "敏感证据未复核")
+    default:
+      return name.replace(/_/g, " ")
+  }
+}
+
+function domainAccessScopeLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  scope?: string | null,
+): string {
+  switch ((scope ?? "").toLowerCase()) {
+    case "public":
+      return t("workspace.domainAccessScope.public", "公开")
+    case "session":
+      return t("workspace.domainAccessScope.session", "当前会话")
+    case "private":
+      return t("workspace.domainAccessScope.private", "私有")
+    case "connector":
+      return t("workspace.domainAccessScope.connector", "连接器")
+    case "restricted":
+      return t("workspace.domainAccessScope.restricted", "受限")
+    default:
+      return scope || "-"
+  }
+}
+
+function domainRedactionStatusLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  status?: string | null,
+): string {
+  switch ((status ?? "").toLowerCase()) {
+    case "none":
+      return t("workspace.domainRedaction.none", "无需脱敏")
+    case "clean":
+      return t("workspace.domainRedaction.clean", "已清理")
+    case "pending":
+      return t("workspace.domainRedaction.pending", "待脱敏")
+    case "sensitive":
+      return t("workspace.domainRedaction.sensitive", "敏感")
+    case "redacted":
+      return t("workspace.domainRedaction.redacted", "已脱敏")
+    case "not_required":
+      return t("workspace.domainRedaction.notRequired", "不需要")
+    default:
+      return status || "-"
   }
 }
 
@@ -4497,7 +4640,9 @@ function domainAcceptanceReviewGateLine(
     .slice(0, 2)
     .map((check) => {
       const detail = check.detail || check.actual
-      return detail ? `${check.name}=${check.status} (${detail})` : `${check.name}=${check.status}`
+      const name = domainGuardCheckNameLabel(t, check.name)
+      const status = diagnosticStatusLabel(t, check.status)
+      return detail ? `${name}=${status} (${detail})` : `${name}=${status}`
     })
   const extras = [
     blockers.length > 0
@@ -5090,8 +5235,8 @@ function DomainWorkbenchEvidenceRow({ item }: { item: DomainEvidenceItem }) {
         </div>
         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-5 text-[10px] text-muted-foreground/65">
           <span className="truncate">{domainLabel(item.domain)}</span>
-          <span className="truncate">{item.accessScope}</span>
-          <span className="truncate">{item.redactionStatus}</span>
+          <span className="truncate">{domainAccessScopeLabel(t, item.accessScope)}</span>
+          <span className="truncate">{domainRedactionStatusLabel(t, item.redactionStatus)}</span>
           <span className="shrink-0">{formatMessageTime(item.createdAt)}</span>
         </div>
       </div>
@@ -5766,6 +5911,24 @@ function lspSeverityTone(severity: LspDiagnostic["severity"]): StatusTone {
   }
 }
 
+function lspSeverityLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  severity: LspDiagnostic["severity"],
+): string {
+  switch (severity) {
+    case "error":
+      return t("workspace.lsp.severityError", "错误")
+    case "warning":
+      return t("workspace.lsp.severityWarning", "警告")
+    case "information":
+      return t("workspace.lsp.severityInformation", "信息")
+    case "hint":
+      return t("workspace.lsp.severityHint", "提示")
+    case "unknown":
+      return t("workspace.lsp.severityUnknown", "未知")
+  }
+}
+
 function lspSeverityRank(severity: LspDiagnostic["severity"]): number {
   switch (severity) {
     case "error":
@@ -5905,7 +6068,7 @@ function LspDiagnosticsSection({
                         {diagnostic.range.startLine}:{diagnostic.range.startColumn}
                       </span>
                       <StatusPill
-                        label={diagnostic.severity}
+                        label={lspSeverityLabel(t, diagnostic.severity)}
                         tone={lspSeverityTone(diagnostic.severity)}
                       />
                     </div>
@@ -5977,6 +6140,20 @@ function reviewVerdictTone(verdict: ReviewVerdict): StatusTone {
   }
 }
 
+function reviewVerdictLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  verdict: ReviewVerdict,
+): string {
+  switch (verdict) {
+    case "confirmed":
+      return t("workspace.review.verdictConfirmed", "已确认")
+    case "plausible":
+      return t("workspace.review.verdictPlausible", "可能存在")
+    case "refuted":
+      return t("workspace.review.verdictRefuted", "已排除")
+  }
+}
+
 function reviewStatusLabel(
   t: ReturnType<typeof useTranslation>["t"],
   status: ReviewFindingStatus,
@@ -6007,15 +6184,21 @@ function reviewStatsNumber(snapshot: ReviewRunSnapshot | null, key: string): num
 }
 
 const REVIEW_PROFILE_OPTIONS = [
-  { id: "correctness", label: "Correct" },
-  { id: "security", label: "Security" },
-  { id: "maintainability", label: "Maintain" },
-  { id: "tests", label: "Tests" },
-  { id: "concurrency", label: "Concurrency" },
-  { id: "frontend", label: "Frontend" },
-  { id: "accessibility", label: "A11y" },
-  { id: "deep", label: "Deep" },
+  { id: "correctness", labelKey: "workspace.review.profileCorrectness", defaultLabel: "正确性" },
+  { id: "security", labelKey: "workspace.review.profileSecurity", defaultLabel: "安全" },
+  { id: "maintainability", labelKey: "workspace.review.profileMaintainability", defaultLabel: "维护性" },
+  { id: "tests", labelKey: "workspace.review.profileTests", defaultLabel: "测试" },
+  { id: "concurrency", labelKey: "workspace.review.profileConcurrency", defaultLabel: "并发" },
+  { id: "frontend", labelKey: "workspace.review.profileFrontend", defaultLabel: "前端" },
+  { id: "accessibility", labelKey: "workspace.review.profileAccessibility", defaultLabel: "可访问性" },
+  { id: "deep", labelKey: "workspace.review.profileDeep", defaultLabel: "深度" },
 ] as const
+
+function reviewProfileLabel(t: ReturnType<typeof useTranslation>["t"], profile: string): string {
+  const option = REVIEW_PROFILE_OPTIONS.find((item) => item.id === profile)
+  if (option) return t(option.labelKey, option.defaultLabel)
+  return profile
+}
 
 const DEFAULT_REVIEW_PROFILES = ["correctness", "security", "maintainability", "tests"]
 const DOMAIN_WORKBENCH_EVIDENCE_LIMIT = 60
@@ -6595,7 +6778,7 @@ function ReviewSection({
                     : "border-border/50 bg-secondary/20 text-muted-foreground hover:bg-secondary/45 hover:text-foreground",
                 )}
               >
-                <span className="block truncate">{profile.label}</span>
+                <span className="block truncate">{t(profile.labelKey, profile.defaultLabel)}</span>
               </button>
             )
           })}
@@ -6628,14 +6811,18 @@ function ReviewSection({
             {activeProfiles.length > 0 || ideContextPresent || llmReviewer ? (
               <div className="mt-1 flex min-w-0 flex-wrap gap-1 pl-5">
                 {activeProfiles.slice(0, 4).map((profile) => (
-                  <StatusPill key={profile} label={profile} tone="muted" />
+                  <StatusPill key={profile} label={reviewProfileLabel(t, profile)} tone="muted" />
                 ))}
                 {ideContextPresent ? (
-                  <StatusPill label={t("workspace.review.ideContext", "IDE context")} tone="info" />
+                  <StatusPill label={t("workspace.review.ideContext", "IDE 上下文")} tone="info" />
                 ) : null}
                 {llmReviewer && llmReviewer !== "not_requested" ? (
                   <StatusPill
-                    label={llmReviewer === "completed" ? "Deep reviewer" : "Deep skipped"}
+                    label={
+                      llmReviewer === "completed"
+                        ? t("workspace.review.deepReviewer", "深度审查")
+                        : t("workspace.review.deepSkipped", "已跳过深度审查")
+                    }
                     tone={llmReviewer === "completed" ? "good" : "warn"}
                   />
                 ) : null}
@@ -6660,7 +6847,10 @@ function ReviewSection({
                       label={finding.severity.toUpperCase()}
                       tone={reviewSeverityTone(finding.severity)}
                     />
-                    <StatusPill label={finding.verdict} tone={reviewVerdictTone(finding.verdict)} />
+                    <StatusPill
+                      label={reviewVerdictLabel(t, finding.verdict)}
+                      tone={reviewVerdictTone(finding.verdict)}
+                    />
                   </div>
                   <div className="mt-1 line-clamp-2 pl-5 text-[11px] leading-snug text-muted-foreground">
                     {finding.body}
@@ -8062,6 +8252,7 @@ function DomainOperationalGatePanel({
   ) => {
     if (!sessionId || disabled || creatingCheckTaskKey) return
     const taskKey = `${index}:${check.name}`
+    const checkLabel = domainGuardCheckNameLabel(t, check.name)
     setCreatingCheckTaskKey(taskKey)
     try {
       await getTransport().call<Task[]>("create_session_task", {
@@ -8070,7 +8261,7 @@ function DomainOperationalGatePanel({
           "workspace.domainOperationalGate.checkTaskContent",
           "处理运行稳定性缺口：{{name}}（{{actual}}）- {{detail}}",
           {
-            name: check.name,
+            name: checkLabel,
             actual: check.actual,
             detail: check.detail || check.expected,
           },
@@ -8078,7 +8269,7 @@ function DomainOperationalGatePanel({
         activeForm: t(
           "workspace.domainOperationalGate.checkTaskActiveForm",
           "正在处理运行稳定性缺口：{{name}}",
-          { name: check.name },
+          { name: checkLabel },
         ),
       })
       toast.success(t("workspace.domainOperationalGate.checkTaskCreated", "已创建运行稳定性任务"))
@@ -8256,7 +8447,9 @@ function DomainOperationalGatePanel({
               >
                 <div className="flex min-w-0 items-center gap-1.5">
                   <CircleAlert className="h-3 w-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {domainGuardCheckNameLabel(t, check.name)}
+                  </span>
                   <span className="shrink-0 tabular-nums">{check.actual}</span>
                   {canCreateCheckTasks ? (
                     <button
@@ -8577,7 +8770,10 @@ function DomainSoakReportPanel({
                   key={`${item.source}:${item.id}:${item.at}`}
                   className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground"
                 >
-                  <StatusPill label={item.source} tone={domainSoakTimelineTone(item.status)} />
+                  <StatusPill
+                    label={domainSoakSourceLabel(t, item.source)}
+                    tone={domainSoakTimelineTone(item.status)}
+                  />
                   <span className="min-w-0 flex-1 truncate text-foreground/80">{item.label}</span>
                   {duration ? (
                     <span className="shrink-0 tabular-nums text-muted-foreground/80">{duration}</span>
@@ -8650,7 +8846,7 @@ function DomainSoakReportPanel({
                 <CircleAlert className="h-3 w-3 shrink-0" />
                 <span className="min-w-0 flex-1 truncate font-medium">{incident.title}</span>
                 <StatusPill
-                  label={incident.source}
+                  label={domainSoakSourceLabel(t, incident.source)}
                   tone={incident.severity === "critical" ? "danger" : "warn"}
                 />
                 {canCreateIncidentTasks ? (
@@ -8751,6 +8947,23 @@ function domainSoakTimelineTone(status?: string | null): StatusTone {
     return "good"
   }
   return "muted"
+}
+
+function domainSoakSourceLabel(t: ReturnType<typeof useTranslation>["t"], source: string): string {
+  switch (source.toLowerCase()) {
+    case "workflow":
+      return t("workspace.domainSoakReport.sourceWorkflow", "工作流")
+    case "loop":
+      return t("workspace.domainSoakReport.sourceLoop", "持续推进")
+    case "campaign":
+      return t("workspace.domainSoakReport.sourceCampaign", "评测活动")
+    case "connector":
+      return t("workspace.domainSoakReport.sourceConnector", "连接器")
+    case "approval":
+      return t("workspace.domainSoakReport.sourceApproval", "审批")
+    default:
+      return source
+  }
 }
 
 function domainSoakReportLabel(
@@ -8863,6 +9076,7 @@ function DomainArtifactExportGuardPanel({
   ) => {
     if (!sessionId || disabled || creatingTaskKey) return
     const taskKey = `check:${index}:${check.name}`
+    const checkLabel = domainGuardCheckNameLabel(t, check.name)
     setCreatingTaskKey(taskKey)
     try {
       await getTransport().call<Task[]>("create_session_task", {
@@ -8871,7 +9085,7 @@ function DomainArtifactExportGuardPanel({
           "workspace.domainExportGuard.checkTaskContent",
           "处理交付守门缺口：{{name}}（{{actual}}）- {{detail}}",
           {
-            name: check.name,
+            name: checkLabel,
             actual: check.actual,
             detail: check.detail || check.expected,
           },
@@ -8879,7 +9093,7 @@ function DomainArtifactExportGuardPanel({
         activeForm: t(
           "workspace.domainExportGuard.checkTaskActiveForm",
           "正在处理交付守门缺口：{{name}}",
-          { name: check.name },
+          { name: checkLabel },
         ),
       })
       toast.success(t("workspace.domainExportGuard.checkTaskCreated", "已创建交付复核任务"))
@@ -8898,6 +9112,9 @@ function DomainArtifactExportGuardPanel({
   ) => {
     if (!sessionId || disabled || creatingTaskKey) return
     const taskKey = `evidence:${index}:${item.id}`
+    const reasonLabel = domainGuardCheckNameLabel(t, item.reason)
+    const scopeLabel = domainAccessScopeLabel(t, item.accessScope)
+    const redactionLabel = domainRedactionStatusLabel(t, item.redactionStatus)
     setCreatingTaskKey(taskKey)
     try {
       await getTransport().call<Task[]>("create_session_task", {
@@ -8907,9 +9124,9 @@ function DomainArtifactExportGuardPanel({
           "复核交付证据：{{title}}（{{reason}}）- {{scope}} / {{redaction}}",
           {
             title: item.title,
-            reason: item.reason,
-            scope: item.accessScope,
-            redaction: item.redactionStatus,
+            reason: reasonLabel,
+            scope: scopeLabel,
+            redaction: redactionLabel,
           },
         ),
         activeForm: t(
@@ -9071,7 +9288,9 @@ function DomainArtifactExportGuardPanel({
               >
                 <div className="flex min-w-0 items-center gap-1.5">
                   <CircleAlert className="h-3 w-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {domainGuardCheckNameLabel(t, check.name)}
+                  </span>
                   <span className="shrink-0 tabular-nums">{check.actual}</span>
                   {canCreateTasks ? (
                     <button
@@ -9114,7 +9333,7 @@ function DomainArtifactExportGuardPanel({
                 <div className="flex min-w-0 items-center gap-1.5">
                   <ShieldAlert className="h-3 w-3 shrink-0" />
                   <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
-                  <StatusPill label={item.reason} tone="warn" />
+                  <StatusPill label={domainGuardCheckNameLabel(t, item.reason)} tone="warn" />
                   {canCreateTasks ? (
                     <button
                       type="button"
@@ -9132,7 +9351,8 @@ function DomainArtifactExportGuardPanel({
                   ) : null}
                 </div>
                 <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
-                  {item.accessScope} · {item.redactionStatus}
+                  {domainAccessScopeLabel(t, item.accessScope)} ·{" "}
+                  {domainRedactionStatusLabel(t, item.redactionStatus)}
                 </div>
               </div>
             )
@@ -9180,6 +9400,7 @@ function DomainConnectorActionGuardPanel({
   ) => {
     if (!sessionId || disabled || creatingTaskKey) return
     const taskKey = `check:${index}:${check.name}`
+    const checkLabel = domainGuardCheckNameLabel(t, check.name)
     setCreatingTaskKey(taskKey)
     try {
       await getTransport().call<Task[]>("create_session_task", {
@@ -9188,7 +9409,7 @@ function DomainConnectorActionGuardPanel({
           "workspace.domainConnectorGuard.checkTaskContent",
           "处理外部动作守门缺口：{{name}}（{{actual}}）- {{detail}}",
           {
-            name: check.name,
+            name: checkLabel,
             actual: check.actual,
             detail: check.detail || check.expected,
           },
@@ -9196,7 +9417,7 @@ function DomainConnectorActionGuardPanel({
         activeForm: t(
           "workspace.domainConnectorGuard.checkTaskActiveForm",
           "正在处理外部动作守门缺口：{{name}}",
-          { name: check.name },
+          { name: checkLabel },
         ),
       })
       toast.success(t("workspace.domainConnectorGuard.checkTaskCreated", "已创建外部动作复核任务"))
@@ -9395,7 +9616,9 @@ function DomainConnectorActionGuardPanel({
               >
                 <div className="flex min-w-0 items-center gap-1.5">
                   <CircleAlert className="h-3 w-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {domainGuardCheckNameLabel(t, check.name)}
+                  </span>
                   <span className="shrink-0 tabular-nums">{check.actual}</span>
                   {canCreateTasks ? (
                     <button
@@ -9438,10 +9661,11 @@ function DomainConnectorActionGuardPanel({
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">
                   {item.title}
                 </span>
-                <StatusPill label={item.reason} tone="muted" />
+                <StatusPill label={domainGuardCheckNameLabel(t, item.reason)} tone="muted" />
               </div>
               <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
-                {item.accessScope} · {item.redactionStatus}
+                {domainAccessScopeLabel(t, item.accessScope)} ·{" "}
+                {domainRedactionStatusLabel(t, item.redactionStatus)}
               </div>
             </div>
           ))}
@@ -9578,6 +9802,7 @@ function DomainConnectorE2EGatePanel({
   ) => {
     if (!sessionId || disabled || creatingTaskKey) return
     const taskKey = `check:${index}:${check.name}`
+    const checkLabel = domainGuardCheckNameLabel(t, check.name)
     setCreatingTaskKey(taskKey)
     try {
       await getTransport().call<Task[]>("create_session_task", {
@@ -9586,7 +9811,7 @@ function DomainConnectorE2EGatePanel({
           "workspace.domainConnectorE2E.checkTaskContent",
           "处理连接器 E2E 缺口：{{name}}（{{actual}}）- {{detail}}",
           {
-            name: check.name,
+            name: checkLabel,
             actual: check.actual,
             detail: check.detail || check.expected,
           },
@@ -9594,7 +9819,7 @@ function DomainConnectorE2EGatePanel({
         activeForm: t(
           "workspace.domainConnectorE2E.checkTaskActiveForm",
           "正在处理连接器 E2E 缺口：{{name}}",
-          { name: check.name },
+          { name: checkLabel },
         ),
       })
       toast.success(t("workspace.domainConnectorE2E.checkTaskCreated", "已创建连接器 E2E 任务"))
@@ -9800,7 +10025,9 @@ function DomainConnectorE2EGatePanel({
               >
                 <div className="flex min-w-0 items-center gap-1.5">
                   <CircleAlert className="h-3 w-3 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate font-medium">{check.name}</span>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {domainGuardCheckNameLabel(t, check.name)}
+                  </span>
                   <span className="shrink-0 tabular-nums">{check.actual}</span>
                   {canCreateTasks ? (
                     <button
@@ -9843,10 +10070,11 @@ function DomainConnectorE2EGatePanel({
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground/80">
                   {item.title}
                 </span>
-                <StatusPill label={item.reason} tone="muted" />
+                <StatusPill label={domainGuardCheckNameLabel(t, item.reason)} tone="muted" />
               </div>
               <div className="mt-0.5 truncate font-mono text-[10px] opacity-75">
-                {item.accessScope} · {item.redactionStatus}
+                {domainAccessScopeLabel(t, item.accessScope)} ·{" "}
+                {domainRedactionStatusLabel(t, item.redactionStatus)}
               </div>
             </div>
           ))}
