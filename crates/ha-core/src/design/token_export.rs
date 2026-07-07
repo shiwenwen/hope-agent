@@ -4,8 +4,8 @@
 //! （GUI 导出对话框）与 `design` 工具 `export_tokens` action 共用；无网络 / 无副作用 / 确定性。
 //!
 //! **单位约定**：Web 值原样保留在 CSS/SCSS/TS/DTCG；Swift 保留原始数字 + 注释原单位（不臆测
-//! 换算）；Android 按 Style Dictionary 惯例 px→dp(1:1)、rem/em→dp(×16 基准) 并把 CSS `#rrggbbaa`
-//! 转成 Android 的 `#aarrggbb`（ARGB）。非 hex 颜色 / 无法确定的值降级为注释或字符串资源，绝不产出
+//! 换算）；Android 按业界通行惯例 px→dp(1:1)、rem/em→dp(×16 基准) 并把 CSS `#rrggbbaa` 转成
+//! Android 的 `#aarrggbb`（ARGB）。非 hex 颜色 / 无法确定的值降级为注释或字符串资源，绝不产出
 //! 编不过的文件。
 
 use std::collections::BTreeMap;
@@ -252,6 +252,15 @@ private extension UIColor {
 }
 "##;
 
+/// 内置 `UIColor(ds:)` init 只解析 `#RGB` / `#RRGGBB` / `#RRGGBBAA`；其余（rgba/hsl/oklch/
+/// 4 位 hex）走它会静默变透明，故 Swift 侧只把这三种真·hex 路由给它。
+fn is_plain_hex(v: &str) -> bool {
+    match v.trim().strip_prefix('#') {
+        Some(h) => matches!(h.len(), 3 | 6 | 8) && h.chars().all(|c| c.is_ascii_hexdigit()),
+        None => false,
+    }
+}
+
 fn gen_swift(tokens: &BTreeMap<String, String>) -> TokenExport {
     let mut body =
         String::from("import UIKit\n\n/// 设计系统 Token（自动生成，请勿手改）。\npublic enum DesignTokens {\n");
@@ -259,10 +268,19 @@ fn gen_swift(tokens: &BTreeMap<String, String>) -> TokenExport {
     for (k, v) in tokens {
         let name = to_camel(k);
         match classify(k, v) {
-            TokenType::Color => {
+            // 仅 3/6/8 位 hex 交给 UIColor(ds:)（init 能解析）；其余颜色保留原值字符串 + 提示
+            // 手工转换，绝不让 rgba/oklch 静默变透明（review #1/#4）。
+            TokenType::Color if is_plain_hex(v) => {
                 has_color = true;
-                body.push_str(&format!("    public static let {name} = UIColor(ds: \"{v}\")\n"));
+                body.push_str(&format!(
+                    "    public static let {name} = UIColor(ds: {})\n",
+                    swift_string(v)
+                ));
             }
+            TokenType::Color => body.push_str(&format!(
+                "    public static let {name} = {} // non-hex color, convert manually\n",
+                swift_string(v)
+            )),
             TokenType::Dimension | TokenType::Number | TokenType::FontWeight => {
                 if let Some(n) = leading_number(v) {
                     body.push_str(&format!("    public static let {name}: CGFloat = {n} // {v}\n"));
@@ -387,8 +405,10 @@ fn gen_dtcg(tokens: &BTreeMap<String, String>) -> TokenExport {
 
         let segments: Vec<&str> = core_name(k).split('-').filter(|s| !s.is_empty()).collect();
         if !insert_nested(&mut root, &segments, leaf.clone()) {
-            // 路径冲突（分支/叶子撞名）→ 退化为扁平 key，保证不丢 token。
-            root.insert(core_name(k).replace('-', "_"), leaf);
+            // 路径冲突（一个 token 名是另一个的段前缀，如 --ds-radius vs --ds-radius-md）→ 退化为
+            // 扁平 key。用**完整 CSS 变量名**（含 `--ds-` 前缀）作 key：全局唯一、绝不撞任何裸段名
+            // （如 "radius"），两个 token 都保留、且不产出「既是 token 又是 group」的非法 DTCG。
+            root.insert(k.clone(), leaf);
         }
     }
     let content = serde_json::to_string_pretty(&Value::Object(root)).unwrap_or_default() + "\n";
@@ -418,8 +438,11 @@ fn insert_nested(node: &mut serde_json::Map<String, serde_json::Value>, path: &[
                 .entry((*head).to_string())
                 .or_insert_with(|| Value::Object(serde_json::Map::new()));
             match child.as_object_mut() {
+                // 该段已是叶子 token（叶子也是 Object，故必须查 `$value` 而非 as_object）→ 冲突：
+                // 不把子 token 塞进叶子里造出「既是 token 又是 group」的非法 DTCG，退化扁平（review #2/#3）。
+                Some(obj) if obj.contains_key("$value") => false,
                 Some(obj) => insert_nested(obj, rest, leaf),
-                None => false, // 该段已是叶子，无法继续下钻
+                None => false,
             }
         }
     }
@@ -501,6 +524,61 @@ mod tests {
         assert_eq!(v["color"]["primary"]["$type"], "color");
         assert_eq!(v["space"]["4"]["$value"], "16px");
         assert_eq!(v["space"]["4"]["$type"], "dimension");
+    }
+
+    #[test]
+    fn swift_non_hex_color_stays_visible() {
+        // rgba / 4 位 hex 颜色不走 UIColor(ds:)（内置 init 只解 3/6/8 位，否则运行时透明）。
+        let t = toks(&[("--ds-color-overlay", "rgba(0,0,0,.5)"), ("--ds-color-tint", "#f00c")]);
+        let c = gen_swift(&t).content;
+        assert!(!c.contains("UIColor(ds:"), "非 hex 颜色不应路由给 UIColor(ds:)");
+        assert!(c.contains("rgba(0,0,0,.5)") && c.contains("non-hex color"));
+        assert!(!c.contains("convenience init(ds hex"), "无真 hex 颜色不应附 UIColor 扩展");
+        // 真 hex 仍走 UIColor + 附扩展。
+        let t2 = toks(&[("--ds-color-primary", "#2563eb")]);
+        let c2 = gen_swift(&t2).content;
+        assert!(c2.contains("UIColor(ds: \"#2563eb\")") && c2.contains("convenience init(ds hex"));
+    }
+
+    #[test]
+    fn dtcg_prefix_collision_stays_valid() {
+        fn collect_values(v: &serde_json::Value, out: &mut Vec<String>) {
+            if let Some(obj) = v.as_object() {
+                if let Some(val) = obj.get("$value").and_then(|x| x.as_str()) {
+                    out.push(val.to_string());
+                }
+                for cv in obj.values() {
+                    collect_values(cv, out);
+                }
+            }
+        }
+        // 任一节点既含 $value 又有 group 子节点 = 非法 DTCG（既是 token 又是 group）。
+        fn has_conflict(v: &serde_json::Value) -> bool {
+            if let Some(obj) = v.as_object() {
+                let leaf = obj.contains_key("$value");
+                let group_child = obj.iter().any(|(k, cv)| !k.starts_with('$') && cv.is_object());
+                if leaf && group_child {
+                    return true;
+                }
+                return obj.values().any(has_conflict);
+            }
+            false
+        }
+        // 两种插入顺序都覆盖（BTreeMap 排序：短前缀先插）。
+        for pairs in [
+            &[("--ds-radius", "8px"), ("--ds-radius-md", "12px")][..],
+            &[("--ds-color", "#2563eb"), ("--ds-color-primary", "#1d4ed8")][..],
+        ] {
+            let t = toks(pairs);
+            let c = gen_dtcg(&t).content;
+            let v: serde_json::Value = serde_json::from_str(&c).unwrap();
+            assert!(!has_conflict(&v), "DTCG 不应有既 token 又 group 的节点: {c}");
+            let mut vals = Vec::new();
+            collect_values(&v, &mut vals);
+            for (_, expect) in pairs {
+                assert!(vals.iter().any(|x| x == expect), "缺 token 值 {expect}: {c}");
+            }
+        }
     }
 
     #[test]
