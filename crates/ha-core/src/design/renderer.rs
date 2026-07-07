@@ -314,11 +314,23 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     document.documentElement.appendChild(pinLayer);
     return pinLayer;
   }
-  function pinPos(c,i){
+  // 解析钉的锚元素：oid 命中(同 tag)优先；失配则按 snippet 前缀在同 tag 元素中重锚
+  // （跨设计变更/重生成 oid 漂移时软着陆）；再无 → null（脱锚）。
+  function resolveEl(c){
     if(c.oid!=null){var el=elByOid(String(c.oid));
-      if(el){var r=el.getBoundingClientRect();
-        return {x:r.left+(c.relX||0)*r.width,y:r.top+(c.relY||0)*r.height}}}
-    return {x:window.innerWidth-22,y:22+i*26}; // 脱锚：右上角堆叠，不丢
+      if(el&&(!c.tag||el.tagName.toLowerCase()===c.tag))return el}
+    var pre=(c.snippet||'').slice(0,40);
+    if(pre){var cands=document.querySelectorAll('[data-ds-oid]');
+      for(var i=0;i<cands.length;i++){var e=cands[i];
+        if(c.tag&&e.tagName.toLowerCase()!==c.tag)continue;
+        if((e.outerHTML||'').indexOf(pre)===0)return e}}
+    return null;
+  }
+  function pinPos(c,i){
+    var el=resolveEl(c);
+    if(el){var r=el.getBoundingClientRect();
+      return {x:r.left+(c.relX||0)*r.width,y:r.top+(c.relY||0)*r.height,el:el}}
+    return {x:window.innerWidth-22,y:22+i*26,el:null}; // 脱锚：右上角堆叠，不丢
   }
   function renderPins(){
     if(!commentMode){if(pinLayer)pinLayer.style.display='none';return}
@@ -333,8 +345,30 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
         'background:'+(c.resolved?'#16a34a':'#f59e0b');
       dot.textContent=String(i+1);
       dot.title=(c.body||'').slice(0,80);
-      dot.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();
-        parent.postMessage({type:'ds_comment_click',id:c.id},'*')});
+      // 指针交互：小位移=点击(聚焦)，拖动=重锚到落点下的元素。
+      (function(cm){
+        var sx=0,sy=0,moved=false,dragging=false;
+        dot.addEventListener('pointerdown',function(ev){ev.preventDefault();ev.stopPropagation();
+          sx=ev.clientX;sy=ev.clientY;moved=false;dragging=true;
+          try{dot.setPointerCapture(ev.pointerId)}catch(_){}});
+        dot.addEventListener('pointermove',function(ev){if(!dragging)return;
+          if(Math.abs(ev.clientX-sx)>4||Math.abs(ev.clientY-sy)>4)moved=true;
+          if(moved){dot.style.left=ev.clientX+'px';dot.style.top=ev.clientY+'px'}});
+        dot.addEventListener('pointerup',function(ev){if(!dragging)return;dragging=false;
+          try{dot.releasePointerCapture(ev.pointerId)}catch(_){}
+          if(!moved){parent.postMessage({type:'ds_comment_click',id:cm.id},'*');return}
+          dot.style.pointerEvents='none';
+          var tgt=document.elementFromPoint(ev.clientX,ev.clientY);
+          dot.style.pointerEvents='auto';
+          var nel=tgt&&tgt.closest?tgt.closest('[data-ds-oid]'):null;
+          if(nel){var nr=nel.getBoundingClientRect();
+            parent.postMessage({type:'ds_comment_relocate',id:cm.id,
+              oid:Number(nel.getAttribute('data-ds-oid')),
+              relX:nr.width?(ev.clientX-nr.left)/nr.width:0.5,
+              relY:nr.height?(ev.clientY-nr.top)/nr.height:0.5},'*');
+          }else{renderPins()} // 落空白 → 复位
+        });
+      })(c);
       layer.appendChild(dot);
     });
   }

@@ -621,6 +621,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, loadComments],
   )
 
+  const handleRelocateComment = useCallback(
+    async (id: number, oid: number | null, relX: number, relY: number) => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid) return
+      try {
+        await tx.call("design_comment_relocate_cmd", { artifactId: aid, commentId: id, oid, relX, relY })
+        await loadComments()
+      } catch (e) {
+        logger.error("design", "DesignView::relocateComment", "relocate failed", e)
+      }
+    },
+    [tx, loadComments],
+  )
+
   // L4：回灌对话——把批注结构化上下文注入项目会话让 AI 精修（下一层实现）。
   const handleSendCommentToChat = useCallback(
     (id: number) => {
@@ -675,6 +689,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           snippet: d.snippet,
         })
       }
+      // 拖拽钉 → 重锚到落点元素（确定性回写 rel 位 + oid）。
+      else if (d?.type === "ds_comment_relocate" && d.id != null && commentModeRef.current) {
+        void handleRelocateComment(
+          d.id,
+          d.oid != null ? Number(d.oid) : null,
+          Number(d.relX ?? 0.5),
+          Number(d.relY ?? 0.5),
+        )
+      }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
       else if (d?.type === "ds_stream_ready") {
         const snap = streamSnapshotRef.current
@@ -686,7 +709,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
     window.addEventListener("message", onMsg)
     return () => window.removeEventListener("message", onMsg)
-  }, [postToIframe, commitPatch])
+  }, [postToIframe, commitPatch, handleRelocateComment])
 
   // Toggle bridge activation with edit mode.
   useEffect(() => {
