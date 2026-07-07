@@ -138,7 +138,10 @@ function NumberRow({
     setPrevValue(value)
     setV(String(value))
   }
-  const commit = () => onCommit(prop, `${parseFloat(v) || 0}${suffix}`)
+  // 脏值守卫：未改不 commit（防聚焦+失焦把 computed 值原样写回源码，review #4）。
+  const commit = () => {
+    if ((parseFloat(v) || 0) !== value) onCommit(prop, `${parseFloat(v) || 0}${suffix}`)
+  }
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
@@ -176,7 +179,10 @@ function TextRow({
     setPrev(value)
     setV(value)
   }
-  const commit = () => onCommit(prop, v.trim())
+  // 脏值守卫：未改不 commit（尺寸值来自 computed，聚焦+失焦不该把 `1440px` 写回一个 auto 元素，review #4）。
+  const commit = () => {
+    if (v.trim() !== value.trim()) onCommit(prop, v.trim())
+  }
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
       <span className="text-muted-foreground">{label}</span>
@@ -223,6 +229,44 @@ function SelectRow({
           ))}
         </SelectContent>
       </Select>
+    </div>
+  )
+}
+
+/** 不透明度滑杆：本地拖动 state（受控 Slider 拇指随指针走）+ 渲染期 prev-prop 同步。 */
+function OpacityRow({
+  value,
+  onLive,
+  onCommit,
+}: {
+  value: number
+  onLive: (prop: string, v: string) => void
+  onCommit: (prop: string, v: string) => void
+}) {
+  const { t } = useTranslation()
+  const [local, setLocal] = useState(value)
+  const [prev, setPrev] = useState(value)
+  if (value !== prev) {
+    setPrev(value)
+    setLocal(value)
+  }
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-muted-foreground">{t("design.insp.opacity", "不透明度")}</span>
+        <span className="font-mono text-xs text-muted-foreground">{Math.round(local * 100)}%</span>
+      </div>
+      <Slider
+        min={0}
+        max={1}
+        step={0.01}
+        value={[local]}
+        onValueChange={(v) => {
+          setLocal(v[0])
+          onLive("opacity", String(v[0]))
+        }}
+        onValueCommit={(v) => onCommit("opacity", String(v[0]))}
+      />
     </div>
   )
 }
@@ -470,22 +514,7 @@ export default function DesignInspector({
       </Section>
 
       <Section title={t("design.insp.effects", "效果")}>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">{t("design.insp.opacity", "不透明度")}</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {Math.round(opacity * 100)}%
-            </span>
-          </div>
-          <Slider
-            min={0}
-            max={1}
-            step={0.01}
-            value={[opacity]}
-            onValueChange={(v) => onLiveStyle("opacity", String(v[0]))}
-            onValueCommit={(v) => onCommitStyle("opacity", String(v[0]))}
-          />
-        </div>
+        <OpacityRow value={opacity} onLive={onLiveStyle} onCommit={onCommitStyle} />
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">{t("design.insp.shadow", "阴影")}</span>
           <div className="flex gap-0.5">

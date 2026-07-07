@@ -612,9 +612,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     (prop: string, value: string) => {
       const oid = selectedRef.current?.oid
       if (oid == null) return
+      // 先 live-apply 到 iframe：commitPatch 会抑制重挂，否则 commit-only 控件（字号/间距/布局/
+      // 尺寸/描边/阴影…）提交后预览无变化（review #1）。
+      postToIframe({ type: "ds_preview_style", oid, props: [[prop, value]] })
+      // 乐观刷新 selected.styles：让派生控件（isFlexish / display·align Select 值 / 不透明度）
+      // 立即反映本次提交，不等重选（review #3）。
+      setSelected((prev) =>
+        prev ? { ...prev, styles: { ...prev.styles, [prop]: value } } : prev,
+      )
       void commitPatch({ oid: Number(oid), styles: [[prop, value]] })
     },
-    [commitPatch],
+    [commitPatch, postToIframe],
   )
   const handleLiveText = useCallback(
     (text: string) => {
