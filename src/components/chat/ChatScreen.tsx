@@ -35,6 +35,10 @@ import type { QuickPromptAddResult, QuickPromptConfig, QuickPromptItem } from "@
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { CommandResult } from "./slash-commands/types"
+import {
+  goalSlashCommandDisplay,
+  isGoalUpsertSlashCommand,
+} from "./goalSlashCommand"
 import type { AgentConfig } from "@/components/settings/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
@@ -302,69 +306,6 @@ function makeClientEventMessage(message: ClientEventMessage): Message {
     _clientId: generateClientId(),
     ...message,
   }
-}
-
-function slashCommandDisplay(commandText: string): {
-  content: string
-  mode?: "goal"
-} {
-  const trimmed = commandText.trim()
-  if (!trimmed.startsWith("/goal")) return { content: commandText }
-  const rawRest = trimmed.slice("/goal".length)
-  if (rawRest.length > 0 && !/^\s/.test(rawRest)) return { content: commandText }
-  const args = rawRest.trim()
-  const [first = ""] = args.split(/\s+/)
-  const goalContent =
-    args.length === 0
-      ? "Show active goal"
-      : first === "status" || first === "show"
-          ? "Show active goal"
-          : first === "pause"
-            ? "Pause active goal"
-            : first === "resume"
-              ? "Resume active goal"
-              : first === "clear" || first === "cancel"
-                ? "Clear active goal"
-                : first === "evaluate" || first === "audit"
-                  ? "Evaluate active goal"
-                  : first === "accept" || first === "close" || first === "done"
-                    ? "Accept goal completion"
-                    : first === "strict" ||
-                        first === "needs-strict-evidence" ||
-                        first === "needs_strict_evidence"
-                      ? "Require stricter evidence"
-                  : first === "help"
-                    ? "Goal help"
-                    : args
-  return { content: goalContent || "Goal", mode: "goal" }
-}
-
-function isGoalUpsertSlashCommand(commandText: string | undefined): boolean {
-  if (!commandText) return false
-  const trimmed = commandText.trim()
-  if (!trimmed.startsWith("/goal")) return false
-  const rawRest = trimmed.slice("/goal".length)
-  if (rawRest.length === 0 || !/^\s/.test(rawRest)) return false
-  const args = rawRest.trim()
-  if (!args) return false
-  const first = args.split(/\s+/)[0]?.toLowerCase()
-  return ![
-    "status",
-    "show",
-    "help",
-    "pause",
-    "resume",
-    "clear",
-    "cancel",
-    "evaluate",
-    "audit",
-    "accept",
-    "close",
-    "done",
-    "strict",
-    "needs-strict-evidence",
-    "needs_strict_evidence",
-  ].includes(first)
 }
 
 function goalTurnPrompt(visibleGoalText: string): string {
@@ -1947,7 +1888,7 @@ export default function ChatScreen({
       const slashHistoryMessages: Message[] = []
       if (shouldShowSlashHistory && result._slashCommandText) {
         const now = new Date().toISOString()
-        const commandDisplay = slashCommandDisplay(result._slashCommandText)
+        const commandDisplay = goalSlashCommandDisplay(result._slashCommandText)
         slashHistoryMessages.push(
           makeClientEventMessage({
             content: commandDisplay.content,
@@ -2038,7 +1979,7 @@ export default function ChatScreen({
               displayText: result._skillCommandText,
             })
           } else if (isGoalUpsertSlashCommand(result._slashCommandText)) {
-            const visibleGoal = slashCommandDisplay(result._slashCommandText ?? "").content
+            const visibleGoal = goalSlashCommandDisplay(result._slashCommandText ?? "").content
             planMode.exitPlanMode()
             void stream.handleSend(goalTurnPrompt(action.message), {
               displayText: visibleGoal,

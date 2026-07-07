@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import type { SlashCommandDef, CommandResult } from "./types"
 import { CATEGORY_ORDER } from "./types"
 import type { ComposerInputHandle } from "../input/composerInputHandle"
+import { isGoalUpsertSlashCommand } from "../goalSlashCommand"
 
 export interface SlashCommandActions {
   /** Called when a command produces a CommandAction */
@@ -360,6 +361,13 @@ export function useSlashCommands(
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent): boolean => {
+      if (e.key === "Enter" && isGoalUpsertSlashCommand(input)) {
+        setIsOpen(false)
+        setExpandedCmd(null)
+        setForceOpen(false)
+        return false
+      }
+
       if (!isOpen) {
         // isOpen lags shouldBeOpen by one render. Intercept Enter, but resolve
         // via exact name match — selectedIndex is unreliable once a space in

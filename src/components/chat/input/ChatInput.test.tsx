@@ -487,6 +487,74 @@ describe("ChatInput", () => {
     }
   })
 
+  test("treats /goal drafts as goal mode when sent directly", async () => {
+    const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
+    const onInputChange = vi.fn()
+    const onSend = vi.fn()
+
+    renderChatInput({
+      input: "/goal Complete the product-grade UI pass",
+      onGoalModeSubmit,
+      onInputChange,
+      onSend,
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.send" }))
+
+    await waitFor(() => {
+      expect(onGoalModeSubmit).toHaveBeenCalledWith("Complete the product-grade UI pass")
+    })
+    expect(onSend).not.toHaveBeenCalled()
+    expect(onInputChange).toHaveBeenCalledWith("")
+  })
+
+  test("lets /goal drafts bypass slash execution on Enter", async () => {
+    const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
+    const onCommandAction = vi.fn()
+    transportMock.call.mockImplementation((command: string) => {
+      if (command === "get_awareness_config") return Promise.resolve({ enabled: false })
+      if (command === "list_slash_commands") {
+        return Promise.resolve([
+          {
+            name: "goal",
+            category: "utility",
+            descriptionKey: "slashCommands.goal.description",
+            hasArgs: true,
+            argsOptional: true,
+            argOptions: ["status", "pause", "resume", "clear"],
+          },
+        ])
+      }
+      if (command === "execute_slash_command") {
+        return Promise.resolve({
+          content: "should not execute",
+          action: { type: "displayOnly" },
+        })
+      }
+      return Promise.resolve([])
+    })
+
+    renderChatInput({
+      input: "/goal Build a durable goal flow",
+      onGoalModeSubmit,
+      onCommandAction,
+    })
+
+    await waitFor(() => {
+      expect(transportMock.call).toHaveBeenCalledWith("list_slash_commands")
+    })
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    await waitFor(() => {
+      expect(onGoalModeSubmit).toHaveBeenCalledWith("Build a durable goal flow")
+    })
+    expect(onCommandAction).not.toHaveBeenCalled()
+    expect(transportMock.call).not.toHaveBeenCalledWith(
+      "execute_slash_command",
+      expect.anything(),
+    )
+  })
+
   test("keeps goal composer and plan composer mutually exclusive", async () => {
     const onExitPlanMode = vi.fn(() => Promise.resolve())
 

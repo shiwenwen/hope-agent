@@ -24,6 +24,10 @@ import {
 import { ChatWelcomeHero } from "./ChatWelcomeHero"
 import { SkillMentionText } from "./skill-mention/SkillMentionText"
 import MessageBubble from "./MessageBubble"
+import {
+  goalCompletionReportFromMessage,
+  type GoalCompletionReport,
+} from "./message/goalCompletionReport"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
@@ -112,6 +116,8 @@ interface MessageRenderItem {
   sourceDbId?: number
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  goalCompletionReport?: GoalCompletionReport | null
+  suppressGoalCompletionFooter?: boolean
 }
 
 interface CompletedTurnCollapseRow {
@@ -363,6 +369,12 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
   const baseKey = rowKeyForItem(item)
   const prefixContent = textContentFromBlocks(prefixBlocks)
   const finalContent = textContentFromBlocks(finalBlocks) || item.msg.content
+  const hoistedGoalCompletionReport = goalCompletionReportFromMessage({
+    ...item.msg,
+    content: prefixContent,
+    contentBlocks: prefixBlocks,
+    toolCalls: undefined,
+  })
 
   return {
     prefixCount,
@@ -379,6 +391,7 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
       originalIndex: item.originalIndex,
       keyOverride: `${baseKey}:prefix`,
       sourceDbId: item.msg.dbId,
+      suppressGoalCompletionFooter: hoistedGoalCompletionReport != null,
     },
     finalItem: {
       msg: {
@@ -390,6 +403,7 @@ function splitAssistantFinalAnswer(item: MessageRenderItem): {
       },
       originalIndex: item.originalIndex,
       keyOverride: `${baseKey}:final`,
+      ...(hoistedGoalCompletionReport ? { goalCompletionReport: hoistedGoalCompletionReport } : {}),
     },
   }
 }
@@ -1551,6 +1565,8 @@ export default function MessageList({
                   displayMode={displayMode}
                   footerFiles={row.item.footerFiles}
                   hideOwnFooterFiles={row.item.hideOwnFooterFiles}
+                  goalCompletionReportOverride={row.item.goalCompletionReport}
+                  suppressGoalCompletionFooter={row.item.suppressGoalCompletionFooter}
                   forceExpandUserContent={forceExpandUserContent}
                   onForceExpandedUserContentDismiss={
                     forceExpandUserContent

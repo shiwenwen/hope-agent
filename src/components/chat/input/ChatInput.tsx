@@ -96,6 +96,7 @@ import type { AgentConfig } from "@/components/settings/types"
 import type { QuickPromptItem } from "@/types/quickPrompts"
 import type { GoalSnapshot } from "../workspace/useGoal"
 import { parseGoalCriteriaDraft, type DraftGoalCriterionKind } from "../workspace/goalCriteriaDraft"
+import { parseGoalUpsertSlashCommand } from "../goalSlashCommand"
 
 type WorkflowMode = "off" | "on" | "ultracode"
 export type GoalModeSubmitAction =
@@ -1001,8 +1002,9 @@ export default function ChatInput({
 
   const handleSend = useCallback(() => {
     resetHistoryBrowsing()
-    if (goalComposerMode) {
-      const objective = input.trim()
+    const directGoalObjective = goalComposerMode ? null : parseGoalUpsertSlashCommand(input)
+    if (goalComposerMode || directGoalObjective) {
+      const objective = directGoalObjective ?? input.trim()
       if (!objective || goalSubmitting) return
       if (incognitoEnabled) {
         toast.error(t("chat.goalMode.incognito", "无痕会话不持久化目标"))
@@ -2144,7 +2146,7 @@ export default function ChatInput({
             >
               <div
                 ref={toolbarLeftRef}
-                className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
+                className="flex min-w-0 flex-nowrap items-center gap-1 overflow-visible"
               >
                 <div
                   ref={addActionsRef}

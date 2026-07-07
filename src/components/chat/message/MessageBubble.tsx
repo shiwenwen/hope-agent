@@ -66,18 +66,10 @@ import {
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
 import { isQuickPromptEligibleUserMessage } from "../quick-prompts/messageQuickPrompts"
-
-interface GoalCompletionReport {
-  status?: string
-  state?: string
-  summary?: string
-  usage?: {
-    tokensUsed?: number
-    elapsedSecs?: number
-    turnsUsed?: number
-  }
-  evidenceCount?: number
-}
+import {
+  goalCompletionReportFromMessage,
+  type GoalCompletionReport,
+} from "./goalCompletionReport"
 
 const USER_MESSAGE_COLLAPSE_CHARS = 900
 const USER_MESSAGE_COLLAPSE_LINES = 12
@@ -207,6 +199,8 @@ export interface MessageBubbleProps {
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
+  goalCompletionReportOverride?: GoalCompletionReport | null
+  suppressGoalCompletionFooter?: boolean
   forceExpandUserContent?: boolean
   onForceExpandedUserContentDismiss?: () => void
 }
@@ -229,38 +223,6 @@ function mergeMessageFileAttachments(
     if (!merged.has(key)) merged.set(key, file)
   }
   return [...merged.values()]
-}
-
-function parseGoalCompletionReportFromToolResult(result: string | undefined): GoalCompletionReport | null {
-  if (!result) return null
-  try {
-    const parsed = JSON.parse(result) as {
-      ok?: boolean
-      status?: string
-      report?: GoalCompletionReport
-    }
-    if (parsed.ok !== true || parsed.status !== "completed" || !parsed.report) return null
-    return parsed.report
-  } catch {
-    return null
-  }
-}
-
-function goalCompletionReportFromMessage(msg: Message): GoalCompletionReport | null {
-  if (msg.role !== "assistant") return null
-  const candidates = [
-    ...(msg.toolCalls ?? []),
-    ...(msg.contentBlocks ?? [])
-      .filter((block) => block.type === "tool_call")
-      .map((block) => block.tool),
-  ]
-  for (let i = candidates.length - 1; i >= 0; i -= 1) {
-    const tool = candidates[i]
-    if (tool.name !== "goal_finish_request") continue
-    const report = parseGoalCompletionReportFromToolResult(tool.result)
-    if (report) return report
-  }
-  return null
 }
 
 function hasRenderableTextContent(msg: Message): boolean {
@@ -530,6 +492,8 @@ function MessageBubbleInner({
   displayMode = "bubble",
   footerFiles,
   hideOwnFooterFiles = false,
+  goalCompletionReportOverride,
+  suppressGoalCompletionFooter = false,
   forceExpandUserContent = false,
   onForceExpandedUserContentDismiss,
 }: MessageBubbleProps) {
@@ -576,18 +540,33 @@ function MessageBubbleInner({
     msg.role === "assistant" && !(loading && isLast) && msg.usage?.durationMs != null
       ? formatDuration(msg.usage.durationMs)
       : null
-  const goalCompletionReport = useMemo(() => goalCompletionReportFromMessage(msg), [msg])
+  const detectedGoalCompletionReport = useMemo(
+    () => (suppressGoalCompletionFooter ? null : goalCompletionReportFromMessage(msg)),
+    [msg, suppressGoalCompletionFooter],
+  )
+  const goalCompletionReport =
+    goalCompletionReportOverride !== undefined
+      ? goalCompletionReportOverride
+      : detectedGoalCompletionReport
   const goalCompletionDurationText =
     goalCompletionReport?.usage?.elapsedSecs != null
       ? formatDuration(goalCompletionReport.usage.elapsedSecs * 1000)
       : totalDurationText
+  const goalCompletionFallbackTokens =
+    msg.usage && msg.role === "assistant"
+      ? (msg.usage.lastInputTokens ?? msg.usage.inputTokens ?? 0) + (msg.usage.outputTokens ?? 0)
+      : 0
+  const goalCompletionTokens =
+    goalCompletionReport?.usage?.tokensUsed != null && goalCompletionReport.usage.tokensUsed > 0
+      ? goalCompletionReport.usage.tokensUsed
+      : goalCompletionFallbackTokens > 0
+        ? goalCompletionFallbackTokens
+        : null
   const goalCompletionTokensText =
-    goalCompletionReport?.usage?.tokensUsed != null
-      ? formatTokens(goalCompletionReport.usage.tokensUsed)
-      : null
+    goalCompletionTokens != null ? formatTokens(goalCompletionTokens) : null
   const goalCompletionFooter = goalCompletionReport ? (
-    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground/70 select-none">
-      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm leading-6 text-foreground/85 select-none">
+      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
       <span>
         {goalCompletionDurationText
           ? t("chat.goalCompletion.completedWithDuration", {
@@ -599,7 +578,7 @@ function MessageBubbleInner({
             })}
       </span>
       {goalCompletionTokensText && (
-        <span className="text-muted-foreground/50">
+        <span className="text-muted-foreground/80">
           · {t("chat.goalCompletion.tokens", { defaultValue: "{{tokens}} tokens", tokens: goalCompletionTokensText })}
         </span>
       )}
@@ -1036,6 +1015,7 @@ function MessageBubbleInner({
             displayMode="timeline"
             contentRenderMode={contentRenderMode}
           />
+          {goalCompletionFooter && <div className="ml-7">{goalCompletionFooter}</div>}
           {messageFiles.length > 0 && (
             <div className="ml-7">
               <FileAttachments files={messageFiles} sessionId={sessionId} />
@@ -1052,7 +1032,6 @@ function MessageBubbleInner({
               )}
             </div>
           )}
-          {goalCompletionFooter && <div className="ml-7">{goalCompletionFooter}</div>}
           <div
             className={cn(
               "ml-7 mt-0.5 flex h-6 items-center gap-0.5",
@@ -1186,6 +1165,7 @@ function MessageBubbleInner({
           {msg.content && !(loading && isLast) && (
             <MessageUrlPreviews content={msg.content} isStreaming={loading && isLast} />
           )}
+          {msg.role === "assistant" && goalCompletionFooter}
           {messageFiles.length > 0 && (
             <FileAttachments files={messageFiles} sessionId={sessionId} />
           )}
@@ -1205,7 +1185,6 @@ function MessageBubbleInner({
               )}
             </div>
           )}
-          {msg.role === "assistant" && goalCompletionFooter}
         </div>
         {/* Hover toolbar — always reserve height (h-6 + mt-0.5 ≈ 26px) so a
          * loading bubble (msg.content === "") and a filled bubble both leave

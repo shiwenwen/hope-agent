@@ -28,7 +28,7 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 | Tauri owner API | `src-tauri/src/commands/goal.rs` | 桌面 owner 平面命令。 |
 | HTTP owner API | `crates/ha-server/src/routes/goal.rs` | Server/Web owner 平面端点。 |
 | GUI | `src/components/chat/workspace/useGoal.ts`、`WorkspacePanel.tsx`、`ChatInput.tsx` | Workspace 独立 Goal section、Goal detail、closure packet、输入框目标模式、composer 上方 active Goal 状态条、创建/更新/暂停/恢复/清除/评估/关闭取舍、证据摘要。 |
-| 消息完成反馈 | `src/components/chat/message/MessageBubble.tsx` | 从 `goal_finish_request` 工具结果提取 `GoalCompletionReport`，在 assistant 消息底部显示“目标已达成 + 耗时 + tokens”。 |
+| 消息完成反馈 | `src/components/chat/message/MessageBubble.tsx` | 从 `goal_finish_request` 工具结果提取 `GoalCompletionReport`，在最终 assistant 总结下方、文件附件上方显示“目标已达成 + 耗时 + tokens”。 |
 
 红线：
 
@@ -104,7 +104,7 @@ Goal Runner 复用 `wakeup` 自调度与 parent-injection 管线，而不是在 
 | `remainingRisk` | 诚实残余风险。 |
 | `generatedAt` | 报告生成时间。 |
 
-GUI 消息底部从 `goal_finish_request` 的 tool result 解析 `GoalCompletionReport`，渲染“已在 X 内达成目标 · Y tokens”。这条 footer 独立于 assistant 文本；即使模型摘要很短，用户也能在消息底部看到 Codex 风格的完成状态与用量反馈。
+GUI 从 `goal_finish_request` 的 tool result 解析 `GoalCompletionReport`，在最终 assistant 总结下方、文件附件上方渲染“已在 X 内达成目标 · Y tokens”。这条 completion note 是产品层生成的完成说明，而不是模型正文的一部分：精确 token usage 通常要等最终 assistant 消息落库后才可用，因此 GUI 会在 report 的 `tokensUsed` 为 0 时用最终消息的 `lastInputTokens + outputTokens` 兜底，避免模型猜测或输出 stale usage。
 
 ## 3. 数据模型
 
@@ -207,7 +207,7 @@ stateDiagram-v2
 
 Goal closure 有两条受控路径：
 
-- `goal_finish_request`：agent-side 自动完成入口。内部会重跑或校验当前 revision 的 final audit；只有 `status=completed`、revision 匹配且没有更新 evidence 导致 stale 时，才调用 closure path 写入 `accepted_v1`。成功返回 `GoalCompletionReport`，供模型最终总结和 GUI footer 使用。
+- `goal_finish_request`：agent-side 自动完成入口。内部会重跑或校验当前 revision 的 final audit；只有 `status=completed`、revision 匹配且没有更新 evidence 导致 stale 时，才调用 closure path 写入 `accepted_v1`。成功返回 `GoalCompletionReport`，供模型做诚实收口参考，并供 GUI 渲染最终 completion note；最终 token usage 由 GUI 在消息 usage 落库后兜底补齐。
 - `close_goal`：owner action，用于用户手动取舍、取消或替代目标。
 
 Closure decision：

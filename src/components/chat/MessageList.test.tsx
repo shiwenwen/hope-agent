@@ -23,16 +23,22 @@ vi.mock("./MessageBubble", () => ({
   default: ({
     msg,
     executionState,
+    goalCompletionReportOverride,
+    suppressGoalCompletionFooter,
     forceExpandUserContent,
   }: {
     msg: Message
     executionState?: string | null
+    goalCompletionReportOverride?: { status?: string } | null
+    suppressGoalCompletionFooter?: boolean
     forceExpandUserContent?: boolean
   }) => (
     <div
       data-testid="message-bubble"
       data-message-db-id={msg.dbId ?? ""}
       data-execution-state={executionState ?? "none"}
+      data-goal-report-status={goalCompletionReportOverride?.status ?? ""}
+      data-suppress-goal-footer={suppressGoalCompletionFooter ? "true" : "false"}
       data-force-expand-user-content={forceExpandUserContent ? "true" : "false"}
     >
       {msg.content}
@@ -312,6 +318,60 @@ describe("MessageList", () => {
 
     fireEvent.click(screen.getByRole("button", { expanded: false }))
     expect(screen.getByText("intermediate note")).toBeTruthy()
+  })
+
+  test("hoists goal completion reports from collapsed process blocks to the final answer", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "user", content: "goal request", dbId: 1 }),
+          baseMessage({
+            role: "assistant",
+            content: "final summary",
+            dbId: 2,
+            usage: { durationMs: 10_000, lastInputTokens: 50, outputTokens: 7 },
+            contentBlocks: [
+              {
+                type: "tool_call",
+                tool: {
+                  callId: "goal-finish-1",
+                  name: "goal_finish_request",
+                  arguments: "{}",
+                  result: JSON.stringify({
+                    ok: true,
+                    status: "completed",
+                    report: {
+                      status: "completed",
+                      usage: { elapsedSecs: 10, tokensUsed: 0, turnsUsed: 1 },
+                    },
+                  }),
+                },
+              },
+              { type: "text", content: "final summary" },
+            ],
+          }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const finalBubble = screen
+      .getAllByTestId("message-bubble")
+      .find((bubble) => bubble.textContent === "final summary")
+    expect(finalBubble?.getAttribute("data-goal-report-status")).toBe("completed")
+    expect(finalBubble?.getAttribute("data-suppress-goal-footer")).toBe("false")
+
+    fireEvent.click(screen.getByRole("button", { expanded: false }))
+    expect(
+      screen
+        .getAllByTestId("message-bubble")
+        .some((bubble) => bubble.getAttribute("data-suppress-goal-footer") === "true"),
+    ).toBe(true)
   })
 
   test("expands collapsed historical prefix when search targets text inside it", async () => {
