@@ -414,35 +414,58 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [refExtra, setRefExtra] = useState("")
   const [refGenerating, setRefGenerating] = useState(false)
 
-  // 客户端先降采样（≤1600px、JPEG q85）再 base64：payload 小、HTTP body 不超限、上传快
-  // （后端 downscale_for_vision 再兜一次）。
-  const onPickRefImage = useCallback((file: File | null) => {
-    if (!file || !file.type.startsWith("image/")) return
-    const img = new window.Image()
-    const objUrl = URL.createObjectURL(file)
-    img.onload = () => {
-      URL.revokeObjectURL(objUrl)
-      const MAX = 1600
-      let w = img.naturalWidth || img.width
-      let h = img.naturalHeight || img.height
-      if (Math.max(w, h) > MAX) {
-        const s = MAX / Math.max(w, h)
-        w = Math.round(w * s)
-        h = Math.round(h * s)
+  // 客户端**自适应降采样 + 压到字节预算**再 base64：逐步降边长(1600→…)+ 质量(0.85→0.55)，
+  // 保证 payload 稳在服务端 16 MiB body 限内、上传快（后端 downscale_for_vision 再兜一次）；
+  // 任何读取 / 编码失败给明确 toast（不静默留空）。
+  const onPickRefImage = useCallback(
+    (file: File | null) => {
+      if (!file || !file.type.startsWith("image/")) return
+      const fail = () => toast.error(t("design.fromImageReadErr", "无法读取该图片，请换一张"))
+      const BUDGET = 4_000_000 // base64 字符数上限（≈4 MB，远低于服务端 16 MiB）
+      const img = new window.Image()
+      const objUrl = URL.createObjectURL(file)
+      img.onload = () => {
+        URL.revokeObjectURL(objUrl)
+        let edge = 1600
+        for (let attempt = 0; attempt < 4; attempt++) {
+          let w = img.naturalWidth || img.width
+          let h = img.naturalHeight || img.height
+          if (Math.max(w, h) > edge) {
+            const s = edge / Math.max(w, h)
+            w = Math.round(w * s)
+            h = Math.round(h * s)
+          }
+          const canvas = document.createElement("canvas")
+          canvas.width = w
+          canvas.height = h
+          const ctx = canvas.getContext("2d")
+          if (!ctx) return fail()
+          ctx.drawImage(img, 0, 0, w, h)
+          for (const q of [0.85, 0.7, 0.55]) {
+            let url: string
+            try {
+              url = canvas.toDataURL("image/jpeg", q)
+            } catch {
+              return fail()
+            }
+            const b64 = url.split(",")[1] || ""
+            if (b64 && b64.length <= BUDGET) {
+              setRefImage({ b64, mime: "image/jpeg", url })
+              return
+            }
+          }
+          edge = Math.round(edge * 0.75) // 仍超预算 → 再缩边长重试
+        }
+        fail() // 4 轮仍超预算（极端大图）
       }
-      const canvas = document.createElement("canvas")
-      canvas.width = w
-      canvas.height = h
-      const ctx = canvas.getContext("2d")
-      if (!ctx) return
-      ctx.drawImage(img, 0, 0, w, h)
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.85)
-      const b64 = dataUrl.split(",")[1] || ""
-      if (b64) setRefImage({ b64, mime: "image/jpeg", url: dataUrl })
-    }
-    img.onerror = () => URL.revokeObjectURL(objUrl)
-    img.src = objUrl
-  }, [])
+      img.onerror = () => {
+        URL.revokeObjectURL(objUrl)
+        fail()
+      }
+      img.src = objUrl
+    },
+    [t],
+  )
 
   const createFromReferenceImage = useCallback(async () => {
     if (!activeProject || !refImage) return

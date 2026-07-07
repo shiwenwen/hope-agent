@@ -282,6 +282,7 @@
     "fromImageDrop": "Clique ou solte uma imagem de design de referência",
     "fromImageExtra": "Instruções extra (opcional): ex. “traduzir para inglês”, “usar as minhas cores”…",
     "fromImageErr": "Falha ao gerar a partir da imagem de referência",
+    "fromImageReadErr": "Não foi possível ler essa imagem, tente outra",
     "comment": {
       "title": "Comentários",
       "mode": "Comentar: clique num elemento para dar feedback",

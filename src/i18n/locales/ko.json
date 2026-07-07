@@ -282,6 +282,7 @@
     "fromImageDrop": "참조 디자인 이미지를 클릭하거나 드롭",
     "fromImageExtra": "추가 지시(선택): 예 “영어로”, “브랜드 색 사용”…",
     "fromImageErr": "참조 이미지에서 생성 실패",
+    "fromImageReadErr": "이미지를 읽을 수 없습니다. 다른 이미지를 시도하세요",
     "comment": {
       "title": "댓글",
       "mode": "댓글: 요소를 클릭해 피드백 남기기",

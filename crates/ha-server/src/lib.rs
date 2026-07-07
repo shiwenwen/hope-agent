@@ -1692,7 +1692,8 @@ fn build_router_with_cors(
         )
         .route(
             "/design/artifacts/generate",
-            post(routes::design::generate_artifact),
+            // 参考图 base64（「照着这张图做」）可超 axum 默认 2 MiB body 限——放开到 16 MiB。
+            post(routes::design::generate_artifact).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
         .route("/design/patch", post(routes::design::patch_element))
         .route(

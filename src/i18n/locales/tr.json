@@ -282,6 +282,7 @@
     "fromImageDrop": "Referans tasarım görselini tıklayın veya sürükleyin",
     "fromImageExtra": "Ek talimatlar (isteğe bağlı): örn. “Türkçeye çevir”, “marka renklerimi kullan”…",
     "fromImageErr": "Referans görselden üretim başarısız",
+    "fromImageReadErr": "Bu görsel okunamadı, başka birini deneyin",
     "comment": {
       "title": "Yorumlar",
       "mode": "Yorum: geri bildirim için bir öğeye tıklayın",

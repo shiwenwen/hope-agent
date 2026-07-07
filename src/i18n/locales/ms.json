@@ -282,6 +282,7 @@
     "fromImageDrop": "Klik atau lepas imej reka bentuk rujukan",
     "fromImageExtra": "Arahan tambahan (pilihan): cth. “terjemah ke BM”, “guna warna jenama saya”…",
     "fromImageErr": "Gagal menjana daripada imej rujukan",
+    "fromImageReadErr": "Tidak dapat membaca imej itu, cuba yang lain",
     "comment": {
       "title": "Komen",
       "mode": "Komen: klik elemen untuk beri maklum balas",

@@ -282,6 +282,7 @@
     "fromImageDrop": "Nhấp hoặc thả ảnh thiết kế tham chiếu",
     "fromImageExtra": "Hướng dẫn thêm (tùy chọn): vd. “dịch sang tiếng Anh”, “dùng màu thương hiệu của tôi”…",
     "fromImageErr": "Không thể tạo từ ảnh tham chiếu",
+    "fromImageReadErr": "Không đọc được ảnh đó, hãy thử ảnh khác",
     "comment": {
       "title": "Bình luận",
       "mode": "Bình luận: nhấp vào phần tử để để lại phản hồi",

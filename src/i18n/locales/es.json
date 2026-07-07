@@ -282,6 +282,7 @@
     "fromImageDrop": "Haz clic o suelta una imagen de diseño de referencia",
     "fromImageExtra": "Instrucciones extra (opcional): p. ej. “traducir al inglés”, “usar mis colores”…",
     "fromImageErr": "Error al generar desde la imagen de referencia",
+    "fromImageReadErr": "No se pudo leer esa imagen, prueba con otra",
     "comment": {
       "title": "Comentarios",
       "mode": "Comentar: haz clic en un elemento para dar feedback",

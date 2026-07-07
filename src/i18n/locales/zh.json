@@ -282,6 +282,7 @@
     "fromImageDrop": "点击或拖入参考设计图",
     "fromImageExtra": "额外要求（可选）：如「文案改成中文」「用我的品牌色」…",
     "fromImageErr": "从参考图生成失败",
+    "fromImageReadErr": "无法读取该图片，请换一张",
     "comment": {
       "title": "批注",
       "mode": "批注：点选元素留反馈",

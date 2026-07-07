@@ -970,36 +970,43 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
         return create_artifact_generating(input).await;
     }
     let kind = kind_opt.expect("checked above");
-    // 参考图 → vision 描述成重建 brief（+ 叠加文本要求）；描述失败回退文本 brief。
-    let brief = if has_ref {
-        let b64 = input.reference_image_b64.as_deref().unwrap_or_default();
-        match super::extract::describe_reference_image(b64, kind).await {
-            Ok(desc) if text_brief.trim().is_empty() => desc,
-            Ok(desc) => format!("{desc}\n\n额外要求：{text_brief}"),
-            Err(e) => {
-                crate::app_warn!(
-                    "design",
-                    "generate",
-                    "reference image describe failed ({e}), falling back to text brief"
-                );
-                text_brief
-            }
-        }
-    } else {
-        text_brief
-    };
-    if brief.trim().is_empty() {
-        // 参考图描述失败且无文本 brief → 空壳（不阻断创建）。
-        return create_artifact_generating(input).await;
-    }
     let (system_md, tokens) = resolve_system_for_generation(&input);
+    let ref_b64 = if has_ref {
+        input.reference_image_b64.clone()
+    } else {
+        None
+    };
 
+    // 建壳优先 + 立即返回（含参考图路径）：库里即出 generating 壳、cancel 覆盖 describe 阶段；
+    // 参考图的 vision 描述（可能 ~90s）移进后台任务，命令不阻塞、模态可即时关闭（review #2/#4）。
     let shell = create_artifact_shell(&input)?;
     let cancel = register_generation_cancel(&shell.id);
     let artifact_id = shell.id.clone();
     let project_id = shell.project_id.clone();
     tokio::spawn(async move {
         use futures_util::future::FutureExt;
+        // 参考图 → vision 描述成重建 brief（+ 叠加文本要求）；描述失败回退文本 brief。
+        let brief = match ref_b64 {
+            Some(b64) => match super::extract::describe_reference_image(&b64, kind).await {
+                Ok(desc) if text_brief.trim().is_empty() => desc,
+                Ok(desc) => format!("{desc}\n\n额外要求：{text_brief}"),
+                Err(e) => {
+                    crate::app_warn!(
+                        "design",
+                        "generate",
+                        "reference image describe failed ({e}), falling back to text brief"
+                    );
+                    text_brief.clone()
+                }
+            },
+            None => text_brief.clone(),
+        };
+        // describe 失败且无文本 brief → 降级壳为空白占位（ready，可编辑），不永久转圈。
+        if brief.trim().is_empty() {
+            let _ = degrade_to_placeholder(&artifact_id, "ready");
+            clear_generation_cancel(&artifact_id, &cancel);
+            return;
+        }
         // catch_unwind：spawned future 内部 panic（generate / finalize 里的意外）不留持久
         // generating 半态——降级为 failed 占位 + 清 cancel flag，而非永久转圈。
         let ran = std::panic::AssertUnwindSafe(stream_generate_artifact(
