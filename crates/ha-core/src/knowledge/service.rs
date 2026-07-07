@@ -11,8 +11,18 @@ use anyhow::{anyhow, bail, Result};
 
 use super::index;
 use super::types::{
-    Backlink, CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
-    Note, NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome,
+    Backlink, CompileProposal, CompileProposalStatus, CompileRun, CompileStartInput,
+    CreateKnowledgeBaseInput, KbAccess, KbAttachInput, KbChatThread, KnowledgeBaseMeta,
+    KnowledgeBrowserSourceImportInput, KnowledgeEvidenceClaim, KnowledgeEvidenceCoverage,
+    KnowledgeEvidenceRebuildResult, KnowledgeSource, KnowledgeSourceAssetKind,
+    KnowledgeSourceAssetLink, KnowledgeSourceDiff, KnowledgeSourceExternalRawSyncResult,
+    KnowledgeSourceImportBatchInput, KnowledgeSourceImportInput, KnowledgeSourceImportRun,
+    KnowledgeSourceImportRunDetail, KnowledgeSourceImportSessionAttachmentInput,
+    KnowledgeSourceReadResult, KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
+    KnowledgeSourceSimilarityDismissInput, KnowledgeSourceSimilarityGroup,
+    KnowledgeSourceSimilarityResolveInput, KnowledgeSourceSimilarityResolveResult,
+    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
+    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
 };
 use crate::filesystem::{self, WorkspaceScope};
 use crate::session::{SessionKind, SessionMeta};
@@ -39,6 +49,215 @@ pub fn list_kb_meta(include_archived: bool) -> Result<Vec<KnowledgeBaseMeta>> {
 /// List a KB's indexed notes (metadata), ordered by path.
 pub fn list_notes(kb_id: &str) -> Result<Vec<Note>> {
     index_db()?.list_notes(kb_id)
+}
+
+// ── Raw source inbox (Knowledge Compiler Phase 1) ─────────────────
+
+/// Owner import: add a raw source snapshot to a KB. The source is Hope-managed
+/// and never mutates the notes root, including external/bound vaults.
+pub async fn source_import(
+    kb_id: &str,
+    input: KnowledgeSourceImportInput,
+) -> Result<KnowledgeSource> {
+    super::source::import_source(kb_id, input).await
+}
+
+/// Owner import: capture the active controlled browser tab as a raw source.
+pub async fn source_import_browser(
+    kb_id: &str,
+    input: KnowledgeBrowserSourceImportInput,
+) -> Result<KnowledgeSource> {
+    super::source::import_browser_capture(kb_id, input).await
+}
+
+/// Owner import: archive an already-persisted session attachment into sources.
+pub async fn source_import_session_attachment(
+    kb_id: &str,
+    input: KnowledgeSourceImportSessionAttachmentInput,
+) -> Result<KnowledgeSource> {
+    super::source::import_session_attachment(kb_id, input).await
+}
+
+/// Owner import: run a durable multi-item import pipeline with per-item status.
+pub async fn source_import_batch(
+    kb_id: &str,
+    input: KnowledgeSourceImportBatchInput,
+) -> Result<KnowledgeSourceImportRunDetail> {
+    super::source::import_source_batch(kb_id, input).await
+}
+
+/// Owner retry: create a new run from failed items in a previous import run.
+pub async fn source_import_retry_failed(
+    kb_id: &str,
+    run_id: &str,
+) -> Result<KnowledgeSourceImportRunDetail> {
+    super::source::retry_failed_source_imports(kb_id, run_id).await
+}
+
+/// Owner list: raw sources in newest-first order.
+pub fn source_list(kb_id: &str) -> Result<Vec<KnowledgeSource>> {
+    super::source::list_sources(kb_id)
+}
+
+/// Owner history: recent import runs with aggregate counts.
+pub fn source_import_runs_list(
+    kb_id: &str,
+    limit: Option<usize>,
+) -> Result<Vec<KnowledgeSourceImportRun>> {
+    super::source::list_source_import_runs(kb_id, limit)
+}
+
+/// Owner history detail: a run plus all item statuses.
+pub fn source_import_run_detail(
+    kb_id: &str,
+    run_id: &str,
+) -> Result<KnowledgeSourceImportRunDetail> {
+    let detail = super::source::source_import_run_detail(run_id)?
+        .ok_or_else(|| anyhow!("source import run not found: {run_id}"))?;
+    if detail.run.kb_id != kb_id {
+        bail!("source import run does not belong to knowledge base: {kb_id}");
+    }
+    Ok(detail)
+}
+
+/// Owner source governance: exact duplicate and near-similar source groups.
+pub fn source_similarity_groups(kb_id: &str) -> Result<Vec<KnowledgeSourceSimilarityGroup>> {
+    super::source::source_similarity_groups(kb_id)
+}
+
+/// Owner source governance: hide a source similarity suggestion.
+pub fn source_similarity_dismiss(
+    kb_id: &str,
+    input: KnowledgeSourceSimilarityDismissInput,
+) -> Result<Vec<KnowledgeSourceSimilarityGroup>> {
+    super::source::dismiss_source_similarity_group(kb_id, input)
+}
+
+/// Owner source governance: keep one source and remove duplicate sources in the
+/// same KB, then remember the group as resolved.
+pub fn source_similarity_resolve(
+    kb_id: &str,
+    input: KnowledgeSourceSimilarityResolveInput,
+) -> Result<KnowledgeSourceSimilarityResolveResult> {
+    super::source::resolve_source_similarity_group(kb_id, input)
+}
+
+/// Owner read: source metadata + stored snapshot text.
+pub fn source_read(kb_id: &str, source_id: &str) -> Result<KnowledgeSourceReadResult> {
+    super::source::read_source(kb_id, source_id)
+}
+
+/// Owner source asset metadata for retained original media / thumbnails.
+pub fn source_asset_link(
+    kb_id: &str,
+    source_id: &str,
+    kind: KnowledgeSourceAssetKind,
+) -> Result<Option<KnowledgeSourceAssetLink>> {
+    super::source::source_asset_link(kb_id, source_id, kind)
+}
+
+/// Owner refresh: re-acquire a refreshable source and create a new immutable
+/// version only when its extracted body changed.
+pub async fn source_refresh(
+    kb_id: &str,
+    source_id: &str,
+    input: KnowledgeSourceRefreshInput,
+) -> Result<KnowledgeSourceRefreshResult> {
+    super::source::refresh_source(kb_id, source_id, input).await
+}
+
+/// Owner versions: list all immutable snapshots in a source's version chain.
+pub fn source_versions(kb_id: &str, source_id: &str) -> Result<KnowledgeSourceVersionHistory> {
+    super::source::source_versions(kb_id, source_id)
+}
+
+/// Owner diff: compare two source snapshots in the same KB.
+pub fn source_diff(
+    kb_id: &str,
+    from_source_id: &str,
+    to_source_id: &str,
+) -> Result<KnowledgeSourceDiff> {
+    super::source::diff_sources(kb_id, from_source_id, to_source_id)
+}
+
+/// Owner re-extract: rebuild source chunks + hashes from the stored snapshot.
+pub fn source_reextract(kb_id: &str, source_id: &str) -> Result<KnowledgeSource> {
+    super::source::reextract_source(kb_id, source_id)
+}
+
+/// Owner delete: removes registry row, chunks and stored snapshot file.
+pub fn source_delete(kb_id: &str, source_id: &str) -> Result<bool> {
+    super::source::delete_source(kb_id, source_id)
+}
+
+/// Owner sync: mirror all existing source text snapshots into the configured
+/// external vault folder (`raw/` or `sources/`).
+pub fn source_sync_external_raw(kb_id: &str) -> Result<KnowledgeSourceExternalRawSyncResult> {
+    super::source::sync_external_raw_snapshots(kb_id)
+}
+
+// ── Knowledge Compiler (Phase 2) ─────────────────────────────────
+
+pub async fn compile_start(kb_id: &str, input: CompileStartInput) -> Result<CompileRun> {
+    super::compile::start_compile_run(kb_id, input).await
+}
+
+pub fn compile_status(run_id: &str) -> Result<CompileRun> {
+    super::compile::get_run(run_id)
+}
+
+pub fn compile_runs_list(kb_id: &str) -> Result<Vec<CompileRun>> {
+    super::compile::list_runs(kb_id)
+}
+
+pub fn compile_proposals_list(
+    kb_id: &str,
+    run_id: Option<&str>,
+    status: Option<CompileProposalStatus>,
+) -> Result<Vec<CompileProposal>> {
+    super::compile::list_proposals(kb_id, run_id, status)
+}
+
+pub async fn compile_proposal_approve(id: i64) -> Result<CompileProposal> {
+    super::compile::approve_proposal(id).await
+}
+
+pub fn compile_proposal_reject(id: i64) -> Result<bool> {
+    super::compile::reject_proposal(id)
+}
+
+pub fn compile_run_cancel(run_id: &str) -> Result<CompileRun> {
+    super::compile::cancel_run(run_id)
+}
+
+pub fn query_file(kb_id: &str, input: QueryFileInput) -> Result<CompileProposal> {
+    super::compile::query_file(kb_id, input)
+}
+
+// ── Schema profile + evidence refs (Knowledge Compiler Phase 3) ───
+
+pub fn schema_profile(kb_id: &str) -> Result<SchemaProfile> {
+    super::schema::profile(kb_id)
+}
+
+pub fn schema_issues(kb_id: &str) -> Result<Vec<SchemaIssue>> {
+    super::schema::schema_issues(kb_id)
+}
+
+pub fn note_source_refs(kb_id: &str, rel_path: &str) -> Result<Vec<NoteSourceRef>> {
+    super::schema::note_source_refs(kb_id, rel_path)
+}
+
+pub fn evidence_coverage(kb_id: &str) -> Result<KnowledgeEvidenceCoverage> {
+    super::schema::evidence_coverage(kb_id)
+}
+
+pub fn evidence_source_claims(kb_id: &str, source_id: &str) -> Result<Vec<KnowledgeEvidenceClaim>> {
+    super::schema::evidence_source_claims(kb_id, source_id)
+}
+
+pub fn evidence_rebuild(kb_id: &str) -> Result<KnowledgeEvidenceRebuildResult> {
+    super::schema::rebuild_evidence_index(kb_id)
 }
 
 // ── Knowledge-space sidebar chat threads ────────────────────────────
@@ -675,6 +894,32 @@ pub fn set_search_config(
     Ok(clamped)
 }
 
+// ── Source-to-note organization agent config (owner plane GUI) ──────────
+
+/// Current agent selection for organizing raw sources into reviewable note
+/// proposals. `agent_id = None` inherits the global default agent.
+pub fn get_compile_config() -> super::KnowledgeCompileConfig {
+    crate::config::cached_config()
+        .knowledge_compile
+        .clone()
+        .normalized()
+}
+
+/// Persist source-to-note organization agent selection. This only affects
+/// future compile runs; existing review proposals keep their original content.
+pub fn set_compile_config(
+    cfg: super::KnowledgeCompileConfig,
+    source: &str,
+) -> Result<super::KnowledgeCompileConfig> {
+    let normalized = cfg.normalized();
+    let to_save = normalized.clone();
+    crate::config::mutate_config(("knowledge_compile", source), move |store| {
+        store.knowledge_compile = to_save.clone();
+        Ok(())
+    })?;
+    Ok(normalized)
+}
+
 // ── Maintenance config (WS6, owner plane GUI) ───────────────────
 
 /// Current (clamped) maintenance config for the GUI panel.
@@ -718,6 +963,32 @@ pub fn set_passive_recall_config(
     let to_save = clamped.clone();
     crate::config::mutate_config(("knowledge_passive_recall", source), move |store| {
         store.knowledge_passive_recall = to_save.clone();
+        Ok(())
+    })?;
+    Ok(clamped)
+}
+
+// ── Media retention config (owner plane GUI; privacy HIGH) ──────
+
+/// Current optional source-media retention config. Disabled by default; the
+/// returned shape is clamped so UI and import paths share the same bounds.
+pub fn get_media_retention_config() -> super::KnowledgeMediaRetentionConfig {
+    crate::config::cached_config()
+        .knowledge_media_retention
+        .clone()
+        .clamped()
+}
+
+/// Persist optional source-media retention config (clamped). This only affects
+/// future imports; already-retained assets remain governed by quota/prune.
+pub fn set_media_retention_config(
+    cfg: super::KnowledgeMediaRetentionConfig,
+    source: &str,
+) -> Result<super::KnowledgeMediaRetentionConfig> {
+    let clamped = cfg.clamped();
+    let to_save = clamped.clone();
+    crate::config::mutate_config(("knowledge_media_retention", source), move |store| {
+        store.knowledge_media_retention = to_save.clone();
         Ok(())
     })?;
     Ok(clamped)

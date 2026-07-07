@@ -1016,7 +1016,7 @@ function MessageBubbleInner({
             />
           ) : (
             <>
-              <UserAttachments attachments={msg.attachments} />
+              <UserAttachments attachments={msg.attachments} sessionId={sessionId} />
               <UserMessageContent
                 content={msg.content}
                 renderMode={contentRenderMode}

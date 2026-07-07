@@ -98,13 +98,21 @@ fn model_marker_provider_failed(kind: FailoverReason, raw: &str) -> String {
              请提醒用户检查订阅状态或账户余额。",
             msg
         ),
-        FailoverReason::RateLimit | FailoverReason::Overloaded | FailoverReason::Timeout => {
-            format!(
-                "[系统事件] 所有已配置模型都遭遇限流或不可达。最后一次错误:{}。\
-                 上方已产生的部分内容已保留;用户可稍后重试。",
-                msg
-            )
-        }
+        FailoverReason::RateLimit => format!(
+            "[系统事件] 所有已配置模型都被上游限流。最后一次错误:{}。\
+             上方已产生的部分内容已保留;请提醒用户稍后重试或切换备用模型。",
+            msg
+        ),
+        FailoverReason::Overloaded => format!(
+            "[系统事件] 所有已配置模型的上游服务暂时繁忙或不可用。最后一次错误:{}。\
+             上方已产生的部分内容已保留;请提醒用户稍后重试或切换备用模型。",
+            msg
+        ),
+        FailoverReason::Timeout => format!(
+            "[系统事件] 所有已配置模型都因网络连接、DNS、代理或请求超时而不可达。\
+             最后一次错误:{}。上方已产生的部分内容已保留;请提醒用户检查网络/代理或稍后重试。",
+            msg
+        ),
         FailoverReason::ContextOverflow => format!(
             "[系统事件] 对话超出所有模型的上下文窗口,自动压缩失败。详情:{}。\
              请提醒用户开启新会话或精简对话。",
@@ -155,9 +163,11 @@ fn user_notice_provider_failed(kind: FailoverReason, raw: &str) -> String {
     match kind {
         FailoverReason::Auth => "所有模型认证失败。请检查 API Key 或 OAuth 登录".to_string(),
         FailoverReason::Billing => "所有模型计费/配额问题。请检查订阅或余额".to_string(),
-        FailoverReason::RateLimit | FailoverReason::Overloaded | FailoverReason::Timeout => {
-            "所有模型限流或不可达,可稍后重试".to_string()
+        FailoverReason::RateLimit => "所有模型被上游限流。可稍后重试或切换备用模型".to_string(),
+        FailoverReason::Overloaded => {
+            "所有模型上游服务暂时繁忙。可稍后重试或切换备用模型".to_string()
         }
+        FailoverReason::Timeout => "所有模型网络不可达。请检查网络/代理/DNS,或稍后重试".to_string(),
         FailoverReason::ContextOverflow => "对话超出所有模型上下文窗口".to_string(),
         FailoverReason::ModelNotFound => "所有模型均不可用。请在设置中选择其他模型".to_string(),
         FailoverReason::Unknown => format!("所有模型失败:{}", msg),
@@ -267,6 +277,23 @@ mod tests {
         let m = model_marker(&TerminationReason::NoProfileAvailable);
         assert!(m.contains("无法启动"));
         assert!(m.contains("配置"));
+    }
+
+    #[test]
+    fn provider_timeout_notice_points_to_network() {
+        let r = TerminationReason::ProviderFailed {
+            last_kind: FailoverReason::Timeout,
+            last_message: "Codex API request failed: error sending request for url".into(),
+            is_codex_auth: false,
+        };
+
+        let marker = model_marker(&r);
+        assert!(marker.contains("网络连接"));
+        assert!(marker.contains("DNS"));
+        assert_eq!(
+            user_notice(&r),
+            "所有模型网络不可达。请检查网络/代理/DNS,或稍后重试"
+        );
     }
 
     #[test]

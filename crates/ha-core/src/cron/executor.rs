@@ -1310,7 +1310,6 @@ mod tests {
             name: "Project One".into(),
             description: None,
             instructions: None,
-            emoji: None,
             logo: None,
             color: None,
             default_agent_id: agent_id.map(str::to_string),

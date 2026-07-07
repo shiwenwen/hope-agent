@@ -1500,11 +1500,21 @@ impl AssistantAgent {
         }
 
         // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
+        let mut usage_event =
+            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_SUMMARIZE);
+        usage_event.operation = Some("context.summarize_direct".to_string());
+        usage_event.source = Some("context_compact".to_string());
+        usage_event.provider_id = self.provider_config.as_ref().map(|p| p.id.clone());
+        usage_event.provider_name = self.provider_config.as_ref().map(|p| p.name.clone());
+        usage_event.model_id = Some(self.provider.model().to_string());
+        usage_event.session_id = self.session_id.clone();
+        usage_event.agent_id = Some(self.agent_id.clone());
         summarize_direct(
             &self.provider,
             &self.user_agent,
             prompt,
             self.compact_config.summary_max_tokens,
+            Some(usage_event),
         )
         .await
     }
@@ -1889,9 +1899,11 @@ pub(crate) async fn summarize_direct(
     user_agent: &str,
     prompt: &str,
     max_tokens: u32,
+    usage_event: Option<crate::model_usage::ModelUsageEvent>,
 ) -> Result<String> {
     use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
+    let started = std::time::Instant::now();
     let client = crate::provider::apply_proxy(reqwest::Client::builder().user_agent(user_agent))
         .build()
         .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
@@ -1906,9 +1918,34 @@ pub(crate) async fn summarize_direct(
                 mode: OneShotMode::Independent {
                     system: SUMMARIZATION_SYSTEM_PROMPT,
                 },
+                user_content: None,
             },
         )
-        .await?;
+        .await;
+
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            if let Some(mut event) = usage_event {
+                event.duration_ms = Some(started.elapsed().as_millis() as u64);
+                event.success = false;
+                event.error = Some(e.to_string());
+                event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
+                crate::model_usage::record_model_usage_best_effort(event);
+            }
+            return Err(e);
+        }
+    };
+
+    if let Some(mut event) = usage_event {
+        event.input_tokens = Some(result.usage.input_tokens);
+        event.output_tokens = Some(result.usage.output_tokens);
+        event.cache_creation_input_tokens = Some(result.usage.cache_creation_input_tokens);
+        event.cache_read_input_tokens = Some(result.usage.cache_read_input_tokens);
+        event.duration_ms = Some(started.elapsed().as_millis() as u64);
+        event.metadata = Some(serde_json::json!({ "max_tokens": max_tokens }));
+        crate::model_usage::record_model_usage_best_effort(event);
+    }
 
     if result.text.is_empty() {
         return Err(anyhow::anyhow!("No text in summarization response"));
@@ -1961,6 +1998,7 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
         let provider_config = self.provider_config.as_ref();
         let model_id = self.model_id.as_str();
         let user_agent = self.user_agent.as_str();
+        let session_id_for_usage = self.session_id.clone();
 
         execute_with_failover(
             provider_config,
@@ -1971,6 +2009,7 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                 // profile is `Option<&AuthProfile>`; clone to own it across
                 // the `.await` inside build_llm_provider (Codex branch).
                 let profile_owned = profile.cloned();
+                let session_id_for_usage = session_id_for_usage.clone();
                 async move {
                     let provider = AssistantAgent::build_llm_provider(
                         provider_config,
@@ -1978,7 +2017,17 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
                         profile_owned.as_ref(),
                     )
                     .await?;
-                    summarize_direct(&provider, user_agent, prompt, max_tokens).await
+                    let mut usage_event = crate::model_usage::ModelUsageEvent::new(
+                        crate::model_usage::KIND_SUMMARIZE,
+                    );
+                    usage_event.operation = Some("context.dedicated_summarize".to_string());
+                    usage_event.source = Some("context_compact".to_string());
+                    usage_event.provider_id = Some(provider_config.id.clone());
+                    usage_event.provider_name = Some(provider_config.name.clone());
+                    usage_event.model_id = Some(model_id.to_string());
+                    usage_event.session_id = Some(session_id_for_usage);
+                    summarize_direct(&provider, user_agent, prompt, max_tokens, Some(usage_event))
+                        .await
                 }
             },
         )

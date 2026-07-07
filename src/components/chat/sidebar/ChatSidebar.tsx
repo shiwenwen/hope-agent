@@ -14,7 +14,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Bot, MessageSquarePlus, PanelLeft, Search, X } from "lucide-react"
+import { Bot, ListCollapse, MessageSquarePlus, PanelLeft, Rows3, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -86,7 +86,7 @@ export default function ChatSidebar({
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpandedState] = useState(() =>
-    readStoredBoolean(AGENTS_EXPANDED_STORAGE_KEY, true),
+    readStoredBoolean(AGENTS_EXPANDED_STORAGE_KEY, false),
   )
   const [projectsExpanded, setProjectsExpandedState] = useState(() =>
     readStoredBoolean(PROJECTS_EXPANDED_STORAGE_KEY, true),
@@ -184,6 +184,22 @@ export default function ChatSidebar({
       window.removeEventListener("sidebar-display-mode-changed", handleModeChanged)
     }
   }, [])
+
+  const toggleSidebarDisplayMode = useCallback(async () => {
+    const next: SidebarDisplayMode = sidebarDisplayMode === "compact" ? "detailed" : "compact"
+    const previous = sidebarDisplayMode
+    setSidebarDisplayMode(next)
+    window.dispatchEvent(new CustomEvent("sidebar-display-mode-changed", { detail: { mode: next } }))
+    try {
+      await getTransport().call("set_sidebar_display_mode", { mode: next })
+    } catch (err) {
+      setSidebarDisplayMode(previous)
+      window.dispatchEvent(
+        new CustomEvent("sidebar-display-mode-changed", { detail: { mode: previous } }),
+      )
+      logger.error("chat", "ChatSidebar::toggleDisplayMode", "failed to save sidebar mode", err)
+    }
+  }, [sidebarDisplayMode])
 
   useEffect(() => {
     const q = searchQuery.trim()
@@ -441,6 +457,32 @@ export default function ChatSidebar({
                     }}
                   >
                     <PanelLeft className="h-4 w-4" />
+                  </button>
+                </IconTip>
+                <IconTip
+                  label={
+                    sidebarDisplayMode === "compact"
+                      ? t("chat.sidebarDetailedMode", "切换到普通模式")
+                      : t("chat.sidebarCompactMode", "切换到简约模式")
+                  }
+                >
+                  <button
+                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-surface-subtle hover:text-foreground"
+                    aria-label={
+                      sidebarDisplayMode === "compact"
+                        ? t("chat.sidebarDetailedMode", "切换到普通模式")
+                        : t("chat.sidebarCompactMode", "切换到简约模式")
+                    }
+                    onClick={(e) => {
+                      e.currentTarget.blur()
+                      void toggleSidebarDisplayMode()
+                    }}
+                  >
+                    {sidebarDisplayMode === "compact" ? (
+                      <Rows3 className="h-4 w-4" />
+                    ) : (
+                      <ListCollapse className="h-4 w-4" />
+                    )}
                   </button>
                 </IconTip>
                 {/* New Chat button */}

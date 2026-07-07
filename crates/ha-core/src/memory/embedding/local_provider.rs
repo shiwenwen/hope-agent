@@ -9,6 +9,7 @@ use crate::memory::traits::EmbeddingProvider;
 /// Local ONNX-based embedding provider using fastembed-rs.
 pub struct LocalEmbeddingProvider {
     model: Mutex<fastembed::TextEmbedding>,
+    model_id: String,
     dims: u32,
 }
 
@@ -33,13 +34,30 @@ impl LocalEmbeddingProvider {
 
         Ok(Self {
             model: Mutex::new(model),
+            model_id: model_id.to_string(),
             dims,
         })
+    }
+
+    fn record_local_usage(&self, operation: &'static str, text_count: usize, duration_ms: u64) {
+        let mut event =
+            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_EMBEDDING);
+        event.operation = Some(operation.to_string());
+        event.source = Some("embedding".to_string());
+        event.provider_name = Some("local".to_string());
+        event.model_id = Some(self.model_id.clone());
+        event.duration_ms = Some(duration_ms);
+        event.metadata = Some(serde_json::json!({
+            "text_count": text_count,
+            "dimensions": self.dims,
+        }));
+        crate::model_usage::record_model_usage_best_effort(event);
     }
 }
 
 impl EmbeddingProvider for LocalEmbeddingProvider {
     fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        let started = std::time::Instant::now();
         let mut model = self
             .model
             .lock()
@@ -52,10 +70,12 @@ impl EmbeddingProvider for LocalEmbeddingProvider {
             .next()
             .ok_or_else(|| anyhow::anyhow!("Empty embedding result"))?;
         l2_normalize(&mut vec);
+        self.record_local_usage("embedding.local", 1, started.elapsed().as_millis() as u64);
         Ok(vec)
     }
 
     fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        let started = std::time::Instant::now();
         let mut model = self
             .model
             .lock()
@@ -66,6 +86,11 @@ impl EmbeddingProvider for LocalEmbeddingProvider {
         for vec in &mut results {
             l2_normalize(vec);
         }
+        self.record_local_usage(
+            "embedding.local_batch",
+            texts.len(),
+            started.elapsed().as_millis() as u64,
+        );
         Ok(results)
     }
 

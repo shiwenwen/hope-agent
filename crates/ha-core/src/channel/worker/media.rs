@@ -42,7 +42,7 @@ pub(super) fn convert_inbound_media_to_attachments(
                         mime_type: mime,
                         source: None,
                         data: Some(base64::engine::general_purpose::STANDARD.encode(&data)),
-                        file_path: None,
+                        file_path: Some(effective_path.to_string()),
                         quote_lines: None,
                     });
                 }
@@ -269,6 +269,7 @@ pub(super) async fn transcribe_inbound_voice_attachments(
                 fallback,
                 payload,
                 &crate::stt::TranscriptOptions::default(),
+                None,
             )
             .await;
             (name, result)

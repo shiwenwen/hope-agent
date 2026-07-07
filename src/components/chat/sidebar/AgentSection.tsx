@@ -152,9 +152,9 @@ function SortableAgentCard({
                   )}
                   <span
                     className={cn(
-                      "min-w-0 flex-1 truncate",
+                      "min-w-0 flex-1 truncate text-[13px] font-medium text-foreground",
                       isCompact && "text-[12px] leading-5",
-                      isSelected ? "text-primary font-medium" : "text-foreground/80",
+                      isSelected && "text-primary",
                     )}
                   >
                     {agent.name}
@@ -198,7 +198,7 @@ function SortableAgentCard({
         </Tooltip>
         <ContextMenuContent variant="floating">
           <ContextMenuItem onClick={() => onNewChat(agent.id, { incognito: true })}>
-            <Ghost className="h-3 w-3 mr-2" />
+            <Ghost className="h-3 w-3 mr-2" strokeWidth={1.75} />
             {t("chat.newIncognitoChat")}
           </ContextMenuItem>
           {onEditAgent && (

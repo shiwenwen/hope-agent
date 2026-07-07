@@ -509,21 +509,44 @@ async fn handle_inbound_message(
             return Ok(());
         }
     };
+    let mut attachments = convert_inbound_media_to_attachments(&msg.media, &session_id);
+    let user_attachments_meta =
+        match crate::attachments::persist_chat_user_attachments_meta(&session_id, &mut attachments)
+        {
+            Ok(meta) => meta,
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "[{}] Failed to persist inbound attachment metadata for {}: {}",
+                    channel_id_str,
+                    session_id,
+                    e
+                );
+                None
+            }
+        };
+    let mut attachments_meta = serde_json::json!({
+        "channel_inbound": {
+            "channelId": channel_id_str,
+            "accountId": msg.account_id,
+            "senderId": msg.sender_id,
+            "senderName": msg.sender_name,
+            "chatId": msg.chat_id,
+            "messageId": msg.message_id,
+        }
+    });
+    if let Some(meta_json) = user_attachments_meta.as_deref() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(meta_json) {
+            if value.as_array().is_some_and(|items| !items.is_empty()) {
+                attachments_meta["user_attachments"] = value;
+            }
+        }
+    }
+    let attachments_meta_json = attachments_meta.to_string();
     let mut user_msg = crate::session::NewMessage::user(&effective_prompt)
         .with_source(crate::chat_engine::ChatSource::Channel);
-    user_msg.attachments_meta = Some(
-        serde_json::json!({
-            "channel_inbound": {
-                "channelId": channel_id_str,
-                "accountId": msg.account_id,
-                "senderId": msg.sender_id,
-                "senderName": msg.sender_name,
-                "chatId": msg.chat_id,
-                "messageId": msg.message_id,
-            }
-        })
-        .to_string(),
-    );
+    user_msg.attachments_meta = Some(attachments_meta_json.clone());
     let _ = session_db.append_message(&session_id, &user_msg);
 
     // Auto-generate fallback title from the first real message (same logic as normal chat).
@@ -545,6 +568,7 @@ async fn handle_inbound_message(
                 "chatId": &msg.chat_id,
                 "senderName": msg.sender_name.as_deref(),
                 "text": user_text,
+                "attachments_meta": attachments_meta_json,
             }),
         );
     }
@@ -727,9 +751,6 @@ async fn handle_inbound_message(
         true,
     );
     let event_sink = pipeline.event_sink.clone();
-
-    // 8. Convert inbound media to agent Attachments
-    let attachments = convert_inbound_media_to_attachments(&msg.media, &session_id);
 
     // 8a. Auto-transcribe voice / audio attachments when the account opts
     // in. The prefix gets prepended to the engine message so the LLM sees

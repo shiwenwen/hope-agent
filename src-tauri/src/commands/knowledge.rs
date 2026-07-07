@@ -8,9 +8,24 @@
 use crate::commands::CmdError;
 use ha_core::filesystem::{self, ExtractedContent, FileTextContent, WorkspaceScope};
 use ha_core::knowledge::{
-    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
-    KbAttachment, KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note,
-    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    self, service, Backlink, BrokenLink, CompileProposal, CompileProposalStatus, CompileRun,
+    CompileStartInput, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KbAttachment,
+    KbChatThread, KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput,
+    KnowledgeAgentExpandResult, KnowledgeAgentReadInput, KnowledgeAgentReadResult,
+    KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
+    KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
+    KnowledgeBrowserSourceImportInput, KnowledgeCompileConfig, KnowledgeEvidenceClaim,
+    KnowledgeEvidenceCoverage, KnowledgeEvidenceRebuildResult, KnowledgeGraph, KnowledgeSource,
+    KnowledgeSourceAssetKind, KnowledgeSourceAssetLink, KnowledgeSourceDiff,
+    KnowledgeSourceExternalRawSyncResult, KnowledgeSourceImportBatchInput,
+    KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
+    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
+    KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
+    KnowledgeSourceSimilarityDismissInput, KnowledgeSourceSimilarityGroup,
+    KnowledgeSourceSimilarityResolveInput, KnowledgeSourceSimilarityResolveResult,
+    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
+    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
+    UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -99,6 +114,316 @@ pub async fn reindex_dir_cmd(kb_id: String, path: String) -> Result<(), CmdError
         .await
         .map_err(|e| CmdError::msg(format!("reindex dir task failed: {e}")))??;
     Ok(())
+}
+
+// ── Raw source inbox (Knowledge Compiler Phase 1) ────────────────
+
+#[tauri::command]
+pub async fn kb_source_import_cmd(
+    kb_id: String,
+    input: KnowledgeSourceImportInput,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_import(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_browser_cmd(
+    kb_id: String,
+    input: KnowledgeBrowserSourceImportInput,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_import_browser(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_session_attachment_cmd(
+    kb_id: String,
+    input: KnowledgeSourceImportSessionAttachmentInput,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_import_session_attachment(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_batch_cmd(
+    kb_id: String,
+    input: KnowledgeSourceImportBatchInput,
+) -> Result<KnowledgeSourceImportRunDetail, CmdError> {
+    service::source_import_batch(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_list_cmd(kb_id: String) -> Result<Vec<KnowledgeSource>, CmdError> {
+    service::source_list(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_runs_list_cmd(
+    kb_id: String,
+    limit: Option<usize>,
+) -> Result<Vec<KnowledgeSourceImportRun>, CmdError> {
+    service::source_import_runs_list(&kb_id, limit).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_run_detail_cmd(
+    kb_id: String,
+    run_id: String,
+) -> Result<KnowledgeSourceImportRunDetail, CmdError> {
+    service::source_import_run_detail(&kb_id, &run_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_import_retry_failed_cmd(
+    kb_id: String,
+    run_id: String,
+) -> Result<KnowledgeSourceImportRunDetail, CmdError> {
+    service::source_import_retry_failed(&kb_id, &run_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn kb_source_similarity_groups_cmd(
+    kb_id: String,
+) -> Result<Vec<KnowledgeSourceSimilarityGroup>, CmdError> {
+    service::source_similarity_groups(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn kb_source_similarity_dismiss_cmd(
+    kb_id: String,
+    input: KnowledgeSourceSimilarityDismissInput,
+) -> Result<Vec<KnowledgeSourceSimilarityGroup>, CmdError> {
+    service::source_similarity_dismiss(&kb_id, input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub fn kb_source_similarity_resolve_cmd(
+    kb_id: String,
+    input: KnowledgeSourceSimilarityResolveInput,
+) -> Result<KnowledgeSourceSimilarityResolveResult, CmdError> {
+    service::source_similarity_resolve(&kb_id, input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_read_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSourceReadResult, CmdError> {
+    service::source_read(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_asset_link_cmd(
+    kb_id: String,
+    source_id: String,
+    kind: KnowledgeSourceAssetKind,
+) -> Result<Option<KnowledgeSourceAssetLink>, CmdError> {
+    service::source_asset_link(&kb_id, &source_id, kind).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_refresh_cmd(
+    kb_id: String,
+    source_id: String,
+    input: KnowledgeSourceRefreshInput,
+) -> Result<KnowledgeSourceRefreshResult, CmdError> {
+    service::source_refresh(&kb_id, &source_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_versions_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSourceVersionHistory, CmdError> {
+    service::source_versions(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_diff_cmd(
+    kb_id: String,
+    source_id: String,
+    to_source_id: String,
+) -> Result<KnowledgeSourceDiff, CmdError> {
+    service::source_diff(&kb_id, &source_id, &to_source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_reextract_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_reextract(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_delete_cmd(kb_id: String, source_id: String) -> Result<bool, CmdError> {
+    service::source_delete(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_sync_external_raw_cmd(
+    kb_id: String,
+) -> Result<KnowledgeSourceExternalRawSyncResult, CmdError> {
+    service::source_sync_external_raw(&kb_id).map_err(Into::into)
+}
+
+// ── Knowledge Compiler (Phase 2) ─────────────────────────────────
+
+#[tauri::command]
+pub async fn kb_compile_start_cmd(
+    kb_id: String,
+    input: CompileStartInput,
+) -> Result<CompileRun, CmdError> {
+    service::compile_start(&kb_id, input)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_status_cmd(run_id: String) -> Result<CompileRun, CmdError> {
+    service::compile_status(&run_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_runs_list_cmd(kb_id: String) -> Result<Vec<CompileRun>, CmdError> {
+    service::compile_runs_list(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_proposals_list_cmd(
+    kb_id: String,
+    run_id: Option<String>,
+    status: Option<CompileProposalStatus>,
+) -> Result<Vec<CompileProposal>, CmdError> {
+    service::compile_proposals_list(&kb_id, run_id.as_deref(), status).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_proposal_approve_cmd(id: i64) -> Result<CompileProposal, CmdError> {
+    service::compile_proposal_approve(id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_proposal_reject_cmd(id: i64) -> Result<bool, CmdError> {
+    service::compile_proposal_reject(id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_compile_run_cancel_cmd(run_id: String) -> Result<CompileRun, CmdError> {
+    service::compile_run_cancel(&run_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_query_file_cmd(
+    kb_id: String,
+    input: QueryFileInput,
+) -> Result<CompileProposal, CmdError> {
+    service::query_file(&kb_id, input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_compile_config_get_cmd() -> Result<KnowledgeCompileConfig, CmdError> {
+    Ok(service::get_compile_config())
+}
+
+#[tauri::command]
+pub async fn knowledge_compile_config_set_cmd(
+    config: KnowledgeCompileConfig,
+) -> Result<KnowledgeCompileConfig, CmdError> {
+    service::set_compile_config(config, "desktop").map_err(Into::into)
+}
+
+// ── Schema profile + evidence refs (Phase 3) ─────────────────────
+
+#[tauri::command]
+pub async fn kb_schema_profile_cmd(kb_id: String) -> Result<SchemaProfile, CmdError> {
+    service::schema_profile(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_schema_issues_cmd(kb_id: String) -> Result<Vec<SchemaIssue>, CmdError> {
+    service::schema_issues(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_note_source_refs_cmd(
+    kb_id: String,
+    path: String,
+) -> Result<Vec<NoteSourceRef>, CmdError> {
+    service::note_source_refs(&kb_id, &path).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_evidence_coverage_cmd(
+    kb_id: String,
+) -> Result<KnowledgeEvidenceCoverage, CmdError> {
+    service::evidence_coverage(&kb_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_evidence_source_claims_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<Vec<KnowledgeEvidenceClaim>, CmdError> {
+    service::evidence_source_claims(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_evidence_rebuild_cmd(
+    kb_id: String,
+) -> Result<KnowledgeEvidenceRebuildResult, CmdError> {
+    service::evidence_rebuild(&kb_id).map_err(Into::into)
+}
+
+// ── Phase 6 external-agent API ──────────────────────────────────
+
+#[tauri::command]
+pub async fn knowledge_agent_search_cmd(
+    input: KnowledgeAgentSearchInput,
+) -> Result<KnowledgeAgentSearchResult, CmdError> {
+    knowledge::agent_api::search(input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_agent_read_cmd(
+    input: KnowledgeAgentReadInput,
+) -> Result<KnowledgeAgentReadResult, CmdError> {
+    knowledge::agent_api::read(input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_agent_expand_cmd(
+    input: KnowledgeAgentExpandInput,
+) -> Result<KnowledgeAgentExpandResult, CmdError> {
+    knowledge::agent_api::expand(input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_agent_sources_cmd(
+    input: KnowledgeAgentSourcesInput,
+) -> Result<KnowledgeAgentSourcesResult, CmdError> {
+    knowledge::agent_api::sources(input).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_agent_compile_propose_cmd(
+    input: KnowledgeAgentCompileProposeInput,
+) -> Result<CompileRun, CmdError> {
+    knowledge::agent_api::compile_propose(input)
+        .await
+        .map_err(Into::into)
 }
 
 // ── Access bindings ─────────────────────────────────────────────
@@ -581,6 +906,21 @@ pub async fn kb_passive_recall_config_set_cmd(
     config: knowledge::PassiveRecallConfig,
 ) -> Result<knowledge::PassiveRecallConfig, CmdError> {
     service::set_passive_recall_config(config, "gui").map_err(Into::into)
+}
+
+/// Read optional original-media retention config (GUI panel).
+#[tauri::command]
+pub async fn knowledge_media_retention_config_get_cmd(
+) -> Result<knowledge::KnowledgeMediaRetentionConfig, CmdError> {
+    Ok(service::get_media_retention_config())
+}
+
+/// Persist optional original-media retention config (GUI panel).
+#[tauri::command]
+pub async fn knowledge_media_retention_config_set_cmd(
+    config: knowledge::KnowledgeMediaRetentionConfig,
+) -> Result<knowledge::KnowledgeMediaRetentionConfig, CmdError> {
+    service::set_media_retention_config(config, "gui").map_err(Into::into)
 }
 
 /// Resolve a `[[ ]]` reference to a note and return its full read result (for

@@ -173,6 +173,7 @@ pub struct UpsertLocalSttResult {
 pub async fn stt_transcribe_blob(
     provider_id: Option<String>,
     model_id: Option<String>,
+    session_id: Option<String>,
     mime_type: String,
     filename: String,
     base64: String,
@@ -214,7 +215,7 @@ pub async fn stt_transcribe_blob(
         filename,
     };
 
-    failover_transcribe_batch(primary, fallback, payload, &options)
+    failover_transcribe_batch(primary, fallback, payload, &options, session_id.as_deref())
         .await
         .map_err(|e| CmdError::msg(e.to_string()))
 }
@@ -225,11 +226,12 @@ pub async fn stt_transcribe_blob(
 pub async fn stt_start_session(
     provider_id: Option<String>,
     model_id: Option<String>,
+    session_id: Option<String>,
     options: TranscriptOptions,
     _state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
     SttSessionManager::global()
-        .start(provider_id, model_id, options)
+        .start(provider_id, model_id, options, session_id)
         .await
         .map_err(|e| CmdError::msg(e.to_string()))
 }

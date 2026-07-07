@@ -9,7 +9,7 @@ import {
 } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Plus, History, Cat } from "lucide-react"
+import { Plus, History, Cat, FileArchive } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
@@ -21,10 +21,11 @@ import AgentSwitcher from "@/components/chat/AgentSwitcher"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import type { ChatAttachment } from "@/lib/transport"
-import type { PendingFileQuote } from "@/types/chat"
+import type { Message, PendingFileQuote } from "@/types/chat"
 import type { KbDraftAttachment } from "@/types/knowledge"
 import { useKnowledgeChat } from "./useKnowledgeChat"
 import { KnowledgeConversationHistory } from "./KnowledgeConversationHistory"
+import KnowledgeQueryFilingDialog from "./KnowledgeQueryFilingDialog"
 import { useKnowledgeSprite } from "../sprite/useKnowledgeSprite"
 import SpriteBubble from "../sprite/SpriteBubble"
 
@@ -73,7 +74,11 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     const seqRef = useRef<Map<string, number>>(new Map())
     const endedRef = useRef<Map<string, string>>(new Map())
     const [historyOpen, setHistoryOpen] = useState(false)
+    const [filingMessage, setFilingMessage] = useState<Message | null>(null)
     const historyRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+      setFilingMessage(null)
+    }, [session.currentSessionId])
     useClickOutside(
       historyRef,
       useCallback(() => setHistoryOpen(false), []),
@@ -207,6 +212,27 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
         session.messages.map((m) => ({ role: m.role, text: m.content })),
       active,
     })
+
+    const renderMessageActions = useCallback(
+      (msg: Message) => {
+        if (msg.role !== "assistant" || msg.dbId == null || !msg.content.trim()) return null
+        return (
+          <div className="mt-1 flex max-w-full justify-start">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setFilingMessage(msg)}
+            >
+              <FileArchive className="h-3.5 w-3.5" />
+              {t("knowledge.queryFile.action", "File")}
+            </Button>
+          </div>
+        )
+      },
+      [t],
+    )
 
     if (!kbId) {
       return (
@@ -348,8 +374,25 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
             loadingMore={session.loadingMore}
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
+            renderMessageActions={renderMessageActions}
           />
         </div>
+
+        <KnowledgeQueryFilingDialog
+          kbId={kbId}
+          sessionId={session.currentSessionId}
+          currentNotePath={notePath}
+          message={filingMessage}
+          open={filingMessage != null}
+          onOpenChange={(open) => {
+            if (!open) setFilingMessage(null)
+          }}
+          onAfterApply={() => {
+            const sid = session.currentSessionIdRef.current
+            if (sid) void session.reconcileThread(sid)
+            void session.reloadThreads()
+          }}
+        />
 
         <ApprovalDialog
           requests={stream.approvalRequests}

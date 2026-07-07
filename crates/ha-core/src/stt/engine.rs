@@ -20,6 +20,7 @@ pub async fn transcribe_with(
     profile: &AuthProfile,
     audio: AudioPayload,
     options: &TranscriptOptions,
+    session_id: Option<&str>,
 ) -> SttResult<Transcript> {
     if !provider.enabled {
         return Err(SttError::NotFound(format!(
@@ -27,7 +28,12 @@ pub async fn transcribe_with(
             provider.id
         )));
     }
-    match provider.kind {
+    let audio_bytes = match &audio {
+        AudioPayload::Bytes { bytes, .. } => Some(bytes.len() as u64),
+        AudioPayload::File { path, .. } => std::fs::metadata(path).ok().map(|m| m.len()),
+    };
+    let started = std::time::Instant::now();
+    let result = match provider.kind {
         SttProviderKind::OpenaiTranscriptions | SttProviderKind::OpenaiCompatible => {
             providers::openai::transcribe_batch(provider, model, profile, audio, options).await
         }
@@ -51,7 +57,26 @@ pub async fn transcribe_with(
             "Batch transcription is not supported for provider kind {:?}; use the streaming session instead",
             provider.kind
         ))),
-    }
+    };
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_STT);
+    event.operation = Some("stt.transcribe_batch".to_string());
+    event.source = Some("stt".to_string());
+    event.provider_id = Some(provider.id.clone());
+    event.provider_name = Some(provider.name.clone());
+    event.model_id = Some(model.id.clone());
+    event.session_id = session_id.map(|s| s.to_string());
+    event.duration_ms = Some(duration_ms);
+    event.success = result.is_ok();
+    event.error = result.as_ref().err().map(|e| e.to_string());
+    event.metadata = Some(serde_json::json!({
+        "provider_kind": provider.kind.display_name(),
+        "audio_bytes": audio_bytes,
+        "language": &options.language,
+        "transcript_duration_ms": result.as_ref().ok().and_then(|t| t.duration_ms),
+    }));
+    crate::model_usage::record_model_usage_best_effort(event);
+    result
 }
 
 /// Resolve an `ActiveSttModel` to a concrete `(provider, model, profile)`.
@@ -89,6 +114,7 @@ pub async fn failover_transcribe_batch(
     fallback: Vec<ActiveSttModel>,
     audio: AudioPayload,
     options: &TranscriptOptions,
+    session_id: Option<&str>,
 ) -> Result<Transcript, FailoverError> {
     let chain: Vec<ActiveSttModel> = primary.into_iter().chain(fallback).collect();
     if chain.is_empty() {
@@ -125,7 +151,16 @@ pub async fn failover_transcribe_batch(
         } else {
             audio.as_ref().expect("audio still owned").clone()
         };
-        match transcribe_with(&provider, &model, &profile, audio_for_attempt, options).await {
+        match transcribe_with(
+            &provider,
+            &model,
+            &profile,
+            audio_for_attempt,
+            options,
+            session_id,
+        )
+        .await
+        {
             Ok(transcript) => return Ok(transcript),
             Err(err) => {
                 let retriable = err.is_retriable();

@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { Check, ChevronDown, ChevronRight } from "lucide-react"
 import { Slider } from "@/components/ui/slider"
 import { FloatingMenu } from "@/components/ui/floating-menu"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
 import { getEffortOptionsForModel, modelSupportsThinking } from "@/types/chat"
 
@@ -71,27 +72,40 @@ export default function ModelPicker({
 
   return (
     <div className="relative min-w-0" ref={menuRef}>
-      <button
-        type="button"
-        onClick={() => {
-          setShowMenu(!showMenu)
-          setOpenPanel(null)
-        }}
-        className="flex min-w-0 max-w-[220px] items-center gap-1 bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
-      >
-        <span className="min-w-0 truncate">{modelLabel}</span>
-        {supportsThinking && (
-          <span
-            className={cn(
-              "shrink-0 whitespace-nowrap",
-              reasoningEffort !== "none" && "text-foreground/80",
-            )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => {
+              setShowMenu(!showMenu)
+              setOpenPanel(null)
+            }}
+            className="flex min-w-0 max-w-[220px] items-center gap-1 bg-transparent px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground rounded-lg cursor-pointer"
           >
-            {effortLabel}
-          </span>
-        )}
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-      </button>
+            <span className="min-w-0 truncate">{modelLabel}</span>
+            {supportsThinking && (
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap",
+                  reasoningEffort !== "none" && "text-foreground/80",
+                )}
+              >
+                {effortLabel}
+              </span>
+            )}
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+          </button>
+        </TooltipTrigger>
+        {/* Full, untruncated model name on hover — the trigger caps at
+            max-w-[220px] and truncates, so this is the only way to read a
+            long name without opening the menu. */}
+        <TooltipContent side="top">
+          {currentModelInfo?.providerName
+            ? `${currentModelInfo.providerName} · ${modelLabel}`
+            : modelLabel}
+          {supportsThinking && reasoningEffort !== "none" ? ` · ${effortLabel}` : ""}
+        </TooltipContent>
+      </Tooltip>
 
       <FloatingMenu
         open={showMenu}

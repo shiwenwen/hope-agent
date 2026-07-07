@@ -130,6 +130,13 @@ export interface ChatInsert {
   attachKbId?: string
 }
 
+type SwitchSessionOptions = { targetMessageId?: number; highlightTerms?: string[] }
+
+type IncognitoLeaveIntent =
+  | { type: "switchSession"; sessionId: string; opts?: SwitchSessionOptions }
+  | { type: "newChat"; agentId: string; opts?: { incognito?: boolean } }
+  | { type: "newProjectChat"; projectId: string; defaultAgentId?: string | null }
+
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
   onCodexReauth?: () => void
@@ -699,9 +706,21 @@ export default function ChatScreen({
   const displayMode = defaultDisplayMode
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
-  const handleSwitchSession = session.handleSwitchSession
+  const rawHandleSwitchSession = session.handleSwitchSession
   const latestMessagesRef = useRef<Message[]>(session.messages)
+  const incognitoComposerStateRef = useRef({
+    input: "",
+    attachedFileCount: 0,
+    pendingQuoteCount: 0,
+    pendingMessage: "",
+    pendingSendCount: 0,
+  })
+  const clearDisposableIncognitoDraftRef = useRef<() => void>(() => {})
+  const confirmedIncognitoLeaveSessionIdsRef = useRef<Set<string>>(new Set())
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
+  const [incognitoLeaveIntent, setIncognitoLeaveIntent] = useState<IncognitoLeaveIntent | null>(
+    null,
+  )
 
   useEffect(() => {
     latestMessagesRef.current = session.messages
@@ -791,12 +810,38 @@ export default function ChatScreen({
     [handleEffortChange, session.currentAgentId, session.currentSessionId, updateSessionMeta],
   )
 
+  const hasDisposableIncognitoContent = useCallback(() => {
+    const composer = incognitoComposerStateRef.current
+    return (
+      session.loading ||
+      session.messages.length > 0 ||
+      composer.input.trim().length > 0 ||
+      composer.pendingMessage.trim().length > 0 ||
+      composer.attachedFileCount > 0 ||
+      composer.pendingQuoteCount > 0 ||
+      composer.pendingSendCount > 0
+    )
+  }, [session.loading, session.messages.length])
+
+  const requestIncognitoLeaveConfirmation = useCallback(
+    (intent: IncognitoLeaveIntent) => {
+      if (!incognitoEnabled || !hasDisposableIncognitoContent()) return false
+      const sessionId = session.currentSessionId
+      if (sessionId && confirmedIncognitoLeaveSessionIdsRef.current.has(sessionId)) {
+        return false
+      }
+      setIncognitoLeaveIntent(intent)
+      return true
+    },
+    [hasDisposableIncognitoContent, incognitoEnabled, session.currentSessionId],
+  )
+
   // Enter a project draft (lazy project session): no DB row yet — resolve the
   // project's agent for display, reset draft state, and remember `draftProjectId`.
   // The session materializes inside the project on first send via the `chat`
   // command's `projectId`. Project + incognito are mutually exclusive, so
   // incognito is forced off here (and coerced server-side).
-  const handleNewChatInProject = useCallback(
+  const startNewChatInProjectNow = useCallback(
     async (projectId: string, defaultAgentId?: string | null) => {
       const project = projects.find((p) => p.id === projectId)
       let agentId = (defaultAgentId && defaultAgentId.trim()) || project?.defaultAgentId || null
@@ -815,7 +860,7 @@ export default function ChatScreen({
     [projects, handleNewChat],
   )
 
-  const handleStartNewChat = useCallback(
+  const startNewChatNow = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
       setDraftIncognito(opts?.incognito ?? false)
       setDraftKbAttachments([])
@@ -827,6 +872,70 @@ export default function ChatScreen({
       await handleNewChat(agentId)
     },
     [handleNewChat],
+  )
+
+  const runIncognitoLeaveIntent = useCallback(
+    async (intent: IncognitoLeaveIntent) => {
+      switch (intent.type) {
+        case "switchSession":
+          await rawHandleSwitchSession(intent.sessionId, intent.opts)
+          break
+        case "newChat":
+          await startNewChatNow(intent.agentId, intent.opts)
+          break
+        case "newProjectChat":
+          await startNewChatInProjectNow(intent.projectId, intent.defaultAgentId)
+          break
+      }
+    },
+    [rawHandleSwitchSession, startNewChatInProjectNow, startNewChatNow],
+  )
+
+  const handleConfirmIncognitoLeave = useCallback(() => {
+    const intent = incognitoLeaveIntent
+    if (!intent) return
+    const sessionId = session.currentSessionId
+    clearDisposableIncognitoDraftRef.current()
+    if (sessionId) confirmedIncognitoLeaveSessionIdsRef.current.add(sessionId)
+    setIncognitoLeaveIntent(null)
+    void runIncognitoLeaveIntent(intent)
+  }, [incognitoLeaveIntent, runIncognitoLeaveIntent, session.currentSessionId])
+
+  const handleSwitchSession = useCallback(
+    async (sessionId: string, opts?: SwitchSessionOptions) => {
+      if (!sessionId) return
+      if (sessionId === session.currentSessionId) {
+        await rawHandleSwitchSession(sessionId, opts)
+        return
+      }
+      if (requestIncognitoLeaveConfirmation({ type: "switchSession", sessionId, opts })) return
+      await rawHandleSwitchSession(sessionId, opts)
+    },
+    [rawHandleSwitchSession, requestIncognitoLeaveConfirmation, session.currentSessionId],
+  )
+
+  const handleNewChatInProject = useCallback(
+    async (projectId: string, defaultAgentId?: string | null) => {
+      if (
+        requestIncognitoLeaveConfirmation({
+          type: "newProjectChat",
+          projectId,
+          defaultAgentId,
+        })
+      ) {
+        return
+      }
+      await startNewChatInProjectNow(projectId, defaultAgentId)
+    },
+    [requestIncognitoLeaveConfirmation, startNewChatInProjectNow],
+  )
+
+  const handleStartNewChat = useCallback(
+    async (agentId: string, opts?: { incognito?: boolean }) => {
+      if (requestIncognitoLeaveConfirmation({ type: "newChat", agentId, opts })) return
+      await startNewChatNow(agentId, opts)
+    },
+    [requestIncognitoLeaveConfirmation, startNewChatNow],
   )
 
   const handleStartNewChatFromCurrentContext = useCallback(async () => {
@@ -1429,6 +1538,33 @@ export default function ChatScreen({
   })
 
   useEffect(() => {
+    incognitoComposerStateRef.current = {
+      input: stream.input,
+      attachedFileCount: stream.attachedFiles.length,
+      pendingQuoteCount: stream.pendingQuotes.length,
+      pendingMessage: stream.pendingMessage ?? "",
+      pendingSendCount: stream.pendingSends.length,
+    }
+  }, [
+    stream.attachedFiles.length,
+    stream.input,
+    stream.pendingMessage,
+    stream.pendingQuotes.length,
+    stream.pendingSends.length,
+  ])
+
+  useLayoutEffect(() => {
+    clearDisposableIncognitoDraftRef.current = () => {
+      stream.setInput("")
+      stream.setAttachedFiles([])
+      stream.setPendingQuotes([])
+      for (const pending of stream.pendingSends) {
+        stream.discardPendingSend(pending.id)
+      }
+    }
+  }, [stream])
+
+  useEffect(() => {
     return getTransport().listen("permission:mode_changed", (payload) => {
       const data = payload as { sessionId?: unknown; mode?: unknown }
       if (typeof data.sessionId !== "string" || !isSessionMode(data.mode)) return
@@ -1697,7 +1833,7 @@ export default function ChatScreen({
           handleSessionEffortChange(action.effort)
           break
         case "switchAgent":
-          if (action.sessionId) session.handleSwitchSession(action.sessionId)
+          if (action.sessionId) void handleSwitchSession(action.sessionId)
           break
         case "stopStream":
           stream.handleStop()
@@ -1803,8 +1939,7 @@ export default function ChatScreen({
           // project tree. A full clickable picker card is a follow-up.
           const lines = [t("project.openProject") + ":"]
           for (const p of action.projects) {
-            const icon = p.emoji ? `${p.emoji} ` : "📁 "
-            lines.push(`- ${icon}**${p.name}** · ${p.sessionCount}`)
+            lines.push(`- **${p.name}** · ${p.sessionCount}`)
           }
           lines.push("")
           lines.push(`> \`/project <${t("project.projectName")}>\``)
@@ -1856,7 +1991,7 @@ export default function ChatScreen({
           // Desktop has no chat-to-session binding; both reduce to "switch
           // to that session". Reuse the sidebar's switch path so history /
           // pagination / agent restore behave identically.
-          void session.handleSwitchSession(action.sessionId)
+          void handleSwitchSession(action.sessionId)
           break
         }
         case "detachFromSession": {
@@ -1943,6 +2078,7 @@ export default function ChatScreen({
       planMode,
       loadSystemPrompt,
       handleNewChatInProject,
+      handleSwitchSession,
       refreshUnreadState,
       onOpenDashboardTab,
       runCompactContextForCurrentSession,
@@ -2448,7 +2584,7 @@ export default function ChatScreen({
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
         onSidebarCollapsedChange={handleSidebarCollapsedChange}
-        onSwitchSession={session.handleSwitchSession}
+        onSwitchSession={handleSwitchSession}
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
@@ -2506,7 +2642,7 @@ export default function ChatScreen({
         onNewSessionInProject={(projectId, defaultAgentId) => {
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
-        onOpenSession={(sid) => session.handleSwitchSession(sid)}
+        onOpenSession={(sid) => void handleSwitchSession(sid)}
         onUpdateProject={updateProject}
       />
 
@@ -2528,6 +2664,45 @@ export default function ChatScreen({
               disabled={deletingProject}
             >
               {deletingProject ? t("common.saving") : t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Incognito leave confirmation */}
+      <AlertDialog
+        open={!!incognitoLeaveIntent}
+        onOpenChange={(open) => {
+          if (!open) setIncognitoLeaveIntent(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("chat.incognitoLeaveConfirmTitle", {
+                defaultValue: "Leave incognito chat?",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("chat.incognitoLeaveConfirmBody", {
+                defaultValue:
+                  "After you leave, this chat will be deleted from this device and can't be restored from history.",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("chat.incognitoLeaveConfirmCancel", {
+                defaultValue: "Stay here",
+              })}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmIncognitoLeave}
+            >
+              {t("chat.incognitoLeaveConfirmAction", {
+                defaultValue: "Delete and leave",
+              })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

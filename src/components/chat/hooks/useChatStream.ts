@@ -38,6 +38,10 @@ import { useApprovals } from "./useApprovals"
 import { generateClientId } from "@/components/chat/chatScrollKeys"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { expandPlanMentionsToAttachments } from "@/components/chat/plan-mention/expandPlanMentions"
+import {
+  getPastedTextFileMeta,
+  PASTED_TEXT_ATTACHMENT_SOURCE,
+} from "@/components/chat/input/pastedTextAttachment"
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
 
@@ -872,6 +876,7 @@ export function useChatStream({
       for (const file of filesToSend) {
         try {
           const mimeType = file.type || "application/octet-stream"
+          const source = getPastedTextFileMeta(file) ? PASTED_TEXT_ATTACHMENT_SOURCE : "upload"
           const arrayBuffer = await file.arrayBuffer()
 
           if (mimeType.startsWith("image/")) {
@@ -884,7 +889,7 @@ export function useChatStream({
             attachments.push({
               name: file.name,
               mime_type: mimeType,
-              source: "upload",
+              source,
               data: btoa(binary),
             })
           } else {
@@ -898,7 +903,7 @@ export function useChatStream({
             attachments.push({
               name: file.name,
               mime_type: mimeType,
-              source: "upload",
+              source,
               file_path: filePath,
             })
           }

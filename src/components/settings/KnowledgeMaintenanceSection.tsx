@@ -26,6 +26,10 @@ const TASK_KEYS: Array<keyof MaintenanceTasks> = [
   "autoTag",
   "mocUpkeep",
   "memoryToNote",
+  "sourceCompile",
+  "sourceConflict",
+  "openQuestionsMoc",
+  "forAgentSummary",
 ]
 
 /**

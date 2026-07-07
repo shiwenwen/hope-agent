@@ -19,12 +19,29 @@ import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
+import {
+  AgentSelectDisplay,
+  INHERIT_AGENT_SENTINEL,
+  InheritAgentSelectDisplay,
+} from "@/components/common/AgentSelectDisplay"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
-import type { ChunkConfig, KnowledgeSearchConfig, PassiveRecallConfig } from "@/types/knowledge"
+import type {
+  ChunkConfig,
+  KnowledgeCompileConfig,
+  KnowledgeMediaRetentionConfig,
+  KnowledgeSearchConfig,
+  PassiveRecallConfig,
+} from "@/types/knowledge"
 import { KNOWLEDGE_SEARCH_DEFAULTS } from "@/types/knowledge"
 import {
   isLocalModelJobActive,
@@ -43,6 +60,13 @@ import {
 import EmbeddingActivationDialog from "./memory-panel/EmbeddingActivationDialog"
 import KnowledgeMaintenanceSection from "./KnowledgeMaintenanceSection"
 import SpriteSection from "./SpriteSection"
+
+interface AgentItem {
+  id: string
+  name: string
+  emoji?: string | null
+  avatar?: string | null
+}
 
 const EMPTY_STATE: EmbeddingSelectionState = {
   selection: { enabled: false, modelConfigId: null, activeSignature: null, lastReembeddedSignature: null },
@@ -167,6 +191,8 @@ export default function KnowledgePanel() {
         </p>
       </div>
 
+      <CompileAgentSection />
+
       <div className="flex items-center justify-between rounded-lg bg-secondary/30 px-3 py-3">
         <div>
           <div className="text-sm font-medium">{t("settings.knowledgeEmbedding.enabled")}</div>
@@ -209,6 +235,8 @@ export default function KnowledgePanel() {
 
       <PassiveRecallSection />
 
+      <MediaRetentionSection />
+
       <KnowledgeMaintenanceSection />
 
       <SpriteSection />
@@ -219,6 +247,107 @@ export default function KnowledgePanel() {
         embeddingModels={models}
         onConfirm={activate}
       />
+    </div>
+  )
+}
+
+function CompileAgentSection() {
+  const { t } = useTranslation()
+  const [config, setConfig] = useState<KnowledgeCompileConfig>({ agentId: null })
+  const [agents, setAgents] = useState<AgentItem[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getTransport().call<KnowledgeCompileConfig>("knowledge_compile_config_get_cmd"),
+      getTransport().call<AgentItem[]>("list_agents").catch(() => [] as AgentItem[]),
+    ])
+      .then(([cfg, agentList]) => {
+        if (cancelled) return
+        setConfig({ agentId: cfg.agentId?.trim() || null })
+        setAgents(agentList)
+        setLoaded(true)
+      })
+      .catch((e) => {
+        logger.error("settings", "KnowledgePanel::compileAgentLoad", "Failed to load", e)
+        setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleAgentChange = useCallback(
+    async (value: string) => {
+      const next: KnowledgeCompileConfig = {
+        agentId: value === INHERIT_AGENT_SENTINEL ? null : value,
+      }
+      setConfig(next)
+      try {
+        const saved = await getTransport().call<KnowledgeCompileConfig>(
+          "knowledge_compile_config_set_cmd",
+          { config: next },
+        )
+        setConfig({ agentId: saved.agentId?.trim() || null })
+      } catch (e) {
+        logger.error("settings", "KnowledgePanel::compileAgentSave", "Failed to save", e)
+        toast.error(String(e))
+      }
+    },
+    [],
+  )
+
+  if (!loaded) return null
+
+  const selectedAgentId = config.agentId?.trim() || null
+  const selectedAgent = selectedAgentId
+    ? agents.find((agent) => agent.id === selectedAgentId)
+    : undefined
+  const selectedAgentExists = selectedAgentId
+    ? agents.some((agent) => agent.id === selectedAgentId)
+    : false
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-secondary/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 sm:pr-4">
+        <div className="text-sm font-medium">{t("settings.knowledgeCompile.agent")}</div>
+        <div className="text-xs text-muted-foreground">
+          {t("settings.knowledgeCompile.agentDesc")}
+        </div>
+      </div>
+      <Select
+        value={selectedAgentId ?? INHERIT_AGENT_SENTINEL}
+        onValueChange={(value) => void handleAgentChange(value)}
+      >
+        <SelectTrigger className="h-8 w-full overflow-hidden text-sm sm:w-72">
+          <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+            {selectedAgentId ? (
+              <AgentSelectDisplay agent={selectedAgent} fallbackName={selectedAgentId} />
+            ) : (
+              <InheritAgentSelectDisplay label={t("settings.knowledgeCompile.agentDefault")} />
+            )}
+          </div>
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem
+            value={INHERIT_AGENT_SENTINEL}
+            textValue={t("settings.knowledgeCompile.agentDefault")}
+          >
+            {t("settings.knowledgeCompile.agentDefault")}
+          </SelectItem>
+          {selectedAgentId && !selectedAgentExists && (
+            <SelectItem value={selectedAgentId} textValue={selectedAgentId}>
+              <AgentSelectDisplay fallbackName={selectedAgentId} />
+            </SelectItem>
+          )}
+          {agents.map((agent) => (
+            <SelectItem key={agent.id} value={agent.id} textValue={agent.name}>
+              <AgentSelectDisplay agent={agent} />
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
@@ -348,8 +477,8 @@ function KnowledgeReembedCard({
 /**
  * Read bridge ③ — passive related-notes prompt (Phase 3, D7). When enabled, each
  * user turn surfaces the top accessible-KB note titles as an untrusted reference
- * block. Opt-in (off by default); access is already per-session gated so one
- * global toggle suffices. The enable switch saves immediately; the tuning knobs
+ * block. Enabled by default after KB access is granted; access is already
+ * per-session gated so one global toggle suffices. The enable switch saves immediately; the tuning knobs
  * use the three-state Save button.
  */
 function PassiveRecallSection() {
@@ -502,6 +631,186 @@ function PassiveRecallSection() {
             <Switch
               checked={draft.showSnippet}
               onCheckedChange={(v) => setDraft({ ...draft, showSnippet: v })}
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              disabled={!dirty || saving}
+              onClick={() => void persist(draft, true)}
+              className={cn(saveStatus === "failed" && "bg-destructive hover:bg-destructive/90")}
+            >
+              {saving ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : saveStatus === "saved" ? (
+                <Check className="mr-1.5 h-3.5 w-3.5 text-emerald-300" />
+              ) : null}
+              {t("common.save", "Save")}
+            </Button>
+          </div>
+        </div>
+      </AnimatedCollapse>
+    </div>
+  )
+}
+
+const MIB = 1024 * 1024
+
+/**
+ * Optional original-media retention for Knowledge Compiler sources. This is a
+ * privacy/space setting: the text raw-source snapshot remains the durable truth
+ * even when original audio/video/image files are not retained.
+ */
+function MediaRetentionSection() {
+  const { t } = useTranslation()
+  const [loaded, setLoaded] = useState<KnowledgeMediaRetentionConfig | null>(null)
+  const [draft, setDraft] = useState<KnowledgeMediaRetentionConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<KnowledgeMediaRetentionConfig>("knowledge_media_retention_config_get_cmd")
+      .then((c) => {
+        if (cancelled) return
+        setLoaded(c)
+        setDraft(c)
+      })
+      .catch((e) =>
+        logger.error("settings", "MediaRetentionSection::load", "Failed to load config", e),
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const persist = useCallback(
+    async (next: KnowledgeMediaRetentionConfig, viaButton: boolean) => {
+      if (viaButton) setSaving(true)
+      try {
+        const saved = await getTransport().call<KnowledgeMediaRetentionConfig>(
+          "knowledge_media_retention_config_set_cmd",
+          { config: next },
+        )
+        setLoaded(saved)
+        if (viaButton) {
+          setDraft(saved)
+          setSaving(false)
+          setSaveStatus("saved")
+          setTimeout(() => setSaveStatus("idle"), 2000)
+          toast.success(t("settings.knowledgeMediaRetention.saved", "Saved"))
+        } else {
+          setDraft((d) => (d ? { ...d, enabled: saved.enabled } : saved))
+        }
+      } catch (e) {
+        logger.error("settings", "MediaRetentionSection::save", "Failed to save config", e)
+        if (viaButton) {
+          setSaving(false)
+          setSaveStatus("failed")
+          setTimeout(() => setSaveStatus("idle"), 2000)
+        } else {
+          setDraft((d) => (d ? { ...d, enabled: !next.enabled } : d))
+        }
+        toast.error(String(e))
+      }
+    },
+    [t],
+  )
+
+  if (!draft || !loaded) return null
+
+  const enabled = draft.enabled
+  const totalMiB = Math.round(draft.maxTotalBytes / MIB)
+  const sourceMiB = Math.round(draft.maxSourceBytes / MIB)
+  const dirty =
+    loaded.maxTotalBytes !== draft.maxTotalBytes ||
+    loaded.maxSourceBytes !== draft.maxSourceBytes ||
+    loaded.thumbnailMaxEdgePx !== draft.thumbnailMaxEdgePx ||
+    loaded.pruneWhenOverQuota !== draft.pruneWhenOverQuota
+
+  return (
+    <div className="rounded-lg border border-border bg-card">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">
+            {t("settings.knowledgeMediaRetention.title", "Original media retention")}
+          </div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            {t(
+              "settings.knowledgeMediaRetention.description",
+              "Optionally keep imported audio, video, and image originals for source evidence review.",
+            )}
+          </div>
+        </div>
+        <Switch
+          checked={enabled}
+          onCheckedChange={(v) => {
+            setDraft({ ...draft, enabled: v })
+            void persist({ ...loaded, enabled: v }, false)
+          }}
+        />
+      </div>
+
+      <AnimatedCollapse open={enabled}>
+        <div className="space-y-3 border-t border-border px-4 py-3">
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="space-y-1">
+              <span className="text-xs font-medium">
+                {t("settings.knowledgeMediaRetention.maxTotal", "Total quota (MiB)")}
+              </span>
+              <DeferredNumberInput
+                min={10}
+                max={102400}
+                value={totalMiB}
+                onValueCommit={(value) =>
+                  setDraft({ ...draft, maxTotalBytes: Math.max(10, value) * MIB })
+                }
+                className="h-8 text-xs"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium">
+                {t("settings.knowledgeMediaRetention.maxSource", "Per source (MiB)")}
+              </span>
+              <DeferredNumberInput
+                min={1}
+                max={2048}
+                value={sourceMiB}
+                onValueCommit={(value) =>
+                  setDraft({ ...draft, maxSourceBytes: Math.max(1, value) * MIB })
+                }
+                className="h-8 text-xs"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium">
+                {t("settings.knowledgeMediaRetention.thumbnail", "Thumbnail edge (px)")}
+              </span>
+              <DeferredNumberInput
+                min={128}
+                max={2048}
+                value={draft.thumbnailMaxEdgePx}
+                onValueCommit={(value) => setDraft({ ...draft, thumbnailMaxEdgePx: value })}
+                className="h-8 text-xs"
+              />
+            </label>
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="min-w-0 pr-3">
+              <div className="text-xs font-medium">
+                {t("settings.knowledgeMediaRetention.prune", "Prune oldest media over quota")}
+              </div>
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                {t(
+                  "settings.knowledgeMediaRetention.pruneDesc",
+                  "When a new retained file would exceed the quota, remove the oldest retained originals before skipping the new file.",
+                )}
+              </div>
+            </div>
+            <Switch
+              checked={draft.pruneWhenOverQuota}
+              onCheckedChange={(v) => setDraft({ ...draft, pruneWhenOverQuota: v })}
             />
           </div>
           <div className="flex justify-end">

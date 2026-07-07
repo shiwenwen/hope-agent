@@ -242,7 +242,7 @@ export function SidebarDisplayModeSelector() {
               {t("settings.sidebarCompactMode", "简约模式")}
             </div>
             <div className="text-xs text-muted-foreground">
-              {t("settings.sidebarCompactModeDesc", "隐藏会话、Agent 和项目的头像与 emoji，让侧边栏更清爽。")}
+              {t("settings.sidebarCompactModeDesc", "隐藏会话、Agent 的头像与 emoji，以及项目头像，让侧边栏更清爽。")}
             </div>
           </div>
           <Switch

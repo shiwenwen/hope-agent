@@ -868,8 +868,33 @@ impl AssistantAgent {
             return;
         }
 
-        // Cache: reuse the rendered block for identical phrasing within the TTL.
-        let hash = active_memory::hash_user_text(trimmed);
+        // Resolve access via the shared single-source helper, then search on a
+        // blocking thread (index SQLite). Access resolution is light SQLite; the
+        // search (FTS + vec) is the heavy part that warrants spawn_blocking.
+        let access = self.resolve_kb_access();
+        if access.is_empty() {
+            *self
+                .related_notes_suffix
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
+
+        let mut access_entries: Vec<(String, &'static str)> = access
+            .iter()
+            .map(|(kb_id, access)| (kb_id.clone(), access.as_str()))
+            .collect();
+        access_entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+        // Cache only within the same effective KB access set. A detached KB or
+        // revoked IM opt-in must not keep surfacing titles from a previous turn.
+        let hash = related_notes::cache_key(
+            trimmed,
+            &access_entries,
+            cfg.show_snippet,
+            cfg.top_n,
+            cfg.max_chars,
+        );
         let ttl = Duration::from_secs(cfg.cache_ttl_secs);
         if let Some(cached) = self.related_notes_state.get_cached(hash, ttl) {
             *self
@@ -879,20 +904,7 @@ impl AssistantAgent {
             return;
         }
 
-        // Resolve access via the shared single-source helper, then search on a
-        // blocking thread (index SQLite). Access resolution is light SQLite; the
-        // search (FTS + vec) is the heavy part that warrants spawn_blocking.
-        let access = self.resolve_kb_access();
-        if access.is_empty() {
-            self.related_notes_state.put_cached(hash, None);
-            *self
-                .related_notes_suffix
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = None;
-            return;
-        }
-        let mut kbs: Vec<String> = access.keys().cloned().collect();
-        kbs.sort();
+        let kbs: Vec<String> = access_entries.into_iter().map(|(kb_id, _)| kb_id).collect();
         let query = trimmed.to_string();
         let top_n = cfg.top_n;
         let hits = tokio::task::spawn_blocking(move || -> Vec<crate::knowledge::NoteSearchHit> {

@@ -178,6 +178,50 @@ describe("parseSessionMessages user attachments", () => {
     expect(parsed[0]).toMatchObject({ isPlanTrigger: true })
   })
 
+  test("restores channel user attachments from object-shaped metadata", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 82,
+        role: "user",
+        content: "归档这张图",
+        attachmentsMeta: JSON.stringify({
+          channel_inbound: {
+            channelId: "telegram",
+            accountId: "acct",
+            chatId: "chat-1",
+            senderName: "Alice",
+          },
+          user_attachments: [
+            {
+              name: "receipt.png",
+              mime_type: "image/png",
+              size: 4096,
+              path: "/Users/me/.hope-agent/attachments/s1/receipt.png",
+            },
+          ],
+        }),
+      }),
+    ])
+
+    expect(parsed[0]).toMatchObject({
+      channelInbound: {
+        channelId: "telegram",
+        accountId: "acct",
+        chatId: "chat-1",
+        senderName: "Alice",
+      },
+      attachments: [
+        {
+          name: "receipt.png",
+          mimeType: "image/png",
+          sizeBytes: 4096,
+          kind: "image",
+          localPath: "/Users/me/.hope-agent/attachments/s1/receipt.png",
+        },
+      ],
+    })
+  })
+
   test("parses wakeup_trigger meta as a centered wakeup chip (not a subagent result)", () => {
     const parsed = parseSessionMessages([
       sessionMessage({

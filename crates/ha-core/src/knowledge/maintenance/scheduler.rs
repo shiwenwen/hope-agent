@@ -194,7 +194,7 @@ async fn run_cycle(trigger: MaintenanceTrigger) -> MaintenanceReport {
                         .entry(np.kind.as_str().to_string())
                         .or_insert(0) += 1;
                     kb_added = true;
-                    if cfg.auto_approve {
+                    if cfg.auto_approve && !np.kind.ignores_auto_approve() {
                         match super::approve_proposal(id).await {
                             Ok(_) => report.auto_applied += 1,
                             Err(e) => app_warn!(

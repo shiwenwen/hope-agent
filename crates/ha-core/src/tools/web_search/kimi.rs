@@ -4,41 +4,83 @@ use serde_json::Value;
 use super::helpers::{
     build_search_client, read_json_capped, read_text_capped, JSON_RESPONSE_BYTE_CAP,
 };
-use super::SearchResult;
+use super::{record_llm_web_search_usage, SearchResult, WebSearchUsageContext};
+
+const MODEL_ID: &str = "moonshot-v1-8k";
 
 pub(super) async fn search_kimi(
     api_key: &str,
     query: &str,
     count: usize,
     timeout_secs: u64,
+    usage_ctx: &WebSearchUsageContext,
 ) -> Result<Vec<SearchResult>> {
     if api_key.is_empty() {
         return Err(anyhow::anyhow!("Kimi (Moonshot) API key not configured"));
     }
     let client = build_search_client(timeout_secs)?;
     let body = serde_json::json!({
-        "model": "moonshot-v1-8k",
+        "model": MODEL_ID,
         "messages": [{"role": "user", "content": format!(
             "Search the web for: {}. Return exactly {} results as JSON array with fields: title, url, snippet. Only return the JSON array, no other text.",
             query, count
         )}],
         "tools": [{"type": "builtin_function", "function": {"name": "web_search"}}]
     });
-    let resp = client
+    let started = std::time::Instant::now();
+    let resp = match client
         .post("https://api.moonshot.cn/v1/chat/completions")
         .header("Authorization", format!("Bearer {}", api_key))
         .json(&body)
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Kimi request failed: {}", e))?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            record_llm_web_search_usage(
+                usage_ctx,
+                "web_search.kimi",
+                "kimi",
+                "Kimi",
+                MODEL_ID,
+                started.elapsed().as_millis() as u64,
+                false,
+                Some(format!("Kimi request failed: {}", e)),
+                None,
+            );
+            return Err(anyhow::anyhow!("Kimi request failed: {}", e));
+        }
+    };
     if !resp.status().is_success() {
         let status = resp.status();
         let text = read_text_capped(resp, JSON_RESPONSE_BYTE_CAP)
             .await
             .unwrap_or_default();
+        record_llm_web_search_usage(
+            usage_ctx,
+            "web_search.kimi",
+            "kimi",
+            "Kimi",
+            MODEL_ID,
+            started.elapsed().as_millis() as u64,
+            false,
+            Some(format!("Kimi failed ({}): {}", status, text)),
+            None,
+        );
         return Err(anyhow::anyhow!("Kimi failed ({}): {}", status, text));
     }
     let data = read_json_capped(resp, JSON_RESPONSE_BYTE_CAP, "Kimi").await?;
+    record_llm_web_search_usage(
+        usage_ctx,
+        "web_search.kimi",
+        "kimi",
+        "Kimi",
+        MODEL_ID,
+        started.elapsed().as_millis() as u64,
+        true,
+        None,
+        Some(&data),
+    );
 
     let mut results = Vec::new();
 

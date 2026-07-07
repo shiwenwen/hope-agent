@@ -12,7 +12,9 @@ use crate::logging::LogDB;
 use crate::session::SessionDB;
 
 use super::cost::estimate_cost;
-use super::filters::{build_log_filter, build_session_filter, params_ref};
+use super::filters::{
+    build_log_filter, build_model_usage_filter, build_session_filter, params_ref,
+};
 use super::queries::{query_overview, query_tool_usage};
 use super::types::*;
 
@@ -38,6 +40,7 @@ fn shift_filter_backward(filter: &DashboardFilter) -> Option<DashboardFilter> {
         agent_id: filter.agent_id.clone(),
         provider_id: filter.provider_id.clone(),
         model_id: filter.model_id.clone(),
+        usage_kind: filter.usage_kind.clone(),
     })
 }
 
@@ -57,7 +60,7 @@ pub fn query_overview_with_delta(
     Ok(OverviewStatsWithDelta { current, previous })
 }
 
-/// Daily cost trend derived from messages + per-model pricing.
+/// Daily cost trend derived from the unified model usage ledger + per-model pricing.
 pub fn query_cost_trend(
     session_db: &Arc<SessionDB>,
     filter: &DashboardFilter,
@@ -67,14 +70,13 @@ pub fn query_cost_trend(
         .lock()
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-    let f = build_session_filter(filter, "s", Some("m"));
+    let f = build_model_usage_filter(filter, "u");
     let sql = format!(
-        "SELECT DATE(m.timestamp) as d,
-                COALESCE(s.model_id, 'unknown') as model,
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0)
-         FROM messages m
-         JOIN sessions s ON s.id = m.session_id
+        "SELECT DATE(u.timestamp) as d,
+                COALESCE(u.model_id, 'unknown') as model,
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0)
+         FROM model_usage_events u
          {}
          GROUP BY d, model
          ORDER BY d ASC",
@@ -250,7 +252,7 @@ pub fn query_top_sessions(
         .lock()
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-    let mut f = build_session_filter(filter, "s", None);
+    let mut f = build_model_usage_filter(filter, "u");
     // Append the limit as a bound parameter so we avoid string interpolation.
     let limit_box: Box<dyn rusqlite::types::ToSql> = Box::new(limit.max(1).min(1000) as i64);
     f.params.push(limit_box);
@@ -258,14 +260,14 @@ pub fn query_top_sessions(
         "SELECT s.id,
                 s.title,
                 s.agent_id,
-                s.model_id,
-                COUNT(m.id) as msg_cnt,
-                COALESCE(SUM(m.tokens_in), 0) + COALESCE(SUM(m.tokens_out), 0) as total_tokens,
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0),
+                COALESCE(u.model_id, s.model_id),
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_cnt,
+                COALESCE(SUM(u.input_tokens), 0) + COALESCE(SUM(u.output_tokens), 0) as total_tokens,
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
                 s.updated_at
-         FROM sessions s
-         LEFT JOIN messages m ON m.session_id = s.id
+         FROM model_usage_events u
+         JOIN sessions s ON s.id = u.session_id
          {}
          GROUP BY s.id
          ORDER BY total_tokens DESC
@@ -311,19 +313,18 @@ pub fn query_model_efficiency(
         .lock()
         .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-    let f = build_session_filter(filter, "s", Some("m"));
+    let f = build_model_usage_filter(filter, "u");
     let sql = format!(
-        "SELECT COALESCE(s.model_id, 'unknown'),
-                COALESCE(s.provider_name, 'unknown'),
-                COUNT(m.id) as msg_cnt,
-                COALESCE(SUM(m.tokens_in), 0),
-                COALESCE(SUM(m.tokens_out), 0),
-                AVG(CASE WHEN m.ttft_ms IS NOT NULL AND m.role = 'assistant' THEN m.ttft_ms END)
-         FROM messages m
-         JOIN sessions s ON s.id = m.session_id
+        "SELECT COALESCE(u.model_id, 'unknown'),
+                COALESCE(u.provider_name, 'unknown'),
+                COUNT(*) as call_cnt,
+                COALESCE(SUM(u.input_tokens), 0),
+                COALESCE(SUM(u.output_tokens), 0),
+                AVG(u.ttft_ms)
+         FROM model_usage_events u
          {}
-         GROUP BY s.model_id, s.provider_name
-         ORDER BY SUM(m.tokens_in) + SUM(m.tokens_out) DESC",
+         GROUP BY u.model_id, u.provider_name
+         ORDER BY SUM(u.input_tokens) + SUM(u.output_tokens) DESC",
         f.where_sql
     );
     let mut stmt = conn.prepare(&sql)?;

@@ -21,9 +21,24 @@ use ha_core::filesystem::{
     self, ExtractedContent, FileTextContent, FilesystemError, WorkspaceScope,
 };
 use ha_core::knowledge::{
-    self, service, Backlink, BrokenLink, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess,
-    KbAttachment, KbChatThread, KnowledgeBase, KnowledgeBaseMeta, KnowledgeGraph, Note,
-    NoteReadResult, NoteSearchHit, ReferenceableNote, RenameOutcome, UpdateKnowledgeBaseInput,
+    self, service, Backlink, BrokenLink, CompileProposal, CompileProposalStatus, CompileRun,
+    CompileStartInput, CreateKnowledgeBaseInput, GraphNodePosition, KbAccess, KbAttachment,
+    KbChatThread, KnowledgeAgentCompileProposeInput, KnowledgeAgentExpandInput,
+    KnowledgeAgentExpandResult, KnowledgeAgentReadInput, KnowledgeAgentReadResult,
+    KnowledgeAgentSearchInput, KnowledgeAgentSearchResult, KnowledgeAgentSourcesInput,
+    KnowledgeAgentSourcesResult, KnowledgeBase, KnowledgeBaseMeta,
+    KnowledgeBrowserSourceImportInput, KnowledgeCompileConfig, KnowledgeEvidenceClaim,
+    KnowledgeEvidenceCoverage, KnowledgeEvidenceRebuildResult, KnowledgeGraph, KnowledgeSource,
+    KnowledgeSourceAssetKind, KnowledgeSourceAssetLink, KnowledgeSourceDiff,
+    KnowledgeSourceExternalRawSyncResult, KnowledgeSourceImportBatchInput,
+    KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
+    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
+    KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
+    KnowledgeSourceSimilarityDismissInput, KnowledgeSourceSimilarityGroup,
+    KnowledgeSourceSimilarityResolveInput, KnowledgeSourceSimilarityResolveResult,
+    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
+    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
+    UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -189,6 +204,82 @@ pub struct KbFileQuery {
     pub download: Option<u8>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct KbSourceImportBody {
+    pub input: KnowledgeSourceImportInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbBrowserSourceImportBody {
+    pub input: KnowledgeBrowserSourceImportInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbSourceImportSessionAttachmentBody {
+    pub input: KnowledgeSourceImportSessionAttachmentInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbSourceImportBatchBody {
+    pub input: KnowledgeSourceImportBatchInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbSourceRefreshBody {
+    pub input: KnowledgeSourceRefreshInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbSourceDiffQuery {
+    pub to_source_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbSourceImportRunsQuery {
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbCompileStartBody {
+    pub input: CompileStartInput,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbQueryFileBody {
+    pub input: QueryFileInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbCompileProposalQuery {
+    pub run_id: Option<String>,
+    pub status: Option<CompileProposalStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KbNoteSourceRefsQuery {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum AgentInputBody<T> {
+    Wrapped { input: T },
+    Direct(T),
+}
+
+impl<T> AgentInputBody<T> {
+    fn into_inner(self) -> T {
+        match self {
+            AgentInputBody::Wrapped { input } => input,
+            AgentInputBody::Direct(input) => input,
+        }
+    }
+}
+
 // ── Registry CRUD ───────────────────────────────────────────────
 
 /// `GET /api/knowledge`
@@ -282,6 +373,385 @@ pub async fn reindex_dir(
         .await
         .map_err(|e| AppError::internal(format!("reindex dir task failed: {e}")))??;
     Ok(Json(true))
+}
+
+// ── Raw source inbox (Knowledge Compiler Phase 1) ────────────────
+
+/// `POST /api/knowledge/{kb_id}/sources`
+pub async fn kb_source_import(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbSourceImportBody>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(service::source_import(&kb_id, body.input).await?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/browser`
+pub async fn kb_source_import_browser(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbBrowserSourceImportBody>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(
+        service::source_import_browser(&kb_id, body.input).await?,
+    ))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/session-attachment`
+pub async fn kb_source_import_session_attachment(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbSourceImportSessionAttachmentBody>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(
+        service::source_import_session_attachment(&kb_id, body.input).await?,
+    ))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/batch`
+pub async fn kb_source_import_batch(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbSourceImportBatchBody>,
+) -> Result<Json<KnowledgeSourceImportRunDetail>, AppError> {
+    Ok(Json(
+        service::source_import_batch(&kb_id, body.input).await?,
+    ))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/import-runs`
+pub async fn kb_source_import_runs_list(
+    Path(kb_id): Path<String>,
+    Query(query): Query<KbSourceImportRunsQuery>,
+) -> Result<Json<Vec<KnowledgeSourceImportRun>>, AppError> {
+    Ok(Json(service::source_import_runs_list(&kb_id, query.limit)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/import-runs/{run_id}`
+pub async fn kb_source_import_run_detail(
+    Path((kb_id, run_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSourceImportRunDetail>, AppError> {
+    Ok(Json(service::source_import_run_detail(&kb_id, &run_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/import-runs/{run_id}/retry-failed`
+pub async fn kb_source_import_retry_failed(
+    Path((kb_id, run_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSourceImportRunDetail>, AppError> {
+    Ok(Json(
+        service::source_import_retry_failed(&kb_id, &run_id).await?,
+    ))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/similar`
+pub async fn kb_source_similarity_groups(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<KnowledgeSourceSimilarityGroup>>, AppError> {
+    Ok(Json(service::source_similarity_groups(&kb_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/similar/dismiss`
+pub async fn kb_source_similarity_dismiss(
+    Path(kb_id): Path<String>,
+    Json(input): Json<KnowledgeSourceSimilarityDismissInput>,
+) -> Result<Json<Vec<KnowledgeSourceSimilarityGroup>>, AppError> {
+    Ok(Json(service::source_similarity_dismiss(&kb_id, input)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/similar/resolve`
+pub async fn kb_source_similarity_resolve(
+    Path(kb_id): Path<String>,
+    Json(input): Json<KnowledgeSourceSimilarityResolveInput>,
+) -> Result<Json<KnowledgeSourceSimilarityResolveResult>, AppError> {
+    Ok(Json(service::source_similarity_resolve(&kb_id, input)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources`
+pub async fn kb_source_list(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<KnowledgeSource>>, AppError> {
+    Ok(Json(service::source_list(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}`
+pub async fn kb_source_read(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSourceReadResult>, AppError> {
+    Ok(Json(service::source_read(&kb_id, &source_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}/link`
+pub async fn kb_source_asset_link(
+    Path((kb_id, source_id, asset_kind)): Path<(String, String, String)>,
+) -> Result<Json<Option<KnowledgeSourceAssetLink>>, AppError> {
+    let kind = parse_source_asset_kind(&asset_kind)?;
+    Ok(Json(service::source_asset_link(&kb_id, &source_id, kind)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}?download=`
+pub async fn kb_source_asset_file(
+    Path((kb_id, source_id, asset_kind)): Path<(String, String, String)>,
+    Query(q): Query<KbFileQuery>,
+    request: Request,
+) -> Result<Response, AppError> {
+    let kind = parse_source_asset_kind(&asset_kind)?;
+    let Some((link, abs)) = knowledge::source::source_asset_file(&kb_id, &source_id, kind)? else {
+        return Err(AppError::not_found("source asset not found"));
+    };
+    if !abs.exists() {
+        return Err(AppError::not_found("source asset file is missing"));
+    }
+    let mime = if link.mime_type.trim().is_empty() {
+        resolve_mime_for_path(
+            &abs,
+            MimeOpts {
+                html_charset: false,
+                sniff_fallback: true,
+            },
+        )
+        .await
+    } else {
+        link.mime_type
+    };
+    let disposition = safe_content_disposition(&abs, &mime, q.download.unwrap_or(0) == 1);
+    let mut response = ServeFile::new(&abs)
+        .oneshot(request)
+        .await
+        .map_err(|e| AppError::internal(format!("serve source asset: {e}")))?
+        .into_response();
+    apply_inline_media_headers(
+        &mut response,
+        HeaderOpts {
+            mime: &mime,
+            cache_secs: 0,
+            disposition: &disposition,
+            no_referrer: false,
+        },
+    );
+    Ok(response)
+}
+
+fn parse_source_asset_kind(raw: &str) -> Result<KnowledgeSourceAssetKind, AppError> {
+    match raw {
+        "original" => Ok(KnowledgeSourceAssetKind::Original),
+        "thumbnail" => Ok(KnowledgeSourceAssetKind::Thumbnail),
+        _ => Err(AppError::bad_request(
+            "source asset kind must be original or thumbnail",
+        )),
+    }
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/{source_id}/refresh`
+pub async fn kb_source_refresh(
+    Path((kb_id, source_id)): Path<(String, String)>,
+    Json(body): Json<KbSourceRefreshBody>,
+) -> Result<Json<KnowledgeSourceRefreshResult>, AppError> {
+    Ok(Json(
+        service::source_refresh(&kb_id, &source_id, body.input).await?,
+    ))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}/versions`
+pub async fn kb_source_versions(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSourceVersionHistory>, AppError> {
+    Ok(Json(service::source_versions(&kb_id, &source_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}/diff?toSourceId=...`
+pub async fn kb_source_diff(
+    Path((kb_id, source_id)): Path<(String, String)>,
+    Query(query): Query<KbSourceDiffQuery>,
+) -> Result<Json<KnowledgeSourceDiff>, AppError> {
+    Ok(Json(service::source_diff(
+        &kb_id,
+        &source_id,
+        &query.to_source_id,
+    )?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/{source_id}/reextract`
+pub async fn kb_source_reextract(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(service::source_reextract(&kb_id, &source_id)?))
+}
+
+/// `DELETE /api/knowledge/{kb_id}/sources/{source_id}`
+pub async fn kb_source_delete(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<bool>, AppError> {
+    Ok(Json(service::source_delete(&kb_id, &source_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/sync-external-raw`
+pub async fn kb_source_sync_external_raw(
+    Path(kb_id): Path<String>,
+) -> Result<Json<KnowledgeSourceExternalRawSyncResult>, AppError> {
+    Ok(Json(service::source_sync_external_raw(&kb_id)?))
+}
+
+// ── Knowledge Compiler (Phase 2) ─────────────────────────────────
+
+/// `POST /api/knowledge/{kb_id}/compile-runs`
+pub async fn kb_compile_start(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbCompileStartBody>,
+) -> Result<Json<CompileRun>, AppError> {
+    Ok(Json(service::compile_start(&kb_id, body.input).await?))
+}
+
+/// `GET /api/knowledge/{kb_id}/compile-runs`
+pub async fn kb_compile_runs_list(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<CompileRun>>, AppError> {
+    Ok(Json(service::compile_runs_list(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/compile-runs/{run_id}`
+pub async fn kb_compile_status(
+    Path((kb_id, run_id)): Path<(String, String)>,
+) -> Result<Json<CompileRun>, AppError> {
+    let run = service::compile_status(&run_id)?;
+    if run.kb_id != kb_id {
+        return Err(anyhow::anyhow!("compile run not found in knowledge base").into());
+    }
+    Ok(Json(run))
+}
+
+/// `POST /api/knowledge/{kb_id}/compile-runs/{run_id}/cancel`
+pub async fn kb_compile_run_cancel(
+    Path((kb_id, run_id)): Path<(String, String)>,
+) -> Result<Json<CompileRun>, AppError> {
+    let run = service::compile_status(&run_id)?;
+    if run.kb_id != kb_id {
+        return Err(anyhow::anyhow!("compile run not found in knowledge base").into());
+    }
+    Ok(Json(service::compile_run_cancel(&run_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/compile-proposals`
+pub async fn kb_compile_proposals_list(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbCompileProposalQuery>,
+) -> Result<Json<Vec<CompileProposal>>, AppError> {
+    Ok(Json(service::compile_proposals_list(
+        &kb_id,
+        q.run_id.as_deref(),
+        q.status,
+    )?))
+}
+
+/// `POST /api/knowledge/{kb_id}/compile-proposals/{id}/approve`
+pub async fn kb_compile_proposal_approve(
+    Path((kb_id, id)): Path<(String, i64)>,
+) -> Result<Json<CompileProposal>, AppError> {
+    ensure_compile_proposal_in_kb(&kb_id, id)?;
+    Ok(Json(service::compile_proposal_approve(id).await?))
+}
+
+/// `POST /api/knowledge/{kb_id}/compile-proposals/{id}/reject`
+pub async fn kb_compile_proposal_reject(
+    Path((kb_id, id)): Path<(String, i64)>,
+) -> Result<Json<bool>, AppError> {
+    ensure_compile_proposal_in_kb(&kb_id, id)?;
+    Ok(Json(service::compile_proposal_reject(id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/query-file`
+pub async fn kb_query_file(
+    Path(kb_id): Path<String>,
+    Json(body): Json<KbQueryFileBody>,
+) -> Result<Json<CompileProposal>, AppError> {
+    Ok(Json(service::query_file(&kb_id, body.input)?))
+}
+
+fn ensure_compile_proposal_in_kb(kb_id: &str, id: i64) -> Result<(), AppError> {
+    let found = service::compile_proposals_list(kb_id, None, None)?
+        .into_iter()
+        .any(|proposal| proposal.id == id);
+    if !found {
+        return Err(anyhow::anyhow!("compile proposal not found in knowledge base").into());
+    }
+    Ok(())
+}
+
+/// `GET /api/knowledge/{kb_id}/schema-profile`
+pub async fn kb_schema_profile(Path(kb_id): Path<String>) -> Result<Json<SchemaProfile>, AppError> {
+    Ok(Json(service::schema_profile(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/schema-issues`
+pub async fn kb_schema_issues(
+    Path(kb_id): Path<String>,
+) -> Result<Json<Vec<SchemaIssue>>, AppError> {
+    Ok(Json(service::schema_issues(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/note/source-refs?path=...`
+pub async fn kb_note_source_refs(
+    Path(kb_id): Path<String>,
+    Query(q): Query<KbNoteSourceRefsQuery>,
+) -> Result<Json<Vec<NoteSourceRef>>, AppError> {
+    Ok(Json(service::note_source_refs(&kb_id, &q.path)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/evidence/coverage`
+pub async fn kb_evidence_coverage(
+    Path(kb_id): Path<String>,
+) -> Result<Json<KnowledgeEvidenceCoverage>, AppError> {
+    Ok(Json(service::evidence_coverage(&kb_id)?))
+}
+
+/// `GET /api/knowledge/{kb_id}/evidence/sources/{source_id}/claims`
+pub async fn kb_evidence_source_claims(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<Vec<KnowledgeEvidenceClaim>>, AppError> {
+    Ok(Json(service::evidence_source_claims(&kb_id, &source_id)?))
+}
+
+/// `POST /api/knowledge/{kb_id}/evidence/rebuild`
+pub async fn kb_evidence_rebuild(
+    Path(kb_id): Path<String>,
+) -> Result<Json<KnowledgeEvidenceRebuildResult>, AppError> {
+    Ok(Json(service::evidence_rebuild(&kb_id)?))
+}
+
+// ── Phase 6 external-agent API ─────────────────────────────────
+
+/// `POST /api/knowledge/agent/search` — stable `knowledge.search` surface.
+pub async fn knowledge_agent_search(
+    Json(body): Json<AgentInputBody<KnowledgeAgentSearchInput>>,
+) -> Result<Json<KnowledgeAgentSearchResult>, AppError> {
+    Ok(Json(knowledge::agent_api::search(body.into_inner())?))
+}
+
+/// `POST /api/knowledge/agent/read` — stable `knowledge.read` surface.
+pub async fn knowledge_agent_read(
+    Json(body): Json<AgentInputBody<KnowledgeAgentReadInput>>,
+) -> Result<Json<KnowledgeAgentReadResult>, AppError> {
+    Ok(Json(knowledge::agent_api::read(body.into_inner())?))
+}
+
+/// `POST /api/knowledge/agent/expand` — stable `knowledge.expand` surface.
+pub async fn knowledge_agent_expand(
+    Json(body): Json<AgentInputBody<KnowledgeAgentExpandInput>>,
+) -> Result<Json<KnowledgeAgentExpandResult>, AppError> {
+    Ok(Json(knowledge::agent_api::expand(body.into_inner())?))
+}
+
+/// `POST /api/knowledge/agent/sources` — stable `knowledge.sources` surface.
+pub async fn knowledge_agent_sources(
+    Json(body): Json<AgentInputBody<KnowledgeAgentSourcesInput>>,
+) -> Result<Json<KnowledgeAgentSourcesResult>, AppError> {
+    Ok(Json(knowledge::agent_api::sources(body.into_inner())?))
+}
+
+/// `POST /api/knowledge/agent/compile/propose` — stable
+/// `knowledge.compile.propose` surface. Starts a normal compile run that only
+/// creates Review Diff proposals.
+pub async fn knowledge_agent_compile_propose(
+    Json(body): Json<AgentInputBody<KnowledgeAgentCompileProposeInput>>,
+) -> Result<Json<CompileRun>, AppError> {
+    Ok(Json(
+        knowledge::agent_api::compile_propose(body.into_inner()).await?,
+    ))
 }
 
 // ── Access bindings ─────────────────────────────────────────────
@@ -801,6 +1271,34 @@ pub async fn kb_passive_recall_config_set(
         body.config,
         "http",
     )?))
+}
+
+/// `GET /api/knowledge/media-retention/config`
+pub async fn knowledge_media_retention_config_get(
+) -> Result<Json<knowledge::KnowledgeMediaRetentionConfig>, AppError> {
+    Ok(Json(service::get_media_retention_config()))
+}
+
+/// `POST /api/knowledge/media-retention/config` — body `{ config: KnowledgeMediaRetentionConfig }`.
+pub async fn knowledge_media_retention_config_set(
+    Json(body): Json<crate::routes::config::ConfigBody<knowledge::KnowledgeMediaRetentionConfig>>,
+) -> Result<Json<knowledge::KnowledgeMediaRetentionConfig>, AppError> {
+    Ok(Json(service::set_media_retention_config(
+        body.config,
+        "http",
+    )?))
+}
+
+/// `GET /api/knowledge/compile/config`
+pub async fn knowledge_compile_config_get() -> Result<Json<KnowledgeCompileConfig>, AppError> {
+    Ok(Json(service::get_compile_config()))
+}
+
+/// `POST /api/knowledge/compile/config` — body `{ config: KnowledgeCompileConfig }`.
+pub async fn knowledge_compile_config_set(
+    Json(body): Json<crate::routes::config::ConfigBody<KnowledgeCompileConfig>>,
+) -> Result<Json<KnowledgeCompileConfig>, AppError> {
+    Ok(Json(service::set_compile_config(body.config, "http")?))
 }
 
 // ── Sprite / inspiration mode ───────────────────────────────────

@@ -11,8 +11,8 @@ use anyhow::{anyhow, Result};
 use serde_json::{Map, Value};
 
 use super::config::MaintenanceConfig;
-use super::types::{NewProposal, ProposalAction, ProposalKind};
-use crate::knowledge::{index, service};
+use super::types::{NewProposal, ProposalAction, ProposalKind, ProposalStatus};
+use crate::knowledge::{index, service, types::KnowledgeSource};
 
 /// Max notes scanned per deterministic task (bounds work on large KBs).
 const SCAN_CAP: usize = 400;
@@ -20,6 +20,10 @@ const SCAN_CAP: usize = 400;
 const PER_TASK_CAP: usize = 8;
 /// Body chars fed to an LLM per note.
 const EXCERPT_CHARS: usize = 1200;
+/// Max notes scanned when a refreshed source asks for immediate recompile hints.
+const SOURCE_REFRESH_SCAN_CAP: usize = 1000;
+/// Max affected-note paths shown in a refresh-driven proposal detail.
+const SOURCE_REFRESH_DETAIL_NOTE_CAP: usize = 6;
 
 /// Generate proposals for one KB: deterministic scan (blocking) + LLM tasks.
 /// `run_global` gates KB-independent tasks (memory→note distils the *global*
@@ -62,17 +66,152 @@ pub async fn generate(
             Err(e) => app_warn!("knowledge", "maintenance::memory_to_note", "skipped: {}", e),
         }
     }
+    if cfg.tasks.source_conflict && budget_left(&out) {
+        match gen_source_conflict(kb_id, cfg).await {
+            Ok(p) => out.extend(p),
+            Err(e) => app_warn!(
+                "knowledge",
+                "maintenance::source_conflict",
+                "skipped: {}",
+                e
+            ),
+        }
+    }
 
     out.truncate(cfg.max_proposals_per_cycle);
     Ok(out)
+}
+
+/// Build the immediate SourceCompile proposal created by source refresh. This is
+/// user-action driven, so it does not depend on the autonomous-maintenance master
+/// switch; it still lands as a draft and only starts compile after owner approval.
+pub(crate) fn source_refresh_compile_proposal(
+    kb_id: &str,
+    previous: &KnowledgeSource,
+    current: &KnowledgeSource,
+) -> Result<Option<NewProposal>> {
+    if previous.id == current.id || previous.content_hash == current.content_hash {
+        return Ok(None);
+    }
+    if super::super::resolve_kb_dir(kb_id)
+        .map(|root| root.is_external)
+        .unwrap_or(true)
+    {
+        return Ok(None);
+    }
+    let affected = source_refresh_affected_notes(kb_id, &current.id)?;
+    Ok(source_refresh_compile_proposal_from_notes(
+        previous, current, &affected,
+    ))
+}
+
+fn source_refresh_affected_notes(
+    kb_id: &str,
+    latest_source_id: &str,
+) -> Result<Vec<AffectedSourceNote>> {
+    let mut out = Vec::new();
+    for note in service::list_notes(kb_id)?
+        .into_iter()
+        .take(SOURCE_REFRESH_SCAN_CAP)
+    {
+        let refs = match service::note_source_refs(kb_id, &note.rel_path) {
+            Ok(refs) => refs,
+            Err(e) => {
+                app_warn!(
+                    "knowledge",
+                    "maintenance::source_refresh",
+                    "skip note {} while scanning source refs: {}",
+                    note.rel_path,
+                    e
+                );
+                continue;
+            }
+        };
+        if refs
+            .iter()
+            .any(|r| r.stale && r.latest_source_id.as_deref() == Some(latest_source_id))
+        {
+            out.push(AffectedSourceNote {
+                rel_path: note.rel_path,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+    Ok(out)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AffectedSourceNote {
+    rel_path: String,
+}
+
+fn source_refresh_compile_proposal_from_notes(
+    previous: &KnowledgeSource,
+    current: &KnowledgeSource,
+    affected: &[AffectedSourceNote],
+) -> Option<NewProposal> {
+    if affected.is_empty() {
+        return None;
+    }
+    let note_list = affected
+        .iter()
+        .take(SOURCE_REFRESH_DETAIL_NOTE_CAP)
+        .map(|note| format!("`{}`", note.rel_path))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = affected
+        .len()
+        .saturating_sub(SOURCE_REFRESH_DETAIL_NOTE_CAP);
+    let more_suffix = if more > 0 {
+        format!(" and {more} more")
+    } else {
+        String::new()
+    };
+    let affected_word = if affected.len() == 1 { "note" } else { "notes" };
+    let reason = format!(
+        "Source `{}` refreshed from v{} to v{}; {} compiled {} still cite an older source version.",
+        current.title,
+        previous.version_index,
+        current.version_index,
+        affected.len(),
+        affected_word
+    );
+    Some(NewProposal {
+        kind: ProposalKind::SourceCompile,
+        title: format!(
+            "Recompile {} stale {} from refreshed source",
+            affected.len(),
+            affected_word
+        ),
+        detail: format!("{reason} Affected: {note_list}{more_suffix}."),
+        action: ProposalAction::CompileSources {
+            source_ids: vec![current.id.clone()],
+            reason,
+        },
+        // New refresh versions are uncompiled current sources, so share the
+        // existing source_compile bucket used by the periodic scanner.
+        fingerprint: format!(
+            "source_compile:uncompiled:{}:{}",
+            current.id, current.content_hash
+        ),
+    })
 }
 
 /// Sync deterministic tasks. Runs inside `spawn_blocking`.
 fn generate_deterministic(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewProposal>> {
     let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
     let mut out = Vec::new();
+    if cfg.tasks.source_compile {
+        out.extend(gen_source_compile(kb_id)?);
+    }
     if cfg.tasks.frontmatter_fill {
         out.extend(gen_frontmatter_fill(&db, kb_id)?);
+    }
+    if cfg.tasks.for_agent_summary {
+        out.extend(gen_for_agent_summary(&db, kb_id)?);
+    }
+    if cfg.tasks.open_questions_moc {
+        out.extend(gen_open_questions_moc(&db, kb_id)?);
     }
     if cfg.tasks.auto_link {
         out.extend(gen_auto_link(&db, kb_id)?);
@@ -119,6 +258,237 @@ fn gen_frontmatter_fill(db: &crate::knowledge::IndexDb, kb_id: &str) -> Result<V
         });
     }
     Ok(out)
+}
+
+/// Raw sources that have not been compiled, or were re-extracted after compile.
+fn gen_source_compile(kb_id: &str) -> Result<Vec<NewProposal>> {
+    let reg = crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+    let mut sources = reg.list_sources(kb_id)?;
+    sources.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+    let covered = covered_source_compile_keys(kb_id)?;
+
+    let mut out = Vec::new();
+    let uncompiled = sources
+        .iter()
+        .filter(|s| s.compiled_at.is_none())
+        .filter(|s| !covered.contains(&source_compile_key("uncompiled", s)))
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !uncompiled.is_empty() {
+        out.push(source_compile_proposal(
+            &uncompiled,
+            "Compile uncompiled sources",
+            "These raw sources have never produced compile-review proposals.",
+            "uncompiled",
+        ));
+    }
+
+    let stale = sources
+        .iter()
+        .filter(|s| {
+            s.compiled_at
+                .map(|compiled| s.updated_at > compiled)
+                .unwrap_or(false)
+        })
+        .filter(|s| !covered.contains(&source_compile_key("stale", s)))
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>();
+    if !stale.is_empty() {
+        out.push(source_compile_proposal(
+            &stale,
+            "Recompile updated sources",
+            "These raw sources changed after their last compile timestamp.",
+            "stale",
+        ));
+    }
+    out.truncate(PER_TASK_CAP);
+    Ok(out)
+}
+
+fn covered_source_compile_keys(kb_id: &str) -> Result<HashSet<(String, String, String)>> {
+    let reg = crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+    let mut covered = HashSet::new();
+    for proposal in reg.list_proposals(kb_id, None)? {
+        let covers_source_compile = proposal.kind == ProposalKind::SourceCompile
+            && proposal.status != ProposalStatus::Failed;
+        if !covers_source_compile {
+            continue;
+        }
+        covered.extend(source_compile_fingerprint_keys(&proposal.fingerprint));
+    }
+    Ok(covered)
+}
+
+fn source_compile_key(
+    bucket: &str,
+    source: &crate::knowledge::types::KnowledgeSource,
+) -> (String, String, String) {
+    (
+        bucket.to_string(),
+        source.id.clone(),
+        source.content_hash.clone(),
+    )
+}
+
+fn source_compile_fingerprint_keys(fingerprint: &str) -> Vec<(String, String, String)> {
+    let Some(rest) = fingerprint.strip_prefix("source_compile:") else {
+        return Vec::new();
+    };
+    let Some((bucket, items)) = rest.split_once(':') else {
+        return Vec::new();
+    };
+    items
+        .split('|')
+        .filter_map(|item| {
+            let (source_id, content_hash) = item.rsplit_once(':')?;
+            if source_id.is_empty() || content_hash.is_empty() {
+                return None;
+            }
+            Some((
+                bucket.to_string(),
+                source_id.to_string(),
+                content_hash.to_string(),
+            ))
+        })
+        .collect()
+}
+
+fn source_compile_proposal(
+    sources: &[crate::knowledge::types::KnowledgeSource],
+    title_prefix: &str,
+    reason: &str,
+    bucket: &str,
+) -> NewProposal {
+    let source_ids = sources.iter().map(|s| s.id.clone()).collect::<Vec<_>>();
+    let source_list = sources
+        .iter()
+        .map(|s| format!("`{}` ({})", s.title, s.id))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let fingerprint_input = sources
+        .iter()
+        .map(|s| format!("{}:{}", s.id, s.content_hash))
+        .collect::<Vec<_>>()
+        .join("|");
+    NewProposal {
+        kind: ProposalKind::SourceCompile,
+        title: format!("{title_prefix} ({})", sources.len()),
+        detail: format!("{reason} Sources: {source_list}."),
+        action: ProposalAction::CompileSources {
+            source_ids,
+            reason: reason.to_string(),
+        },
+        fingerprint: format!("source_compile:{bucket}:{fingerprint_input}"),
+    }
+}
+
+/// Schema/compiled notes missing a useful `For Agent` section.
+fn gen_for_agent_summary(db: &crate::knowledge::IndexDb, kb_id: &str) -> Result<Vec<NewProposal>> {
+    let mut out = Vec::new();
+    for note in db.list_notes(kb_id)?.into_iter().take(SCAN_CAP) {
+        if out.len() >= PER_TASK_CAP {
+            break;
+        }
+        let schema_candidate = frontmatter_has_key(note.frontmatter_json.as_deref(), "type")
+            || frontmatter_has_key(note.frontmatter_json.as_deref(), "last_compiled")
+            || frontmatter_has_key(note.frontmatter_json.as_deref(), "sources");
+        if !schema_candidate {
+            continue;
+        }
+        let Ok(read) = service::note_read(kb_id, &note.rel_path) else {
+            continue;
+        };
+        if section_body(&read.content, "For Agent")
+            .map(has_actionable_section_text)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let summary = first_prose_line(&read.content)
+            .unwrap_or_else(|| "No concise summary was present yet.".to_string());
+        let body = format!(
+            "- Scope: {}.\n- Summary: {}\n- Use the Evidence section to verify source-derived claims before acting on them.",
+            note.title.trim(),
+            summary
+        );
+        let updated = upsert_section(&read.content, "For Agent", &body);
+        if updated == read.content {
+            continue;
+        }
+        out.push(NewProposal {
+            kind: ProposalKind::ForAgentSummary,
+            title: format!("Add For Agent summary to {}", note.rel_path),
+            detail: "Create a concise agent-facing summary section for this compiled/schema note."
+                .to_string(),
+            action: ProposalAction::PatchNote {
+                path: note.rel_path.clone(),
+                expected_hash: read.content_hash,
+                content: updated,
+            },
+            fingerprint: format!("for_agent_summary:{}:{}", note.rel_path, note.content_hash),
+        });
+    }
+    Ok(out)
+}
+
+/// Many notes with unresolved Open Questions -> create a reviewable MOC hub.
+fn gen_open_questions_moc(db: &crate::knowledge::IndexDb, kb_id: &str) -> Result<Vec<NewProposal>> {
+    let rel = "MOCs/Open Questions.md";
+    if db.get_note_by_rel_path(kb_id, rel)?.is_some() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<(String, String, Vec<String>)> = Vec::new();
+    for note in db.list_notes(kb_id)?.into_iter().take(SCAN_CAP) {
+        let Ok(read) = service::note_read(kb_id, &note.rel_path) else {
+            continue;
+        };
+        let Some(body) = section_body(&read.content, "Open Questions") else {
+            continue;
+        };
+        let questions = question_lines(body);
+        if !questions.is_empty() {
+            entries.push((note.rel_path.clone(), note.title.clone(), questions));
+        }
+        if entries.len() >= 40 {
+            break;
+        }
+    }
+    if entries.len() < 3 {
+        return Ok(Vec::new());
+    }
+    let mut list = String::new();
+    for (path, title, qs) in entries.iter().take(40) {
+        list.push_str(&format!("- [[{}|{}]]\n", rel_no_md(path), title));
+        for q in qs.iter().take(3) {
+            list.push_str(&format!("  - [ ] {}\n", q));
+        }
+    }
+    let content = format!(
+        "---\ntitle: Open Questions\nmoc: true\ntype: moc\nconfidence: medium\n---\n\n# Open Questions\n\n## For Agent\n\nUse this hub to triage unresolved questions across the knowledge space. Each item links back to the note where the question was filed.\n\n## Compiled Truth\n\n{} notes currently contain unresolved Open Questions.\n\n## Timeline\n\n## Evidence\n\nGenerated by autonomous maintenance from note Open Questions sections.\n\n## Open Questions\n\n{}\n## Related\n",
+        entries.len(),
+        list
+    );
+    Ok(vec![NewProposal {
+        kind: ProposalKind::OpenQuestionsMoc,
+        title: format!("Create Open Questions MOC ({} notes)", entries.len()),
+        detail: "Collect recurring unresolved questions into a single MOC for review.".to_string(),
+        action: ProposalAction::CreateNote {
+            path: rel.to_string(),
+            content,
+            overwrite: false,
+        },
+        fingerprint: format!(
+            "open_questions_moc:{}",
+            entries
+                .iter()
+                .take(40)
+                .map(|(p, _, _)| p.as_str())
+                .collect::<Vec<_>>()
+                .join("|")
+        ),
+    }])
 }
 
 /// Notes that mention another note's title in prose but don't link it.
@@ -611,6 +981,172 @@ async fn gen_memory_to_note(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<
     }])
 }
 
+#[derive(Debug, Clone)]
+struct SourceConflictCandidate {
+    path: String,
+    title: String,
+    expected_hash: String,
+    content: String,
+    source_id: String,
+    source_title: String,
+    note_excerpt: String,
+    source_excerpt: String,
+}
+
+/// Compare likely source/note pairs and file potential contradictions as review
+/// questions, never as automatic fact rewrites.
+async fn gen_source_conflict(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewProposal>> {
+    let kb = kb_id.to_string();
+    let candidates: Vec<SourceConflictCandidate> = tokio::task::spawn_blocking(move || {
+        let db = index::get_index_db().ok_or_else(|| anyhow!("knowledge index not initialized"))?;
+        let reg =
+            crate::get_knowledge_db().ok_or_else(|| anyhow!("knowledge db not initialized"))?;
+        let notes = db
+            .list_notes(&kb)?
+            .into_iter()
+            .filter(|n| !n.rel_path.starts_with("MOCs/"))
+            .take(SCAN_CAP)
+            .collect::<Vec<_>>();
+        let note_tokens = notes
+            .iter()
+            .map(|n| title_tokens(&n.title))
+            .collect::<Vec<_>>();
+
+        let mut out = Vec::new();
+        for source in reg.list_sources(&kb)?.into_iter().take(SCAN_CAP) {
+            if out.len() >= 3 {
+                break;
+            }
+            if !matches!(
+                source.status,
+                crate::knowledge::types::KnowledgeSourceStatus::Ready
+            ) {
+                continue;
+            }
+            let src_tokens = title_tokens(&source.title);
+            if src_tokens.is_empty() {
+                continue;
+            }
+            let Some((best_idx, best_score)) = note_tokens
+                .iter()
+                .enumerate()
+                .map(|(idx, tokens)| (idx, jaccard(&src_tokens, tokens)))
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            else {
+                continue;
+            };
+            if best_score < 0.34 {
+                continue;
+            }
+            let note = &notes[best_idx];
+            let Ok(note_read) = service::note_read(&kb, &note.rel_path) else {
+                continue;
+            };
+            let Ok(source_read) = service::source_read(&kb, &source.id) else {
+                continue;
+            };
+            out.push(SourceConflictCandidate {
+                path: note.rel_path.clone(),
+                title: note.title.clone(),
+                expected_hash: note_read.content_hash,
+                content: note_read.content.clone(),
+                source_id: source.id.clone(),
+                source_title: source.title.clone(),
+                note_excerpt: crate::truncate_utf8(
+                    &strip_frontmatter(&note_read.content),
+                    EXCERPT_CHARS,
+                )
+                .to_string(),
+                source_excerpt: crate::truncate_utf8(&source_read.content, EXCERPT_CHARS)
+                    .to_string(),
+            });
+        }
+        Ok::<_, anyhow::Error>(out)
+    })
+    .await
+    .map_err(|e| anyhow!("source conflict scan panicked: {e}"))??;
+
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut blocks = String::new();
+    for (idx, c) in candidates.iter().enumerate() {
+        blocks.push_str(&format!(
+            "### CANDIDATE {idx}\nNOTE_PATH: {}\nNOTE_TITLE: {}\nSOURCE_ID: {}\nSOURCE_TITLE: {}\n\nNOTE_EXCERPT:\n{}\n\nSOURCE_EXCERPT:\n{}\n\n",
+            c.path, c.title, c.source_id, c.source_title, c.note_excerpt, c.source_excerpt
+        ));
+    }
+    let prompt = format!(
+        "You are auditing a personal knowledge base. For each candidate, decide whether the raw \
+         SOURCE_EXCERPT likely contradicts the compiled NOTE_EXCERPT. Only flag concrete factual \
+         conflicts, not missing details or style differences. Return ONLY JSON: \
+         {{\"conflicts\":[{{\"candidate\":0,\"summary\":\"...\",\"evidence\":\"...\"}}]}}. \
+         If none are real conflicts, return {{\"conflicts\":[]}}.\n\n{blocks}"
+    );
+    let resp = run_side_query(&prompt, cfg).await?;
+    let obj = parse_json_object(&resp)?;
+    let Some(items) = obj.get("conflicts").and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+
+    let mut out = Vec::new();
+    for item in items.iter().take(PER_TASK_CAP) {
+        let Some(idx) = item
+            .get("candidate")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+        else {
+            continue;
+        };
+        let Some(c) = candidates.get(idx) else {
+            continue;
+        };
+        let summary = item
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(summary) = summary else {
+            continue;
+        };
+        let evidence = item
+            .get("evidence")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Review the source and compiled note before updating the claim.");
+        let block = format!(
+            "- [ ] Possible conflict with source `{}` ({}): {}\n  - evidence: {}\n",
+            c.source_id,
+            c.source_title,
+            one_line(summary),
+            one_line(evidence),
+        );
+        let updated = append_under_section(&c.content, "Open Questions", &block);
+        out.push(NewProposal {
+            kind: ProposalKind::SourceConflict,
+            title: format!("Review possible source conflict in {}", c.path),
+            detail: format!(
+                "Source `{}` may contradict compiled note `{}`. Apply to file a review item under Open Questions.",
+                c.source_title, c.title
+            ),
+            action: ProposalAction::PatchNote {
+                path: c.path.clone(),
+                expected_hash: c.expected_hash.clone(),
+                content: updated,
+            },
+            fingerprint: format!(
+                "source_conflict:{}:{}:{}",
+                c.path,
+                c.source_id,
+                crate::knowledge::blake3_hex(summary.as_bytes())
+            ),
+        });
+    }
+    Ok(out)
+}
+
 // ── LLM helper ───────────────────────────────────────────────────────
 
 async fn run_side_query(prompt: &str, cfg: &MaintenanceConfig) -> Result<String> {
@@ -753,6 +1289,186 @@ fn strip_frontmatter(content: &str) -> String {
         return content.to_string();
     }
     body.join("\n").trim_start().to_string()
+}
+
+fn section_body<'a>(content: &'a str, section: &str) -> Option<&'a str> {
+    let mut start = None;
+    let mut end = content.len();
+    let mut pos = 0usize;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        if let Some(title) = trimmed.strip_prefix("## ") {
+            let title = title.trim().trim_matches('#').trim();
+            if title == section {
+                start = Some(pos + line.len());
+            } else if start.is_some() {
+                end = pos;
+                break;
+            }
+        }
+        pos += line.len();
+    }
+    start.map(|s| &content[s..end])
+}
+
+fn has_actionable_section_text(body: &str) -> bool {
+    body.lines().any(|line| {
+        let t = line
+            .trim()
+            .trim_start_matches("- ")
+            .trim_start_matches("* ")
+            .trim();
+        !t.is_empty()
+            && !matches!(
+                t,
+                "None"
+                    | "none"
+                    | "N/A"
+                    | "n/a"
+                    | "无"
+                    | "暂无"
+                    | "No concise summary was present yet."
+            )
+    })
+}
+
+fn question_lines(body: &str) -> Vec<String> {
+    body.lines()
+        .filter_map(|line| {
+            if line
+                .chars()
+                .next()
+                .map(char::is_whitespace)
+                .unwrap_or(false)
+            {
+                return None;
+            }
+            let raw = line.trim();
+            let lower = raw.to_ascii_lowercase();
+            if lower.starts_with("- [x]") || lower.starts_with("* [x]") {
+                return None;
+            }
+            let t = raw
+                .trim_start_matches("- [ ]")
+                .trim_start_matches("* [ ]")
+                .trim_start_matches("- [x]")
+                .trim_start_matches("* [x]")
+                .trim_start_matches("- ")
+                .trim_start_matches("* ")
+                .trim();
+            if t.is_empty() || matches!(t, "None" | "none" | "N/A" | "n/a" | "无" | "暂无") {
+                None
+            } else {
+                Some(crate::truncate_utf8(t, 180).to_string())
+            }
+        })
+        .take(5)
+        .collect()
+}
+
+fn first_prose_line(content: &str) -> Option<String> {
+    strip_frontmatter(content)
+        .lines()
+        .map(str::trim)
+        .filter(|line| {
+            !line.is_empty()
+                && !line.starts_with('#')
+                && !line.starts_with("---")
+                && !line.starts_with("source:")
+                && !line.starts_with("Source:")
+        })
+        .map(|line| {
+            crate::truncate_utf8(
+                line.trim_start_matches("- ")
+                    .trim_start_matches("* ")
+                    .trim_start_matches("> ")
+                    .trim(),
+                220,
+            )
+            .to_string()
+        })
+        .find(|line| !line.is_empty())
+}
+
+fn upsert_section(content: &str, section: &str, body: &str) -> String {
+    let heading = format!("## {section}");
+    let body = body.trim();
+    let mut pos = 0usize;
+    let mut section_start = None;
+    let mut section_end = content.len();
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if trimmed == heading {
+            section_start = Some(pos);
+        } else if section_start.is_some() && trimmed.starts_with("## ") {
+            section_end = pos;
+            break;
+        }
+        pos += line.len();
+    }
+    if let Some(start) = section_start {
+        let mut out = String::new();
+        out.push_str(content[..start].trim_end());
+        out.push_str("\n\n");
+        out.push_str(&heading);
+        out.push_str("\n\n");
+        out.push_str(body);
+        out.push('\n');
+        out.push_str(content[section_end..].trim_start_matches('\n'));
+        return out;
+    }
+
+    let insert_at = insertion_after_frontmatter_and_h1(content);
+    let mut out = String::new();
+    out.push_str(content[..insert_at].trim_end());
+    out.push_str("\n\n");
+    out.push_str(&heading);
+    out.push_str("\n\n");
+    out.push_str(body);
+    out.push_str("\n\n");
+    out.push_str(content[insert_at..].trim_start());
+    out
+}
+
+fn append_under_section(content: &str, section: &str, addition: &str) -> String {
+    let current = section_body(content, section).unwrap_or("");
+    let body = if has_actionable_section_text(current) {
+        format!("{}\n\n{}", current.trim_end(), addition.trim())
+    } else {
+        addition.trim().to_string()
+    };
+    upsert_section(content, section, &body)
+}
+
+fn insertion_after_frontmatter_and_h1(content: &str) -> usize {
+    let mut offset = 0usize;
+    let mut in_frontmatter = content.trim_start().starts_with("---");
+    let mut seen_frontmatter_open = false;
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_end_matches(['\r', '\n']).trim();
+        offset += line.len();
+        if in_frontmatter {
+            if !seen_frontmatter_open && trimmed == "---" {
+                seen_frontmatter_open = true;
+                continue;
+            }
+            if seen_frontmatter_open && trimmed == "---" {
+                in_frontmatter = false;
+            }
+            continue;
+        }
+        if trimmed.starts_with("# ") {
+            return offset;
+        }
+        if !trimmed.is_empty() {
+            break;
+        }
+    }
+    offset.min(content.len())
+}
+
+fn one_line(value: &str) -> String {
+    crate::truncate_utf8(&value.split_whitespace().collect::<Vec<_>>().join(" "), 240).to_string()
 }
 
 fn clean_ref(raw: &str) -> String {
@@ -898,6 +1614,130 @@ mod tests {
         assert!(frontmatter_has_key(Some("{\"title\":\"X\"}"), "title"));
         assert!(!frontmatter_has_key(Some("{\"title\":\"\"}"), "title"));
         assert!(!frontmatter_has_key(None, "title"));
+    }
+
+    #[test]
+    fn upsert_section_inserts_after_frontmatter_and_h1() {
+        let updated = upsert_section(
+            "---\ntitle: A\n---\n\n# A\n\nBody",
+            "For Agent",
+            "- Summary",
+        );
+        assert!(updated.contains("# A\n\n## For Agent\n\n- Summary\n\nBody"));
+        assert!(updated.starts_with("---\ntitle: A\n---"));
+    }
+
+    #[test]
+    fn question_lines_skips_completed_items() {
+        let questions = question_lines("- [ ] Open one\n- [x] Done\n* [ ] Open two\nNone");
+        assert_eq!(
+            questions,
+            vec!["Open one".to_string(), "Open two".to_string()]
+        );
+    }
+
+    #[test]
+    fn question_lines_skips_nested_metadata() {
+        let questions = question_lines(
+            "- [ ] Should this become a claim?\n  - source: conversation `s1`\n  - prompt: What happened?\n  - filed answer: Maybe.\n- [ ] Second question\n  - evidence: raw source excerpt",
+        );
+        assert_eq!(
+            questions,
+            vec![
+                "Should this become a claim?".to_string(),
+                "Second question".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn source_compile_fingerprint_keys_parse_bucket_and_hash() {
+        let keys =
+            source_compile_fingerprint_keys("source_compile:uncompiled:src-a:hash1|src-b:hash2");
+        assert_eq!(
+            keys,
+            vec![
+                (
+                    "uncompiled".to_string(),
+                    "src-a".to_string(),
+                    "hash1".to_string()
+                ),
+                (
+                    "uncompiled".to_string(),
+                    "src-b".to_string(),
+                    "hash2".to_string()
+                )
+            ]
+        );
+    }
+
+    #[test]
+    fn source_refresh_compile_proposal_targets_latest_source_and_notes() {
+        let previous = test_source("src-v1", "hash-old", 1);
+        let current = test_source("src-v2", "hash-new", 2);
+        let affected = vec![
+            AffectedSourceNote {
+                rel_path: "Notes/A.md".to_string(),
+            },
+            AffectedSourceNote {
+                rel_path: "Notes/B.md".to_string(),
+            },
+        ];
+
+        let proposal =
+            source_refresh_compile_proposal_from_notes(&previous, &current, &affected).unwrap();
+
+        assert_eq!(proposal.kind, ProposalKind::SourceCompile);
+        assert_eq!(
+            proposal.fingerprint,
+            "source_compile:uncompiled:src-v2:hash-new"
+        );
+        assert!(proposal.detail.contains("Notes/A.md"));
+        assert!(proposal.detail.contains("Notes/B.md"));
+        match &proposal.action {
+            ProposalAction::CompileSources { source_ids, reason } => {
+                assert_eq!(source_ids, &vec!["src-v2".to_string()]);
+                assert!(reason.contains("v1 to v2"));
+            }
+            other => panic!("unexpected action: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn source_refresh_compile_proposal_skips_without_affected_notes() {
+        let previous = test_source("src-v1", "hash-old", 1);
+        let current = test_source("src-v2", "hash-new", 2);
+
+        assert!(source_refresh_compile_proposal_from_notes(&previous, &current, &[]).is_none());
+    }
+
+    fn test_source(id: &str, hash: &str, version_index: u32) -> KnowledgeSource {
+        KnowledgeSource {
+            id: id.to_string(),
+            kb_id: "kb".to_string(),
+            kind: crate::knowledge::types::KnowledgeSourceKind::UrlSnapshot,
+            title: "Example Source".to_string(),
+            origin_uri: Some("https://example.com".to_string()),
+            stored_path: format!("{id}.md"),
+            external_raw_path: None,
+            content_hash: hash.to_string(),
+            extracted_text_hash: Some(hash.to_string()),
+            status: crate::knowledge::types::KnowledgeSourceStatus::Ready,
+            compiled_at: None,
+            created_at: 1,
+            updated_at: 1,
+            size: 12,
+            chunk_count: 1,
+            version_of_source_id: if version_index == 1 {
+                None
+            } else {
+                Some("src-v1".to_string())
+            },
+            version_index,
+            superseded_by_source_id: None,
+            superseded_at: None,
+            assets: None,
+        }
     }
 
     #[test]

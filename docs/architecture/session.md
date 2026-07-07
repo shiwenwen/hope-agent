@@ -592,7 +592,7 @@ WHERE id = ?
 | `llm` | `maybe_schedule_after_success` 在 `post_turn_effects=true` 收尾时调度 LLM 起标题 | **仅当 `title_source == 'first_message'` 时**才覆盖（用 `update_session_title_if_source` 语义性 CAS）；保护用户手改不被覆盖 |
 
 ### LLM 触发条件（`maybe_schedule_after_success`）
-- `AppConfig.session_title.enabled == true`
+- `AppConfig.session_title.enabled == true`（默认开启）
 - `meta.incognito == false`
 - `meta.title_source == 'first_message'`
 - 选模型：`session_title.{provider_id, model_id}` 配置 > 当前 chat 模型

@@ -10,7 +10,6 @@ import {
   Copy,
   BarChart3,
   Pencil,
-  Zap,
   Check,
   X,
   FileText,
@@ -491,7 +490,7 @@ export default function ChatTitleBar({
             )}
             {currentSession?.incognito && (
               <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
-                <Ghost className="h-3 w-3" />
+                <Ghost className="h-3 w-3" strokeWidth={1.75} />
                 {t("chat.incognito")}
               </span>
             )}
@@ -524,57 +523,6 @@ export default function ChatTitleBar({
               <Search className="h-4 w-4" />
             </button>
           </IconTip>
-        )}
-        {/* Compact Context Button */}
-        {currentSessionId && (
-          <div className="relative">
-            <IconTip label={t("chat.compactNow")}>
-              <button
-                className={cn(
-                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50",
-                  compacting && "text-foreground",
-                )}
-                disabled={compacting || loading}
-                onClick={async () => {
-                  if (!currentSessionId) return
-                  try {
-                    const result = await onCompactContext?.()
-                    if (!result) return
-                    const msg = compactResultMessage(t, result)
-                    if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                    setCompactToast({ success: true, message: msg })
-                    compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
-                  } catch (e) {
-                    logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
-                    if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                    setCompactToast({ success: false, message: t("chat.compactFailed") })
-                    compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
-                  }
-                }}
-              >
-                <Zap className={cn("h-4 w-4 pointer-events-none", compacting && "animate-pulse")} />
-              </button>
-            </IconTip>
-            {compactToast && (
-              <div
-                className={cn(
-                  "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
-                  compactToast.success
-                    ? "border-border bg-popover text-popover-foreground"
-                    : "border-destructive/30 bg-destructive/10 text-destructive",
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  {compactToast.success ? (
-                    <Check className="h-3 w-3 text-green-500" />
-                  ) : (
-                    <X className="h-3 w-3" />
-                  )}
-                  {compactToast.message}
-                </div>
-              </div>
-            )}
-          </div>
         )}
         {/* Session Status Button */}
         <div className="relative" ref={statusRef}>
@@ -843,6 +791,25 @@ export default function ChatTitleBar({
               )}
             </div>
           </FloatingMenu>
+          {compactToast && (
+            <div
+              className={cn(
+                "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
+                compactToast.success
+                  ? "border-border bg-popover text-popover-foreground"
+                  : "border-destructive/30 bg-destructive/10 text-destructive",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                {compactToast.success ? (
+                  <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                {compactToast.message}
+              </div>
+            </div>
+          )}
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (

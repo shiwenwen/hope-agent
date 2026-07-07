@@ -11,25 +11,25 @@
 
 @theme {
   --color-background: hsl(0 0% 100%);
-  --color-foreground: hsl(0 0% 9%);
+  --color-foreground: hsl(0 0% 7%);
   --color-card: hsl(0 0% 98%);
-  --color-card-foreground: hsl(0 0% 9%);
+  --color-card-foreground: hsl(0 0% 7%);
   --color-popover: hsl(0 0% 98%);
-  --color-popover-foreground: hsl(0 0% 9%);
+  --color-popover-foreground: hsl(0 0% 7%);
   --color-primary: hsl(0 0% 9%);
   --color-primary-foreground: hsl(0 0% 100%);
   --color-secondary: hsl(0 0% 93%);
-  --color-secondary-foreground: hsl(0 0% 9%);
+  --color-secondary-foreground: hsl(0 0% 7%);
   --color-muted: hsl(0 0% 95%);
-  --color-muted-foreground: hsl(0 0% 45%);
+  --color-muted-foreground: hsl(0 0% 34%);
   --color-accent: hsl(0 0% 93%);
-  --color-accent-foreground: hsl(0 0% 9%);
+  --color-accent-foreground: hsl(0 0% 7%);
   --color-border: hsl(0 0% 89%);
   --color-border-soft: hsl(220 16% 90%);
   --color-input: hsl(0 0% 89%);
   --color-destructive: hsl(0 84% 60%);
   --color-destructive-foreground: hsl(0 0% 100%);
-  --color-ring: hsl(0 0% 45%);
+  --color-ring: hsl(0 0% 34%);
   --color-surface-app: hsl(220 20% 98%);
   --color-surface-sidebar: hsl(215 20% 96%);
   --color-surface-panel: hsl(0 0% 99%);
@@ -66,7 +66,7 @@
   --color-secondary: hsl(220 13% 20%);
   --color-secondary-foreground: hsl(210 20% 90%);
   --color-muted: hsl(220 13% 18%);
-  --color-muted-foreground: hsl(215 15% 50%);
+  --color-muted-foreground: hsl(215 16% 64%);
   --color-accent: hsl(220 13% 20%);
   --color-accent-foreground: hsl(210 20% 90%);
   --color-border: hsl(220 13% 22%);
@@ -74,7 +74,7 @@
   --color-input: hsl(220 13% 22%);
   --color-destructive: hsl(0 72% 51%);
   --color-destructive-foreground: hsl(0 0% 100%);
-  --color-ring: hsl(215 15% 50%);
+  --color-ring: hsl(215 16% 64%);
   --color-surface-app: hsl(220 13% 11%);
   --color-surface-sidebar: hsl(220 13% 14%);
   --color-surface-panel: hsl(220 13% 13%);

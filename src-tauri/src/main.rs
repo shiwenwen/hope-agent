@@ -37,6 +37,13 @@ fn main() {
         return;
     }
 
+    // Knowledge MCP subcommand: `hope-agent knowledge-mcp` — exposes the
+    // Knowledge Space Agent Access API as a small stdio MCP server.
+    if args.len() >= 2 && args[1] == "knowledge-mcp" {
+        run_knowledge_mcp(&args[2..]);
+        return;
+    }
+
     // ACP subcommand: `hope-agent acp` — runs the ACP stdio server
     if args.len() >= 2 && args[1] == "acp" {
         run_acp_server(&args[2..]);
@@ -90,6 +97,62 @@ fn is_guardian_enabled() -> bool {
         .and_then(|g| g.get("enabled"))
         .and_then(|v| v.as_bool())
         .unwrap_or(true)
+}
+
+// ── Knowledge MCP Server Mode ────────────────────────────────────
+
+fn run_knowledge_mcp(args: &[String]) {
+    let Some(options) = parse_knowledge_mcp_args(args) else {
+        print_knowledge_mcp_help();
+        return;
+    };
+
+    if let Err(e) = ha_core::paths::ensure_dirs() {
+        eprintln!(
+            "[knowledge-mcp] Failed to initialize data directories: {}",
+            e
+        );
+        std::process::exit(1);
+    }
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    ha_core::init_runtime("knowledge-mcp");
+
+    if let Err(e) = ha_core::knowledge::agent_mcp::run_stdio(options) {
+        eprintln!("[knowledge-mcp] Server error: {}", e);
+        std::process::exit(1);
+    }
+}
+
+fn parse_knowledge_mcp_args(
+    args: &[String],
+) -> Option<ha_core::knowledge::agent_mcp::KnowledgeMcpOptions> {
+    let mut options = ha_core::knowledge::agent_mcp::KnowledgeMcpOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--allow-proposals" => options.allow_proposals = true,
+            "--version" => {
+                println!("hope-agent-knowledge-mcp {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            "--help" | "-h" => return None,
+            other => {
+                eprintln!("[knowledge-mcp] Unknown argument: {}", other);
+                return None;
+            }
+        }
+    }
+    Some(options)
+}
+
+fn print_knowledge_mcp_help() {
+    println!("Hope Agent Knowledge MCP Server");
+    println!();
+    println!("Usage: hope-agent knowledge-mcp [OPTIONS]");
+    println!();
+    println!("Options:");
+    println!("  --allow-proposals  Also expose knowledge_compile_propose (review proposal only)");
+    println!("  --version          Print version and exit");
+    println!("  --help, -h         Print help and exit");
 }
 
 // ── Guardian Mode ──────────────────────────────────────────────────
@@ -401,6 +464,18 @@ fn run_server(args: &[String]) {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
     }
 
+    let knowledge_agent_read_token = std::env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            ha_core::config::cached_config()
+                .server
+                .knowledge_agent_read_token
+                .clone()
+                .filter(|k| !k.is_empty())
+        });
+
     let session_db = ha_core::require_session_db()
         .expect("init_runtime contract")
         .clone();
@@ -423,6 +498,7 @@ fn run_server(args: &[String]) {
     let config = ha_server::ServerConfig {
         bind_addr,
         api_key,
+        knowledge_agent_read_token,
         cors_origins: Vec::new(),
     };
 

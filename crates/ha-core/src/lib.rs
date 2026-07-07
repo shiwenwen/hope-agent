@@ -60,6 +60,7 @@ pub mod mac_control;
 pub mod mcp;
 pub mod memory;
 pub mod memory_extract;
+pub mod model_usage;
 pub mod oauth;
 pub mod onboarding;
 pub mod openclaw_import;

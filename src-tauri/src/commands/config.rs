@@ -481,10 +481,19 @@ pub async fn get_server_config() -> Result<serde_json::Value, CmdError> {
             ha_core::mask_secret_middle(k, 2, 2)
         }
     });
+    let masked_knowledge_agent_read_token = server.knowledge_agent_read_token.as_ref().map(|k| {
+        if k.is_empty() {
+            "****".to_string()
+        } else {
+            ha_core::mask_secret_middle(k, 2, 2)
+        }
+    });
     Ok(serde_json::json!({
         "bindAddr": server.bind_addr,
         "apiKey": masked_key,
         "hasApiKey": server.api_key.is_some(),
+        "knowledgeAgentReadToken": masked_knowledge_agent_read_token,
+        "hasKnowledgeAgentReadToken": server.knowledge_agent_read_token.is_some(),
     }))
 }
 
@@ -493,7 +502,8 @@ pub async fn save_server_config(
     config: ha_core::config::EmbeddedServerConfig,
 ) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("server", "settings-ui"), |store| {
-        store.server = config;
+        let next = config.merge_over_existing(&store.server);
+        store.server = next;
         Ok(())
     })
     .map_err(Into::into)

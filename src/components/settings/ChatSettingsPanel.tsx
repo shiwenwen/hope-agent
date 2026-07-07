@@ -47,7 +47,7 @@ export default function ChatSettingsPanel() {
   })
   const [narrationEnabled, setNarrationEnabled] = useState(false)
   const [sessionTitleConfig, setSessionTitleConfig] = useState<SessionTitleConfig>({
-    enabled: false,
+    enabled: true,
     providerId: null,
     modelId: null,
   })

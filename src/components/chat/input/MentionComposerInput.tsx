@@ -49,6 +49,12 @@ type MentionSpan =
   | { kind: "skill"; raw: string; name: string; start: number; end: number }
   | { kind: "agent"; raw: string; agentId: string; start: number; end: number }
 
+export interface ComposerPasteEvent {
+  clipboardData: DataTransfer | null
+  preventDefault: () => void
+  defaultPrevented?: boolean
+}
+
 interface MentionComposerInputProps {
   value: string
   placeholder: string
@@ -64,7 +70,7 @@ interface MentionComposerInputProps {
   readOnly?: boolean
   onChange: (value: string) => void
   onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
-  onPaste: (e: React.ClipboardEvent<HTMLElement>) => void
+  onPaste: (e: ComposerPasteEvent) => void
   onSelectionChange: () => void
 }
 
@@ -397,6 +403,15 @@ function atomicDeleteExtension(getConfig: () => MentionConfig) {
   })
 }
 
+function pasteExtension(getOnPaste: () => (event: ComposerPasteEvent) => void) {
+  return EditorView.domEventHandlers({
+    paste(event) {
+      getOnPaste()(event)
+      return event.defaultPrevented
+    },
+  })
+}
+
 const CODEMIRROR_EDIT_CONTEXT_FLAG = "__HOPE_AGENT_CODEMIRROR_EDIT_CONTEXT"
 
 type CodeMirrorEditContextWindow = Window & {
@@ -543,6 +558,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
     const viewRef = useRef<EditorView | null>(null)
     const valueRef = useRef(value)
     const onChangeRef = useRef(onChange)
+    const onPasteRef = useRef(onPaste)
     const onSelectionChangeRef = useRef(onSelectionChange)
     const configRef = useRef<MentionConfig>({
       workingDir,
@@ -566,6 +582,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
 
     valueRef.current = value
     onChangeRef.current = onChange
+    onPasteRef.current = onPaste
     onSelectionChangeRef.current = onSelectionChange
     configRef.current = {
       workingDir,
@@ -615,6 +632,7 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
                 ]),
                 mentionDecorations(() => configRef.current),
                 atomicDeleteExtension(() => configRef.current),
+                pasteExtension(() => onPasteRef.current),
                 EditorView.updateListener.of((update) => {
                   if (update.docChanged) {
                     const next = update.state.doc.toString()
@@ -763,7 +781,6 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
         aria-multiline="true"
         aria-readonly={readOnly}
         onKeyDown={onKeyDown}
-        onPaste={onPaste}
         onMouseDown={handleMouseDown}
         onClick={handleClick}
         className={cn(

@@ -11,6 +11,7 @@ use serde_json::json;
 #[derive(Clone)]
 pub struct ApiKeyState {
     pub api_key: Option<String>,
+    pub knowledge_agent_read_token: Option<String>,
 }
 
 /// Constant-time byte comparison. Guards against timing side-channels when
@@ -79,30 +80,38 @@ pub async fn require_api_key(
     request: Request,
     next: Next,
 ) -> Response {
-    let expected = match &state.api_key {
-        Some(key) => key,
-        None => return next.run(request).await,
-    };
-    let expected_bytes = expected.as_bytes();
+    let owner_key = state.api_key.as_deref().filter(|k| !k.is_empty());
+    if owner_key.is_none() {
+        // A scoped Knowledge Agent token only makes sense alongside owner API-key
+        // protection. Without an owner key the server is intentionally in no-auth
+        // mode; do not let a read token alone lock every other endpoint into an
+        // inaccessible state.
+        return next.run(request).await;
+    }
+    let read_token = state
+        .knowledge_agent_read_token
+        .as_deref()
+        .filter(|k| !k.is_empty());
 
-    // Check Authorization header first
-    if let Some(auth_header) = request.headers().get("authorization") {
-        if let Ok(value) = auth_header.to_str() {
-            if let Some(token) = value.strip_prefix("Bearer ") {
-                if constant_time_eq(token.as_bytes(), expected_bytes) {
-                    return next.run(request).await;
-                }
+    let path = request.uri().path().to_string();
+    if let Some(token) = request_auth_token(&request) {
+        if let Some(owner_key) = owner_key {
+            if constant_time_eq(&token, owner_key.as_bytes()) {
+                return next.run(request).await;
             }
         }
-    }
-
-    // Fallback: check ?token= query parameter (for browser WebSocket)
-    if let Some(query) = request.uri().query() {
-        for pair in query.split('&') {
-            if let Some(token) = pair.strip_prefix("token=") {
-                let decoded = percent_decode_form_value(token);
-                if constant_time_eq(&decoded, expected_bytes) {
+        if let Some(read_token) = read_token {
+            if constant_time_eq(&token, read_token.as_bytes()) {
+                if is_knowledge_agent_read_path(&path) {
                     return next.run(request).await;
+                } else {
+                    return (
+                        StatusCode::FORBIDDEN,
+                        Json(json!({
+                            "error": "Forbidden: knowledge agent read token can only access read-only /api/knowledge/agent endpoints"
+                        })),
+                    )
+                        .into_response();
                 }
             }
         }
@@ -113,6 +122,31 @@ pub async fn require_api_key(
         Json(json!({ "error": "Unauthorized: invalid or missing API key" })),
     )
         .into_response()
+}
+
+fn request_auth_token(request: &Request) -> Option<Vec<u8>> {
+    if let Some(auth_header) = request.headers().get("authorization") {
+        if let Ok(value) = auth_header.to_str() {
+            if let Some(token) = value.strip_prefix("Bearer ") {
+                return Some(token.as_bytes().to_vec());
+            }
+        }
+    }
+    request.uri().query().and_then(|query| {
+        query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("token=").map(percent_decode_form_value))
+    })
+}
+
+fn is_knowledge_agent_read_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/knowledge/agent/search"
+            | "/api/knowledge/agent/read"
+            | "/api/knowledge/agent/expand"
+            | "/api/knowledge/agent/sources"
+    )
 }
 
 /// Per-request access log. Query string is intentionally dropped so the
@@ -137,6 +171,11 @@ pub async fn access_log(request: Request, next: Next) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::{Request as HttpRequest, StatusCode};
+    use axum::routing::post;
+    use axum::Router;
+    use tower::ServiceExt;
 
     #[test]
     fn constant_time_eq_matches_equal_inputs() {
@@ -170,5 +209,109 @@ mod tests {
         assert_eq!(percent_decode_form_value("%Q1"), b"%Q1");
         // Trailing `%` with no digits passes through.
         assert_eq!(percent_decode_form_value("abc%"), b"abc%");
+    }
+
+    #[test]
+    fn knowledge_agent_read_token_paths_are_exact() {
+        assert!(is_knowledge_agent_read_path("/api/knowledge/agent/search"));
+        assert!(is_knowledge_agent_read_path("/api/knowledge/agent/sources"));
+        assert!(!is_knowledge_agent_read_path(
+            "/api/knowledge/agent/compile/propose"
+        ));
+        assert!(!is_knowledge_agent_read_path("/api/knowledge"));
+        assert!(!is_knowledge_agent_read_path(
+            "/api/knowledge/agent/search/extra"
+        ));
+    }
+
+    #[tokio::test]
+    async fn read_token_allows_knowledge_agent_read_path() {
+        let app = auth_test_router();
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/knowledge/agent/search")
+                    .header("authorization", "Bearer read-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn read_token_cannot_call_compile_propose() {
+        let app = auth_test_router();
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/knowledge/agent/compile/propose")
+                    .header("authorization", "Bearer read-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn owner_token_can_call_compile_propose() {
+        let app = auth_test_router();
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/knowledge/agent/compile/propose")
+                    .header("authorization", "Bearer owner-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn read_token_without_owner_key_keeps_no_auth_mode() {
+        let app = auth_test_router_with(None, Some("read-token"));
+        let response = app
+            .oneshot(
+                HttpRequest::builder()
+                    .method("POST")
+                    .uri("/api/knowledge/agent/compile/propose")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    fn auth_test_router() -> Router {
+        auth_test_router_with(Some("owner-token"), Some("read-token"))
+    }
+
+    fn auth_test_router_with(
+        api_key: Option<&str>,
+        knowledge_agent_read_token: Option<&str>,
+    ) -> Router {
+        let auth_state = ApiKeyState {
+            api_key: api_key.map(str::to_string),
+            knowledge_agent_read_token: knowledge_agent_read_token.map(str::to_string),
+        };
+        Router::new()
+            .route("/api/knowledge/agent/search", post(|| async { "ok" }))
+            .route(
+                "/api/knowledge/agent/compile/propose",
+                post(|| async { "ok" }),
+            )
+            .route_layer(axum::middleware::from_fn_with_state(
+                auth_state,
+                require_api_key,
+            ))
     }
 }

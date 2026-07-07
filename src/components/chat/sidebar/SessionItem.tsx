@@ -27,7 +27,6 @@ import {
   BellRing,
   FolderInput,
   FolderMinus,
-  FolderKanban,
   Check,
   Ghost,
   CircleAlert,
@@ -250,7 +249,7 @@ export default function SessionItem({
               {session.incognito && (
                 <IconTip label={t("chat.incognito")}>
                   <span className={INCOGNITO_BADGE_ICON_CLASSES}>
-                    <Ghost className="w-2.5 h-2.5" />
+                    <Ghost className="w-2.5 h-2.5" strokeWidth={1.75} />
                   </span>
                 </IconTip>
               )}
@@ -472,11 +471,7 @@ export default function SessionItem({
                         >
                           {session.projectId === p.id ? (
                             <Check className="h-3.5 w-3.5 mr-2 text-primary" />
-                          ) : p.emoji ? (
-                            <span className="mr-2 text-sm leading-none">{p.emoji}</span>
-                          ) : (
-                            <FolderKanban className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                          )}
+                          ) : null}
                           <span className="truncate">{p.name}</span>
                         </ContextMenuItem>
                       ))

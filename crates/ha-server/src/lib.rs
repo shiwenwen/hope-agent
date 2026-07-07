@@ -45,7 +45,7 @@ pub struct AppContext {
 /// Build the full axum `Router` with all API routes and WebSocket endpoints.
 /// Uses permissive CORS (allow all origins), no API key auth.
 pub fn build_router(ctx: Arc<AppContext>) -> Router {
-    build_router_with_cors(ctx, &[], None)
+    build_router_with_cors(ctx, &[], None, None)
 }
 
 /// Start the HTTP/WebSocket server, binding to the configured address.
@@ -56,7 +56,12 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
 /// the ACP NDJSON stdout when the embedded server runs under
 /// `hope-agent acp`.
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
-    let router = build_router_with_cors(ctx, &config.cors_origins, config.api_key.clone());
+    let router = build_router_with_cors(
+        ctx,
+        &config.cors_origins,
+        config.api_key.clone(),
+        config.knowledge_agent_read_token.clone(),
+    );
 
     let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
         Ok(l) => l,
@@ -97,6 +102,7 @@ fn build_router_with_cors(
     ctx: Arc<AppContext>,
     cors_origins: &[String],
     api_key: Option<String>,
+    knowledge_agent_read_token: Option<String>,
 ) -> Router {
     // Health + server status are always public (no auth required). The
     // status payload only contains bound-addr / uptime / WS counts — nothing
@@ -269,6 +275,156 @@ fn build_router_with_cors(
             post(routes::knowledge::reindex_dir),
         )
         .route(
+            "/knowledge/{kb_id}/sources",
+            get(routes::knowledge::kb_source_list)
+                .post(routes::knowledge::kb_source_import)
+                .layer(DefaultBodyLimit::max(
+                    (ha_core::knowledge::source::MAX_BINARY_SOURCE_BYTES * 4 / 3) + 2 * 1024 * 1024,
+                )),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/browser",
+            post(routes::knowledge::kb_source_import_browser),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/session-attachment",
+            post(routes::knowledge::kb_source_import_session_attachment),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/batch",
+            post(routes::knowledge::kb_source_import_batch).layer(DefaultBodyLimit::max(
+                (ha_core::knowledge::source::MAX_BINARY_SOURCE_BYTES * 4 / 3 * 3) + 4 * 1024 * 1024,
+            )),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/import-runs",
+            get(routes::knowledge::kb_source_import_runs_list),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/import-runs/{run_id}",
+            get(routes::knowledge::kb_source_import_run_detail),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/import-runs/{run_id}/retry-failed",
+            post(routes::knowledge::kb_source_import_retry_failed),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/similar",
+            get(routes::knowledge::kb_source_similarity_groups),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/similar/dismiss",
+            post(routes::knowledge::kb_source_similarity_dismiss),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/similar/resolve",
+            post(routes::knowledge::kb_source_similarity_resolve),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/sync-external-raw",
+            post(routes::knowledge::kb_source_sync_external_raw),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}/link",
+            get(routes::knowledge::kb_source_asset_link),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}",
+            get(routes::knowledge::kb_source_asset_file),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}",
+            get(routes::knowledge::kb_source_read).delete(routes::knowledge::kb_source_delete),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/refresh",
+            post(routes::knowledge::kb_source_refresh),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/versions",
+            get(routes::knowledge::kb_source_versions),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/diff",
+            get(routes::knowledge::kb_source_diff),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/reextract",
+            post(routes::knowledge::kb_source_reextract),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-runs",
+            get(routes::knowledge::kb_compile_runs_list).post(routes::knowledge::kb_compile_start),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-runs/{run_id}",
+            get(routes::knowledge::kb_compile_status),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-runs/{run_id}/cancel",
+            post(routes::knowledge::kb_compile_run_cancel),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-proposals",
+            get(routes::knowledge::kb_compile_proposals_list),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-proposals/{id}/approve",
+            post(routes::knowledge::kb_compile_proposal_approve),
+        )
+        .route(
+            "/knowledge/{kb_id}/compile-proposals/{id}/reject",
+            post(routes::knowledge::kb_compile_proposal_reject),
+        )
+        .route(
+            "/knowledge/{kb_id}/query-file",
+            post(routes::knowledge::kb_query_file),
+        )
+        .route(
+            "/knowledge/{kb_id}/schema-profile",
+            get(routes::knowledge::kb_schema_profile),
+        )
+        .route(
+            "/knowledge/{kb_id}/schema-issues",
+            get(routes::knowledge::kb_schema_issues),
+        )
+        .route(
+            "/knowledge/{kb_id}/note/source-refs",
+            get(routes::knowledge::kb_note_source_refs),
+        )
+        .route(
+            "/knowledge/{kb_id}/evidence/coverage",
+            get(routes::knowledge::kb_evidence_coverage),
+        )
+        .route(
+            "/knowledge/{kb_id}/evidence/sources/{source_id}/claims",
+            get(routes::knowledge::kb_evidence_source_claims),
+        )
+        .route(
+            "/knowledge/{kb_id}/evidence/rebuild",
+            post(routes::knowledge::kb_evidence_rebuild),
+        )
+        .route(
+            "/knowledge/agent/search",
+            post(routes::knowledge::knowledge_agent_search),
+        )
+        .route(
+            "/knowledge/agent/read",
+            post(routes::knowledge::knowledge_agent_read),
+        )
+        .route(
+            "/knowledge/agent/expand",
+            post(routes::knowledge::knowledge_agent_expand),
+        )
+        .route(
+            "/knowledge/agent/sources",
+            post(routes::knowledge::knowledge_agent_sources),
+        )
+        .route(
+            "/knowledge/agent/compile/propose",
+            post(routes::knowledge::knowledge_agent_compile_propose),
+        )
+        .route(
             "/knowledge/{kb_id}/dirs",
             get(routes::knowledge::kb_list_dirs),
         )
@@ -305,6 +461,11 @@ fn build_router_with_cors(
             "/knowledge/search-config",
             get(routes::knowledge::knowledge_search_config_get)
                 .post(routes::knowledge::knowledge_search_config_set),
+        )
+        .route(
+            "/knowledge/compile/config",
+            get(routes::knowledge::knowledge_compile_config_get)
+                .post(routes::knowledge::knowledge_compile_config_set),
         )
         .route(
             "/knowledge/ai/rewrite",
@@ -351,6 +512,11 @@ fn build_router_with_cors(
             "/knowledge/passive-recall/config",
             get(routes::knowledge::kb_passive_recall_config_get)
                 .post(routes::knowledge::kb_passive_recall_config_set),
+        )
+        .route(
+            "/knowledge/media-retention/config",
+            get(routes::knowledge::knowledge_media_retention_config_get)
+                .post(routes::knowledge::knowledge_media_retention_config_set),
         )
         .route(
             "/knowledge/sprite/observe",
@@ -2070,7 +2236,10 @@ fn build_router_with_cors(
     let ws_routes = Router::new().route("/events", get(ws::events::events_ws));
 
     // Apply API key auth middleware to protected routes
-    let auth_state = middleware::ApiKeyState { api_key };
+    let auth_state = middleware::ApiKeyState {
+        api_key,
+        knowledge_agent_read_token,
+    };
     let protected = Router::new()
         .nest("/api", api)
         .nest("/ws", ws_routes)

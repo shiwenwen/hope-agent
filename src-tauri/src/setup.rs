@@ -320,6 +320,17 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         let config = ha_server::ServerConfig {
             bind_addr: store.server.bind_addr.clone(),
             api_key,
+            knowledge_agent_read_token: std::env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
+                .ok()
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .or_else(|| {
+                    store
+                        .server
+                        .knowledge_agent_read_token
+                        .clone()
+                        .filter(|k| !k.is_empty())
+                }),
             cors_origins: Vec::new(),
         };
         tauri::async_runtime::spawn(async move {

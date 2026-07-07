@@ -475,7 +475,7 @@ describe("MessageList", () => {
       />,
     )
 
-    expect(screen.getByText("chat.incognitoEmptyTitle")).toBeTruthy()
+    expect(screen.getByText("chat.incognitoEmptyBody")).toBeTruthy()
     expect(screen.queryByText("chat.howCanIHelp")).toBeNull()
   })
 
@@ -493,7 +493,7 @@ describe("MessageList", () => {
     )
 
     expect(screen.getByText("chat.howCanIHelp")).toBeTruthy()
-    expect(screen.queryByText("chat.incognitoEmptyTitle")).toBeNull()
+    expect(screen.queryByText("chat.incognitoEmptyBody")).toBeNull()
   })
 
   test("renders ask-user, plan-card and plan-running blocks in the footer", () => {

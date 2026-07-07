@@ -8,6 +8,7 @@ pub struct DashboardFilter {
     pub agent_id: Option<String>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
+    pub usage_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -60,9 +61,24 @@ pub struct TokenByModel {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TokenByKind {
+    pub kind: String,
+    pub call_count: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub estimated_cost_usd: f64,
+    pub avg_duration_ms: Option<f64>,
+    pub avg_ttft_ms: Option<f64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DashboardTokenData {
     pub trend: Vec<TokenUsageTrend>,
     pub by_model: Vec<TokenByModel>,
+    pub by_kind: Vec<TokenByKind>,
     pub total_cost_usd: f64,
 }
 

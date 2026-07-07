@@ -12,6 +12,7 @@
 //! optional one-line snippet) are surfaced — full content stays behind the
 //! `[[note]]` injection / `note_read` tools.
 
+use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 use crate::knowledge::NoteSearchHit;
@@ -20,7 +21,8 @@ use crate::ttl_cache::TtlCache;
 /// Soft cap for the per-session related-notes cache (same sizing as Active Memory).
 const MAX_CACHE_ENTRIES: usize = 32;
 
-/// Per-agent passive-recall cache: the rendered block keyed by `hash(user_text)`.
+/// Per-agent passive-recall cache: the rendered block keyed by user text plus
+/// the effective KB access/display fingerprint.
 /// The cached value is `Option<String>` so "searched and found nothing" (`None`)
 /// is distinct from a cache miss (the outer `Option` from [`Self::get_cached`]).
 pub struct RelatedNotesState {
@@ -47,6 +49,28 @@ impl Default for RelatedNotesState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Cache key for a related-notes lookup. It must include the effective KB access
+/// set because attachments / IM opt-in can change between turns while the user
+/// repeats the same prompt.
+pub fn cache_key(
+    text: &str,
+    access_entries: &[(String, &'static str)],
+    show_snippet: bool,
+    top_n: usize,
+    max_chars: usize,
+) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.trim().to_lowercase().hash(&mut h);
+    show_snippet.hash(&mut h);
+    top_n.hash(&mut h);
+    max_chars.hash(&mut h);
+    for (kb_id, access) in access_entries {
+        kb_id.hash(&mut h);
+        access.hash(&mut h);
+    }
+    h.finish()
 }
 
 /// Escape note-derived text so a title/snippet can't close the untrusted wrapper
@@ -213,5 +237,21 @@ mod tests {
         // A tiny payload budget must never drop the closing tag.
         let out = render_suffix(&[hit("A very long note title here", "")], false, 5).unwrap();
         assert!(out.trim_end().ends_with("</untrusted_external_data>"));
+    }
+
+    #[test]
+    fn cache_key_includes_access_and_display_config() {
+        let base = vec![("kb-a".to_string(), "read")];
+        let same = vec![("kb-a".to_string(), "read")];
+        let other_kb = vec![("kb-b".to_string(), "read")];
+        let upgraded_access = vec![("kb-a".to_string(), "write")];
+
+        let k = cache_key("Roadmap", &base, false, 5, 800);
+        assert_eq!(k, cache_key("roadmap", &same, false, 5, 800));
+        assert_ne!(k, cache_key("Roadmap", &other_kb, false, 5, 800));
+        assert_ne!(k, cache_key("Roadmap", &upgraded_access, false, 5, 800));
+        assert_ne!(k, cache_key("Roadmap", &base, true, 5, 800));
+        assert_ne!(k, cache_key("Roadmap", &base, false, 6, 800));
+        assert_ne!(k, cache_key("Roadmap", &base, false, 5, 400));
     }
 }

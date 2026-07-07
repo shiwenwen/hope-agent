@@ -10,15 +10,29 @@ pub const TITLE_SOURCE_FIRST_MESSAGE: &str = "first_message";
 pub const TITLE_SOURCE_LLM: &str = "llm";
 pub const TITLE_SOURCE_MANUAL: &str = "manual";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionTitleConfig {
-    #[serde(default)]
+    #[serde(default = "default_session_title_enabled")]
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+}
+
+fn default_session_title_enabled() -> bool {
+    true
+}
+
+impl Default for SessionTitleConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_session_title_enabled(),
+            provider_id: None,
+            model_id: None,
+        }
+    }
 }
 
 pub fn maybe_schedule_after_success(
@@ -276,9 +290,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn session_title_config_defaults_disabled() {
+    fn session_title_config_defaults_enabled() {
         let cfg = SessionTitleConfig::default();
-        assert!(!cfg.enabled);
+        assert!(cfg.enabled);
+        assert!(cfg.provider_id.is_none());
+        assert!(cfg.model_id.is_none());
+    }
+
+    #[test]
+    fn session_title_config_deserializes_missing_enabled_as_enabled() {
+        let cfg: SessionTitleConfig = serde_json::from_value(serde_json::json!({}))
+            .expect("deserialize empty session title config");
+
+        assert!(cfg.enabled);
         assert!(cfg.provider_id.is_none());
         assert!(cfg.model_id.is_none());
     }

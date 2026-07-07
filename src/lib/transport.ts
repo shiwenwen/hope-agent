@@ -18,7 +18,7 @@ import type { FileChangesMetadata, MediaItem, SandboxMode, SessionMode } from "@
 export interface ChatAttachment {
   name: string;
   mime_type: string;
-  source?: "upload" | "mention" | "plan_mention" | "quote";
+  source?: "upload" | "mention" | "plan_mention" | "quote" | "pasted_text";
   data?: string;
   file_path?: string;
   /** For `source: "quote"`: 1-based line range of the quoted snippet ("12-20"). */

@@ -2,6 +2,7 @@
 // (camelCase) — see crates/ha-core/src/knowledge/types.rs.
 
 export type KbAccess = "read" | "write"
+export type KnowledgeExternalRawSyncMode = "disabled" | "raw" | "sources"
 
 export interface KnowledgeBase {
   id: string
@@ -12,6 +13,8 @@ export interface KnowledgeBase {
   rootDir?: string | null
   /** Opt-in to editing an external (bound) root (WS7). Ignored for internal KBs. */
   allowExternalWrites: boolean
+  /** Optional mirror of source text snapshots into an external vault folder. */
+  externalRawSync: KnowledgeExternalRawSyncMode
   archived: boolean
   createdAt: number
   updatedAt: number
@@ -70,6 +73,515 @@ export interface ReferenceableNote {
   kbEmoji?: string | null
   relPath: string
   title: string
+}
+
+export type KnowledgeSourceKind =
+  | "markdown"
+  | "text"
+  | "pdf"
+  | "docx"
+  | "audio_transcript"
+  | "video_transcript"
+  | "image_ocr"
+  | "browser_snapshot"
+  | "url_snapshot"
+export type KnowledgeSourceStatus = "ready" | "failed"
+export type KnowledgeBrowserCaptureMode = "auto" | "selection" | "page"
+export type KnowledgeSourceAssetKind = "original" | "thumbnail"
+
+export interface KnowledgeSourceAsset {
+  kind: KnowledgeSourceAssetKind
+  fileName: string
+  mimeType: string
+  size: number
+  width?: number | null
+  height?: number | null
+  storedPath: string
+  localPath?: string | null
+  createdAt: number
+}
+
+export interface KnowledgeSourceAssets {
+  original?: KnowledgeSourceAsset | null
+  thumbnail?: KnowledgeSourceAsset | null
+}
+
+export interface KnowledgeSourceAssetLink {
+  kbId: string
+  sourceId: string
+  kind: KnowledgeSourceAssetKind
+  fileName: string
+  mimeType: string
+  size: number
+  width?: number | null
+  height?: number | null
+  localPath?: string | null
+}
+
+export interface KnowledgeMediaRetentionConfig {
+  enabled: boolean
+  maxTotalBytes: number
+  maxSourceBytes: number
+  thumbnailMaxEdgePx: number
+  pruneWhenOverQuota: boolean
+}
+
+export interface KnowledgeSourceImportInput {
+  kind?: KnowledgeSourceKind | null
+  title?: string | null
+  fileName?: string | null
+  mimeType?: string | null
+  content?: string | null
+  dataBase64?: string | null
+  url?: string | null
+}
+
+export interface KnowledgeSourceImportSessionAttachmentInput {
+  sessionId: string
+  path: string
+  kind?: KnowledgeSourceKind | null
+  title?: string | null
+  fileName?: string | null
+  mimeType?: string | null
+}
+
+export interface KnowledgeSourceImportBatchItemInput {
+  clientId?: string | null
+  label?: string | null
+  input: KnowledgeSourceImportInput
+}
+
+export interface KnowledgeSourceImportBatchInput {
+  items: KnowledgeSourceImportBatchItemInput[]
+}
+
+export interface KnowledgeBrowserSourceImportInput {
+  mode?: KnowledgeBrowserCaptureMode
+  title?: string | null
+}
+
+export interface KnowledgeSource {
+  id: string
+  kbId: string
+  kind: KnowledgeSourceKind
+  title: string
+  originUri?: string | null
+  storedPath: string
+  externalRawPath?: string | null
+  contentHash: string
+  extractedTextHash?: string | null
+  status: KnowledgeSourceStatus
+  compiledAt?: number | null
+  createdAt: number
+  updatedAt: number
+  size: number
+  chunkCount: number
+  versionOfSourceId?: string | null
+  versionIndex: number
+  supersededBySourceId?: string | null
+  supersededAt?: number | null
+  assets?: KnowledgeSourceAssets | null
+}
+
+export interface KnowledgeSourceReadResult extends KnowledgeSource {
+  content: string
+}
+
+export interface KnowledgeSourceRefreshInput {
+  title?: string | null
+  browserMode?: KnowledgeBrowserCaptureMode
+  requireSameUrl?: boolean
+}
+
+export type KnowledgeSourceDiffLineKind = "context" | "added" | "removed"
+
+export interface KnowledgeSourceDiffLine {
+  kind: KnowledgeSourceDiffLineKind
+  oldLine?: number | null
+  newLine?: number | null
+  text: string
+}
+
+export interface KnowledgeSourceDiff {
+  fromSourceId: string
+  toSourceId: string
+  fromTitle: string
+  toTitle: string
+  fromContentHash: string
+  toContentHash: string
+  addedLines: number
+  removedLines: number
+  contextLines: number
+  truncated: boolean
+  lines: KnowledgeSourceDiffLine[]
+}
+
+export interface KnowledgeSourceRefreshResult {
+  source: KnowledgeSource
+  previousSource: KnowledgeSource
+  changed: boolean
+  diff?: KnowledgeSourceDiff | null
+}
+
+export interface KnowledgeSourceExternalRawSyncResult {
+  syncedCount: number
+  skippedCount: number
+  failedCount: number
+  errors: string[]
+}
+
+export interface KnowledgeSourceVersionHistory {
+  rootSourceId: string
+  currentSourceId: string
+  versions: KnowledgeSource[]
+}
+
+export type KnowledgeSourceImportRunStatus =
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "failed"
+
+export type KnowledgeSourceImportItemStatus =
+  | "pending"
+  | "running"
+  | "imported"
+  | "duplicate"
+  | "failed"
+
+export interface KnowledgeSourceImportItem {
+  id: number
+  runId: string
+  kbId: string
+  position: number
+  clientId?: string | null
+  label?: string | null
+  kind?: KnowledgeSourceKind | null
+  status: KnowledgeSourceImportItemStatus
+  sourceId?: string | null
+  duplicateOfSourceId?: string | null
+  error?: string | null
+  createdAt: number
+  startedAt?: number | null
+  finishedAt?: number | null
+  updatedAt: number
+}
+
+export interface KnowledgeSourceImportRun {
+  id: string
+  kbId: string
+  status: KnowledgeSourceImportRunStatus
+  backgroundJobId?: string | null
+  totalCount: number
+  importedCount: number
+  duplicateCount: number
+  failedCount: number
+  createdAt: number
+  startedAt?: number | null
+  finishedAt?: number | null
+  updatedAt: number
+}
+
+export interface KnowledgeSourceImportRunDetail extends KnowledgeSourceImportRun {
+  items: KnowledgeSourceImportItem[]
+}
+
+export type KnowledgeSourceSimilarityGroupKind = "exact_duplicate" | "similar"
+export type KnowledgeSourceSimilarityGroupScope = "same_kb" | "cross_kb"
+
+export interface KnowledgeSourceSimilarityGroup {
+  id: string
+  kind: KnowledgeSourceSimilarityGroupKind
+  scope: KnowledgeSourceSimilarityGroupScope
+  similarity: number
+  fingerprint: string
+  sources: KnowledgeSource[]
+}
+
+export interface KnowledgeSourceSimilarityDismissInput {
+  fingerprint: string
+  reason?: string | null
+}
+
+export interface KnowledgeSourceSimilarityResolveInput {
+  fingerprint: string
+  keepSourceId: string
+  deleteSourceIds: string[]
+}
+
+export interface KnowledgeSourceSimilarityResolveResult {
+  keptSourceId: string
+  deletedSourceIds: string[]
+  dismissed: boolean
+}
+
+export interface SchemaPageTypeSpec {
+  key: string
+  label: string
+  requiredSections: string[]
+  requiredFrontmatter: string[]
+}
+
+export interface SchemaProfile {
+  kbId: string
+  pageTypes: SchemaPageTypeSpec[]
+  defaultPageType: string
+  requiredSections: string[]
+  updatedAt: number
+}
+
+export type SchemaIssueKind =
+  | "missing_evidence"
+  | "stale_source"
+  | "schema_violation"
+  | "conflicting_claim"
+  | "unfiled_open_question"
+
+export interface SchemaIssue {
+  kbId: string
+  relPath: string
+  title: string
+  kind: SchemaIssueKind
+  detail: string
+  sourceIds?: string[]
+}
+
+export interface NoteSourceRef {
+  sourceId: string
+  title?: string | null
+  originUri?: string | null
+  missing: boolean
+  stale: boolean
+  superseded: boolean
+  latestSourceId?: string | null
+  sourceUpdatedAt?: number | null
+  noteLastCompiledAt?: number | null
+  citedIn?: string[]
+}
+
+export interface KnowledgeEvidenceClaim {
+  kbId: string
+  relPath: string
+  noteTitle: string
+  sourceId: string
+  sourceTitle?: string | null
+  originUri?: string | null
+  claimIndex: number
+  section: string
+  claimText: string
+  missing: boolean
+  stale: boolean
+  superseded: boolean
+  latestSourceId?: string | null
+  sourceUpdatedAt?: number | null
+  noteLastCompiledAt?: number | null
+}
+
+export interface KnowledgeEvidenceCoverage {
+  kbId: string
+  compiledNoteCount: number
+  notesWithEvidence: number
+  notesMissingEvidence: number
+  sourceRefCount: number
+  staleRefCount: number
+  missingRefCount: number
+  claimCount: number
+  claimsWithEvidence: number
+  coverageScore: number
+  updatedAt: number
+}
+
+export interface KnowledgeEvidenceRebuildResult {
+  kbId: string
+  scannedCount: number
+  indexedRefCount: number
+  indexedClaimCount: number
+}
+
+export type KnowledgeAgentItemKind = "note" | "compiled_note" | "source"
+
+export interface KnowledgeAgentSearchInput {
+  query: string
+  kbId?: string | null
+  limit?: number | null
+  includeSources?: boolean
+}
+
+export interface KnowledgeAgentNoteHit {
+  kind: KnowledgeAgentItemKind
+  kbId: string
+  kbName?: string
+  kbEmoji?: string | null
+  noteId: number
+  relPath: string
+  title: string
+  score: number
+  snippet: string
+  headingPath?: string | null
+  startLine: number
+}
+
+export interface KnowledgeAgentSourceItem {
+  kind: "source"
+  kbId: string
+  sourceId: string
+  sourceKind: KnowledgeSourceKind
+  status: KnowledgeSourceStatus
+  title: string
+  originUri?: string | null
+  contentHash: string
+  compiledAt?: number | null
+  stale: boolean
+  createdAt: number
+  updatedAt: number
+  size: number
+  chunkCount: number
+  versionOfSourceId?: string | null
+  versionIndex: number
+  supersededBySourceId?: string | null
+  supersededAt?: number | null
+  snippet?: string | null
+  content?: string | null
+}
+
+export interface KnowledgeAgentSearchResult {
+  notes: KnowledgeAgentNoteHit[]
+  sources?: KnowledgeAgentSourceItem[]
+  truncated: boolean
+}
+
+export interface KnowledgeAgentReadInput {
+  kbId: string
+  path?: string | null
+  reference?: string | null
+  includeSourceRefs?: boolean | null
+}
+
+export interface KnowledgeAgentReadResult {
+  kind: KnowledgeAgentItemKind
+  kbId: string
+  noteId: number
+  relPath: string
+  title: string
+  content: string
+  contentHash: string
+  frontmatterJson?: string | null
+  outgoingLinks: NoteLink[]
+  backlinks: Backlink[]
+  tags: string[]
+  sourceRefs?: NoteSourceRef[]
+}
+
+export interface KnowledgeAgentExpandInput {
+  kbId: string
+  path: string
+  limit?: number | null
+}
+
+export interface KnowledgeAgentExpandResult {
+  note: KnowledgeAgentReadResult
+  relatedNotes: KnowledgeAgentNoteHit[]
+}
+
+export interface KnowledgeAgentSourcesInput {
+  kbId: string
+  sourceId?: string | null
+  query?: string | null
+  limit?: number | null
+  includeContent?: boolean
+}
+
+export interface KnowledgeAgentSourcesResult {
+  sources: KnowledgeAgentSourceItem[]
+  truncated: boolean
+}
+
+export interface KnowledgeAgentCompileProposeInput {
+  kbId: string
+  sourceIds: string[]
+  strategy?: string | null
+}
+
+export type CompileRunStatus = "running" | "completed" | "failed" | "cancelled"
+export type CompileProposalStatus = "draft" | "applied" | "rejected" | "failed"
+export type CompileProposalKind =
+  | "create_note"
+  | "patch_note"
+  | "set_frontmatter"
+  | "append_link"
+  | "create_moc"
+
+export interface CompileStartInput {
+  sourceIds: string[]
+  strategy?: string | null
+}
+
+export interface KnowledgeCompileConfig {
+  agentId?: string | null
+}
+
+export type QueryFileMode =
+  | "create_note"
+  | "update_current_note"
+  | "append_to_moc"
+  | "append_open_questions"
+
+export interface QueryFileInput {
+  sessionId: string
+  messageId: number
+  mode?: QueryFileMode | null
+  currentNotePath?: string | null
+  targetPath?: string | null
+  title?: string | null
+  confirmConversationSource?: boolean
+}
+
+export interface CompileRun {
+  id: string
+  kbId: string
+  status: CompileRunStatus
+  sourceIds: string[]
+  strategy: string
+  modelLabel?: string | null
+  fingerprint: string
+  error?: string | null
+  summary?: string | null
+  proposalCount: number
+  createdAt: number
+  startedAt?: number | null
+  finishedAt?: number | null
+  updatedAt: number
+}
+
+export type CompileProposalAction =
+  | { op: "create_note"; path: string; content: string; overwrite?: boolean }
+  | {
+      op: "patch_note"
+      path: string
+      old: string
+      new: string
+      expected_file_hash?: string | null
+    }
+  | { op: "set_frontmatter"; path: string; props: Record<string, unknown> }
+  | { op: "append_link"; from_path: string; to_ref: string }
+  | { op: "create_moc"; path: string; content: string; overwrite?: boolean }
+
+export interface CompileProposal {
+  id: number
+  runId: string
+  kbId: string
+  kind: CompileProposalKind
+  status: CompileProposalStatus
+  title: string
+  detail: string
+  action: CompileProposalAction
+  fingerprint: string
+  sourceIds: string[]
+  createdAt: number
+  decidedAt?: number | null
+  error?: string | null
+  beforeText?: string | null
+  afterText?: string | null
 }
 
 export interface Note {
@@ -205,6 +717,8 @@ export interface UpdateKnowledgeBaseInput {
   archived?: boolean | null
   /** Unlock / re-lock writes to an external (bound) root (WS7). */
   allowExternalWrites?: boolean | null
+  /** Copy source text snapshots into an external vault folder (`raw/` or `sources/`). */
+  externalRawSync?: KnowledgeExternalRawSyncMode | null
 }
 
 /** Note editor view modes (design D13). `live` = source pane with syntax markers
@@ -310,6 +824,10 @@ export type ProposalKind =
   | "auto_tag"
   | "moc_upkeep"
   | "memory_to_note"
+  | "source_compile"
+  | "source_conflict"
+  | "open_questions_moc"
+  | "for_agent_summary"
 
 export type ProposalStatus = "draft" | "applied" | "rejected" | "failed"
 
@@ -352,6 +870,10 @@ export interface MaintenanceTasks {
   autoTag: boolean
   mocUpkeep: boolean
   memoryToNote: boolean
+  sourceCompile: boolean
+  sourceConflict: boolean
+  openQuestionsMoc: boolean
+  forAgentSummary: boolean
 }
 
 /** Wire shape of the `knowledge_maintenance` settings category. */

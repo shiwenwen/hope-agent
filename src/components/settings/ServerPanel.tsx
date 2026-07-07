@@ -39,6 +39,7 @@ interface ServerConfig {
   // Embedded server settings (from config.json)
   embeddedBindAddr: string
   embeddedApiKey: string
+  embeddedKnowledgeAgentReadToken: string
 }
 
 const DEFAULT_EMBEDDED_ADDRESS = "127.0.0.1:8420"
@@ -49,6 +50,21 @@ const DEFAULT_CONFIG: ServerConfig = {
   remoteApiKey: "",
   embeddedBindAddr: DEFAULT_EMBEDDED_ADDRESS,
   embeddedApiKey: "",
+  embeddedKnowledgeAgentReadToken: "",
+}
+
+interface LoadedServerSecrets {
+  embeddedApiKey: string
+  hasEmbeddedApiKey: boolean
+  embeddedKnowledgeAgentReadToken: string
+  hasEmbeddedKnowledgeAgentReadToken: boolean
+}
+
+const EMPTY_LOADED_SECRETS: LoadedServerSecrets = {
+  embeddedApiKey: "",
+  hasEmbeddedApiKey: false,
+  embeddedKnowledgeAgentReadToken: "",
+  hasEmbeddedKnowledgeAgentReadToken: false,
 }
 
 /** Generate a random 32-char hex API key. */
@@ -58,10 +74,22 @@ function generateApiKey(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
 }
 
+function serializeOptionalSecret(
+  current: string,
+  loadedMaskedValue: string,
+  hadLoadedValue: boolean,
+): string | null {
+  if (hadLoadedValue && current === loadedMaskedValue) return null
+  const trimmed = current.trim()
+  return trimmed ? trimmed : ""
+}
+
 export default function ServerPanel() {
   const { t } = useTranslation()
 
   const [config, setConfig] = useState<ServerConfig>(DEFAULT_CONFIG)
+  const [loadedSecrets, setLoadedSecrets] =
+    useState<LoadedServerSecrets>(EMPTY_LOADED_SECRETS)
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
@@ -81,14 +109,25 @@ export default function ServerPanel() {
     ])
       .then(([userCfg, serverCfg]) => {
         if (cancelled) return
+        const hasEmbeddedApiKey = Boolean(serverCfg.hasApiKey)
+        const hasEmbeddedKnowledgeAgentReadToken = Boolean(serverCfg.hasKnowledgeAgentReadToken)
         const loaded: ServerConfig = {
           serverMode: (userCfg.serverMode as ServerMode) || "embedded",
           remoteServerUrl: (userCfg.remoteServerUrl as string) || "",
           remoteApiKey: (userCfg.remoteApiKey as string) || "",
           embeddedBindAddr: (serverCfg.bindAddr as string) || DEFAULT_EMBEDDED_ADDRESS,
           // Show masked key if exists, otherwise empty
-          embeddedApiKey: (serverCfg.hasApiKey as boolean) ? (serverCfg.apiKey as string) || "" : "",
+          embeddedApiKey: hasEmbeddedApiKey ? (serverCfg.apiKey as string) || "" : "",
+          embeddedKnowledgeAgentReadToken: hasEmbeddedKnowledgeAgentReadToken
+            ? (serverCfg.knowledgeAgentReadToken as string) || ""
+            : "",
         }
+        setLoadedSecrets({
+          embeddedApiKey: loaded.embeddedApiKey,
+          hasEmbeddedApiKey,
+          embeddedKnowledgeAgentReadToken: loaded.embeddedKnowledgeAgentReadToken,
+          hasEmbeddedKnowledgeAgentReadToken,
+        })
         setConfig(loaded)
         setSavedSnapshot(JSON.stringify(loaded))
       })
@@ -131,6 +170,17 @@ export default function ServerPanel() {
   const handleSave = useCallback(async () => {
     setSaving(true)
     try {
+      const embeddedApiKey = serializeOptionalSecret(
+        config.embeddedApiKey,
+        loadedSecrets.embeddedApiKey,
+        loadedSecrets.hasEmbeddedApiKey,
+      )
+      const embeddedKnowledgeAgentReadToken = serializeOptionalSecret(
+        config.embeddedKnowledgeAgentReadToken,
+        loadedSecrets.embeddedKnowledgeAgentReadToken,
+        loadedSecrets.hasEmbeddedKnowledgeAgentReadToken,
+      )
+
       // Save user config (server mode, remote URL/key)
       const full = await getTransport().call<Record<string, unknown>>("get_user_config")
       await getTransport().call("save_user_config", {
@@ -146,7 +196,8 @@ export default function ServerPanel() {
       await getTransport().call("save_server_config", {
         config: {
           bindAddr: config.embeddedBindAddr || DEFAULT_EMBEDDED_ADDRESS,
-          apiKey: config.embeddedApiKey || null,
+          apiKey: embeddedApiKey,
+          knowledgeAgentReadToken: embeddedKnowledgeAgentReadToken,
         },
       })
 
@@ -157,6 +208,19 @@ export default function ServerPanel() {
         switchToEmbedded()
       }
 
+      setLoadedSecrets((prev) => ({
+        embeddedApiKey: embeddedApiKey === null ? prev.embeddedApiKey : embeddedApiKey,
+        hasEmbeddedApiKey:
+          embeddedApiKey === null ? prev.hasEmbeddedApiKey : embeddedApiKey.length > 0,
+        embeddedKnowledgeAgentReadToken:
+          embeddedKnowledgeAgentReadToken === null
+            ? prev.embeddedKnowledgeAgentReadToken
+            : embeddedKnowledgeAgentReadToken,
+        hasEmbeddedKnowledgeAgentReadToken:
+          embeddedKnowledgeAgentReadToken === null
+            ? prev.hasEmbeddedKnowledgeAgentReadToken
+            : embeddedKnowledgeAgentReadToken.length > 0,
+      }))
       setSavedSnapshot(JSON.stringify(config))
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -167,7 +231,7 @@ export default function ServerPanel() {
     } finally {
       setSaving(false)
     }
-  }, [config])
+  }, [config, loadedSecrets])
 
   const handleTestConnection = useCallback(async () => {
     setTesting(true)
@@ -370,6 +434,42 @@ export default function ServerPanel() {
                   {t("settings.serverGenerateApiKey")}
                 </Button>
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-xs text-muted-foreground">
+                {t("settings.serverKnowledgeAgentReadToken")}
+              </span>
+              <div className="flex gap-2">
+                <Input
+                  type="password"
+                  className="flex-1"
+                  value={config.embeddedKnowledgeAgentReadToken}
+                  placeholder={t("settings.serverKnowledgeAgentReadTokenPlaceholder")}
+                  onChange={(e) =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      embeddedKnowledgeAgentReadToken: e.target.value,
+                    }))
+                  }
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() =>
+                    setConfig((prev) => ({
+                      ...prev,
+                      embeddedKnowledgeAgentReadToken: generateApiKey(),
+                    }))
+                  }
+                >
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                  {t("settings.serverGenerateApiKey")}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.serverKnowledgeAgentReadTokenDesc")}
+              </p>
             </div>
             <p className="text-xs text-amber-600 dark:text-amber-400">
               {t("settings.serverRestartRequired")}

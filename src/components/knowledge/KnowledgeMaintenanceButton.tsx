@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  AlertTriangle,
+  BarChart3,
   Stethoscope,
   Unlink2,
   CircleOff,
   FileText,
+  RefreshCw,
   Sparkles,
   Check,
   X,
@@ -16,7 +19,15 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { BrokenLink, MaintenanceProposal, MaintenanceReport, Note } from "@/types/knowledge"
+import type {
+  BrokenLink,
+  MaintenanceProposal,
+  MaintenanceReport,
+  Note,
+  KnowledgeEvidenceCoverage,
+  KnowledgeEvidenceRebuildResult,
+  SchemaIssue,
+} from "@/types/knowledge"
 
 interface Props {
   /** The active knowledge space; the panel is empty/disabled when null. */
@@ -43,7 +54,10 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
   const [broken, setBroken] = useState<BrokenLink[]>([])
   const [orphans, setOrphans] = useState<Note[]>([])
   const [proposals, setProposals] = useState<MaintenanceProposal[]>([])
+  const [schemaIssues, setSchemaIssues] = useState<SchemaIssue[]>([])
+  const [evidenceCoverage, setEvidenceCoverage] = useState<KnowledgeEvidenceCoverage | null>(null)
   const [running, setRunning] = useState(false)
+  const [rebuildingEvidence, setRebuildingEvidence] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -53,17 +67,38 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
   const refresh = useCallback(async () => {
     if (!kbId) return
     try {
-      const b = await getTransport().call<BrokenLink[]>("kb_broken_links_cmd", { kbId })
-      const o = await getTransport().call<Note[]>("kb_orphans_cmd", { kbId })
-      const p = await getTransport().call<MaintenanceProposal[]>("kb_maintenance_list_cmd", {
-        kbId,
-        status: "draft",
-      })
+      const [b, o, p] = await Promise.all([
+        getTransport().call<BrokenLink[]>("kb_broken_links_cmd", { kbId }),
+        getTransport().call<Note[]>("kb_orphans_cmd", { kbId }),
+        getTransport().call<MaintenanceProposal[]>("kb_maintenance_list_cmd", {
+          kbId,
+          status: "draft",
+        }),
+      ])
       setBroken(b)
       setOrphans(o)
       setProposals(p)
     } catch (e) {
-      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "load failed", e)
+      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "core load failed", e)
+    }
+
+    try {
+      const s = await getTransport().call<SchemaIssue[]>("kb_schema_issues_cmd", { kbId })
+      setSchemaIssues(s)
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "schema load failed", e)
+      setSchemaIssues([])
+    }
+
+    try {
+      const coverage = await getTransport().call<KnowledgeEvidenceCoverage>(
+        "kb_evidence_coverage_cmd",
+        { kbId },
+      )
+      setEvidenceCoverage(coverage)
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeMaintenanceButton::refresh", "evidence load failed", e)
+      setEvidenceCoverage(null)
     }
   }, [kbId])
 
@@ -93,15 +128,49 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
     }
   }, [running, refresh, t])
 
+  const rebuildEvidence = useCallback(async () => {
+    if (!kbId || rebuildingEvidence) return
+    setRebuildingEvidence(true)
+    try {
+      const result = await getTransport().call<KnowledgeEvidenceRebuildResult>(
+        "kb_evidence_rebuild_cmd",
+        { kbId },
+      )
+      toast.success(
+        t("knowledge.maintenance.evidenceRebuilt", {
+          defaultValue: "Rebuilt evidence index for {{notes}} notes, {{refs}} refs, {{claims}} claims",
+          notes: result.scannedCount,
+          refs: result.indexedRefCount,
+          claims: result.indexedClaimCount,
+        }),
+      )
+      await refresh()
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeMaintenanceButton::rebuildEvidence", "failed", e)
+      toast.error(t("knowledge.maintenance.evidenceRebuildFailed", "Couldn't rebuild evidence index"))
+    } finally {
+      setRebuildingEvidence(false)
+    }
+  }, [kbId, rebuildingEvidence, refresh, t])
+
   const decide = useCallback(
-    async (id: number, approve: boolean) => {
+    async (proposal: MaintenanceProposal, approve: boolean) => {
       if (busyId != null) return
+      const id = proposal.id
       setBusyId(id)
       try {
         await getTransport().call(
           approve ? "kb_maintenance_approve_cmd" : "kb_maintenance_reject_cmd",
           { id },
         )
+        if (approve && proposal.kind === "source_compile") {
+          toast.success(
+            t(
+              "knowledge.maintenance.compileQueued",
+              "Compile review generated. Check the source compile panel for diffs.",
+            ),
+          )
+        }
         await refresh()
       } catch (e) {
         logger.warn("knowledge", "KnowledgeMaintenanceButton::decide", "decision failed", e)
@@ -156,8 +225,19 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
     }
   }, [open])
 
-  const issueCount = broken.length + orphans.length + proposals.length
-  const hasBadge = kbId != null && (broken.length > 0 || proposals.length > 0)
+  const evidenceIssueCount = evidenceCoverage
+    ? evidenceCoverage.notesMissingEvidence +
+      evidenceCoverage.staleRefCount +
+      evidenceCoverage.missingRefCount
+    : 0
+  const issueCount =
+    broken.length + orphans.length + proposals.length + schemaIssues.length + evidenceIssueCount
+  const hasBadge =
+    kbId != null &&
+    (broken.length > 0 ||
+      proposals.length > 0 ||
+      schemaIssues.length > 0 ||
+      evidenceIssueCount > 0)
 
   const jump = useCallback(
     (path: string, line?: number) => {
@@ -226,10 +306,30 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                   {t("knowledge.maintenance.runNow", "Scan")}
                 </Button>
               </IconTip>
+              <IconTip
+                label={t(
+                  "knowledge.maintenance.rebuildEvidenceTip",
+                  "Rebuild the derived evidence index",
+                )}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  disabled={rebuildingEvidence}
+                  onClick={rebuildEvidence}
+                >
+                  {rebuildingEvidence ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3 w-3" />
+                  )}
+                </Button>
+              </IconTip>
             </div>
           </div>
           <div className="max-h-[360px] overflow-y-auto p-2">
-            {issueCount === 0 ? (
+            {issueCount === 0 && !evidenceCoverage ? (
               <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-8 text-center">
                 <Stethoscope className="h-6 w-6 text-muted-foreground/70" />
                 <span className="text-xs font-medium">
@@ -244,6 +344,13 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
               </div>
             ) : (
               <div className="space-y-3">
+                {evidenceCoverage && (
+                  <EvidenceCoverageCard
+                    coverage={evidenceCoverage}
+                    rebuilding={rebuildingEvidence}
+                    onRebuild={rebuildEvidence}
+                  />
+                )}
                 {proposals.length > 0 && (
                   <Section
                     icon={<Sparkles className="h-3.5 w-3.5 text-primary" />}
@@ -275,7 +382,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                               size="icon"
                               className="h-6 w-6 text-emerald-600"
                               disabled={busyId != null}
-                              onClick={() => decide(p.id, true)}
+                              onClick={() => decide(p, true)}
                             >
                               {busyId === p.id ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -290,13 +397,39 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
                               size="icon"
                               className="h-6 w-6 text-muted-foreground"
                               disabled={busyId != null}
-                              onClick={() => decide(p.id, false)}
+                              onClick={() => decide(p, false)}
                             >
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           </IconTip>
                         </div>
                       </div>
+                    ))}
+                  </Section>
+                )}
+                {schemaIssues.length > 0 && (
+                  <Section
+                    icon={<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
+                    label={t("knowledge.maintenance.schemaIssues", "Schema issues")}
+                    count={schemaIssues.length}
+                  >
+                    {schemaIssues.map((issue, i) => (
+                      <button
+                        key={`${issue.relPath}:${issue.kind}:${i}`}
+                        type="button"
+                        onClick={() => jump(issue.relPath)}
+                        className="flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent"
+                      >
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="rounded bg-amber-500/10 px-1 font-mono text-[10px] text-amber-700 dark:text-amber-300">
+                            {issue.kind}
+                          </span>
+                          <span className="truncate text-xs">{stem(issue.relPath)}</span>
+                        </span>
+                        <span className="line-clamp-2 text-[11px] text-muted-foreground">
+                          {issue.detail}
+                        </span>
+                      </button>
                     ))}
                   </Section>
                 )}
@@ -372,6 +505,96 @@ function Section({
         <span className="rounded-full bg-muted px-1.5 text-[10px]">{count}</span>
       </div>
       <div className="space-y-0.5">{children}</div>
+    </div>
+  )
+}
+
+function EvidenceCoverageCard({
+  coverage,
+  rebuilding,
+  onRebuild,
+}: {
+  coverage: KnowledgeEvidenceCoverage
+  rebuilding: boolean
+  onRebuild: () => void
+}) {
+  const { t } = useTranslation()
+  const pct = Math.round(Math.max(0, Math.min(1, coverage.coverageScore)) * 100)
+  const hasIssues =
+    coverage.notesMissingEvidence > 0 ||
+    coverage.staleRefCount > 0 ||
+    coverage.missingRefCount > 0
+
+  return (
+    <div className="rounded-md border border-border-soft/60 bg-muted/20 p-2 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 font-medium">
+            <BarChart3 className="h-3.5 w-3.5 text-primary" />
+            <span>{t("knowledge.maintenance.evidenceCoverage", "Evidence coverage")}</span>
+            {hasIssues ? (
+              <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300">
+                {t("knowledge.maintenance.needsReview", "Needs review")}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {t("knowledge.maintenance.evidenceCoverageDetail", {
+              defaultValue:
+                "{{pct}}% · {{claimsWithEvidence}}/{{claims}} claims · {{notesWithEvidence}}/{{notes}} notes",
+              pct,
+              claimsWithEvidence: coverage.claimsWithEvidence,
+              claims: coverage.claimCount,
+              notesWithEvidence: coverage.notesWithEvidence,
+              notes: coverage.compiledNoteCount,
+            })}
+          </div>
+        </div>
+        <IconTip label={t("knowledge.maintenance.rebuildEvidenceTip", "Rebuild the derived evidence index")}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            disabled={rebuilding}
+            onClick={onRebuild}
+          >
+            {rebuilding ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3 w-3" />
+            )}
+          </Button>
+        </IconTip>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] text-muted-foreground">
+        <Metric
+          label={t("knowledge.maintenance.missingEvidence", "Missing evidence")}
+          value={coverage.notesMissingEvidence}
+          warn={coverage.notesMissingEvidence > 0}
+        />
+        <Metric
+          label={t("knowledge.maintenance.staleRefs", "Stale refs")}
+          value={coverage.staleRefCount}
+          warn={coverage.staleRefCount > 0}
+        />
+        <Metric
+          label={t("knowledge.maintenance.missingRefs", "Missing refs")}
+          value={coverage.missingRefCount}
+          warn={coverage.missingRefCount > 0}
+        />
+      </div>
+    </div>
+  )
+}
+
+function Metric({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <div className="rounded bg-background/60 px-2 py-1">
+      <div className={warn ? "font-medium text-amber-700 dark:text-amber-300" : "font-medium"}>
+        {value}
+      </div>
+      <div className="truncate">{label}</div>
     </div>
   )
 }

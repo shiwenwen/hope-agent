@@ -6,6 +6,7 @@
 //! Scope:
 //! - `hope-agent server start [--bind ADDR] [--api-key KEY]` — same flags
 //!   as the desktop binary; runs the HTTP/WS server and blocks until exit.
+//! - `hope-agent knowledge-mcp` — stdio MCP wrapper for Knowledge Space.
 //! - `--version` / `--help`.
 //! - `hope-agent server {install,uninstall,status,stop,setup}` — print a
 //!   pointer at the orchestrator (compose / k8s / browser onboarding) and
@@ -21,9 +22,16 @@ use std::sync::Arc;
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.iter().any(|a| a == "--version") {
+    if matches!(
+        args.get(1).map(String::as_str),
+        Some("--version") | Some("-V")
+    ) {
         println!("hope-agent {}", env!("CARGO_PKG_VERSION"));
         return;
+    }
+
+    if args.len() >= 2 && args[1] == "knowledge-mcp" {
+        return run_knowledge_mcp(&args[2..]);
     }
 
     // `hope-agent server [sub] [opts...]`
@@ -110,12 +118,14 @@ fn print_top_help() {
     println!("Hope Agent — headless HTTP/WebSocket server");
     println!();
     println!("This binary ships in the official Docker image. Only the");
-    println!("headless `server` subcommand is wired up; the desktop GUI,");
-    println!("ACP stdio, and `auth` flows live in the Tauri-built binary.");
+    println!("headless `server` and `knowledge-mcp` subcommands are wired up;");
+    println!("the desktop GUI, ACP stdio, and `auth` flows live in the Tauri-built binary.");
     println!();
-    println!("Usage: hope-agent server start [OPTIONS]");
+    println!("Usage:");
+    println!("  hope-agent server start [OPTIONS]");
+    println!("  hope-agent knowledge-mcp [OPTIONS]");
     println!();
-    println!("Options:");
+    println!("Server options:");
     println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
     println!("  --api-key KEY                     Bearer token for HTTP/WS auth");
     println!(
@@ -126,6 +136,57 @@ fn print_top_help() {
     println!("  --dangerously-skip-all-approvals  Skip every tool approval (this launch only)");
     println!("  --version                         Print version and exit");
     println!("  --help, -h                        Print help and exit");
+}
+
+fn run_knowledge_mcp(args: &[String]) {
+    let Some(options) = parse_knowledge_mcp_args(args) else {
+        print_knowledge_mcp_help();
+        return;
+    };
+
+    if let Err(e) = ha_core::paths::ensure_dirs() {
+        eprintln!("[knowledge-mcp] Failed to initialize data directories: {e}");
+        std::process::exit(1);
+    }
+    ha_core::set_app_version(env!("CARGO_PKG_VERSION"));
+    ha_core::init_runtime("knowledge-mcp");
+
+    if let Err(e) = ha_core::knowledge::agent_mcp::run_stdio(options) {
+        eprintln!("[knowledge-mcp] Server error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn parse_knowledge_mcp_args(
+    args: &[String],
+) -> Option<ha_core::knowledge::agent_mcp::KnowledgeMcpOptions> {
+    let mut options = ha_core::knowledge::agent_mcp::KnowledgeMcpOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--allow-proposals" => options.allow_proposals = true,
+            "--version" => {
+                println!("hope-agent-knowledge-mcp {}", env!("CARGO_PKG_VERSION"));
+                std::process::exit(0);
+            }
+            "--help" | "-h" => return None,
+            other => {
+                eprintln!("[knowledge-mcp] Unknown argument: {other}");
+                return None;
+            }
+        }
+    }
+    Some(options)
+}
+
+fn print_knowledge_mcp_help() {
+    println!("Hope Agent Knowledge MCP Server");
+    println!();
+    println!("Usage: hope-agent knowledge-mcp [OPTIONS]");
+    println!();
+    println!("Options:");
+    println!("  --allow-proposals  Also expose knowledge_compile_propose (review proposal only)");
+    println!("  --version          Print version and exit");
+    println!("  --help, -h         Print help and exit");
 }
 
 fn print_unsupported_subcommand(sub: &str) {
@@ -205,9 +266,9 @@ fn run_server(args: &[String]) {
     // Without #2 a user who enables auth in the browser, restarts the
     // container without re-exporting `HA_API_KEY`, gets a server that
     // silently downgrades to no-auth while the UI suggests otherwise.
+    let saved_server_config = ha_core::config::cached_config().server.clone();
     let api_key = api_key.or_else(|| {
-        ha_core::config::cached_config()
-            .server
+        saved_server_config
             .api_key
             .clone()
             .filter(|k| !k.is_empty())
@@ -217,6 +278,16 @@ fn run_server(args: &[String]) {
                 );
             })
     });
+    let knowledge_agent_read_token = env::var("HA_KNOWLEDGE_AGENT_READ_TOKEN")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            saved_server_config
+                .knowledge_agent_read_token
+                .clone()
+                .filter(|k| !k.is_empty())
+        });
 
     let session_db = ha_core::require_session_db()
         .expect("init_runtime contract")
@@ -238,6 +309,7 @@ fn run_server(args: &[String]) {
     let config = ha_server::ServerConfig {
         bind_addr,
         api_key,
+        knowledge_agent_read_token,
         cors_origins: Vec::new(),
     };
 

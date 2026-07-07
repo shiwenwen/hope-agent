@@ -837,6 +837,10 @@ impl AcpAgent {
                 let cancel_clone = cancel.clone();
                 let sid_for_cb = session_id_owned.clone();
                 let db_for_cb = db_clone.clone();
+                let captured_usage: std::sync::Arc<
+                    std::sync::Mutex<crate::chat_engine::CapturedUsage>,
+                > = std::sync::Arc::new(std::sync::Mutex::new(Default::default()));
+                let captured_usage_for_cb = captured_usage.clone();
 
                 // Use a channel to send events from async callback to sync transport
                 let (tx, rx) = std::sync::mpsc::channel::<String>();
@@ -849,6 +853,14 @@ impl AcpAgent {
                             None,
                             cancel_clone,
                             move |delta| {
+                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta)
+                                {
+                                    if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
+                                        if let Ok(mut usage) = captured_usage_for_cb.lock() {
+                                            usage.absorb_event(&event);
+                                        }
+                                    }
+                                }
                                 // Map to ACP event
                                 if let Some(notif) =
                                     event_mapper::map_agent_event(&sid_for_cb, delta)
@@ -878,9 +890,60 @@ impl AcpAgent {
                         let mut assistant_msg = session::NewMessage::assistant(&response)
                             .with_source(crate::chat_engine::ChatSource::Http);
                         assistant_msg.thinking = thinking;
-                        let _ = self
+                        if let Ok(usage) = captured_usage.lock() {
+                            assistant_msg.tokens_in = usage.input_tokens;
+                            assistant_msg.tokens_out = usage.output_tokens;
+                            assistant_msg.tokens_in_last = usage.last_input_tokens;
+                            assistant_msg.model = usage.model.clone();
+                            assistant_msg.ttft_ms = usage.ttft_ms;
+                            assistant_msg.tokens_cache_creation = usage
+                                .last_cache_creation_input_tokens
+                                .or(usage.cache_creation_input_tokens);
+                            assistant_msg.tokens_cache_read = usage
+                                .last_cache_read_input_tokens
+                                .or(usage.cache_read_input_tokens);
+                        }
+                        let assistant_id = self
                             .session_db
-                            .append_message(&session_id_owned, &assistant_msg);
+                            .append_message(&session_id_owned, &assistant_msg)
+                            .ok();
+                        if let Some(message_id) = assistant_id {
+                            if let Ok(usage) = captured_usage.lock() {
+                                let mut event = crate::model_usage::ModelUsageEvent::new(
+                                    crate::model_usage::KIND_CHAT,
+                                )
+                                .with_usage(
+                                    usage.input_tokens.unwrap_or(0) as u64,
+                                    usage.output_tokens.unwrap_or(0) as u64,
+                                    usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                                    usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                                );
+                                event.request_key = Some(format!("message:{message_id}"));
+                                event.operation = Some("chat.acp".to_string());
+                                event.source =
+                                    Some(crate::chat_engine::ChatSource::Http.as_str().to_string());
+                                event.provider_id = Some(model_ref.provider_id.clone());
+                                event.provider_name = Some(prov.name.clone());
+                                event.model_id = Some(
+                                    usage
+                                        .model
+                                        .clone()
+                                        .unwrap_or_else(|| model_ref.model_id.clone()),
+                                );
+                                event.session_id = Some(session_id_owned.clone());
+                                event.agent_id = Some(agent_id.clone());
+                                event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
+                                if let Err(e) = self.session_db.insert_model_usage_event(&event) {
+                                    app_warn!(
+                                        "model_usage",
+                                        "chat",
+                                        "failed to record ACP chat usage for message {}: {}",
+                                        message_id,
+                                        e
+                                    );
+                                }
+                            }
+                        }
                         save_agent_context(&db_clone, &session_id_owned, &agent);
                         crate::session_title::maybe_schedule_after_success(
                             db_clone.clone(),

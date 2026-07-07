@@ -16,6 +16,15 @@
 
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_SCHEMA_SECTIONS: [&str; 6] = [
+    "For Agent",
+    "Compiled Truth",
+    "Timeline",
+    "Evidence",
+    "Open Questions",
+    "Related",
+];
+
 // ── KnowledgeBase (truth source, sessions.db) ────────────────────
 
 /// A knowledge base = a notes container with a single storage root.
@@ -38,6 +47,11 @@ pub struct KnowledgeBase {
     /// background autonomous maintenance never writes external regardless.
     #[serde(default)]
     pub allow_external_writes: bool,
+    /// Optional mirror of Hope-managed source text snapshots into an external
+    /// vault (`raw/` or `sources/`). Only meaningful for external roots and only
+    /// honored when `allow_external_writes` is also true.
+    #[serde(default)]
+    pub external_raw_sync: KnowledgeExternalRawSyncMode,
     #[serde(default)]
     pub archived: bool,
     /// Unix milliseconds.
@@ -108,6 +122,41 @@ impl KbAccess {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeExternalRawSyncMode {
+    #[default]
+    Disabled,
+    Raw,
+    Sources,
+}
+
+impl KnowledgeExternalRawSyncMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeExternalRawSyncMode::Disabled => "disabled",
+            KnowledgeExternalRawSyncMode::Raw => "raw",
+            KnowledgeExternalRawSyncMode::Sources => "sources",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> Self {
+        match s {
+            "raw" => Self::Raw,
+            "sources" => Self::Sources,
+            _ => Self::Disabled,
+        }
+    }
+
+    pub fn folder_name(&self) -> Option<&'static str> {
+        match self {
+            KnowledgeExternalRawSyncMode::Disabled => None,
+            KnowledgeExternalRawSyncMode::Raw => Some("raw"),
+            KnowledgeExternalRawSyncMode::Sources => Some("sources"),
+        }
+    }
+}
+
 // ── Input DTOs ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +187,10 @@ pub struct UpdateKnowledgeBaseInput {
     /// unchanged. Ignored for internal KBs.
     #[serde(default)]
     pub allow_external_writes: Option<bool>,
+    /// Enable / disable copying source text snapshots into an external vault
+    /// subdirectory (`raw/` or `sources/`). `None` = leave unchanged.
+    #[serde(default)]
+    pub external_raw_sync: Option<KnowledgeExternalRawSyncMode>,
 }
 
 // ── Access bindings (truth source, sessions.db) ──────────────────
@@ -179,6 +232,1234 @@ pub struct ReferenceableNote {
     pub rel_path: String,
     /// frontmatter title > first H1 > file stem (primary display).
     pub title: String,
+}
+
+// ── Raw sources (Knowledge Compiler Phase 1, sessions.db truth source) ─────
+
+/// A raw-source type in the Knowledge Compiler inbox. Raw sources are distinct
+/// from compiled notes: sources are immutable-ish input snapshots, while notes
+/// remain the editable `.md` wiki layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceKind {
+    Markdown,
+    Text,
+    Pdf,
+    Docx,
+    AudioTranscript,
+    VideoTranscript,
+    ImageOcr,
+    BrowserSnapshot,
+    UrlSnapshot,
+}
+
+impl KnowledgeSourceKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceKind::Markdown => "markdown",
+            KnowledgeSourceKind::Text => "text",
+            KnowledgeSourceKind::Pdf => "pdf",
+            KnowledgeSourceKind::Docx => "docx",
+            KnowledgeSourceKind::AudioTranscript => "audio_transcript",
+            KnowledgeSourceKind::VideoTranscript => "video_transcript",
+            KnowledgeSourceKind::ImageOcr => "image_ocr",
+            KnowledgeSourceKind::BrowserSnapshot => "browser_snapshot",
+            KnowledgeSourceKind::UrlSnapshot => "url_snapshot",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceKind {
+        match s {
+            "markdown" => KnowledgeSourceKind::Markdown,
+            "pdf" => KnowledgeSourceKind::Pdf,
+            "docx" => KnowledgeSourceKind::Docx,
+            "audio_transcript" | "audioTranscript" | "audio" => {
+                KnowledgeSourceKind::AudioTranscript
+            }
+            "video_transcript" | "videoTranscript" | "video" => {
+                KnowledgeSourceKind::VideoTranscript
+            }
+            "image_ocr" | "imageOcr" | "image" | "ocr" => KnowledgeSourceKind::ImageOcr,
+            "browser_snapshot" | "browserSnapshot" | "browser" => {
+                KnowledgeSourceKind::BrowserSnapshot
+            }
+            "url_snapshot" | "urlSnapshot" | "url" => KnowledgeSourceKind::UrlSnapshot,
+            _ => KnowledgeSourceKind::Text,
+        }
+    }
+}
+
+/// Browser capture mode for Phase 9 source imports. `Auto` prefers the current
+/// text selection when present and otherwise captures the page's readable body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeBrowserCaptureMode {
+    #[default]
+    Auto,
+    Selection,
+    Page,
+}
+
+/// Owner-plane import request for capturing the active controlled browser tab
+/// into the raw-source inbox.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeBrowserSourceImportInput {
+    #[serde(default)]
+    pub mode: KnowledgeBrowserCaptureMode,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// Lifecycle status for a raw source. Phase 1 creates only `Ready` rows on
+/// successful import; the explicit enum keeps later extraction/retry states
+/// forward-compatible without changing the wire shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceStatus {
+    Ready,
+    Failed,
+}
+
+impl KnowledgeSourceStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceStatus::Ready => "ready",
+            KnowledgeSourceStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceStatus {
+        match s {
+            "failed" => KnowledgeSourceStatus::Failed,
+            _ => KnowledgeSourceStatus::Ready,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceAssetKind {
+    Original,
+    Thumbnail,
+}
+
+impl KnowledgeSourceAssetKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceAssetKind::Original => "original",
+            KnowledgeSourceAssetKind::Thumbnail => "thumbnail",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceAssetKind {
+        match s {
+            "thumbnail" | "thumb" => KnowledgeSourceAssetKind::Thumbnail,
+            _ => KnowledgeSourceAssetKind::Original,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceAsset {
+    pub kind: KnowledgeSourceAssetKind,
+    pub file_name: String,
+    pub mime_type: String,
+    pub size: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    /// Path relative to the Hope-managed source directory.
+    pub stored_path: String,
+    /// Absolute owner-plane path for desktop open / HTTP asset URL resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceAssets {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original: Option<KnowledgeSourceAsset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<KnowledgeSourceAsset>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceAssetLink {
+    pub kb_id: String,
+    pub source_id: String,
+    pub kind: KnowledgeSourceAssetKind,
+    pub file_name: String,
+    pub mime_type: String,
+    pub size: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_path: Option<String>,
+}
+
+const MEDIA_RETENTION_DEFAULT_MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MEDIA_RETENTION_DEFAULT_MAX_SOURCE_BYTES: u64 = 100 * 1024 * 1024;
+const MEDIA_RETENTION_DEFAULT_THUMBNAIL_MAX_EDGE_PX: u32 = 512;
+const MEDIA_RETENTION_MIN_TOTAL_BYTES: u64 = 10 * 1024 * 1024;
+const MEDIA_RETENTION_MAX_TOTAL_BYTES: u64 = 100 * 1024 * 1024 * 1024;
+const MEDIA_RETENTION_MIN_SOURCE_BYTES: u64 = 1024 * 1024;
+const MEDIA_RETENTION_MAX_SOURCE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MEDIA_RETENTION_MIN_THUMBNAIL_EDGE_PX: u32 = 128;
+const MEDIA_RETENTION_MAX_THUMBNAIL_EDGE_PX: u32 = 2048;
+
+fn default_media_retention_max_total_bytes() -> u64 {
+    MEDIA_RETENTION_DEFAULT_MAX_TOTAL_BYTES
+}
+
+fn default_media_retention_max_source_bytes() -> u64 {
+    MEDIA_RETENTION_DEFAULT_MAX_SOURCE_BYTES
+}
+
+fn default_media_retention_thumbnail_max_edge_px() -> u32 {
+    MEDIA_RETENTION_DEFAULT_THUMBNAIL_MAX_EDGE_PX
+}
+
+fn default_media_retention_prune_when_over_quota() -> bool {
+    true
+}
+
+/// Privacy-gated optional retention for original media imported into raw
+/// sources. Disabled by default; text snapshots remain the durable source of
+/// truth even when this is off.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeMediaRetentionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_media_retention_max_total_bytes")]
+    pub max_total_bytes: u64,
+    #[serde(default = "default_media_retention_max_source_bytes")]
+    pub max_source_bytes: u64,
+    #[serde(default = "default_media_retention_thumbnail_max_edge_px")]
+    pub thumbnail_max_edge_px: u32,
+    #[serde(default = "default_media_retention_prune_when_over_quota")]
+    pub prune_when_over_quota: bool,
+}
+
+impl Default for KnowledgeMediaRetentionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_total_bytes: MEDIA_RETENTION_DEFAULT_MAX_TOTAL_BYTES,
+            max_source_bytes: MEDIA_RETENTION_DEFAULT_MAX_SOURCE_BYTES,
+            thumbnail_max_edge_px: MEDIA_RETENTION_DEFAULT_THUMBNAIL_MAX_EDGE_PX,
+            prune_when_over_quota: true,
+        }
+    }
+}
+
+impl KnowledgeMediaRetentionConfig {
+    pub fn clamped(mut self) -> Self {
+        self.max_total_bytes = self.max_total_bytes.clamp(
+            MEDIA_RETENTION_MIN_TOTAL_BYTES,
+            MEDIA_RETENTION_MAX_TOTAL_BYTES,
+        );
+        self.max_source_bytes = self.max_source_bytes.clamp(
+            MEDIA_RETENTION_MIN_SOURCE_BYTES,
+            MEDIA_RETENTION_MAX_SOURCE_BYTES,
+        );
+        if self.max_source_bytes > self.max_total_bytes {
+            self.max_source_bytes = self.max_total_bytes;
+        }
+        self.thumbnail_max_edge_px = self.thumbnail_max_edge_px.clamp(
+            MEDIA_RETENTION_MIN_THUMBNAIL_EDGE_PX,
+            MEDIA_RETENTION_MAX_THUMBNAIL_EDGE_PX,
+        );
+        self
+    }
+}
+
+/// Import request for Phase 1 raw sources. Exactly one of `content` or `url`
+/// must be supplied. File imports are intentionally text-over-JSON so desktop
+/// and HTTP/server mode behave the same and no endpoint reads arbitrary host
+/// paths.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportInput {
+    #[serde(default)]
+    pub kind: Option<KnowledgeSourceKind>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub data_base64: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportSessionAttachmentInput {
+    pub session_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub kind: Option<KnowledgeSourceKind>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportBatchItemInput {
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    pub input: KnowledgeSourceImportInput,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportBatchInput {
+    pub items: Vec<KnowledgeSourceImportBatchItemInput>,
+}
+
+/// Raw source metadata for inbox lists.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSource {
+    pub id: String,
+    pub kb_id: String,
+    pub kind: KnowledgeSourceKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub stored_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_raw_path: Option<String>,
+    pub content_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extracted_text_hash: Option<String>,
+    pub status: KnowledgeSourceStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiled_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub chunk_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_of_source_id: Option<String>,
+    #[serde(default = "default_source_version_index")]
+    pub version_index: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assets: Option<KnowledgeSourceAssets>,
+}
+
+/// Source read response: metadata + stored snapshot text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceReadResult {
+    #[serde(flatten)]
+    pub source: KnowledgeSource,
+    pub content: String,
+}
+
+fn default_source_version_index() -> u32 {
+    1
+}
+
+/// Refresh options for a raw source. Refresh is deliberately narrower than
+/// import: it re-acquires refreshable snapshots and records a new immutable
+/// version when the extracted body changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceRefreshInput {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub browser_mode: KnowledgeBrowserCaptureMode,
+    #[serde(default = "default_require_same_url")]
+    pub require_same_url: bool,
+}
+
+fn default_require_same_url() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceDiffLineKind {
+    Context,
+    Added,
+    Removed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceDiffLine {
+    pub kind: KnowledgeSourceDiffLineKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old_line: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new_line: Option<u32>,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceDiff {
+    pub from_source_id: String,
+    pub to_source_id: String,
+    pub from_title: String,
+    pub to_title: String,
+    pub from_content_hash: String,
+    pub to_content_hash: String,
+    pub added_lines: u32,
+    pub removed_lines: u32,
+    pub context_lines: u32,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub lines: Vec<KnowledgeSourceDiffLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceRefreshResult {
+    pub source: KnowledgeSource,
+    pub previous_source: KnowledgeSource,
+    pub changed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<KnowledgeSourceDiff>,
+}
+
+/// Result of mirroring existing internal source text snapshots into an external
+/// vault (`raw/` or `sources/`). This is owner-plane only and never includes
+/// original retained media.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceExternalRawSyncResult {
+    pub synced_count: u32,
+    pub skipped_count: u32,
+    pub failed_count: u32,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceVersionHistory {
+    pub root_source_id: String,
+    pub current_source_id: String,
+    pub versions: Vec<KnowledgeSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceImportRunStatus {
+    Running,
+    Completed,
+    CompletedWithErrors,
+    Failed,
+}
+
+impl KnowledgeSourceImportRunStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceImportRunStatus::Running => "running",
+            KnowledgeSourceImportRunStatus::Completed => "completed",
+            KnowledgeSourceImportRunStatus::CompletedWithErrors => "completed_with_errors",
+            KnowledgeSourceImportRunStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceImportRunStatus {
+        match s {
+            "completed" => KnowledgeSourceImportRunStatus::Completed,
+            "completed_with_errors" | "completedWithErrors" => {
+                KnowledgeSourceImportRunStatus::CompletedWithErrors
+            }
+            "failed" => KnowledgeSourceImportRunStatus::Failed,
+            _ => KnowledgeSourceImportRunStatus::Running,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceImportItemStatus {
+    Pending,
+    Running,
+    Imported,
+    Duplicate,
+    Failed,
+}
+
+impl KnowledgeSourceImportItemStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceImportItemStatus::Pending => "pending",
+            KnowledgeSourceImportItemStatus::Running => "running",
+            KnowledgeSourceImportItemStatus::Imported => "imported",
+            KnowledgeSourceImportItemStatus::Duplicate => "duplicate",
+            KnowledgeSourceImportItemStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceImportItemStatus {
+        match s {
+            "running" => KnowledgeSourceImportItemStatus::Running,
+            "imported" => KnowledgeSourceImportItemStatus::Imported,
+            "duplicate" => KnowledgeSourceImportItemStatus::Duplicate,
+            "failed" => KnowledgeSourceImportItemStatus::Failed,
+            _ => KnowledgeSourceImportItemStatus::Pending,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportItem {
+    pub id: i64,
+    pub run_id: String,
+    pub kb_id: String,
+    pub position: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<KnowledgeSourceKind>,
+    pub status: KnowledgeSourceImportItemStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicate_of_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportRun {
+    pub id: String,
+    pub kb_id: String,
+    pub status: KnowledgeSourceImportRunStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_job_id: Option<String>,
+    pub total_count: u32,
+    pub imported_count: u32,
+    pub duplicate_count: u32,
+    pub failed_count: u32,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceImportRunDetail {
+    #[serde(flatten)]
+    pub run: KnowledgeSourceImportRun,
+    pub items: Vec<KnowledgeSourceImportItem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceSimilarityGroupKind {
+    ExactDuplicate,
+    Similar,
+}
+
+impl KnowledgeSourceSimilarityGroupKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceSimilarityGroupKind::ExactDuplicate => "exact_duplicate",
+            KnowledgeSourceSimilarityGroupKind::Similar => "similar",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceSimilarityGroupScope {
+    SameKb,
+    CrossKb,
+}
+
+impl KnowledgeSourceSimilarityGroupScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceSimilarityGroupScope::SameKb => "same_kb",
+            KnowledgeSourceSimilarityGroupScope::CrossKb => "cross_kb",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceSimilarityGroup {
+    pub id: String,
+    pub kind: KnowledgeSourceSimilarityGroupKind,
+    pub scope: KnowledgeSourceSimilarityGroupScope,
+    pub similarity: f32,
+    pub fingerprint: String,
+    pub sources: Vec<KnowledgeSource>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceSimilarityDismissInput {
+    pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceSimilarityResolveInput {
+    pub fingerprint: String,
+    pub keep_source_id: String,
+    pub delete_source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceSimilarityResolveResult {
+    pub kept_source_id: String,
+    pub deleted_source_ids: Vec<String>,
+    pub dismissed: bool,
+}
+
+/// Separate chunk rows for raw sources. They never share `note_chunk`, keeping
+/// source snapshots out of compiled-note ranking and prompt surfaces.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceChunk {
+    pub id: i64,
+    pub source_id: String,
+    pub chunk_index: i64,
+    pub body: String,
+    pub start_offset: u32,
+    pub end_offset: u32,
+    pub content_hash: String,
+}
+
+// ── Schema Profile + Evidence (Knowledge Compiler Phase 3) ───────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaProfile {
+    pub kb_id: String,
+    pub page_types: Vec<SchemaPageTypeSpec>,
+    pub default_page_type: String,
+    pub required_sections: Vec<String>,
+    pub updated_at: i64,
+}
+
+impl SchemaProfile {
+    pub fn default_for(kb_id: &str, updated_at: i64) -> Self {
+        Self {
+            kb_id: kb_id.to_string(),
+            page_types: vec![
+                SchemaPageTypeSpec::new("source_summary", "Source Summary"),
+                SchemaPageTypeSpec::new("conversation_note", "Conversation Note"),
+                SchemaPageTypeSpec::new("concept", "Concept"),
+                SchemaPageTypeSpec::new("person", "Person"),
+                SchemaPageTypeSpec::new("project", "Project"),
+                SchemaPageTypeSpec::new("decision", "Decision"),
+                SchemaPageTypeSpec::new("timeline", "Timeline"),
+                SchemaPageTypeSpec::new("moc", "Map of Content"),
+            ],
+            default_page_type: "source_summary".to_string(),
+            required_sections: DEFAULT_SCHEMA_SECTIONS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaPageTypeSpec {
+    pub key: String,
+    pub label: String,
+    pub required_sections: Vec<String>,
+    pub required_frontmatter: Vec<String>,
+}
+
+impl SchemaPageTypeSpec {
+    pub fn new(key: &str, label: &str) -> Self {
+        Self {
+            key: key.to_string(),
+            label: label.to_string(),
+            required_sections: DEFAULT_SCHEMA_SECTIONS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            required_frontmatter: vec![
+                "type".to_string(),
+                "sources".to_string(),
+                "last_compiled".to_string(),
+                "confidence".to_string(),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SchemaIssueKind {
+    MissingEvidence,
+    StaleSource,
+    SchemaViolation,
+    ConflictingClaim,
+    UnfiledOpenQuestion,
+}
+
+impl SchemaIssueKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SchemaIssueKind::MissingEvidence => "missing_evidence",
+            SchemaIssueKind::StaleSource => "stale_source",
+            SchemaIssueKind::SchemaViolation => "schema_violation",
+            SchemaIssueKind::ConflictingClaim => "conflicting_claim",
+            SchemaIssueKind::UnfiledOpenQuestion => "unfiled_open_question",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaIssue {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub title: String,
+    pub kind: SchemaIssueKind,
+    pub detail: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSourceRef {
+    pub source_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub missing: bool,
+    pub stale: bool,
+    #[serde(default)]
+    pub superseded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_updated_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_last_compiled_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cited_in: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEvidenceClaim {
+    pub kb_id: String,
+    pub rel_path: String,
+    pub note_title: String,
+    pub source_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub claim_index: u32,
+    pub section: String,
+    pub claim_text: String,
+    pub missing: bool,
+    pub stale: bool,
+    #[serde(default)]
+    pub superseded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_updated_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_last_compiled_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEvidenceCoverage {
+    pub kb_id: String,
+    pub compiled_note_count: u32,
+    pub notes_with_evidence: u32,
+    pub notes_missing_evidence: u32,
+    pub source_ref_count: u32,
+    pub stale_ref_count: u32,
+    pub missing_ref_count: u32,
+    pub claim_count: u32,
+    pub claims_with_evidence: u32,
+    pub coverage_score: f32,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeEvidenceRebuildResult {
+    pub kb_id: String,
+    pub scanned_count: u32,
+    pub indexed_ref_count: u32,
+    pub indexed_claim_count: u32,
+}
+
+// ── Phase 6 external-agent API ──────────────────────────────────
+
+/// Stable item discriminator for external agents. `compiled_note` means the
+/// result is a normal wiki note with source/evidence markers; raw sources never
+/// masquerade as notes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeAgentItemKind {
+    Note,
+    CompiledNote,
+    Source,
+}
+
+/// `knowledge.search` input. Notes are always searched first; raw sources are
+/// included only when explicitly requested.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentSearchInput {
+    pub query: String,
+    #[serde(default)]
+    pub kb_id: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub include_sources: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentNoteHit {
+    pub kind: KnowledgeAgentItemKind,
+    pub kb_id: String,
+    #[serde(default)]
+    pub kb_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kb_emoji: Option<String>,
+    pub note_id: i64,
+    pub rel_path: String,
+    pub title: String,
+    pub score: f32,
+    pub snippet: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_path: Option<String>,
+    pub start_line: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentSourceItem {
+    pub kind: KnowledgeAgentItemKind,
+    pub kb_id: String,
+    pub source_id: String,
+    pub source_kind: KnowledgeSourceKind,
+    pub status: KnowledgeSourceStatus,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_uri: Option<String>,
+    pub content_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compiled_at: Option<i64>,
+    pub stale: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub size: i64,
+    pub chunk_count: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_of_source_id: Option<String>,
+    #[serde(default = "default_source_version_index")]
+    pub version_index: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentSearchResult {
+    pub notes: Vec<KnowledgeAgentNoteHit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<KnowledgeAgentSourceItem>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+/// `knowledge.read` input. Exactly one of `path` or `reference` should be
+/// supplied.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentReadInput {
+    pub kb_id: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub include_source_refs: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentReadResult {
+    pub kind: KnowledgeAgentItemKind,
+    pub kb_id: String,
+    pub note_id: i64,
+    pub rel_path: String,
+    pub title: String,
+    pub content: String,
+    pub content_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frontmatter_json: Option<String>,
+    pub outgoing_links: Vec<NoteLink>,
+    pub backlinks: Vec<Backlink>,
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_refs: Vec<NoteSourceRef>,
+}
+
+/// `knowledge.expand` input: read one note plus adjacent context that external
+/// agents can choose to follow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentExpandInput {
+    pub kb_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentExpandResult {
+    pub note: KnowledgeAgentReadResult,
+    pub related_notes: Vec<KnowledgeAgentNoteHit>,
+}
+
+/// `knowledge.sources` input. Listing returns metadata/snippets; source content
+/// is returned only for an explicit `source_id` plus `include_content=true`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentSourcesInput {
+    pub kb_id: String,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub limit: Option<u32>,
+    #[serde(default)]
+    pub include_content: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentSourcesResult {
+    pub sources: Vec<KnowledgeAgentSourceItem>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+/// `knowledge.compile.propose` input. This starts the normal compile run and
+/// creates review proposals; it never applies note writes by itself.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAgentCompileProposeInput {
+    pub kb_id: String,
+    pub source_ids: Vec<String>,
+    #[serde(default)]
+    pub strategy: Option<String>,
+}
+
+// ── Knowledge Compiler Phase 2 ──────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompileRunStatus {
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl CompileRunStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompileRunStatus::Running => "running",
+            CompileRunStatus::Completed => "completed",
+            CompileRunStatus::Failed => "failed",
+            CompileRunStatus::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> CompileRunStatus {
+        match s {
+            "completed" => CompileRunStatus::Completed,
+            "failed" => CompileRunStatus::Failed,
+            "cancelled" => CompileRunStatus::Cancelled,
+            _ => CompileRunStatus::Running,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompileProposalStatus {
+    Draft,
+    Applied,
+    Rejected,
+    Failed,
+}
+
+impl CompileProposalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompileProposalStatus::Draft => "draft",
+            CompileProposalStatus::Applied => "applied",
+            CompileProposalStatus::Rejected => "rejected",
+            CompileProposalStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> CompileProposalStatus {
+        match s {
+            "applied" => CompileProposalStatus::Applied,
+            "rejected" => CompileProposalStatus::Rejected,
+            "failed" => CompileProposalStatus::Failed,
+            _ => CompileProposalStatus::Draft,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompileProposalKind {
+    CreateNote,
+    PatchNote,
+    SetFrontmatter,
+    AppendLink,
+    CreateMoc,
+}
+
+impl CompileProposalKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompileProposalKind::CreateNote => "create_note",
+            CompileProposalKind::PatchNote => "patch_note",
+            CompileProposalKind::SetFrontmatter => "set_frontmatter",
+            CompileProposalKind::AppendLink => "append_link",
+            CompileProposalKind::CreateMoc => "create_moc",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> CompileProposalKind {
+        match s {
+            "patch_note" => CompileProposalKind::PatchNote,
+            "set_frontmatter" => CompileProposalKind::SetFrontmatter,
+            "append_link" => CompileProposalKind::AppendLink,
+            "create_moc" => CompileProposalKind::CreateMoc,
+            _ => CompileProposalKind::CreateNote,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum CompileProposalAction {
+    CreateNote {
+        path: String,
+        content: String,
+        #[serde(default)]
+        overwrite: bool,
+    },
+    PatchNote {
+        path: String,
+        old: String,
+        new: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expected_file_hash: Option<String>,
+    },
+    SetFrontmatter {
+        path: String,
+        props: serde_json::Map<String, serde_json::Value>,
+    },
+    AppendLink {
+        from_path: String,
+        to_ref: String,
+    },
+    CreateMoc {
+        path: String,
+        content: String,
+        #[serde(default)]
+        overwrite: bool,
+    },
+}
+
+/// Agent selection for source-to-note organization. `None` inherits the global
+/// default agent so first-run behavior stays smooth, while power users can pin
+/// a stronger/cheaper agent for this knowledge workflow only.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeCompileConfig {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
+impl KnowledgeCompileConfig {
+    pub fn normalized(mut self) -> Self {
+        self.agent_id = self.agent_id.and_then(|id| {
+            let trimmed = id.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileStartInput {
+    pub source_ids: Vec<String>,
+    #[serde(default)]
+    pub strategy: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryFileMode {
+    CreateNote,
+    UpdateCurrentNote,
+    AppendToMoc,
+    AppendOpenQuestions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryFileInput {
+    pub session_id: String,
+    pub message_id: i64,
+    #[serde(default)]
+    pub mode: Option<QueryFileMode>,
+    #[serde(default)]
+    pub current_note_path: Option<String>,
+    #[serde(default)]
+    pub target_path: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    /// Required when filing from a non-knowledge chat surface so the caller must
+    /// explicitly acknowledge that chat content will be written into a KB.
+    #[serde(default)]
+    pub confirm_conversation_source: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileRun {
+    pub id: String,
+    pub kb_id: String,
+    pub status: CompileRunStatus,
+    pub source_ids: Vec<String>,
+    pub strategy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_label: Option<String>,
+    pub fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub proposal_count: u32,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<i64>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewCompileProposal {
+    pub kind: CompileProposalKind,
+    pub title: String,
+    pub detail: String,
+    pub action: CompileProposalAction,
+    pub fingerprint: String,
+    pub source_ids: Vec<String>,
+    pub before_text: Option<String>,
+    pub after_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileProposal {
+    pub id: i64,
+    pub run_id: String,
+    pub kb_id: String,
+    pub kind: CompileProposalKind,
+    pub status: CompileProposalStatus,
+    pub title: String,
+    pub detail: String,
+    pub action: CompileProposalAction,
+    pub fingerprint: String,
+    pub source_ids: Vec<String>,
+    pub created_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_text: Option<String>,
 }
 
 // ── Note (index cache rows, index.db) ────────────────────────────
@@ -458,13 +1739,14 @@ pub struct NoteReadResult {
 /// `AppConfig.knowledge_passive_recall`. When enabled, each user turn searches
 /// the accessible KBs by the user's message and injects the top note **titles**
 /// as an independent, untrusted cache block (mirrors Active Memory's slot but
-/// retrieval-only — no LLM call). Opt-in; disabled by default.
+/// retrieval-only — no LLM call). Enabled by default after KB access is granted;
+/// access gates still enforce incognito / IM opt-in / attached-KB limits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PassiveRecallConfig {
-    /// Master switch. Off by default — turns surface related notes only after the
-    /// user opts in (Settings → Knowledge).
-    #[serde(default)]
+    /// Master switch. On by default because it is retrieval-only and still bounded
+    /// by KB access; users can disable it in Settings → Knowledge.
+    #[serde(default = "default_passive_recall_enabled")]
     pub enabled: bool,
     /// Max related notes to list per turn.
     #[serde(default = "default_passive_top_n")]
@@ -483,6 +1765,9 @@ pub struct PassiveRecallConfig {
 fn default_passive_top_n() -> usize {
     5
 }
+fn default_passive_recall_enabled() -> bool {
+    true
+}
 fn default_passive_max_chars() -> usize {
     800
 }
@@ -493,7 +1778,7 @@ fn default_passive_cache_ttl_secs() -> u64 {
 impl Default for PassiveRecallConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: default_passive_recall_enabled(),
             top_n: default_passive_top_n(),
             max_chars: default_passive_max_chars(),
             cache_ttl_secs: default_passive_cache_ttl_secs(),
@@ -513,5 +1798,32 @@ impl PassiveRecallConfig {
             cache_ttl_secs: self.cache_ttl_secs.max(1),
             show_snippet: self.show_snippet,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn passive_recall_config_defaults_enabled() {
+        let cfg = PassiveRecallConfig::default();
+        assert!(cfg.enabled);
+        assert_eq!(cfg.top_n, default_passive_top_n());
+        assert_eq!(cfg.max_chars, default_passive_max_chars());
+        assert_eq!(cfg.cache_ttl_secs, default_passive_cache_ttl_secs());
+        assert!(!cfg.show_snippet);
+    }
+
+    #[test]
+    fn passive_recall_config_deserializes_missing_enabled_as_enabled() {
+        let cfg: PassiveRecallConfig = serde_json::from_value(serde_json::json!({}))
+            .expect("deserialize empty passive recall config");
+
+        assert!(cfg.enabled);
+        assert_eq!(cfg.top_n, default_passive_top_n());
+        assert_eq!(cfg.max_chars, default_passive_max_chars());
+        assert_eq!(cfg.cache_ttl_secs, default_passive_cache_ttl_secs());
+        assert!(!cfg.show_snippet);
     }
 }

@@ -180,6 +180,37 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_subagent_status ON subagent_runs(status);
             CREATE INDEX IF NOT EXISTS idx_subagent_label ON subagent_runs(label);
 
+            -- Unified model usage ledger. Dashboard token/cost totals read this
+            -- table so non-chat model calls (side_query / embedding / STT /
+            -- judge / maintenance) are counted alongside normal chat turns.
+            CREATE TABLE IF NOT EXISTS model_usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_key TEXT UNIQUE,
+                timestamp TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                operation TEXT,
+                source TEXT,
+                provider_id TEXT,
+                provider_name TEXT,
+                model_id TEXT,
+                session_id TEXT,
+                agent_id TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                cache_creation_input_tokens INTEGER,
+                cache_read_input_tokens INTEGER,
+                duration_ms INTEGER,
+                ttft_ms INTEGER,
+                success INTEGER NOT NULL DEFAULT 1,
+                error TEXT,
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_model_usage_timestamp ON model_usage_events(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_kind_timestamp ON model_usage_events(kind, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_session ON model_usage_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_model_usage_provider_model ON model_usage_events(provider_id, model_id);
+
             -- FTS5 full-text search for message history
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
                 content,
@@ -356,6 +387,16 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
         }
 
+        Self::ensure_model_usage_table(&conn)?;
+        const SCHEMA_FLAG_MODEL_USAGE_BACKFILLED: i64 = 0x4;
+        let schema_flags: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+        if schema_flags & SCHEMA_FLAG_MODEL_USAGE_BACKFILLED == 0 {
+            Self::backfill_model_usage_from_messages(&conn)?;
+            conn.execute_batch(&format!(
+                "PRAGMA user_version = {};",
+                schema_flags | SCHEMA_FLAG_MODEL_USAGE_BACKFILLED
+            ))?;
+        }
         Self::ensure_chat_turns_table(&conn)?;
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -416,8 +457,9 @@ impl SessionDB {
         // `PRAGMA user_version` is unused elsewhere here (all other migrations
         // are probe-based `SELECT col ... is_ok()`), so we claim it as a bitflag
         // sentinel: bit 0 = "FTS rebuild already run"; bit 1 = "trigram FTS
-        // rebuild already run". Future schema versioning can use the remaining
-        // bits. The corruption-recovery rebuild in
+        // rebuild already run"; bit 2 = "model usage message backfill already
+        // run". Future schema versioning can use the remaining bits. The
+        // corruption-recovery rebuild in
         // `delete_session` (the only other rebuild caller) is unaffected — it
         // fires on a caught error, not on open.
         const SCHEMA_FLAG_FTS_REBUILT: i64 = 0x1;
@@ -1491,6 +1533,24 @@ impl SessionDB {
             messages.push(row?);
         }
         Ok(messages)
+    }
+
+    /// Load a single persisted message by database id.
+    pub fn get_message(&self, message_id: i64) -> Result<Option<SessionMessage>> {
+        let conn = self.read_conn()?;
+        conn.query_row(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE id = ?1",
+            params![message_id],
+            Self::row_to_session_message,
+        )
+        .optional()
+        .map_err(Into::into)
     }
 
     /// Load the latest N messages for a session (for initial page load).

@@ -31,6 +31,13 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] = &[
     "stt_providers",
     "active_stt_model",
     "stt_fallback_models",
+    // Embedding — the active model selection carries an API key and a heavy
+    // background reembed side effect (same class as `active_model` /
+    // `memory_embedding` / `knowledge_embedding`, which are already GUI-only).
+    // The real config lives in `embedding_models` + `memory_embedding`; the
+    // legacy `cfg.embedding` write sink was a silent no-op. Read is repointed at
+    // the resolved config (redacted); writes go through Settings → Memory.
+    "embedding",
 ];
 
 /// Risk classification for a settings category.
@@ -96,7 +103,7 @@ fn risk_level(category: &str) -> &'static str {
         | "design" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
-        "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
+        "proxy" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
         | "security" | "security.ssrf" | "smart_mode" | "mcp_global" | "filesystem"
         // Browser backend: extension.enabled / backendPreference gate whether the
         // agent can drive the user's real logged-in Chrome; allowRawCdp toggles
@@ -105,18 +112,23 @@ fn risk_level(category: &str) -> &'static str {
         // Autonomous maintenance can write to the user's notes (auto_approve =
         // approval policy) — treat as HIGH so the skill confirms before changes.
         | "knowledge_maintenance"
+        // Retained original audio/video/image source files can store private
+        // binary evidence on disk. HIGH so the skill confirms before enabling or
+        // raising quotas.
+        | "knowledge_media_retention"
         // Unattended-approval action can flip surface-less approvals to auto-run
         // (proceed) — a security loosening; HIGH so the skill confirms first.
         | "unattended_approval"
         | "auto_update" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
-        // `channels` and `mcp_servers` are categorized "low" for read because
-        // the response is redacted before it reaches the model.
+        // `channels` / `mcp_servers` / `embedding` are categorized "low" for
+        // read because the response is redacted before it reaches the model.
         "active_model"
         | "fallback_models"
         | "channels"
         | "mcp_servers"
+        | "embedding"
         | "hooks"
         | "stt_providers"
         | "active_stt_model"
@@ -202,6 +214,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "knowledge_maintenance" => Some(
             "Layer-2 autonomous maintenance scans knowledge bases and queues note-maintenance proposals (auto-link, dedup merge, tagging, MOC, memory→note, …) for review. Changes take effect on the next cycle. ⚠️ `enabled` lets background cycles run; `autoApprove` makes approved-free writes to the user's notes happen automatically (skipping the review queue) — confirm with the user before enabling either."
+        ),
+        "knowledge_media_retention" => Some(
+            "Optional original-media retention for Knowledge Compiler sources. Disabled by default; enabling stores imported audio/video/image originals and image thumbnails under Hope's internal knowledge source directory. HIGH/privacy: confirm with the user before enabling, raising quota, or turning on pruneWhenOverQuota."
         ),
         "knowledge_search" => Some(
             "Knowledge hybrid `note_search` ranking. note_search runs keyword (BM25) + semantic (vector) search over note chunks, fuses them with RRF, then re-ranks for diversity with MMR. Pure query-time (no reindex). `textWeight`/`vectorWeight` = fusion balance (ratio matters; raise textWeight for code/jargon, vectorWeight for meaning); `rrfK` = fusion smoothing (lower trusts each method's top hit more); `mmrLambda` = relevance↔diversity (1.0 pure relevance, lower trims near-duplicates); `candidateMultiplier` = candidate pool before MMR (×limit). Defaults (0.4/0.6/60/0.7/3) suit most libraries; send those to restore defaults."
@@ -392,8 +407,38 @@ fn redact_image_generate_value(mut value: Value) -> Value {
 fn redact_server_value(mut value: Value) -> Value {
     if let Some(obj) = value.as_object_mut() {
         redact_string_field(obj, "apiKey");
+        redact_string_field(obj, "knowledgeAgentReadToken");
     }
     value
+}
+
+/// Redact the API keys from a resolved `EmbeddingConfig` JSON tree. The
+/// provider / base URL / model / dimensions stay visible so the model can
+/// describe which embedding backend is active, but the credentials never enter
+/// conversation history. `fallbackApiKey` is masked defensively even though the
+/// resolved memory config currently leaves the fallback fields unset.
+fn redact_embedding_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        redact_string_field(obj, "apiKey");
+        redact_string_field(obj, "fallbackApiKey");
+    }
+    value
+}
+
+/// Resolve the `embedding` read category from the single source of truth
+/// (`embedding_models` + `memory_embedding` selection) the GUI actually writes
+/// and runtime provider init reads — NOT the deprecated `cfg.embedding` sink,
+/// which is `skip_serializing` and never populated (the cause of #423). Mirrors
+/// the Tauri `get_embedding_config` command, then redacts the API key. A
+/// disabled / unresolved selection resolves to a clean default (enabled=false)
+/// so the skill reads cleanly when embedding is off.
+fn read_embedding_from(
+    selection: &crate::memory::EmbeddingSelection,
+    models: &[crate::memory::EmbeddingModelConfig],
+) -> Result<Value> {
+    let resolved = crate::memory::resolve_memory_embedding_config(selection, models)?;
+    let config = resolved.map(|(_, c, _)| c).unwrap_or_default();
+    Ok(redact_embedding_value(serde_json::to_value(&config)?))
 }
 
 /// Redact `backends[*].env` from an `AcpControlConfig` JSON tree — env vars
@@ -498,7 +543,7 @@ fn read_category(category: &str) -> Result<Value> {
         "memory_extract" => Ok(serde_json::to_value(&cfg.memory_extract)?),
         "memory_selection" => Ok(serde_json::to_value(&cfg.memory_selection)?),
         "memory_budget" => Ok(serde_json::to_value(&cfg.memory_budget)?),
-        "embedding" => Ok(serde_json::to_value(&cfg.embedding)?),
+        "embedding" => read_embedding_from(&cfg.memory_embedding, &cfg.embedding_models),
         "embedding_cache" => Ok(serde_json::to_value(&cfg.embedding_cache)?),
         "dedup" => Ok(serde_json::to_value(&cfg.dedup)?),
         "hybrid_search" => Ok(serde_json::to_value(&cfg.hybrid_search)?),
@@ -547,6 +592,7 @@ fn read_category(category: &str) -> Result<Value> {
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
         "knowledge_maintenance" => Ok(serde_json::to_value(&cfg.knowledge_maintenance)?),
+        "knowledge_media_retention" => Ok(serde_json::to_value(&cfg.knowledge_media_retention)?),
         "knowledge_passive_recall" => Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?),
         "knowledge_search" => Ok(serde_json::to_value(&cfg.knowledge_search)?),
         "sprite" => Ok(serde_json::to_value(&cfg.sprite)?),
@@ -713,13 +759,13 @@ fn get_all_overview() -> Result<String> {
             "design"
         ],
         "high": [
-            "proxy", "embedding", "shortcuts", "skills", "server",
+            "proxy", "shortcuts", "skills", "server",
             "acp_control", "skill_env", "security", "security.ssrf",
-            "smart_mode", "mcp_global", "knowledge_maintenance", "unattended_approval", "auto_update",
+            "smart_mode", "mcp_global", "knowledge_maintenance", "knowledge_media_retention", "unattended_approval", "auto_update",
             "browser"
         ],
         "read_only": [
-            "active_model", "fallback_models", "channels", "mcp_servers",
+            "active_model", "fallback_models", "channels", "mcp_servers", "embedding",
             "stt_providers", "active_stt_model", "stt_fallback_models"
         ],
     });
@@ -966,7 +1012,9 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "memory_extract" => merge_field(&mut store.memory_extract, values)?,
         "memory_selection" => merge_field(&mut store.memory_selection, values)?,
         "memory_budget" => merge_field(&mut store.memory_budget, values)?,
-        "embedding" => merge_field(&mut store.embedding, values)?,
+        // `embedding` is read-only (BLOCKED_UPDATE_CATEGORIES): the real config
+        // lives in `embedding_models` + `memory_embedding`, and this legacy sink
+        // is `skip_serializing`, so a write here never persisted. Reject earlier.
         "embedding_cache" => merge_field(&mut store.embedding_cache, values)?,
         "dedup" => merge_field(&mut store.dedup, values)?,
         "hybrid_search" => merge_field(&mut store.hybrid_search, values)?,
@@ -1084,6 +1132,11 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             // clamps in `service::set_maintenance_config`).
             store.knowledge_maintenance = store.knowledge_maintenance.clamped();
         }
+        "knowledge_media_retention" => {
+            merge_field(&mut store.knowledge_media_retention, values)?;
+            // Clamp (mirrors `service::set_media_retention_config`).
+            store.knowledge_media_retention = store.knowledge_media_retention.clamped();
+        }
         "knowledge_passive_recall" => {
             merge_field(&mut store.knowledge_passive_recall, values)?;
             // Clamp (mirrors `service::set_passive_recall_config`).
@@ -1130,7 +1183,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
     }
 
     // Backend hot-reload: trigger side-effects for categories that cache state
-    trigger_backend_hot_reload(category, &store).await?;
+    trigger_backend_hot_reload(category).await?;
 
     // Return the saved value directly from the mutated store (avoids re-reading cache)
     let updated_value = read_category(category)?;
@@ -1199,40 +1252,11 @@ fn update_team_templates(values: &Value) -> Result<String> {
 }
 
 /// Trigger backend hot-reload side-effects for categories that cache state in memory.
-async fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) -> Result<()> {
+async fn trigger_backend_hot_reload(category: &str) -> Result<()> {
     match category {
-        "embedding" => {
-            // Re-initialize embedding provider when config changes
-            if let Some(backend) = crate::get_memory_backend() {
-                if store.embedding.enabled {
-                    match crate::memory::create_embedding_provider(&store.embedding) {
-                        Ok(provider) => {
-                            backend.set_embedder(provider);
-                            app_info!(
-                                "settings",
-                                "hot_reload",
-                                "Embedding provider re-initialized after config change"
-                            );
-                        }
-                        Err(e) => {
-                            app_warn!(
-                                "settings",
-                                "hot_reload",
-                                "Failed to re-initialize embedding provider: {}",
-                                e
-                            );
-                        }
-                    }
-                } else {
-                    backend.clear_embedder();
-                    app_info!(
-                        "settings",
-                        "hot_reload",
-                        "Embedding provider cleared (disabled)"
-                    );
-                }
-            }
-        }
+        // `embedding` writes are blocked here; its provider hot-reload is owned
+        // by the GUI-only owner commands (`memory_embedding_set_default`), so no
+        // reload branch is needed on this path.
         "web_search" => {
             // SearXNG config may affect Docker container — no cached state to invalidate,
             // but weather system may use web search indirectly. No action needed.
@@ -1353,7 +1377,6 @@ mod tests {
     fn risk_level_high_categories() {
         for cat in [
             "proxy",
-            "embedding",
             "shortcuts",
             "skills",
             "server",
@@ -1382,19 +1405,78 @@ mod tests {
         // Read-only categories report `low` because the model cannot mutate them
         // through this tool — the BLOCKED_UPDATE_CATEGORIES check rejects writes
         // before risk_level is even consulted.
-        for cat in ["active_model", "fallback_models", "channels", "mcp_servers"] {
+        for cat in [
+            "active_model",
+            "fallback_models",
+            "channels",
+            "mcp_servers",
+            "embedding",
+        ] {
             assert_eq!(risk_level(cat), "low", "{cat} should be low (read-only)");
         }
     }
 
     #[test]
     fn blocked_update_includes_channels_and_mcp_servers() {
-        for cat in ["active_model", "fallback_models", "channels", "mcp_servers"] {
+        for cat in [
+            "active_model",
+            "fallback_models",
+            "channels",
+            "mcp_servers",
+            "embedding",
+        ] {
             assert!(
                 BLOCKED_UPDATE_CATEGORIES.contains(&cat),
                 "{cat} must be in BLOCKED_UPDATE_CATEGORIES"
             );
         }
+    }
+
+    #[test]
+    fn read_embedding_resolves_configured_model_and_redacts_key() {
+        use crate::memory::{EmbeddingModelConfig, EmbeddingProviderType, EmbeddingSelection};
+
+        // Reproduces #423: the GUI configures embedding through
+        // `embedding_models` + `memory_embedding`, not the deprecated
+        // `cfg.embedding` sink. The read arm must resolve the real config and
+        // redact the key. This tests `read_embedding_from` directly so it does
+        // not depend on global `cached_config()` state.
+        let models = vec![EmbeddingModelConfig {
+            id: "m1".into(),
+            name: "OpenAI small".into(),
+            provider_type: EmbeddingProviderType::OpenaiCompatible,
+            api_base_url: Some("https://api.openai.com".into()),
+            api_key: Some("sk-secret".into()),
+            api_model: Some("text-embedding-3-small".into()),
+            api_dimensions: Some(1536),
+            source: None,
+        }];
+        let selection = EmbeddingSelection {
+            enabled: true,
+            model_config_id: Some("m1".into()),
+            active_signature: None,
+            last_reembedded_signature: None,
+        };
+
+        let value = read_embedding_from(&selection, &models).expect("resolve embedding");
+        assert_eq!(value["enabled"], serde_json::json!(true));
+        assert_eq!(
+            value["apiBaseUrl"],
+            serde_json::json!("https://api.openai.com")
+        );
+        assert_eq!(
+            value["apiModel"],
+            serde_json::json!("text-embedding-3-small")
+        );
+        assert_eq!(value["apiDimensions"], serde_json::json!(1536));
+        // The key is masked, never echoed raw, and never null when configured.
+        assert_eq!(value["apiKey"], serde_json::json!("[REDACTED]"));
+
+        // Disabled selection resolves to a clean default (enabled=false), no error.
+        let off = EmbeddingSelection::default();
+        let value = read_embedding_from(&off, &models).expect("resolve disabled embedding");
+        assert_eq!(value["enabled"], serde_json::json!(false));
+        assert_eq!(value["apiKey"], Value::Null);
     }
 
     #[test]
@@ -1583,9 +1665,11 @@ mod tests {
         let r = redact_server_value(json!({
             "bindAddr": "127.0.0.1:8420",
             "apiKey": "long-bearer-token",
+            "knowledgeAgentReadToken": "read-only-token",
             "publicBaseUrl": null
         }));
         assert_eq!(r["apiKey"], json!("[REDACTED]"));
+        assert_eq!(r["knowledgeAgentReadToken"], json!("[REDACTED]"));
         assert_eq!(r["bindAddr"], "127.0.0.1:8420");
         // Null api_key (server unauthenticated) stays null.
         let r = redact_server_value(json!({ "bindAddr": "127.0.0.1:8420", "apiKey": null }));

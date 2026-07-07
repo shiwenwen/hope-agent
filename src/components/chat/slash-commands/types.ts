@@ -95,7 +95,6 @@ export interface ModelPickerItem {
 export interface ProjectPickerItem {
   id: string
   name: string
-  emoji?: string | null
   logo?: string | null
   color?: string | null
   description?: string | null
@@ -112,8 +111,7 @@ export interface SessionPickerItem {
    *  Resolved server-side. */
   agentLabel: string
   projectId?: string | null
-  /** Project display label (emoji + name) when the session is assigned to
-   *  a project. Resolved server-side. */
+  /** Project display label when the session is assigned to a project. */
   projectLabel?: string | null
   /** When set, the session is currently surfaced by an IM chat. Display as
    *  a small chip so the user can spot IM-shared sessions. */

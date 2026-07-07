@@ -1190,6 +1190,42 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let assistant_msg =
                         persister.build_assistant_message(&trailing_text, thinking, duration_ms);
                     let assistant_id = db.append_message(&session_id, &assistant_msg).ok();
+                    if let Some(message_id) = assistant_id {
+                        let usage = persister.usage();
+                        let mut event =
+                            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT)
+                                .with_usage(
+                                    usage.input_tokens.unwrap_or(0) as u64,
+                                    usage.output_tokens.unwrap_or(0) as u64,
+                                    usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                                    usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                                );
+                        event.request_key = Some(format!("message:{message_id}"));
+                        event.timestamp = Some(chrono::Utc::now().to_rfc3339());
+                        event.operation = Some("chat".to_string());
+                        event.source = Some(source.as_str().to_string());
+                        event.provider_id = Some(model_ref.provider_id.clone());
+                        event.provider_name = Some(prov.name.clone());
+                        event.model_id = Some(
+                            usage
+                                .model
+                                .clone()
+                                .unwrap_or_else(|| model_ref.model_id.clone()),
+                        );
+                        event.session_id = Some(session_id.clone());
+                        event.agent_id = Some(agent_id.clone());
+                        event.duration_ms = Some(duration_ms);
+                        event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
+                        if let Err(e) = db.insert_model_usage_event(&event) {
+                            app_warn!(
+                                "model_usage",
+                                "chat",
+                                "failed to record chat usage for message {}: {}",
+                                message_id,
+                                e
+                            );
+                        }
+                    }
 
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);

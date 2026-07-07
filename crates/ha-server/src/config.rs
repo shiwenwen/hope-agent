@@ -5,6 +5,8 @@ pub struct ServerConfig {
     pub bind_addr: String,
     /// Optional API key for authenticating requests.
     pub api_key: Option<String>,
+    /// Optional token limited to read-only Knowledge Agent endpoints.
+    pub knowledge_agent_read_token: Option<String>,
     /// Allowed CORS origins. Empty = permissive (allow all).
     pub cors_origins: Vec<String>,
 }
@@ -14,6 +16,7 @@ impl Default for ServerConfig {
         Self {
             bind_addr: "127.0.0.1:8420".to_string(),
             api_key: None,
+            knowledge_agent_read_token: None,
             cors_origins: Vec::new(),
         }
     }

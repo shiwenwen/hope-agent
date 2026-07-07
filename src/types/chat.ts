@@ -205,6 +205,8 @@ export interface Message {
   /** If set, this user message came from an IM channel */
   channelInbound?: {
     channelId: string
+    accountId?: string
+    chatId?: string
     senderName?: string
   }
   /** Slash command history rows are stored as event messages so they never

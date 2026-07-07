@@ -35,7 +35,9 @@ export default function IncognitoToggle({
 
   const tooltip = disabled
     ? t(DISABLED_REASON_KEY[disabledReason] ?? "chat.incognitoMutuallyExclusive")
-    : t(sessionId ? "chat.incognito" : "chat.incognitoPreset")
+    : enabled
+      ? t("chat.incognitoDisable", { defaultValue: "Turn off incognito chat" })
+      : t(sessionId ? "chat.incognito" : "chat.incognitoPreset")
   const titlebar = variant === "titlebar"
 
   return (
@@ -52,7 +54,7 @@ export default function IncognitoToggle({
           saving && "disabled:cursor-wait disabled:opacity-70",
           enabled && !disabled
             ? titlebar
-              ? "text-slate-700 dark:text-slate-200"
+              ? "text-slate-700 hover:text-slate-900 dark:text-slate-200 dark:hover:text-white"
               : INCOGNITO_TOGGLE_ON_CLASSES
             : "text-muted-foreground hover:text-foreground",
         )}
@@ -60,7 +62,7 @@ export default function IncognitoToggle({
         {saving ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Ghost className="h-4 w-4" />
+          <Ghost className="h-4 w-4" strokeWidth={1.75} />
         )}
         {showLabel && <span>{t("chat.incognito")}</span>}
       </button>

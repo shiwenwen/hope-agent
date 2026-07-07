@@ -796,6 +796,10 @@ pub struct EmbeddedServerConfig {
     /// API Key for authenticating requests (None = no auth).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Token limited to read-only `/api/knowledge/agent/{search,read,expand,sources}`.
+    /// The global `api_key` remains the owner token for every API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_agent_read_token: Option<String>,
     /// Publicly-reachable base URL for this server, used when IM channels
     /// that only accept remote HTTPS media (LINE / QQ Bot native media, IRC
     /// text fallback) need to send `/api/attachments/...` links. `None`
@@ -805,11 +809,42 @@ pub struct EmbeddedServerConfig {
     pub public_base_url: Option<String>,
 }
 
+impl EmbeddedServerConfig {
+    /// Merge a partial update over an existing server config.
+    ///
+    /// This matches onboarding semantics for optional secrets:
+    /// - `None` keeps the existing value (the GUI only receives masked values).
+    /// - `Some("")` clears the value.
+    /// - `Some(value)` replaces it.
+    pub fn merge_over_existing(mut self, existing: &EmbeddedServerConfig) -> Self {
+        if self.bind_addr.trim().is_empty() {
+            self.bind_addr = existing.bind_addr.clone();
+        }
+        self.api_key = merge_optional_config_string(self.api_key, existing.api_key.clone());
+        self.knowledge_agent_read_token = merge_optional_config_string(
+            self.knowledge_agent_read_token,
+            existing.knowledge_agent_read_token.clone(),
+        );
+        self.public_base_url =
+            merge_optional_config_string(self.public_base_url, existing.public_base_url.clone());
+        self
+    }
+}
+
+fn merge_optional_config_string(next: Option<String>, existing: Option<String>) -> Option<String> {
+    match next {
+        Some(value) if value.is_empty() => None,
+        Some(value) => Some(value),
+        None => existing,
+    }
+}
+
 impl Default for EmbeddedServerConfig {
     fn default() -> Self {
         Self {
             bind_addr: default_server_bind(),
             api_key: None,
+            knowledge_agent_read_token: None,
             public_base_url: None,
         }
     }
@@ -934,17 +969,26 @@ pub struct AppConfig {
     /// setting (GUI + `update_settings`), unlike `knowledge_chunk`.
     #[serde(default)]
     pub knowledge_search: crate::knowledge::KnowledgeSearchConfig,
+    /// Knowledge source-to-note organization agent. Defaults to inheriting the
+    /// global default agent, but can be pinned independently from recap/chat.
+    #[serde(default)]
+    pub knowledge_compile: crate::knowledge::KnowledgeCompileConfig,
     /// Knowledge Layer-2 autonomous maintenance (WS6): scheduling + per-task
     /// toggles + auto-approve for the proposal review queue. Disabled by default.
     #[serde(default)]
     pub knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig,
     /// Read bridge ③ — passive related-notes prompt (Phase 3, D7): each user turn
-    /// surface the top accessible-KB note titles as an independent untrusted cache
-    /// block. Opt-in, disabled by default (access is already per-session gated, so
-    /// a single global toggle suffices). MEDIUM risk (context/cost), writable via
-    /// `update_settings`.
+    /// surfaces the top accessible-KB note titles as an independent untrusted
+    /// cache block. Enabled by default because it is retrieval-only, title-only,
+    /// and still fully gated by session/IM/incognito KB access. MEDIUM risk
+    /// (context/cost), writable via `update_settings`.
     #[serde(default)]
     pub knowledge_passive_recall: crate::knowledge::PassiveRecallConfig,
+    /// Optional retention for original audio/video/image source files and image
+    /// thumbnails. HIGH/privacy setting; disabled by default and controlled by
+    /// owner-plane settings only.
+    #[serde(default)]
+    pub knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig,
     /// Deprecated legacy embedding config. Kept as a deserialization sink only;
     /// user-facing embedding config lives in `embedding_models` +
     /// `memory_embedding`.
@@ -1282,8 +1326,10 @@ impl Default for AppConfig {
             knowledge_embedding: crate::memory::EmbeddingSelection::default(),
             knowledge_chunk: crate::knowledge::ChunkConfig::default(),
             knowledge_search: crate::knowledge::KnowledgeSearchConfig::default(),
+            knowledge_compile: crate::knowledge::KnowledgeCompileConfig::default(),
             knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig::default(),
             knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
+            knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),

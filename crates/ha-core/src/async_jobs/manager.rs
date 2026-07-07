@@ -235,6 +235,96 @@ impl JobManager {
         super::retention::spawn_background_loop()
     }
 
+    // ── Owner-plane knowledge import projection ───────────────────────────
+    //
+    // Knowledge source import runs have their own durable fact layer
+    // (`knowledge_source_import_runs/items` in sessions.db). The row created
+    // here is only the unified background-job lifecycle projection, so owner
+    // work benefits from the same restart/interruption accounting without
+    // injecting anything into a chat session.
+
+    pub fn spawn_knowledge_import(kb_id: &str, run_id: &str, total_count: u32) -> Option<String> {
+        let db = super::get_async_jobs_db()?;
+        let job_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp();
+        let job = BackgroundJob {
+            job_id: job_id.clone(),
+            kind: JobKind::Tool,
+            subagent_run_id: None,
+            group_id: None,
+            session_id: None,
+            agent_id: None,
+            tool_name: "knowledge_source_import".to_string(),
+            tool_call_id: None,
+            args_json: serde_json::json!({
+                "kbId": kb_id,
+                "runId": run_id,
+                "totalCount": total_count,
+            })
+            .to_string(),
+            status: JobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: now,
+            completed_at: None,
+            injected: true,
+            origin: "owner".to_string(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        };
+        if let Err(e) = db.insert(&job) {
+            crate::app_warn!(
+                "async_jobs",
+                "knowledge_import",
+                "Failed to insert knowledge import job for run {}: {}",
+                run_id,
+                e
+            );
+            return None;
+        }
+        super::events::emit_created(
+            &job_id,
+            JobKind::Tool,
+            "knowledge_source_import",
+            JobStatus::Running.as_str(),
+            None,
+        );
+        Some(job_id)
+    }
+
+    pub fn finish_knowledge_import(
+        job_id: &str,
+        status: JobStatus,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+    ) {
+        let Some(db) = super::get_async_jobs_db() else {
+            return;
+        };
+        let now = chrono::Utc::now().timestamp();
+        if let Err(e) = db.update_terminal(job_id, status, result_preview, None, error, now) {
+            crate::app_warn!(
+                "async_jobs",
+                "knowledge_import",
+                "Failed to finish knowledge import job {}: {}",
+                job_id,
+                e
+            );
+            return;
+        }
+        let _ = db.mark_injected(job_id);
+        super::events::emit_completed(
+            job_id,
+            JobKind::Tool,
+            "knowledge_source_import",
+            status.as_str(),
+            None,
+        );
+    }
+
     // ── Subagent projection (R6) ───────────────────────────────────────────
     //
     // A background subagent run gets a one-way scheduling projection here so it
