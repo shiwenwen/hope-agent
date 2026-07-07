@@ -262,6 +262,231 @@ pub async fn from_codebase(dir: &Path) -> Result<ExtractedSystem> {
     run_extract("codebase style files", &sample).await
 }
 
+// ── Figma 导入（D2 网络通道，**owner 平面专属**：需 Figma 访问令牌，凭据不进模型面）─────────
+
+/// 从 Figma 文件 URL 或 file key 解析出 file key。
+/// 支持 `figma.com/file/{key}/…` / `figma.com/design/{key}/…` / 裸 key。
+fn parse_figma_key(input: &str) -> Result<String> {
+    let s = input.trim();
+    if s.is_empty() {
+        anyhow::bail!("Figma file URL or key is required");
+    }
+    // 裸 key（Figma key 是 [A-Za-z0-9]+）。
+    if !s.contains('/') && !s.contains(':') && !s.contains('.') {
+        return Ok(s.to_string());
+    }
+    for marker in ["/file/", "/design/"] {
+        if let Some(i) = s.find(marker) {
+            let key: String = s[i + marker.len()..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect();
+            if !key.is_empty() {
+                return Ok(key);
+            }
+        }
+    }
+    anyhow::bail!("could not parse a Figma file key from '{input}'")
+}
+
+/// 对 api.figma.com 发起鉴权 GET（SSRF 校验 + `X-Figma-Token` header），返回解析后 JSON。
+async fn figma_get(url: &str, token: &str) -> Result<serde_json::Value> {
+    use futures_util::StreamExt;
+    const MAX_BYTES: usize = 12 * 1024 * 1024; // Figma 文件 JSON 可能较大
+
+    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let policy = ssrf_cfg.web_fetch();
+    let trusted = ssrf_cfg.trusted_hosts.clone();
+    let parsed = crate::security::ssrf::check_url(url, policy, &trusted).await?;
+
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(30)),
+    )
+    .build()
+    .map_err(|e| anyhow::anyhow!("http client error: {e}"))?;
+
+    let resp = client
+        .get(parsed)
+        .header("X-Figma-Token", token)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Figma request failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let hint = match status.as_u16() {
+            401 | 403 => " (check the token has file_read scope and access to this file)",
+            404 => " (file not found — check the URL / key)",
+            429 => " (rate limited — retry later)",
+            _ => "",
+        };
+        anyhow::bail!("Figma API returned {}{hint}", status.as_u16());
+    }
+    let mut bytes = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| anyhow::anyhow!("stream error: {e}"))?;
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > MAX_BYTES {
+            anyhow::bail!("Figma response exceeds {} MB cap", MAX_BYTES / (1024 * 1024));
+        }
+    }
+    serde_json::from_slice(&bytes).map_err(|e| anyhow::anyhow!("Figma JSON parse error: {e}"))
+}
+
+/// Figma color（`{r,g,b,a}` 0..1 浮点）→ `#rrggbb[aa]`。
+fn figma_color_hex(c: &serde_json::Value) -> Option<String> {
+    let (r, g, b) = (
+        c.get("r")?.as_f64()?,
+        c.get("g")?.as_f64()?,
+        c.get("b")?.as_f64()?,
+    );
+    let a = c.get("a").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    let to = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+    if a >= 0.999 {
+        Some(format!("#{:02x}{:02x}{:02x}", to(r), to(g), to(b)))
+    } else {
+        Some(format!("#{:02x}{:02x}{:02x}{:02x}", to(r), to(g), to(b), to(a)))
+    }
+}
+
+/// 从「已发布 styles + 其节点值」组装可读 material（颜色 hex / 文字排印 / 阴影）。
+fn material_from_styles(styles: &serde_json::Value, nodes: &serde_json::Value) -> String {
+    let (mut colors, mut texts, mut effects) = (Vec::new(), Vec::new(), Vec::new());
+    let empty = Vec::new();
+    for st in styles["meta"]["styles"].as_array().unwrap_or(&empty) {
+        let name = st["name"].as_str().unwrap_or("");
+        let node_id = st["node_id"].as_str().unwrap_or("");
+        let doc = &nodes["nodes"][node_id]["document"];
+        match st["style_type"].as_str().unwrap_or("") {
+            "FILL" => {
+                if let Some(hex) = doc["fills"]
+                    .as_array()
+                    .and_then(|f| f.iter().find(|p| p["type"] == "SOLID"))
+                    .and_then(|p| figma_color_hex(&p["color"]))
+                {
+                    colors.push(format!("- '{name}': {hex}"));
+                }
+            }
+            "TEXT" => {
+                let s = &doc["style"];
+                let fam = s["fontFamily"].as_str().unwrap_or("");
+                let size = s["fontSize"].as_f64().unwrap_or(0.0);
+                let weight = s["fontWeight"].as_f64().unwrap_or(0.0);
+                if !fam.is_empty() || size > 0.0 {
+                    texts.push(format!("- '{name}': {fam} {size}px weight {weight}"));
+                }
+            }
+            "EFFECT" => {
+                if let Some(eff) = doc["effects"]
+                    .as_array()
+                    .and_then(|e| e.iter().find(|x| x["type"] == "DROP_SHADOW"))
+                {
+                    let x = eff["offset"]["x"].as_f64().unwrap_or(0.0);
+                    let y = eff["offset"]["y"].as_f64().unwrap_or(0.0);
+                    let radius = eff["radius"].as_f64().unwrap_or(0.0);
+                    let col = figma_color_hex(&eff["color"]).unwrap_or_default();
+                    effects.push(format!("- '{name}': {x}px {y}px blur {radius}px {col}"));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    if !colors.is_empty() {
+        out.push(format!("Colors:\n{}", colors.join("\n")));
+    }
+    if !texts.is_empty() {
+        out.push(format!("Text styles:\n{}", texts.join("\n")));
+    }
+    if !effects.is_empty() {
+        out.push(format!("Effects (shadows):\n{}", effects.join("\n")));
+    }
+    out.join("\n\n")
+}
+
+/// 无已发布 styles 时的回退：遍历文档树采集去重的 SOLID 填充色（有界，防超大文件）。
+fn material_from_document(doc: &serde_json::Value, cap: usize) -> String {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut stack = vec![doc];
+    let mut visited = 0usize;
+    while let Some(node) = stack.pop() {
+        if seen.len() >= cap || visited > 20000 {
+            break;
+        }
+        visited += 1;
+        if let Some(fills) = node.get("fills").and_then(|f| f.as_array()) {
+            for p in fills {
+                if p["type"] == "SOLID" {
+                    if let Some(hex) = figma_color_hex(&p["color"]) {
+                        seen.insert(hex);
+                    }
+                }
+            }
+        }
+        if let Some(children) = node.get("children").and_then(|c| c.as_array()) {
+            for ch in children {
+                stack.push(ch);
+            }
+        }
+    }
+    if seen.is_empty() {
+        return String::new();
+    }
+    let colors: Vec<String> = seen.iter().map(|h| format!("- {h}")).collect();
+    format!("Colors sampled from the document:\n{}", colors.join("\n"))
+}
+
+/// 从 **Figma 文件**提取品牌设计系统（D2 网络通道，**owner 平面专属**）。优先读已发布的
+/// color/text/effect styles；无则回退采样文档 SOLID 填充色。汇成 material 后交 LLM 蒸馏成
+/// 完整 9 段设计契约 + token（与 from_url / from_codebase 同管线）。
+pub async fn from_figma(url_or_key: &str, token: &str) -> Result<ExtractedSystem> {
+    let token = token.trim();
+    if token.is_empty() {
+        anyhow::bail!("Figma access token is required");
+    }
+    let key = parse_figma_key(url_or_key)?;
+
+    // 1) 已发布 styles + 其节点值。
+    let styles = figma_get(&format!("https://api.figma.com/v1/files/{key}/styles"), token).await?;
+    let node_ids: Vec<String> = styles["meta"]["styles"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s["node_id"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut material = String::new();
+    if !node_ids.is_empty() {
+        // Figma nodes 端点对 ids 数量有实际上限，取前 200 个足够覆盖一套设计系统。
+        let ids: Vec<String> = node_ids.into_iter().take(200).collect();
+        let nodes = figma_get(
+            &format!("https://api.figma.com/v1/files/{key}/nodes?ids={}", ids.join(",")),
+            token,
+        )
+        .await?;
+        material = material_from_styles(&styles, &nodes);
+    }
+
+    // 2) 无已发布 styles → 回退采样文档填充色。
+    if material.trim().is_empty() {
+        let file = figma_get(&format!("https://api.figma.com/v1/files/{key}?depth=4"), token).await?;
+        material = material_from_document(&file["document"], 60);
+    }
+
+    if material.trim().is_empty() {
+        anyhow::bail!(
+            "no published color/text/effect styles or filled layers found in this Figma file — publish your styles or ensure the file has colored layers"
+        );
+    }
+    run_extract(
+        "Figma file design styles (colors, typography, effects)",
+        &material,
+    )
+    .await
+}
+
 /// 从**截图 / 设计图**提取（D2 视觉通道）。读本地图片文件 → 视觉模型分析 → 归纳
 /// 品牌设计契约。走 design 层自包含视觉调用（不改主对话链路），支持 Anthropic /
 /// OpenAI-Chat 两种格式的 vision 模型。
@@ -496,6 +721,78 @@ fn collect_style_samples(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn figma_key_parsing() {
+        assert_eq!(parse_figma_key("ABC123def").unwrap(), "ABC123def");
+        assert_eq!(
+            parse_figma_key("https://www.figma.com/file/ABC123/My-Design?node-id=1-2").unwrap(),
+            "ABC123"
+        );
+        assert_eq!(
+            parse_figma_key("https://figma.com/design/XYZ789/Brand").unwrap(),
+            "XYZ789"
+        );
+        assert!(parse_figma_key("").is_err());
+        assert!(parse_figma_key("https://figma.com/community/foo").is_err());
+    }
+
+    #[test]
+    fn figma_color_to_hex() {
+        let c = serde_json::json!({ "r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0 });
+        assert_eq!(figma_color_hex(&c).as_deref(), Some("#000000"));
+        let c = serde_json::json!({ "r": 1.0, "g": 1.0, "b": 1.0 });
+        assert_eq!(figma_color_hex(&c).as_deref(), Some("#ffffff"));
+        // 半透明 → 8 位。
+        let c = serde_json::json!({ "r": 0.5, "g": 0.5, "b": 0.5, "a": 0.5 });
+        assert_eq!(figma_color_hex(&c).as_deref(), Some("#80808080"));
+        // 缺分量 → None（不 panic）。
+        assert_eq!(figma_color_hex(&serde_json::json!({ "r": 0.1 })), None);
+    }
+
+    #[test]
+    fn figma_material_from_published_styles() {
+        let styles = serde_json::json!({ "meta": { "styles": [
+            { "name": "Primary", "node_id": "1:2", "style_type": "FILL" },
+            { "name": "Heading", "node_id": "1:3", "style_type": "TEXT" },
+            { "name": "Card", "node_id": "1:4", "style_type": "EFFECT" }
+        ]}});
+        let nodes = serde_json::json!({ "nodes": {
+            "1:2": { "document": { "fills": [ { "type": "SOLID", "color": { "r": 0.1, "g": 0.2, "b": 0.9, "a": 1.0 } } ] } },
+            "1:3": { "document": { "style": { "fontFamily": "Inter", "fontSize": 24.0, "fontWeight": 700.0 } } },
+            "1:4": { "document": { "effects": [ { "type": "DROP_SHADOW", "offset": { "x": 0.0, "y": 2.0 }, "radius": 8.0, "color": { "r": 0.0, "g": 0.0, "b": 0.0, "a": 0.1 } } ] } }
+        }});
+        let m = material_from_styles(&styles, &nodes);
+        assert!(m.contains("'Primary': #1a33e6"), "color: {m}");
+        assert!(m.contains("'Heading': Inter 24px weight 700"), "text: {m}");
+        assert!(m.contains("'Card':") && m.contains("blur 8px"), "effect: {m}");
+    }
+
+    #[test]
+    fn figma_material_missing_node_is_skipped() {
+        // node_id 在 styles 里但 nodes 响应缺失 → 跳过、不 panic。
+        let styles = serde_json::json!({ "meta": { "styles": [
+            { "name": "Ghost", "node_id": "9:9", "style_type": "FILL" }
+        ]}});
+        let nodes = serde_json::json!({ "nodes": {} });
+        assert_eq!(material_from_styles(&styles, &nodes), "");
+    }
+
+    #[test]
+    fn figma_document_fallback_dedups_colors() {
+        let doc = serde_json::json!({
+            "fills": [ { "type": "SOLID", "color": { "r": 1.0, "g": 0.0, "b": 0.0 } } ],
+            "children": [
+                { "fills": [ { "type": "SOLID", "color": { "r": 1.0, "g": 0.0, "b": 0.0 } } ] },
+                { "fills": [ { "type": "SOLID", "color": { "r": 0.0, "g": 1.0, "b": 0.0 } } ],
+                  "children": [ { "fills": [ { "type": "GRADIENT_LINEAR" } ] } ] }
+            ]
+        });
+        let m = material_from_document(&doc, 60);
+        assert!(m.contains("#ff0000") && m.contains("#00ff00"));
+        // 去重：#ff0000 只出现一次。
+        assert_eq!(m.matches("#ff0000").count(), 1);
+    }
 
     #[test]
     fn parse_fenced() {

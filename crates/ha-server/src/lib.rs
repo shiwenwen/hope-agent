@@ -1751,6 +1751,10 @@ fn build_router_with_cors(
             post(routes::design::import_design_md),
         )
         .route(
+            "/design/systems/figma",
+            post(routes::design::import_figma_system),
+        )
+        .route(
             "/design/directions",
             post(routes::design::propose_directions),
         )

@@ -774,6 +774,7 @@ pub fn run() {
             commands::design::export_design_zip_cmd,
             commands::design::extract_design_system_cmd,
             commands::design::import_design_md_cmd,
+            commands::design::import_figma_system_cmd,
             commands::design::export_design_md_cmd,
             commands::design::export_design_tokens_cmd,
             commands::design::propose_design_directions_cmd,

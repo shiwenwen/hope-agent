@@ -401,6 +401,19 @@
       "empty": "Hệ thống thiết kế này không có biến nào để xuất",
       "copy": "Sao chép",
       "download": "Tải xuống"
+    },
+    "figma": {
+      "entry": "Nhập từ Figma…",
+      "title": "Nhập từ Figma",
+      "desc": "Lấy các kiểu màu / chữ / đổ bóng đã xuất bản của tệp Figma và chưng cất thành hệ thống thiết kế thương hiệu. Token chỉ dùng cho lần nhập này và không được lưu.",
+      "url": "URL hoặc key tệp Figma",
+      "token": "Token truy cập cá nhân",
+      "tokenHint": "Tạo tại Figma → Settings → Security → Personal access tokens (cần quyền file_read).",
+      "name": "Tên hệ thống (tùy chọn)",
+      "namePlaceholder": "Hệ thống thiết kế Figma",
+      "import": "Nhập",
+      "ok": "Đã nhập hệ thống thiết kế từ Figma",
+      "err": "Nhập Figma thất bại — kiểm tra URL và token"
     }
   },
   "channels": {

@@ -401,6 +401,19 @@
       "empty": "Este sistema de diseño no tiene variables exportables",
       "copy": "Copiar",
       "download": "Descargar"
+    },
+    "figma": {
+      "entry": "Importar de Figma…",
+      "title": "Importar de Figma",
+      "desc": "Obtén los estilos de color / texto / sombra publicados de un archivo de Figma y destílalos en un sistema de diseño de marca. El token solo se usa para esta importación y nunca se guarda.",
+      "url": "URL o clave del archivo de Figma",
+      "token": "Token de acceso personal",
+      "tokenHint": "Genera uno en Figma → Settings → Security → Personal access tokens (necesita permiso file_read).",
+      "name": "Nombre del sistema (opcional)",
+      "namePlaceholder": "Sistema de diseño de Figma",
+      "import": "Importar",
+      "ok": "Sistema de diseño importado de Figma",
+      "err": "Error al importar de Figma: revisa la URL y el token"
     }
   },
   "channels": {

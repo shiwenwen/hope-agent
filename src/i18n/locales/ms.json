@@ -401,6 +401,19 @@
       "empty": "Sistem reka bentuk ini tiada pemboleh ubah untuk dieksport",
       "copy": "Salin",
       "download": "Muat turun"
+    },
+    "figma": {
+      "entry": "Import dari Figma…",
+      "title": "Import dari Figma",
+      "desc": "Tarik gaya warna / teks / bayang yang diterbitkan daripada fail Figma dan sulingkannya menjadi sistem reka bentuk jenama. Token hanya digunakan untuk import ini dan tidak disimpan.",
+      "url": "URL atau kunci fail Figma",
+      "token": "Token akses peribadi",
+      "tokenHint": "Jana satu di Figma → Settings → Security → Personal access tokens (perlu skop file_read).",
+      "name": "Nama sistem (pilihan)",
+      "namePlaceholder": "Sistem reka bentuk Figma",
+      "import": "Import",
+      "ok": "Sistem reka bentuk diimport dari Figma",
+      "err": "Import Figma gagal — semak URL dan token"
     }
   },
   "channels": {

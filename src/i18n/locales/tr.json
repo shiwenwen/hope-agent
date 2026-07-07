@@ -401,6 +401,19 @@
       "empty": "Bu tasarım sisteminde dışa aktarılabilir değişken yok",
       "copy": "Kopyala",
       "download": "İndir"
+    },
+    "figma": {
+      "entry": "Figma'dan içe aktar…",
+      "title": "Figma'dan içe aktar",
+      "desc": "Bir Figma dosyasının yayımlanmış renk / metin / gölge stillerini alıp bir marka tasarım sistemine dönüştürün. Token yalnızca bu içe aktarma için kullanılır ve saklanmaz.",
+      "url": "Figma dosya URL'si veya anahtarı",
+      "token": "Kişisel erişim token'ı",
+      "tokenHint": "Figma → Settings → Security → Personal access tokens bölümünden oluşturun (file_read izni gerekir).",
+      "name": "Sistem adı (isteğe bağlı)",
+      "namePlaceholder": "Figma tasarım sistemi",
+      "import": "İçe aktar",
+      "ok": "Tasarım sistemi Figma'dan içe aktarıldı",
+      "err": "Figma içe aktarma başarısız — URL ve token'ı kontrol edin"
     }
   },
   "channels": {

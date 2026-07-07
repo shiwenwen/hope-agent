@@ -401,6 +401,19 @@
       "empty": "이 디자인 시스템에는 내보낼 변수가 없습니다",
       "copy": "복사",
       "download": "다운로드"
+    },
+    "figma": {
+      "entry": "Figma에서 가져오기…",
+      "title": "Figma에서 가져오기",
+      "desc": "Figma 파일의 게시된 색상 / 텍스트 / 그림자 스타일을 가져와 브랜드 디자인 시스템으로 정제합니다. 토큰은 이번 가져오기에만 사용되며 저장되지 않습니다.",
+      "url": "Figma 파일 URL 또는 키",
+      "token": "개인 액세스 토큰",
+      "tokenHint": "Figma → Settings → Security → Personal access tokens에서 생성(file_read 권한 필요).",
+      "name": "시스템 이름(선택)",
+      "namePlaceholder": "Figma 디자인 시스템",
+      "import": "가져오기",
+      "ok": "Figma에서 디자인 시스템을 가져왔습니다",
+      "err": "Figma 가져오기 실패 — URL과 토큰을 확인하세요"
     }
   },
   "channels": {

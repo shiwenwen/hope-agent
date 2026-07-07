@@ -1756,6 +1756,30 @@ pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMet
     Ok(meta)
 }
 
+/// 从 **Figma 文件**导入品牌设计系统（**owner 平面专属**：需 Figma 访问令牌，凭据不进模型面）。
+/// `url` 为 Figma 文件 URL 或 file key，`token` 为用户的 Figma 个人访问令牌（按次传、不落盘）。
+pub async fn import_figma(url: &str, token: &str, name: Option<&str>) -> Result<DesignSystemMeta> {
+    let extracted = super::extract::from_figma(url, token).await?;
+    let name = name
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("Figma 设计系统")
+        .to_string();
+    let db = open_db()?;
+    let id = slugify(&name);
+    let meta = system::save_system(
+        &db,
+        &id,
+        &name,
+        Some(&extracted.summary),
+        &extracted.system_md,
+        &extracted.tokens,
+        "extracted",
+    )?;
+    emit("design:system_changed", json!({ "systemId": id }));
+    Ok(meta)
+}
+
 /// 从历史版本恢复：读版本快照源码，生成一个**新**版本（原版本不动）。
 pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignArtifact> {
     let db = open_db()?;

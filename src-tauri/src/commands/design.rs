@@ -222,6 +222,18 @@ pub async fn import_design_md_cmd(name: String, md: String) -> Result<DesignSyst
         .map_err(Into::into)
 }
 
+/// 从 Figma 文件导入设计系统（owner 平面专属；token 按次传、不落盘）。
+#[tauri::command]
+pub async fn import_figma_system_cmd(
+    url: String,
+    token: String,
+    name: Option<String>,
+) -> Result<DesignSystemMeta, CmdError> {
+    service::import_figma(&url, &token, name.as_deref())
+        .await
+        .map_err(Into::into)
+}
+
 /// 导出一个设计系统为规范 DESIGN.md 文本 → `{ designMd }`。owner 平面。
 #[tauri::command]
 pub async fn export_design_md_cmd(system_id: String) -> Result<serde_json::Value, CmdError> {

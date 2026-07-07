@@ -401,6 +401,19 @@
       "empty": "This design system has no exportable variables",
       "copy": "Copy",
       "download": "Download"
+    },
+    "figma": {
+      "entry": "Import from Figma…",
+      "title": "Import from Figma",
+      "desc": "Pull a Figma file's published color / text / effect styles and distill them into a brand design system. The token is used only for this import and never saved.",
+      "url": "Figma file URL or key",
+      "token": "Personal access token",
+      "tokenHint": "Generate one in Figma → Settings → Security → Personal access tokens (needs file_read scope).",
+      "name": "System name (optional)",
+      "namePlaceholder": "Figma design system",
+      "import": "Import",
+      "ok": "Imported design system from Figma",
+      "err": "Figma import failed — check the URL and token"
     }
   },
   "channels": {

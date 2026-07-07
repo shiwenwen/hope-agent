@@ -401,6 +401,19 @@
       "empty": "このデザインシステムに書き出せる変数はありません",
       "copy": "コピー",
       "download": "ダウンロード"
+    },
+    "figma": {
+      "entry": "Figma から取り込み…",
+      "title": "Figma から取り込み",
+      "desc": "Figma ファイルの公開済みカラー / テキスト / エフェクトスタイルを取得し、ブランドデザインシステムに蒸留します。トークンは今回の取り込みにのみ使用し、保存しません。",
+      "url": "Figma ファイルの URL またはキー",
+      "token": "個人アクセストークン",
+      "tokenHint": "Figma → Settings → Security → Personal access tokens で生成（file_read 権限が必要）。",
+      "name": "システム名（任意）",
+      "namePlaceholder": "Figma デザインシステム",
+      "import": "取り込む",
+      "ok": "Figma からデザインシステムを取り込みました",
+      "err": "Figma の取り込みに失敗しました。URL とトークンを確認してください"
     }
   },
   "channels": {

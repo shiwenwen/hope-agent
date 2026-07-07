@@ -439,6 +439,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `save_design_system_cmd` | `POST /api/design/systems` | ✅ |
 | `extract_design_system_cmd` | `POST /api/design/systems/extract`（brief/codebase/url/image 反向提取） | ✅ |
 | `import_design_md_cmd` | `POST /api/design/systems/import`（导入 DESIGN.md 规范文本） | ✅ |
+| `import_figma_system_cmd` | `POST /api/design/systems/figma`（从 Figma 文件导入设计系统；owner 平面，令牌按次传不落盘） | ✅ |
 | `export_design_md_cmd` | `GET /api/design/systems/{id}/design-md`（导出为规范 DESIGN.md） | ✅ |
 | `export_design_tokens_cmd` | `GET /api/design/systems/{id}/tokens/export`（Token 导出多平台代码：CSS/SCSS/TS/Swift/Android XML/DTCG） | ✅ |
 | `propose_design_directions_cmd` | `POST /api/design/directions` | ✅ |

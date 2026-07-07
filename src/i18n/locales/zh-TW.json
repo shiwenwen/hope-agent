@@ -401,6 +401,19 @@
       "empty": "此設計系統沒有可匯出的變數",
       "copy": "複製",
       "download": "下載"
+    },
+    "figma": {
+      "entry": "從 Figma 匯入…",
+      "title": "從 Figma 匯入",
+      "desc": "拉取 Figma 檔案已發布的顏色 / 文字 / 陰影樣式，蒸餾成品牌設計系統。權杖僅本次使用、不會儲存。",
+      "url": "Figma 檔案 URL 或 key",
+      "token": "個人存取權杖",
+      "tokenHint": "在 Figma → Settings → Security → Personal access tokens 產生（需 file_read 權限）。",
+      "name": "系統名稱（可選）",
+      "namePlaceholder": "Figma 設計系統",
+      "import": "匯入",
+      "ok": "已從 Figma 匯入設計系統",
+      "err": "Figma 匯入失敗，請檢查 URL 與權杖"
     }
   },
   "channels": {

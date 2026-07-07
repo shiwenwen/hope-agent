@@ -83,6 +83,15 @@ pub struct ImportDesignMdBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportFigmaBody {
+    pub url: String,
+    pub token: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProposeDirectionsBody {
     pub brief: String,
     #[serde(default)]
@@ -377,6 +386,18 @@ pub async fn import_design_md(
 ) -> Result<Json<DesignSystemMeta>, AppError> {
     Ok(Json(
         service::import_design_md(&body.name, &body.md)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/systems/figma` — import a design system from a Figma file
+/// (owner plane; the access token is passed per-call and never persisted).
+pub async fn import_figma_system(
+    Json(body): Json<ImportFigmaBody>,
+) -> Result<Json<DesignSystemMeta>, AppError> {
+    Ok(Json(
+        service::import_figma(&body.url, &body.token, body.name.as_deref())
             .await
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))

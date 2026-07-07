@@ -41,6 +41,7 @@ import {
   FileType2,
   FileArchive,
   FileCode,
+  Frame,
   Code2,
   AlertCircle,
   X,
@@ -54,6 +55,7 @@ import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
+import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -166,6 +168,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [tokenEditorSystem, setTokenEditorSystem] = useState<DesignSystemMeta | null>(null)
   const [tokenExportOpen, setTokenExportOpen] = useState(false)
   const [tokenExportSystem, setTokenExportSystem] = useState<DesignSystemMeta | null>(null)
+  const [figmaImportOpen, setFigmaImportOpen] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<
     { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
@@ -1580,6 +1583,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       <FileCode className="h-3.5 w-3.5" />
                       {t("design.importDesignMd", "导入 DESIGN.md…")}
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1.5"
+                      onClick={() => {
+                        setSystemPickerOpen(false)
+                        setFigmaImportOpen(true)
+                      }}
+                    >
+                      <Frame className="h-3.5 w-3.5" />
+                      {t("design.figma.entry", "从 Figma 导入…")}
+                    </Button>
                     {activeProject.defaultSystemId && (
                       <Button
                         variant="ghost"
@@ -2178,6 +2193,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         system={tokenExportSystem}
         open={tokenExportOpen}
         onOpenChange={setTokenExportOpen}
+      />
+
+      {/* 从 Figma 导入设计系统（P3 工程轴 B） */}
+      <DesignFigmaImport
+        open={figmaImportOpen}
+        onOpenChange={setFigmaImportOpen}
+        onImported={(systemId) => {
+          void loadSystems()
+          if (activeProjectRef.current) void setProjectSystem(systemId)
+        }}
       />
 
       {/* 导出强路依赖门（MP4→ffmpeg / PDF·PNG→浏览器引擎）：未就绪让用户主动选，不静默降级。 */}

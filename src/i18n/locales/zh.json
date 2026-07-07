@@ -401,6 +401,19 @@
       "empty": "该设计系统没有可导出的变量",
       "copy": "复制",
       "download": "下载"
+    },
+    "figma": {
+      "entry": "从 Figma 导入…",
+      "title": "从 Figma 导入",
+      "desc": "拉取 Figma 文件已发布的颜色 / 文字 / 阴影样式，蒸馏成品牌设计系统。令牌仅本次使用、不会保存。",
+      "url": "Figma 文件 URL 或 key",
+      "token": "个人访问令牌",
+      "tokenHint": "在 Figma → Settings → Security → Personal access tokens 生成（需 file_read 权限）。",
+      "name": "系统名称（可选）",
+      "namePlaceholder": "Figma 设计系统",
+      "import": "导入",
+      "ok": "已从 Figma 导入设计系统",
+      "err": "Figma 导入失败，请检查 URL 与令牌"
     }
   },
   "channels": {
