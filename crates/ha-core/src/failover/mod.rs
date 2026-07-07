@@ -143,6 +143,14 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         || lower.contains("enetunreach")
         || lower.contains("connection reset")
         || lower.contains("connection refused")
+        || lower.contains("connection error")
+        || lower.contains("network error")
+        || lower.contains("network unreachable")
+        || lower.contains("error sending request")
+        || lower.contains("error trying to connect")
+        || lower.contains("dns error")
+        || lower.contains("failed to lookup address information")
+        || lower.contains("tcp connect error")
         || lower.contains("broken pipe")
         || lower.contains("error decoding response body")
         || lower.contains("error reading a body from connection")
@@ -498,6 +506,17 @@ mod tests {
         );
         assert_eq!(
             classify_error("connection closed before message completed"),
+            FailoverReason::Timeout
+        );
+        assert_eq!(
+            classify_error(
+                "Codex API request failed: error sending request for url \
+                 (https://chatgpt.com/backend-api/codex/responses)"
+            ),
+            FailoverReason::Timeout
+        );
+        assert_eq!(
+            classify_error("OpenAI Chat API request failed: error trying to connect: dns error"),
             FailoverReason::Timeout
         );
     }
