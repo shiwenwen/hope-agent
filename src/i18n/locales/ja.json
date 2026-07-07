@@ -439,7 +439,8 @@
       "sync": "同期",
       "unbind": "連携解除",
       "dirInvalid": "無効なディレクトリ"
-    }
+    },
+    "pickSystem": "デザインシステムを選択"
   },
   "channels": {
     "accountLabel": "アカウント名",

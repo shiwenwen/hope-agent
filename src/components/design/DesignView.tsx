@@ -1554,7 +1554,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 <Palette className="h-3.5 w-3.5 opacity-70" />
                 <span className="max-w-[120px] truncate">
                   {systems.find((s) => s.id === activeProject.defaultSystemId)?.name ??
-                    t("design.systemNone", "无设计系统")}
+                    t("design.pickSystem", "选择设计系统")}
                 </span>
               </Button>
               <DesignSystemPicker
@@ -2746,25 +2746,25 @@ function LaunchHome({
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 pb-12 pt-14">
+      <div className="mx-auto max-w-3xl px-6 pb-14 pt-16">
         {/* Hero */}
-        <div className="mb-7 text-center">
-          <div className="mb-4 inline-flex items-center gap-2">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
-              <Palette className="h-5 w-5 text-primary" />
+        <div className="mb-8 text-center">
+          <div className="mb-5 inline-flex items-center gap-2 text-muted-foreground">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-inset ring-primary/15">
+              <Palette className="h-4 w-4 text-primary" />
             </span>
-            <span className="text-base font-semibold">{t("design.title", "设计空间")}</span>
+            <span className="text-sm font-medium tracking-wide">{t("design.title", "设计空间")}</span>
           </div>
-          <h1 className="font-serif text-4xl font-semibold tracking-tight sm:text-5xl">
+          <h1 className="font-serif text-4xl font-semibold tracking-tight text-foreground sm:text-[3.25rem] sm:leading-[1.1]">
             {t("design.launchHeading", "你想设计什么？")}
           </h1>
-          <p className="mx-auto mt-3 max-w-lg text-sm text-muted-foreground">
+          <p className="mx-auto mt-4 max-w-lg text-[15px] text-muted-foreground">
             {t("design.launchSub", "一句话描述，直接生成可交付的设计——网页 / 演示 / 海报 / 文档 / 动效。")}
           </p>
         </div>
 
         {/* Prompt card */}
-        <div className="rounded-2xl border bg-card p-2.5 shadow-sm transition-shadow focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25">
+        <div className="rounded-2xl border border-border/60 bg-card p-3.5 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15">
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -2778,38 +2778,34 @@ function LaunchHome({
               "design.launchPlaceholder",
               "描述你想要的设计，例如「一个 SaaS 产品的定价页，三档套餐」…",
             )}
-            className="min-h-[92px] resize-none border-0 bg-transparent px-2 py-1.5 text-base shadow-none focus-visible:ring-0"
+            className="min-h-[112px] resize-none border-0 bg-transparent px-2.5 py-2 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
           />
-          <div className="mt-1 flex items-center justify-between gap-2 border-t px-1 pt-2">
+          <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-border/50 px-1 pt-2.5">
             <Button
               variant="ghost"
               size="sm"
-              className="h-8 gap-1.5 text-muted-foreground"
+              className="h-8 gap-1.5 rounded-lg text-muted-foreground hover:text-foreground"
               onClick={() => setPickerOpen(true)}
             >
-              <Palette className="h-3.5 w-3.5" />
-              <span className="max-w-[150px] truncate">
-                {systemName ?? t("design.systemNone", "无设计系统")}
+              <Palette className="h-3.5 w-3.5 opacity-80" />
+              <span className="max-w-[160px] truncate">
+                {systemName ?? t("design.pickSystem", "选择设计系统")}
               </span>
             </Button>
             <Button
               size="sm"
-              className="h-9 gap-1.5"
+              className="h-9 rounded-lg px-5 font-medium gap-1.5"
               disabled={!prompt.trim() || generating}
               onClick={onGenerate}
             >
-              {generating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
+              {generating && <Loader2 className="h-4 w-4 animate-spin" />}
               {generating ? t("design.generating", "生成中…") : t("design.generate", "生成")}
             </Button>
           </div>
         </div>
 
         {/* Kind chips */}
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
           {ARTIFACT_KINDS.map((k) => {
             const Icon = KIND_ICON[k]
             const active = k === kind
@@ -2819,10 +2815,10 @@ function LaunchHome({
                 type="button"
                 onClick={() => setKind(k)}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-colors",
+                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition-all duration-150",
                   active
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                    ? "border-primary/60 bg-primary/10 font-medium text-primary shadow-sm"
+                    : "border-border/60 text-muted-foreground hover:border-primary/40 hover:bg-accent hover:text-foreground",
                 )}
               >
                 <Icon className="h-3.5 w-3.5" />
@@ -2832,14 +2828,14 @@ function LaunchHome({
           })}
         </div>
 
-        {/* Templates（从模板开始：点选 → 填入形态 + 场景 brief，可编辑后生成） */}
+        {/* Templates（从模板开始：点选 → 填入形态 + 场景 brief，可编辑后生成；换行网格，不横向滚动） */}
         {recipes.length > 0 && (
-          <div className="mt-8">
-            <p className="mb-2 text-center text-xs font-medium text-muted-foreground">
+          <div className="mt-9">
+            <p className="mb-3 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground/80">
               {t("design.startFromTemplate", "从模板开始")}
             </p>
-            <div className="flex gap-2.5 overflow-x-auto pb-2 [scrollbar-width:thin]">
-              {recipes.map((r) => {
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+              {recipes.slice(0, 8).map((r) => {
                 const Icon = KIND_ICON[r.kind] ?? Monitor
                 return (
                   <button
@@ -2847,13 +2843,15 @@ function LaunchHome({
                     type="button"
                     onClick={() => onPickRecipe(r)}
                     title={r.summary}
-                    className="group flex w-40 shrink-0 flex-col gap-1.5 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-accent"
+                    className="group flex flex-col gap-1.5 rounded-xl border border-border/60 bg-card p-3.5 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
                   >
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
                       <Icon className="h-4 w-4" />
                     </span>
                     <span className="truncate text-sm font-medium">{r.name}</span>
-                    <span className="line-clamp-2 text-xs text-muted-foreground">{r.summary}</span>
+                    <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">
+                      {r.summary}
+                    </span>
                   </button>
                 )
               })}

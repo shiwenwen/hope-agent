@@ -439,7 +439,8 @@
       "sync": "동기화",
       "unbind": "연결 해제",
       "dirInvalid": "잘못된 디렉터리"
-    }
+    },
+    "pickSystem": "디자인 시스템 선택"
   },
   "channels": {
     "accountLabel": "계정 이름",

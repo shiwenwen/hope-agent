@@ -439,7 +439,8 @@
       "sync": "同步",
       "unbind": "解除綁定",
       "dirInvalid": "目錄無效"
-    }
+    },
+    "pickSystem": "選擇設計系統"
   },
   "channels": {
     "accountLabel": "賬戶名稱",

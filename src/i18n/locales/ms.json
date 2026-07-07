@@ -439,7 +439,8 @@
       "sync": "Segerak",
       "unbind": "Nyahikat",
       "dirInvalid": "Direktori tidak sah"
-    }
+    },
+    "pickSystem": "Pilih sistem reka bentuk"
   },
   "channels": {
     "accountLabel": "Nama akaun",

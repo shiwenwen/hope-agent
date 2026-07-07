@@ -439,7 +439,8 @@
       "sync": "同步",
       "unbind": "解绑",
       "dirInvalid": "目录无效"
-    }
+    },
+    "pickSystem": "选择设计系统"
   },
   "channels": {
     "accountLabel": "账户名称",

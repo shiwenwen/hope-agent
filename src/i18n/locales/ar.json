@@ -439,7 +439,8 @@
       "sync": "مزامنة",
       "unbind": "فك الربط",
       "dirInvalid": "مجلد غير صالح"
-    }
+    },
+    "pickSystem": "اختر نظام تصميم"
   },
   "channels": {
     "accountLabel": "اسم الحساب",

@@ -439,7 +439,8 @@
       "sync": "Eşitle",
       "unbind": "Bağı kaldır",
       "dirInvalid": "Geçersiz dizin"
-    }
+    },
+    "pickSystem": "Tasarım sistemi seç"
   },
   "channels": {
     "accountLabel": "Hesap adı",

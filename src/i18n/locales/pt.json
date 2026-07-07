@@ -439,7 +439,8 @@
       "sync": "Sincronizar",
       "unbind": "Desvincular",
       "dirInvalid": "Diretório inválido"
-    }
+    },
+    "pickSystem": "Escolher sistema de design"
   },
   "channels": {
     "accountLabel": "Nome da conta",
