@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "Tambah direktori kerja",
     "askAnything": "Beritahu idea anda, @ cari fail/nota/kemahiran, # input pantas, / arahan pantas...",
+    "goalCompletion": {
+      "completed": "Matlamat dicapai",
+      "completedWithDuration": "Matlamat dicapai dalam {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend pelayar: {{backend}}",
       "captureFailed": "Gagal menangkap bingkai, menunggu yang seterusnya",

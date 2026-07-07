@@ -334,6 +334,7 @@ async fn drain_queued_turn_user_messages<F>(
         let attachments_meta = crate::session::build_chat_user_attachments_meta(
             item.is_plan_trigger,
             item.plan_comment.as_ref(),
+            item.goal_trigger,
             attachment_meta,
         );
         let mut user_msg =

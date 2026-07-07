@@ -25,6 +25,7 @@ pub struct QueuedTurnUserMessage {
     pub display_text: Option<String>,
     pub attachments: Vec<Attachment>,
     pub is_plan_trigger: bool,
+    pub goal_trigger: bool,
     pub plan_comment: Option<Value>,
     pub source: ChatSource,
 }
@@ -38,6 +39,7 @@ pub struct QueueTurnUserMessageArgs {
     pub display_text: Option<String>,
     pub attachments: Vec<Attachment>,
     pub is_plan_trigger: bool,
+    pub goal_trigger: bool,
     pub plan_comment: Option<Value>,
 }
 
@@ -112,6 +114,7 @@ pub fn enqueue(args: QueueTurnUserMessageArgs) -> QueueTurnUserMessageResult {
         display_text: args.display_text,
         attachments: args.attachments,
         is_plan_trigger: args.is_plan_trigger,
+        goal_trigger: args.goal_trigger,
         plan_comment: args.plan_comment,
         source: active.source,
     };
@@ -198,6 +201,7 @@ mod tests {
             display_text: None,
             attachments: Vec::new(),
             is_plan_trigger: false,
+            goal_trigger: false,
             plan_comment: None,
         });
         let second = enqueue(QueueTurnUserMessageArgs {
@@ -208,6 +212,7 @@ mod tests {
             display_text: None,
             attachments: Vec::new(),
             is_plan_trigger: false,
+            goal_trigger: false,
             plan_comment: None,
         });
 
@@ -244,6 +249,7 @@ mod tests {
                     display_text: None,
                     attachments: Vec::new(),
                     is_plan_trigger: false,
+                    goal_trigger: false,
                     plan_comment: None,
                 })
                 .queued
@@ -278,6 +284,7 @@ mod tests {
                     display_text: None,
                     attachments: Vec::new(),
                     is_plan_trigger: false,
+                    goal_trigger: false,
                     plan_comment: None,
                 })
                 .queued

@@ -578,6 +578,8 @@ fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
         "# Active Goal".to_string(),
         String::new(),
         "The user has set a durable goal for this session. Treat it as the current north star until the user changes, pauses, clears, or completes it.".to_string(),
+        "Goal Runtime Contract: autonomously keep working toward this goal across long tasks; do not stop merely because one turn is long or a subtask is hard. Maintain evidence, recover from interruptions, and only finish after the current revision's completion criteria are actually satisfied.".to_string(),
+        "Use the Goal tools when useful: `goal_status` to re-read the latest objective/revision/budget, `goal_checkpoint` after meaningful milestones or handoffs, `goal_record_evidence` for truthful general-domain evidence, `goal_evaluate` before any completion claim, `goal_finish_request` only when the audit should pass, and `goal_block_request` only after repeated failed attempts or a real user/external blocker.".to_string(),
         format!("- State: {}", goal.state.as_str()),
         format!("- Revision: {}", goal.revision),
         format!("- Objective: {}", truncate(&goal.objective, 1200)),
@@ -680,6 +682,12 @@ fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
         .filter(|s| !s.trim().is_empty())
     {
         lines.push(format!("- Blocked reason: {}", truncate(reason, 600)));
+        if matches!(
+            reason,
+            "goal_evidence_incomplete" | "goal_blocked_by_evidence"
+        ) {
+            lines.push("- This blocked reason means the audit needs more evidence; continue producing concrete evidence unless a real user/external blocker exists.".to_string());
+        }
     }
     if let Some(summary) = goal
         .final_summary
@@ -688,8 +696,21 @@ fn render_active_goal_section(snapshot: &crate::goal::GoalSnapshot) -> String {
     {
         lines.push(format!("- Latest audit: {}", truncate(summary, 800)));
     }
+    if snapshot.budget.warning || snapshot.budget.exhausted {
+        lines.push(format!(
+            "- Goal budget: tokens {}/{:?}, time {}s/{:?}, turns {}/{:?}; warnings={:?}; exceeded={:?}",
+            snapshot.budget.tokens_used,
+            snapshot.budget.token_limit,
+            snapshot.budget.elapsed_secs,
+            snapshot.budget.time_limit_secs,
+            snapshot.budget.turns_used,
+            snapshot.budget.turn_limit,
+            snapshot.budget.warnings,
+            snapshot.budget.exceeded
+        ));
+    }
     lines.push(
-        "When making progress, prefer actions that create concrete evidence toward the completion criteria. If the user updates the goal, follow the latest version.".to_string(),
+        "Behavior rules: prefer actions that create concrete evidence toward the completion criteria; keep user-visible tasks current; if the user updates the goal, immediately follow the latest revision; if you complete it, call `goal_finish_request` before the final user summary; if you cannot proceed, call `goal_block_request` with concrete attempts instead of silently stopping.".to_string(),
     );
     lines.join("\n")
 }
@@ -882,6 +903,9 @@ mod memory_section_tests {
         let out = render_active_goal_section(&mk_goal_snapshot());
 
         assert!(out.contains("# Active Goal"));
+        assert!(out.contains("Goal Runtime Contract"));
+        assert!(out.contains("goal_status"));
+        assert!(out.contains("goal_finish_request"));
         assert!(out.contains("- Revision: 7"));
         assert!(out.contains("stale because the goal revision or linked evidence changed"));
         assert!(out.contains("pass the matching `goalCriterionId`"));

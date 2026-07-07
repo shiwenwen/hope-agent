@@ -24,6 +24,8 @@ pub enum ToolEffect {
     SettingsWrite,
     TaskRead,
     TaskWrite,
+    GoalRead,
+    GoalWrite,
     UserInteraction,
     RuntimeControl,
     AgentDelegation,
@@ -56,6 +58,10 @@ impl ToolEffect {
             ToolEffect::SettingsWrite => "settings config update restore",
             ToolEffect::TaskRead => "task todo progress list read",
             ToolEffect::TaskWrite => "task todo progress create update",
+            ToolEffect::GoalRead => "goal objective criteria audit evidence budget read",
+            ToolEffect::GoalWrite => {
+                "goal checkpoint evidence evaluate finish block progress update"
+            }
             ToolEffect::UserInteraction => "ask user question notify attachment",
             ToolEffect::RuntimeControl => "runtime cancel status job process wakeup",
             ToolEffect::AgentDelegation => "agent delegate subagent team acp worker",
@@ -419,6 +425,23 @@ impl ToolMetadata {
                 push_all(&mut aliases, &["todo", "task list", "progress"]);
                 push_unique(&mut effects, ToolEffect::TaskRead);
                 render.result_kind = ToolResultKind::TaskList;
+            }
+            crate::tools::TOOL_GOAL_STATUS => {
+                push_all(&mut aliases, &["goal", "objective", "completion", "audit"]);
+                push_unique(&mut effects, ToolEffect::GoalRead);
+                render.result_kind = ToolResultKind::Status;
+            }
+            crate::tools::TOOL_GOAL_CHECKPOINT
+            | crate::tools::TOOL_GOAL_RECORD_EVIDENCE
+            | crate::tools::TOOL_GOAL_EVALUATE
+            | crate::tools::TOOL_GOAL_FINISH_REQUEST
+            | crate::tools::TOOL_GOAL_BLOCK_REQUEST => {
+                push_all(
+                    &mut aliases,
+                    &["goal", "objective", "checkpoint", "completion", "evidence"],
+                );
+                push_unique(&mut effects, ToolEffect::GoalWrite);
+                render.result_kind = ToolResultKind::Status;
             }
             crate::tools::TOOL_MANAGE_CRON | crate::tools::TOOL_SCHEDULE_WAKEUP => {
                 push_all(&mut aliases, &["schedule", "reminder", "wakeup"]);
@@ -856,6 +879,7 @@ fn is_read_only(effects: &[ToolEffect], destructive: bool) -> bool {
                 | ToolEffect::SessionWrite
                 | ToolEffect::SettingsWrite
                 | ToolEffect::TaskWrite
+                | ToolEffect::GoalWrite
                 | ToolEffect::UserInteraction
                 | ToolEffect::ExternalServiceWrite
                 | ToolEffect::AgentDelegation

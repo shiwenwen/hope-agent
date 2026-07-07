@@ -11,25 +11,60 @@ use crate::plan::PlanModeState;
 // the frontend).
 pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
 pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
+pub const ATTACHMENT_META_KEY_GOAL_TRIGGER: &str = "goal_trigger";
 pub const ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: &str = "tool_media_items";
 
 /// Resolve the `attachments_meta` value for a user-message coming from the
 /// `chat` API surface (Tauri command + HTTP route). Centralizes the
-/// plan_trigger > plan_comment > user_attachments precedence so both shells
-/// can't silently drift; if the caller sets both `plan_trigger` and
+/// plan_trigger > plan_comment > goal_trigger > user_attachments precedence so
+/// both shells can't silently drift; if the caller sets both `plan_trigger` and
 /// `plan_comment`, plan_trigger wins (a trigger is never also a comment).
 pub fn build_chat_user_attachments_meta(
     plan_trigger: bool,
     plan_comment: Option<&Value>,
+    goal_trigger: bool,
     user_attachments: Option<String>,
 ) -> Option<String> {
     if plan_trigger {
         Some(json!({ ATTACHMENT_META_KEY_PLAN_TRIGGER: true }).to_string())
     } else if let Some(payload) = plan_comment {
-        Some(json!({ ATTACHMENT_META_KEY_PLAN_COMMENT: payload }).to_string())
+        Some(merge_user_message_meta(
+            json!({ ATTACHMENT_META_KEY_PLAN_COMMENT: payload }),
+            user_attachments,
+        ))
+    } else if goal_trigger {
+        Some(merge_user_message_meta(
+            json!({ ATTACHMENT_META_KEY_GOAL_TRIGGER: true }),
+            user_attachments,
+        ))
     } else {
         user_attachments
     }
+}
+
+fn merge_user_message_meta(base: Value, user_attachments: Option<String>) -> String {
+    let Some(raw) = user_attachments else {
+        return base.to_string();
+    };
+    let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+        return base.to_string();
+    };
+    let mut map = match base {
+        Value::Object(map) => map,
+        other => return other.to_string(),
+    };
+    match parsed {
+        Value::Array(items) if !items.is_empty() => {
+            map.insert("user_attachments".to_string(), Value::Array(items));
+        }
+        Value::Object(existing) => {
+            for (key, value) in existing {
+                map.entry(key).or_insert(value);
+            }
+        }
+        _ => {}
+    }
+    Value::Object(map).to_string()
 }
 
 /// Persist structured media emitted by a tool result in `attachments_meta`

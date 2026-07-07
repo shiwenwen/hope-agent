@@ -1095,7 +1095,9 @@ export default function ChatInput({
   const activeGoalProgressLabel =
     activeGoalRequiredTotal > 0
       ? `${activeGoalRequiredDone}/${activeGoalRequiredTotal}`
-      : `r${activeGoal?.revision ?? 1}`
+      : null
+  const planModeActive = planState !== "off" && planState !== "completed"
+  const planComposerBannerOpen = planState === "planning" && !goalComposerMode
 
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -1103,10 +1105,12 @@ export default function ChatInput({
   // Shared by the inline Plan toggle and its "+" overflow-menu counterpart.
   const handlePlanToggle = () => {
     if (planState === "off" || planState === "completed") {
+      setGoalComposerMode(false)
       onEnterPlanMode?.()
     } else if (planState === "planning") {
       onExitPlanMode?.()
     } else {
+      setGoalComposerMode(false)
       onTogglePlanPanel?.()
     }
   }
@@ -1118,7 +1122,10 @@ export default function ChatInput({
     }
     setGoalComposerMode((value) => {
       const next = !value
-      if (next) setGoalComposerAction("create_or_update")
+      if (next) {
+        if (planModeActive) void onExitPlanMode?.()
+        setGoalComposerAction("create_or_update")
+      }
       return next
     })
   }
@@ -1296,6 +1303,15 @@ export default function ChatInput({
         : []
   const pendingVisibleItems = pendingExpanded ? pendingQueueItems : pendingQueueItems.slice(0, 2)
   const hasPendingQueue = loading && pendingQueueItems.length > 0
+  const activeGoalStripIsFirstContent =
+    !hasVisibleTaskProgress &&
+    attachedFiles.length === 0 &&
+    !pendingQuotes?.length &&
+    !hasPendingQueue
+  const modeBannerIsFirstContent =
+    activeGoalStripIsFirstContent &&
+    !(!!activeGoal && !goalComposerMode) &&
+    !(workflowModeActive && !incognitoEnabled)
 
   const pendingStatusLabel = (item: PendingSendPreview) => {
     switch (item.status) {
@@ -1740,7 +1756,12 @@ export default function ChatInput({
         {/* Active Goal status — always visible near the composer while a durable goal is open. */}
         <AnimatedCollapse open={!!activeGoal && !goalComposerMode}>
           {activeGoal ? (
-            <div className="border-b border-emerald-500/15 bg-emerald-500/7 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+            <div
+              className={cn(
+                "border-b border-emerald-500/15 bg-emerald-500/7 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300",
+                activeGoalStripIsFirstContent && "rounded-t-2xl",
+              )}
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <Target className="h-3.5 w-3.5 shrink-0" />
                 <button
@@ -1759,9 +1780,11 @@ export default function ChatInput({
                 <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
                   {activeGoalStateLabel}
                 </span>
-                <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
-                  {activeGoalProgressLabel}
-                </span>
+                {activeGoalProgressLabel ? (
+                  <span className="shrink-0 rounded-full border border-emerald-500/20 bg-background/45 px-2 py-0.5 text-[11px]">
+                    {activeGoalProgressLabel}
+                  </span>
+                ) : null}
                 <IconTip label={t("chat.goalMode.edit", "编辑目标")}>
                   <button
                     type="button"
@@ -1923,7 +1946,12 @@ export default function ChatInput({
 
         {/* Goal Mode Banner */}
         <AnimatedCollapse open={goalComposerMode}>
-          <div className="space-y-1.5 border-b border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-700 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-emerald-300">
+          <div
+            className={cn(
+              "space-y-1.5 border-b border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-700 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-emerald-300",
+              modeBannerIsFirstContent && "rounded-t-2xl",
+            )}
+          >
             <div className="flex items-center gap-2">
               <Target className="h-3.5 w-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate">
@@ -1973,9 +2001,12 @@ export default function ChatInput({
         </AnimatedCollapse>
 
         {/* Plan Mode Banner */}
-        <AnimatedCollapse open={planState === "planning"}>
+        <AnimatedCollapse open={planComposerBannerOpen}>
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!hasVisibleTaskProgress && attachedFiles.length === 0 && !hasPendingQueue ? " rounded-t-2xl" : ""}`}
+            className={cn(
+              "flex items-center gap-2 border-b border-blue-500/20 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-600 animate-in fade-in slide-in-from-top-1 duration-200 dark:text-blue-400",
+              modeBannerIsFirstContent && "rounded-t-2xl",
+            )}
           >
             <ClipboardList className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1">{t("planMode.restricted")}</span>

@@ -135,6 +135,7 @@ pub async fn queue_turn_user_message(
     turn_id: String,
     display_text: Option<String>,
     is_plan_trigger: Option<bool>,
+    goal_trigger: Option<bool>,
     plan_comment: Option<serde_json::Value>,
 ) -> Result<ha_core::chat_engine::turn_injection::QueueTurnUserMessageResult, CmdError> {
     Ok(ha_core::chat_engine::turn_injection::enqueue(
@@ -146,6 +147,7 @@ pub async fn queue_turn_user_message(
             display_text,
             attachments,
             is_plan_trigger: is_plan_trigger.unwrap_or(false),
+            goal_trigger: goal_trigger.unwrap_or(false),
             plan_comment,
         },
     ))
@@ -185,6 +187,10 @@ pub async fn chat(
     // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
     // system chip instead of a regular user bubble (Plan Mode approve/resume).
     is_plan_trigger: Option<bool>,
+    // When true, the persisted user row is tagged with
+    // `attachments_meta = {"goal_trigger": true}` so the UI can render a
+    // regular user bubble with a Goal badge.
+    goal_trigger: Option<bool>,
     // Structured payload for plan inline-comment messages — stamped into
     // `attachments_meta = {"plan_comment": {selectedText, comment}}`. The
     // desktop GUI reads this back to render PlanCommentBubble; IM channels
@@ -441,6 +447,7 @@ pub async fn chat(
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
         plan_comment.as_ref(),
+        goal_trigger.unwrap_or(false),
         attachments_meta,
     );
     let user_message_id = db.append_message(&sid, &user_msg).ok();

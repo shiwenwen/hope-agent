@@ -1,6 +1,6 @@
 # Goal 控制平面
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-07-06
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-07
 
 Goal 是长任务的顶层完成语义：**我要最终达成什么，完成标准是什么，哪些证据证明已经完成**。它位于 Execution Mode 与 Workflow 之上，适用于通用长任务；coding 只是当前最强的使用场景。
 
@@ -21,21 +21,90 @@ Goal 不直接执行工具，不替代 Workflow，也不表示重复调度。Wor
 | 层 | 代码 | 责任 |
 | --- | --- | --- |
 | 核心模型 | `crates/ha-core/src/goal/mod.rs` | Goal/GoalEvent/GoalLink 类型、状态机、建表、CRUD、criteria parser、审计器、closure decision。 |
+| Agent Goal 工具 | `crates/ha-core/src/tools/goal.rs`、`tools/definitions/goal_tools.rs` | 模型侧 Goal Runtime：状态读取、checkpoint、通用证据、审计、完成请求、阻塞请求。 |
+| Chat Engine 集成 | `crates/ha-core/src/chat_engine/engine.rs` | 成功回合后根据 active Goal 状态排自动 continuation wakeup。 |
 | Workflow 集成 | `crates/ha-core/src/workflow/db.rs` | `workflow_runs.goal_id`、自动绑定 active Goal、终态后自动 link + audit。 |
 | 斜杠命令 | `crates/ha-core/src/slash_commands/handlers/goal.rs` | `/goal` 文本控制面。 |
 | Tauri owner API | `src-tauri/src/commands/goal.rs` | 桌面 owner 平面命令。 |
 | HTTP owner API | `crates/ha-server/src/routes/goal.rs` | Server/Web owner 平面端点。 |
 | GUI | `src/components/chat/workspace/useGoal.ts`、`WorkspacePanel.tsx`、`ChatInput.tsx` | Workspace 独立 Goal section、Goal detail、closure packet、输入框目标模式、composer 上方 active Goal 状态条、创建/更新/暂停/恢复/清除/评估/关闭取舍、证据摘要。 |
+| 消息完成反馈 | `src/components/chat/message/MessageBubble.tsx` | 从 `goal_finish_request` 工具结果提取 `GoalCompletionReport`，在 assistant 消息底部显示“目标已达成 + 耗时 + tokens”。 |
 
 红线：
 
 - Goal 逻辑必须在 `ha-core`；Tauri / HTTP 只做薄适配。
-- 当前实现没有 agent 工具面直接改 Goal；模型可建议，owner 平面落地。
+- Goal v3 有受限 agent 工具面；模型可以读取 Goal、记录 checkpoint/evidence、请求审计、请求完成或阻塞，但不能任意修改 objective/criteria/domain/budget。Goal 创建、更新、暂停、恢复、清除仍由 owner 平面或 `/goal` 控制。
 - incognito session 禁止创建 durable Goal。
 - 反向也必须成立：存在 open Goal 或 `completed` 但尚未记录 closure decision 的普通会话不能再切成 incognito，避免 durable Goal 证据链和“关闭即焚”语义并存。
 - `label` 只用于展示；Goal 与 Workflow 的关系以 `goal_id` / `goal_links` 为准。
 - Goal 更新必须走 owner 平面 `update_goal` 或 `/goal <objective>`；更新 objective、completion criteria 或 domain workflow 绑定后 `revision += 1`，清空旧 final audit / closure decision，并让 `blocked` / `evaluating` 回到 `active`，避免旧审计结论污染新目标。
-- `completed` 只表示规则审计通过；长期目标真正关闭还必须记录用户 closure decision。`completed` 且 `closure_decision IS NULL` 的 Goal 会继续通过 `get_active_goal` 暴露给 GUI / prompt，并且仍可接收新的 evidence link、重新评估或被用户修改，直到用户接受、要求严格证据、取消或替代。
+- `goal_finish_request` 是唯一 agent-side 自动关闭入口：它会重跑/校验当前 revision 的 final audit，只有 `status=completed` 且 evidence 未 stale 时才写 `accepted_v1` closure decision。模型不能绕过 audit 直接关闭 Goal。
+
+## 2.1 Goal v3 Runtime Contract
+
+Goal v3 对齐 Codex 级自主 Goal 心智：用户设定的是最终结果，模型负责持续推进、维护证据、稳定续跑，并在完成时给出简短清晰的收口。
+
+系统提示在 `# Active Goal` 中注入：
+
+- objective、revision、completion criteria、domain/template、required missing criteria、follow-up pool、budget warning/exhausted。
+- Goal Runtime Contract：把 active Goal 当作当前 north star，长任务中不断推进，只有用户修改/暂停/清除/完成或真实阻塞才停止。
+- 工具契约：`goal_status` / `goal_checkpoint` / `goal_record_evidence` / `goal_evaluate` / `goal_finish_request` / `goal_block_request`。
+- `goal_evidence_incomplete` / `goal_blocked_by_evidence` 不是最终停机；它表示 audit 需要更多证据，runner 和模型应继续补证据。
+
+Agent 工具面：
+
+| 工具 | 能力 | 写入 |
+| --- | --- | --- |
+| `goal_status` | 读取 active Goal compact snapshot：objective、revision、criteria、audit、evidence、budget、tasks、workflow runs、latest events。 | 无。 |
+| `goal_checkpoint` | 记录长任务 milestone/handoff/risk/blocked attempt。 | `goal_events(kind='goal_checkpoint')`。 |
+| `goal_record_evidence` | 记录通用场景证据：source cited、claim checked、user decision、artifact reviewed、data quality checked、draft approved、meeting context 等。 | `goal_links(target_type='general')` + `goal_linked` event。 |
+| `goal_evaluate` | 运行 deterministic final audit，返回 missing/blockers/nextEvidenceNeeded/report。 | `goal_evaluated`，并更新 `final_evidence_json`。 |
+| `goal_finish_request` | 请求完成；内部必须校验 current audit pass，成功后写 `accepted_v1` closure，并返回 `GoalCompletionReport`。 | `goal_finish_requested`、`goal_closure_decided`。失败时写 `goal_finish_rejected`。 |
+| `goal_block_request` | 请求阻塞；必须带 reason + attempted。重复同 fingerprint 3 次后才自动 block；若明确需要用户输入或外部状态，可立即 block。 | `goal_block_requested`，必要时 `goal_state_changed(to='blocked')`。 |
+
+红线：
+
+- incognito session 不注入 durable Goal 工具效果；工具执行层 fail-closed。
+- `goal_finish_request` 不接受模型自评，必须依赖 `evaluate_goal` 规则审计和 current revision evidence。
+- `goal_block_request` 不能作为“任务难”的退出口；没有真实用户/外部阻塞时必须经过重复 blocker fingerprint。
+- `goal_record_evidence` 只能记录已观察/已产出/已收到的证据，不能伪造 coding diff、validation 或 connector 结果。
+- `goal_record_evidence.metadata` 是小型结构化补充信息，执行层强制限制在 16KB 内；大文档、大工具输出和外部原文必须保存在对应 artifact/source 里，只把引用和摘要链到 Goal。
+
+## 2.2 Goal Runner v3
+
+Goal Runner 复用 `wakeup` 自调度与 parent-injection 管线，而不是在 chat engine 内递归重入：
+
+1. `run_chat_engine` 在 assistant 最终消息写入 DB、stream lifecycle 完成、`ChatTurnStatus=Completed` 后调用 `maybe_schedule_goal_continuation`。
+2. 若存在 active Goal 且仍需推进，排一个 10 秒 wakeup。wakeup 会等前台空闲，通过共享注入管线发送 `<goal-continuation>` note，让模型开启下一轮。
+3. continuation note 要求模型先调用 `goal_status`，再决定继续执行、`goal_finish_request` 或 `goal_block_request`。
+4. 同一个 `turn_id` 只会排一次；同一 Goal revision 最多排 20 次，超过后写 `goal_auto_continue_halted`，避免无限自激活。
+5. `paused` / `completed` / `failed` / `cancelled` / 真实 blocker / budget exhausted 不排续跑。
+6. `goal_evidence_incomplete` 和 `goal_blocked_by_evidence` 属于“继续补证据”的 open 状态，runner 可以继续排续跑。
+
+这个设计继承现有 wakeup 的稳定性：
+
+- 空闲门控：不会插入正在运行的前台 turn。
+- 重启恢复：非 incognito wakeup 可持久化并 replay。
+- 会话删除/无痕焚毁：统一由 wakeup/session cleanup 清理。
+- UI 体验：当前 turn 先完成、显示结果，再短延迟自动继续，避免用户看到同步递归导致的卡死。
+
+## 2.3 Completion Report 与 GUI Footer
+
+`GoalCompletionReport` 是 Goal v3 的完成收口结构：
+
+| 字段 | 说明 |
+| --- | --- |
+| `goalId` / `sessionId` / `revision` / `objective` | 完成对象。 |
+| `state` / `status` | Goal 状态与 audit 状态。 |
+| `summary` | 模型传入或 final audit 生成的用户可读摘要。 |
+| `usage` | `GoalBudgetSnapshot`：tokens、elapsed seconds、turns、warnings/exceeded。 |
+| `evidenceCount` | 完成时 evidence 数量。 |
+| `achieved` / `missing` / `blockers` | final audit 摘要数组。 |
+| `followUpItems` | 非阻塞后续项。 |
+| `remainingRisk` | 诚实残余风险。 |
+| `generatedAt` | 报告生成时间。 |
+
+GUI 消息底部从 `goal_finish_request` 的 tool result 解析 `GoalCompletionReport`，渲染“已在 X 内达成目标 · Y tokens”。这条 footer 独立于 assistant 文本；即使模型摘要很短，用户也能在消息底部看到 Codex 风格的完成状态与用量反馈。
 
 ## 3. 数据模型
 
@@ -136,13 +205,18 @@ stateDiagram-v2
 
 `completed` / `failed` / `cancelled` 是状态机终态；`blocked` 不是终态，用户可恢复或重新评估。
 
-Goal v2 额外引入 `close_goal` owner action，用于记录用户取舍：
+Goal closure 有两条受控路径：
 
-- `accepted_v1`：保留 / 进入 `completed`，写 `closed_at`，可把 audit 中的 follow-up 项落入 `follow_up_json`。后端只允许在当前 revision 的 final audit `status=completed` 且没有更新证据导致 stale 时接受，避免用户或 API 误把未审计的新证据链关闭。
+- `goal_finish_request`：agent-side 自动完成入口。内部会重跑或校验当前 revision 的 final audit；只有 `status=completed`、revision 匹配且没有更新 evidence 导致 stale 时，才调用 closure path 写入 `accepted_v1`。成功返回 `GoalCompletionReport`，供模型最终总结和 GUI footer 使用。
+- `close_goal`：owner action，用于用户手动取舍、取消或替代目标。
+
+Closure decision：
+
+- `accepted_v1`：保留 / 进入 `completed`，写 `closed_at`，可把 audit 中的 follow-up 项落入 `follow_up_json`。后端只允许在当前 revision 的 final audit `status=completed` 且没有更新证据导致 stale 时接受，避免用户、API 或模型误把未审计的新证据链关闭。
 - `needs_strict_evidence`：把 Goal 拉回 `blocked`，写 `blocked_reason` 与 `closure_decision`，不写 `closed_at`。
 - `cancelled` / `superseded`：进入 `cancelled`，写 `closed_at` 与对应 decision；`clear_goal` 也走 `cancelled` closure decision，而不是只改 state。
 
-`close_goal` 不是 agent 工具面；模型只能建议，真正关闭由 owner 平面执行。已经 sealed 的终态 Goal（`failed` / `cancelled` / `completed` 且已有 closure decision）不能再被后续 `close_goal` 改回 open 状态。
+模型不能任意调用 `close_goal` 或直接写状态；agent 只能通过 `goal_finish_request` 间接关闭。已经 sealed 的终态 Goal（`failed` / `cancelled` / `completed` 且已有 closure decision）不能再被后续 closure action 改回 open 状态。
 
 ## 5. Workflow 集成
 
@@ -305,17 +379,17 @@ Workspace 内有独立 Goal section；Goal 不再藏在 Workflow 区域里：
 - 输入框的 Goal 编辑区同样展示 criteria 草稿预览，用户保存前即可看到哪些项会阻塞关闭、哪些只进入后续池。
 - `/workflow status` / `/workflow runs` / `/workflow trace` 也会显示 active / linked Goal，命令面和 GUI 面保持同一条“目标 -> workflow run -> evidence”链路。
 
-每轮主对话 system prompt 会注入当前 active Goal 的 state、revision、objective、domain、workflow template、task type、completion criteria、required missing、follow-up pool、blocked reason、latest audit 摘要和 closure decision。Goal 更新后，下一轮 prompt 重新构建即可让模型感知最新目标、旧 audit stale、领域约束与用户关闭取舍。
+每轮主对话 system prompt 会注入当前 active Goal 的 state、revision、objective、domain、workflow template、task type、completion criteria、required missing、follow-up pool、blocked reason、latest audit 摘要、closure decision 和 Goal Runtime Contract。Goal 更新后，下一轮 prompt 重新构建即可让模型感知最新目标、旧 audit stale、领域约束与用户关闭取舍。成功回合后 Goal Runner 还会在目标仍需推进时自动排 continuation wakeup，让模型先 `goal_status` 再继续推进、完成或阻塞。
 
 ## 9. 非目标与后续边界
 
 当前 Goal 控制面仍不包含：
 
 - `/loop` 的定时、重复、轮询调度，详见 [Loop 控制平面](loop.md)。
-- agent 工具面直接修改 Goal。
+- agent 工具面直接修改 objective / criteria / domain / budget。
 - LLM side-query evaluator。
 - follow-up pool 迁移到独立 task / backlog 的批量管理面。
 
-Goal v2 过程 roadmap 已归档到外部 Plans；已实现事实以本文为准。后续最值得补的是更严格的真实运行 evidence profile、follow-up pool 批量治理，以及与 Loop progress guard 的更深联动。
+Goal v2/v3 过程 roadmap 已归档到外部 Plans；已实现事实以本文为准。后续最值得补的是更严格的真实运行 evidence profile、follow-up pool 批量治理，以及与 Loop progress guard 的更深联动。
 
 这些边界用于保证后续增强不推翻当前已实现契约：Goal 是终点和完成证据，不是执行引擎，也不是持续调度器。

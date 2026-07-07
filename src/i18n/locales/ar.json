@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "إضافة دليل العمل",
     "askAnything": "أخبرني بفكرتك، @ للملفات/الملاحظات/المهارات، # للإدخال السريع، / للأوامر السريعة...",
+    "goalCompletion": {
+      "completed": "تم تحقيق الهدف",
+      "completedWithDuration": "تم تحقيق الهدف خلال {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "خلفية المتصفح: {{backend}}",
       "captureFailed": "فشل التقاط الإطار، بانتظار التالي",

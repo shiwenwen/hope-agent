@@ -60,6 +60,7 @@ function parseToolMediaItemsMeta(metaJson: string | null | undefined): MediaItem
  *  sub-agent result, cron trigger, plan-mode approve/resume) rather than as
  *  a user/assistant bubble. */
 export function isCenteredSystemMessage(msg: Message): boolean {
+  if (msg.slashEvent?.displayAs === "user") return false
   return (
     msg.role === "event" ||
     !!msg.isSubagentResult ||
@@ -455,6 +456,7 @@ export function parseSessionMessages(
       let isProcessNotification = false
       let isWorkflowResult = false
       let isPlanTrigger = false
+      let isGoalTrigger = false
       let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound:
         | { channelId: string; accountId?: string; chatId?: string; senderName?: string }
@@ -482,6 +484,9 @@ export function parseSessionMessages(
           }
           if (meta?.plan_trigger) {
             isPlanTrigger = true
+          }
+          if (meta?.goal_trigger) {
+            isGoalTrigger = true
           }
           if (
             meta?.plan_comment &&
@@ -530,6 +535,7 @@ export function parseSessionMessages(
         isProcessNotification,
         isWorkflowResult,
         isPlanTrigger,
+        isGoalTrigger,
         planComment,
         channelInbound,
         ...(attachments ? { attachments } : {}),
@@ -896,6 +902,7 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.slashEvent?.displayAs === b.slashEvent?.displayAs &&
     a.slashEvent?.command === b.slashEvent?.command &&
     a.slashEvent?.mode === b.slashEvent?.mode &&
+    a.isGoalTrigger === b.isGoalTrigger &&
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&

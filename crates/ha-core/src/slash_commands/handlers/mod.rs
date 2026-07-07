@@ -133,7 +133,7 @@ pub async fn dispatch(
             loop_control::handle_loop(session_db()?, cron_db, sid, args)
         }
         "mode" => workflow::handle_mode(session_db()?, session_id, args),
-        "goal" => goal::handle_goal(session_db()?, session_id, args),
+        "goal" => goal::handle_goal(session_db()?, session_id, args).await,
         "awareness" => awareness::handle_awareness(args),
         "imreply" => utility::handle_imreply(session_id, args).await,
         // `reasoning` is a silent alias for `reason` (only `reason` is in the

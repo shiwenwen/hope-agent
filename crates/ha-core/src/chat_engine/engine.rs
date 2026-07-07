@@ -1291,6 +1291,25 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // to here). Observation-only this phase.
                     crate::hooks::fire_stop(&session_id, Some(&agent_id), terminal_status.as_str());
 
+                    if terminal_status == session::ChatTurnStatus::Completed {
+                        if let Err(e) = crate::goal::maybe_schedule_goal_continuation(
+                            &db,
+                            &session_id,
+                            &agent_id,
+                            source,
+                            turn_id.as_deref(),
+                            assistant_id,
+                        ) {
+                            app_warn!(
+                                "goal",
+                                "auto_continue",
+                                "Failed to schedule goal continuation for session {}: {}",
+                                session_id,
+                                e
+                            );
+                        }
+                    }
+
                     if post_turn_effects {
                         crate::session_title::maybe_schedule_after_success(
                             db.clone(),

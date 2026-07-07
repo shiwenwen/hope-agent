@@ -8,6 +8,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import {
   Copy,
   Check,
+  CheckCircle2,
   Info,
   Network,
   Timer,
@@ -65,6 +66,18 @@ import {
   TOOL_JOB_STATUSES,
 } from "./asyncResultPayload"
 import { isQuickPromptEligibleUserMessage } from "../quick-prompts/messageQuickPrompts"
+
+interface GoalCompletionReport {
+  status?: string
+  state?: string
+  summary?: string
+  usage?: {
+    tokensUsed?: number
+    elapsedSecs?: number
+    turnsUsed?: number
+  }
+  evidenceCount?: number
+}
 
 const USER_MESSAGE_COLLAPSE_CHARS = 900
 const USER_MESSAGE_COLLAPSE_LINES = 12
@@ -216,6 +229,38 @@ function mergeMessageFileAttachments(
     if (!merged.has(key)) merged.set(key, file)
   }
   return [...merged.values()]
+}
+
+function parseGoalCompletionReportFromToolResult(result: string | undefined): GoalCompletionReport | null {
+  if (!result) return null
+  try {
+    const parsed = JSON.parse(result) as {
+      ok?: boolean
+      status?: string
+      report?: GoalCompletionReport
+    }
+    if (parsed.ok !== true || parsed.status !== "completed" || !parsed.report) return null
+    return parsed.report
+  } catch {
+    return null
+  }
+}
+
+function goalCompletionReportFromMessage(msg: Message): GoalCompletionReport | null {
+  if (msg.role !== "assistant") return null
+  const candidates = [
+    ...(msg.toolCalls ?? []),
+    ...(msg.contentBlocks ?? [])
+      .filter((block) => block.type === "tool_call")
+      .map((block) => block.tool),
+  ]
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const tool = candidates[i]
+    if (tool.name !== "goal_finish_request") continue
+    const report = parseGoalCompletionReportFromToolResult(tool.result)
+    if (report) return report
+  }
+  return null
 }
 
 function hasRenderableTextContent(msg: Message): boolean {
@@ -531,6 +576,35 @@ function MessageBubbleInner({
     msg.role === "assistant" && !(loading && isLast) && msg.usage?.durationMs != null
       ? formatDuration(msg.usage.durationMs)
       : null
+  const goalCompletionReport = useMemo(() => goalCompletionReportFromMessage(msg), [msg])
+  const goalCompletionDurationText =
+    goalCompletionReport?.usage?.elapsedSecs != null
+      ? formatDuration(goalCompletionReport.usage.elapsedSecs * 1000)
+      : totalDurationText
+  const goalCompletionTokensText =
+    goalCompletionReport?.usage?.tokensUsed != null
+      ? formatTokens(goalCompletionReport.usage.tokensUsed)
+      : null
+  const goalCompletionFooter = goalCompletionReport ? (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-none text-muted-foreground/70 select-none">
+      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+      <span>
+        {goalCompletionDurationText
+          ? t("chat.goalCompletion.completedWithDuration", {
+              defaultValue: "Goal reached in {{time}}",
+              time: goalCompletionDurationText,
+            })
+          : t("chat.goalCompletion.completed", {
+              defaultValue: "Goal reached",
+            })}
+      </span>
+      {goalCompletionTokensText && (
+        <span className="text-muted-foreground/50">
+          · {t("chat.goalCompletion.tokens", { defaultValue: "{{tokens}} tokens", tokens: goalCompletionTokensText })}
+        </span>
+      )}
+    </div>
+  ) : null
   const toolbarButtonClass =
     "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
   const renderToggleLabel =
@@ -978,6 +1052,7 @@ function MessageBubbleInner({
               )}
             </div>
           )}
+          {goalCompletionFooter && <div className="ml-7">{goalCompletionFooter}</div>}
           <div
             className={cn(
               "ml-7 mt-0.5 flex h-6 items-center gap-0.5",
@@ -1091,7 +1166,7 @@ function MessageBubbleInner({
             />
           ) : (
             <>
-              {msg.slashEvent?.mode === "goal" && (
+              {(msg.isGoalTrigger || msg.slashEvent?.mode === "goal") && (
                 <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
                   <Target className="h-3 w-3 shrink-0" />
                   <span>{t("chat.goalMode.messageBadge", "目标")}</span>
@@ -1130,6 +1205,7 @@ function MessageBubbleInner({
               )}
             </div>
           )}
+          {msg.role === "assistant" && goalCompletionFooter}
         </div>
         {/* Hover toolbar — always reserve height (h-6 + mt-0.5 ≈ 26px) so a
          * loading bubble (msg.content === "") and a filled bubble both leave

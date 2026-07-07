@@ -3,11 +3,12 @@ use std::{collections::HashSet, sync::Arc};
 use crate::goal::{
     CloseGoalInput, CreateGoalInput, GoalClosureDecision, GoalSnapshot, GoalState, UpdateGoalInput,
 };
+use crate::plan::{self, PlanModeState, TransitionOutcome};
 use crate::session::SessionDB;
 use crate::slash_commands::types::{CommandAction, CommandResult};
 use serde_json::Value;
 
-pub fn handle_goal(
+pub async fn handle_goal(
     session_db: &Arc<SessionDB>,
     session_id: Option<&str>,
     args: &str,
@@ -22,7 +23,18 @@ pub fn handle_goal(
         GoalRequest::Show => render_active_goal(session_db, sid),
         GoalRequest::Help => Ok(display_only(goal_usage())),
         GoalRequest::Transition(command) => transition_active_goal(session_db, sid, command),
-        GoalRequest::Upsert(raw) => upsert_goal(session_db, sid, raw),
+        GoalRequest::Upsert(raw) => {
+            exit_plan_for_goal_upsert(sid).await?;
+            upsert_goal(session_db, sid, raw)?;
+            let result = CommandResult {
+                content: "Goal updated. Starting a normal model turn for the active goal."
+                    .to_string(),
+                action: Some(CommandAction::PassThrough {
+                    message: raw.trim().to_string(),
+                }),
+            };
+            Ok(result)
+        }
     }
 }
 
@@ -60,6 +72,19 @@ fn parse_goal_request(trimmed: &str) -> GoalRequest<'_> {
     }
 }
 
+async fn exit_plan_for_goal_upsert(sid: &str) -> Result<(), String> {
+    if plan::get_plan_state(sid).await == PlanModeState::Off {
+        return Ok(());
+    }
+    match plan::transition_state(sid, PlanModeState::Off, "slash_goal_upsert").await {
+        Ok(TransitionOutcome::Applied) => Ok(()),
+        Ok(TransitionOutcome::Rejected) => {
+            Err("Cannot create or update a goal while plan mode is active.".to_string())
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn upsert_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<CommandResult, String> {
     let (objective, completion_criteria) = parse_goal_create_args(raw);
     if objective.trim().is_empty() && completion_criteria.trim().is_empty() {
@@ -82,7 +107,7 @@ fn upsert_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<Comm
                 workflow_task_type: None,
             })
             .map_err(|e| e.to_string())?;
-        return Ok(display_only(render_goal_snapshot(&next)));
+        return Ok(display_only(goal_upsert_summary(&next)));
     }
 
     if objective.trim().is_empty() {
@@ -102,7 +127,7 @@ fn upsert_goal(session_db: &Arc<SessionDB>, sid: &str, raw: &str) -> Result<Comm
             budget_turn_limit: None,
         })
         .map_err(|e| e.to_string())?;
-    Ok(display_only(render_goal_snapshot(&snapshot)))
+    Ok(display_only(goal_upsert_summary(&snapshot)))
 }
 
 fn transition_active_goal(
@@ -254,6 +279,13 @@ fn render_goal_snapshot(snapshot: &GoalSnapshot) -> String {
     )
 }
 
+fn goal_upsert_summary(snapshot: &GoalSnapshot) -> String {
+    format!(
+        "Goal is active: {}",
+        snapshot.goal.objective.replace('\n', " ")
+    )
+}
+
 fn goal_state_label(state: GoalState) -> &'static str {
     match state {
         GoalState::Active => "active",
@@ -355,5 +387,28 @@ mod tests {
                 "export roadmap note".to_string()
             ]
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn slash_goal_upsert_exits_plan_mode() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db = Arc::new(SessionDB::open(&dir.path().join("sessions.db")).expect("session db"));
+        let session = db.create_session("ha-main").expect("session");
+
+        plan::set_plan_state(&session.id, PlanModeState::Planning).await;
+
+        let result = handle_goal(&db, Some(&session.id), "Ship Goal slash parity")
+            .await
+            .expect("slash goal upsert");
+
+        assert_eq!(plan::get_plan_state(&session.id).await, PlanModeState::Off);
+        assert!(matches!(
+            result.action,
+            Some(CommandAction::PassThrough { .. })
+        ));
+        assert!(db
+            .active_goal_for_session(&session.id)
+            .expect("active goal")
+            .is_some());
     }
 }

@@ -460,6 +460,25 @@ describe("ChatInput", () => {
     }
   })
 
+  test("keeps goal composer and plan composer mutually exclusive", async () => {
+    const onExitPlanMode = vi.fn(() => Promise.resolve())
+
+    renderChatInput({
+      planState: "planning",
+      onExitPlanMode,
+    })
+
+    expect(screen.getByText("planMode.restricted")).toBeTruthy()
+
+    fireEvent.click(await screen.findByRole("button", { name: "chat.goalMode.enter" }))
+
+    expect(onExitPlanMode).toHaveBeenCalledTimes(1)
+    expect(screen.getByText("chat.goalMode.restricted")).toBeTruthy()
+    await waitFor(() => {
+      expect(screen.queryByText("planMode.restricted")).toBeNull()
+    })
+  })
+
   test("passes the selected active-goal action when goal mode appends follow-up", async () => {
     const onGoalModeSubmit = vi.fn(() => Promise.resolve(true))
     const onInputChange = vi.fn()

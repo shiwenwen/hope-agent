@@ -47,6 +47,10 @@ export interface ChatStartArgs {
    *  backend stamps `attachments_meta = {plan_trigger: true}` and the UI
    *  renders it as a system chip instead of a regular user bubble. */
   isPlanTrigger?: boolean;
+  /** Marks a Goal-mode user turn. Backend stamps
+   *  `attachments_meta = {goal_trigger: true}` and the UI renders a normal
+   *  user bubble with a Goal badge. */
+  goalTrigger?: boolean;
   /** Structured payload for plan inline-comment messages. Backend stamps
    *  `attachments_meta = {plan_comment: {...}}`; the desktop GUI uses it to
    *  render PlanCommentBubble instead of the markdown displayText. */

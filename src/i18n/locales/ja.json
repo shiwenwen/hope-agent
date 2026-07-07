@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "作業ディレクトリを追加",
     "askAnything": "アイデアを教えてください。@ でファイル/ノート/スキル、# でクイック入力、/ でクイックコマンド...",
+    "goalCompletion": {
+      "completed": "目標を達成しました",
+      "completedWithDuration": "{{time}} で目標を達成しました",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "ブラウザバックエンド：{{backend}}",
       "captureFailed": "フレーム取得に失敗、次のフレームを待っています",

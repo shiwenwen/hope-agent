@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "添加工作目錄",
     "askAnything": "告訴我你的想法，@ 找檔案/筆記/技能，# 快捷輸入，/ 快捷指令...",
+    "goalCompletion": {
+      "completed": "已達成目標",
+      "completedWithDuration": "已在 {{time}} 內達成目標",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
       "captureFailed": "截圖失敗，等待下一幀",

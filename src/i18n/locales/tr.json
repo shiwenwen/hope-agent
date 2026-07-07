@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "Çalışma dizini ekle",
     "askAnything": "Fikrini söyle, @ dosya/not/beceri bulur, # hızlı girdiler, / hızlı komutlar...",
+    "goalCompletion": {
+      "completed": "Hedefe ulaşıldı",
+      "completedWithDuration": "Hedefe {{time}} içinde ulaşıldı",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Tarayıcı arka ucu: {{backend}}",
       "captureFailed": "Kare yakalanamadı, sonraki kare bekleniyor",

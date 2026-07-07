@@ -193,6 +193,9 @@ export interface Message {
    *  sent to the LLM as a normal user turn but rendered as a system chip
    *  in the UI to distinguish it from real user input. */
   isPlanTrigger?: boolean
+  /** If true, this user message was sent through Goal Mode. It remains a
+   *  normal user bubble, with an extra Goal badge for context. */
+  isGoalTrigger?: boolean
   /** If set, this is a plan inline-comment user message. The desktop GUI
    *  renders {@link PlanCommentBubble} from this structured payload instead
    *  of falling back to the markdown `content`. IM channels render the

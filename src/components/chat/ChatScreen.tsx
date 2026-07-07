@@ -306,14 +306,11 @@ function slashCommandDisplay(commandText: string): {
   const rawRest = trimmed.slice("/goal".length)
   if (rawRest.length > 0 && !/^\s/.test(rawRest)) return { content: commandText }
   const args = rawRest.trim()
-  const [first = "", ...restParts] = args.split(/\s+/)
-  const rest = restParts.join(" ").trim()
+  const [first = ""] = args.split(/\s+/)
   const goalContent =
     args.length === 0
       ? "Show active goal"
-      : ["set", "create", "update", "edit"].includes(first)
-        ? rest
-        : first === "status" || first === "show"
+      : first === "status" || first === "show"
           ? "Show active goal"
           : first === "pause"
             ? "Pause active goal"
@@ -323,10 +320,54 @@ function slashCommandDisplay(commandText: string): {
                 ? "Clear active goal"
                 : first === "evaluate" || first === "audit"
                   ? "Evaluate active goal"
+                  : first === "accept" || first === "close" || first === "done"
+                    ? "Accept goal completion"
+                    : first === "strict" ||
+                        first === "needs-strict-evidence" ||
+                        first === "needs_strict_evidence"
+                      ? "Require stricter evidence"
                   : first === "help"
                     ? "Goal help"
                     : args
   return { content: goalContent || "Goal", mode: "goal" }
+}
+
+function isGoalUpsertSlashCommand(commandText: string | undefined): boolean {
+  if (!commandText) return false
+  const trimmed = commandText.trim()
+  if (!trimmed.startsWith("/goal")) return false
+  const rawRest = trimmed.slice("/goal".length)
+  if (rawRest.length === 0 || !/^\s/.test(rawRest)) return false
+  const args = rawRest.trim()
+  if (!args) return false
+  const first = args.split(/\s+/)[0]?.toLowerCase()
+  return ![
+    "status",
+    "show",
+    "help",
+    "pause",
+    "resume",
+    "clear",
+    "cancel",
+    "evaluate",
+    "audit",
+    "accept",
+    "close",
+    "done",
+    "strict",
+    "needs-strict-evidence",
+    "needs_strict_evidence",
+  ].includes(first)
+}
+
+function goalTurnPrompt(visibleGoalText: string): string {
+  return [
+    "[SYSTEM: The user has just created or updated the durable Goal for this session.",
+    "Treat the Active Goal system section as the source of truth, acknowledge briefly, then begin making progress.",
+    "Do not expose internal goal ids, revision ids, or slash-command help unless the user asks for status details.]",
+    "",
+    visibleGoalText,
+  ].join("\n")
 }
 
 type BrowserExtensionRequiredPayload = {
@@ -1860,6 +1901,14 @@ export default function ChatScreen({
             await stream.handleSend(action.message, {
               displayText: result._skillCommandText,
             })
+          } else if (isGoalUpsertSlashCommand(result._slashCommandText)) {
+            const visibleGoal = slashCommandDisplay(result._slashCommandText ?? "").content
+            planMode.exitPlanMode()
+            void stream.handleSend(goalTurnPrompt(action.message), {
+              displayText: visibleGoal,
+              goalTrigger: true,
+              sessionIdOverride: commandSessionId ?? undefined,
+            })
           } else {
             stream.setInput(action.message)
             setTimeout(() => stream.handleSend(), 50)
@@ -2118,6 +2167,11 @@ export default function ChatScreen({
           })
           chatGoal.setSnapshot(snapshot)
           chatGoal.refresh()
+          void stream.handleSend(goalTurnPrompt(trimmed), {
+            displayText: trimmed,
+            goalTrigger: true,
+            sessionIdOverride: sid,
+          })
           toast.success(t("chat.goalMode.criteriaAdded", "完成标准已追加"))
           return true
         } catch (e) {
@@ -2135,6 +2189,11 @@ export default function ChatScreen({
           })
           chatGoal.setSnapshot(snapshot)
           chatGoal.refresh()
+          void stream.handleSend(goalTurnPrompt(trimmed), {
+            displayText: trimmed,
+            goalTrigger: true,
+            sessionIdOverride: sid,
+          })
           toast.success(t("chat.goalMode.followUpAdded", "后续项已加入目标"))
           return true
         } catch (e) {
@@ -2183,6 +2242,7 @@ export default function ChatScreen({
       handleCommandAction,
       incognitoEnabled,
       session.currentAgentId,
+      stream,
       t,
     ],
   )

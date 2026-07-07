@@ -18,6 +18,8 @@ const GOAL_EVENT_PAYLOAD_MAX_BYTES: usize = 64 * 1024;
 const GOAL_EVIDENCE_MAX_FILE_LINKS: usize = 50;
 const GOAL_EVIDENCE_MAX_ARTIFACT_LINKS: usize = 25;
 const GOAL_EVIDENCE_MAX_DIAGNOSTIC_LINKS: usize = 50;
+const GOAL_AUTO_CONTINUE_DELAY_SECS: i64 = 10;
+const GOAL_AUTO_CONTINUE_MAX_PER_REVISION: usize = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -392,6 +394,92 @@ pub struct GoalSnapshot {
     pub workflow_runs: Vec<WorkflowRun>,
     #[serde(default)]
     pub tasks: Vec<Task>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalCompletionReport {
+    pub goal_id: String,
+    pub session_id: String,
+    pub state: GoalState,
+    pub status: String,
+    pub objective: String,
+    pub revision: i64,
+    pub summary: String,
+    pub usage: GoalBudgetSnapshot,
+    pub evidence_count: usize,
+    #[serde(default)]
+    pub achieved: Vec<String>,
+    #[serde(default)]
+    pub missing: Vec<String>,
+    #[serde(default)]
+    pub blockers: Vec<String>,
+    #[serde(default)]
+    pub follow_up_items: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining_risk: Option<String>,
+    pub generated_at: String,
+}
+
+pub fn build_goal_completion_report(
+    snapshot: &GoalSnapshot,
+    summary_override: Option<&str>,
+) -> GoalCompletionReport {
+    let audit = &snapshot.goal.final_evidence;
+    let status = audit
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| snapshot.goal.state.as_str())
+        .to_string();
+    let summary = summary_override
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| snapshot.goal.final_summary.clone())
+        .or_else(|| {
+            audit
+                .get("summary")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| {
+            if snapshot.goal.state == GoalState::Completed {
+                "Goal completed.".to_string()
+            } else {
+                "Goal is not complete yet.".to_string()
+            }
+        });
+
+    let mut follow_up_items = audit_string_vec(audit.get("followUpItems"));
+    for item in &snapshot.goal.follow_up_items {
+        if !follow_up_items
+            .iter()
+            .any(|existing| existing == &item.text)
+        {
+            follow_up_items.push(item.text.clone());
+        }
+    }
+
+    GoalCompletionReport {
+        goal_id: snapshot.goal.id.clone(),
+        session_id: snapshot.goal.session_id.clone(),
+        state: snapshot.goal.state,
+        status,
+        objective: snapshot.goal.objective.clone(),
+        revision: snapshot.goal.revision,
+        summary,
+        usage: snapshot.budget.clone(),
+        evidence_count: snapshot.evidence.len(),
+        achieved: audit_string_vec(audit.get("achieved")),
+        missing: audit_string_vec(audit.get("missing")),
+        blockers: audit_string_vec(audit.get("blockers")),
+        follow_up_items,
+        remaining_risk: audit
+            .get("remainingRisk")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        generated_at: now_rfc3339(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2144,11 +2232,145 @@ impl SessionDB {
     }
 }
 
+pub fn maybe_schedule_goal_continuation(
+    db: &SessionDB,
+    session_id: &str,
+    agent_id: &str,
+    source: crate::chat_engine::ChatSource,
+    turn_id: Option<&str>,
+    assistant_message_id: Option<i64>,
+) -> Result<Option<crate::wakeup::ScheduleOutcome>> {
+    if matches!(source, crate::chat_engine::ChatSource::Subagent) {
+        return Ok(None);
+    }
+    let Some(snapshot) = db.active_goal_for_session(session_id)? else {
+        return Ok(None);
+    };
+    if !goal_runner_should_continue(&snapshot) {
+        return Ok(None);
+    }
+    let scheduled_this_turn = snapshot.events.iter().any(|event| {
+        event.kind == "goal_auto_continue_scheduled"
+            && event.payload.get("turnId").and_then(Value::as_str) == turn_id
+    });
+    if scheduled_this_turn {
+        return Ok(None);
+    }
+    let scheduled_for_revision = snapshot
+        .events
+        .iter()
+        .filter(|event| {
+            event.kind == "goal_auto_continue_scheduled"
+                && event.payload.get("goalRevision").and_then(Value::as_i64)
+                    == Some(snapshot.goal.revision)
+        })
+        .count();
+    if scheduled_for_revision >= GOAL_AUTO_CONTINUE_MAX_PER_REVISION {
+        let _ = db.append_goal_event(
+            &snapshot.goal.id,
+            "goal_auto_continue_halted",
+            json!({
+                "reason": "max_auto_continues_per_revision",
+                "limit": GOAL_AUTO_CONTINUE_MAX_PER_REVISION,
+                "goalRevision": snapshot.goal.revision,
+                "turnId": turn_id,
+            }),
+        );
+        return Ok(None);
+    }
+
+    let note = format!(
+        "<goal-continuation>\n\
+         Continue the active Goal autonomously.\n\
+         - Goal id: {}\n\
+         - Revision: {}\n\
+         - First call `goal_status` to verify the latest objective, revision, budget, and evidence.\n\
+         - If required criteria are satisfied, call `goal_finish_request` before the final user summary.\n\
+         - If real progress is impossible, call `goal_block_request` with concrete attempts.\n\
+         - Otherwise complete one meaningful step, update tasks/checkpoints/evidence, and continue until the Goal is done.\n\
+         </goal-continuation>",
+        snapshot.goal.id, snapshot.goal.revision
+    );
+    let outcome = crate::wakeup::schedule(
+        session_id,
+        agent_id,
+        GOAL_AUTO_CONTINUE_DELAY_SECS,
+        Some(note),
+        false,
+    )
+    .map_err(|e| anyhow!("failed to schedule goal continuation: {e:?}"))?;
+    let _ = db.append_goal_event(
+        &snapshot.goal.id,
+        "goal_auto_continue_scheduled",
+        json!({
+            "wakeupId": outcome.id,
+            "fireAt": outcome.fire_at,
+            "delaySecs": outcome.delay_secs,
+            "source": source.as_str(),
+            "turnId": turn_id,
+            "assistantMessageId": assistant_message_id,
+            "goalRevision": snapshot.goal.revision,
+            "scheduledForRevision": scheduled_for_revision + 1,
+        }),
+    );
+    Ok(Some(outcome))
+}
+
+fn goal_runner_should_continue(snapshot: &GoalSnapshot) -> bool {
+    match snapshot.goal.state {
+        GoalState::Active | GoalState::Evaluating => {}
+        GoalState::Blocked => {
+            let reason = snapshot.goal.blocked_reason.as_deref().unwrap_or_default();
+            if !matches!(
+                reason,
+                "goal_evidence_incomplete" | "goal_blocked_by_evidence" | ""
+            ) {
+                return false;
+            }
+        }
+        GoalState::Paused | GoalState::Completed | GoalState::Failed | GoalState::Cancelled => {
+            return false
+        }
+    }
+    if snapshot.budget.exhausted {
+        return false;
+    }
+    if snapshot.goal.closure_decision == Some(GoalClosureDecision::AcceptedV1) {
+        return false;
+    }
+    let audit_status = snapshot
+        .goal
+        .final_evidence
+        .get("status")
+        .and_then(Value::as_str);
+    audit_status != Some("completed") || snapshot.audit_stale
+}
+
 fn normalize_follow_up_text_key(text: &str) -> String {
     text.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase()
+}
+
+fn audit_string_vec(value: Option<&Value>) -> Vec<String> {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            if let Some(text) = item.as_str() {
+                return Some(text.to_string());
+            }
+            item.get("text")
+                .or_else(|| item.get("summary"))
+                .or_else(|| item.get("reason"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .filter(|item| !item.trim().is_empty())
+        .collect()
 }
 
 fn split_criteria(raw: &str) -> Vec<String> {
@@ -3688,6 +3910,58 @@ mod tests {
             })
             .expect_err("incognito goal must be rejected");
         assert!(err.to_string().contains("incognito"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn goal_runner_schedules_once_per_turn_and_stops_when_paused() {
+        let (_dir, db) = temp_db();
+        let session = db.create_session("ha-main").expect("create session");
+        let goal = create_goal_for_session(&db, &session.id);
+
+        let first = maybe_schedule_goal_continuation(
+            &db,
+            &session.id,
+            "ha-main",
+            crate::chat_engine::ChatSource::Desktop,
+            Some("turn-1"),
+            Some(42),
+        )
+        .expect("schedule first continuation");
+        assert!(first.is_some());
+
+        let duplicate = maybe_schedule_goal_continuation(
+            &db,
+            &session.id,
+            "ha-main",
+            crate::chat_engine::ChatSource::Desktop,
+            Some("turn-1"),
+            Some(42),
+        )
+        .expect("skip duplicate continuation");
+        assert!(duplicate.is_none());
+
+        let events = db.list_goal_events(&goal.goal.id, 100).expect("events");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.kind == "goal_auto_continue_scheduled")
+                .count(),
+            1
+        );
+
+        db.pause_goal(&goal.goal.id).expect("pause goal");
+        let paused = maybe_schedule_goal_continuation(
+            &db,
+            &session.id,
+            "ha-main",
+            crate::chat_engine::ChatSource::Desktop,
+            Some("turn-2"),
+            Some(43),
+        )
+        .expect("paused continuation check");
+        assert!(paused.is_none());
+
+        crate::wakeup::purge_for_session(&session.id);
     }
 
     #[test]

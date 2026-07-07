@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "Add working directory",
     "askAnything": "Tell me your idea, @ finds files/notes/skills, # quick prompts, / quick commands...",
+    "goalCompletion": {
+      "completed": "Goal reached",
+      "completedWithDuration": "Goal reached in {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Browser backend: {{backend}}",
       "captureFailed": "Frame capture failed, waiting for next one",

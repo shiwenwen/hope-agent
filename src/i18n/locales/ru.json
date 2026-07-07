@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "Добавить рабочий каталог",
     "askAnything": "Расскажите свою идею: @ ищет файлы/заметки/навыки, # — быстрые подсказки, / — быстрые команды...",
+    "goalCompletion": {
+      "completed": "Цель достигнута",
+      "completedWithDuration": "Цель достигнута за {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Бэкенд браузера: {{backend}}",
       "captureFailed": "Не удалось получить кадр, ожидание следующего",

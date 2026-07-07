@@ -64,6 +64,11 @@ pub struct ChatRequest {
     /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
     #[serde(default)]
     pub is_plan_trigger: Option<bool>,
+    /// When true, persists the user row with
+    /// `attachments_meta = {"goal_trigger": true}` so the UI renders it as a
+    /// normal user bubble with the Goal badge.
+    #[serde(default)]
+    pub goal_trigger: Option<bool>,
     /// Structured payload for plan inline-comment messages. Stamped into
     /// `attachments_meta = {"plan_comment": {...}}` for the desktop GUI to
     /// render PlanCommentBubble. IM channels ignore it. (Mirrors the Tauri
@@ -111,6 +116,8 @@ pub struct QueueTurnUserMessageRequest {
     pub display_text: Option<String>,
     #[serde(default)]
     pub is_plan_trigger: Option<bool>,
+    #[serde(default)]
+    pub goal_trigger: Option<bool>,
     #[serde(default)]
     pub plan_comment: Option<serde_json::Value>,
 }
@@ -453,6 +460,7 @@ pub async fn chat(
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         body.is_plan_trigger.unwrap_or(false),
         body.plan_comment.as_ref(),
+        body.goal_trigger.unwrap_or(false),
         attachments_meta,
     );
     let user_message_id = db.append_message(&sid, &user_msg).ok();
@@ -645,6 +653,7 @@ pub async fn queue_turn_user_message(
             display_text: body.display_text,
             attachments: body.attachments,
             is_plan_trigger: body.is_plan_trigger.unwrap_or(false),
+            goal_trigger: body.goal_trigger.unwrap_or(false),
             plan_comment: body.plan_comment,
         },
     );
@@ -1011,7 +1020,10 @@ mod tests {
         });
         let req: ChatRequest = serde_json::from_value(body).expect("deserialize chat request");
         assert_eq!(req.project_id.as_deref(), Some("proj-123"));
-        assert_eq!(req.workflow_mode, Some(ha_core::workflow_mode::WorkflowMode::On));
+        assert_eq!(
+            req.workflow_mode,
+            Some(ha_core::workflow_mode::WorkflowMode::On)
+        );
         // Omitted project_id defaults to None (plain chats are unaffected).
         let plain: ChatRequest =
             serde_json::from_value(serde_json::json!({ "message": "hi" })).expect("deserialize");

@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "Thêm thư mục làm việc",
     "askAnything": "Hãy cho tôi biết ý tưởng của bạn, @ tìm tệp/ghi chú/kỹ năng, # nhập nhanh, / lệnh nhanh...",
+    "goalCompletion": {
+      "completed": "Đã đạt mục tiêu",
+      "completedWithDuration": "Đã đạt mục tiêu trong {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
       "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",

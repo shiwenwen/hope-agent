@@ -1,6 +1,6 @@
 # Chat Engine 对话引擎架构
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-07
 
 ## 目录
 
@@ -441,6 +441,8 @@ flowchart TD
 
 ## Post-turn Effects
 
+成功响应、assistant 消息落库、可见 stream 收尾并记录 stop lifecycle 后，Chat Engine 会先检查当前会话是否有 active Goal。若 Goal 仍需推进，`crate::goal::maybe_schedule_goal_continuation(...)` 会通过 wakeup 排一个短延迟 `<goal-continuation>` 注入，让模型下一轮先调用 `goal_status`，再继续执行、请求完成或请求阻塞。这个 Goal continuation 不受 `post_turn_effects` 开关控制；它属于 durable Goal runtime 的续跑语义，而不是自动标题 / 记忆提取 / 技能审核这类普通后处理。Subagent source、paused/completed/cancelled/真实 blocked/budget exhausted Goal 不会续跑；同一 turn 去重，同一 Goal revision 有上限防止自激活失控。
+
 成功响应、assistant 消息落库并完成可见 stream 收尾后，若 `ChatEngineParams.post_turn_effects = true`，引擎会在最终 `Ok` 返回前依次调度三组后处理（均为后台 spawn，不阻塞调用方）：
 
 1. **自动会话标题** — `crate::session_title::maybe_schedule_after_success(...)`（源：`crates/ha-core/src/session_title.rs`）按门槛触发 side_query 起标题
@@ -449,7 +451,7 @@ flowchart TD
 
 `post_turn_effects=false` 用于 subagent fork-and-forget、cron 子调用等"不该改主会话用户感知状态"的入口，所有三项后处理整体跳过。
 
-> 实现位置参考 `crates/ha-core/src/chat_engine/engine.rs` 中 `post_turn_effects` 分支（约 L451 起）。
+> 实现位置参考 `crates/ha-core/src/chat_engine/engine.rs` 中 assistant message 持久化后的 stop lifecycle / Goal continuation / `post_turn_effects` 分支。
 
 ## 记忆提取门控
 

@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "Adicionar diretório de trabalho",
     "askAnything": "Me conte sua ideia, @ encontra arquivos/notas/habilidades, # prompts rápidos e / comandos rápidos...",
+    "goalCompletion": {
+      "completed": "Meta alcançada",
+      "completedWithDuration": "Meta alcançada em {{time}}",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend do navegador: {{backend}}",
       "captureFailed": "Falha ao capturar quadro, aguardando o próximo",

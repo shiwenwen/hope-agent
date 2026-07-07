@@ -299,6 +299,11 @@
   "chat": {
     "addWorkingDirectory": "작업 디렉터리 추가",
     "askAnything": "아이디어를 말씀해 주세요. @로 파일/노트/스킬, #로 빠른 입력, /로 빠른 명령...",
+    "goalCompletion": {
+      "completed": "목표 달성",
+      "completedWithDuration": "{{time}} 만에 목표 달성",
+      "tokens": "{{tokens}} tokens"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
       "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",

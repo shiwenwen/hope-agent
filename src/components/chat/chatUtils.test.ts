@@ -5,6 +5,7 @@ import { setTransport } from "@/lib/transport-provider"
 import {
   computeContextUsage,
   isCenteredSystemMessage,
+  isUserAlignedMessage,
   parseSessionMessages,
   reloadAndMergeSessionMessages,
 } from "./chatUtils"
@@ -177,6 +178,33 @@ describe("parseSessionMessages user attachments", () => {
 
     expect(parsed[0]?.attachments).toBeUndefined()
     expect(parsed[0]).toMatchObject({ isPlanTrigger: true })
+  })
+
+  test("parses goal_trigger meta as a normal user-aligned goal message", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 18,
+        role: "user",
+        content: "完成文档更新",
+        attachmentsMeta: JSON.stringify({ goal_trigger: true }),
+      }),
+    ])
+
+    expect(parsed[0]?.attachments).toBeUndefined()
+    expect(parsed[0]).toMatchObject({ isGoalTrigger: true })
+    expect(isCenteredSystemMessage(parsed[0]!)).toBe(false)
+    expect(isUserAlignedMessage(parsed[0]!)).toBe(true)
+  })
+
+  test("renders display-as-user slash events as user-aligned instead of centered", () => {
+    const msg = {
+      role: "event",
+      content: "完成文档更新",
+      slashEvent: { kind: "command", displayAs: "user", mode: "goal" },
+    } satisfies Message
+
+    expect(isCenteredSystemMessage(msg)).toBe(false)
+    expect(isUserAlignedMessage(msg)).toBe(true)
   })
 
   test("restores channel user attachments from object-shaped metadata", () => {
