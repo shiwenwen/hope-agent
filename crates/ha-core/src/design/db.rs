@@ -126,7 +126,37 @@ pub struct DesignComment {
     pub created_at: String,
 }
 
+/// 设计系统 → 代码工程的绑定（工程轴 D）：把多平台 token 同步落到外部代码工程目录。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesignCodeBinding {
+    pub id: i64,
+    pub system_id: String,
+    /// 代码工程根目录（绝对路径，创建时 canonicalize）。
+    pub target_dir: String,
+    /// 写入子目录（相对 `target_dir`，空=根）。
+    pub subfolder: String,
+    /// 要写入的 token 格式 id（css/scss/ts/swift/android/dtcg 子集）。
+    pub formats: Vec<String>,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_synced_at: Option<String>,
+}
+
 // ── Column lists / row mappers ─────────────────────────────────────
+
+fn row_to_code_binding(row: &rusqlite::Row) -> rusqlite::Result<DesignCodeBinding> {
+    let formats_json: String = row.get(4)?;
+    Ok(DesignCodeBinding {
+        id: row.get(0)?,
+        system_id: row.get(1)?,
+        target_dir: row.get(2)?,
+        subfolder: row.get(3)?,
+        formats: serde_json::from_str(&formats_json).unwrap_or_default(),
+        created_at: row.get(5)?,
+        last_synced_at: row.get(6)?,
+    })
+}
 
 const PROJECT_COLUMNS: &str = "SELECT p.id, p.title, p.description, p.color, p.default_system_id, \
      p.ha_project_id, p.session_id, p.agent_id, p.created_at, p.updated_at, \
@@ -290,6 +320,16 @@ impl DesignDb {
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS design_code_bindings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                system_id TEXT NOT NULL REFERENCES design_systems(id) ON DELETE CASCADE,
+                target_dir TEXT NOT NULL,
+                subfolder TEXT NOT NULL DEFAULT '',
+                formats TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_synced_at TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_design_artifacts_project
                 ON design_artifacts(project_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_design_versions_artifact
@@ -297,7 +337,9 @@ impl DesignDb {
             CREATE INDEX IF NOT EXISTS idx_design_projects_session
                 ON design_projects(session_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_design_comments_artifact
-                ON design_comments(artifact_id, resolved, id);",
+                ON design_comments(artifact_id, resolved, id);
+            CREATE INDEX IF NOT EXISTS idx_design_code_bindings_system
+                ON design_code_bindings(system_id, id);",
         )?;
 
         // `category` 为后加列：对已存在的旧 design.db 幂等补列（列已存在则忽略错误）。
@@ -786,6 +828,85 @@ impl DesignDb {
         )?;
         Ok(n > 0)
     }
+
+    // ── Code bindings (工程轴 D) ────────────────────────────────────
+
+    pub fn add_code_binding(
+        &self,
+        system_id: &str,
+        target_dir: &str,
+        subfolder: &str,
+        formats: &[String],
+        created_at: &str,
+    ) -> Result<DesignCodeBinding> {
+        let formats_json = serde_json::to_string(formats)?;
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT INTO design_code_bindings
+                (system_id, target_dir, subfolder, formats, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![system_id, target_dir, subfolder, formats_json, created_at],
+        )?;
+        Ok(DesignCodeBinding {
+            id: conn.last_insert_rowid(),
+            system_id: system_id.to_string(),
+            target_dir: target_dir.to_string(),
+            subfolder: subfolder.to_string(),
+            formats: formats.to_vec(),
+            created_at: created_at.to_string(),
+            last_synced_at: None,
+        })
+    }
+
+    pub fn list_code_bindings(&self, system_id: Option<&str>) -> Result<Vec<DesignCodeBinding>> {
+        let conn = self.lock()?;
+        let base = "SELECT id, system_id, target_dir, subfolder, formats, created_at, last_synced_at \
+                    FROM design_code_bindings";
+        let mut out = Vec::new();
+        match system_id {
+            Some(sid) => {
+                let mut stmt =
+                    conn.prepare(&format!("{base} WHERE system_id = ?1 ORDER BY id DESC"))?;
+                let rows = stmt.query_map([sid], row_to_code_binding)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+            None => {
+                let mut stmt = conn.prepare(&format!("{base} ORDER BY id DESC"))?;
+                let rows = stmt.query_map([], row_to_code_binding)?;
+                for r in rows {
+                    out.push(r?);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn get_code_binding(&self, id: i64) -> Result<Option<DesignCodeBinding>> {
+        Ok(self
+            .list_code_bindings(None)?
+            .into_iter()
+            .find(|b| b.id == id))
+    }
+
+    pub fn mark_binding_synced(&self, id: i64, at: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_code_bindings SET last_synced_at = ?2 WHERE id = ?1",
+            rusqlite::params![id, at],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_code_binding(&self, id: i64) -> Result<bool> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "DELETE FROM design_code_bindings WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
+        Ok(n > 0)
+    }
 }
 
 #[cfg(test)]
@@ -870,6 +991,49 @@ mod tests {
         // delete
         assert!(db.delete_comment(&aid, c.id).unwrap());
         assert!(db.list_comments(&aid).unwrap().is_empty());
+    }
+
+    fn seed_system(db: &DesignDb, id: &str) {
+        db.upsert_system(&DesignSystemMeta {
+            id: id.to_string(),
+            name: id.to_string(),
+            slug: id.to_string(),
+            source: "user".to_string(),
+            category: None,
+            summary: None,
+            thumbnail_path: None,
+            created_at: "t".to_string(),
+            updated_at: "t".to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn code_binding_crud_and_cascade() {
+        let (_d, db) = open_temp();
+        seed_system(&db, "sys-a");
+        let formats = vec!["css".to_string(), "ts".to_string()];
+        let b = db
+            .add_code_binding("sys-a", "/tmp/proj", "src/tokens", &formats, "t")
+            .unwrap();
+        assert_eq!(b.formats, formats);
+        assert_eq!(b.last_synced_at, None);
+        assert_eq!(db.list_code_bindings(Some("sys-a")).unwrap().len(), 1);
+        // mark synced
+        db.mark_binding_synced(b.id, "t2").unwrap();
+        assert_eq!(
+            db.get_code_binding(b.id).unwrap().unwrap().last_synced_at,
+            Some("t2".to_string())
+        );
+        // delete
+        assert!(db.delete_code_binding(b.id).unwrap());
+        assert!(db.list_code_bindings(None).unwrap().is_empty());
+        // cascade on system delete
+        let b2 = db
+            .add_code_binding("sys-a", "/tmp/p2", "", &formats, "t")
+            .unwrap();
+        db.delete_system("sys-a").unwrap();
+        assert!(db.get_code_binding(b2.id).unwrap().is_none(), "系统删除应级联删绑定");
     }
 
     #[test]

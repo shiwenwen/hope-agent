@@ -27,7 +27,8 @@ pub mod vision;
 
 pub use critique::CritiqueResult;
 pub use db::{
-    DesignArtifact, DesignArtifactVersion, DesignComment, DesignProject, DesignSystemMeta,
+    DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment, DesignProject,
+    DesignSystemMeta,
 };
 pub use recipe::Recipe;
 pub use renderer::{ArtifactKind, ArtifactParts};

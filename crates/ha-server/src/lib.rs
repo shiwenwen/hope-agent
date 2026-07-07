@@ -1717,6 +1717,18 @@ fn build_router_with_cors(
             get(routes::design::export_handoff),
         )
         .route(
+            "/design/bindings",
+            get(routes::design::list_code_bindings).post(routes::design::bind_code),
+        )
+        .route(
+            "/design/bindings/{id}/sync",
+            post(routes::design::sync_code),
+        )
+        .route(
+            "/design/bindings/{id}",
+            axum::routing::delete(routes::design::unbind_code),
+        )
+        .route(
             "/design/artifacts/{id}/restore",
             post(routes::design::restore_version),
         )

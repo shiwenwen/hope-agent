@@ -415,7 +415,31 @@
       "ok": "已從 Figma 匯入設計系統",
       "err": "Figma 匯入失敗，請檢查 URL 與權杖"
     },
-    "exportHandoff": "程式交付包 (ZIP)"
+    "exportHandoff": "程式交付包 (ZIP)",
+    "bind": {
+      "entry": "綁定程式工程…",
+      "title": "綁定程式工程",
+      "desc": "把設計變數同步為多平台開發者程式碼，寫進程式工程指定目錄。可隨時重新同步。",
+      "targetDir": "程式工程目錄",
+      "targetDirPlaceholder": "選擇或輸入工程根目錄",
+      "choose": "選擇…",
+      "subfolder": "子目錄（相對工程根）",
+      "formats": "寫入格式",
+      "bind": "綁定並同步",
+      "boundSynced": "已綁定並同步 {{n}} 個檔案",
+      "boundNoSync": "已綁定，但同步失敗，請稍後手動同步",
+      "err": "綁定失敗",
+      "synced": "已同步 {{n}} 個檔案",
+      "syncErr": "同步失敗",
+      "unbindErr": "解除綁定失敗",
+      "existing": "已綁定",
+      "none": "還沒有綁定",
+      "lastSynced": "上次同步",
+      "neverSynced": "未同步",
+      "sync": "同步",
+      "unbind": "解除綁定",
+      "dirInvalid": "目錄無效"
+    }
   },
   "channels": {
     "accountLabel": "賬戶名稱",

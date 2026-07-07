@@ -14,11 +14,12 @@ use tower_http::services::ServeFile;
 
 use ha_core::design::extract::Direction;
 use ha_core::design::service::{
-    self, CreateArtifactInput, CreateProjectInput, ElementPatch, ExtractSystemInput,
-    SaveSystemInput, UpdateProjectInput,
+    self, BindingSyncReport, CreateArtifactInput, CreateProjectInput, ElementPatch,
+    ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
-    DesignArtifact, DesignArtifactVersion, DesignComment, DesignProject, DesignSystemMeta,
+    DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment, DesignProject,
+    DesignSystemMeta,
 };
 use ha_core::paths;
 
@@ -288,6 +289,75 @@ pub async fn export_handoff(Path(id): Path<String>) -> Result<Json<Value>, AppEr
     validate_id(&id)?;
     let res = service::export_handoff(&id).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(serde_json::to_value(res).unwrap_or(Value::Null)))
+}
+
+// ── Code bindings (工程轴 D) ────────────────────────────────────
+
+/// 外部写盘门：HTTP 侧默认禁写外部工程，需 `filesystem.allowRemoteWrites`（桌面 Tauri 不受限）。
+fn ensure_design_writes_allowed() -> Result<(), AppError> {
+    if ha_core::config::cached_config()
+        .filesystem
+        .allow_remote_writes
+    {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "remote file writes are disabled; enable filesystem.allowRemoteWrites to sync tokens to a code project",
+        ))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindCodeBody {
+    pub system_id: String,
+    pub target_dir: String,
+    #[serde(default)]
+    pub subfolder: Option<String>,
+    #[serde(default)]
+    pub formats: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindingsQuery {
+    #[serde(default)]
+    pub system_id: Option<String>,
+}
+
+/// `POST /api/design/bindings` — bind a design system to a code project (write-gated).
+pub async fn bind_code(Json(body): Json<BindCodeBody>) -> Result<Json<DesignCodeBinding>, AppError> {
+    ensure_design_writes_allowed()?;
+    let b = service::bind_code_project(
+        &body.system_id,
+        &body.target_dir,
+        body.subfolder.as_deref().unwrap_or(""),
+        &body.formats.unwrap_or_default(),
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(b))
+}
+
+/// `POST /api/design/bindings/{id}/sync` — write tokens to the bound dir (write-gated).
+pub async fn sync_code(Path(id): Path<i64>) -> Result<Json<BindingSyncReport>, AppError> {
+    ensure_design_writes_allowed()?;
+    let r = service::sync_code_binding(id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(r))
+}
+
+/// `GET /api/design/bindings?systemId=` — list bindings (read-only).
+pub async fn list_code_bindings(
+    Query(q): Query<BindingsQuery>,
+) -> Result<Json<Vec<DesignCodeBinding>>, AppError> {
+    let list = service::list_code_bindings(q.system_id.as_deref())
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(list))
+}
+
+/// `DELETE /api/design/bindings/{id}` — unbind (no external write).
+pub async fn unbind_code(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
+    service::unbind_code_project(id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 /// `POST /api/design/artifacts/{id}/critique` — 5-dimension quality review.

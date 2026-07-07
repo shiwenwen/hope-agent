@@ -415,7 +415,31 @@
       "ok": "Tasarım sistemi Figma'dan içe aktarıldı",
       "err": "Figma içe aktarma başarısız — URL ve token'ı kontrol edin"
     },
-    "exportHandoff": "Geliştirici paketi (ZIP)"
+    "exportHandoff": "Geliştirici paketi (ZIP)",
+    "bind": {
+      "entry": "Kod projesine bağla…",
+      "title": "Kod projesine bağla",
+      "desc": "Tasarım değişkenlerini çok platformlu geliştirici kodu olarak kod projenizdeki bir klasöre eşitleyin. İstediğiniz zaman yeniden eşitleyin.",
+      "targetDir": "Kod projesi dizini",
+      "targetDirPlaceholder": "Proje kökünü seçin veya yazın",
+      "choose": "Seç…",
+      "subfolder": "Alt klasör (köke göre)",
+      "formats": "Yazılacak biçimler",
+      "bind": "Bağla ve eşitle",
+      "boundSynced": "Bağlandı ve {{n}} dosya eşitlendi",
+      "boundNoSync": "Bağlandı ama eşitleme başarısız — sonra elle eşitleyin",
+      "err": "Bağlama başarısız",
+      "synced": "{{n}} dosya eşitlendi",
+      "syncErr": "Eşitleme başarısız",
+      "unbindErr": "Bağ kaldırma başarısız",
+      "existing": "Bağlantılar",
+      "none": "Henüz bağlantı yok",
+      "lastSynced": "son eşitleme",
+      "neverSynced": "eşitlenmedi",
+      "sync": "Eşitle",
+      "unbind": "Bağı kaldır",
+      "dirInvalid": "Geçersiz dizin"
+    }
   },
   "channels": {
     "accountLabel": "Hesap adı",

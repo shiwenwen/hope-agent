@@ -415,7 +415,31 @@
       "ok": "Figma에서 디자인 시스템을 가져왔습니다",
       "err": "Figma 가져오기 실패 — URL과 토큰을 확인하세요"
     },
-    "exportHandoff": "개발 핸드오프 (ZIP)"
+    "exportHandoff": "개발 핸드오프 (ZIP)",
+    "bind": {
+      "entry": "코드 프로젝트 연결…",
+      "title": "코드 프로젝트 연결",
+      "desc": "디자인 변수를 멀티 플랫폼 개발자 코드로 코드 프로젝트의 지정 폴더에 동기화합니다. 언제든 다시 동기화할 수 있습니다.",
+      "targetDir": "코드 프로젝트 디렉터리",
+      "targetDirPlaceholder": "프로젝트 루트 선택 또는 입력",
+      "choose": "선택…",
+      "subfolder": "하위 폴더(루트 기준 상대)",
+      "formats": "쓸 형식",
+      "bind": "연결 후 동기화",
+      "boundSynced": "연결하고 {{n}}개 파일을 동기화했습니다",
+      "boundNoSync": "연결했지만 동기화 실패 — 나중에 수동으로 동기화하세요",
+      "err": "연결 실패",
+      "synced": "{{n}}개 파일 동기화됨",
+      "syncErr": "동기화 실패",
+      "unbindErr": "연결 해제 실패",
+      "existing": "연결됨",
+      "none": "아직 연결 없음",
+      "lastSynced": "마지막 동기화",
+      "neverSynced": "미동기화",
+      "sync": "동기화",
+      "unbind": "연결 해제",
+      "dirInvalid": "잘못된 디렉터리"
+    }
   },
   "channels": {
     "accountLabel": "계정 이름",

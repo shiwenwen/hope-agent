@@ -42,6 +42,7 @@ import {
   FileArchive,
   FileCode,
   Frame,
+  Link2,
   Code2,
   AlertCircle,
   X,
@@ -56,6 +57,7 @@ import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
+import { DesignCodeBinding } from "@/components/design/DesignCodeBinding"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -169,6 +171,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [tokenExportOpen, setTokenExportOpen] = useState(false)
   const [tokenExportSystem, setTokenExportSystem] = useState<DesignSystemMeta | null>(null)
   const [figmaImportOpen, setFigmaImportOpen] = useState(false)
+  const [codeBindOpen, setCodeBindOpen] = useState(false)
+  const [codeBindSystem, setCodeBindSystem] = useState<DesignSystemMeta | null>(null)
 
   const [deleteTarget, setDeleteTarget] = useState<
     { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
@@ -1660,6 +1664,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         {t("design.exportTokens", "导出 Token（多平台代码）…")}
                       </Button>
                     )}
+                    {activeProject.defaultSystemId && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5"
+                        onClick={() => {
+                          const sys = systems.find((s) => s.id === activeProject.defaultSystemId)
+                          if (!sys) return
+                          setSystemPickerOpen(false)
+                          setCodeBindSystem(sys)
+                          setCodeBindOpen(true)
+                        }}
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                        {t("design.bind.entry", "绑定代码工程…")}
+                      </Button>
+                    )}
                   </div>
                 }
               />
@@ -2221,6 +2242,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           void loadSystems()
           if (activeProjectRef.current) void setProjectSystem(systemId)
         }}
+      />
+
+      {/* 绑定代码工程 + 同步 token（P3 工程轴 D） */}
+      <DesignCodeBinding
+        system={codeBindSystem}
+        open={codeBindOpen}
+        onOpenChange={setCodeBindOpen}
       />
 
       {/* 导出强路依赖门（MP4→ffmpeg / PDF·PNG→浏览器引擎）：未就绪让用户主动选，不静默降级。 */}

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::db::{
-    DesignArtifact, DesignArtifactVersion, DesignComment, DesignDb, DesignProject, DesignSystemMeta,
+    DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment, DesignDb,
+    DesignProject, DesignSystemMeta,
 };
 use super::patch;
 use super::renderer::{self, ArtifactKind, ArtifactParts};
@@ -1724,6 +1725,144 @@ pub fn export_handoff(artifact_id: &str) -> Result<ExportResult> {
     })
 }
 
+// ── Code bindings (工程轴 D：设计系统 → 代码工程 token 同步) ─────────
+
+/// 有效格式 id（token_export 的六目标）。
+const BINDING_FORMATS: [&str; 6] = ["css", "scss", "ts", "swift", "android", "dtcg"];
+
+/// 同步结果。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BindingSyncReport {
+    pub binding_id: i64,
+    pub dir: String,
+    pub written: Vec<String>,
+    pub synced_at: String,
+}
+
+/// 校验并解析绑定的**写入目录**：canonicalize `target_dir`（须存在且是目录），拼相对
+/// `subfolder`（拒绝绝对 / `..` 段），创建后再 canonicalize 校验仍在 root 内（防 symlink 逃逸）。
+/// **安全边界**：一切写盘都只落在这个被校验、被 `target_dir` 包含的目录里，绝不越界。
+fn resolve_binding_write_dir(target_dir: &str, subfolder: &str) -> Result<std::path::PathBuf> {
+    let root = std::fs::canonicalize(target_dir)
+        .with_context(|| format!("目标目录不存在或不可访问: {target_dir}"))?;
+    if !root.is_dir() {
+        anyhow::bail!("目标不是目录: {target_dir}");
+    }
+    let sub = std::path::Path::new(subfolder);
+    if sub.is_absolute() {
+        anyhow::bail!("子目录必须是相对路径");
+    }
+    for comp in sub.components() {
+        use std::path::Component;
+        if !matches!(comp, Component::Normal(_) | Component::CurDir) {
+            anyhow::bail!("子目录不得含 '..' 或根段");
+        }
+    }
+    let dir = root.join(sub);
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("创建写入目录失败: {}", dir.display()))?;
+    let real = std::fs::canonicalize(&dir)?;
+    if !real.starts_with(&root) {
+        anyhow::bail!("解析后的写入目录逃出目标目录");
+    }
+    Ok(real)
+}
+
+/// 归一化 + 校验格式列表（空 = 全部六种）。
+fn normalize_binding_formats(formats: &[String]) -> Result<Vec<String>> {
+    if formats.is_empty() {
+        return Ok(BINDING_FORMATS.iter().map(|s| s.to_string()).collect());
+    }
+    for f in formats {
+        if !BINDING_FORMATS.contains(&f.as_str()) {
+            anyhow::bail!("未知格式 '{f}'（可选 css/scss/ts/swift/android/dtcg）");
+        }
+    }
+    Ok(formats.to_vec())
+}
+
+/// 绑定一个设计系统到代码工程目录（**owner 平面专属**）。校验目录 + 系统存在后持久化。
+pub fn bind_code_project(
+    system_id: &str,
+    target_dir: &str,
+    subfolder: &str,
+    formats: &[String],
+) -> Result<DesignCodeBinding> {
+    let formats = normalize_binding_formats(formats)?;
+    // 校验（并创建）写入目录——绑定即确保目标可写、路径受控。
+    resolve_binding_write_dir(target_dir, subfolder)?;
+    let canonical = std::fs::canonicalize(target_dir)?
+        .to_string_lossy()
+        .into_owned();
+    let db = open_db()?;
+    system::ensure_builtins(&db)?; // 保证 FK 目标（含内置系统）已落 design_systems
+    if system::read_full(&db, system_id).is_err() {
+        anyhow::bail!("设计系统不存在: {system_id}");
+    }
+    let binding = db.add_code_binding(system_id, &canonical, subfolder, &formats, &now())?;
+    emit("design:binding_changed", json!({ "systemId": system_id }));
+    Ok(binding)
+}
+
+/// 同步：把绑定系统的多平台 token 文件写入其代码工程目录（复用 `token_export`）。
+pub fn sync_code_binding(id: i64) -> Result<BindingSyncReport> {
+    let db = open_db()?;
+    let binding = db
+        .get_code_binding(id)?
+        .with_context(|| format!("绑定不存在: {id}"))?;
+    let tokens_map: std::collections::BTreeMap<String, String> =
+        resolve_tokens(Some(&binding.system_id)).into_iter().collect();
+    let dev = super::token_export::export_all(&tokens_map);
+    let dir = resolve_binding_write_dir(&binding.target_dir, &binding.subfolder)?;
+
+    let mut written = Vec::new();
+    for e in &dev {
+        if !binding.formats.contains(&e.format) {
+            continue;
+        }
+        crate::platform::write_atomic(&dir.join(&e.filename), e.content.as_bytes())?;
+        written.push(e.filename.clone());
+    }
+    // 溯源清单（specific 文件名，避免撞项目 README）。
+    let manifest = format!(
+        "# Design tokens（自动生成，请勿手改）\n\n由 Hope Agent 设计空间从设计系统「{}」同步。\n\n文件：\n{}\n",
+        binding.system_id,
+        written.iter().map(|f| format!("- `{f}`")).collect::<Vec<_>>().join("\n")
+    );
+    crate::platform::write_atomic(&dir.join("DESIGN_TOKENS.md"), manifest.as_bytes())?;
+
+    let synced_at = now();
+    db.mark_binding_synced(id, &synced_at)?;
+    crate::app_info!(
+        "design",
+        "binding_sync",
+        "synced {} token files to {}",
+        written.len(),
+        dir.display()
+    );
+    emit("design:binding_changed", json!({ "systemId": binding.system_id }));
+    Ok(BindingSyncReport {
+        binding_id: id,
+        dir: dir.to_string_lossy().into_owned(),
+        written,
+        synced_at,
+    })
+}
+
+/// 列出绑定（可按 system 过滤）。
+pub fn list_code_bindings(system_id: Option<&str>) -> Result<Vec<DesignCodeBinding>> {
+    open_db()?.list_code_bindings(system_id)
+}
+
+/// 解绑（删绑定记录；**不删已同步到代码工程的文件**——那是工程侧资产）。
+pub fn unbind_code_project(id: i64) -> Result<()> {
+    let db = open_db()?;
+    db.delete_code_binding(id)?;
+    emit("design:binding_changed", json!({ "bindingId": id }));
+    Ok(())
+}
+
 // ── Design systems ─────────────────────────────────────────────────
 
 /// 列出设计系统（首次调用懒 seed 内置系统）。
@@ -2210,6 +2349,40 @@ mod handoff_tests {
                 ("--ds-space-4".to_string(), "16px".to_string()),
             ]
         );
+    }
+}
+
+#[cfg(test)]
+mod binding_tests {
+    use super::{normalize_binding_formats, resolve_binding_write_dir};
+
+    #[test]
+    fn resolve_write_dir_contains_and_rejects_escape() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_string_lossy().into_owned();
+        // 正常子目录 → 创建并落在 root 内。
+        let dir = resolve_binding_write_dir(&root, "src/tokens").unwrap();
+        assert!(dir.starts_with(std::fs::canonicalize(&root).unwrap()));
+        assert!(dir.ends_with("tokens"));
+        // 空子目录 = 根。
+        assert!(resolve_binding_write_dir(&root, "").is_ok());
+        // 拒绝 .. 逃逸。
+        assert!(resolve_binding_write_dir(&root, "../evil").is_err());
+        assert!(resolve_binding_write_dir(&root, "a/../../evil").is_err());
+        // 拒绝绝对路径。
+        assert!(resolve_binding_write_dir(&root, "/etc").is_err());
+        // 不存在的目标目录 → 报错。
+        assert!(resolve_binding_write_dir("/no/such/dir/xyz", "").is_err());
+    }
+
+    #[test]
+    fn normalize_formats_defaults_and_validates() {
+        assert_eq!(normalize_binding_formats(&[]).unwrap().len(), 6);
+        assert_eq!(
+            normalize_binding_formats(&["css".into(), "swift".into()]).unwrap(),
+            vec!["css".to_string(), "swift".to_string()]
+        );
+        assert!(normalize_binding_formats(&["bogus".into()]).is_err());
     }
 }
 

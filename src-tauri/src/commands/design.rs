@@ -11,10 +11,11 @@ use ha_core::design::service::{
     self, ArtifactView, CreateArtifactInput, CreateProjectInput, ElementPatch, ExportResult,
     ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
+use ha_core::design::service::BindingSyncReport;
 use ha_core::design::token_export::TokenExport;
 use ha_core::design::{
-    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignComment, DesignConfig,
-    DesignProject, DesignSystemFull, DesignSystemMeta,
+    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment,
+    DesignConfig, DesignProject, DesignSystemFull, DesignSystemMeta,
 };
 
 // ── Projects ────────────────────────────────────────────────────
@@ -121,6 +122,45 @@ pub async fn critique_design_artifact_cmd(id: String) -> Result<CritiqueResult, 
 #[tauri::command]
 pub async fn export_design_handoff_cmd(id: String) -> Result<ExportResult, CmdError> {
     service::export_handoff(&id).map_err(Into::into)
+}
+
+// ── Code bindings (工程轴 D) ────────────────────────────────────
+
+/// 绑定设计系统到代码工程目录（owner 平面）。
+#[tauri::command]
+pub async fn bind_design_code_project_cmd(
+    system_id: String,
+    target_dir: String,
+    subfolder: Option<String>,
+    formats: Option<Vec<String>>,
+) -> Result<DesignCodeBinding, CmdError> {
+    service::bind_code_project(
+        &system_id,
+        &target_dir,
+        subfolder.as_deref().unwrap_or(""),
+        &formats.unwrap_or_default(),
+    )
+    .map_err(Into::into)
+}
+
+/// 同步：把绑定系统的多平台 token 写入代码工程目录（owner 平面）。
+#[tauri::command]
+pub async fn sync_design_code_binding_cmd(id: i64) -> Result<BindingSyncReport, CmdError> {
+    service::sync_code_binding(id).map_err(Into::into)
+}
+
+/// 列出代码绑定（可按 system 过滤）。owner 平面。
+#[tauri::command]
+pub async fn list_design_code_bindings_cmd(
+    system_id: Option<String>,
+) -> Result<Vec<DesignCodeBinding>, CmdError> {
+    service::list_code_bindings(system_id.as_deref()).map_err(Into::into)
+}
+
+/// 解绑（删记录，不删已写文件）。owner 平面。
+#[tauri::command]
+pub async fn unbind_design_code_project_cmd(id: i64) -> Result<(), CmdError> {
+    service::unbind_code_project(id).map_err(Into::into)
 }
 
 #[tauri::command]

@@ -415,7 +415,31 @@
       "ok": "Sistema de design importado do Figma",
       "err": "Falha ao importar do Figma — verifique a URL e o token"
     },
-    "exportHandoff": "Pacote para devs (ZIP)"
+    "exportHandoff": "Pacote para devs (ZIP)",
+    "bind": {
+      "entry": "Vincular projeto de código…",
+      "title": "Vincular projeto de código",
+      "desc": "Sincronize as variáveis de design como código multiplataforma em uma pasta do seu projeto. Ressincronize quando quiser.",
+      "targetDir": "Diretório do projeto",
+      "targetDirPlaceholder": "Escolha ou digite a raiz do projeto",
+      "choose": "Escolher…",
+      "subfolder": "Subpasta (relativa à raiz)",
+      "formats": "Formatos a gravar",
+      "bind": "Vincular e sincronizar",
+      "boundSynced": "Vinculado e {{n}} arquivos sincronizados",
+      "boundNoSync": "Vinculado, mas a sincronização falhou — sincronize manualmente depois",
+      "err": "Falha ao vincular",
+      "synced": "{{n}} arquivos sincronizados",
+      "syncErr": "Falha ao sincronizar",
+      "unbindErr": "Falha ao desvincular",
+      "existing": "Vínculos",
+      "none": "Ainda sem vínculos",
+      "lastSynced": "última sinc.",
+      "neverSynced": "não sincronizado",
+      "sync": "Sincronizar",
+      "unbind": "Desvincular",
+      "dirInvalid": "Diretório inválido"
+    }
   },
   "channels": {
     "accountLabel": "Nome da conta",

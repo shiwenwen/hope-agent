@@ -415,7 +415,31 @@
       "ok": "Figma からデザインシステムを取り込みました",
       "err": "Figma の取り込みに失敗しました。URL とトークンを確認してください"
     },
-    "exportHandoff": "開発ハンドオフ (ZIP)"
+    "exportHandoff": "開発ハンドオフ (ZIP)",
+    "bind": {
+      "entry": "コードプロジェクトを連携…",
+      "title": "コードプロジェクトを連携",
+      "desc": "デザイン変数をマルチプラットフォームの開発者コードとしてコードプロジェクトの指定フォルダに同期します。いつでも再同期できます。",
+      "targetDir": "コードプロジェクトのディレクトリ",
+      "targetDirPlaceholder": "プロジェクトルートを選択または入力",
+      "choose": "選択…",
+      "subfolder": "サブフォルダ（ルート相対）",
+      "formats": "書き出す形式",
+      "bind": "連携して同期",
+      "boundSynced": "連携して {{n}} ファイルを同期しました",
+      "boundNoSync": "連携しましたが同期に失敗しました。後で手動で同期してください",
+      "err": "連携に失敗しました",
+      "synced": "{{n}} ファイルを同期しました",
+      "syncErr": "同期に失敗しました",
+      "unbindErr": "連携解除に失敗しました",
+      "existing": "連携済み",
+      "none": "連携はまだありません",
+      "lastSynced": "前回同期",
+      "neverSynced": "未同期",
+      "sync": "同期",
+      "unbind": "連携解除",
+      "dirInvalid": "無効なディレクトリ"
+    }
   },
   "channels": {
     "accountLabel": "アカウント名",

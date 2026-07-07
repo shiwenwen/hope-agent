@@ -415,7 +415,31 @@
       "ok": "Imported design system from Figma",
       "err": "Figma import failed — check the URL and token"
     },
-    "exportHandoff": "Dev handoff (ZIP)"
+    "exportHandoff": "Dev handoff (ZIP)",
+    "bind": {
+      "entry": "Bind code project…",
+      "title": "Bind code project",
+      "desc": "Sync design variables as multi-platform developer code into a folder in your code project. Re-sync anytime.",
+      "targetDir": "Code project directory",
+      "targetDirPlaceholder": "Choose or type the project root",
+      "choose": "Choose…",
+      "subfolder": "Subfolder (relative to root)",
+      "formats": "Formats to write",
+      "bind": "Bind & sync",
+      "boundSynced": "Bound and synced {{n}} files",
+      "boundNoSync": "Bound, but sync failed — sync manually later",
+      "err": "Bind failed",
+      "synced": "Synced {{n}} files",
+      "syncErr": "Sync failed",
+      "unbindErr": "Unbind failed",
+      "existing": "Bindings",
+      "none": "No bindings yet",
+      "lastSynced": "last synced",
+      "neverSynced": "not synced",
+      "sync": "Sync",
+      "unbind": "Unbind",
+      "dirInvalid": "Invalid directory"
+    }
   },
   "channels": {
     "accountLabel": "Account Name",

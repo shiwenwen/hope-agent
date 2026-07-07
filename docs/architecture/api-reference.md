@@ -432,6 +432,10 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
 | `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |
 | `export_design_handoff_cmd` | `GET /api/design/artifacts/{id}/handoff`（代码交付包 ZIP：index.html + source/ + 多平台 tokens/ + HANDOFF.md，base64） | ✅ |
+| `bind_design_code_project_cmd` | `POST /api/design/bindings`（绑定设计系统→代码工程目录；HTTP 受 `allowRemoteWrites` 门） | ✅ |
+| `sync_design_code_binding_cmd` | `POST /api/design/bindings/{id}/sync`（把多平台 token 写入绑定目录；HTTP 受 `allowRemoteWrites` 门） | ✅ |
+| `list_design_code_bindings_cmd` | `GET /api/design/bindings?systemId=`（列出代码绑定） | ✅ |
+| `unbind_design_code_project_cmd` | `DELETE /api/design/bindings/{id}`（解绑，不删已写文件） | ✅ |
 | `export_design_pptx_cmd` | `POST /api/design/pptx`（前端整页 PNG → OOXML 组装） | ✅ |
 | `export_design_zip_cmd` | `POST /api/design/zip`（artifactId=单产物源码包 / projectId=项目级全产物包） | ✅ |
 | `critique_design_artifact_cmd` | `POST /api/design/artifacts/{id}/critique` | ✅ |

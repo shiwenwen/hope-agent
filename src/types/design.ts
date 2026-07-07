@@ -243,3 +243,22 @@ export interface TokenExport {
   language: string;
   content: string;
 }
+
+/** 设计系统 → 代码工程绑定（工程轴 D）。 */
+export interface DesignCodeBinding {
+  id: number;
+  systemId: string;
+  targetDir: string;
+  subfolder: string;
+  formats: string[];
+  createdAt: string;
+  lastSyncedAt?: string;
+}
+
+/** 同步结果（`sync_design_code_binding_cmd`）。 */
+export interface BindingSyncReport {
+  bindingId: number;
+  dir: string;
+  written: string[];
+  syncedAt: string;
+}

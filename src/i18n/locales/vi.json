@@ -415,7 +415,31 @@
       "ok": "Đã nhập hệ thống thiết kế từ Figma",
       "err": "Nhập Figma thất bại — kiểm tra URL và token"
     },
-    "exportHandoff": "Gói bàn giao code (ZIP)"
+    "exportHandoff": "Gói bàn giao code (ZIP)",
+    "bind": {
+      "entry": "Liên kết dự án code…",
+      "title": "Liên kết dự án code",
+      "desc": "Đồng bộ biến thiết kế thành mã đa nền tảng vào một thư mục trong dự án code của bạn. Đồng bộ lại bất cứ lúc nào.",
+      "targetDir": "Thư mục dự án code",
+      "targetDirPlaceholder": "Chọn hoặc nhập thư mục gốc dự án",
+      "choose": "Chọn…",
+      "subfolder": "Thư mục con (tương đối gốc)",
+      "formats": "Định dạng cần ghi",
+      "bind": "Liên kết & đồng bộ",
+      "boundSynced": "Đã liên kết và đồng bộ {{n}} tệp",
+      "boundNoSync": "Đã liên kết nhưng đồng bộ thất bại — hãy đồng bộ thủ công sau",
+      "err": "Liên kết thất bại",
+      "synced": "Đã đồng bộ {{n}} tệp",
+      "syncErr": "Đồng bộ thất bại",
+      "unbindErr": "Hủy liên kết thất bại",
+      "existing": "Đã liên kết",
+      "none": "Chưa có liên kết",
+      "lastSynced": "đồng bộ lần cuối",
+      "neverSynced": "chưa đồng bộ",
+      "sync": "Đồng bộ",
+      "unbind": "Hủy liên kết",
+      "dirInvalid": "Thư mục không hợp lệ"
+    }
   },
   "channels": {
     "accountLabel": "Tên tài khoản",

@@ -415,7 +415,31 @@
       "ok": "Sistem reka bentuk diimport dari Figma",
       "err": "Import Figma gagal — semak URL dan token"
     },
-    "exportHandoff": "Pakej serahan kod (ZIP)"
+    "exportHandoff": "Pakej serahan kod (ZIP)",
+    "bind": {
+      "entry": "Ikat projek kod…",
+      "title": "Ikat projek kod",
+      "desc": "Segerakkan pemboleh ubah reka bentuk sebagai kod pembangun pelbagai platform ke folder dalam projek kod anda. Segerak semula bila-bila masa.",
+      "targetDir": "Direktori projek kod",
+      "targetDirPlaceholder": "Pilih atau taip akar projek",
+      "choose": "Pilih…",
+      "subfolder": "Subfolder (relatif kepada akar)",
+      "formats": "Format untuk ditulis",
+      "bind": "Ikat & segerak",
+      "boundSynced": "Diikat dan {{n}} fail disegerakkan",
+      "boundNoSync": "Diikat, tetapi segerak gagal — segerak manual kemudian",
+      "err": "Ikatan gagal",
+      "synced": "{{n}} fail disegerakkan",
+      "syncErr": "Segerak gagal",
+      "unbindErr": "Nyahikat gagal",
+      "existing": "Ikatan",
+      "none": "Belum ada ikatan",
+      "lastSynced": "segerak terakhir",
+      "neverSynced": "tidak disegerakkan",
+      "sync": "Segerak",
+      "unbind": "Nyahikat",
+      "dirInvalid": "Direktori tidak sah"
+    }
   },
   "channels": {
     "accountLabel": "Nama akaun",
