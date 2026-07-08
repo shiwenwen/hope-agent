@@ -51,32 +51,37 @@ const KnowledgeView = lazy(() => import("@/components/knowledge/KnowledgeView"))
 const DesignView = lazy(() => import("@/components/design/DesignView"))
 const SettingsView = lazy(() => import("@/components/settings/SettingsView"))
 
+type AppView =
+  | "loading"
+  | "configRecovery"
+  | "onboarding"
+  | "setup"
+  | "chat"
+  | "settings"
+  | "skills"
+  | "profile"
+  | "agents"
+  | "modelConfig"
+  | "memory"
+  | "channels"
+  | "calendar"
+  | "dashboard"
+  | "plans"
+  | "knowledge"
+  | "design"
+
 export default function App() {
   const { t, i18n } = useTranslation()
-  const [view, setView] = useState<
-    | "loading"
-    | "configRecovery"
-    | "onboarding"
-    | "setup"
-    | "chat"
-    | "settings"
-    | "skills"
-    | "profile"
-    | "agents"
-    | "modelConfig"
-    | "memory"
-    | "channels"
-    | "calendar"
-    | "dashboard"
-    | "plans"
-    | "knowledge"
-    | "design"
-  >("loading")
+  const [view, setView] = useState<AppView>("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
     undefined,
   )
   const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
+  // 记住进设置前所在的视图，返回时回到那里（而非硬编码回 chat）。
+  const [settingsReturnView, setSettingsReturnView] = useState<AppView>("chat")
+  const viewRef = useRef<AppView>(view)
+  viewRef.current = view
   const [dashboardInitialTab, setDashboardInitialTab] = useState<string | undefined>(undefined)
   const [dashboardInitialReportId, setDashboardInitialReportId] = useState<string | null>(null)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
@@ -184,6 +189,8 @@ export default function App() {
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
   const handleOpenSettings = useCallback((section?: SettingsSection) => {
     if (keepConfigRecoveryView()) return
+    // 记住来源视图（非 settings 本身），返回时回去。
+    if (viewRef.current !== "settings") setSettingsReturnView(viewRef.current)
     setSettingsInitialSection(section)
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
@@ -550,7 +557,7 @@ export default function App() {
               {view === "settings" && (
                 <SettingsView
                   key={settingsInitialSectionRequestKey}
-                  onBack={() => setView("chat")}
+                  onBack={() => setView(settingsReturnView)}
                   onCodexAuth={handleCodexAuth}
                   onCodexReauth={handleCodexAuth}
                   initialSection={settingsInitialSection}
