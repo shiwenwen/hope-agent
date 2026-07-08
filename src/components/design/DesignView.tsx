@@ -569,6 +569,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [homePrompt, setHomePrompt] = useState("")
   const [homeKind, setHomeKind] = useState<ArtifactKind>("web")
   const [homeSystemId, setHomeSystemId] = useState<string | null>(null)
+  // 首屏选中的 recipe（模板）id：点模板卡时置入，随生成传给后端让「选不同模板产出可辨差异」。
+  // 后端按 (id, kind) 匹配、不匹配即回退，故换 kind 无需清空。
+  const [homeRecipeId, setHomeRecipeId] = useState<string | null>(null)
   const [generatingHome, setGeneratingHome] = useState(false)
 
   // 首屏「一句话 → 生成」：建项目 → 带 prompt 建产物（后端一次模型生成完整自包含设计）→ 打开。
@@ -591,9 +594,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           kind: homeKind,
           prompt,
           systemId,
+          recipeId: homeRecipeId ?? undefined,
         },
       })
       setHomePrompt("")
+      setHomeRecipeId(null)
       openProject(project)
       if (artifact) void openArtifact(artifact)
     } catch (e) {
@@ -615,6 +620,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     homePrompt,
     homeKind,
     homeSystemId,
+    homeRecipeId,
     generatingHome,
     designConfig,
     kindLabel,
@@ -1857,6 +1863,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           onPickRecipe={(r) => {
             setHomeKind(r.kind)
             setHomePrompt(r.scenario || r.summary || r.name)
+            setHomeRecipeId(r.id)
           }}
           prompt={homePrompt}
           setPrompt={setHomePrompt}

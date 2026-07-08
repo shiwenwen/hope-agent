@@ -435,6 +435,10 @@ pub struct CreateArtifactInput {
     pub reference_image_b64: Option<String>,
     #[serde(default)]
     pub reference_image_mime: Option<String>,
+    /// 选定的 recipe（模板）id：非媒体形态生成时，用该 recipe 的 guidance/scenario 作 KIND
+    /// GUIDANCE（选不同模板产出结构可辨差异）。缺省 / 不匹配 kind → 回退该 kind 首个内置 recipe。
+    #[serde(default)]
+    pub recipe_id: Option<String>,
 }
 
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
@@ -485,7 +489,16 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             input.prompt.clone().filter(|p| !p.trim().is_empty()),
         ) {
             let (system_md, tokens) = resolve_system_for_generation(&input);
-            match super::generate::generate_design_parts(&brief, kind, &system_md, &tokens).await {
+            let recipe_id = input.recipe_id.clone();
+            match super::generate::generate_design_parts(
+                &brief,
+                kind,
+                &system_md,
+                &tokens,
+                recipe_id.as_deref(),
+            )
+            .await
+            {
                 Ok(parts) => {
                     input.body_html = Some(parts.body_html);
                     input.css = Some(parts.css);
@@ -971,6 +984,7 @@ pub fn finalize_generating_artifact(
 }
 
 /// 后端流式编排（建壳后 spawn）：逐帧回填预览 → 定稿 / 降级 failed。
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_generate_artifact(
     artifact_id: String,
     project_id: String,
@@ -978,6 +992,7 @@ pub async fn stream_generate_artifact(
     kind: ArtifactKind,
     system_md: String,
     tokens: BTreeMap<String, String>,
+    recipe_id: Option<String>,
     cancel: Arc<AtomicBool>,
 ) {
     // 本流唯一 id + 单调 seq：前端按 streamId 变化重置累积、按 seq 丢乱序帧（EventBus 无 seq）。
@@ -1007,6 +1022,7 @@ pub async fn stream_generate_artifact(
         kind,
         &system_md,
         &tokens,
+        recipe_id.as_deref(),
         &cancel,
         &on_snapshot,
     )
@@ -1096,6 +1112,7 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
     let cancel = register_generation_cancel(&shell.id);
     let artifact_id = shell.id.clone();
     let project_id = shell.project_id.clone();
+    let recipe_id = input.recipe_id.clone();
     tokio::spawn(async move {
         use futures_util::future::FutureExt;
         // 参考图 → vision 描述成重建 brief（+ 叠加文本要求）；描述失败回退文本 brief。
@@ -1129,6 +1146,7 @@ pub async fn generate_design_artifact(input: CreateArtifactInput) -> Result<Desi
             kind,
             system_md,
             tokens,
+            recipe_id,
             cancel.clone(),
         ))
         .catch_unwind()
@@ -2500,6 +2518,7 @@ pub async fn refine_artifact_with_comment(
         prompt: None,
         reference_image_b64: None,
         reference_image_mime: None,
+        recipe_id: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
     let instruction = compose_refine_instruction(&comment);
