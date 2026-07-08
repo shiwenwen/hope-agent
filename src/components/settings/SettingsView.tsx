@@ -11,6 +11,7 @@ import {
   Code,
   Compass,
   Library,
+  Palette,
   Globe,
   Info,
   MessageSquare,
@@ -42,6 +43,7 @@ import ProviderEditPage from "@/components/settings/ProviderEditPage"
 import GeneralPanel from "@/components/settings/general-panel"
 import ModelConfigPanel from "@/components/settings/ModelConfigPanel"
 import ToolSettingsPanel from "@/components/settings/ToolSettingsPanel"
+import DesignSettingsPanel from "@/components/settings/DesignSettingsPanel"
 import ChatSettingsPanel from "@/components/settings/ChatSettingsPanel"
 import CronSettingsPanel from "@/components/settings/CronSettingsPanel"
 import PlanSettingsPanel from "@/components/settings/PlanSettingsPanel"
@@ -132,6 +134,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "knowledge",
     icon: <Library className="h-4 w-4" />,
     labelKey: "settings.knowledge.tab",
+  },
+  {
+    id: "design",
+    icon: <Palette className="h-4 w-4" />,
+    labelKey: "design.title",
   },
   {
     id: "chat",
@@ -242,7 +249,6 @@ export default function SettingsView({
   onCodexAuth,
   onCodexReauth,
   initialSection,
-  initialToolTab,
   initialAgentId,
   initialChannelId,
   onProfileSaved,
@@ -251,8 +257,6 @@ export default function SettingsView({
   onCodexAuth: () => Promise<void>
   onCodexReauth?: () => void
   initialSection?: SettingsSection
-  /** When `initialSection === "tools"`, pre-select this Tools sub-tab (e.g. "design"). */
-  initialToolTab?: string
   initialAgentId?: string
   /** When `initialSection === "channels"`, pre-open the Add dialog with
    *  this channel pre-selected. Used by the onboarding wizard. */
@@ -394,8 +398,9 @@ export default function SettingsView({
             {activeSection === "profile" && <UserProfilePanel onSaved={onProfileSaved} />}
             {activeSection === "memory" && <MemoryPanel />}
             {activeSection === "knowledge" && <KnowledgePanel />}
+            {activeSection === "design" && <DesignSettingsPanel />}
             {activeSection === "notifications" && <NotificationPanel />}
-            {activeSection === "tools" && <ToolSettingsPanel initialTab={initialToolTab} />}
+            {activeSection === "tools" && <ToolSettingsPanel />}
             {activeSection === "mcp" && <McpServersPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
             {activeSection === "browser" && <BrowserPanel />}

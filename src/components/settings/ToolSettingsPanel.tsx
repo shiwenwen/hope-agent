@@ -7,17 +7,13 @@ import ImageGeneratePanel from "@/components/settings/ImageGeneratePanel"
 import AudioGeneratePanel from "@/components/settings/AudioGeneratePanel"
 import IssueReportingPanel from "@/components/settings/IssueReportingPanel"
 import CanvasSettingsPanel from "@/components/settings/CanvasSettingsPanel"
-import DesignSettingsPanel from "@/components/settings/DesignSettingsPanel"
 import AsyncToolsPanel from "@/components/settings/AsyncToolsPanel"
 
-export default function ToolSettingsPanel({ initialTab }: { initialTab?: string } = {}) {
+export default function ToolSettingsPanel() {
   const { t } = useTranslation()
 
   return (
-    <Tabs
-      defaultValue={initialTab ?? "general"}
-      className="flex-1 flex flex-col min-h-0 overflow-hidden"
-    >
+    <Tabs defaultValue="general" className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="px-6 pt-4 pb-2 shrink-0">
         <TabsList className="w-fit">
           <TabsTrigger value="general">{t("settings.toolGeneral")}</TabsTrigger>
@@ -26,7 +22,6 @@ export default function ToolSettingsPanel({ initialTab }: { initialTab?: string 
           <TabsTrigger value="imageGenerate">{t("settings.imageGenerate")}</TabsTrigger>
           <TabsTrigger value="audioGenerate">{t("settings.audioGenerate", "音频生成")}</TabsTrigger>
           <TabsTrigger value="canvas">{t("settings.canvas")}</TabsTrigger>
-          <TabsTrigger value="design">{t("design.title", "设计空间")}</TabsTrigger>
           <TabsTrigger value="asyncTools">{t("settings.asyncTools")}</TabsTrigger>
           <TabsTrigger value="issueReporting">{t("settings.issueReporting")}</TabsTrigger>
         </TabsList>
@@ -48,9 +43,6 @@ export default function ToolSettingsPanel({ initialTab }: { initialTab?: string 
       </TabsContent>
       <TabsContent value="canvas" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <CanvasSettingsPanel />
-      </TabsContent>
-      <TabsContent value="design" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
-        <DesignSettingsPanel />
       </TabsContent>
       <TabsContent value="asyncTools" className="flex-1 min-h-0 overflow-hidden mt-0 flex flex-col">
         <AsyncToolsPanel />
