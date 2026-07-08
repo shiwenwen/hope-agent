@@ -328,40 +328,6 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
   // ── Artifacts ────────────────────────────────────────────────
 
-  const loadArtifacts = useCallback(
-    async (projectId: string) => {
-      setLoadingArtifacts(true)
-      try {
-        const list = await tx.call<DesignArtifact[]>("list_design_artifacts_cmd", {
-          projectId,
-        })
-        setArtifacts(list ?? [])
-      } catch (e) {
-        logger.error("design", "DesignView::loadArtifacts", "list artifacts failed", e)
-        toast.error(t("design.err.load", "加载失败"))
-      } finally {
-        setLoadingArtifacts(false)
-      }
-    },
-    [tx, t],
-  )
-
-  const openProject = useCallback(
-    (project: DesignProject) => {
-      setActiveProject(project)
-      setActiveArtifact(null)
-      void loadArtifacts(project.id)
-    },
-    [loadArtifacts],
-  )
-
-  const backToHome = useCallback(() => {
-    setActiveProject(null)
-    setActiveArtifact(null)
-    setArtifacts([])
-    void loadProjects()
-  }, [loadProjects])
-
   const openArtifact = useCallback(
     async (artifact: DesignArtifact) => {
       try {
@@ -379,6 +345,43 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [tx, t],
   )
+
+  const loadArtifacts = useCallback(
+    // `selectFirst`：打开项目时自动选中列表首项（后端按 updated_at DESC 返回 = 最近编辑的产物），
+    // 其余调用方（新建 / 刷新后重载）不传，保留当前选中不被顶掉。
+    async (projectId: string, selectFirst = false) => {
+      setLoadingArtifacts(true)
+      try {
+        const list = await tx.call<DesignArtifact[]>("list_design_artifacts_cmd", {
+          projectId,
+        })
+        setArtifacts(list ?? [])
+        if (selectFirst && list && list.length > 0) void openArtifact(list[0])
+      } catch (e) {
+        logger.error("design", "DesignView::loadArtifacts", "list artifacts failed", e)
+        toast.error(t("design.err.load", "加载失败"))
+      } finally {
+        setLoadingArtifacts(false)
+      }
+    },
+    [tx, t, openArtifact],
+  )
+
+  const openProject = useCallback(
+    (project: DesignProject) => {
+      setActiveProject(project)
+      setActiveArtifact(null)
+      void loadArtifacts(project.id, true)
+    },
+    [loadArtifacts],
+  )
+
+  const backToHome = useCallback(() => {
+    setActiveProject(null)
+    setActiveArtifact(null)
+    setArtifacts([])
+    void loadProjects()
+  }, [loadProjects])
 
   const createArtifact = useCallback(
     async (kind: ArtifactKind, prompt?: string) => {
