@@ -206,6 +206,11 @@ pub async fn chat(
     // Only honored on the auto-create branch (mirrors `working_dir` /
     // `kb_attachments`) — promotes the new session into a KB chat thread.
     kb_anchor_note: Option<String>,
+    // Design-space per-project chat: the design project open when the
+    // conversation started. Only honored on the auto-create branch (with
+    // `tool_scope == "design"`) — promotes the new session into a design chat
+    // thread anchored to this project.
+    design_project_id: Option<String>,
     // Lazy project binding: when the frontend opens a project draft (no session
     // yet), the first message carries the project id here so the auto-create
     // branch materializes the session inside the project. Ignored when
@@ -374,7 +379,9 @@ pub async fn chat(
             // Drop the freshly auto-created session; the notice still reaches the
             // panel via the transient event channel (no `session_created`, so the
             // frontend never registers it).
-            if new_session_created.is_some() && tool_scope.as_deref() == Some("knowledge") {
+            if new_session_created.is_some()
+                && matches!(tool_scope.as_deref(), Some("knowledge") | Some("design"))
+            {
                 let _ = db.delete_session(&sid);
                 let _ = on_event
                     .send(serde_json::json!({ "type": "text", "text": notice }).to_string());
@@ -424,6 +431,14 @@ pub async fn chat(
                 &kb_id,
                 kb_anchor_note.as_deref(),
             );
+        }
+    }
+
+    // Design-space per-project chat: promote the freshly-created session into a
+    // design thread anchored to the open project (mirrors the KB branch above).
+    if new_session_created.is_some() && tool_scope.as_deref() == Some("design") {
+        if let Some(project_id) = design_project_id.as_deref() {
+            ha_core::design::service::mark_session_as_design_thread(&sid, project_id);
         }
     }
 

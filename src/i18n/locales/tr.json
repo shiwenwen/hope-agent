@@ -6334,6 +6334,18 @@
       "unbind": "Bağı kaldır",
       "dirInvalid": "Geçersiz dizin"
     },
-    "pickSystem": "Tasarım sistemi seç"
+    "pickSystem": "Tasarım sistemi seç",
+    "chat": {
+      "searchHistory": "Geçmişte ara…",
+      "noHistory": "Henüz konuşma yok",
+      "untitled": "Adsız",
+      "messageCount": "{{count}} mesaj",
+      "noProject": "Yapay zeka ile sohbet etmek için bir tasarım projesi açın",
+      "newConversation": "Yeni sohbet",
+      "history": "Geçmiş",
+      "hide": "Sohbeti gizle",
+      "show": "Sohbeti göster"
+    },
+    "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin."
   }
 }

@@ -841,6 +841,8 @@ pub fn run() {
             commands::design::design_comment_resolve_cmd,
             commands::design::design_comment_delete_cmd,
             commands::design::design_comment_refine_cmd,
+            commands::design::design_chat_thread_get_cmd,
+            commands::design::design_chat_threads_list_cmd,
             // Dashboard analytics
             commands::dashboard::dashboard_overview,
             commands::dashboard::dashboard_token_usage,

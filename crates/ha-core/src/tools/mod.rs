@@ -306,21 +306,52 @@ pub fn is_knowledge_scope_tool(name: &str) -> bool {
         )
 }
 
+/// White-list predicate for [`ToolScope::Design`] — the trimmed tool set the
+/// design-space per-project chat injects. Keeps the `design` tool (the whole
+/// create/iterate/restyle/critique surface), reference-gathering (`web_search` /
+/// `web_fetch` / `image_generate`), cross-store recall, and the framework basics
+/// the dispatcher / deferred-tool flow need; everything else (exec / browser /
+/// subagent / cron / channel / raw fs …) is dropped so a design chat stays
+/// focused on the artifact and can't wander into unrelated capabilities.
+///
+/// Purely schema/visibility narrowing — it never WIDENS anything. The `design`
+/// tool is still gated by `app_config.design.enabled` at dispatch.
+pub fn is_design_scope_tool(name: &str) -> bool {
+    matches!(
+        name,
+        TOOL_DESIGN
+            | TOOL_WEB_SEARCH
+            | TOOL_WEB_FETCH
+            | TOOL_IMAGE_GENERATE
+            | TOOL_RECALL_MEMORY
+            | TOOL_MEMORY_GET
+            | TOOL_KNOWLEDGE_RECALL
+            | TOOL_SKILL
+            | TOOL_TOOL_SEARCH
+            | TOOL_ASK_USER_QUESTION
+            | TOOL_RUNTIME_CANCEL
+            | TOOL_JOB_STATUS
+    )
+}
+
 /// Restricts which tools are visible for a turn, orthogonal to the agent's own
-/// allow/deny config and to the chat source. Currently the only variant is
-/// `Knowledge` (the knowledge-space sidebar chat's trimmed set). `None` on
-/// [`crate::chat_engine::ChatEngineParams`] means no extra narrowing.
+/// allow/deny config and to the chat source. `Knowledge` is the knowledge-space
+/// sidebar chat's trimmed set; `Design` is the design-space per-project chat's.
+/// `None` on [`crate::chat_engine::ChatEngineParams`] means no extra narrowing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolScope {
     Knowledge,
+    Design,
 }
 
 impl ToolScope {
-    /// Parse the wire string (`"knowledge"`) into a scope; anything else → None.
+    /// Parse the wire string (`"knowledge"` / `"design"`) into a scope; anything
+    /// else → None.
     pub fn from_str_opt(s: Option<&str>) -> Option<Self> {
         match s {
             Some("knowledge") => Some(ToolScope::Knowledge),
+            Some("design") => Some(ToolScope::Design),
             _ => None,
         }
     }
@@ -329,6 +360,7 @@ impl ToolScope {
     pub fn allows(&self, name: &str) -> bool {
         match self {
             ToolScope::Knowledge => is_knowledge_scope_tool(name),
+            ToolScope::Design => is_design_scope_tool(name),
         }
     }
 }

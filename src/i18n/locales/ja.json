@@ -6334,6 +6334,18 @@
       "unbind": "連携解除",
       "dirInvalid": "無効なディレクトリ"
     },
-    "pickSystem": "デザインシステムを選択"
+    "pickSystem": "デザインシステムを選択",
+    "chat": {
+      "searchHistory": "履歴を検索…",
+      "noHistory": "会話はまだありません",
+      "untitled": "無題",
+      "messageCount": "{{count}} 件",
+      "noProject": "デザインプロジェクトを開くと AI とチャットできます",
+      "newConversation": "新しいチャット",
+      "history": "履歴",
+      "hide": "チャットを隠す",
+      "show": "チャットを表示"
+    },
+    "emptyArtifactsInline": "アーティファクトはまだありません — 右上の「新規アーティファクト」か、左の AI に生成を頼んでください。"
   }
 }

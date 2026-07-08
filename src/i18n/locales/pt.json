@@ -6334,6 +6334,18 @@
       "unbind": "Desvincular",
       "dirInvalid": "Diretório inválido"
     },
-    "pickSystem": "Escolher sistema de design"
+    "pickSystem": "Escolher sistema de design",
+    "chat": {
+      "searchHistory": "Pesquisar histórico…",
+      "noHistory": "Ainda sem conversas",
+      "untitled": "Sem título",
+      "messageCount": "{{count}} mensagens",
+      "noProject": "Abra um projeto de design para conversar com a IA",
+      "newConversation": "Novo chat",
+      "history": "Histórico",
+      "hide": "Ocultar chat",
+      "show": "Mostrar chat"
+    },
+    "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um."
   }
 }

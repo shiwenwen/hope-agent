@@ -6334,6 +6334,18 @@
       "unbind": "Hủy liên kết",
       "dirInvalid": "Thư mục không hợp lệ"
     },
-    "pickSystem": "Chọn hệ thống thiết kế"
+    "pickSystem": "Chọn hệ thống thiết kế",
+    "chat": {
+      "searchHistory": "Tìm lịch sử…",
+      "noHistory": "Chưa có cuộc trò chuyện",
+      "untitled": "Không có tiêu đề",
+      "messageCount": "{{count}} tin nhắn",
+      "noProject": "Mở một dự án thiết kế để trò chuyện với AI",
+      "newConversation": "Trò chuyện mới",
+      "history": "Lịch sử",
+      "hide": "Ẩn trò chuyện",
+      "show": "Hiện trò chuyện"
+    },
+    "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái."
   }
 }

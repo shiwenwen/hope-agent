@@ -55,6 +55,11 @@ pub enum SessionKind {
     #[default]
     Regular,
     Knowledge,
+    /// A design-space per-project chat thread — persisted (history survives)
+    /// but kept out of the main sidebar / `/sessions` picker / global FTS, and
+    /// driving a trimmed tool set (`ToolScope::Design`). Like `Knowledge`, it
+    /// is NOT a security boundary.
+    Design,
 }
 
 impl SessionKind {
@@ -62,6 +67,7 @@ impl SessionKind {
         match self {
             SessionKind::Regular => "regular",
             SessionKind::Knowledge => "knowledge",
+            SessionKind::Design => "design",
         }
     }
 
@@ -70,6 +76,7 @@ impl SessionKind {
     pub fn from_db_string(s: &str) -> Self {
         match s {
             "knowledge" => SessionKind::Knowledge,
+            "design" => SessionKind::Design,
             _ => SessionKind::Regular,
         }
     }

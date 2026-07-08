@@ -22,10 +22,12 @@ pub mod renderer;
 pub mod selfcheck;
 pub mod service;
 pub mod system;
+pub mod threads;
 pub mod token_export;
 pub mod vision;
 
 pub use critique::CritiqueResult;
+pub use threads::DesignChatThread;
 pub use db::{
     DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment, DesignProject,
     DesignSystemMeta,

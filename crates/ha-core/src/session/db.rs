@@ -122,6 +122,20 @@ impl SessionDB {
                 kind TEXT NOT NULL DEFAULT 'regular'
             );
 
+            -- Design-space per-project chat threads. Binds a `kind='design'`
+            -- session to the design project it iterates on. Truth source in
+            -- sessions.db (JOINs sessions/messages for the history picker);
+            -- cascades on session delete. `project_id` is a plain column (the
+            -- design project row lives in the separate design.db, so no FK) —
+            -- design-project deletion tears these sessions down explicitly.
+            CREATE TABLE IF NOT EXISTS design_chat_threads (
+                session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+                project_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_design_chat_threads_project
+                ON design_chat_threads(project_id, created_at DESC);
+
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
@@ -1456,7 +1470,7 @@ impl SessionDB {
         // Knowledge-space sidebar conversations live in the KB panel, never the
         // main session list / picker — hide them unconditionally (no active
         // exception, unlike incognito below).
-        where_clauses.push("s.kind != 'knowledge'".to_string());
+        where_clauses.push("s.kind NOT IN ('knowledge','design')".to_string());
 
         // Cron run sessions live in the cron panel's "conversations" timeline,
         // never the main sidebar list — hide them when the sidebar asks.
@@ -3613,7 +3627,7 @@ impl SessionDB {
             // The in-session search path (Some(sid)) already scopes to one
             // session and is allowed to search its content while it is open.
             where_clauses.push("s.incognito = 0".to_string());
-            where_clauses.push("s.kind != 'knowledge'".to_string());
+            where_clauses.push("s.kind NOT IN ('knowledge','design')".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -3623,7 +3637,7 @@ impl SessionDB {
                 for t in type_list {
                     match t {
                         SessionTypeFilter::Regular => type_clauses.push(
-                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind != 'knowledge')".to_string(),
+                            "(s.is_cron = 0 AND s.parent_session_id IS NULL AND cc.channel_id IS NULL AND s.kind NOT IN ('knowledge','design'))".to_string(),
                         ),
                         SessionTypeFilter::Cron => {
                             type_clauses.push("s.is_cron = 1".to_string())
@@ -3941,7 +3955,7 @@ impl SessionDB {
                 "SELECT s.id, COALESCE(s.title, '') AS title
                  FROM sessions s
                  WHERE s.incognito = 0
-                   AND s.kind != 'knowledge'
+                   AND s.kind NOT IN ('knowledge','design')
                    AND COALESCE(s.title, '') LIKE ?1 ESCAPE '\\'
                  ORDER BY s.updated_at DESC
                  LIMIT {}",
@@ -3979,7 +3993,7 @@ impl SessionDB {
                      WHERE messages_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
-                       AND s.kind != 'knowledge'
+                       AND s.kind NOT IN ('knowledge','design')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",
@@ -4015,7 +4029,7 @@ impl SessionDB {
                      WHERE messages_trigram_fts MATCH ?1
                        AND m.role IN ('user', 'assistant')
                        AND s.incognito = 0
-                       AND s.kind != 'knowledge'
+                       AND s.kind NOT IN ('knowledge','design')
                  ) WHERE rn = 1
                  ORDER BY rank
                  LIMIT {}",

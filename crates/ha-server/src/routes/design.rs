@@ -18,10 +18,11 @@ use ha_core::design::service::{
     ExtractSystemInput, SaveSystemInput, UpdateProjectInput,
 };
 use ha_core::design::{
-    DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment, DesignProject,
-    DesignSystemMeta,
+    DesignArtifact, DesignArtifactVersion, DesignChatThread, DesignCodeBinding, DesignComment,
+    DesignProject, DesignSystemMeta,
 };
 use ha_core::paths;
+use ha_core::session::SessionMeta;
 
 use crate::error::AppError;
 use crate::routes::file_serve::{
@@ -711,6 +712,39 @@ pub async fn refine_comment(
     Ok(Json(
         service::refine_artifact_with_comment(&artifact_id, comment_id)
             .await
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+// ── Design-space per-project chat threads ───────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct ThreadListQuery {
+    pub query: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// `GET /api/design/projects/{project_id}/chat/thread` — default-load target:
+/// the most recent chat thread anchored to this project (`None` = empty state).
+pub async fn chat_thread_latest(
+    Path(project_id): Path<String>,
+) -> Result<Json<Option<SessionMeta>>, AppError> {
+    validate_id(&project_id)?;
+    Ok(Json(
+        service::design_chat_thread_latest(&project_id)
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `GET /api/design/projects/{project_id}/chat/threads` — history picker page.
+pub async fn chat_threads_list(
+    Path(project_id): Path<String>,
+    Query(q): Query<ThreadListQuery>,
+) -> Result<Json<Vec<DesignChatThread>>, AppError> {
+    validate_id(&project_id)?;
+    Ok(Json(
+        service::design_chat_threads_list(&project_id, q.query.as_deref(), q.limit, q.offset)
             .map_err(|e| AppError::internal(e.to_string()))?,
     ))
 }

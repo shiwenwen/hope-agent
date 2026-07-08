@@ -262,3 +262,20 @@ export interface BindingSyncReport {
   written: string[];
   syncedAt: string;
 }
+
+/** A design-space per-project chat thread — one row per `kind='design'` session,
+ *  joined with session metadata for the history picker. Mirrors `KbChatThread`. */
+export interface DesignChatThread {
+  sessionId: string;
+  projectId: string;
+  /** Agent baked into this thread — restored on history-picker switch so
+   *  follow-ups run with the thread's own agent + model. */
+  agentId: string;
+  title?: string | null;
+  /** Thread creation time (epoch ms). */
+  createdAt: number;
+  /** Session `updated_at` (rfc3339) — recency sort key. */
+  updatedAt: string;
+  messageCount: number;
+  lastSnippet?: string | null;
+}

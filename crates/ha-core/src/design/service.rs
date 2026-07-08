@@ -247,11 +247,20 @@ pub fn list_projects() -> Result<Vec<DesignProject>> {
 }
 
 /// agent 侧：解析当前会话的设计项目（取最近一个，无则新建草稿项目）。
+///
+/// 设计空间对话（`kind='design'` 会话）经 `design_chat_threads` 锚到用户当前
+/// 打开的项目——优先命中锚定项目，让「跟 AI 说改这个」落到正确项目而不是新建
+/// 草稿。锚表在 sessions.db、无 SessionDB（ACP）时静默回落原有按 session 查逻辑。
 pub fn get_or_create_session_project(
     session_id: Option<&str>,
     agent_id: Option<&str>,
 ) -> Result<DesignProject> {
     if let Some(sid) = session_id {
+        if let Ok(Some(pid)) = crate::design::threads::project_for_session(sid) {
+            if let Some(p) = open_db()?.get_project(&pid)? {
+                return Ok(p);
+            }
+        }
         let existing = open_db()?.list_projects_by_session(sid)?;
         if let Some(p) = existing.into_iter().next() {
             return Ok(p);
@@ -266,6 +275,64 @@ pub fn get_or_create_session_project(
         session_id: session_id.map(str::to_string),
         agent_id: agent_id.map(str::to_string),
     })
+}
+
+/// Promote a freshly-created session into a design chat thread anchored to a
+/// project (`kind='design'` + `design_chat_threads` row). Called from the `chat`
+/// command's auto-create branch when `tool_scope == "design"`. Best-effort:
+/// mirrors `knowledge::service::mark_session_as_kb_thread` — the thread row is
+/// created FIRST so a failure leaves a usable (if unlisted) regular session
+/// rather than a row-less hidden zombie.
+pub fn mark_session_as_design_thread(session_id: &str, project_id: &str) {
+    let Some(db) = crate::globals::get_session_db() else {
+        return;
+    };
+    if let Err(e) = crate::design::threads::create_thread(session_id, project_id) {
+        crate::app_warn!(
+            "design",
+            "thread_mint",
+            "create_thread failed for {}: {}",
+            session_id,
+            e
+        );
+        return;
+    }
+    if let Err(e) = db.set_session_kind(session_id, crate::session::SessionKind::Design) {
+        crate::app_warn!(
+            "design",
+            "thread_mint",
+            "set_session_kind failed for {} (thread row kept): {}",
+            session_id,
+            e
+        );
+    }
+}
+
+/// Default-load target: `SessionMeta` of the most-recently-active chat thread for
+/// a design project. `None` when the project has no prior conversation (panel
+/// shows the empty starter state).
+pub fn design_chat_thread_latest(
+    project_id: &str,
+) -> Result<Option<crate::session::SessionMeta>> {
+    let Some(sid) = crate::design::threads::latest_thread_for_project(project_id)? else {
+        return Ok(None);
+    };
+    let Some(db) = crate::globals::get_session_db() else {
+        return Ok(None);
+    };
+    db.get_session(&sid)
+}
+
+/// History picker: a page of design chat threads for a project, newest-active
+/// first. `query` (when non-empty) FTS-filters by message content; `limit`
+/// (default 50, clamped 1..=200) + `offset` paginate.
+pub fn design_chat_threads_list(
+    project_id: &str,
+    query: Option<&str>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<crate::design::DesignChatThread>> {
+    crate::design::threads::list_threads(project_id, query, limit, offset)
 }
 
 pub fn get_project(id: &str) -> Result<Option<DesignProject>> {
@@ -316,6 +383,18 @@ pub fn update_project(input: UpdateProjectInput) -> Result<DesignProject> {
 /// 删除项目：DB 级联删产物/版本 + `rm -rf` 项目目录。
 pub fn delete_project(id: &str) -> Result<()> {
     let db = open_db()?;
+    // Tear down the (otherwise hidden) `kind='design'` chat sessions anchored to
+    // this project BEFORE the project row goes away — collect first, then delete
+    // each session (which cascades its `design_chat_threads` row + messages).
+    // The anchor table lives in sessions.db (no cross-db FK), so this cleanup is
+    // explicit rather than an ON DELETE CASCADE.
+    if let Some(sdb) = crate::globals::get_session_db() {
+        if let Ok(session_ids) = crate::design::threads::thread_session_ids(id) {
+            for sid in session_ids {
+                let _ = sdb.delete_session(&sid);
+            }
+        }
+    }
     db.delete_project(id)?;
     if let Ok(dir) = paths::design_project_dir(id) {
         if dir.exists() {

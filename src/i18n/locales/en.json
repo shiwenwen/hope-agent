@@ -6334,6 +6334,18 @@
       "unbind": "Unbind",
       "dirInvalid": "Invalid directory"
     },
-    "pickSystem": "Choose a design system"
+    "pickSystem": "Choose a design system",
+    "chat": {
+      "searchHistory": "Search history…",
+      "noHistory": "No conversations yet",
+      "untitled": "Untitled",
+      "messageCount": "{{count}} messages",
+      "noProject": "Open a design project to chat with AI",
+      "newConversation": "New chat",
+      "history": "History",
+      "hide": "Hide chat",
+      "show": "Show chat"
+    },
+    "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one."
   }
 }

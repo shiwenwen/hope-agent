@@ -6334,6 +6334,18 @@
       "unbind": "解除綁定",
       "dirInvalid": "目錄無效"
     },
-    "pickSystem": "選擇設計系統"
+    "pickSystem": "選擇設計系統",
+    "chat": {
+      "searchHistory": "搜尋歷史對話…",
+      "noHistory": "還沒有對話",
+      "untitled": "未命名對話",
+      "messageCount": "{{count}} 則",
+      "noProject": "開啟一個設計專案後即可與 AI 對話",
+      "newConversation": "新對話",
+      "history": "歷史對話",
+      "hide": "隱藏對話",
+      "show": "顯示對話"
+    },
+    "emptyArtifactsInline": "還沒有產物——右上角「新增產物」，或直接讓左側 AI 生成。"
   }
 }

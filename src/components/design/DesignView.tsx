@@ -17,6 +17,8 @@ import {
   RefreshCw,
   Settings2,
   Palette,
+  PanelLeft,
+  PanelLeftClose,
   Loader2,
   Monitor,
   Smartphone,
@@ -52,6 +54,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
+import DesignChatPanel from "@/components/design/chat/DesignChatPanel"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
@@ -181,6 +184,33 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  // AI 对话左栏（复刻 open-design：左对话 / 右预览，可拖宽 · 可折叠）。宽度持久化。
+  const [chatOpen, setChatOpen] = useState(true)
+  const [chatWidth, setChatWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("design_chat_width"))
+    return Number.isFinite(saved) && saved >= 320 && saved <= 640 ? saved : 400
+  })
+  useEffect(() => {
+    localStorage.setItem("design_chat_width", String(chatWidth))
+  }, [chatWidth])
+  const startChatResize = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startW = chatWidth
+      const onMove = (ev: PointerEvent) => {
+        setChatWidth(Math.max(320, Math.min(640, startW + ev.clientX - startX)))
+      }
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove)
+        window.removeEventListener("pointerup", onUp)
+      }
+      window.addEventListener("pointermove", onMove)
+      window.addEventListener("pointerup", onUp)
+    },
+    [chatWidth],
+  )
 
   // 可视化微调（D1）
   const [editMode, setEditMode] = useState(false)
@@ -1813,42 +1843,94 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         />
       ) : (
         <div className="flex flex-1 min-h-0">
-          {/* Artifact library (left) */}
-          <aside className="w-72 shrink-0 overflow-y-auto border-r p-3">
-            {loadingArtifacts ? (
-              <div className="flex justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : artifacts.length === 0 ? (
-              <div className="px-2 py-8 text-center text-sm text-muted-foreground">
-                {t("design.emptyArtifacts", "还没有产物。点右上角「新建产物」开始。")}
-              </div>
-            ) : (
-              <ul className="space-y-1.5">
-                {artifacts.map((a) => {
+          {/* Left: AI 对话栏（可拖宽 · 可折叠）——设计空间的对话改写主入口 */}
+          {chatOpen && (
+            <div
+              className="flex min-h-0 shrink-0 flex-col border-r"
+              style={{ width: chatWidth }}
+            >
+              <DesignChatPanel
+                projectId={activeProject.id}
+                activeArtifact={
+                  activeArtifact
+                    ? {
+                        id: activeArtifact.id,
+                        title: activeArtifact.title,
+                        kind: activeArtifact.kind,
+                      }
+                    : null
+                }
+                systemName={
+                  systems.find(
+                    (s) =>
+                      s.id ===
+                      (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId),
+                  )?.name ?? null
+                }
+                active
+              />
+            </div>
+          )}
+          {chatOpen && (
+            <div
+              onPointerDown={startChatResize}
+              className="w-1 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/40"
+              role="separator"
+              aria-orientation="vertical"
+            />
+          )}
+
+          {/* Right: 顶部产物切换条 + 单产物预览 */}
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* 顶部：对话折叠钮 + 横向产物切换条（原左侧列表收窄成条） */}
+            <div className="flex h-11 shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-background/60 px-2">
+              <IconTip
+                label={chatOpen ? t("design.chat.hide", "隐藏对话") : t("design.chat.show", "显示对话")}
+                side="bottom"
+              >
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 shrink-0"
+                  onClick={() => setChatOpen((v) => !v)}
+                >
+                  {chatOpen ? (
+                    <PanelLeftClose className="h-4 w-4" />
+                  ) : (
+                    <PanelLeft className="h-4 w-4" />
+                  )}
+                </Button>
+              </IconTip>
+              <div className="h-4 w-px shrink-0 bg-border" />
+              {loadingArtifacts ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : artifacts.length === 0 ? (
+                <span className="px-1 text-xs text-muted-foreground">
+                  {t("design.emptyArtifactsInline", "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。")}
+                </span>
+              ) : (
+                artifacts.map((a) => {
                   const Icon = KIND_ICON[a.kind] ?? Monitor
                   const active = activeArtifact?.id === a.id
                   return (
-                    <li key={a.id} className="group relative">
+                    <div key={a.id} className="group/chip relative shrink-0">
                       <button
                         type="button"
                         onClick={() => void openArtifact(a)}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 pr-8 text-left text-sm transition-colors",
+                          "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-7 text-xs transition-colors",
                           active
                             ? "bg-primary/10 text-primary"
-                            : "hover:bg-muted text-foreground",
+                            : "text-foreground hover:bg-muted",
                         )}
                       >
-                        <Icon className="h-4 w-4 shrink-0 opacity-70" />
-                        <span className="min-w-0 flex-1 truncate">{a.title}</span>
+                        <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                        <span className="truncate">{a.title}</span>
                         {a.status === "generating" && (
                           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
                         )}
                         {a.status === "failed" && (
-                          <IconTip label={t("design.statusFailed", "生成失败")} side="left">
-                            <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                          </IconTip>
+                          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
                         )}
                       </button>
                       <Button
@@ -1859,19 +1941,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           e.stopPropagation()
                           setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
                         }}
-                        className="absolute right-1 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                        className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/chip:opacity-100"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3 w-3" />
                       </Button>
-                    </li>
+                    </div>
                   )
-                })}
-              </ul>
-            )}
-          </aside>
+                })
+              )}
+            </div>
 
-          {/* Single-artifact preview (center) */}
-          <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
+            {/* Single-artifact preview */}
+            <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
             {activeArtifact ? (
               <>
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3">
@@ -2105,7 +2186,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 )}
               </div>
             )}
-          </main>
+            </main>
+          </div>
 
           {/* Inspector (right) — visual fine-tuning */}
           {editMode && selected && activeArtifact && (

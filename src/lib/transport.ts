@@ -61,9 +61,14 @@ export interface ChatStartArgs {
    *  message already sees the access. Ignored for existing-session sends. */
   kbAttachments?: { kbId: string; access: string }[];
   /** Tool-visibility scope. `"knowledge"` trims the injected tool set to the
-   *  knowledge-space white-list (note read/write + recall + framework basics);
-   *  set by the knowledge-space sidebar chat. Omit for normal chats. */
-  toolScope?: "knowledge";
+   *  knowledge-space white-list; `"design"` to the design-space white-list
+   *  (the `design` tool + reference-gathering + framework basics). Set by the
+   *  respective embedded chat. Omit for normal chats. */
+  toolScope?: "knowledge" | "design";
+  /** Design-space per-project chat: the open project id, sent on the auto-create
+   *  branch (with `toolScope: "design"`) so the backend promotes the new session
+   *  into a design chat thread anchored to it. Ignored for existing sessions. */
+  designProjectId?: string | null;
   // Tauri's invoke serializes extra unknown fields without complaint, and
   // HTTP's POST body is plain JSON — keep this open so HTTP impl can
   // pass-through without an unsafe `as Record<string, unknown>` cast.

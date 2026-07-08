@@ -1853,6 +1853,14 @@ fn build_router_with_cors(
             get(routes::design::list_artifacts),
         )
         .route(
+            "/design/projects/{project_id}/chat/thread",
+            get(routes::design::chat_thread_latest),
+        )
+        .route(
+            "/design/projects/{project_id}/chat/threads",
+            get(routes::design::chat_threads_list),
+        )
+        .route(
             "/design/artifacts",
             get(routes::design::list_all_artifacts).post(routes::design::create_artifact),
         )

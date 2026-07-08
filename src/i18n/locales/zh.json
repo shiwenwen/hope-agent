@@ -6334,6 +6334,18 @@
       "unbind": "解绑",
       "dirInvalid": "目录无效"
     },
-    "pickSystem": "选择设计系统"
+    "pickSystem": "选择设计系统",
+    "chat": {
+      "searchHistory": "搜索历史对话…",
+      "noHistory": "还没有对话",
+      "untitled": "未命名对话",
+      "messageCount": "{{count}} 条",
+      "noProject": "打开一个设计项目后即可与 AI 对话",
+      "newConversation": "新对话",
+      "history": "历史对话",
+      "hide": "隐藏对话",
+      "show": "显示对话"
+    },
+    "emptyArtifactsInline": "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。"
   }
 }

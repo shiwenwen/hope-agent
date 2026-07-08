@@ -6334,6 +6334,18 @@
       "unbind": "연결 해제",
       "dirInvalid": "잘못된 디렉터리"
     },
-    "pickSystem": "디자인 시스템 선택"
+    "pickSystem": "디자인 시스템 선택",
+    "chat": {
+      "searchHistory": "기록 검색…",
+      "noHistory": "대화가 아직 없습니다",
+      "untitled": "제목 없음",
+      "messageCount": "{{count}}개",
+      "noProject": "디자인 프로젝트를 열면 AI와 대화할 수 있습니다",
+      "newConversation": "새 대화",
+      "history": "기록",
+      "hide": "대화 숨기기",
+      "show": "대화 표시"
+    },
+    "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요."
   }
 }

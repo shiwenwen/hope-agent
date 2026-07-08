@@ -6334,6 +6334,18 @@
       "unbind": "Nyahikat",
       "dirInvalid": "Direktori tidak sah"
     },
-    "pickSystem": "Pilih sistem reka bentuk"
+    "pickSystem": "Pilih sistem reka bentuk",
+    "chat": {
+      "searchHistory": "Cari sejarah…",
+      "noHistory": "Belum ada perbualan",
+      "untitled": "Tanpa tajuk",
+      "messageCount": "{{count}} mesej",
+      "noProject": "Buka projek reka bentuk untuk berbual dengan AI",
+      "newConversation": "Sembang baharu",
+      "history": "Sejarah",
+      "hide": "Sembunyikan sembang",
+      "show": "Tunjukkan sembang"
+    },
+    "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya."
   }
 }

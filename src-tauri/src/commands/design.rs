@@ -14,9 +14,10 @@ use ha_core::design::service::{
 };
 use ha_core::design::token_export::TokenExport;
 use ha_core::design::{
-    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment,
-    DesignConfig, DesignProject, DesignSystemFull, DesignSystemMeta,
+    CritiqueResult, DesignArtifact, DesignArtifactVersion, DesignChatThread, DesignCodeBinding,
+    DesignComment, DesignConfig, DesignProject, DesignSystemFull, DesignSystemMeta,
 };
+use ha_core::session::SessionMeta;
 
 // ── Projects ────────────────────────────────────────────────────
 
@@ -423,5 +424,30 @@ pub async fn design_comment_refine_cmd(
 ) -> Result<DesignArtifact, CmdError> {
     service::refine_artifact_with_comment(&artifact_id, comment_id)
         .await
+        .map_err(Into::into)
+}
+
+// ── Design-space per-project chat threads ───────────────────────
+
+/// Default-load target: the most recent chat thread anchored to `projectId`.
+/// `None` when the project has no prior conversation (panel shows empty state).
+#[tauri::command]
+pub async fn design_chat_thread_get_cmd(
+    project_id: String,
+) -> Result<Option<SessionMeta>, CmdError> {
+    service::design_chat_thread_latest(&project_id).map_err(Into::into)
+}
+
+/// History picker: a page of chat threads in a design project, newest-active
+/// first. `query` FTS-filters by message content when non-empty; `limit`/`offset`
+/// paginate.
+#[tauri::command]
+pub async fn design_chat_threads_list_cmd(
+    project_id: String,
+    query: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<DesignChatThread>, CmdError> {
+    service::design_chat_threads_list(&project_id, query.as_deref(), limit, offset)
         .map_err(Into::into)
 }
