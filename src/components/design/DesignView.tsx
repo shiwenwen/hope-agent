@@ -185,7 +185,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [previewKey, setPreviewKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
-  // AI 对话左栏（复刻 open-design：左对话 / 右预览，可拖宽 · 可折叠）。宽度持久化。
+  // AI 对话左栏（chat-to-edit：左对话 / 右预览，可拖宽 · 可折叠）。宽度持久化。
   const chatPanelRef = useRef<DesignChatPanelHandle>(null)
   const [chatOpen, setChatOpen] = useState(true)
   const [chatWidth, setChatWidth] = useState(() => {
@@ -800,8 +800,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, loadComments],
   )
 
-  // 批注带到对话（复刻 open-design：批注 → composer quote chip，用户可补充后随 turn 发，
-  // AI 在有完整对话上下文下迭代）。展开被折叠的对话栏并把反馈作为可删 quote 塞进 composer。
+  // 批注带到对话（批注 → composer quote chip，用户可补充后随 turn 发，AI 在完整对话
+  // 上下文下迭代）。展开被折叠的对话栏并把反馈作为可删 quote 塞进 composer。
   const handleAddCommentToChat = useCallback(
     (id: number) => {
       const c = comments.find((x) => x.id === id)

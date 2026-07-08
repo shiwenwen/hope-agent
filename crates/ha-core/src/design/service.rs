@@ -1422,7 +1422,7 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .context("artifact gone after update")
 }
 
-/// **就地换设计系统**（restyle without rebuilding，open-design 核心能力 #4 的就地操作）：改产物
+/// **就地换设计系统**（restyle without rebuilding）：改产物
 /// `system_id` + 用新系统 token 重渲染 `index.html`（**源码不变**，换皮靠产物 CSS 的 `var(--ds-*)`
 /// + `:root` 注入新值），落新版本快照可回滚。owner 平面。`system_id=None` = 清除设计系统。
 pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<DesignArtifact> {
