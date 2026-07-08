@@ -1,4 +1,4 @@
-import { history, historyKeymap } from "@codemirror/commands"
+import { history, historyKeymap, insertNewline } from "@codemirror/commands"
 import { Compartment, EditorState, RangeSetBuilder, type Extension } from "@codemirror/state"
 import {
   Decoration,
@@ -618,7 +618,12 @@ const MentionComposerInput = forwardRef<ComposerInputHandle, MentionComposerInpu
               doc: valueRef.current,
               extensions: [
                 history(),
-                keymap.of(historyKeymap),
+                // Shift+Enter inserts a soft line break (standard IM
+                // convention). Plain Enter is deliberately left unbound so it
+                // bubbles to ChatInput's onKeyDown, which sends the message —
+                // CM6 without a binding swallows the structural edit, which is
+                // also why the editor could never insert a newline before.
+                keymap.of([{ key: "Shift-Enter", run: insertNewline }, ...historyKeymap]),
                 EditorView.lineWrapping,
                 // WebKit (Tauri) doesn't paint the native caret in an empty
                 // contenteditable; CM6 draws its own reliable, blinking cursor.
