@@ -338,6 +338,7 @@ export default function ChatTitleBar({
       </span>
     </IconTip>
   ) : null
+  const shouldShowWorkingDirChip = !project || workingDirSource === "session"
   const rightPanelControls = hasRightPanelControls ? (
     <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
       {onToggleFilesPanel && (
@@ -534,7 +535,7 @@ export default function ChatTitleBar({
                 {t("chat.incognito")}
               </span>
             )}
-            {!project && workingDirChip}
+            {shouldShowWorkingDirChip && workingDirChip}
           </>
         )}
       </div>
