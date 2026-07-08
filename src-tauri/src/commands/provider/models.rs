@@ -2,6 +2,7 @@ use crate::agent::AssistantAgent;
 use crate::commands::CmdError;
 use crate::provider::{self, ActiveModel, ApiType, AvailableModel};
 use crate::AppState;
+use ha_core::blocking::run_blocking;
 use tauri::State;
 
 #[tauri::command]
@@ -27,8 +28,12 @@ pub(crate) async fn set_active_model_core(
     model_id: &str,
     state: &AppState,
 ) -> Result<(), CmdError> {
-    let provider =
-        ha_core::provider::set_active_model(provider_id.to_string(), model_id.to_string(), "ui")?;
+    let provider_id_owned = provider_id.to_string();
+    let model_id_owned = model_id.to_string();
+    let provider = run_blocking(move || {
+        ha_core::provider::set_active_model(provider_id_owned, model_id_owned, "ui")
+    })
+    .await?;
 
     // For Codex, use stored token info; otherwise build agent from provider.
     if provider.api_type == ApiType::Codex {
@@ -65,10 +70,11 @@ pub async fn set_fallback_models(
     models: Vec<ActiveModel>,
     _state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("fallback_models", "ui"), |store| {
+    ha_core::config::mutate_config_async(("fallback_models", "ui"), move |store| {
         store.fallback_models = models;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 

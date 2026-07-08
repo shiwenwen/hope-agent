@@ -265,15 +265,21 @@ pub async fn chat(
     let agent_id = if let Some(id) = explicit_agent_id {
         id
     } else if let Some(session_id) = existing_session_id {
-        db.get_session(session_id)?
+        let session_id = session_id.to_string();
+        db.run(move |db| db.get_session(&session_id))
+            .await?
             .map(|session| session.agent_id)
             .unwrap_or_else(|| ha_core::agent::resolver::resolve_default_agent_id(None, None))
     } else {
         // New session: resolve via the project's default-agent chain when a
         // lazy project binding is present, mirroring the create_session route.
-        let project = project_id
-            .as_deref()
-            .and_then(|pid| ctx.project_db.get(pid).ok().flatten());
+        let project = match project_id.clone() {
+            Some(pid) => {
+                let project_db = ctx.project_db.clone();
+                ha_core::blocking::run_blocking(move || project_db.get(&pid).ok().flatten()).await
+            }
+            None => None,
+        };
         ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
     };
 
@@ -284,8 +290,15 @@ pub async fn chat(
         _ => {
             // `project_id` binds the new session to a project on this lazy-create
             // branch; incognito is coerced off when a project is set.
-            let meta =
-                db.create_session_with_project(&agent_id, project_id.as_deref(), body.incognito)?;
+            let meta = {
+                let agent_id = agent_id.clone();
+                let project_id = project_id.clone();
+                let incognito = body.incognito;
+                db.run(move |db| {
+                    db.create_session_with_project(&agent_id, project_id.as_deref(), incognito)
+                })
+                .await?
+            };
             new_session_created = true;
             meta.id
         }
@@ -296,7 +309,10 @@ pub async fn chat(
     // setter to change it.
     if new_session_created {
         if let Some(wd) = body.working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
-            db.update_session_working_dir(&sid, Some(wd.clone()))
+            let sid = sid.clone();
+            let wd = wd.clone();
+            db.run(move |db| db.update_session_working_dir(&sid, Some(wd)))
+                .await
                 .map_err(|e| AppError::bad_request(e.to_string()))?;
         }
         ha_core::knowledge::service::apply_draft_attachments(
@@ -307,13 +323,19 @@ pub async fn chat(
     }
 
     // Persist per-session permission mode if the body included one.
-    if let Some(mode) = permission_mode_pending {
-        db.update_session_permission_mode(&sid, mode)
-            .map_err(|e| AppError::bad_request(e.to_string()))?;
-    }
-    if let Some(mode) = sandbox_mode_pending {
-        db.update_session_sandbox_mode(&sid, mode)
-            .map_err(|e| AppError::bad_request(e.to_string()))?;
+    if permission_mode_pending.is_some() || sandbox_mode_pending.is_some() {
+        let sid = sid.clone();
+        db.run(move |db| -> anyhow::Result<()> {
+            if let Some(mode) = permission_mode_pending {
+                db.update_session_permission_mode(&sid, mode)?;
+            }
+            if let Some(mode) = sandbox_mode_pending {
+                db.update_session_sandbox_mode(&sid, mode)?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
 
     // Load app/agent config before resolving per-turn settings.
@@ -329,7 +351,11 @@ pub async fn chat(
         .map(str::trim)
         .filter(|effort| !effort.is_empty())
         .map(str::to_string);
-    let session_effort = db.get_session(&sid)?.and_then(|meta| meta.reasoning_effort);
+    let session_effort = {
+        let sid = sid.clone();
+        db.run(move |db| db.get_session(&sid)).await?
+    }
+    .and_then(|meta| meta.reasoning_effort);
     let global_effort = if let Some(cell) = ha_core::get_reasoning_effort_cell() {
         cell.lock().await.clone()
     } else {
@@ -346,7 +372,12 @@ pub async fn chat(
             ha_core::agent::VALID_REASONING_EFFORTS
         )));
     }
-    db.update_session_reasoning_effort(&sid, Some(&effort))?;
+    {
+        let sid = sid.clone();
+        let effort = effort.clone();
+        db.run(move |db| db.update_session_reasoning_effort(&sid, Some(&effort)))
+            .await?;
+    }
     if let Some(cell) = ha_core::get_reasoning_effort_cell() {
         *cell.lock().await = effort.clone();
     }
@@ -397,7 +428,10 @@ pub async fn chat(
             // main list / picker / FTS). Drop the freshly auto-created session;
             // `blocked_reason` still carries the notice to the transport.
             if new_session_created && body.tool_scope.as_deref() == Some("knowledge") {
-                let _ = db.delete_session(&sid);
+                let _ = {
+                    let sid = sid.clone();
+                    db.run(move |db| db.delete_session(&sid)).await
+                };
                 return Ok(Json(ChatResponse {
                     session_id: sid,
                     response: notice.clone(),
@@ -405,7 +439,12 @@ pub async fn chat(
                     blocked_reason: Some(notice),
                 }));
             }
-            let _ = db.append_message(&sid, &session::NewMessage::event(&notice));
+            let _ = {
+                let sid = sid.clone();
+                let notice = notice.clone();
+                db.run(move |db| db.append_message(&sid, &session::NewMessage::event(&notice)))
+                    .await
+            };
             return Ok(Json(ChatResponse {
                 session_id: sid,
                 response: notice.clone(),
@@ -435,9 +474,22 @@ pub async fn chat(
     // main computed (identical to `raw_prompt`, now consumed by the preflight) is
     // dropped.
     validate_http_chat_attachments(&sid, &body.attachments)?;
-    let attachments_meta =
-        ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut body.attachments)
-            .map_err(|e| AppError::internal(e.to_string()))?;
+    // Attachment persistence writes files to disk — offload so a stalled
+    // filesystem can't pin the async worker (mirrors the desktop chat path).
+    // `persist_*` mutates the attachments in place, so hand them into the
+    // blocking closure and take them back out.
+    let attachments_meta = {
+        let sid = sid.clone();
+        let mut moved = std::mem::take(&mut body.attachments);
+        let (meta, persisted) = ha_core::blocking::run_blocking(move || {
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut moved)?;
+            anyhow::Ok((meta, moved))
+        })
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+        body.attachments = persisted;
+        meta
+    };
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
@@ -447,17 +499,26 @@ pub async fn chat(
         body.plan_comment.as_ref(),
         attachments_meta,
     );
-    let user_message_id = db.append_message(&sid, &user_msg).ok();
-    let _turn = db.create_chat_turn_with_id(
-        &turn_id,
-        &sid,
-        ha_core::chat_engine::ChatSource::Http.as_str(),
-        None,
-        user_message_id,
-    )?;
+    let (_user_message_id, _turn) = {
+        let sid = sid.clone();
+        let turn_id = turn_id.clone();
+        let effective_prompt = effective_prompt.clone();
+        db.run(move |db| -> anyhow::Result<_> {
+            let user_message_id = db.append_message(&sid, &user_msg).ok();
+            let turn = db.create_chat_turn_with_id(
+                &turn_id,
+                &sid,
+                ha_core::chat_engine::ChatSource::Http.as_str(),
+                None,
+                user_message_id,
+            )?;
 
-    // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
-    let _ = session::ensure_first_message_title(&db, &sid, &effective_prompt);
+            // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
+            let _ = session::ensure_first_message_title(db, &sid, &effective_prompt);
+            Ok((user_message_id, turn))
+        })
+        .await?
+    };
 
     // Resolve model chain
     let agent_model_config = agent_def
@@ -469,14 +530,19 @@ pub async fn chat(
     // when no explicit per-turn override was provided. Mirrors the desktop
     // commands::chat path so the two transports stay in sync.
     let session_pinned_model: Option<String> = if body.model_override.is_none() {
-        db.get_session(&sid).ok().flatten().and_then(|meta| {
-            match (meta.provider_id, meta.model_id) {
+        let lookup = {
+            let sid = sid.clone();
+            db.run(move |db| db.get_session(&sid)).await
+        };
+        lookup
+            .ok()
+            .flatten()
+            .and_then(|meta| match (meta.provider_id, meta.model_id) {
                 (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
                     Some(format!("{}::{}", p, m))
                 }
                 _ => None,
-            }
-        })
+            })
     } else {
         None
     };
@@ -668,67 +734,80 @@ pub async fn stop_chat(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<StopChatRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let mut stopped = false;
-    let mut stopped_count = 0usize;
-    let mut active_session_ids = Vec::new();
-    let mut watchdog_turns = Vec::new();
-    {
-        let cancels = ctx
-            .chat_cancels
-            .read()
-            .map_err(|_| AppError::internal("chat cancel registry lock poisoned"))?;
-        if let Some(sid) = body.session_id.as_deref() {
-            if let Some(active) = ha_core::chat_engine::active_turn::current(sid) {
-                let matches_turn = body
-                    .turn_id
-                    .as_deref()
-                    .map(|id| id == active.turn_id)
-                    .unwrap_or(true);
-                if matches_turn {
-                    active.cancel.store(true, Ordering::SeqCst);
-                    let _ = ctx.session_db.mark_chat_turn_cancelling(
-                        &active.turn_id,
-                        session::ChatTurnInterruptReason::UserStop,
-                    );
-                    ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
-                        sid,
-                        &active.turn_id,
-                        session::ChatTurnStatus::Cancelling,
-                        Some(session::ChatTurnInterruptReason::UserStop),
-                    );
-                    watchdog_turns.push((sid.to_string(), active.turn_id.clone(), active.source));
-                    stopped = true;
-                    stopped_count = 1;
-                }
-            } else if body.turn_id.is_none() {
-                if let Some(cancel) = cancels.get(sid) {
-                    cancel.store(true, Ordering::SeqCst);
-                    stopped = true;
-                    stopped_count = 1;
-                }
-            }
-        } else {
-            for (sid, cancel) in cancels.iter() {
-                cancel.store(true, Ordering::SeqCst);
+    // The whole flip-and-mark pass runs on the blocking pool: it holds the
+    // in-memory cancel-registry lock while issuing synchronous SQLite writes
+    // (`mark_chat_turn_cancelling`), which must not pin a runtime worker.
+    let (stopped, stopped_count, active_session_ids, watchdog_turns) = {
+        let ctx = ctx.clone();
+        let session_id = body.session_id.clone();
+        let turn_id = body.turn_id.clone();
+        ha_core::blocking::run_blocking(move || -> Result<_, AppError> {
+            let mut stopped = false;
+            let mut stopped_count = 0usize;
+            let mut active_session_ids = Vec::new();
+            let mut watchdog_turns = Vec::new();
+            let cancels = ctx
+                .chat_cancels
+                .read()
+                .map_err(|_| AppError::internal("chat cancel registry lock poisoned"))?;
+            if let Some(sid) = session_id.as_deref() {
                 if let Some(active) = ha_core::chat_engine::active_turn::current(sid) {
-                    let _ = ctx.session_db.mark_chat_turn_cancelling(
-                        &active.turn_id,
-                        session::ChatTurnInterruptReason::UserStop,
-                    );
-                    ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
-                        sid,
-                        &active.turn_id,
-                        session::ChatTurnStatus::Cancelling,
-                        Some(session::ChatTurnInterruptReason::UserStop),
-                    );
-                    watchdog_turns.push((sid.clone(), active.turn_id.clone(), active.source));
+                    let matches_turn = turn_id
+                        .as_deref()
+                        .map(|id| id == active.turn_id)
+                        .unwrap_or(true);
+                    if matches_turn {
+                        active.cancel.store(true, Ordering::SeqCst);
+                        let _ = ctx.session_db.mark_chat_turn_cancelling(
+                            &active.turn_id,
+                            session::ChatTurnInterruptReason::UserStop,
+                        );
+                        ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
+                            sid,
+                            &active.turn_id,
+                            session::ChatTurnStatus::Cancelling,
+                            Some(session::ChatTurnInterruptReason::UserStop),
+                        );
+                        watchdog_turns.push((
+                            sid.to_string(),
+                            active.turn_id.clone(),
+                            active.source,
+                        ));
+                        stopped = true;
+                        stopped_count = 1;
+                    }
+                } else if turn_id.is_none() {
+                    if let Some(cancel) = cancels.get(sid) {
+                        cancel.store(true, Ordering::SeqCst);
+                        stopped = true;
+                        stopped_count = 1;
+                    }
                 }
-                active_session_ids.push(sid.clone());
-                stopped_count += 1;
+            } else {
+                for (sid, cancel) in cancels.iter() {
+                    cancel.store(true, Ordering::SeqCst);
+                    if let Some(active) = ha_core::chat_engine::active_turn::current(sid) {
+                        let _ = ctx.session_db.mark_chat_turn_cancelling(
+                            &active.turn_id,
+                            session::ChatTurnInterruptReason::UserStop,
+                        );
+                        ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
+                            sid,
+                            &active.turn_id,
+                            session::ChatTurnStatus::Cancelling,
+                            Some(session::ChatTurnInterruptReason::UserStop),
+                        );
+                        watchdog_turns.push((sid.clone(), active.turn_id.clone(), active.source));
+                    }
+                    active_session_ids.push(sid.clone());
+                    stopped_count += 1;
+                }
+                stopped = stopped_count > 0;
             }
-            stopped = stopped_count > 0;
-        }
-    }
+            Ok((stopped, stopped_count, active_session_ids, watchdog_turns))
+        })
+        .await?
+    };
 
     let runtime_cancellations = if let Some(sid) = body.session_id.as_deref() {
         if stopped {
@@ -795,7 +874,8 @@ pub async fn set_permission_mode(
         return Err(AppError::bad_request("sessionId required"));
     }
     ctx.session_db
-        .update_session_permission_mode(&body.session_id, body.mode)?;
+        .run(move |db| db.update_session_permission_mode(&body.session_id, body.mode))
+        .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -808,8 +888,13 @@ pub async fn set_sandbox_mode(
     if body.session_id.is_empty() {
         return Err(AppError::bad_request("sessionId required"));
     }
-    ctx.session_db
-        .update_session_sandbox_mode(&body.session_id, body.mode)?;
+    {
+        let session_id = body.session_id.clone();
+        let mode = body.mode;
+        ctx.session_db
+            .run(move |db| db.update_session_sandbox_mode(&session_id, mode))
+            .await?;
+    }
     ctx.event_bus.emit(
         "sandbox:mode_changed",
         json!({

@@ -18,8 +18,14 @@ pub async fn create_session_cmd(
     let agent_id = match agent_id {
         Some(id) if !id.trim().is_empty() => id,
         _ => {
-            let project = match project_id.as_deref() {
-                Some(pid) => state.project_db.get(pid).ok().flatten(),
+            let project = match project_id.clone() {
+                Some(pid) => {
+                    let project_db = state.project_db.clone();
+                    ha_core::blocking::run_blocking(move || project_db.get(&pid))
+                        .await
+                        .ok()
+                        .flatten()
+                }
                 None => None,
             };
             ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
@@ -27,7 +33,8 @@ pub async fn create_session_cmd(
     };
     state
         .session_db
-        .create_session_with_project(&agent_id, project_id.as_deref(), incognito)
+        .run(move |db| db.create_session_with_project(&agent_id, project_id.as_deref(), incognito))
+        .await
         .map_err(Into::into)
 }
 
@@ -41,22 +48,27 @@ pub async fn list_sessions_cmd(
     active_session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<session::SessionMeta>, u32), CmdError> {
-    // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
-    let project_filter = if unassigned.unwrap_or(false) {
-        ProjectFilter::Unassigned
-    } else if let Some(ref pid) = project_id {
-        ProjectFilter::InProject(pid.as_str())
-    } else {
-        ProjectFilter::All
-    };
-
-    let (mut sessions, total) = state.session_db.list_sessions_paged_for_sidebar(
-        agent_id.as_deref(),
-        project_filter,
-        limit,
-        offset,
-        active_session_id.as_deref(),
-    )?;
+    let unassigned = unassigned.unwrap_or(false);
+    let (mut sessions, total) = state
+        .session_db
+        .run(move |db| {
+            // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
+            let project_filter = if unassigned {
+                ProjectFilter::Unassigned
+            } else if let Some(ref pid) = project_id {
+                ProjectFilter::InProject(pid.as_str())
+            } else {
+                ProjectFilter::All
+            };
+            db.list_sessions_paged_for_sidebar(
+                agent_id.as_deref(),
+                project_filter,
+                limit,
+                offset,
+                active_session_id.as_deref(),
+            )
+        })
+        .await?;
 
     session::enrich_pending_interactions(&mut sessions, &state.session_db).await?;
 
@@ -71,7 +83,8 @@ pub async fn load_session_messages_latest_cmd(
 ) -> Result<(Vec<session::SessionMessage>, u32, bool), CmdError> {
     state
         .session_db
-        .load_session_messages_latest(&session_id, limit)
+        .run(move |db| db.load_session_messages_latest(&session_id, limit))
+        .await
         .map_err(Into::into)
 }
 
@@ -84,7 +97,8 @@ pub async fn load_session_messages_before_cmd(
 ) -> Result<(Vec<session::SessionMessage>, bool), CmdError> {
     state
         .session_db
-        .load_session_messages_before(&session_id, before_id, limit)
+        .run(move |db| db.load_session_messages_before(&session_id, before_id, limit))
+        .await
         .map_err(Into::into)
 }
 
@@ -97,7 +111,8 @@ pub async fn load_session_messages_after_cmd(
 ) -> Result<(Vec<session::SessionMessage>, bool), CmdError> {
     state
         .session_db
-        .load_session_messages_after(&session_id, after_id, limit)
+        .run(move |db| db.load_session_messages_after(&session_id, after_id, limit))
+        .await
         .map_err(Into::into)
 }
 
@@ -109,7 +124,11 @@ pub async fn load_session_artifacts_cmd(
     session_id: String,
     state: State<'_, AppState>,
 ) -> Result<session::SessionArtifacts, CmdError> {
-    session::aggregate_session_artifacts(&state.session_db, &session_id).map_err(Into::into)
+    state
+        .session_db
+        .run(move |db| session::aggregate_session_artifacts(db, &session_id))
+        .await
+        .map_err(Into::into)
 }
 
 /// Read-only environment snapshot for the workspace panel. This stays out of
@@ -147,7 +166,8 @@ pub async fn get_session_cmd(
 ) -> Result<Option<session::SessionMeta>, CmdError> {
     state
         .session_db
-        .get_session(&session_id)
+        .run(move |db| db.get_session(&session_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -159,7 +179,8 @@ pub async fn set_session_incognito(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .update_session_incognito(&session_id, enabled)
+        .run(move |db| db.update_session_incognito(&session_id, enabled))
+        .await
         .map_err(Into::into)
 }
 
@@ -174,7 +195,8 @@ pub async fn set_session_working_dir(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .update_session_working_dir(&session_id, working_dir)
+        .run(move |db| db.update_session_working_dir(&session_id, working_dir))
+        .await
         .map(|_| ())
         .map_err(Into::into)
 }
@@ -190,7 +212,8 @@ pub async fn update_session_agent_cmd(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .update_session_agent(&session_id, &agent_id)
+        .run(move |db| db.update_session_agent(&session_id, &agent_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -211,12 +234,22 @@ pub async fn set_session_model(
         .iter()
         .find(|p| p.id == provider_id && p.enabled)
         .map(|p| p.name.clone());
-    state.session_db.update_session_model(
-        &session_id,
-        Some(&provider_id),
-        provider_name.as_deref(),
-        Some(&model_id),
-    )?;
+    {
+        let session_id = session_id.clone();
+        let provider_id = provider_id.clone();
+        let model_id = model_id.clone();
+        state
+            .session_db
+            .run(move |db| {
+                db.update_session_model(
+                    &session_id,
+                    Some(&provider_id),
+                    provider_name.as_deref(),
+                    Some(&model_id),
+                )
+            })
+            .await?;
+    }
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "session:model_updated",
@@ -237,7 +270,8 @@ pub async fn delete_session_cmd(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .delete_session(&session_id)
+        .run(move |db| db.delete_session(&session_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -248,7 +282,8 @@ pub async fn purge_session_if_incognito(
 ) -> Result<bool, CmdError> {
     state
         .session_db
-        .purge_session_if_incognito(&session_id)
+        .run(move |db| db.purge_session_if_incognito(&session_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -260,7 +295,8 @@ pub async fn rename_session_cmd(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .update_session_title(&session_id, &title)
+        .run(move |db| db.update_session_title(&session_id, &title))
+        .await
         .map_err(Into::into)
 }
 
@@ -272,7 +308,8 @@ pub async fn set_session_pinned_cmd(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .set_session_pinned(&session_id, pinned)
+        .run(move |db| db.set_session_pinned(&session_id, pinned))
+        .await
         .map_err(Into::into)
 }
 
@@ -284,7 +321,8 @@ pub async fn mark_session_read_cmd(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .mark_session_read(&session_id)
+        .run(move |db| db.mark_session_read(&session_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -296,7 +334,8 @@ pub async fn mark_session_read_batch_cmd(
 ) -> Result<(), CmdError> {
     state
         .session_db
-        .mark_session_read_batch(&session_ids)
+        .run(move |db| db.mark_session_read_batch(&session_ids))
+        .await
         .map_err(Into::into)
 }
 
@@ -304,7 +343,8 @@ pub async fn mark_session_read_batch_cmd(
 pub async fn mark_all_sessions_read_cmd(state: State<'_, AppState>) -> Result<(), CmdError> {
     state
         .session_db
-        .mark_all_sessions_read()
+        .run(move |db| db.mark_all_sessions_read())
+        .await
         .map_err(Into::into)
 }
 
@@ -328,11 +368,19 @@ pub async fn search_sessions_cmd(
             .filter_map(|s| session::SessionTypeFilter::parse(s))
             .collect()
     });
-    let type_slice = parsed_types.as_deref();
 
     state
         .session_db
-        .search_messages(&query, agent_id.as_deref(), None, type_slice, limit)
+        .run(move |db| {
+            db.search_messages(
+                &query,
+                agent_id.as_deref(),
+                None,
+                parsed_types.as_deref(),
+                limit,
+            )
+        })
+        .await
         .map_err(Into::into)
 }
 
@@ -348,7 +396,8 @@ pub async fn search_session_messages_cmd(
     let limit = limit.unwrap_or(200) as usize;
     state
         .session_db
-        .search_messages(&query, None, Some(&session_id), None, limit)
+        .run(move |db| db.search_messages(&query, None, Some(&session_id), None, limit))
+        .await
         .map_err(Into::into)
 }
 
@@ -364,7 +413,10 @@ pub async fn load_session_messages_around_cmd(
 ) -> Result<(Vec<session::SessionMessage>, u32, bool, bool), CmdError> {
     state
         .session_db
-        .load_session_messages_around(&session_id, target_message_id, before, after)
+        .run(move |db| {
+            db.load_session_messages_around(&session_id, target_message_id, before, after)
+        })
+        .await
         .map_err(Into::into)
 }
 
@@ -406,9 +458,17 @@ pub async fn export_session_cmd(
         include_thinking,
         include_tools,
     };
-    let payload =
-        ha_core::session::export::export_session(state.session_db.as_ref(), &session_id, opts)?;
-    std::fs::write(&output_path, &payload.body)
-        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", output_path, e))?;
+    {
+        let output_path = output_path.clone();
+        state
+            .session_db
+            .run(move |db| -> Result<(), anyhow::Error> {
+                let payload = ha_core::session::export::export_session(db, &session_id, opts)?;
+                std::fs::write(&output_path, &payload.body)
+                    .map_err(|e| anyhow::anyhow!("failed to write {}: {}", output_path, e))?;
+                Ok(())
+            })
+            .await?;
+    }
     Ok(output_path)
 }

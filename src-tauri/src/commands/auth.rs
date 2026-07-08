@@ -13,7 +13,10 @@ pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Re
     let model_id = provider.models[0].id.clone();
     let agent = AssistantAgent::try_new_from_provider(&provider, &model_id).await?;
 
-    ha_core::provider::add_and_activate_provider(provider, model_id, "onboarding")?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::provider::add_and_activate_provider(provider, model_id, "onboarding")
+    })
+    .await?;
     *state.agent.lock().await = Some(agent);
     Ok(())
 }
@@ -71,10 +74,16 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), CmdEr
     // Ensure Codex provider exists in store
     let default_model_id = ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string();
     let model_for_agent = default_model_id.clone();
-    provider::ensure_codex_provider_persisted(
-        ActiveModelUpdate::Always(model_for_agent.clone()),
-        "oauth-finalize",
-    )?;
+    {
+        let model_for_agent = model_for_agent.clone();
+        ha_core::blocking::run_blocking(move || {
+            provider::ensure_codex_provider_persisted(
+                ActiveModelUpdate::Always(model_for_agent),
+                "oauth-finalize",
+            )
+        })
+        .await?;
+    }
 
     let agent = AssistantAgent::new_openai(&token.access_token, &account_id, &default_model_id);
     *state.agent.lock().await = Some(agent);
@@ -131,12 +140,15 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Cmd
                     // Ensure Codex provider exists and fall back to the default
                     // Codex model only when no active_model is set. Respect any
                     // already-chosen active model (including non-Codex).
-                    provider::ensure_codex_provider_persisted(
-                        ActiveModelUpdate::IfMissing(
-                            ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string(),
-                        ),
-                        "session-restore",
-                    )?;
+                    ha_core::blocking::run_blocking(move || {
+                        provider::ensure_codex_provider_persisted(
+                            ActiveModelUpdate::IfMissing(
+                                ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string(),
+                            ),
+                            "session-restore",
+                        )
+                    })
+                    .await?;
 
                     // Create agent based on the active model's provider type
                     {
@@ -219,7 +231,10 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), CmdError> {
     *state.agent.lock().await = None;
     *state.codex_token.lock().await = None;
 
-    provider::delete_providers_by_api_type(ApiType::Codex, "ui")?;
+    ha_core::blocking::run_blocking(move || {
+        provider::delete_providers_by_api_type(ApiType::Codex, "ui")
+    })
+    .await?;
 
     oauth::clear_token()?;
     Ok(())
@@ -260,12 +275,13 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
 
     // Update active model in store
     let model_for_mut = model.clone();
-    ha_core::config::mutate_config(("active_model", "set-codex-model"), |store| {
+    ha_core::config::mutate_config_async(("active_model", "set-codex-model"), |store| {
         if let Some(ref mut active) = store.active_model {
             active.model_id = model_for_mut;
         }
         Ok(())
-    })?;
+    })
+    .await?;
 
     // Rebuild agent with new model if authenticated
     let token_info = state.codex_token.lock().await.clone();
@@ -322,9 +338,12 @@ pub async fn set_reasoning_effort(
     }
 
     if let Some(session_id) = session_id {
+        let session_id = session_id.to_string();
+        let effort = effort.clone();
         state
             .session_db
-            .update_session_reasoning_effort(session_id, Some(&effort))?;
+            .run(move |db| db.update_session_reasoning_effort(&session_id, Some(&effort)))
+            .await?;
     }
     if let Some(agent_id) = agent_id {
         ha_core::agent_loader::update_agent_reasoning_effort(&agent_id, &effort)?;

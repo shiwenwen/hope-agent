@@ -75,7 +75,9 @@ pub async fn acp_list_runs(parent_session_id: Option<String>) -> Result<Vec<AcpR
     } else if let Some(db) = crate::get_session_db() {
         // Fallback to DB
         if let Some(pid) = parent_session_id {
-            db.list_acp_runs(&pid).map_err(Into::into)
+            db.run(move |db| db.list_acp_runs(&pid))
+                .await
+                .map_err(Into::into)
         } else {
             Ok(Vec::new())
         }
@@ -110,9 +112,10 @@ pub async fn acp_get_config() -> Result<AcpControlConfig, CmdError> {
 /// Save ACP control config.
 #[tauri::command]
 pub async fn acp_set_config(config: AcpControlConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("acp_control", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("acp_control", "settings-ui"), |store| {
         store.acp_control = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }

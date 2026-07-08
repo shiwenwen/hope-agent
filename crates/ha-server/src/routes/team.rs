@@ -3,6 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use ha_core::blocking::run_blocking;
 use ha_core::team;
 
 use crate::error::AppError;
@@ -20,16 +21,18 @@ pub async fn list_teams(
 ) -> Result<Json<Vec<team::Team>>, AppError> {
     let db = session_db()?;
     if let Some(sid) = q.session_id {
-        Ok(Json(db.list_teams_by_session(&sid)?))
+        Ok(Json(
+            db.run(move |db| db.list_teams_by_session(&sid)).await?,
+        ))
     } else {
-        Ok(Json(db.list_active_teams()?))
+        Ok(Json(db.run(|db| db.list_active_teams()).await?))
     }
 }
 
 /// `GET /api/teams/:id`
 pub async fn get_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(
-        session_db()?.get_team(&team_id)?,
+        session_db()?.run(move |db| db.get_team(&team_id)).await?,
     )?))
 }
 
@@ -37,7 +40,11 @@ pub async fn get_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppErr
 pub async fn get_team_members(
     Path(team_id): Path<String>,
 ) -> Result<Json<Vec<team::TeamMember>>, AppError> {
-    Ok(Json(session_db()?.list_team_members(&team_id)?))
+    Ok(Json(
+        session_db()?
+            .run(move |db| db.list_team_members(&team_id))
+            .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,8 +61,9 @@ pub async fn get_team_messages(
     Path(team_id): Path<String>,
     Query(q): Query<MessagesQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let (messages, has_more) =
-        session_db()?.list_team_messages_latest(&team_id, q.limit.unwrap_or(50))?;
+    let (messages, has_more) = session_db()?
+        .run(move |db| db.list_team_messages_latest(&team_id, q.limit.unwrap_or(50)))
+        .await?;
     Ok(Json(json!([messages, has_more])))
 }
 
@@ -75,12 +83,16 @@ pub async fn get_team_messages_before(
     Path(team_id): Path<String>,
     Query(q): Query<MessagesBeforeQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let (messages, has_more) = session_db()?.list_team_messages_before(
-        &team_id,
-        &q.before_timestamp,
-        &q.before_message_id,
-        q.limit.unwrap_or(50),
-    )?;
+    let (messages, has_more) = session_db()?
+        .run(move |db| {
+            db.list_team_messages_before(
+                &team_id,
+                &q.before_timestamp,
+                &q.before_message_id,
+                q.limit.unwrap_or(50),
+            )
+        })
+        .await?;
     Ok(Json(json!([messages, has_more])))
 }
 
@@ -88,7 +100,11 @@ pub async fn get_team_messages_before(
 pub async fn get_team_tasks(
     Path(team_id): Path<String>,
 ) -> Result<Json<Vec<team::TeamTask>>, AppError> {
-    Ok(Json(session_db()?.list_team_tasks(&team_id)?))
+    Ok(Json(
+        session_db()?
+            .run(move |db| db.list_team_tasks(&team_id))
+            .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,25 +119,33 @@ pub async fn send_user_team_message(
     Path(team_id): Path<String>,
     Json(body): Json<SendMessageBody>,
 ) -> Result<Json<Value>, AppError> {
-    let msg = team::messaging::send_message(
-        session_db()?,
-        &team_id,
-        "*user*",
-        body.to.as_deref(),
-        &body.content,
-        team::TeamMessageType::Chat,
-    )?;
+    let db = session_db()?;
+    let msg = run_blocking(move || {
+        team::messaging::send_message(
+            db,
+            &team_id,
+            "*user*",
+            body.to.as_deref(),
+            &body.content,
+            team::TeamMessageType::Chat,
+        )
+    })
+    .await?;
     Ok(Json(json!({ "messageId": msg.message_id })))
 }
 
 /// `GET /api/team-templates`
 pub async fn list_team_templates() -> Result<Json<Vec<team::TeamTemplate>>, AppError> {
-    Ok(Json(team::templates::all_templates(session_db()?)))
+    let db = session_db()?;
+    Ok(Json(
+        run_blocking(move || team::templates::all_templates(&db)).await,
+    ))
 }
 
 /// `POST /api/teams/:id/pause`
 pub async fn pause_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppError> {
-    team::coordinator::pause_team(session_db()?, &team_id)?;
+    let db = session_db()?;
+    run_blocking(move || team::coordinator::pause_team(db, &team_id)).await?;
     Ok(Json(json!({ "status": "paused" })))
 }
 
@@ -133,7 +157,8 @@ pub async fn resume_team(Path(team_id): Path<String>) -> Result<Json<Value>, App
 
 /// `POST /api/teams/:id/dissolve`
 pub async fn dissolve_team(Path(team_id): Path<String>) -> Result<Json<Value>, AppError> {
-    team::coordinator::dissolve_team(session_db()?, &team_id)?;
+    let db = session_db()?;
+    run_blocking(move || team::coordinator::dissolve_team(db, &team_id)).await?;
     Ok(Json(json!({ "status": "dissolved" })))
 }
 
@@ -155,7 +180,10 @@ pub async fn create_team(Json(body): Json<CreateTeamBody>) -> Result<Json<team::
     let (member_specs, resolved_template_id) = if !body.members.is_empty() {
         (body.members, body.template.clone())
     } else if let Some(ref tpl_name) = body.template {
-        let templates = team::templates::all_templates(db);
+        let templates = {
+            let db = db.clone();
+            run_blocking(move || team::templates::all_templates(&db)).await
+        };
         let tpl = templates
             .iter()
             .find(|t| t.template_id == *tpl_name || t.name.eq_ignore_ascii_case(tpl_name))
@@ -213,7 +241,9 @@ pub struct SaveTemplateBody {
 pub async fn save_team_template(
     Json(body): Json<SaveTemplateBody>,
 ) -> Result<Json<team::TeamTemplate>, AppError> {
-    let saved = team::templates::save_template(session_db()?, body.template)?;
+    let saved = session_db()?
+        .run(move |db| team::templates::save_template(db, body.template))
+        .await?;
     Ok(Json(saved))
 }
 
@@ -221,7 +251,12 @@ pub async fn save_team_template(
 pub async fn delete_team_template(
     Path(template_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    team::templates::delete_template(session_db()?, &template_id)?;
+    {
+        let template_id = template_id.clone();
+        session_db()?
+            .run(move |db| team::templates::delete_template(db, &template_id))
+            .await?;
+    }
     Ok(Json(
         json!({ "status": "deleted", "templateId": template_id }),
     ))

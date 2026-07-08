@@ -2,6 +2,7 @@ use crate::channel::accounts::{self, UpdateAccountParams};
 use crate::channel::types::*;
 use crate::commands::CmdError;
 use anyhow::Context;
+use ha_core::blocking::run_blocking;
 
 // ── List Plugins ─────────────────────────────────────────────────
 
@@ -229,7 +230,8 @@ pub async fn channel_list_sessions(
     let channel_db =
         crate::get_channel_db().ok_or_else(|| CmdError::msg("Channel DB not initialized"))?;
 
-    let conversations = channel_db.list_conversations(&channel_id, &account_id)?;
+    let conversations =
+        run_blocking(move || channel_db.list_conversations(&channel_id, &account_id)).await?;
 
     let result: Vec<serde_json::Value> = conversations
         .into_iter()
@@ -299,19 +301,28 @@ pub async fn channel_handover_session(
         .map(crate::channel::types::ChatType::from_lowercase)
         .unwrap_or(crate::channel::types::ChatType::Dm);
 
-    channel_db
-        .attach_session(
-            &channel_id,
-            &account_id,
-            &chat_id,
-            thread_id.as_deref(),
-            &session_id,
-            ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
-            None,
-            None,
-            &resolved_chat_type,
-        )
+    {
+        let channel_id = channel_id.clone();
+        let account_id = account_id.clone();
+        let chat_id = chat_id.clone();
+        let session_id = session_id.clone();
+        let thread_id = thread_id.clone();
+        run_blocking(move || {
+            channel_db.attach_session(
+                &channel_id,
+                &account_id,
+                &chat_id,
+                thread_id.as_deref(),
+                &session_id,
+                ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                &resolved_chat_type,
+            )
+        })
+        .await
         .map_err(|e| CmdError::msg(format!("Handover failed: {}", e)))?;
+    }
 
     // Replay the latest assistant turn (text + media) so the receiving
     // IM chat isn't dropped into a session with zero visible context.

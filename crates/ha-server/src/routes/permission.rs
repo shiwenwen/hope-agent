@@ -5,6 +5,7 @@ use ha_core::permission::{dangerous_commands, edit_commands, protected_paths, Sm
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,12 +32,12 @@ pub async fn get_protected_paths() -> Result<Json<PatternListPayload>, AppError>
 pub async fn set_protected_paths(
     Json(body): Json<SetPatternsBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    protected_paths::save_patterns(&body.patterns)?;
+    run_blocking(move || protected_paths::save_patterns(&body.patterns)).await?;
     Ok(Json(serde_json::json!({ "saved": true })))
 }
 
 pub async fn reset_protected_paths() -> Result<Json<Vec<String>>, AppError> {
-    Ok(Json(protected_paths::reset_defaults()?))
+    Ok(Json(run_blocking(protected_paths::reset_defaults).await?))
 }
 
 // ── Dangerous commands ───────────────────────────────────────────
@@ -51,12 +52,14 @@ pub async fn get_dangerous_commands() -> Result<Json<PatternListPayload>, AppErr
 pub async fn set_dangerous_commands(
     Json(body): Json<SetPatternsBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    dangerous_commands::save_patterns(&body.patterns)?;
+    run_blocking(move || dangerous_commands::save_patterns(&body.patterns)).await?;
     Ok(Json(serde_json::json!({ "saved": true })))
 }
 
 pub async fn reset_dangerous_commands() -> Result<Json<Vec<String>>, AppError> {
-    Ok(Json(dangerous_commands::reset_defaults()?))
+    Ok(Json(
+        run_blocking(dangerous_commands::reset_defaults).await?,
+    ))
 }
 
 // ── Edit commands ────────────────────────────────────────────────
@@ -71,12 +74,12 @@ pub async fn get_edit_commands() -> Result<Json<PatternListPayload>, AppError> {
 pub async fn set_edit_commands(
     Json(body): Json<SetPatternsBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    edit_commands::save_patterns(&body.patterns)?;
+    run_blocking(move || edit_commands::save_patterns(&body.patterns)).await?;
     Ok(Json(serde_json::json!({ "saved": true })))
 }
 
 pub async fn reset_edit_commands() -> Result<Json<Vec<String>>, AppError> {
-    Ok(Json(edit_commands::reset_defaults()?))
+    Ok(Json(run_blocking(edit_commands::reset_defaults).await?))
 }
 
 // ── Smart mode config ────────────────────────────────────────────
@@ -99,10 +102,11 @@ pub struct SetSmartModeBody {
 pub async fn set_smart_mode_config(
     Json(body): Json<SetSmartModeBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    ha_core::config::mutate_config(("permission.smart", "http"), |store| {
+    ha_core::config::mutate_config_async(("permission.smart", "http"), move |store| {
         store.permission.smart = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(serde_json::json!({ "saved": true })))
 }
 

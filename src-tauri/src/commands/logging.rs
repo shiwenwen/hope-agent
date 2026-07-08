@@ -1,6 +1,7 @@
 use crate::commands::CmdError;
 use crate::logging;
 use crate::AppState;
+use ha_core::blocking::run_blocking;
 use tauri::State;
 
 #[tauri::command]
@@ -16,12 +17,18 @@ pub async fn query_logs_cmd(
         page_size.min(500)
     };
     let pg = if page == 0 { 1 } else { page };
-    state.log_db.query(&filter, pg, ps).map_err(Into::into)
+    let log_db = state.log_db.clone();
+    run_blocking(move || log_db.query(&filter, pg, ps))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_log_stats_cmd(state: State<'_, AppState>) -> Result<logging::LogStats, CmdError> {
-    state.log_db.get_stats().map_err(Into::into)
+    let log_db = state.log_db.clone();
+    run_blocking(move || log_db.get_stats())
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -29,9 +36,9 @@ pub async fn clear_logs_cmd(
     before_date: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<u64, CmdError> {
-    state
-        .log_db
-        .clear(before_date.as_deref())
+    let log_db = state.log_db.clone();
+    run_blocking(move || log_db.clear(before_date.as_deref()))
+        .await
         .map_err(Into::into)
 }
 
@@ -143,7 +150,8 @@ pub async fn export_logs_cmd(
     format: String,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
-    let logs = state.log_db.export(&filter)?;
+    let log_db = state.log_db.clone();
+    let logs = run_blocking(move || log_db.export(&filter)).await?;
     match format.as_str() {
         "csv" => {
             let mut csv =

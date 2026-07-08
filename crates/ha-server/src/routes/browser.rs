@@ -158,10 +158,11 @@ pub struct SetConfigBody {
 pub async fn set_config(
     Json(SetConfigBody { config }): Json<SetConfigBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    ha_core::config::mutate_config::<_, ()>(("browser", "settings-ui"), |cfg| {
+    ha_core::config::mutate_config_async::<_, ()>(("browser", "settings-ui"), move |cfg| {
         cfg.browser = Some(config);
         Ok(())
     })
+    .await
     .map_err(|e| AppError::bad_request(e.to_string()))?;
     // Force the next `acquire_backend()` to honor the new preference;
     // otherwise `ACTIVE_BACKEND` stays cached at the previous choice.

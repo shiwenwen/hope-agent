@@ -17,6 +17,7 @@ use ha_core::stt::{
 };
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 fn stt_write_error(err: SttWriteError) -> AppError {
     match err {
@@ -49,7 +50,9 @@ pub struct ProviderBody {
 pub async fn add_stt_provider(
     Json(body): Json<ProviderBody>,
 ) -> Result<Json<SttProviderConfig>, AppError> {
-    let provider = stt::add_stt_provider(body.provider, "http").map_err(stt_write_error)?;
+    let provider = run_blocking(move || stt::add_stt_provider(body.provider, "http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(provider.masked()))
 }
 
@@ -60,13 +63,17 @@ pub async fn update_stt_provider(
     Json(mut body): Json<ProviderBody>,
 ) -> Result<Json<Value>, AppError> {
     body.provider.id = provider_id;
-    stt::update_stt_provider(body.provider, "http").map_err(stt_write_error)?;
+    run_blocking(move || stt::update_stt_provider(body.provider, "http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }
 
 /// `DELETE /api/stt/providers/{id}`
 pub async fn delete_stt_provider(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    let touched_active = stt::delete_stt_provider(id, "http").map_err(stt_write_error)?;
+    let touched_active = run_blocking(move || stt::delete_stt_provider(id, "http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(
         json!({ "deleted": true, "touchedActive": touched_active }),
     ))
@@ -80,7 +87,9 @@ pub struct ReorderBody {
 
 /// `POST /api/stt/providers/reorder`
 pub async fn reorder_stt_providers(Json(body): Json<ReorderBody>) -> Result<Json<Value>, AppError> {
-    stt::reorder_stt_providers(body.provider_ids, "http").map_err(stt_write_error)?;
+    run_blocking(move || stt::reorder_stt_providers(body.provider_ids, "http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(json!({ "reordered": true })))
 }
 
@@ -103,14 +112,18 @@ pub struct SetActiveBody {
 pub async fn set_active_stt_model(
     Json(body): Json<SetActiveBody>,
 ) -> Result<Json<SttProviderConfig>, AppError> {
-    let provider = stt::set_active_stt_model(body.provider_id, body.model_id, "http")
-        .map_err(stt_write_error)?;
+    let provider =
+        run_blocking(move || stt::set_active_stt_model(body.provider_id, body.model_id, "http"))
+            .await
+            .map_err(stt_write_error)?;
     Ok(Json(provider.masked()))
 }
 
 /// `DELETE /api/stt/active-model`
 pub async fn clear_active_stt_model() -> Result<Json<Value>, AppError> {
-    stt::clear_active_stt_model("http").map_err(stt_write_error)?;
+    run_blocking(move || stt::clear_active_stt_model("http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(json!({ "cleared": true })))
 }
 
@@ -130,7 +143,9 @@ pub struct FallbackBody {
 pub async fn set_stt_fallback_models(
     Json(body): Json<FallbackBody>,
 ) -> Result<Json<Value>, AppError> {
-    stt::set_stt_fallback_models(body.chain, "http").map_err(stt_write_error)?;
+    run_blocking(move || stt::set_stt_fallback_models(body.chain, "http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -152,7 +167,9 @@ pub struct ImFallbackBody {
 pub async fn set_im_fallback_stt_model(
     Json(body): Json<ImFallbackBody>,
 ) -> Result<Json<Value>, AppError> {
-    stt::set_im_fallback_stt_model(body.selection, "http").map_err(stt_write_error)?;
+    run_blocking(move || stt::set_im_fallback_stt_model(body.selection, "http"))
+        .await
+        .map_err(stt_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -192,13 +209,16 @@ pub async fn upsert_local_stt_provider(
     Path(backend_key): Path<String>,
     Json(body): Json<UpsertLocalSttBody>,
 ) -> Result<Json<UpsertLocalSttResponse>, AppError> {
-    let (provider_id, model_id) = stt::upsert_known_local_stt_provider(
-        &backend_key,
-        body.provider,
-        body.model,
-        body.activate,
-        "http",
-    )
+    let (provider_id, model_id) = run_blocking(move || {
+        stt::upsert_known_local_stt_provider(
+            &backend_key,
+            body.provider,
+            body.model,
+            body.activate,
+            "http",
+        )
+    })
+    .await
     .map_err(stt_write_error)?;
     Ok(Json(UpsertLocalSttResponse {
         provider_id,

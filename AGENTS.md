@@ -390,6 +390,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `kno
 - 新功能放 `crates/ha-core/` 单独模块；Tauri 命令在 `src-tauri/src/lib.rs` 注册，HTTP 路由在 `crates/ha-server/src/lib.rs`（`build_router_with_cors`）注册、handler 在 `routes/*.rs`
 - 内部用 `anyhow::Result`；Tauri 命令边界用 `Result<T, CmdError>`（[`error.rs`](src-tauri/src/commands/error.rs)），`?` 直接传 `anyhow::Error`，不要 `.map_err(|e| e.to_string())`；HTTP 路由按 axum 习惯返 `Result<Json<T>, (StatusCode, String)>`
 - 异步命令加 `async`，不要 `block_on`
+- **阻塞 IO 不占 async worker（红线）**：`src-tauri` 命令 / `ha-server` handler 等 async 上下文里，SQLite（SessionDB/CronDB/ChannelDB/ProjectDB/LogDB 同步方法）与 config 写（`mutate_config` / provider crud 等同步文件 IO）**一律经 [`blocking::run_blocking`](crates/ha-core/src/blocking.rs) / `SessionDB::run` / `config::mutate_config_async` 下放到 blocking 池**，禁止 inline 直调——否则慢盘 / 杀软 / 云同步目录卡住文件 IO 会逐个钉死 worker 直至 runtime 饿死（详见 [`process-model.md` Layer C′](docs/architecture/process-model.md)）。`cached_config()` / `load_config()` 快照读免；已在独立 runtime（Layer B）里的同步代码不重复包
 - **禁止 `log` crate 宏**，必须用 `app_info!` / `app_warn!` / `app_error!` / `app_debug!`（[`logging/mod.rs`](crates/ha-core/src/logging/mod.rs)）。例外：`lib.rs::run()` 中 AppLogger 初始化前 + `main.rs` panic 恢复
 - 用法：`app_info!("category", "source", "message {}", arg)`
 - **核心业务路径必须埋点**（Provider 调用 / tool 执行 / 审批决策 / failover / compaction / channel / 记忆 / cron / 配置变更等）。日志服务人工排查，也是 **agent 自主修复**的首要信息源——带最小复现上下文，`category` / `source` 命名稳定便于 grep

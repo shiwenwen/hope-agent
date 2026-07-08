@@ -6,7 +6,10 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn cron_list_jobs(state: State<'_, AppState>) -> Result<Vec<cron::CronJob>, CmdError> {
-    state.cron_db.list_jobs().map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.list_jobs())
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -14,7 +17,10 @@ pub async fn cron_get_job(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<cron::CronJob>, CmdError> {
-    state.cron_db.get_job(&id).map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.get_job(&id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -22,7 +28,10 @@ pub async fn cron_create_job(
     job: cron::NewCronJob,
     state: State<'_, AppState>,
 ) -> Result<cron::CronJob, CmdError> {
-    state.cron_db.add_job(&job).map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.add_job(&job))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -30,12 +39,21 @@ pub async fn cron_update_job(
     job: cron::CronJob,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    state.cron_db.update_job(&job).map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.update_job(&job))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn cron_delete_job(id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    cron::delete_job_and_sessions(&state.cron_db, &state.session_db, &id).map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        cron::delete_job_and_sessions(&cron_db, &session_db, &id)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -44,7 +62,10 @@ pub async fn cron_toggle_job(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    state.cron_db.toggle_job(&id, enabled).map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.toggle_job(&id, enabled))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -57,10 +78,11 @@ pub async fn cron_run_now(id: String, state: State<'_, AppState>) -> Result<(), 
             "run-now is unavailable on this instance: scheduled jobs only run on the primary",
         ));
     }
-    let job = state
-        .cron_db
-        .get_job(&id)?
-        .ok_or_else(|| CmdError::msg("Job not found"))?;
+    let job = {
+        let cron_db = state.cron_db.clone();
+        ha_core::blocking::run_blocking(move || cron_db.get_job(&id)).await?
+    }
+    .ok_or_else(|| CmdError::msg("Job not found"))?;
 
     let db = state.cron_db.clone();
     let sdb = state.session_db.clone();
@@ -75,9 +97,9 @@ pub async fn cron_jobs_referencing_account(
     account_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<cron::CronAccountRef>, CmdError> {
-    state
-        .cron_db
-        .jobs_referencing_account(&account_id)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.jobs_referencing_account(&account_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -90,9 +112,9 @@ pub async fn cron_get_run_logs(
 ) -> Result<Vec<cron::CronRunLog>, CmdError> {
     let limit = limit.unwrap_or(50).min(200);
     let offset = offset.unwrap_or(0);
-    state
-        .cron_db
-        .get_run_logs(&job_id, limit, offset)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.get_run_logs(&job_id, limit, offset))
+        .await
         .map_err(Into::into)
 }
 
@@ -107,19 +129,32 @@ pub async fn cron_run_timeline(
 ) -> Result<Vec<cron::CronTimelineRow>, CmdError> {
     let limit = limit.unwrap_or(50).min(200);
     let offset = offset.unwrap_or(0);
-    cron::cron_run_timeline(&state.cron_db, &state.session_db, limit, offset).map_err(Into::into)
+    let cron_db = state.cron_db.clone();
+    let session_db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        cron::cron_run_timeline(&cron_db, &session_db, limit, offset)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 /// Total unread assistant messages across all cron sessions (sidebar badge).
 #[tauri::command]
 pub async fn cron_unread_total(state: State<'_, AppState>) -> Result<i64, CmdError> {
-    state.session_db.cron_unread_total().map_err(Into::into)
+    state
+        .session_db
+        .run(move |db| db.cron_unread_total())
+        .await
+        .map_err(Into::into)
 }
 
 /// One-click clear: mark every cron session read (badge → 0) and notify the UI.
 #[tauri::command]
 pub async fn cron_mark_all_read(state: State<'_, AppState>) -> Result<usize, CmdError> {
-    let n = state.session_db.mark_all_cron_sessions_read()?;
+    let n = state
+        .session_db
+        .run(move |db| db.mark_all_cron_sessions_read())
+        .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit("cron:unread_changed", serde_json::json!({ "total": 0 }));
     }
@@ -138,8 +173,8 @@ pub async fn cron_get_calendar_events(
     let end_dt = chrono::DateTime::parse_from_rfc3339(&end)
         .context("Invalid end date")?
         .with_timezone(&chrono::Utc);
-    state
-        .cron_db
-        .get_calendar_events(&start_dt, &end_dt)
+    let cron_db = state.cron_db.clone();
+    ha_core::blocking::run_blocking(move || cron_db.get_calendar_events(&start_dt, &end_dt))
+        .await
         .map_err(Into::into)
 }

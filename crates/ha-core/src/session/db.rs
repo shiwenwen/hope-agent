@@ -853,6 +853,28 @@ impl SessionDB {
         })
     }
 
+    /// Run a synchronous DB operation on tokio's blocking pool.
+    ///
+    /// Every `SessionDB` method is synchronous rusqlite serialized by the
+    /// write-connection `Mutex` (or the reader pool). Calling them directly
+    /// from an async fn pins a tokio runtime worker for the full lock-wait +
+    /// IO duration; when the underlying file IO stalls (antivirus, cloud-
+    /// synced home dir), workers get consumed one by one until the entire
+    /// runtime starves. **Async contexts must route SessionDB access through
+    /// this method** so a stalled database only ever ties up expendable
+    /// blocking-pool threads (see `crate::blocking`).
+    pub async fn run<T, F>(self: &std::sync::Arc<Self>, f: F) -> T
+    where
+        F: FnOnce(&SessionDB) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let db = std::sync::Arc::clone(self);
+        // Label with the caller's closure type, not the `move || f(&db)` wrapper
+        // below — otherwise every SessionDB slow-op logs the same useless label.
+        let label = std::any::type_name::<F>();
+        crate::blocking::run_blocking_labeled(label, move || f(&db)).await
+    }
+
     /// Get a read-only connection from the pool (round-robin `try_lock` first,
     /// then block on the round-robin target). NEVER returns the writer — read
     /// methods must not observe uncommitted writer state mid-transaction; WAL

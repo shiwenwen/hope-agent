@@ -8,14 +8,14 @@ pub async fn list_teams(
     session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<team::Team>, CmdError> {
-    if let Some(sid) = session_id {
-        state
-            .session_db
-            .list_teams_by_session(&sid)
-            .map_err(Into::into)
-    } else {
-        state.session_db.list_active_teams().map_err(Into::into)
-    }
+    state
+        .session_db
+        .run(move |db| match session_id {
+            Some(sid) => db.list_teams_by_session(&sid),
+            None => db.list_active_teams(),
+        })
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -23,7 +23,11 @@ pub async fn get_team(
     team_id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<team::Team>, CmdError> {
-    state.session_db.get_team(&team_id).map_err(Into::into)
+    state
+        .session_db
+        .run(move |db| db.get_team(&team_id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -33,7 +37,8 @@ pub async fn get_team_members(
 ) -> Result<Vec<team::TeamMember>, CmdError> {
     state
         .session_db
-        .list_team_members(&team_id)
+        .run(move |db| db.list_team_members(&team_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -45,7 +50,8 @@ pub async fn get_team_messages(
 ) -> Result<(Vec<team::TeamMessage>, bool), CmdError> {
     state
         .session_db
-        .list_team_messages_latest(&team_id, limit.unwrap_or(50))
+        .run(move |db| db.list_team_messages_latest(&team_id, limit.unwrap_or(50)))
+        .await
         .map_err(Into::into)
 }
 
@@ -59,12 +65,15 @@ pub async fn get_team_messages_before(
 ) -> Result<(Vec<team::TeamMessage>, bool), CmdError> {
     state
         .session_db
-        .list_team_messages_before(
-            &team_id,
-            &before_timestamp,
-            &before_message_id,
-            limit.unwrap_or(50),
-        )
+        .run(move |db| {
+            db.list_team_messages_before(
+                &team_id,
+                &before_timestamp,
+                &before_message_id,
+                limit.unwrap_or(50),
+            )
+        })
+        .await
         .map_err(Into::into)
 }
 
@@ -75,7 +84,8 @@ pub async fn get_team_tasks(
 ) -> Result<Vec<team::TeamTask>, CmdError> {
     state
         .session_db
-        .list_team_tasks(&team_id)
+        .run(move |db| db.list_team_tasks(&team_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -86,14 +96,18 @@ pub async fn send_user_team_message(
     content: String,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    team::messaging::send_message(
-        &state.session_db,
-        &team_id,
-        "*user*",
-        to.as_deref(),
-        &content,
-        team::TeamMessageType::Chat,
-    )?;
+    let db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || {
+        team::messaging::send_message(
+            &db,
+            &team_id,
+            "*user*",
+            to.as_deref(),
+            &content,
+            team::TeamMessageType::Chat,
+        )
+    })
+    .await?;
     Ok(())
 }
 
@@ -101,7 +115,8 @@ pub async fn send_user_team_message(
 pub async fn list_team_templates(
     state: State<'_, AppState>,
 ) -> Result<Vec<team::TeamTemplate>, CmdError> {
-    Ok(team::templates::all_templates(&state.session_db))
+    let db = state.session_db.clone();
+    Ok(ha_core::blocking::run_blocking(move || team::templates::all_templates(&db)).await)
 }
 
 #[tauri::command]
@@ -117,7 +132,10 @@ pub async fn create_team(
     let (member_specs, resolved_template_id) = if !members.is_empty() {
         (members, template.clone())
     } else if let Some(ref tpl_name) = template {
-        let templates = team::templates::all_templates(&state.session_db);
+        let templates = {
+            let db = state.session_db.clone();
+            ha_core::blocking::run_blocking(move || team::templates::all_templates(&db)).await
+        };
         let tpl = templates
             .iter()
             .find(|t| t.template_id == *tpl_name || t.name.eq_ignore_ascii_case(tpl_name))
@@ -164,7 +182,11 @@ pub async fn save_team_template(
     template: team::TeamTemplate,
     state: State<'_, AppState>,
 ) -> Result<team::TeamTemplate, CmdError> {
-    team::templates::save_template(&state.session_db, template).map_err(Into::into)
+    state
+        .session_db
+        .run(move |db| team::templates::save_template(db, template))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -172,12 +194,19 @@ pub async fn delete_team_template(
     template_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    team::templates::delete_template(&state.session_db, &template_id).map_err(Into::into)
+    state
+        .session_db
+        .run(move |db| team::templates::delete_template(db, &template_id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn pause_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    team::coordinator::pause_team(&state.session_db, &team_id).map_err(Into::into)
+    let db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || team::coordinator::pause_team(&db, &team_id))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -189,5 +218,8 @@ pub async fn resume_team(team_id: String, state: State<'_, AppState>) -> Result<
 
 #[tauri::command]
 pub async fn dissolve_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
-    team::coordinator::dissolve_team(&state.session_db, &team_id).map_err(Into::into)
+    let db = state.session_db.clone();
+    ha_core::blocking::run_blocking(move || team::coordinator::dissolve_team(&db, &team_id))
+        .await
+        .map_err(Into::into)
 }

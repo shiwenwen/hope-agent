@@ -18,13 +18,19 @@ pub struct ListQuery {
 pub async fn list_subagent_runs(
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<subagent::SubagentRun>>, AppError> {
-    Ok(Json(session_db()?.list_subagent_runs(&q.session_id)?))
+    Ok(Json(
+        session_db()?
+            .run(move |db| db.list_subagent_runs(&q.session_id))
+            .await?,
+    ))
 }
 
 /// `GET /api/subagent/runs/{run_id}`
 pub async fn get_subagent_run(Path(run_id): Path<String>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(
-        session_db()?.get_subagent_run(&run_id)?,
+        session_db()?
+            .run(move |db| db.get_subagent_run(&run_id))
+            .await?,
     )?))
 }
 
@@ -38,16 +44,20 @@ pub struct BatchBody {
 /// round-trip. Body: `{"runIds": ["run_a", "run_b", ...]}`.
 pub async fn get_subagent_runs_batch(Json(body): Json<BatchBody>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(
-        session_db()?.get_subagent_runs_batch(&body.run_ids)?,
+        session_db()?
+            .run(move |db| db.get_subagent_runs_batch(&body.run_ids))
+            .await?,
     )?))
 }
 
 /// `POST /api/subagent/runs/{run_id}/kill`
 pub async fn kill_subagent(Path(run_id): Path<String>) -> Result<Json<Value>, AppError> {
     let db = session_db()?;
-    let run = db
-        .get_subagent_run(&run_id)?
-        .ok_or_else(|| AppError::not_found(format!("Sub-agent run '{}' not found", run_id)))?;
+    let run = {
+        let run_id = run_id.clone();
+        db.run(move |db| db.get_subagent_run(&run_id)).await?
+    }
+    .ok_or_else(|| AppError::not_found(format!("Sub-agent run '{}' not found", run_id)))?;
     if run.status.is_terminal() {
         return Ok(Json(
             json!({ "status": format!("Sub-agent already in terminal state: {}", run.status.as_str()) }),
@@ -55,14 +65,18 @@ pub async fn kill_subagent(Path(run_id): Path<String>) -> Result<Json<Value>, Ap
     }
     let cancelled = subagent_cancels()?.cancel(&run_id);
     if !cancelled {
-        let _ = db.update_subagent_status(
-            &run_id,
-            subagent::SubagentStatus::Killed,
-            None,
-            Some("Killed from UI"),
-            None,
-            None,
-        );
+        let _ = db
+            .run(move |db| {
+                db.update_subagent_status(
+                    &run_id,
+                    subagent::SubagentStatus::Killed,
+                    None,
+                    Some("Killed from UI"),
+                    None,
+                    None,
+                )
+            })
+            .await;
     }
     Ok(Json(json!({ "killed": true })))
 }

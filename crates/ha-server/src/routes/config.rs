@@ -60,10 +60,11 @@ pub async fn set_default_agent_id(
     Json(body): Json<DefaultAgentBody>,
 ) -> Result<Json<Value>, AppError> {
     let normalized = ha_core::agent::resolver::normalize_default_agent_id(body.agent_id.as_deref());
-    ha_core::config::mutate_config(("default_agent", "http"), |store| {
+    ha_core::config::mutate_config_async(("default_agent", "http"), move |store| {
         store.default_agent_id = normalized;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -82,10 +83,11 @@ pub async fn get_web_search_config(
 pub async fn save_web_search_config(
     Json(body): Json<ConfigBody<ha_core::tools::web_search::WebSearchConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("web_search", "http"), |store| {
+    ha_core::config::mutate_config_async(("web_search", "http"), move |store| {
         store.web_search = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -101,10 +103,11 @@ pub async fn get_issue_reporting_config(
 pub async fn save_issue_reporting_config(
     Json(body): Json<ConfigBody<ha_core::issue_reporting::IssueReportingConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("issue_reporting", "http"), |store| {
+    ha_core::config::mutate_config_async(("issue_reporting", "http"), move |store| {
         store.issue_reporting = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -147,10 +150,11 @@ pub async fn get_proxy_config() -> Result<Json<ha_core::provider::ProxyConfig>, 
 pub async fn save_proxy_config(
     Json(body): Json<ConfigBody<ha_core::provider::ProxyConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("proxy", "http"), |store| {
+    ha_core::config::mutate_config_async(("proxy", "http"), move |store| {
         store.proxy = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -179,10 +183,11 @@ pub async fn get_compact_config() -> Result<Json<ha_core::context_compact::Compa
 pub async fn save_compact_config(
     Json(body): Json<ConfigBody<ha_core::context_compact::CompactConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("compact", "http"), |store| {
+    ha_core::config::mutate_config_async(("compact", "http"), move |store| {
         store.compact = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -197,10 +202,11 @@ pub async fn get_session_title_config(
 pub async fn save_session_title_config(
     Json(body): Json<ConfigBody<ha_core::session_title::SessionTitleConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("session_title", "http"), |store| {
+    ha_core::config::mutate_config_async(("session_title", "http"), move |store| {
         store.session_title = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -216,10 +222,11 @@ pub async fn get_async_tools_config() -> Result<Json<ha_core::config::AsyncTools
 pub async fn save_async_tools_config(
     Json(body): Json<ConfigBody<ha_core::config::AsyncToolsConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("async_tools", "http"), |store| {
+    ha_core::config::mutate_config_async(("async_tools", "http"), move |store| {
         store.async_tools = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -235,10 +242,11 @@ pub async fn get_cron_config() -> Result<Json<ha_core::config::CronConfig>, AppE
 pub async fn save_cron_config(
     Json(body): Json<ConfigBody<ha_core::config::CronConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("cron", "http"), |store| {
+    ha_core::config::mutate_config_async(("cron", "http"), move |store| {
         store.cron = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -255,10 +263,11 @@ pub async fn get_deferred_tools_config(
 pub async fn save_deferred_tools_config(
     Json(body): Json<ConfigBody<ha_core::config::DeferredToolsConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("deferred_tools", "http"), |store| {
+    ha_core::config::mutate_config_async(("deferred_tools", "http"), move |store| {
         store.deferred_tools = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -275,10 +284,11 @@ pub async fn get_memory_selection_config(
 pub async fn save_memory_selection_config(
     Json(body): Json<ConfigBody<ha_core::memory::MemorySelectionConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("memory_selection", "http"), |store| {
+    ha_core::config::mutate_config_async(("memory_selection", "http"), move |store| {
         store.memory_selection = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -294,10 +304,11 @@ pub async fn get_memory_budget_config(
 pub async fn save_memory_budget_config(
     Json(body): Json<ConfigBody<ha_core::memory::MemoryBudgetConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("memory_budget", "http"), |store| {
+    ha_core::config::mutate_config_async(("memory_budget", "http"), move |store| {
         store.memory_budget = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -313,10 +324,11 @@ pub async fn get_recap_config() -> Result<Json<ha_core::config::RecapConfig>, Ap
 pub async fn save_recap_config(
     Json(body): Json<ConfigBody<ha_core::config::RecapConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("recap", "http"), |store| {
+    ha_core::config::mutate_config_async(("recap", "http"), move |store| {
         store.recap = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -331,10 +343,11 @@ pub async fn get_dreaming_config(
 pub async fn save_dreaming_config(
     Json(body): Json<ConfigBody<ha_core::memory::dreaming::DreamingConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("dreaming", "http"), |store| {
+    ha_core::config::mutate_config_async(("dreaming", "http"), move |store| {
         store.dreaming = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -368,10 +381,11 @@ pub async fn get_notification_config() -> Result<Json<ha_core::config::Notificat
 pub async fn save_notification_config(
     Json(body): Json<ConfigBody<ha_core::config::NotificationConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("notification", "http"), |store| {
+    ha_core::config::mutate_config_async(("notification", "http"), move |store| {
         store.notification = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -388,11 +402,12 @@ pub async fn get_auto_update_config() -> Result<Json<ha_core::updater::AutoUpdat
 pub async fn set_auto_update_config(
     Json(body): Json<ConfigBody<ha_core::updater::AutoUpdateConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("auto_update", "http"), |store| {
+    ha_core::config::mutate_config_async(("auto_update", "http"), move |store| {
         store.auto_update = body.config;
         store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -409,10 +424,11 @@ pub async fn get_startup_notification_config(
 pub async fn save_startup_notification_config(
     Json(body): Json<ConfigBody<ha_core::config::StartupNotificationConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("startup_notification", "http"), |store| {
+    ha_core::config::mutate_config_async(("startup_notification", "http"), move |store| {
         store.startup_notification = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -427,10 +443,11 @@ pub async fn get_tool_timeout() -> Result<Json<Value>, AppError> {
 /// `POST /api/config/tool-timeout` -- set tool execution timeout (seconds).
 pub async fn set_tool_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
     let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
-    ha_core::config::mutate_config(("tool_timeout", "http"), |store| {
+    ha_core::config::mutate_config_async(("tool_timeout", "http"), move |store| {
         store.tool_timeout = seconds;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -445,10 +462,11 @@ pub async fn get_timeout_policy_config(
 pub async fn save_timeout_policy_config(
     Json(body): Json<ConfigBody<ha_core::config::TimeoutPolicyConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("timeout_policy", "http"), |store| {
+    ha_core::config::mutate_config_async(("timeout_policy", "http"), move |store| {
         store.timeout_policy = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -467,10 +485,11 @@ pub async fn get_approval_timeout_enabled() -> Result<Json<Value>, AppError> {
 /// `POST /api/config/approval-timeout` -- set tool approval wait timeout (seconds).
 pub async fn set_approval_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
     let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
-    ha_core::config::mutate_config(("approval_timeout", "http"), |store| {
+    ha_core::config::mutate_config_async(("approval_timeout", "http"), move |store| {
         store.permission.approval_timeout_secs = seconds;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -482,10 +501,11 @@ pub async fn set_approval_timeout_enabled(
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    ha_core::config::mutate_config(("approval_timeout_enabled", "http"), |store| {
+    ha_core::config::mutate_config_async(("approval_timeout_enabled", "http"), move |store| {
         store.permission.approval_timeout_enabled = enabled;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -501,10 +521,11 @@ pub async fn set_approval_timeout_action(Json(body): Json<Value>) -> Result<Json
         Some("proceed") => ha_core::config::ApprovalTimeoutAction::Proceed,
         _ => ha_core::config::ApprovalTimeoutAction::Deny,
     };
-    ha_core::config::mutate_config(("approval_timeout_action", "http"), |store| {
+    ha_core::config::mutate_config_async(("approval_timeout_action", "http"), move |store| {
         store.permission.approval_timeout_action = action;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -522,10 +543,11 @@ pub async fn set_unattended_approval_action(
         Some("proceed") => ha_core::config::UnattendedApprovalAction::Proceed,
         _ => ha_core::config::UnattendedApprovalAction::Deny,
     };
-    ha_core::config::mutate_config(("unattended_approval_action", "http"), |store| {
+    ha_core::config::mutate_config_async(("unattended_approval_action", "http"), move |store| {
         store.permission.unattended_approval_action = action;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -542,10 +564,11 @@ pub async fn set_tool_result_disk_threshold(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let bytes = body.get("bytes").and_then(|v| v.as_u64()).unwrap_or(50_000) as usize;
-    ha_core::config::mutate_config(("tool_result_disk_threshold", "http"), |store| {
+    ha_core::config::mutate_config_async(("tool_result_disk_threshold", "http"), move |store| {
         store.tool_result_disk_threshold = Some(bytes);
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -572,12 +595,13 @@ pub async fn set_tool_limits(Json(body): Json<Value>) -> Result<Json<Value>, App
         .and_then(|v| v.as_u64())
         .unwrap_or(10) as usize;
 
-    ha_core::config::mutate_config(("tool_limits", "http"), |store| {
+    ha_core::config::mutate_config_async(("tool_limits", "http"), move |store| {
         store.image.max_images = max_images;
         store.pdf.max_pdfs = max_pdfs;
         store.pdf.max_vision_pages = max_vision_pages;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -595,10 +619,11 @@ pub async fn set_plan_subagent(Json(body): Json<Value>) -> Result<Json<Value>, A
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    ha_core::config::mutate_config(("plan_subagent", "http"), |store| {
+    ha_core::config::mutate_config_async(("plan_subagent", "http"), move |store| {
         store.plan_subagent = enabled;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -619,10 +644,11 @@ pub async fn set_ask_user_question_timeout(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AppError> {
     let secs = body.get("secs").and_then(|v| v.as_u64()).unwrap_or(1800);
-    ha_core::config::mutate_config(("ask_user_question_timeout", "http"), |store| {
+    ha_core::config::mutate_config_async(("ask_user_question_timeout", "http"), move |store| {
         store.ask_user_question_timeout_secs = secs;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -634,10 +660,14 @@ pub async fn set_ask_user_question_timeout_enabled(
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    ha_core::config::mutate_config(("ask_user_question_timeout_enabled", "http"), |store| {
-        store.ask_user_question_timeout_enabled = enabled;
-        Ok(())
-    })?;
+    ha_core::config::mutate_config_async(
+        ("ask_user_question_timeout_enabled", "http"),
+        move |store| {
+            store.ask_user_question_timeout_enabled = enabled;
+            Ok(())
+        },
+    )
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -675,11 +705,12 @@ pub async fn get_server_config() -> Result<Json<Value>, AppError> {
 pub async fn save_server_config(
     Json(body): Json<ConfigBody<ha_core::config::EmbeddedServerConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("server", "http"), |store| {
+    ha_core::config::mutate_config_async(("server", "http"), move |store| {
         let next = body.config.merge_over_existing(&store.server);
         store.server = next;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true, "restartRequired": true })))
 }
 
@@ -797,10 +828,11 @@ pub async fn get_embedding_cache_config(
 pub async fn save_embedding_cache_config(
     Json(body): Json<ConfigBody<ha_core::memory::EmbeddingCacheConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("embedding_cache", "http"), |store| {
+    ha_core::config::mutate_config_async(("embedding_cache", "http"), move |store| {
         store.embedding_cache = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -814,10 +846,11 @@ pub async fn get_dedup_config() -> Result<Json<ha_core::memory::DedupConfig>, Ap
 pub async fn save_dedup_config(
     Json(body): Json<ConfigBody<ha_core::memory::DedupConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("memory_dedup", "http"), |store| {
+    ha_core::config::mutate_config_async(("memory_dedup", "http"), move |store| {
         store.dedup = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -832,10 +865,11 @@ pub async fn get_hybrid_search_config(
 pub async fn save_hybrid_search_config(
     Json(body): Json<ConfigBody<ha_core::memory::HybridSearchConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("hybrid_search", "http"), |store| {
+    ha_core::config::mutate_config_async(("hybrid_search", "http"), move |store| {
         store.hybrid_search = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -849,10 +883,11 @@ pub async fn get_mmr_config() -> Result<Json<ha_core::memory::MmrConfig>, AppErr
 pub async fn save_mmr_config(
     Json(body): Json<ConfigBody<ha_core::memory::MmrConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("memory_mmr", "http"), |store| {
+    ha_core::config::mutate_config_async(("memory_mmr", "http"), move |store| {
         store.mmr = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -866,10 +901,11 @@ pub async fn get_multimodal_config() -> Result<Json<ha_core::memory::MultimodalC
 pub async fn save_multimodal_config(
     Json(body): Json<ConfigBody<ha_core::memory::MultimodalConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("multimodal", "http"), |store| {
+    ha_core::config::mutate_config_async(("multimodal", "http"), move |store| {
         store.multimodal = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -884,10 +920,11 @@ pub async fn get_temporal_decay_config(
 pub async fn save_temporal_decay_config(
     Json(body): Json<ConfigBody<ha_core::memory::TemporalDecayConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("temporal_decay", "http"), |store| {
+    ha_core::config::mutate_config_async(("temporal_decay", "http"), move |store| {
         store.temporal_decay = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -901,10 +938,11 @@ pub async fn get_extract_config() -> Result<Json<ha_core::memory::MemoryExtractC
 pub async fn save_extract_config(
     Json(body): Json<ConfigBody<ha_core::memory::MemoryExtractConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("memory_extract", "http"), |store| {
+    ha_core::config::mutate_config_async(("memory_extract", "http"), move |store| {
         store.memory_extract = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -921,10 +959,11 @@ pub async fn get_web_fetch_config(
 pub async fn save_web_fetch_config(
     Json(body): Json<ConfigBody<ha_core::tools::web_fetch::WebFetchConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("web_fetch", "http"), |store| {
+    ha_core::config::mutate_config_async(("web_fetch", "http"), move |store| {
         store.web_fetch = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -938,10 +977,11 @@ pub async fn get_ssrf_config() -> Result<Json<ha_core::security::ssrf::SsrfConfi
 pub async fn save_ssrf_config(
     Json(body): Json<ConfigBody<ha_core::security::ssrf::SsrfConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("security.ssrf", "http"), |store| {
+    ha_core::config::mutate_config_async(("security.ssrf", "http"), move |store| {
         store.ssrf = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -955,10 +995,11 @@ pub async fn get_filesystem_config() -> Result<Json<ha_core::config::FilesystemC
 pub async fn save_filesystem_config(
     Json(body): Json<ConfigBody<ha_core::config::FilesystemConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("filesystem", "http"), |store| {
+    ha_core::config::mutate_config_async(("filesystem", "http"), move |store| {
         store.filesystem = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -975,10 +1016,11 @@ pub async fn get_image_generate_config(
 pub async fn save_image_generate_config(
     Json(body): Json<ConfigBody<ha_core::tools::image_generate::ImageGenConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("image_generate", "http"), |store| {
+    ha_core::config::mutate_config_async(("image_generate", "http"), move |store| {
         store.image_generate = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -992,10 +1034,11 @@ pub async fn get_canvas_config() -> Result<Json<ha_core::tools::canvas::CanvasCo
 pub async fn save_canvas_config(
     Json(body): Json<ConfigBody<ha_core::tools::canvas::CanvasConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("canvas", "http"), |store| {
+    ha_core::config::mutate_config_async(("canvas", "http"), move |store| {
         store.canvas = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1015,10 +1058,11 @@ pub async fn get_shortcut_config() -> Result<Json<ha_core::config::ShortcutConfi
 pub async fn save_shortcut_config(
     Json(body): Json<ConfigBody<ha_core::config::ShortcutConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("shortcuts", "http"), |store| {
+    ha_core::config::mutate_config_async(("shortcuts", "http"), move |store| {
         store.shortcuts = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(
         json!({ "saved": true, "note": "desktop-only registration" }),
     ))
@@ -1061,15 +1105,11 @@ pub async fn add_quick_prompt(
         )));
     }
 
-    let mut result: Option<ha_core::config::QuickPromptAddResult> = None;
-    ha_core::config::mutate_config(("quick_prompts", "http"), |store| {
-        let added = store.quick_prompts.add_prompt(&body.content)?;
-        result = Some(added);
-        Ok(())
-    })?;
-    result
-        .map(Json)
-        .ok_or_else(|| AppError::internal("failed to add quick prompt"))
+    let result = ha_core::config::mutate_config_async(("quick_prompts", "http"), move |store| {
+        Ok(store.quick_prompts.add_prompt(&body.content)?)
+    })
+    .await?;
+    Ok(Json(result))
 }
 
 // ── Theme / Language / UI ──────────────────────────────────────
@@ -1087,10 +1127,11 @@ pub async fn set_theme(Json(body): Json<Value>) -> Result<Json<Value>, AppError>
         .and_then(|v| v.as_str())
         .unwrap_or("auto")
         .to_string();
-    ha_core::config::mutate_config(("theme", "http"), |store| {
+    ha_core::config::mutate_config_async(("theme", "http"), move |store| {
         store.theme = theme;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1112,10 +1153,11 @@ pub async fn set_language(Json(body): Json<Value>) -> Result<Json<Value>, AppErr
         .and_then(|v| v.as_str())
         .unwrap_or("auto")
         .to_string();
-    ha_core::config::mutate_config(("language", "http"), |store| {
+    ha_core::config::mutate_config_async(("language", "http"), move |store| {
         store.language = language;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1131,10 +1173,11 @@ pub async fn set_ui_effects_enabled(Json(body): Json<Value>) -> Result<Json<Valu
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
-    ha_core::config::mutate_config(("ui_effects", "http"), |store| {
+    ha_core::config::mutate_config_async(("ui_effects", "http"), move |store| {
         store.ui_effects_enabled = enabled;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1152,10 +1195,11 @@ pub async fn set_prevent_sleep_enabled(Json(body): Json<Value>) -> Result<Json<V
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    ha_core::config::mutate_config(("prevent_sleep", "http"), |store| {
+    ha_core::config::mutate_config_async(("prevent_sleep", "http"), move |store| {
         store.prevent_sleep = enabled;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1174,10 +1218,11 @@ pub async fn set_sidebar_display_mode(Json(body): Json<Value>) -> Result<Json<Va
         .and_then(|v| v.as_str())
         .unwrap_or(ha_core::config::SIDEBAR_UI_MODE_DETAILED)
         .to_string();
-    ha_core::config::mutate_config(("sidebar_ui_mode", "http"), |store| {
+    ha_core::config::mutate_config_async(("sidebar_ui_mode", "http"), move |store| {
         store.sidebar_ui_mode = ha_core::config::normalize_sidebar_ui_mode(&mode);
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1195,10 +1240,11 @@ pub async fn set_tool_call_narration_enabled(
         .get("enabled")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    ha_core::config::mutate_config(("tool_call_narration", "http"), |store| {
+    ha_core::config::mutate_config_async(("tool_call_narration", "http"), move |store| {
         store.tool_call_narration_enabled = enabled;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1245,10 +1291,11 @@ pub async fn get_awareness_config() -> Result<Json<ha_core::awareness::Awareness
 pub async fn save_awareness_config(
     Json(body): Json<ConfigBody<ha_core::awareness::AwarenessConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("awareness", "http"), |store| {
+    ha_core::config::mutate_config_async(("awareness", "http"), move |store| {
         store.awareness = body.config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1270,11 +1317,12 @@ pub async fn get_hooks_config() -> Result<Json<ha_core::hooks::config::HooksSett
 pub async fn save_hooks_config(
     Json(body): Json<ConfigBody<ha_core::hooks::config::HooksSettings>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("hooks", "http"), |store| {
+    ha_core::config::mutate_config_async(("hooks", "http"), move |store| {
         store.disable_all_hooks = body.config.disable_all_hooks;
         store.hooks_allow_project_scope = body.config.allow_project_scope;
         store.hooks = body.config.hooks;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }

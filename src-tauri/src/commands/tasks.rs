@@ -19,7 +19,7 @@ fn parse_status(status: &str) -> Result<TaskStatus, CmdError> {
 
 #[tauri::command]
 pub async fn list_session_tasks(session_id: String) -> Result<Vec<Task>, CmdError> {
-    Ok(db()?.list_tasks(&session_id)?)
+    Ok(db()?.run(move |db| db.list_tasks(&session_id)).await?)
 }
 
 #[tauri::command]

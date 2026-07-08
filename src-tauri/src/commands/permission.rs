@@ -88,10 +88,11 @@ pub async fn get_smart_mode_config() -> Result<SmartModeConfig, CmdError> {
 
 #[tauri::command]
 pub async fn set_smart_mode_config(config: SmartModeConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("permission.smart", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("permission.smart", "settings-ui"), move |store| {
         store.permission.smart = config;
         Ok(())
-    })?;
+    })
+    .await?;
     Ok(())
 }
 

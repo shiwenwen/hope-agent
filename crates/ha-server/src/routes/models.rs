@@ -85,8 +85,11 @@ pub async fn get_active_model() -> Result<Json<Value>, AppError> {
 pub async fn set_active_model(
     Json(body): Json<SetActiveModelBody>,
 ) -> Result<Json<Value>, AppError> {
-    provider::set_active_model(body.provider_id, body.model_id, "http")
-        .map_err(provider_write_error)?;
+    ha_core::blocking::run_blocking(move || {
+        provider::set_active_model(body.provider_id, body.model_id, "http")
+    })
+    .await
+    .map_err(provider_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -100,9 +103,11 @@ pub async fn get_fallback_models() -> Result<Json<Vec<ActiveModel>>, AppError> {
 pub async fn set_fallback_models(
     Json(body): Json<SetFallbackBody>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    store.fallback_models = body.models;
-    ha_core::config::save_config(&store)?;
+    ha_core::config::mutate_config_async(("fallback_models", "http"), move |store| {
+        store.fallback_models = body.models;
+        Ok(())
+    })
+    .await?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -139,11 +144,21 @@ pub async fn set_reasoning_effort(
         }
     }
     if let Some(session_id) = session_id {
+        let session_id = session_id.to_string();
+        let effort = body.effort.clone();
         ctx.session_db
-            .update_session_reasoning_effort(session_id, Some(&body.effort))?;
+            .run(move |db| db.update_session_reasoning_effort(&session_id, Some(&effort)))
+            .await?;
     }
     if let Some(agent_id) = agent_id {
-        ha_core::agent_loader::update_agent_reasoning_effort(&agent_id, &body.effort)?;
+        {
+            let agent_id = agent_id.clone();
+            let effort = body.effort.clone();
+            ha_core::blocking::run_blocking(move || {
+                ha_core::agent_loader::update_agent_reasoning_effort(&agent_id, &effort)
+            })
+            .await?;
+        }
         if let Some(bus) = ha_core::get_event_bus() {
             bus.emit("agents:changed", json!({ "id": agent_id, "kind": "saved" }));
         }
@@ -185,9 +200,11 @@ pub async fn set_global_temperature(
             )));
         }
     }
-    let mut store = ha_core::config::load_config()?;
-    store.temperature = body.temperature;
-    ha_core::config::save_config(&store)?;
+    ha_core::config::mutate_config_async(("temperature", "http"), move |store| {
+        store.temperature = body.temperature;
+        Ok(())
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
