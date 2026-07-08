@@ -439,6 +439,9 @@ pub struct CreateArtifactInput {
     /// GUIDANCE（选不同模板产出结构可辨差异）。缺省 / 不匹配 kind → 回退该 kind 首个内置 recipe。
     #[serde(default)]
     pub recipe_id: Option<String>,
+    /// image 形态：比例提示（"1:1" / "16:9" / "9:16"…）透传给生图 provider。B0-4。
+    #[serde(default)]
+    pub aspect_ratio: Option<String>,
 }
 
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
@@ -451,7 +454,30 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .clone()
             .filter(|p| !p.trim().is_empty())
             .unwrap_or_else(|| input.title.clone());
-        let parts = super::image::generate_image_parts(&prompt, &input.title).await?;
+        // B0-4：透传比例 + 参考图（有 reference_image_b64 → 图生图/编辑，此前被静默丢弃）。
+        use base64::Engine;
+        let mut input_images = Vec::new();
+        if let Some(b64) = input.reference_image_b64.as_deref().filter(|s| !s.trim().is_empty()) {
+            match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+                Ok(data) => input_images.push(crate::tools::image_generate::InputImage {
+                    data,
+                    mime: input
+                        .reference_image_mime
+                        .clone()
+                        .unwrap_or_else(|| "image/png".to_string()),
+                }),
+                Err(e) => crate::app_warn!(
+                    "design",
+                    "image",
+                    "reference image base64 decode failed, ignoring: {e}"
+                ),
+            }
+        }
+        let opts = super::image::ImageGenOptions {
+            aspect_ratio: input.aspect_ratio.clone().filter(|s| !s.trim().is_empty()),
+            input_images,
+        };
+        let parts = super::image::generate_image_parts(&prompt, &input.title, &opts).await?;
         input.body_html = Some(parts.body_html);
     } else if body_empty && input.kind == "audio" {
         // audio 形态：prompt → 音频合成（TTS/音乐/音效）→ 内嵌 data-uri <audio> 播放器。
@@ -2551,6 +2577,7 @@ pub async fn refine_artifact_with_comment(
         reference_image_b64: None,
         reference_image_mime: None,
         recipe_id: None,
+        aspect_ratio: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
     let instruction = compose_refine_instruction(&comment);

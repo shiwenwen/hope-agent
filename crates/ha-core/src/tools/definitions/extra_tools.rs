@@ -191,6 +191,7 @@ pub fn get_design_tool() -> ToolDefinition {
                     "description": "Artifact form (for create_artifact / filtering list_recipes). web=landing/desktop page, mobile=390x844 framed, deck=16:9 slides (each <section class=\"ds-slide\">), dashboard=data panels, poster=1080x1080, document=long-form, email=table-based, image=generated raster (needs 'prompt'), motion=1280x720 self-contained CSS/JS animation, audio=generated TTS narration / music / SFX (needs 'prompt')."
                 },
                 "recipe_id": { "type": "string", "description": "Recipe id — for get_recipe, and optionally for create_artifact (non-media kinds): its structure guidance + scenario drive that generation, so picking a specific recipe measurably shapes the output. Omit to use the kind's default recipe." },
+                "aspect_ratio": { "type": "string", "description": "For create_artifact with kind=image: aspect-ratio hint passed to the image provider (e.g. \"1:1\", \"16:9\", \"9:16\"). Ignored for other kinds." },
                 "project_id": { "type": "string", "description": "Design project id (optional; defaults to the session's draft project)" },
                 "artifact_id": { "type": "string", "description": "Artifact id (for get/update/delete/versions/restore/show)" },
                 "system_id": { "type": "string", "description": "Design system id to apply (injects brand tokens)" },

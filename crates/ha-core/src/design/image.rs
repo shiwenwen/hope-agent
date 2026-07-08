@@ -10,13 +10,27 @@ use anyhow::{anyhow, Result};
 use base64::Engine;
 
 use super::renderer::{html_escape, ArtifactParts};
+use crate::tools::image_generate::InputImage;
 use crate::tools::image_generate::{
     effective_model, resolve_image_gen_config, resolve_provider, ImageGenParams, ImageGenResult,
 };
 
+/// 生图可选项（B0-4）：比例提示 + 参考图（图生图/编辑）。默认空 = 纯文生图（改动前行为）。
+#[derive(Default)]
+pub struct ImageGenOptions {
+    /// 比例提示，如 "1:1" / "16:9" / "9:16"。
+    pub aspect_ratio: Option<String>,
+    /// 参考/输入图（图生图或编辑）。空 = 纯文生图。
+    pub input_images: Vec<InputImage>,
+}
+
 /// 文本 prompt → 生成图片 → 返回内嵌 data-uri 的 `ArtifactParts`（body 一张居中图）。
-pub async fn generate_image_parts(prompt: &str, alt: &str) -> Result<ArtifactParts> {
-    let (bytes, mime) = generate_image_bytes(prompt).await?;
+pub async fn generate_image_parts(
+    prompt: &str,
+    alt: &str,
+    opts: &ImageGenOptions,
+) -> Result<ArtifactParts> {
+    let (bytes, mime) = generate_image_bytes(prompt, opts).await?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let alt = html_escape(alt);
     let body_html = format!(
@@ -32,7 +46,10 @@ style=\"display:block;margin:0 auto;max-width:100%;height:auto\">"
 
 /// 生成一张图片，返回原始字节 + mime。**按配置顺序在多个 provider 间 failover**——首选
 /// 被限流 / 报错时自动尝试下一个可用 provider（对齐 `tool_image_generate` 的健壮性）。
-async fn generate_image_bytes(prompt: &str) -> Result<(Vec<u8>, String)> {
+async fn generate_image_bytes(
+    prompt: &str,
+    opts: &ImageGenOptions,
+) -> Result<(Vec<u8>, String)> {
     if prompt.trim().is_empty() {
         anyhow::bail!("image prompt is empty");
     }
@@ -68,9 +85,9 @@ async fn generate_image_bytes(prompt: &str) -> Result<(Vec<u8>, String)> {
             n: 1,
             timeout_secs: cfg.timeout_seconds,
             extra: entry,
-            aspect_ratio: None,
+            aspect_ratio: opts.aspect_ratio.as_deref(),
             resolution: None,
-            input_images: &[],
+            input_images: &opts.input_images,
         };
         match provider.generate(params).await {
             Ok(ImageGenResult { images, .. }) => {

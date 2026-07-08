@@ -262,6 +262,7 @@ async fn action_create_artifact(
         reference_image_b64: None,
         reference_image_mime: None,
         recipe_id: str_arg(args, "recipe_id").map(str::to_string),
+        aspect_ratio: str_arg(args, "aspect_ratio").map(str::to_string),
     };
     let artifact = service::create_artifact_generating(input).await?;
     ok(json!({
