@@ -741,7 +741,11 @@
     "collapse": "kapat",
     "expand": "Genişlet",
     "retry": "Yeniden dene",
-    "unavailable": "Kullanılamıyor"
+    "unavailable": "Kullanılamıyor",
+    "duplicate": "Çoğalt",
+    "more": "Daha fazla",
+    "copy": "Kopyala",
+    "copied": "Kopyalandı"
   },
   "context": {
     "ago": "önce",
@@ -6241,7 +6245,10 @@
       "generate": "Oluşturma başarısız — lütfen tekrar deneyin",
       "depInstall": "Bağımlılık indirilemedi — yeniden deneyin veya düşük kalite kullanın",
       "restyle": "Yeniden biçimlendirme başarısız",
-      "save": "Kaydetme başarısız"
+      "save": "Kaydetme başarısız",
+      "duplicate": "Çoğaltma başarısız",
+      "batchDeletePartial": "{{n}} proje silinemedi",
+      "reveal": "Açılamadı"
     },
     "ok": {
       "adopted": "Tasarım yönü uygulandı",
@@ -6249,7 +6256,10 @@
       "extracted": "Tasarım sistemi çıkarıldı",
       "restored": "Bu sürüme geri yüklendi",
       "imported": "Tasarım sistemi içe aktarıldı",
-      "restyled": "Yeniden biçimlendirildi"
+      "restyled": "Yeniden biçimlendirildi",
+      "duplicated": "Proje çoğaltıldı",
+      "batchDeleted": "{{n}} proje silindi",
+      "pathCopied": "Yol kopyalandı"
     },
     "exportMd": "Markdown",
     "exportZip": "Kaynak paketi (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "Şablon / senaryo ara…",
       "empty": "Eşleşen şablon yok",
       "startPrompt": "\"{{name}}\" şablonuyla şunu yap: {{scenario}}"
+    },
+    "searchProjects": "Projelerde ara…",
+    "viewGrid": "Izgara",
+    "viewList": "Liste",
+    "selectMultiple": "Seç",
+    "selectedCount": "{{count}} seçildi",
+    "deleteSelected": "Seçilenleri sil",
+    "noMatchProjects": "Eşleşen proje yok",
+    "batchDeleteHint": "Seçili {{count}} proje ve tüm çıktıları silinecek. Bu geri alınamaz.",
+    "renameProject": "Projeyi yeniden adlandır",
+    "projectTitle": "Proje adı",
+    "copyPath": "Yolu kopyala",
+    "revealInFinder": "Klasörde göster",
+    "ver": {
+      "originAi": "YZ",
+      "originManual": "Elle",
+      "originRestore": "Geri yükle",
+      "search": "Sürüm ara…",
+      "noMatch": "Eşleşen sürüm yok",
+      "current": "Geçerli",
+      "selectHint": "Önizlemek için bir sürüm seçin",
+      "prompt": "İstem",
+      "restoreTitle": "Bu sürüm geri yüklensin mi?",
+      "restoreHelp": "Bu anlık görüntüden yeni bir sürüm oluşturur. Mevcut içeriğiniz geçmişte kalır ve tekrar geri yüklenebilir."
     }
   }
 }

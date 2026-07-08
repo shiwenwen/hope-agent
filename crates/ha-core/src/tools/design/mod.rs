@@ -283,6 +283,8 @@ fn action_update_artifact(args: &Value) -> Result<String> {
         css: str_arg(args, "css").map(str::to_string),
         js: str_arg(args, "js").map(str::to_string),
         message: str_arg(args, "version_message").map(str::to_string),
+        origin: Some("ai".to_string()),
+        prompt_summary: None,
         expected_body_hash: None,
     })?;
     ok(json!({

@@ -1849,6 +1849,10 @@ fn build_router_with_cors(
             get(routes::design::get_project).delete(routes::design::delete_project),
         )
         .route(
+            "/design/projects/{id}/duplicate",
+            post(routes::design::duplicate_project),
+        )
+        .route(
             "/design/projects/{project_id}/artifacts",
             get(routes::design::list_artifacts),
         )
@@ -1885,6 +1889,10 @@ fn build_router_with_cors(
         .route(
             "/design/artifacts/{id}/versions",
             get(routes::design::list_versions),
+        )
+        .route(
+            "/design/artifacts/{id}/versions/{version}/html",
+            get(routes::design::get_version_html),
         )
         .route(
             "/design/artifacts/{id}/export",

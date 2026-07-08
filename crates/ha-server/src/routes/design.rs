@@ -206,6 +206,14 @@ pub async fn delete_project(Path(id): Path<String>) -> Result<Json<Value>, AppEr
     Ok(Json(json!({ "ok": true })))
 }
 
+/// `POST /api/design/projects/{id}/duplicate` — deep-copy a project (artifacts + versions).
+pub async fn duplicate_project(Path(id): Path<String>) -> Result<Json<DesignProject>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::duplicate_project(&id).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 // ── Artifacts ──────────────────────────────────────────────────────
 
 /// `GET /api/design/projects/{project_id}/artifacts`
@@ -406,6 +414,17 @@ pub async fn list_versions(
     Ok(Json(
         service::list_versions(&id).map_err(|e| AppError::internal(e.to_string()))?,
     ))
+}
+
+/// `GET /api/design/artifacts/{id}/versions/{version}/html` — snapshot HTML for preview.
+/// Bare JSON string to mirror the Tauri command's `String` return (transport parity).
+pub async fn get_version_html(
+    Path((id, version)): Path<(String, i64)>,
+) -> Result<Json<String>, AppError> {
+    validate_id(&id)?;
+    let html = service::get_artifact_version_html(&id, version)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(html))
 }
 
 /// `POST /api/design/artifacts/{id}/restore` — restore a historical version.

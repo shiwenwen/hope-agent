@@ -741,7 +741,11 @@
     "collapse": "đóng",
     "expand": "Mở rộng",
     "retry": "Thử lại",
-    "unavailable": "Không có sẵn"
+    "unavailable": "Không có sẵn",
+    "duplicate": "Nhân bản",
+    "more": "Thêm",
+    "copy": "Sao chép",
+    "copied": "Đã sao chép"
   },
   "context": {
     "ago": "trước",
@@ -6241,7 +6245,10 @@
       "generate": "Tạo không thành công — vui lòng thử lại",
       "depInstall": "Tải phụ thuộc thất bại — thử lại hoặc dùng chất lượng thấp hơn",
       "restyle": "Đổi hệ thống thiết kế thất bại",
-      "save": "Lưu thất bại"
+      "save": "Lưu thất bại",
+      "duplicate": "Nhân bản thất bại",
+      "batchDeletePartial": "Không xóa được {{n}} dự án",
+      "reveal": "Không mở được"
     },
     "ok": {
       "adopted": "Đã áp dụng hướng thiết kế",
@@ -6249,7 +6256,10 @@
       "extracted": "Đã trích xuất hệ thống thiết kế",
       "restored": "Đã khôi phục về phiên bản này",
       "imported": "Đã nhập hệ thống thiết kế",
-      "restyled": "Đã đổi hệ thống thiết kế"
+      "restyled": "Đã đổi hệ thống thiết kế",
+      "duplicated": "Đã nhân bản dự án",
+      "batchDeleted": "Đã xóa {{n}} dự án",
+      "pathCopied": "Đã sao chép đường dẫn"
     },
     "exportMd": "Markdown",
     "exportZip": "Gói nguồn (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "Tìm mẫu / kịch bản…",
       "empty": "Không có mẫu phù hợp",
       "startPrompt": "Dùng mẫu «{{name}}» để làm: {{scenario}}"
+    },
+    "searchProjects": "Tìm dự án…",
+    "viewGrid": "Lưới",
+    "viewList": "Danh sách",
+    "selectMultiple": "Chọn nhiều",
+    "selectedCount": "Đã chọn {{count}}",
+    "deleteSelected": "Xóa mục đã chọn",
+    "noMatchProjects": "Không có dự án phù hợp",
+    "batchDeleteHint": "Sẽ xóa {{count}} dự án đã chọn và tất cả sản phẩm của chúng. Không thể hoàn tác.",
+    "renameProject": "Đổi tên dự án",
+    "projectTitle": "Tên dự án",
+    "copyPath": "Sao chép đường dẫn",
+    "revealInFinder": "Hiện trong thư mục",
+    "ver": {
+      "originAi": "AI",
+      "originManual": "Thủ công",
+      "originRestore": "Khôi phục",
+      "search": "Tìm phiên bản…",
+      "noMatch": "Không có phiên bản phù hợp",
+      "current": "Hiện tại",
+      "selectHint": "Chọn phiên bản để xem trước",
+      "prompt": "Câu lệnh",
+      "restoreTitle": "Khôi phục phiên bản này?",
+      "restoreHelp": "Tạo một phiên bản mới từ ảnh chụp này. Nội dung hiện tại vẫn nằm trong lịch sử và có thể khôi phục lại."
     }
   }
 }

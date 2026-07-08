@@ -741,7 +741,11 @@
     "collapse": "cerrar",
     "expand": "Expandir",
     "retry": "Reintentar",
-    "unavailable": "No disponible"
+    "unavailable": "No disponible",
+    "duplicate": "Duplicar",
+    "more": "Más",
+    "copy": "Copiar",
+    "copied": "Copiado"
   },
   "context": {
     "ago": "atrás",
@@ -6241,7 +6245,10 @@
       "generate": "La generación falló, inténtalo de nuevo",
       "depInstall": "Error al descargar la dependencia: reintenta o usa menor fidelidad",
       "restyle": "Error al rediseñar",
-      "save": "Error al guardar"
+      "save": "Error al guardar",
+      "duplicate": "Error al duplicar",
+      "batchDeletePartial": "No se pudieron eliminar {{n}} proyectos",
+      "reveal": "No se pudo abrir"
     },
     "ok": {
       "adopted": "Dirección de diseño aplicada",
@@ -6249,7 +6256,10 @@
       "extracted": "Sistema de diseño extraído",
       "restored": "Restaurado a esta versión",
       "imported": "Sistema de diseño importado",
-      "restyled": "Rediseñado"
+      "restyled": "Rediseñado",
+      "duplicated": "Proyecto duplicado",
+      "batchDeleted": "Se eliminaron {{n}} proyectos",
+      "pathCopied": "Ruta copiada"
     },
     "exportMd": "Markdown",
     "exportZip": "Paquete fuente (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "Buscar plantillas / escenarios…",
       "empty": "No hay plantillas coincidentes",
       "startPrompt": "Usa la plantilla «{{name}}» para hacer: {{scenario}}"
+    },
+    "searchProjects": "Buscar proyectos…",
+    "viewGrid": "Cuadrícula",
+    "viewList": "Lista",
+    "selectMultiple": "Seleccionar",
+    "selectedCount": "{{count}} seleccionados",
+    "deleteSelected": "Eliminar seleccionados",
+    "noMatchProjects": "No hay proyectos coincidentes",
+    "batchDeleteHint": "Se eliminarán los {{count}} proyectos seleccionados y todos sus artefactos. Esto no se puede deshacer.",
+    "renameProject": "Cambiar nombre del proyecto",
+    "projectTitle": "Nombre del proyecto",
+    "copyPath": "Copiar ruta",
+    "revealInFinder": "Mostrar en carpeta",
+    "ver": {
+      "originAi": "IA",
+      "originManual": "Manual",
+      "originRestore": "Restaurar",
+      "search": "Buscar versiones…",
+      "noMatch": "No hay versiones coincidentes",
+      "current": "Actual",
+      "selectHint": "Selecciona una versión para previsualizar",
+      "prompt": "Prompt",
+      "restoreTitle": "¿Restaurar esta versión?",
+      "restoreHelp": "Crea una nueva versión a partir de esta instantánea. Tu contenido actual permanece en el historial y puede restaurarse de nuevo."
     }
   }
 }

@@ -741,7 +741,11 @@
     "collapse": "关闭",
     "expand": "展开",
     "retry": "重试",
-    "unavailable": "不可用"
+    "unavailable": "不可用",
+    "duplicate": "创建副本",
+    "more": "更多",
+    "copy": "复制",
+    "copied": "已复制"
   },
   "context": {
     "ago": "前",
@@ -6241,7 +6245,10 @@
       "generate": "生成失败，请重试",
       "depInstall": "依赖下载失败，请重试或改用较低保真",
       "restyle": "换设计系统失败",
-      "save": "保存失败"
+      "save": "保存失败",
+      "duplicate": "复制失败",
+      "batchDeletePartial": "{{n}} 个项目删除失败",
+      "reveal": "打开失败"
     },
     "ok": {
       "adopted": "已应用设计方向",
@@ -6249,7 +6256,10 @@
       "extracted": "已提取设计系统",
       "restored": "已恢复到该版本",
       "imported": "已导入设计系统",
-      "restyled": "已换设计系统"
+      "restyled": "已换设计系统",
+      "duplicated": "已复制项目",
+      "batchDeleted": "已删除 {{n}} 个项目",
+      "pathCopied": "已复制路径"
     },
     "exportMd": "Markdown",
     "exportZip": "源码包 (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "搜索模板 / 场景…",
       "empty": "没有匹配的模板",
       "startPrompt": "用「{{name}}」模板做一个：{{scenario}}"
+    },
+    "searchProjects": "搜索项目…",
+    "viewGrid": "网格",
+    "viewList": "列表",
+    "selectMultiple": "多选",
+    "selectedCount": "已选 {{count}} 项",
+    "deleteSelected": "删除所选",
+    "noMatchProjects": "没有匹配的项目",
+    "batchDeleteHint": "将删除选中的 {{count}} 个项目及其全部产物，不可撤销。",
+    "renameProject": "重命名项目",
+    "projectTitle": "项目名称",
+    "copyPath": "复制路径",
+    "revealInFinder": "在文件夹中显示",
+    "ver": {
+      "originAi": "AI 生成",
+      "originManual": "手动编辑",
+      "originRestore": "回滚",
+      "search": "搜索版本…",
+      "noMatch": "无匹配版本",
+      "current": "当前",
+      "selectHint": "选择一个版本以预览",
+      "prompt": "提示词",
+      "restoreTitle": "恢复到该版本？",
+      "restoreHelp": "会以该版本内容生成一个新版本，当前内容仍保留在历史中，可再切回。"
     }
   }
 }

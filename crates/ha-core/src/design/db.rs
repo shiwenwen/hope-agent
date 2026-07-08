@@ -37,6 +37,9 @@ pub struct DesignProject {
     /// 产物数量（列表页展示用，读取时聚合）。
     #[serde(default)]
     pub artifact_count: i64,
+    /// 待复查（`status='needs_review'`）产物数（列表页状态徽标用，读取时聚合）。
+    #[serde(default)]
+    pub needs_review_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<String>,
 }
@@ -81,6 +84,12 @@ pub struct DesignArtifactVersion {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub critique_score: Option<f64>,
+    /// 溯源：`ai`（生成 / 精修）/ `manual`（可视化编辑 / 换系统）/ `restore`（回滚）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+    /// 该版本对应的生成 prompt 摘要（仅 AI 版本有；供历史面板 popover 展示）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_summary: Option<String>,
     pub created_at: String,
 }
 
@@ -160,7 +169,9 @@ fn row_to_code_binding(row: &rusqlite::Row) -> rusqlite::Result<DesignCodeBindin
 
 const PROJECT_COLUMNS: &str = "SELECT p.id, p.title, p.description, p.color, p.default_system_id, \
      p.ha_project_id, p.session_id, p.agent_id, p.created_at, p.updated_at, \
-     (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id) AS artifact_count, p.metadata \
+     (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id) AS artifact_count, \
+     (SELECT COUNT(*) FROM design_artifacts a WHERE a.project_id = p.id AND a.status = 'needs_review') AS needs_review_count, \
+     p.metadata \
      FROM design_projects p";
 
 fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
@@ -176,7 +187,8 @@ fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         artifact_count: row.get(10)?,
-        metadata: row.get(11)?,
+        needs_review_count: row.get(11)?,
+        metadata: row.get(12)?,
     })
 }
 
@@ -291,6 +303,8 @@ impl DesignDb {
                 version_number INTEGER NOT NULL,
                 message TEXT,
                 critique_score REAL,
+                origin TEXT,
+                prompt_summary TEXT,
                 created_at TEXT NOT NULL,
                 UNIQUE(artifact_id, version_number)
             );
@@ -342,8 +356,17 @@ impl DesignDb {
                 ON design_code_bindings(system_id, id);",
         )?;
 
-        // `category` 为后加列：对已存在的旧 design.db 幂等补列（列已存在则忽略错误）。
+        // 后加列：对已存在的旧 design.db 幂等补列（列已存在则忽略错误）。
         let _ = conn.execute("ALTER TABLE design_systems ADD COLUMN category TEXT", []);
+        // B3 版本溯源（origin: ai/manual/restore + 生成 prompt 摘要）——分支内 dev DB 幂等补列。
+        let _ = conn.execute(
+            "ALTER TABLE design_artifact_versions ADD COLUMN origin TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE design_artifact_versions ADD COLUMN prompt_summary TEXT",
+            [],
+        );
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -605,13 +628,15 @@ impl DesignDb {
         let conn = self.lock()?;
         conn.execute(
             "INSERT INTO design_artifact_versions
-                (artifact_id, version_number, message, critique_score, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+                (artifact_id, version_number, message, critique_score, origin, prompt_summary, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
                 v.artifact_id,
                 v.version_number,
                 v.message,
                 v.critique_score,
+                v.origin,
+                v.prompt_summary,
                 v.created_at,
             ],
         )?;
@@ -621,7 +646,7 @@ impl DesignDb {
     pub fn list_versions(&self, artifact_id: &str) -> Result<Vec<DesignArtifactVersion>> {
         let conn = self.lock()?;
         let mut stmt = conn.prepare(
-            "SELECT id, artifact_id, version_number, message, critique_score, created_at
+            "SELECT id, artifact_id, version_number, message, critique_score, origin, prompt_summary, created_at
              FROM design_artifact_versions WHERE artifact_id = ?1 ORDER BY version_number DESC",
         )?;
         let rows = stmt.query_map(rusqlite::params![artifact_id], |row| {
@@ -631,7 +656,9 @@ impl DesignDb {
                 version_number: row.get(2)?,
                 message: row.get(3)?,
                 critique_score: row.get(4)?,
-                created_at: row.get(5)?,
+                origin: row.get(5)?,
+                prompt_summary: row.get(6)?,
+                created_at: row.get(7)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -944,6 +971,7 @@ mod tests {
             created_at: "t".into(),
             updated_at: "t".into(),
             artifact_count: 0,
+            needs_review_count: 0,
             metadata: None,
         })
         .unwrap();
@@ -1069,5 +1097,71 @@ mod tests {
         let aid = seed_artifact(&db);
         assert!(!db.set_comment_resolved(&aid, 999, true).unwrap());
         assert!(!db.delete_comment(&aid, 999).unwrap());
+    }
+
+    #[test]
+    fn version_provenance_roundtrips() {
+        // B3-3：origin / prompt_summary 写入后经 list_versions 原样读回（列存在 + 映射正确）。
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db);
+        db.create_version(&DesignArtifactVersion {
+            id: 0,
+            artifact_id: aid.clone(),
+            version_number: 2,
+            message: Some("Generated".into()),
+            critique_score: None,
+            origin: Some("ai".into()),
+            prompt_summary: Some("做一个定价页".into()),
+            created_at: "t2".into(),
+        })
+        .unwrap();
+        db.create_version(&DesignArtifactVersion {
+            id: 0,
+            artifact_id: aid.clone(),
+            version_number: 3,
+            message: Some("Visual edit".into()),
+            critique_score: None,
+            origin: Some("manual".into()),
+            prompt_summary: None,
+            created_at: "t3".into(),
+        })
+        .unwrap();
+        let rows = db.list_versions(&aid).unwrap();
+        // 倒序：v3 先于 v2。
+        let v3 = rows.iter().find(|v| v.version_number == 3).unwrap();
+        assert_eq!(v3.origin.as_deref(), Some("manual"));
+        assert_eq!(v3.prompt_summary, None);
+        let v2 = rows.iter().find(|v| v.version_number == 2).unwrap();
+        assert_eq!(v2.origin.as_deref(), Some("ai"));
+        assert_eq!(v2.prompt_summary.as_deref(), Some("做一个定价页"));
+    }
+
+    #[test]
+    fn project_needs_review_count_aggregates() {
+        // B3-1：项目卡状态徽标读取时聚合 status='needs_review' 的产物数。
+        let (_d, db) = open_temp();
+        seed_artifact(&db); // a1 = ready
+        for (id, status) in [("a2", "needs_review"), ("a3", "needs_review"), ("a4", "failed")] {
+            db.create_artifact(&DesignArtifact {
+                id: id.into(),
+                project_id: "p1".into(),
+                title: id.into(),
+                kind: "web".into(),
+                system_id: None,
+                status: status.into(),
+                viewport_w: None,
+                viewport_h: None,
+                current_version: 1,
+                critique_score: None,
+                thumbnail_path: None,
+                created_at: "t".into(),
+                updated_at: "t".into(),
+                metadata: None,
+            })
+            .unwrap();
+        }
+        let p = db.get_project("p1").unwrap().unwrap();
+        assert_eq!(p.artifact_count, 4);
+        assert_eq!(p.needs_review_count, 2);
     }
 }

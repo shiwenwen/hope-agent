@@ -227,6 +227,7 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
         created_at: ts.clone(),
         updated_at: ts,
         artifact_count: 0,
+        needs_review_count: 0,
         metadata: None,
     };
     // 建项目目录 + project.json（真相源镜像）。
@@ -240,6 +241,120 @@ pub fn create_project(input: CreateProjectInput) -> Result<DesignProject> {
     crate::app_info!("design", "service", "create project {}", project.id);
     emit("design:project_changed", json!({ "projectId": project.id }));
     Ok(project)
+}
+
+/// 递归复制目录树（duplicate_project 复制产物磁盘目录用）。源不存在=no-op（产物可能纯 DB 行）。
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// 复制整个项目（含全部产物 + 磁盘正文 / 版本快照 / 版本行）为一个新项目。
+///
+/// 深拷贝：新项目行 + 逐产物新 id + `copy_dir_recursive` 拷 `artifacts/{id}/`（index.html /
+/// source / versions / oidmap）+ 改写 `artifact.json` 的 id/project_id + 复制版本行（保留
+/// version_number / message / origin / prompt_summary，溯源不丢）。任一产物拷贝失败即整体
+/// 回滚（删新项目目录 + DB 级联删行），不留半个副本。
+pub fn duplicate_project(id: &str) -> Result<DesignProject> {
+    let db = open_db()?;
+    let src = db
+        .get_project(id)?
+        .with_context(|| format!("project not found: {id}"))?;
+    let ts = now();
+    let new_pid = new_id();
+    let project = DesignProject {
+        id: new_pid.clone(),
+        title: format!("{} (副本)", src.title),
+        description: src.description.clone(),
+        color: src.color.clone(),
+        default_system_id: src.default_system_id.clone(),
+        // 副本是独立项目：不继承源的 HA 项目 / 会话绑定（否则两项目抢 1:1 attach）。
+        ha_project_id: None,
+        session_id: None,
+        agent_id: src.agent_id.clone(),
+        created_at: ts.clone(),
+        updated_at: ts.clone(),
+        artifact_count: 0,
+        needs_review_count: 0,
+        metadata: src.metadata.clone(),
+    };
+    let new_dir = paths::design_project_dir(&new_pid)?;
+    std::fs::create_dir_all(new_dir.join("artifacts"))?;
+    write_atomic(
+        &new_dir.join("project.json"),
+        serde_json::to_string_pretty(&project)?.as_bytes(),
+    )?;
+    db.create_project(&project)?;
+
+    // 逐产物深拷贝；失败整体回滚。
+    let cloned = (|| -> Result<()> {
+        for a in db.list_artifacts(id)? {
+            let new_aid = new_id();
+            let src_dir = paths::design_artifact_dir(id, &a.id)?;
+            let dst_dir = paths::design_artifact_dir(&new_pid, &new_aid)?;
+            copy_dir_recursive(&src_dir, &dst_dir)?;
+            // 改写 artifact.json 的 id/project_id（磁盘元数据镜像须指向新副本）。
+            let meta = ArtifactMeta {
+                id: new_aid.clone(),
+                project_id: new_pid.clone(),
+                title: a.title.clone(),
+                kind: a.kind.clone(),
+                system_id: a.system_id.clone(),
+                current_version: a.current_version,
+            };
+            write_atomic(
+                &dst_dir.join("artifact.json"),
+                serde_json::to_string_pretty(&meta)?.as_bytes(),
+            )?;
+            let new_artifact = DesignArtifact {
+                id: new_aid.clone(),
+                project_id: new_pid.clone(),
+                created_at: ts.clone(),
+                updated_at: ts.clone(),
+                ..a.clone()
+            };
+            db.create_artifact(&new_artifact)?;
+            // 复制版本行（保留 version_number 与溯源；create_version 忽略 id 自增）。
+            for v in db.list_versions(&a.id)? {
+                db.create_version(&DesignArtifactVersion {
+                    id: 0,
+                    artifact_id: new_aid.clone(),
+                    version_number: v.version_number,
+                    message: v.message,
+                    critique_score: v.critique_score,
+                    origin: v.origin,
+                    prompt_summary: v.prompt_summary,
+                    created_at: v.created_at,
+                })?;
+            }
+        }
+        Ok(())
+    })();
+    if let Err(e) = cloned {
+        // 回滚：DB 删项目（产物 / 版本行 ON DELETE CASCADE）+ 删磁盘目录。
+        let _ = db.delete_project(&new_pid);
+        let _ = std::fs::remove_dir_all(&new_dir);
+        return Err(e);
+    }
+
+    crate::app_info!("design", "service", "duplicate project {id} -> {new_pid}");
+    emit("design:project_changed", json!({ "projectId": new_pid }));
+    // 重读以带回聚合列（artifact_count / needs_review_count）。
+    db.get_project(&new_pid)?
+        .with_context(|| "duplicated project vanished".to_string())
 }
 
 pub fn list_projects() -> Result<Vec<DesignProject>> {
@@ -709,6 +824,9 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
             version_number: 1,
             message: Some("Initial version".to_string()),
             critique_score: None,
+            // 带正文创建=模型/工具产出（ai）；空白起草=用户手动建（manual）。
+            origin: Some(if had_body { "ai" } else { "manual" }.to_string()),
+            prompt_summary: None,
             created_at: ts.clone(),
         })?;
         db.touch_project(&input.project_id, &ts)?;
@@ -1003,6 +1121,7 @@ pub fn review_artifact(id: &str, action: &str) -> Result<DesignArtifact> {
 pub fn finalize_generating_artifact(
     id: &str,
     parts: &ArtifactParts,
+    prompt_summary: Option<&str>,
 ) -> Result<Option<DesignArtifact>> {
     let lock = artifact_lock(id);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -1030,6 +1149,8 @@ pub fn finalize_generating_artifact(
         version_number: a.current_version,
         message: Some("Generated".to_string()),
         critique_score: None,
+        origin: Some("ai".to_string()),
+        prompt_summary: prompt_summary.map(|s| crate::truncate_utf8(s, 2000).to_string()),
         created_at: ts.clone(),
     })?;
     db.touch_project(&a.project_id, &ts)?;
@@ -1094,7 +1215,7 @@ pub async fn stream_generate_artifact(
     }
 
     match result {
-        Ok(parts) => match finalize_generating_artifact(&artifact_id, &parts) {
+        Ok(parts) => match finalize_generating_artifact(&artifact_id, &parts, Some(&brief)) {
             // 成功定稿。
             Ok(Some(_)) => {}
             // 定稿前已被删 → 静默（不误报 generate_error、不复活目录）。
@@ -1277,6 +1398,27 @@ pub fn list_versions(artifact_id: &str) -> Result<Vec<DesignArtifactVersion>> {
     open_db()?.list_versions(artifact_id)
 }
 
+/// 读取某历史版本快照的 `index.html`（历史面板右栏 iframe srcdoc 预览用）。快照本就是
+/// 自包含产物 HTML（bridge dormant，未激活不启用），直接喂 sandbox iframe 即渲染，无需重渲。
+pub fn get_artifact_version_html(artifact_id: &str, version_number: i64) -> Result<String> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let f = dir
+        .join("versions")
+        .join(version_number.to_string())
+        .join("index.html");
+    match std::fs::read_to_string(&f) {
+        Ok(s) => Ok(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            anyhow::bail!("version {version_number} snapshot not found")
+        }
+        Err(e) => Err(anyhow::anyhow!("read version index.html: {e}")),
+    }
+}
+
 /// 产物预览信息（前端 iframe 加载用）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1363,6 +1505,8 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
         css: None,
         js: None,
         message: Some("Visual edit".to_string()),
+        origin: Some("manual".to_string()),
+        prompt_summary: None,
         expected_body_hash: Some(base_hash),
     })
 }
@@ -1382,6 +1526,13 @@ pub struct UpdateArtifactInput {
     pub js: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    /// 版本溯源标签（`ai`/`manual`/`restore`）。缺省视为 `ai`（此路径主用于模型重生成 /
+    /// 精修）；可视化编辑与回滚在各自入口显式覆盖为 `manual`/`restore`。
+    #[serde(default)]
+    pub origin: Option<String>,
+    /// 该版本对应的 prompt 摘要（AI 版本供历史面板 popover 展示）。
+    #[serde(default)]
+    pub prompt_summary: Option<String>,
     /// Optional stale-write guard re-verified **under the per-artifact lock** right
     /// before writing (closes the `patch_element` read→write TOCTOU). Not exposed to
     /// the agent `update_artifact` path — only `patch_element` sets it.
@@ -1480,6 +1631,9 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         version_number: next,
         message: input.message.or_else(|| Some("Update".to_string())),
         critique_score: None,
+        // 缺省视为 AI（模型重生成 / 精修）；可视化编辑 / 回滚在入口显式覆盖。
+        origin: input.origin.or_else(|| Some("ai".to_string())),
+        prompt_summary: input.prompt_summary,
         created_at: ts.clone(),
     })?;
     let keep = crate::config::cached_config()
@@ -1545,6 +1699,9 @@ pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<De
         version_number: next,
         message: Some("Restyle".to_string()),
         critique_score: None,
+        // 换设计系统由用户发起（确定性重渲染，非 AI 生成内容）→ manual。
+        origin: Some("manual".to_string()),
+        prompt_summary: None,
         created_at: ts.clone(),
     })?;
     let keep = crate::config::cached_config()
@@ -2436,6 +2593,8 @@ pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignA
         css: Some(read("style.css")?),
         js: Some(read("script.js")?),
         message: Some(format!("Restored from v{version_number}")),
+        origin: Some("restore".to_string()),
+        prompt_summary: None,
         expected_body_hash: None,
     })
 }
@@ -2623,6 +2782,8 @@ pub async fn refine_artifact_with_comment(
         css: Some(parts.css),
         js: Some(parts.js),
         message: Some(format!("按批注 #{comment_id} 精修")),
+        origin: Some("ai".to_string()),
+        prompt_summary: Some(crate::truncate_utf8(&comment.body, 2000).to_string()),
         expected_body_hash: Some(patch::body_hash(&current.body_html)),
     })
 }

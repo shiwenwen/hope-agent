@@ -440,6 +440,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `update_design_project_cmd` | `PUT /api/design/projects` | ✅ |
 | `get_design_project_cmd` | `GET /api/design/projects/{id}` | ✅ |
 | `delete_design_project_cmd` | `DELETE /api/design/projects/{id}` | ✅ |
+| `duplicate_design_project_cmd` | `POST /api/design/projects/{id}/duplicate` | ✅ |
 | `list_design_artifacts_cmd` | `GET /api/design/projects/{projectId}/artifacts` | ✅ |
 | `create_design_artifact_cmd` | `POST /api/design/artifacts` | ✅ |
 | `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate` | ✅ |
@@ -449,6 +450,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_design_artifact_cmd` | `GET /api/design/artifacts/{id}` | ✅ |
 | `delete_design_artifact_cmd` | `DELETE /api/design/artifacts/{id}` | ✅ |
 | `list_design_artifact_versions_cmd` | `GET /api/design/artifacts/{id}/versions` | ✅ |
+| `get_design_artifact_version_html_cmd` | `GET /api/design/artifacts/{artifactId}/versions/{versionNumber}/html` | ✅ |
 | `restore_design_version_cmd` | `POST /api/design/artifacts/{artifactId}/restore` | ✅ |
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
 | `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |

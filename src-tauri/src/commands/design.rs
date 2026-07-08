@@ -50,6 +50,11 @@ pub async fn delete_design_project_cmd(id: String) -> Result<(), CmdError> {
     service::delete_project(&id).map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn duplicate_design_project_cmd(id: String) -> Result<DesignProject, CmdError> {
+    service::duplicate_project(&id).map_err(Into::into)
+}
+
 // ── Artifacts ───────────────────────────────────────────────────
 
 #[tauri::command]
@@ -99,6 +104,15 @@ pub async fn list_design_artifact_versions_cmd(
     id: String,
 ) -> Result<Vec<DesignArtifactVersion>, CmdError> {
     service::list_versions(&id).map_err(Into::into)
+}
+
+/// 某历史版本快照的 index.html（历史面板右栏 iframe srcdoc 预览用）。
+#[tauri::command]
+pub async fn get_design_artifact_version_html_cmd(
+    artifact_id: String,
+    version_number: i64,
+) -> Result<String, CmdError> {
+    service::get_artifact_version_html(&artifact_id, version_number).map_err(Into::into)
 }
 
 #[tauri::command]

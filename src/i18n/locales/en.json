@@ -741,7 +741,11 @@
     "collapse": "close",
     "expand": "Expand",
     "retry": "Retry",
-    "unavailable": "Unavailable"
+    "unavailable": "Unavailable",
+    "duplicate": "Duplicate",
+    "more": "More",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "context": {
     "ago": "ago",
@@ -6241,7 +6245,10 @@
       "generate": "Generation failed — please retry",
       "depInstall": "Dependency download failed — retry or use lower fidelity",
       "restyle": "Restyle failed",
-      "save": "Save failed"
+      "save": "Save failed",
+      "duplicate": "Duplicate failed",
+      "batchDeletePartial": "Failed to delete {{n}} projects",
+      "reveal": "Failed to open"
     },
     "ok": {
       "adopted": "Design direction applied",
@@ -6249,7 +6256,10 @@
       "extracted": "Design system extracted",
       "restored": "Restored to this version",
       "imported": "Design system imported",
-      "restyled": "Restyled"
+      "restyled": "Restyled",
+      "duplicated": "Project duplicated",
+      "batchDeleted": "Deleted {{n}} projects",
+      "pathCopied": "Path copied"
     },
     "exportMd": "Markdown",
     "exportZip": "Source bundle (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "Search templates / scenarios…",
       "empty": "No matching templates",
       "startPrompt": "Use the \"{{name}}\" template to make: {{scenario}}"
+    },
+    "searchProjects": "Search projects…",
+    "viewGrid": "Grid",
+    "viewList": "List",
+    "selectMultiple": "Select",
+    "selectedCount": "{{count}} selected",
+    "deleteSelected": "Delete selected",
+    "noMatchProjects": "No matching projects",
+    "batchDeleteHint": "This will delete the {{count}} selected projects and all their artifacts. This cannot be undone.",
+    "renameProject": "Rename project",
+    "projectTitle": "Project name",
+    "copyPath": "Copy path",
+    "revealInFinder": "Reveal in folder",
+    "ver": {
+      "originAi": "AI",
+      "originManual": "Manual",
+      "originRestore": "Restore",
+      "search": "Search versions…",
+      "noMatch": "No matching versions",
+      "current": "Current",
+      "selectHint": "Select a version to preview",
+      "prompt": "Prompt",
+      "restoreTitle": "Restore this version?",
+      "restoreHelp": "Creates a new version from this snapshot. Your current content stays in history and can be restored again."
     }
   }
 }

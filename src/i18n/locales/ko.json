@@ -741,7 +741,11 @@
     "collapse": "닫기",
     "expand": "펼치기",
     "retry": "재시도",
-    "unavailable": "이용 불가"
+    "unavailable": "이용 불가",
+    "duplicate": "복제",
+    "more": "더 보기",
+    "copy": "복사",
+    "copied": "복사됨"
   },
   "context": {
     "ago": "전",
@@ -6241,7 +6245,10 @@
       "generate": "생성에 실패했습니다. 다시 시도해 주세요",
       "depInstall": "종속성 다운로드 실패 — 다시 시도하거나 저충실도를 사용하세요",
       "restyle": "디자인 시스템 변경 실패",
-      "save": "저장 실패"
+      "save": "저장 실패",
+      "duplicate": "복제 실패",
+      "batchDeletePartial": "프로젝트 {{n}}개 삭제 실패",
+      "reveal": "열기 실패"
     },
     "ok": {
       "adopted": "디자인 방향 적용됨",
@@ -6249,7 +6256,10 @@
       "extracted": "디자인 시스템 추출됨",
       "restored": "이 버전으로 복원됨",
       "imported": "디자인 시스템을 가져왔습니다",
-      "restyled": "디자인 시스템을 변경했습니다"
+      "restyled": "디자인 시스템을 변경했습니다",
+      "duplicated": "프로젝트를 복제했습니다",
+      "batchDeleted": "프로젝트 {{n}}개를 삭제했습니다",
+      "pathCopied": "경로를 복사했습니다"
     },
     "exportMd": "Markdown",
     "exportZip": "소스 번들 (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "템플릿 / 시나리오 검색…",
       "empty": "일치하는 템플릿이 없습니다",
       "startPrompt": "\"{{name}}\" 템플릿으로 만들기: {{scenario}}"
+    },
+    "searchProjects": "프로젝트 검색…",
+    "viewGrid": "그리드",
+    "viewList": "목록",
+    "selectMultiple": "다중 선택",
+    "selectedCount": "{{count}}개 선택됨",
+    "deleteSelected": "선택 항목 삭제",
+    "noMatchProjects": "일치하는 프로젝트가 없습니다",
+    "batchDeleteHint": "선택한 {{count}}개 프로젝트와 모든 산출물을 삭제합니다. 되돌릴 수 없습니다.",
+    "renameProject": "프로젝트 이름 변경",
+    "projectTitle": "프로젝트 이름",
+    "copyPath": "경로 복사",
+    "revealInFinder": "폴더에서 보기",
+    "ver": {
+      "originAi": "AI",
+      "originManual": "수동",
+      "originRestore": "복원",
+      "search": "버전 검색…",
+      "noMatch": "일치하는 버전이 없습니다",
+      "current": "현재",
+      "selectHint": "미리 볼 버전을 선택하세요",
+      "prompt": "프롬프트",
+      "restoreTitle": "이 버전으로 복원할까요?",
+      "restoreHelp": "이 스냅샷으로 새 버전을 만듭니다. 현재 내용은 기록에 남아 다시 복원할 수 있습니다."
     }
   }
 }

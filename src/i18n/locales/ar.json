@@ -741,7 +741,11 @@
     "collapse": "قريب",
     "expand": "توسيع",
     "retry": "أعد المحاولة",
-    "unavailable": "غير متاح"
+    "unavailable": "غير متاح",
+    "duplicate": "تكرار",
+    "more": "المزيد",
+    "copy": "نسخ",
+    "copied": "تم النسخ"
   },
   "context": {
     "ago": "مضى",
@@ -6241,7 +6245,10 @@
       "generate": "فشل الإنشاء — يرجى المحاولة مرة أخرى",
       "depInstall": "فشل تنزيل التبعية — أعد المحاولة أو استخدم دقة أقل",
       "restyle": "فشل تغيير النظام",
-      "save": "فشل الحفظ"
+      "save": "فشل الحفظ",
+      "duplicate": "فشل التكرار",
+      "batchDeletePartial": "فشل حذف {{n}} مشاريع",
+      "reveal": "فشل الفتح"
     },
     "ok": {
       "adopted": "تم تطبيق اتجاه التصميم",
@@ -6249,7 +6256,10 @@
       "extracted": "تم استخراج نظام التصميم",
       "restored": "تمت الاستعادة إلى هذا الإصدار",
       "imported": "تم استيراد نظام التصميم",
-      "restyled": "تم تغيير النظام"
+      "restyled": "تم تغيير النظام",
+      "duplicated": "تم تكرار المشروع",
+      "batchDeleted": "تم حذف {{n}} مشاريع",
+      "pathCopied": "تم نسخ المسار"
     },
     "exportMd": "Markdown",
     "exportZip": "حزمة المصدر (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "ابحث عن القوالب / السيناريوهات…",
       "empty": "لا توجد قوالب مطابقة",
       "startPrompt": "استخدم قالب «{{name}}» لإنشاء: {{scenario}}"
+    },
+    "searchProjects": "البحث في المشاريع…",
+    "viewGrid": "شبكة",
+    "viewList": "قائمة",
+    "selectMultiple": "تحديد",
+    "selectedCount": "تم تحديد {{count}}",
+    "deleteSelected": "حذف المحدد",
+    "noMatchProjects": "لا توجد مشاريع مطابقة",
+    "batchDeleteHint": "سيؤدي هذا إلى حذف المشاريع المحددة ({{count}}) وجميع مخرجاتها. لا يمكن التراجع عن ذلك.",
+    "renameProject": "إعادة تسمية المشروع",
+    "projectTitle": "اسم المشروع",
+    "copyPath": "نسخ المسار",
+    "revealInFinder": "إظهار في المجلد",
+    "ver": {
+      "originAi": "ذكاء اصطناعي",
+      "originManual": "يدوي",
+      "originRestore": "استعادة",
+      "search": "البحث في الإصدارات…",
+      "noMatch": "لا توجد إصدارات مطابقة",
+      "current": "الحالي",
+      "selectHint": "اختر إصدارًا للمعاينة",
+      "prompt": "موجه",
+      "restoreTitle": "استعادة هذا الإصدار؟",
+      "restoreHelp": "ينشئ إصدارًا جديدًا من هذه اللقطة. يبقى المحتوى الحالي في السجل ويمكن استعادته مرة أخرى."
     }
   }
 }

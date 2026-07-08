@@ -56,6 +56,8 @@ export interface DesignProject {
   createdAt: string;
   updatedAt: string;
   artifactCount: number;
+  /** 待复查（needs_review）产物数（列表状态徽标用，读取时聚合）。 */
+  needsReviewCount?: number;
   metadata?: string;
 }
 
@@ -140,12 +142,19 @@ export interface ElementPatchInput {
 }
 
 /** 产物版本快照元数据。 */
+/** 版本溯源标签：AI 生成/精修、手动编辑/换系统、回滚。 */
+export type VersionOrigin = "ai" | "manual" | "restore";
+
 export interface DesignArtifactVersion {
   id: number;
   artifactId: string;
   versionNumber: number;
   message?: string;
   critiqueScore?: number;
+  /** 溯源标签（后端派生；旧版本行可能为空）。 */
+  origin?: VersionOrigin;
+  /** 该版本对应的生成 prompt 摘要（仅 AI 版本有）。 */
+  promptSummary?: string;
   createdAt: string;
 }
 

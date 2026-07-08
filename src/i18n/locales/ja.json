@@ -741,7 +741,11 @@
     "collapse": "閉じる",
     "expand": "拡大する",
     "retry": "再試行",
-    "unavailable": "利用不可"
+    "unavailable": "利用不可",
+    "duplicate": "複製",
+    "more": "その他",
+    "copy": "コピー",
+    "copied": "コピー済み"
   },
   "context": {
     "ago": "前",
@@ -6241,7 +6245,10 @@
       "generate": "生成に失敗しました。もう一度お試しください",
       "depInstall": "依存関係のダウンロードに失敗しました。再試行するか低忠実度をご利用ください",
       "restyle": "デザインの変更に失敗しました",
-      "save": "保存に失敗しました"
+      "save": "保存に失敗しました",
+      "duplicate": "複製に失敗しました",
+      "batchDeletePartial": "{{n}} 件のプロジェクトの削除に失敗しました",
+      "reveal": "開けませんでした"
     },
     "ok": {
       "adopted": "デザインの方向性を適用しました",
@@ -6249,7 +6256,10 @@
       "extracted": "デザインシステムを抽出しました",
       "restored": "このバージョンに復元しました",
       "imported": "デザインシステムを読み込みました",
-      "restyled": "デザインを変更しました"
+      "restyled": "デザインを変更しました",
+      "duplicated": "プロジェクトを複製しました",
+      "batchDeleted": "{{n}} 件のプロジェクトを削除しました",
+      "pathCopied": "パスをコピーしました"
     },
     "exportMd": "Markdown",
     "exportZip": "ソースパック (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "テンプレート / シーンを検索…",
       "empty": "一致するテンプレートがありません",
       "startPrompt": "「{{name}}」テンプレートで作成：{{scenario}}"
+    },
+    "searchProjects": "プロジェクトを検索…",
+    "viewGrid": "グリッド",
+    "viewList": "リスト",
+    "selectMultiple": "複数選択",
+    "selectedCount": "{{count}} 件選択",
+    "deleteSelected": "選択項目を削除",
+    "noMatchProjects": "一致するプロジェクトがありません",
+    "batchDeleteHint": "選択した {{count}} 件のプロジェクトとそのすべての成果物を削除します。元に戻せません。",
+    "renameProject": "プロジェクト名を変更",
+    "projectTitle": "プロジェクト名",
+    "copyPath": "パスをコピー",
+    "revealInFinder": "フォルダで表示",
+    "ver": {
+      "originAi": "AI",
+      "originManual": "手動",
+      "originRestore": "復元",
+      "search": "バージョンを検索…",
+      "noMatch": "一致するバージョンがありません",
+      "current": "現在",
+      "selectHint": "プレビューするバージョンを選択",
+      "prompt": "プロンプト",
+      "restoreTitle": "このバージョンに復元しますか？",
+      "restoreHelp": "このスナップショットから新しいバージョンを作成します。現在の内容は履歴に残り、再度復元できます。"
     }
   }
 }

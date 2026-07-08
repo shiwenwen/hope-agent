@@ -741,7 +741,11 @@
     "collapse": "dekat",
     "expand": "Kembangkan",
     "retry": "Cuba semula",
-    "unavailable": "Tidak tersedia"
+    "unavailable": "Tidak tersedia",
+    "duplicate": "Salin",
+    "more": "Lagi",
+    "copy": "Salin",
+    "copied": "Disalin"
   },
   "context": {
     "ago": "yang lalu",
@@ -6241,7 +6245,10 @@
       "generate": "Penjanaan gagal — sila cuba lagi",
       "depInstall": "Muat turun kebergantungan gagal — cuba semula atau guna fideliti lebih rendah",
       "restyle": "Gagal mengubah gaya",
-      "save": "Gagal menyimpan"
+      "save": "Gagal menyimpan",
+      "duplicate": "Gagal menyalin",
+      "batchDeletePartial": "Gagal memadam {{n}} projek",
+      "reveal": "Gagal buka"
     },
     "ok": {
       "adopted": "Arah reka bentuk diterapkan",
@@ -6249,7 +6256,10 @@
       "extracted": "Sistem reka bentuk diekstrak",
       "restored": "Dipulihkan ke versi ini",
       "imported": "Sistem reka bentuk diimport",
-      "restyled": "Diubah gaya"
+      "restyled": "Diubah gaya",
+      "duplicated": "Projek disalin",
+      "batchDeleted": "{{n}} projek dipadam",
+      "pathCopied": "Laluan disalin"
     },
     "exportMd": "Markdown",
     "exportZip": "Pakej sumber (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "Cari templat / senario…",
       "empty": "Tiada templat sepadan",
       "startPrompt": "Guna templat \"{{name}}\" untuk membuat: {{scenario}}"
+    },
+    "searchProjects": "Cari projek…",
+    "viewGrid": "Grid",
+    "viewList": "Senarai",
+    "selectMultiple": "Pilih",
+    "selectedCount": "{{count}} dipilih",
+    "deleteSelected": "Padam yang dipilih",
+    "noMatchProjects": "Tiada projek sepadan",
+    "batchDeleteHint": "Ini akan memadam {{count}} projek yang dipilih dan semua artifaknya. Tindakan ini tidak boleh dibatalkan.",
+    "renameProject": "Namakan semula projek",
+    "projectTitle": "Nama projek",
+    "copyPath": "Salin laluan",
+    "revealInFinder": "Tunjuk dalam folder",
+    "ver": {
+      "originAi": "AI",
+      "originManual": "Manual",
+      "originRestore": "Pulih",
+      "search": "Cari versi…",
+      "noMatch": "Tiada versi sepadan",
+      "current": "Semasa",
+      "selectHint": "Pilih versi untuk pratonton",
+      "prompt": "Gesaan",
+      "restoreTitle": "Pulihkan versi ini?",
+      "restoreHelp": "Mencipta versi baharu daripada syot kilat ini. Kandungan semasa anda kekal dalam sejarah dan boleh dipulihkan semula."
     }
   }
 }

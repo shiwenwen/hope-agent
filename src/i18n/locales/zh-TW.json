@@ -741,7 +741,11 @@
     "collapse": "關閉",
     "expand": "展開",
     "retry": "重試",
-    "unavailable": "不可用"
+    "unavailable": "不可用",
+    "duplicate": "建立副本",
+    "more": "更多",
+    "copy": "複製",
+    "copied": "已複製"
   },
   "context": {
     "ago": "前",
@@ -6241,7 +6245,10 @@
       "generate": "生成失敗，請重試",
       "depInstall": "相依項下載失敗，請重試或改用較低保真",
       "restyle": "更換設計系統失敗",
-      "save": "儲存失敗"
+      "save": "儲存失敗",
+      "duplicate": "複製失敗",
+      "batchDeletePartial": "{{n}} 個專案刪除失敗",
+      "reveal": "開啟失敗"
     },
     "ok": {
       "adopted": "已套用設計方向",
@@ -6249,7 +6256,10 @@
       "extracted": "已擷取設計系統",
       "restored": "已還原到該版本",
       "imported": "已匯入設計系統",
-      "restyled": "已換設計系統"
+      "restyled": "已換設計系統",
+      "duplicated": "已複製專案",
+      "batchDeleted": "已刪除 {{n}} 個專案",
+      "pathCopied": "已複製路徑"
     },
     "exportMd": "Markdown",
     "exportZip": "原始碼包 (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "搜尋模板 / 場景…",
       "empty": "沒有符合的模板",
       "startPrompt": "用「{{name}}」模板做一個：{{scenario}}"
+    },
+    "searchProjects": "搜尋專案…",
+    "viewGrid": "網格",
+    "viewList": "清單",
+    "selectMultiple": "多選",
+    "selectedCount": "已選 {{count}} 項",
+    "deleteSelected": "刪除所選",
+    "noMatchProjects": "沒有符合的專案",
+    "batchDeleteHint": "將刪除選取的 {{count}} 個專案及其所有產物，無法復原。",
+    "renameProject": "重新命名專案",
+    "projectTitle": "專案名稱",
+    "copyPath": "複製路徑",
+    "revealInFinder": "在資料夾中顯示",
+    "ver": {
+      "originAi": "AI 生成",
+      "originManual": "手動編輯",
+      "originRestore": "回滾",
+      "search": "搜尋版本…",
+      "noMatch": "無符合版本",
+      "current": "目前",
+      "selectHint": "選擇一個版本以預覽",
+      "prompt": "提示詞",
+      "restoreTitle": "還原到此版本？",
+      "restoreHelp": "會以該版本內容產生一個新版本，目前內容仍保留在歷史中，可再切回。"
     }
   }
 }

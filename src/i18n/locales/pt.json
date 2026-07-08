@@ -741,7 +741,11 @@
     "collapse": "fechar",
     "expand": "Expandir",
     "retry": "Tentar novamente",
-    "unavailable": "Indisponível"
+    "unavailable": "Indisponível",
+    "duplicate": "Duplicar",
+    "more": "Mais",
+    "copy": "Copiar",
+    "copied": "Copiado"
   },
   "context": {
     "ago": "atrás",
@@ -6241,7 +6245,10 @@
       "generate": "A geração falhou — tente novamente",
       "depInstall": "Falha ao baixar a dependência — tente novamente ou use menor fidelidade",
       "restyle": "Falha ao reestilizar",
-      "save": "Falha ao salvar"
+      "save": "Falha ao salvar",
+      "duplicate": "Falha ao duplicar",
+      "batchDeletePartial": "Falha ao excluir {{n}} projetos",
+      "reveal": "Falha ao abrir"
     },
     "ok": {
       "adopted": "Direção de design aplicada",
@@ -6249,7 +6256,10 @@
       "extracted": "Sistema de design extraído",
       "restored": "Restaurado para esta versão",
       "imported": "Sistema de design importado",
-      "restyled": "Reestilizado"
+      "restyled": "Reestilizado",
+      "duplicated": "Projeto duplicado",
+      "batchDeleted": "{{n}} projetos excluídos",
+      "pathCopied": "Caminho copiado"
     },
     "exportMd": "Markdown",
     "exportZip": "Pacote-fonte (ZIP)",
@@ -6391,6 +6401,30 @@
       "search": "Pesquisar modelos / cenários…",
       "empty": "Nenhum modelo correspondente",
       "startPrompt": "Use o modelo \"{{name}}\" para fazer: {{scenario}}"
+    },
+    "searchProjects": "Pesquisar projetos…",
+    "viewGrid": "Grade",
+    "viewList": "Lista",
+    "selectMultiple": "Selecionar",
+    "selectedCount": "{{count}} selecionados",
+    "deleteSelected": "Excluir selecionados",
+    "noMatchProjects": "Nenhum projeto correspondente",
+    "batchDeleteHint": "Isso excluirá os {{count}} projetos selecionados e todos os seus artefatos. Isso não pode ser desfeito.",
+    "renameProject": "Renomear projeto",
+    "projectTitle": "Nome do projeto",
+    "copyPath": "Copiar caminho",
+    "revealInFinder": "Mostrar na pasta",
+    "ver": {
+      "originAi": "IA",
+      "originManual": "Manual",
+      "originRestore": "Restaurar",
+      "search": "Pesquisar versões…",
+      "noMatch": "Nenhuma versão correspondente",
+      "current": "Atual",
+      "selectHint": "Selecione uma versão para pré-visualizar",
+      "prompt": "Prompt",
+      "restoreTitle": "Restaurar esta versão?",
+      "restoreHelp": "Cria uma nova versão a partir deste instantâneo. Seu conteúdo atual permanece no histórico e pode ser restaurado novamente."
     }
   }
 }

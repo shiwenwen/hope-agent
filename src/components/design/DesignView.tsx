@@ -6,7 +6,7 @@
  * 稳定 iframe + CSS 缩放，从架构上规避旧版画布卡顿。见 docs/architecture/design-space.md。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import { useTranslation } from "react-i18next"
 import {
@@ -38,8 +38,16 @@ import {
   Music,
   Blocks,
   History,
+  Search,
+  LayoutGrid,
+  List as ListIcon,
+  MoreHorizontal,
+  Pencil,
+  Copy,
+  Check,
+  CheckSquare,
+  FolderOpen,
   Wand2,
-  RotateCcw,
   FileImage,
   FileType2,
   FileArchive,
@@ -59,6 +67,7 @@ import DesignChatPanel, { type DesignChatPanelHandle } from "@/components/design
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import DesignKitModal from "@/components/design/DesignKitModal"
+import DesignVersionHistoryModal from "@/components/design/DesignVersionHistoryModal"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
@@ -104,7 +113,6 @@ import {
 import type {
   ArtifactKind,
   DesignArtifact,
-  DesignArtifactVersion,
   DesignArtifactView,
   DesignProject,
   DesignSystemMeta,
@@ -386,6 +394,37 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tx, newProjectTitle, t, loadProjects])
 
+  // 改名（复用 update_design_project_cmd 的 title 更新；空 / 未变 no-op）。
+  const renameProject = useCallback(
+    async (id: string, title: string) => {
+      const next = title.trim()
+      if (!next) return
+      try {
+        await tx.call<DesignProject>("update_design_project_cmd", { input: { id, title: next } })
+        await loadProjects()
+      } catch (e) {
+        logger.error("design", "DesignView::renameProject", "rename failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadProjects],
+  )
+
+  // 复制项目（后端深拷贝产物 + 版本快照 + 溯源）。
+  const duplicateProject = useCallback(
+    async (id: string) => {
+      try {
+        await tx.call<DesignProject>("duplicate_design_project_cmd", { id })
+        await loadProjects()
+        toast.success(t("design.ok.duplicated", "已复制项目"))
+      } catch (e) {
+        logger.error("design", "DesignView::duplicateProject", "duplicate failed", e)
+        toast.error(t("design.err.duplicate", "复制失败"))
+      }
+    },
+    [tx, t, loadProjects],
+  )
+
   // ── Artifacts ────────────────────────────────────────────────
 
   const openArtifact = useCallback(
@@ -442,6 +481,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     setArtifacts([])
     void loadProjects()
   }, [loadProjects])
+
+  // 批量删项目（LaunchHome 内已二次确认；此处 settle-all + 汇总提示 + 重载）。
+  const batchDeleteProjects = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return
+      const results = await Promise.allSettled(
+        ids.map((id) => tx.call("delete_design_project_cmd", { id })),
+      )
+      const failed = results.filter((r) => r.status === "rejected").length
+      if (activeProject && ids.includes(activeProject.id)) backToHome()
+      await loadProjects()
+      if (failed > 0) {
+        toast.error(t("design.err.batchDeletePartial", "{{n}} 个项目删除失败", { n: failed }))
+      } else {
+        toast.success(t("design.ok.batchDeleted", "已删除 {{n}} 个项目", { n: ids.length }))
+      }
+    },
+    [tx, t, loadProjects, activeProject, backToHome],
+  )
 
   const createArtifact = useCallback(
     async (kind: ArtifactKind, prompt?: string) => {
@@ -1279,6 +1337,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
   }, [tx, activeProject, exportingProject, t])
 
+  // 产物取出（B3-2，仅桌面）：复制产物目录路径 / 在 Finder 打开。远端无本机路径故不显示。
+  const copyArtifactPath = useCallback(async () => {
+    const path = activeArtifactRef.current?.artifactPath
+    if (!path) return
+    try {
+      await navigator.clipboard.writeText(path)
+      toast.success(t("design.ok.pathCopied", "已复制路径"))
+    } catch (e) {
+      logger.error("design", "DesignView::copyArtifactPath", "copy path failed", e)
+    }
+  }, [t])
+  const revealArtifact = useCallback(async () => {
+    const path = activeArtifactRef.current?.artifactPath
+    if (!path) return
+    try {
+      await tx.openFilePath(path)
+    } catch (e) {
+      logger.error("design", "DesignView::revealArtifact", "reveal failed", e)
+      toast.error(t("design.err.reveal", "打开失败"))
+    }
+  }, [tx, t])
+
   // ── DESIGN.md 规范：导入 / 导出设计系统（互通格式）──────────────
   const [importMdOpen, setImportMdOpen] = useState(false)
   const [importMdName, setImportMdName] = useState("")
@@ -1324,44 +1404,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, t],
   )
 
-  // ── Version history (D1) ─────────────────────────────────────
+  // ── Version history (D1 / B3-3 双栏 live 预览) ────────────────
+  // 列表 / 快照预览 / 溯源 / 恢复确认全在 DesignVersionHistoryModal 内；此处只管开关 + 恢复后刷新。
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [versions, setVersions] = useState<DesignArtifactVersion[]>([])
-  const [restoring, setRestoring] = useState<number | null>(null)
-  const openHistory = useCallback(async () => {
+  const openHistory = useCallback(() => {
     if (!activeArtifact) return
     setHistoryOpen(true)
-    try {
-      const list = await tx.call<DesignArtifactVersion[]>("list_design_artifact_versions_cmd", {
-        id: activeArtifact.id,
-      })
-      setVersions(list ?? [])
-    } catch (e) {
-      logger.error("design", "DesignView::openHistory", "list versions failed", e)
-      toast.error(t("design.err.load", "加载失败"))
-    }
-  }, [tx, activeArtifact, t])
-  const restoreVersion = useCallback(
-    async (versionId: number) => {
-      if (!activeArtifact) return
-      setRestoring(versionId)
-      try {
-        await tx.call("restore_design_version_cmd", { artifactId: activeArtifact.id, versionId })
-        setPreviewKey((k) => k + 1)
-        await refreshView() // sync bodyHash/currentVersion so the next visual edit isn't stale
-        setHistoryOpen(false)
-        if (activeProject) void loadArtifacts(activeProject.id)
-        toast.success(t("design.ok.restored", "已恢复到该版本"))
-      } catch (e) {
-        logger.error("design", "DesignView::restoreVersion", "restore failed", e)
-        toast.error(t("design.err.restore", "恢复失败"))
-      } finally {
-        setRestoring(null)
-      }
-    },
+  }, [activeArtifact])
+  const onVersionRestored = useCallback(() => {
+    setPreviewKey((k) => k + 1)
+    void refreshView() // sync bodyHash/currentVersion so the next visual edit isn't stale
+    if (activeProject) void loadArtifacts(activeProject.id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tx, activeArtifact, activeProject, refreshView, t],
-  )
+  }, [refreshView, activeProject]) // loadArtifacts/setPreviewKey stable
 
   // ── Reverse-extraction (D2) ──────────────────────────────────
   const [extractOpen, setExtractOpen] = useState(false)
@@ -1940,6 +1995,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           kindLabel={kindLabel}
           onOpen={openProject}
           onDelete={(p) => setDeleteTarget({ type: "project", id: p.id, title: p.title })}
+          onRename={renameProject}
+          onDuplicate={duplicateProject}
+          onBatchDelete={batchDeleteProjects}
           onNewBlank={() => setNewProjectOpen(true)}
         />
       ) : (
@@ -2157,12 +2215,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       </IconTip>
                     )}
                     <IconTip label={t("design.history", "版本历史")} side="bottom">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => void openHistory()}
-                      >
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={openHistory}>
                         <History className="h-3.5 w-3.5" />
                       </Button>
                     </IconTip>
@@ -2220,6 +2273,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           <Braces className="mr-2 h-4 w-4" />
                           {t("design.exportHandoff", "代码交付包 (ZIP)")}
                         </DropdownMenuItem>
+                        {tx.supportsLocalFileOps() && activeArtifact.artifactPath && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => void copyArtifactPath()}>
+                              <Link2 className="mr-2 h-4 w-4" />
+                              {t("design.copyPath", "复制路径")}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void revealArtifact()}>
+                              <FolderOpen className="mr-2 h-4 w-4" />
+                              {t("design.revealInFinder", "在文件夹中显示")}
+                            </DropdownMenuItem>
+                          </>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -2612,56 +2678,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         </DialogContent>
       </Dialog>
 
-      {/* Version history dialog */}
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <History className="h-4 w-4" />
-              {t("design.history", "版本历史")}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="max-h-80 space-y-1.5 overflow-y-auto">
-            {versions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                {t("design.noVersions", "暂无版本")}
-              </div>
-            ) : (
-              versions.map((v) => (
-                <div
-                  key={v.versionNumber}
-                  className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-                >
-                  <span className="font-mono text-xs text-muted-foreground">v{v.versionNumber}</span>
-                  <span className="min-w-0 flex-1 truncate">
-                    {v.message ?? t("design.version", "版本")}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(v.createdAt).toLocaleString()}
-                  </span>
-                  {v.versionNumber !== activeArtifact?.currentVersion && (
-                    <IconTip label={t("design.restore", "恢复")} side="left">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 shrink-0"
-                        disabled={restoring === v.versionNumber}
-                        onClick={() => void restoreVersion(v.versionNumber)}
-                      >
-                        {restoring === v.versionNumber ? (
-                          <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </IconTip>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Version history — 双栏 live 预览 + 溯源 + 恢复确认（B3-3） */}
+      <DesignVersionHistoryModal
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        artifactId={activeArtifact?.id ?? null}
+        currentVersion={activeArtifact?.currentVersion ?? 0}
+        onRestored={onVersionRestored}
+      />
 
       {/* Reverse-extraction dialog (D2) */}
       <Dialog open={extractOpen} onOpenChange={setExtractOpen}>
@@ -3001,6 +3025,9 @@ function LaunchHome({
   kindLabel,
   onOpen,
   onDelete,
+  onRename,
+  onDuplicate,
+  onBatchDelete,
   onNewBlank,
 }: {
   projects: DesignProject[]
@@ -3019,11 +3046,66 @@ function LaunchHome({
   kindLabel: (k: ArtifactKind) => string
   onOpen: (p: DesignProject) => void
   onDelete: (p: DesignProject) => void
+  onRename: (id: string, title: string) => void
+  onDuplicate: (id: string) => void
+  onBatchDelete: (ids: string[]) => void
   onNewBlank: () => void
 }) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = useState(false)
   const systemName = systems.find((s) => s.id === systemId)?.name
+
+  // ── 项目库管理（B3-1）：搜索 / 网格·列表切换 / 多选批量删 / 改名 ──
+  const [query, setQuery] = useState("")
+  const [view, setView] = useState<"grid" | "list">(() => {
+    if (typeof window === "undefined") return "grid"
+    return window.localStorage.getItem("design:projects:view") === "list" ? "list" : "grid"
+  })
+  const setViewPersist = useCallback((v: "grid" | "list") => {
+    setView(v)
+    try {
+      window.localStorage.setItem("design:projects:view", v)
+    } catch {
+      /* localStorage 不可用 → 仅本次会话生效 */
+    }
+  }, [])
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [renameTarget, setRenameTarget] = useState<DesignProject | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const [batchConfirm, setBatchConfirm] = useState(false)
+
+  const filteredProjects = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter((p) => p.title.toLowerCase().includes(q))
+  }, [projects, query])
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false)
+    setSelected(new Set())
+  }, [])
+  const doBatchDelete = useCallback(() => {
+    onBatchDelete([...selected])
+    setBatchConfirm(false)
+    exitSelectMode()
+  }, [selected, onBatchDelete, exitSelectMode])
+  const openRename = useCallback((p: DesignProject) => {
+    setRenameTarget(p)
+    setRenameValue(p.title)
+  }, [])
+  const commitRename = useCallback(() => {
+    if (renameTarget) onRename(renameTarget.id, renameValue)
+    setRenameTarget(null)
+  }, [renameTarget, renameValue, onRename])
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -3140,22 +3222,100 @@ function LaunchHome({
           </div>
         )}
 
-        {/* Recent projects */}
+        {/* Projects library（B3-1：搜索 / 网格·列表 / 多选批量删 / 改名·复制） */}
         <div className="mt-12">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-muted-foreground">
               {t("design.recentProjects", "最近的项目")}
             </h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 text-xs text-muted-foreground"
-              onClick={onNewBlank}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t("design.newBlankProject", "空白项目")}
-            </Button>
+            <div className="ml-auto flex items-center gap-1.5">
+              {projects.length > 0 && (
+                <>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={t("design.searchProjects", "搜索项目…")}
+                      className="h-8 w-40 pl-7 text-xs"
+                    />
+                  </div>
+                  <div className="flex rounded-lg border border-border/60 p-0.5">
+                    <IconTip label={t("design.viewGrid", "网格")}>
+                      <button
+                        type="button"
+                        onClick={() => setViewPersist("grid")}
+                        className={cn(
+                          "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+                          view === "grid"
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <LayoutGrid className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                    <IconTip label={t("design.viewList", "列表")}>
+                      <button
+                        type="button"
+                        onClick={() => setViewPersist("list")}
+                        className={cn(
+                          "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+                          view === "list"
+                            ? "bg-secondary text-foreground"
+                            : "text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <ListIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </IconTip>
+                  </div>
+                  <IconTip label={t("design.selectMultiple", "多选")}>
+                    <Button
+                      variant={selectMode ? "default" : "ghost"}
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                    >
+                      <CheckSquare className="h-3.5 w-3.5" />
+                    </Button>
+                  </IconTip>
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-xs text-muted-foreground"
+                onClick={onNewBlank}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("design.newBlankProject", "空白项目")}
+              </Button>
+            </div>
           </div>
+
+          {selectMode && (
+            <div className="mb-3 flex items-center gap-2 rounded-lg border border-border/60 bg-secondary/40 px-3 py-2 text-sm">
+              <span className="text-muted-foreground">
+                {t("design.selectedCount", "已选 {{count}} 项", { count: selected.size })}
+              </span>
+              <div className="ml-auto flex items-center gap-1.5">
+                <Button variant="ghost" size="sm" className="h-7" onClick={exitSelectMode}>
+                  {t("common.cancel", "取消")}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 gap-1.5"
+                  disabled={selected.size === 0}
+                  onClick={() => setBatchConfirm(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t("design.deleteSelected", "删除所选")}
+                </Button>
+              </div>
+            </div>
+          )}
 
           {loading ? (
             <div className="flex justify-center py-12">
@@ -3165,52 +3325,192 @@ function LaunchHome({
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
               {t("design.emptyProjectsHint", "还没有项目——在上面描述一个设计，直接开始。")}
             </div>
-          ) : (
+          ) : filteredProjects.length === 0 ? (
+            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+              {t("design.noMatchProjects", "没有匹配的项目")}
+            </div>
+          ) : view === "grid" ? (
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
-              {projects.map((p) => (
-                <div
-                  key={p.id}
-                  className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onOpen(p)}
-                    disabled={generating}
-                    aria-label={p.title}
+              {filteredProjects.map((p) => {
+                const checked = selected.has(p.id)
+                return (
+                  <div
+                    key={p.id}
                     className={cn(
-                      "flex flex-1 flex-col text-left",
-                      generating && "pointer-events-none opacity-60",
+                      "group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md",
+                      checked && "ring-2 ring-primary",
                     )}
                   >
-                    <div
-                      className="aspect-[16/10] overflow-hidden"
-                      style={p.color ? { background: p.color } : undefined}
+                    <button
+                      type="button"
+                      onClick={() => (selectMode ? toggleSelected(p.id) : onOpen(p))}
+                      disabled={generating}
+                      aria-label={p.title}
+                      className={cn(
+                        "flex flex-1 flex-col text-left",
+                        generating && "pointer-events-none opacity-60",
+                      )}
                     >
-                      <ProjectThumb projectId={p.id} />
-                    </div>
-                    <div className="p-3 pr-9">
-                      <div className="truncate text-sm font-medium">{p.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t("design.artifactCount", "{{count}} 个产物", {
-                          count: p.artifactCount ?? 0,
-                        })}
+                      <div
+                        className="aspect-[16/10] overflow-hidden"
+                        style={p.color ? { background: p.color } : undefined}
+                      >
+                        <ProjectThumb projectId={p.id} />
                       </div>
-                    </div>
-                  </button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={t("common.delete", "删除")}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onDelete(p)
-                    }}
-                    className="absolute bottom-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                      <div className="p-3 pr-9">
+                        <div className="truncate text-sm font-medium">{p.title}</div>
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          {t("design.artifactCount", "{{count}} 个产物", {
+                            count: p.artifactCount ?? 0,
+                          })}
+                          {(p.needsReviewCount ?? 0) > 0 && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-600 ring-1 ring-inset ring-amber-500/20 dark:text-amber-400">
+                              <ShieldAlert className="h-2.5 w-2.5" />
+                              {p.needsReviewCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                    {selectMode ? (
+                      <div
+                        className={cn(
+                          "absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded-md border-2 transition-colors",
+                          checked
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-background/80",
+                        )}
+                      >
+                        {checked && <Check className="h-3 w-3" />}
+                      </div>
+                    ) : (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("common.more", "更多")}
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute bottom-2 right-2 h-7 w-7 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openRename(p)}>
+                            <Pencil className="mr-2 h-3.5 w-3.5" />
+                            {t("common.rename", "重命名")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onDuplicate(p.id)}>
+                            <Copy className="mr-2 h-3.5 w-3.5" />
+                            {t("common.duplicate", "创建副本")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => onDelete(p)}
+                          >
+                            <Trash2 className="mr-2 h-3.5 w-3.5" />
+                            {t("common.delete", "删除")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {filteredProjects.map((p) => {
+                const checked = selected.has(p.id)
+                return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "group flex items-center gap-3 rounded-lg border bg-card px-2.5 py-2 transition-colors hover:bg-secondary/40",
+                      checked && "ring-2 ring-primary",
+                    )}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                    {selectMode && (
+                      <button
+                        type="button"
+                        onClick={() => toggleSelected(p.id)}
+                        className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-2 transition-colors",
+                          checked
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border",
+                        )}
+                      >
+                        {checked && <Check className="h-3 w-3" />}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => (selectMode ? toggleSelected(p.id) : onOpen(p))}
+                      disabled={generating}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div
+                        className="h-9 w-14 shrink-0 overflow-hidden rounded-md border"
+                        style={p.color ? { background: p.color } : undefined}
+                      >
+                        <ProjectThumb projectId={p.id} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{p.title}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {t("design.artifactCount", "{{count}} 个产物", {
+                            count: p.artifactCount ?? 0,
+                          })}
+                        </div>
+                      </div>
+                      {(p.needsReviewCount ?? 0) > 0 && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 ring-1 ring-inset ring-amber-500/20 dark:text-amber-400">
+                          <ShieldAlert className="h-2.5 w-2.5" />
+                          {p.needsReviewCount}
+                        </span>
+                      )}
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {new Date(p.updatedAt).toLocaleDateString()}
+                      </span>
+                    </button>
+                    {!selectMode && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={t("common.more", "更多")}
+                            className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openRename(p)}>
+                            <Pencil className="mr-2 h-3.5 w-3.5" />
+                            {t("common.rename", "重命名")}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => onDuplicate(p.id)}>
+                            <Copy className="mr-2 h-3.5 w-3.5" />
+                            {t("common.duplicate", "创建副本")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => onDelete(p)}
+                          >
+                            <Trash2 className="mr-2 h-3.5 w-3.5" />
+                            {t("common.delete", "删除")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -3223,6 +3523,61 @@ function LaunchHome({
         open={pickerOpen}
         onOpenChange={setPickerOpen}
       />
+
+      {/* 改名对话框 */}
+      <Dialog open={renameTarget != null} onOpenChange={(o) => !o && setRenameTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("design.renameProject", "重命名项目")}</DialogTitle>
+          </DialogHeader>
+          <Input
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                commitRename()
+              }
+            }}
+            autoFocus
+            placeholder={t("design.projectTitle", "项目名称")}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameTarget(null)}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button onClick={commitRename} disabled={!renameValue.trim()}>
+              {t("common.save", "保存")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量删确认 */}
+      <AlertDialog open={batchConfirm} onOpenChange={(o) => !o && setBatchConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("design.deleteTitle", "确认删除？")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("design.batchDeleteHint", "将删除选中的 {{count}} 个项目及其全部产物，不可撤销。", {
+                count: selected.size,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel", "取消")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault()
+                doBatchDelete()
+              }}
+            >
+              {t("common.delete", "删除")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
