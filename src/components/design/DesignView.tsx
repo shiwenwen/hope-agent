@@ -1965,15 +1965,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       </Button>
                     </IconTip>
                     <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" disabled={!!exporting}>
-                          {exporting ? (
-                            <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Download className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </DropdownMenuTrigger>
+                      <IconTip label={t("design.exportArtifact", "导出")} side="bottom">
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6" disabled={!!exporting}>
+                            {exporting ? (
+                              <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Download className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </IconTip>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onSelect={() => void handleExport("html")}>
                           <Code2 className="mr-2 h-4 w-4" />

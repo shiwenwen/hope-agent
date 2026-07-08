@@ -6056,6 +6056,7 @@
     "artifactCount": "{{count}} 件の成果物",
     "zoomFit": "フィット",
     "reload": "再読込",
+    "exportArtifact": "エクスポート",
     "systemNone": "デザインシステムなし",
     "startFromTemplate": "テンプレートから始める",
     "launchHeading": "何をデザインしますか？",

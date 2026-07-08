@@ -6056,6 +6056,7 @@
     "artifactCount": "{{count}} 個產物",
     "zoomFit": "符合",
     "reload": "重新整理",
+    "exportArtifact": "匯出",
     "systemNone": "無設計系統",
     "startFromTemplate": "從範本開始",
     "launchHeading": "你想設計什麼？",

@@ -6056,6 +6056,7 @@
     "artifactCount": "산출물 {{count}}개",
     "zoomFit": "맞춤",
     "reload": "새로고침",
+    "exportArtifact": "내보내기",
     "systemNone": "디자인 시스템 없음",
     "startFromTemplate": "템플릿으로 시작",
     "launchHeading": "무엇을 디자인할까요?",

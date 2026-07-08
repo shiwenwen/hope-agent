@@ -6056,6 +6056,7 @@
     "artifactCount": "{{count}} artefatos",
     "zoomFit": "Ajustar",
     "reload": "Recarregar",
+    "exportArtifact": "Exportar",
     "systemNone": "Sem sistema de design",
     "startFromTemplate": "Começar com um modelo",
     "launchHeading": "O que você quer desenhar?",
