@@ -2789,7 +2789,7 @@ function LaunchHome({
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-6 pb-14 pt-16">
+      <div className="mx-auto max-w-4xl px-6 pb-14 pt-16">
         {/* Hero */}
         <div className="mb-8 text-center">
           <div className="mb-5 inline-flex items-center gap-2 text-muted-foreground">
@@ -2928,7 +2928,7 @@ function LaunchHome({
               {t("design.emptyProjectsHint", "还没有项目——在上面描述一个设计，直接开始。")}
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
               {projects.map((p) => (
                 <div
                   key={p.id}
@@ -2945,7 +2945,7 @@ function LaunchHome({
                     )}
                   >
                     <div
-                      className="aspect-[4/3] overflow-hidden"
+                      className="aspect-[16/10] overflow-hidden"
                       style={p.color ? { background: p.color } : undefined}
                     >
                       <ProjectThumb projectId={p.id} />
