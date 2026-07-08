@@ -101,7 +101,7 @@ export function DesignSystemPicker({
             className="h-9 pl-8"
           />
         </div>
-        <div className="max-h-[52vh] overflow-y-auto p-1.5">
+        <div className="h-[52vh] overflow-y-auto px-1.5 pb-1.5">
           {allowNone && (
             <button
               type="button"
