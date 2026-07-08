@@ -13,15 +13,21 @@
 //!    window themselves) without paying steady CPU cost when the panel is
 //!    closed.
 //!
-//! Frames are JPEG quality≈70 to keep the per-frame payload to ~50–200KB.
-//! Capture goes through the active browser backend trait, which is currently
-//! the direct CDP backend.
+//! Frames are JPEG quality≈70 to keep the per-frame payload to ~50-200KB.
+//! Session-scoped captures prefer the extension backend so the panel mirrors
+//! the user's claimed Chrome tab; if they fall back to the cached CDP backend,
+//! the frame stays tagged with the requesting session so other chat panels can
+//! ignore it. Only legacy/global captures have no session id.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::backend::{ImageFormat, ScreenshotParams};
+use std::sync::Arc;
+
+use super::backend::{BrowserBackend, ImageFormat, ScreenshotParams};
 use super::backend_select::peek_active;
+use super::extension::{BrowserBackendContext, BrowserExtensionBroker, ExtensionBackend};
+use super::BrowserBackendPreference;
 
 /// Event name emitted to the EventBus when a fresh browser frame is captured.
 /// Subscribed to by `src/components/chat/BrowserPanel.tsx` via the Transport
@@ -32,6 +38,9 @@ pub const EVENT_BROWSER_FRAME: &str = "browser:frame";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserFramePayload {
+    /// Owning Hope session when the frame was captured for a session-scoped
+    /// extension backend. `None` for legacy/global CDP captures.
+    pub session_id: Option<String>,
     /// Active tab `target_id`.
     pub target_id: Option<String>,
     /// Active tab URL at capture time.
@@ -42,33 +51,32 @@ pub struct BrowserFramePayload {
     pub jpeg_base64: String,
     /// Unix-millis capture timestamp.
     pub captured_at: i64,
-    /// Backend identifier (always `"cdp"` since the MCP backend was removed;
-    /// kept on the wire for forward compatibility / front-end badge code
-    /// that switches on this string).
+    /// Backend identifier (`"extension"` or `"cdp"`), kept on the wire for
+    /// front-end badge code and mixed-backend diagnostics.
+    pub backend: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BrowserFrameInfo {
+    pub session_id: Option<String>,
+    pub target_id: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
     pub backend: String,
 }
 
 /// Capture a JPEG frame from the active backend. Returns `Ok(None)` when no
 /// backend is active (we don't want to force-launch Chrome just to take a
 /// frame — the panel will show its empty state instead).
-pub async fn capture_frame() -> Result<Option<BrowserFramePayload>> {
-    // Uses peek_active (the cached backend), not status_backend: a live UI frame
-    // needs the session's active tab, but the per-session ExtensionBackend is
-    // never cached. So in extension-only mode this returns None (no panel frame)
-    // — a known limitation; `status` still reports tabs via status_backend.
-    let Some(backend) = peek_active().await else {
+pub async fn capture_frame(session_id: Option<&str>) -> Result<Option<BrowserFramePayload>> {
+    let Some((backend, frame_session_id)) = capture_backend(session_id).await else {
         return Ok(None);
     };
     if !backend.is_connected().await {
         return Ok(None);
     }
 
-    // Fast-path metadata fetch — avoids the per-tab `evaluate("document.title")`
-    // round-trip that `status()` does for every tab.
-    let (target_id, url, title) = match backend.active_tab_info().await.ok().flatten() {
-        Some(t) => (Some(t.target_id), Some(t.url), Some(t.title)),
-        None => (None, None, None),
-    };
+    let info = frame_info_from_backend(&*backend, frame_session_id).await;
 
     let bytes = backend
         .take_screenshot(ScreenshotParams {
@@ -81,13 +89,88 @@ pub async fn capture_frame() -> Result<Option<BrowserFramePayload>> {
     let jpeg_base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes);
 
     Ok(Some(BrowserFramePayload {
+        session_id: info.session_id,
+        target_id: info.target_id,
+        url: info.url,
+        title: info.title,
+        jpeg_base64,
+        captured_at: chrono::Utc::now().timestamp_millis(),
+        backend: info.backend,
+    }))
+}
+
+/// Return the current browser tab identity for UI side-output without taking a
+/// screenshot. Like [`capture_frame`], this never force-launches a CDP browser.
+pub async fn current_frame_info(session_id: Option<&str>) -> Result<Option<BrowserFrameInfo>> {
+    let Some((backend, frame_session_id)) = capture_backend(session_id).await else {
+        return Ok(None);
+    };
+    if !backend.is_connected().await {
+        return Ok(None);
+    }
+    Ok(Some(
+        frame_info_from_backend(&*backend, frame_session_id).await,
+    ))
+}
+
+async fn frame_info_from_backend(
+    backend: &dyn BrowserBackend,
+    session_id: Option<String>,
+) -> BrowserFrameInfo {
+    // Fast-path metadata fetch — avoids the per-tab `evaluate("document.title")`
+    // round-trip that `status()` does for every tab.
+    let (target_id, url, title) = match backend.active_tab_info().await.ok().flatten() {
+        Some(t) => (Some(t.target_id), Some(t.url), Some(t.title)),
+        None => (None, None, None),
+    };
+    BrowserFrameInfo {
+        session_id,
         target_id,
         url,
         title,
-        jpeg_base64,
-        captured_at: chrono::Utc::now().timestamp_millis(),
         backend: backend.backend_name().to_string(),
-    }))
+    }
+}
+
+async fn capture_backend(
+    session_id: Option<&str>,
+) -> Option<(Arc<dyn BrowserBackend>, Option<String>)> {
+    let sid = session_id.filter(|s| !s.is_empty());
+    if let Some(session_id) = sid {
+        if let Some(backend) = extension_capture_backend(session_id) {
+            return Some((backend, Some(session_id.to_string())));
+        }
+    }
+    let frame_session_id = sid.map(str::to_string);
+    peek_active()
+        .await
+        .map(|backend| (backend, frame_session_id))
+}
+
+fn extension_capture_backend(session_id: &str) -> Option<Arc<dyn BrowserBackend>> {
+    let cfg = crate::config::cached_config();
+    let browser_cfg = cfg.browser.as_ref();
+    let preference = browser_cfg
+        .and_then(|b| b.backend_preference)
+        .unwrap_or_default();
+    if preference == BrowserBackendPreference::CdpOnly {
+        return None;
+    }
+    let extension_enabled = browser_cfg
+        .and_then(|b| b.extension.as_ref())
+        .is_none_or(|ext| ext.enabled());
+    if !extension_enabled || !super::extension::current_status().backend_available {
+        return None;
+    }
+    let broker = BrowserExtensionBroker::global()?;
+    Some(Arc::new(ExtensionBackend::new(
+        broker,
+        BrowserBackendContext {
+            session_id: Some(session_id.to_string()),
+            source: Some("browser.frame".to_string()),
+            ..BrowserBackendContext::default()
+        },
+    )))
 }
 
 /// Fire-and-forget: capture a frame in a background task and emit it on the
@@ -97,9 +180,9 @@ pub async fn capture_frame() -> Result<Option<BrowserFramePayload>> {
 /// Errors (no backend / capture failed) are logged at warn level but never
 /// surface to the caller: the panel will pick up the next opportunity via
 /// the 1s fallback poll.
-pub fn emit_frame_async() {
+pub fn emit_frame_async(session_id: Option<String>) {
     crate::browser_state::browser_runtime().spawn(async move {
-        match capture_frame().await {
+        match capture_frame(session_id.as_deref()).await {
             Ok(Some(payload)) => {
                 if let Some(bus) = crate::globals::get_event_bus() {
                     match serde_json::to_value(&payload) {

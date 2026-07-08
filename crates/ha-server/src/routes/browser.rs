@@ -102,9 +102,21 @@ pub async fn disconnect() -> Result<Json<browser_ui::BrowserStatus>, AppError> {
 /// Returns the most recent JPEG frame of the active tab (base64-encoded
 /// inside the JSON envelope) for the chat-side BrowserPanel mirror. `null`
 /// when no backend is active — the panel uses that as its "empty" signal.
+#[derive(Debug, Deserialize)]
+pub struct CaptureFrameBody {
+    #[serde(default, rename = "sessionId")]
+    pub session_id: Option<String>,
+}
+
 pub async fn capture_frame(
+    body: Option<Json<CaptureFrameBody>>,
 ) -> Result<Json<Option<ha_core::browser::frame::BrowserFramePayload>>, AppError> {
-    Ok(Json(ha_core::browser::frame::capture_frame().await?))
+    let session_id = body
+        .as_ref()
+        .and_then(|Json(body)| body.session_id.as_deref());
+    Ok(Json(
+        ha_core::browser::frame::capture_frame(session_id).await?,
+    ))
 }
 
 /// `POST /api/browser/spawn-user-chrome`

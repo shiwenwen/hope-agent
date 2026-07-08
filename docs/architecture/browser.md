@@ -36,7 +36,7 @@ flowchart TB
     SEL --> CDP --> HOPE
 ```
 
-> 跨后端旁路能力：`observe_buffer` 环形缓冲（console / network / errors）与 [`frame.rs`](../../crates/ha-core/src/tools/browser/frame.rs)（`BROWSER_FRAME` event + capture API）。
+> 跨后端旁路能力：`observe_buffer` 环形缓冲（console / network / errors）与 [`frame.rs`](../../crates/ha-core/src/browser/frame.rs)（`BROWSER_FRAME` event + capture API）。
 
 `backend_select` 按动作要求选择后端：
 
@@ -242,12 +242,21 @@ Ring 容量 `OBSERVE_RING_CAPACITY=500`/kind，满则 shift 最旧。Core 侧对
 
 桌面 app 独占优势——chat 右侧固定 panel，实时镜像 agent 控制的 Chrome 窗口。**事件驱动 + 1s 兜底轮询**：
 
-- **后端 emit**：[`browser::frame::emit_frame_async`](../../crates/ha-core/src/browser/frame.rs) 在每次 `act` / `navigate` / `tabs.new|select|claim` 完成后 fire-and-forget 一次截图（JPEG quality=70），通过 EventBus 发 `browser:frame`。ExtensionBackend 优先捕获真实 claimed tab，CDP fallback 保持旧路径。
-- **前端订阅**：[`BrowserPanel.tsx`](../../src/components/chat/BrowserPanel.tsx) `useEffect` 订阅 `browser:frame` 立即替换帧
-- **兜底轮询**：panel 打开期 `setInterval(1000, browser_capture_frame)`，关闭即 clear。覆盖用户在 Chrome 里手动操作的场景
-- **互斥**：跟 PlanPanel / DiffPanel / CanvasPanel 互斥（ChatScreen.tsx effect），第一次 `browser:frame` 到来自动开 panel，用户手动关闭后保持关闭
+- **后端 emit**：[`browser::frame::emit_frame_async`](../../crates/ha-core/src/browser/frame.rs) 在每次 `act` / `navigate` / `tabs.new|select|claim` 完成后 fire-and-forget 一次截图（JPEG quality=70），通过 EventBus 发 `browser:frame`。payload 带可选 `sessionId`，ExtensionBackend 按会话构造临时 backend 捕获真实 claimed tab；CDP fallback 保持旧路径且不强制启动新浏览器，但仍保留请求会话的 `sessionId` 供前端过滤。
+- **前端订阅**：[`BrowserPanel.tsx`](../../src/components/chat/BrowserPanel.tsx) `useEffect` 订阅 `browser:frame` 立即替换帧；[`ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) 只用当前会话的 `sessionId` 自动打开 BrowserPanel，避免其它会话的浏览器动作把右侧 panel 拉出来。
+- **兜底轮询**：panel 打开期 `setInterval(1000, browser_capture_frame)`，关闭即 clear。调用时传当前 `sessionId`，优先复用同会话 extension tab，覆盖用户在 Chrome 里手动操作的场景。
+- **互斥**：跟 PlanPanel / DiffPanel / CanvasPanel / WorkspacePanel 互斥，第一次当前会话 `browser:frame` 到来自动开 panel，用户手动关闭后保持关闭。
 
-`browser_capture_frame` 同时暴露为 Tauri 命令（[`src-tauri/src/commands/browser.rs`](../../src-tauri/src/commands/browser.rs)）和 HTTP `POST /api/browser/capture-frame`（[`crates/ha-server/src/routes/browser.rs`](../../crates/ha-server/src/routes/browser.rs)），保持 Transport 抽象两端对齐。
+`browser_capture_frame` 同时暴露为 Tauri 命令（[`src-tauri/src/commands/browser.rs`](../../src-tauri/src/commands/browser.rs)）和 HTTP `POST /api/browser/capture-frame`（[`crates/ha-server/src/routes/browser.rs`](../../crates/ha-server/src/routes/browser.rs)），两端都接受可选 `{ sessionId }`，保持 Transport 抽象对齐。
+
+### 工作台浏览器活动
+
+BrowserPanel 负责实时画面；WorkspacePanel 只展示本会话浏览器工具的轻量活动摘要，避免把截图、PDF、DOM dump、raw CDP 返回值等大结果塞进 `tool_metadata`。
+
+- **写入 metadata**：`browser` 工具成功后写 `tool_metadata.kind = "browser_activity"`，字段限于 `action` / `op` / `targetId` / `url` / `title` / `backend` / `sessionId` / `callId` / `at`。缺失的 URL/title/target 通过 `current_frame_info(sessionId)` 只读补齐，不截图、不启动 CDP。
+- **历史聚合**：[`session::aggregate_session_artifacts`](../../crates/ha-core/src/session/artifacts.rs) 扫历史 `tool_metadata`，产出 `SessionArtifacts.browser`（最近优先，最多 1000 条），与 files / sources 同一工作台数据面。
+- **live tail**：前端 [`useSessionBrowserActivity`](../../src/components/chat/workspace/useSessionBrowserActivity.ts) 扫当前 message window，[`useWorkspaceArtifacts`](../../src/components/chat/workspace/useWorkspaceArtifacts.ts) 按 `callId` 合并 backend snapshot + live tail；无痕会话仍跳过 backend，只显示当前窗口内活动。
+- **交互**：WorkspacePanel 的“浏览器”段展示标题、域名/URL、动作、backend 与时间；点击活动行切到实时 BrowserPanel，URL 按钮才外部打开。历史活动不回放旧截图。
 
 ## SSRF 守卫
 

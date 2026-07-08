@@ -479,6 +479,27 @@ export interface UrlSourceDto {
   origin: "web_search" | "message";
 }
 
+/** Backend-aggregated browser activity (mirror of `BrowserActivityMetadata`). */
+export interface BrowserActivityDto {
+  action:
+    | "status"
+    | "profile"
+    | "tabs"
+    | "navigate"
+    | "snapshot"
+    | "act"
+    | "observe"
+    | "control";
+  op?: string | null;
+  targetId?: string | null;
+  url?: string | null;
+  title?: string | null;
+  backend?: string | null;
+  sessionId?: string | null;
+  callId?: string | null;
+  at?: number | null;
+}
+
 /**
  * Full-session workspace artifacts aggregated server-side over the whole
  * message history. `*Truncated` flags whether the list was capped (most-recent
@@ -487,8 +508,10 @@ export interface UrlSourceDto {
 export interface SessionArtifacts {
   files: FileArtifactSummary[];
   sources: UrlSourceDto[];
+  browser: BrowserActivityDto[];
   filesTruncated: boolean;
   sourcesTruncated: boolean;
+  browserTruncated: boolean;
 }
 
 export type WorkspaceWorkingDirSource = "session" | "project" | "projectDefault" | "none";

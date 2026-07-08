@@ -66,8 +66,9 @@ pub async fn browser_disconnect() -> Result<browser_ui::BrowserStatus, CmdError>
 /// SSIM hit is worth it at 1Hz polling for ~50–200KB payloads.
 #[tauri::command]
 pub async fn browser_capture_frame(
+    session_id: Option<String>,
 ) -> Result<Option<ha_core::browser::frame::BrowserFramePayload>, CmdError> {
-    ha_core::browser::frame::capture_frame()
+    ha_core::browser::frame::capture_frame(session_id.as_deref())
         .await
         .map_err(Into::into)
 }

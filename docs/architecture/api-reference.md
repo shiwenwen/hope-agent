@@ -137,7 +137,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 |---|---|
 | `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` | 画布面板 |
 | `canvas_snapshot_request` / `canvas_eval_request` | 画布工具流 |
-| `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底 |
+| `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ sessionId?, targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select|claim` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底并按当前会话过滤 |
 
 ### MCP
 
@@ -942,7 +942,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `browser_launch` | `POST /api/browser/launch` | ✅ |
 | `browser_connect` | `POST /api/browser/connect` | ✅ |
 | `browser_disconnect` | `POST /api/browser/disconnect` | ✅ |
-| `browser_capture_frame` | `POST /api/browser/capture-frame` | ✅ |
+| `browser_capture_frame` | `POST /api/browser/capture-frame`，body 可带 `{ sessionId? }` | ✅ |
 | `browser_spawn_user_chrome` | `POST /api/browser/spawn-user-chrome` | ✅ |
 | `browser_doctor` | `GET /api/browser/doctor` | ✅ |
 | `browser_get_config` | `GET /api/browser/config` | ✅ |

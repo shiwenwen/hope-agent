@@ -13,6 +13,7 @@ import { PANEL_SCROLL_FADE } from "./right-panel/panelFade"
 // ── Types (mirror ha_core::browser::frame::BrowserFramePayload) ─────────
 
 interface BrowserFramePayload {
+  sessionId?: string | null
   targetId?: string | null
   url?: string | null
   title?: string | null
@@ -22,6 +23,7 @@ interface BrowserFramePayload {
 }
 
 interface BrowserPanelProps {
+  sessionId?: string | null
   /** Right-panel width in px. Driven by the same drag handler ChatScreen uses
    *  for the sibling Plan / Diff / Canvas panels. */
   panelWidth?: number
@@ -41,6 +43,7 @@ const POLL_INTERVAL_MS = 1000
 // ── Component ────────────────────────────────────────────────────────────
 
 export default function BrowserPanel({
+  sessionId,
   panelWidth = 480,
   onPanelWidthChange,
   reservedMainWidth,
@@ -55,9 +58,9 @@ export default function BrowserPanel({
 
   const refresh = useCallback(async () => {
     try {
-      const next = await getTransport().call<BrowserFramePayload | null>(
-        "browser_capture_frame",
-      )
+      const next = await getTransport().call<BrowserFramePayload | null>("browser_capture_frame", {
+        sessionId,
+      })
       if (!mountedRef.current) return
       // `null` is the backend's empty signal — no active backend or browser
       // disconnected. Surface it as idle by clearing the frame; otherwise the
@@ -70,7 +73,7 @@ export default function BrowserPanel({
         setError(t("chat.browserPanel.captureFailed"))
       }
     }
-  }, [t])
+  }, [sessionId, t])
 
   // Mount-only lifecycle flag. Keep it independent from collapsed/paused so
   // in-flight capture responses from stale effects cannot update after unmount.
@@ -97,6 +100,7 @@ export default function BrowserPanel({
     const unlisten = getTransport().listen(BROWSER_FRAME_EVENT, (raw) => {
       const payload = parsePayload<BrowserFramePayload>(raw)
       if (payload && mountedRef.current) {
+        if (payload.sessionId && sessionId && payload.sessionId !== sessionId) return
         setFrame(payload)
         setError(null)
       }
@@ -109,7 +113,7 @@ export default function BrowserPanel({
         // ignore
       }
     }
-  }, [])
+  }, [sessionId])
 
   // 1Hz fallback poll. Re-binds only when `paused` flips, not on every render.
   useEffect(() => {
@@ -164,13 +168,7 @@ export default function BrowserPanel({
           </Button>
         </IconTip>
         <IconTip label={t("chat.browserPanel.close")}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={onClose}
-          >
+          <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
             <X className="h-3.5 w-3.5" />
           </Button>
         </IconTip>
@@ -214,9 +212,7 @@ export default function BrowserPanel({
             onClick={() => setPaused((p) => !p)}
           >
             <Hand className="h-3.5 w-3.5" />
-            {paused
-              ? t("chat.browserPanel.resumeMirror")
-              : t("chat.browserPanel.takeOver")}
+            {paused ? t("chat.browserPanel.resumeMirror") : t("chat.browserPanel.takeOver")}
           </Button>
         </IconTip>
         {frame?.url && (
@@ -236,9 +232,7 @@ export default function BrowserPanel({
           </IconTip>
         )}
         <div className="ml-auto text-[10px] text-muted-foreground">
-          {frame?.capturedAt
-            ? new Date(frame.capturedAt).toLocaleTimeString()
-            : ""}
+          {frame?.capturedAt ? new Date(frame.capturedAt).toLocaleTimeString() : ""}
         </div>
       </div>
     </RightPanelShell>

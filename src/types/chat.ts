@@ -121,7 +121,25 @@ export interface FileReadMetadata {
   lines: number
 }
 
-export type ToolMetadata = FileChangeMetadata | FileChangesMetadata | FileReadMetadata
+/** Side-output for browser automation, used by the workspace panel activity summary. */
+export interface BrowserActivityMetadata {
+  kind: "browser_activity"
+  action: "status" | "profile" | "tabs" | "navigate" | "snapshot" | "act" | "observe" | "control"
+  op?: string | null
+  targetId?: string | null
+  url?: string | null
+  title?: string | null
+  backend?: string | null
+  sessionId?: string | null
+  callId?: string | null
+  at?: number | null
+}
+
+export type ToolMetadata =
+  | FileChangeMetadata
+  | FileChangesMetadata
+  | FileReadMetadata
+  | BrowserActivityMetadata
 
 export interface ToolCall {
   callId: string
