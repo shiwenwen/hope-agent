@@ -39,8 +39,7 @@ pub struct DesignChatThread {
 }
 
 fn session_db() -> Result<&'static std::sync::Arc<crate::session::db::SessionDB>> {
-    crate::globals::get_session_db()
-        .ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))
+    crate::globals::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))
 }
 
 /// Record a `kind='design'` session as a chat thread anchored to a project.

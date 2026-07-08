@@ -435,9 +435,14 @@ mod tests {
     fn build_prompt_recipe_id_measurably_changes_prompt() {
         let tokens = BTreeMap::new();
         let base = build_generation_prompt("a page", ArtifactKind::Web, "", &tokens, None).unwrap();
-        let landing =
-            build_generation_prompt("a page", ArtifactKind::Web, "", &tokens, Some("web-landing"))
-                .unwrap();
+        let landing = build_generation_prompt(
+            "a page",
+            ArtifactKind::Web,
+            "",
+            &tokens,
+            Some("web-landing"),
+        )
+        .unwrap();
         let saas =
             build_generation_prompt("a page", ArtifactKind::Web, "", &tokens, Some("web-saas"))
                 .unwrap();

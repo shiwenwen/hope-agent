@@ -46,10 +46,7 @@ style=\"display:block;margin:0 auto;max-width:100%;height:auto\">"
 
 /// 生成一张图片，返回原始字节 + mime。**按配置顺序在多个 provider 间 failover**——首选
 /// 被限流 / 报错时自动尝试下一个可用 provider（对齐 `tool_image_generate` 的健壮性）。
-async fn generate_image_bytes(
-    prompt: &str,
-    opts: &ImageGenOptions,
-) -> Result<(Vec<u8>, String)> {
+async fn generate_image_bytes(prompt: &str, opts: &ImageGenOptions) -> Result<(Vec<u8>, String)> {
     if prompt.trim().is_empty() {
         anyhow::bail!("image prompt is empty");
     }

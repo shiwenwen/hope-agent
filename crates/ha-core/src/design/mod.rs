@@ -27,7 +27,6 @@ pub mod token_export;
 pub mod vision;
 
 pub use critique::CritiqueResult;
-pub use threads::DesignChatThread;
 pub use db::{
     DesignArtifact, DesignArtifactVersion, DesignCodeBinding, DesignComment, DesignProject,
     DesignSystemMeta,
@@ -35,6 +34,7 @@ pub use db::{
 pub use recipe::Recipe;
 pub use renderer::{ArtifactKind, ArtifactParts};
 pub use system::DesignSystemFull;
+pub use threads::DesignChatThread;
 
 use serde::{Deserialize, Serialize};
 

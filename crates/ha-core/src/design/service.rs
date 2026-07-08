@@ -311,9 +311,7 @@ pub fn mark_session_as_design_thread(session_id: &str, project_id: &str) {
 /// Default-load target: `SessionMeta` of the most-recently-active chat thread for
 /// a design project. `None` when the project has no prior conversation (panel
 /// shows the empty starter state).
-pub fn design_chat_thread_latest(
-    project_id: &str,
-) -> Result<Option<crate::session::SessionMeta>> {
+pub fn design_chat_thread_latest(project_id: &str) -> Result<Option<crate::session::SessionMeta>> {
     let Some(sid) = crate::design::threads::latest_thread_for_project(project_id)? else {
         return Ok(None);
     };
@@ -457,7 +455,11 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
         // B0-4：透传比例 + 参考图（有 reference_image_b64 → 图生图/编辑，此前被静默丢弃）。
         use base64::Engine;
         let mut input_images = Vec::new();
-        if let Some(b64) = input.reference_image_b64.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(b64) = input
+            .reference_image_b64
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
                 Ok(data) => input_images.push(crate::tools::image_generate::InputImage {
                     data,

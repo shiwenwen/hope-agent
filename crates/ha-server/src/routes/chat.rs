@@ -403,7 +403,10 @@ pub async fn chat(
             // main list / picker / FTS). Drop the freshly auto-created session;
             // `blocked_reason` still carries the notice to the transport.
             if new_session_created
-                && matches!(body.tool_scope.as_deref(), Some("knowledge") | Some("design"))
+                && matches!(
+                    body.tool_scope.as_deref(),
+                    Some("knowledge") | Some("design")
+                )
             {
                 let _ = db.delete_session(&sid);
                 return Ok(Json(ChatResponse {
