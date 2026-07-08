@@ -17,6 +17,7 @@ import {
   Pencil,
   Send,
   CornerDownLeft,
+  CheckSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -38,6 +39,8 @@ interface Props {
   onSendToChat: (id: number) => void
   /** 带到对话：把这条批注作为 quote 塞进左侧 AI 对话 composer，用户可补充后随 turn 发。 */
   onAddToChat: (id: number) => void
+  /** 批量带到对话（B4-2）：把多条批注合成一个 scope-guarded 结构块塞进 composer。 */
+  onBatchToChat: (ids: number[]) => void
   /** 预览里点钉请求聚焦的批注 id（B0-3）：滚动到该卡并进入编辑；消费后经 onFocusHandled 清空。 */
   focusCommentId?: number | null
   onFocusHandled?: () => void
@@ -55,6 +58,7 @@ export default function DesignCommentPanel({
   onFocus,
   onSendToChat,
   onAddToChat,
+  onBatchToChat,
   focusCommentId,
   onFocusHandled,
   onClose,
@@ -64,6 +68,20 @@ export default function DesignCommentPanel({
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState("")
   const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+  // 多选批量带到对话（B4-2）。
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(() => new Set())
+  const toggleSelected = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const exitSelect = () => {
+    setSelectMode(false)
+    setSelected(new Set())
+  }
 
   // 新钉锚点变了（落到另一元素）→ 清空新建草稿，避免上一次输入带到新钉（review #6）。
   // 用 React「渲染期调整 state」模式而非 effect 内 setState（后者会触发级联渲染，eslint 拦）。
@@ -125,9 +143,24 @@ export default function DesignCommentPanel({
       )}
     >
       <div className="flex items-start gap-2">
+        {selectMode && !c.resolved && (
+          <button
+            type="button"
+            onClick={() => toggleSelected(c.id)}
+            aria-label={t("design.selectMultiple", "多选")}
+            className={cn(
+              "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors",
+              selected.has(c.id)
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border",
+            )}
+          >
+            {selected.has(c.id) && <Check className="h-3 w-3" />}
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => onFocus(c.id)}
+          onClick={() => (selectMode && !c.resolved ? toggleSelected(c.id) : onFocus(c.id))}
           className={cn(
             "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
             c.resolved ? "bg-emerald-600" : "bg-amber-500",
@@ -173,7 +206,7 @@ export default function DesignCommentPanel({
           )}
         </div>
       </div>
-      {editingId !== c.id && (
+      {editingId !== c.id && !selectMode && (
         <div className="mt-1.5 flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
           <IconTip label={t("design.comment.addToChat", "带到对话")}>
             <Button
@@ -243,12 +276,51 @@ export default function DesignCommentPanel({
             </span>
           )}
         </div>
-        <IconTip label={t("common.close", "关闭")}>
-          <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
-        </IconTip>
+        <div className="flex items-center gap-0.5">
+          {open.length > 1 && (
+            <IconTip label={t("design.comment.batchToChat", "多选带到对话")}>
+              <Button
+                size="icon"
+                variant={selectMode ? "default" : "ghost"}
+                className="h-6 w-6"
+                onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          )}
+          <IconTip label={t("common.close", "关闭")}>
+            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={onClose}>
+              <X className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        </div>
       </div>
+
+      {selectMode && (
+        <div className="flex items-center gap-2 border-b bg-secondary/40 px-3 py-2 text-xs">
+          <span className="text-muted-foreground">
+            {t("design.selectedCount", "已选 {{count}} 项", { count: selected.size })}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button size="sm" variant="ghost" className="h-6 px-2" onClick={exitSelect}>
+              {t("common.cancel", "取消")}
+            </Button>
+            <Button
+              size="sm"
+              className="h-6 gap-1 px-2"
+              disabled={selected.size === 0}
+              onClick={() => {
+                onBatchToChat([...selected])
+                exitSelect()
+              }}
+            >
+              <MessagesSquare className="h-3 w-3" />
+              {t("design.comment.batchToChat", "带到对话")}
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 space-y-2 overflow-y-auto p-2.5">
         {/* 待填的新钉 */}

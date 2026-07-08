@@ -6222,7 +6222,10 @@
       "refining": "A refinar conforme o comentário…",
       "refined": "Refinado: veja a nova versão",
       "refineFailed": "Falha ao refinar",
-      "addToChat": "Adicionar ao chat"
+      "addToChat": "Adicionar ao chat",
+      "batchToChat": "Enviar seleção ao chat",
+      "batchScopeHint": "Altere APENAS os elementos anotados abaixo; mantenha o resto inalterado:",
+      "batchLabel": "{{count}} comentários"
     },
     "exporting": "A exportar…",
     "exportProgressSlide": "A exportar {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "Prompt",
       "restoreTitle": "Restaurar esta versão?",
       "restoreHelp": "Cria uma nova versão a partir deste instantâneo. Seu conteúdo atual permanece no histórico e pode ser restaurado novamente."
-    }
+    },
+    "deviceAuto": "Auto",
+    "deviceDesktop": "Desktop",
+    "deviceTablet": "Tablet",
+    "deviceMobile": "Celular",
+    "present": "Apresentar",
+    "presentInTab": "Apresentar na janela",
+    "presentFullscreen": "Apresentar em tela cheia",
+    "exitPresent": "Sair da apresentação (Esc)"
   }
 }

@@ -47,6 +47,8 @@ import {
   Check,
   CheckSquare,
   FolderOpen,
+  Tablet,
+  Maximize2,
   Wand2,
   FileImage,
   FileType2,
@@ -64,6 +66,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
 import DesignChatPanel, { type DesignChatPanelHandle } from "@/components/design/chat/DesignChatPanel"
+import type { PendingFileQuote } from "@/types/chat"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import DesignKitModal from "@/components/design/DesignKitModal"
@@ -163,6 +166,15 @@ function isEditableKind(kind: ArtifactKind): boolean {
 
 type ZoomMode = "fit" | 0.5 | 1
 
+// 预览设备视口（B4-3，源码级对标参照 PREVIEW_VIEWPORT_PRESETS）。`auto` = 沿用产物自然
+// viewportW/H（默认，零回归）；其余固定逻辑宽高、居中缩放适配 + 设备框。
+type PreviewDevice = "auto" | "desktop" | "tablet" | "mobile"
+const DEVICE_PRESETS: Record<Exclude<PreviewDevice, "auto">, { w: number; h: number | null }> = {
+  desktop: { w: 1440, h: null },
+  tablet: { w: 820, h: 1180 },
+  mobile: { w: 390, h: 844 },
+}
+
 export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
@@ -194,6 +206,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  // 预览设备视口（B4-3）+ 演示态（B4-4）。
+  const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("auto")
+  const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
+  const previewPaneRef = useRef<HTMLDivElement>(null)
+  const [paneSize, setPaneSize] = useState({ w: 0, h: 0 })
 
   // 设计系统套件（Kit）预览模态：选择器行内「预览套件」触发（B1-1）。
   const [kitSystem, setKitSystem] = useState<{ id: string; name: string } | null>(null)
@@ -201,6 +218,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // AI 对话左栏（chat-to-edit：左对话 / 右预览，可拖宽 · 可折叠）。宽度持久化。
   const chatPanelRef = useRef<DesignChatPanelHandle>(null)
   const [chatOpen, setChatOpen] = useState(true)
+  // 带 quote 到对话（B4 review 修复）：面板折叠时 chatPanelRef 为 null，直接 addQuote 会丢。
+  // 打开面板 + 缓冲 quote，待面板挂载后经 chatOpen 副作用 flush（恰好一次）。
+  const pendingQuotesRef = useRef<PendingFileQuote[]>([])
+  const enqueueChatQuote = useCallback((quote: PendingFileQuote) => {
+    setChatOpen(true)
+    if (chatPanelRef.current) chatPanelRef.current.addQuote(quote)
+    else pendingQuotesRef.current.push(quote)
+  }, [])
+  useEffect(() => {
+    if (!chatOpen || !chatPanelRef.current || pendingQuotesRef.current.length === 0) return
+    const queued = pendingQuotesRef.current
+    pendingQuotesRef.current = []
+    for (const q of queued) chatPanelRef.current.addQuote(q)
+  }, [chatOpen])
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem("design_chat_width"))
     return Number.isFinite(saved) && saved >= 320 && saved <= 640 ? saved : 400
@@ -899,12 +930,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     (id: number) => {
       const c = comments.find((x) => x.id === id)
       if (!c) return
-      setChatOpen(true)
       const label = c.snippet?.trim()
         ? `${t("design.comment.title", "批注")} · ${c.snippet.trim().slice(0, 40)}`
         : t("design.comment.title", "批注")
       const context = c.snippet?.trim() ? `元素「${c.snippet.trim()}」` : "选中的元素"
-      chatPanelRef.current?.addQuote({
+      enqueueChatQuote({
         path: `design-comment:${id}`,
         name: label,
         startLine: 0,
@@ -912,7 +942,40 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         content: `针对${context}的反馈：${c.body}`,
       })
     },
-    [comments, t],
+    [comments, t, enqueueChatQuote],
+  )
+
+  // 批量带到对话（B4-2）：多条批注合成一个 scope-guarded 结构块（编号 + 元素 + 反馈），
+  // 作为单条 quote 塞进 composer——对齐参照 <attached-preview-comments> 的「硬范围」约束。
+  const handleBatchCommentsToChat = useCallback(
+    (ids: number[]) => {
+      const chosen = ids
+        .map((id) => comments.find((x) => x.id === id))
+        .filter((c): c is (typeof comments)[number] => !!c)
+      if (chosen.length === 0) return
+      const lines = chosen
+        .map((c, i) => {
+          const el = c.snippet?.trim()
+            ? `元素「${c.snippet.trim()}」`
+            : c.tag
+              ? `<${c.tag}>`
+              : t("design.comment.title", "批注")
+          return `${i + 1}. ${el}：${c.body}`
+        })
+        .join("\n")
+      const content = `${t(
+        "design.comment.batchScopeHint",
+        "请仅修改下列被标注的元素，其它保持不变：",
+      )}\n${lines}`
+      enqueueChatQuote({
+        path: `design-comments:${ids.slice().sort((a, b) => a - b).join("-")}`,
+        name: t("design.comment.batchLabel", "{{count}} 条批注", { count: chosen.length }),
+        startLine: 0,
+        endLine: 0,
+        content,
+      })
+    },
+    [comments, t, enqueueChatQuote],
   )
 
   // 反-slop 自查复查（B0-2）：recheck 对当前正文重跑自查、dismiss 用户判定无碍强制清标记。
@@ -1418,6 +1481,59 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshView, activeProject]) // loadArtifacts/setPreviewKey stable
 
+  // ── 设备视口 (B4-3) + 演示态 (B4-4) ───────────────────────────
+  const activeArtifactId = activeArtifact?.id
+  // per-artifact 记忆（localStorage）：切产物时载回上次的设备选择。
+  useEffect(() => {
+    if (!activeArtifactId) return
+    let saved: string | null = null
+    try {
+      saved = localStorage.getItem(`design:device:${activeArtifactId}`)
+    } catch {
+      /* localStorage 不可用 */
+    }
+    setPreviewDevice(
+      saved === "desktop" || saved === "tablet" || saved === "mobile" ? saved : "auto",
+    )
+  }, [activeArtifactId])
+  const changeDevice = useCallback(
+    (d: PreviewDevice) => {
+      setPreviewDevice(d)
+      if (!activeArtifactId) return
+      try {
+        if (d === "auto") localStorage.removeItem(`design:device:${activeArtifactId}`)
+        else localStorage.setItem(`design:device:${activeArtifactId}`, d)
+      } catch {
+        /* localStorage 不可用 → 仅本次会话生效 */
+      }
+    },
+    [activeArtifactId],
+  )
+  // 测量预览面尺寸（设备模式的适配缩放用）；面随产物条件渲染，故按产物 id 重挂。
+  useEffect(() => {
+    const el = previewPaneRef.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0]?.contentRect
+      if (r) setPaneSize({ w: r.width, h: r.height })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [activeArtifactId])
+  // Present（本标签无 chrome）：Escape 退出。
+  useEffect(() => {
+    if (!presentMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPresentMode(false)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [presentMode])
+  const presentFullscreen = useCallback(() => {
+    const el = previewPaneRef.current
+    if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {})
+  }, [])
+
   // ── Reverse-extraction (D2) ──────────────────────────────────
   const [extractOpen, setExtractOpen] = useState(false)
   const [extractFrom, setExtractFrom] = useState<"brief" | "url" | "codebase" | "image">("brief")
@@ -1717,8 +1833,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // vs. fit) and 50% shows the whole design at half size with correct scrolling.
   const naturalW = activeArtifact?.viewportW && activeArtifact.viewportW > 0 ? activeArtifact.viewportW : 1024
   const naturalH = activeArtifact?.viewportH && activeArtifact.viewportH > 0 ? activeArtifact.viewportH : 768
-  const scaleStyle: CSSProperties =
-    zoom === "fit"
+
+  // 设备视口模式（B4-3）：固定逻辑宽高，按测得的预览面尺寸整体缩放适配 + 居中设备框。
+  // `auto` 保持原有 zoom 行为（零回归）。
+  const devicePreset = previewDevice === "auto" ? null : DEVICE_PRESETS[previewDevice]
+  const deviceScale = (() => {
+    if (!devicePreset) return 1
+    const availW = Math.max(0, paneSize.w - 32)
+    const availH = Math.max(0, paneSize.h - 32)
+    const sw = devicePreset.w > 0 ? availW / devicePreset.w : 1
+    if (devicePreset.h) return Math.min(1, sw, availH / devicePreset.h)
+    return Math.min(1, sw) // desktop（无固定高）：只按宽度适配，内容纵向滚
+  })()
+  const deviceH = devicePreset
+    ? devicePreset.h ?? Math.max(400, Math.round((paneSize.h - 32) / (deviceScale || 1)))
+    : 0
+
+  const scaleStyle: CSSProperties = devicePreset
+    ? {
+        width: `${devicePreset.w}px`,
+        height: `${deviceH}px`,
+        border: 0,
+        transform: `scale(${deviceScale})`,
+        transformOrigin: "top left",
+      }
+    : zoom === "fit"
       ? { width: "100%", height: "100%", border: 0 }
       : {
           width: `${naturalW}px`,
@@ -1727,8 +1866,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           transform: `scale(${zoom})`,
           transformOrigin: "top left",
         }
-  const frameWrapStyle: CSSProperties | undefined =
-    zoom === "fit" ? undefined : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
+  const frameWrapStyle: CSSProperties | undefined = devicePreset
+    ? { width: `${devicePreset.w * deviceScale}px`, height: `${deviceH * deviceScale}px` }
+    : zoom === "fit"
+      ? undefined
+      : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -2172,21 +2314,70 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </IconTip>
                       </>
                     )}
-                    <Select
-                      value={String(zoom)}
-                      onValueChange={(v) =>
-                        setZoom(v === "fit" ? "fit" : (Number(v) as ZoomMode))
-                      }
-                    >
-                      <SelectTrigger className="h-6 w-auto gap-1 px-1.5 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
-                        <SelectItem value="1">100%</SelectItem>
-                        <SelectItem value="0.5">50%</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {/* 设备视口切换（B4-3） */}
+                    <div className="flex items-center rounded-md border border-border/60 p-0.5">
+                      {(
+                        [
+                          { id: "auto" as const, label: t("design.deviceAuto", "自动"), icon: null },
+                          { id: "desktop" as const, label: t("design.deviceDesktop", "桌面"), icon: Monitor },
+                          { id: "tablet" as const, label: t("design.deviceTablet", "平板"), icon: Tablet },
+                          { id: "mobile" as const, label: t("design.deviceMobile", "手机"), icon: Smartphone },
+                        ] as const
+                      ).map((d) => (
+                        <IconTip key={d.id} label={d.label} side="bottom">
+                          <button
+                            type="button"
+                            onClick={() => changeDevice(d.id)}
+                            className={cn(
+                              "flex h-5 items-center justify-center rounded px-1.5 text-[11px] transition-colors",
+                              previewDevice === d.id
+                                ? "bg-secondary text-foreground"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {d.icon ? <d.icon className="h-3.5 w-3.5" /> : d.label}
+                          </button>
+                        </IconTip>
+                      ))}
+                    </div>
+                    {/* zoom 仅在自动视口下有意义（设备模式整体缩放适配） */}
+                    {previewDevice === "auto" && (
+                      <Select
+                        value={String(zoom)}
+                        onValueChange={(v) =>
+                          setZoom(v === "fit" ? "fit" : (Number(v) as ZoomMode))
+                        }
+                      >
+                        <SelectTrigger className="h-6 w-auto gap-1 px-1.5 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fit">{t("design.zoomFit", "适应")}</SelectItem>
+                          <SelectItem value="1">100%</SelectItem>
+                          <SelectItem value="0.5">50%</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {/* Present 演示（B4-4） */}
+                    <DropdownMenu>
+                      <IconTip label={t("design.present", "演示")} side="bottom">
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-6 w-6">
+                            <Presentation className="h-3.5 w-3.5" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </IconTip>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onSelect={() => setPresentMode(true)}>
+                          <Presentation className="mr-2 h-4 w-4" />
+                          {t("design.presentInTab", "本窗口演示")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={presentFullscreen}>
+                          <Maximize2 className="mr-2 h-4 w-4" />
+                          {t("design.presentFullscreen", "全屏演示")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <IconTip label={t("design.reload", "刷新")} side="bottom">
                       <Button
                         variant="ghost"
@@ -2315,7 +2506,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     </Button>
                   </div>
                 )}
-                <div className="relative flex-1 overflow-auto p-4">
+                <div
+                  ref={previewPaneRef}
+                  className={cn(
+                    "relative flex-1 overflow-auto p-4",
+                    devicePreset && "flex items-center justify-center",
+                  )}
+                >
                   {editMode && !selected && (
                     <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">
                       <span className="rounded-full bg-primary/90 px-3 py-1 text-xs text-primary-foreground shadow-md">
@@ -2325,8 +2522,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   )}
                   <div
                     className={cn(
-                      "overflow-hidden rounded-lg border bg-white shadow-sm",
-                      zoom === "fit" ? "mx-auto h-full w-full" : "mx-auto",
+                      "overflow-hidden bg-white",
+                      devicePreset
+                        ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
+                        : cn(
+                            "rounded-lg border shadow-sm",
+                            zoom === "fit" ? "mx-auto h-full w-full" : "mx-auto",
+                          ),
                       editMode && "ring-2 ring-primary/40",
                     )}
                     style={frameWrapStyle}
@@ -2423,6 +2625,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onFocus={(id) => postToIframe({ type: "ds_comment_focus", id })}
               onSendToChat={handleSendCommentToChat}
               onAddToChat={handleAddCommentToChat}
+              onBatchToChat={handleBatchCommentsToChat}
               focusCommentId={focusCommentId}
               onFocusHandled={() => setFocusCommentId(null)}
               onClose={() => setCommentMode(false)}
@@ -2686,6 +2889,29 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         currentVersion={activeArtifact?.currentVersion ?? 0}
         onRestored={onVersionRestored}
       />
+
+      {/* 本窗口无 chrome 演示态（B4-4）：Escape 退出 */}
+      {presentMode && activeArtifact && (
+        <div className="fixed inset-0 z-[100] flex flex-col bg-neutral-950">
+          <IconTip label={t("design.exitPresent", "退出演示 (Esc)")} side="left">
+            <Button
+              variant="secondary"
+              size="icon"
+              className="absolute right-4 top-4 z-10 h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
+              onClick={() => setPresentMode(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </IconTip>
+          <iframe
+            key={`present-${activeArtifact.id}-${previewKey}`}
+            src={iframeSrc}
+            sandbox="allow-scripts"
+            title={activeArtifact.title}
+            className="h-full w-full border-0 bg-white"
+          />
+        </div>
+      )}
 
       {/* Reverse-extraction dialog (D2) */}
       <Dialog open={extractOpen} onOpenChange={setExtractOpen}>

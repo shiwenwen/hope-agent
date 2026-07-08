@@ -6222,7 +6222,10 @@
       "refining": "يتم التحسين وفق تعليقك…",
       "refined": "تم التحسين — راجع الإصدار الجديد",
       "refineFailed": "فشل التحسين",
-      "addToChat": "إضافة إلى المحادثة"
+      "addToChat": "إضافة إلى المحادثة",
+      "batchToChat": "إرسال المحدد إلى المحادثة",
+      "batchScopeHint": "غيّر العناصر المشروحة أدناه فقط؛ واترك الباقي دون تغيير:",
+      "batchLabel": "{{count}} تعليقات"
     },
     "exporting": "جارٍ التصدير…",
     "exportProgressSlide": "جارٍ التصدير {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "موجه",
       "restoreTitle": "استعادة هذا الإصدار؟",
       "restoreHelp": "ينشئ إصدارًا جديدًا من هذه اللقطة. يبقى المحتوى الحالي في السجل ويمكن استعادته مرة أخرى."
-    }
+    },
+    "deviceAuto": "تلقائي",
+    "deviceDesktop": "سطح المكتب",
+    "deviceTablet": "لوحي",
+    "deviceMobile": "جوال",
+    "present": "عرض",
+    "presentInTab": "عرض في النافذة",
+    "presentFullscreen": "عرض ملء الشاشة",
+    "exitPresent": "إنهاء العرض (Esc)"
   }
 }

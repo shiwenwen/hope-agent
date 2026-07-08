@@ -6222,7 +6222,10 @@
       "refining": "コメントに沿って調整中…",
       "refined": "調整しました。新バージョンを確認",
       "refineFailed": "調整に失敗しました",
-      "addToChat": "チャットに追加"
+      "addToChat": "チャットに追加",
+      "batchToChat": "選択をチャットへ",
+      "batchScopeHint": "以下の注釈された要素のみを変更し、他はそのままにしてください：",
+      "batchLabel": "{{count}} 件のコメント"
     },
     "exporting": "エクスポート中…",
     "exportProgressSlide": "エクスポート中 {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "プロンプト",
       "restoreTitle": "このバージョンに復元しますか？",
       "restoreHelp": "このスナップショットから新しいバージョンを作成します。現在の内容は履歴に残り、再度復元できます。"
-    }
+    },
+    "deviceAuto": "自動",
+    "deviceDesktop": "デスクトップ",
+    "deviceTablet": "タブレット",
+    "deviceMobile": "モバイル",
+    "present": "プレゼン",
+    "presentInTab": "このウィンドウで発表",
+    "presentFullscreen": "全画面で発表",
+    "exitPresent": "発表を終了 (Esc)"
   }
 }

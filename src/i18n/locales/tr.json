@@ -6222,7 +6222,10 @@
       "refining": "Yoruma göre iyileştiriliyor…",
       "refined": "İyileştirildi — yeni sürüme bakın",
       "refineFailed": "İyileştirme başarısız",
-      "addToChat": "Sohbete ekle"
+      "addToChat": "Sohbete ekle",
+      "batchToChat": "Seçileni sohbete gönder",
+      "batchScopeHint": "SADECE aşağıda işaretlenen öğeleri değiştir; gerisini olduğu gibi bırak:",
+      "batchLabel": "{{count}} yorum"
     },
     "exporting": "Dışa aktarılıyor…",
     "exportProgressSlide": "Dışa aktarılıyor {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "İstem",
       "restoreTitle": "Bu sürüm geri yüklensin mi?",
       "restoreHelp": "Bu anlık görüntüden yeni bir sürüm oluşturur. Mevcut içeriğiniz geçmişte kalır ve tekrar geri yüklenebilir."
-    }
+    },
+    "deviceAuto": "Otomatik",
+    "deviceDesktop": "Masaüstü",
+    "deviceTablet": "Tablet",
+    "deviceMobile": "Mobil",
+    "present": "Sun",
+    "presentInTab": "Pencerede sun",
+    "presentFullscreen": "Tam ekran sun",
+    "exitPresent": "Sunumdan çık (Esc)"
   }
 }

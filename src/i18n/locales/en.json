@@ -6222,7 +6222,10 @@
       "refining": "Refining per your comment…",
       "refined": "Refined — check the new version",
       "refineFailed": "Refine failed",
-      "addToChat": "Add to chat"
+      "addToChat": "Add to chat",
+      "batchToChat": "Send selected to chat",
+      "batchScopeHint": "Change ONLY the annotated elements below; keep everything else unchanged:",
+      "batchLabel": "{{count}} comments"
     },
     "exporting": "Exporting…",
     "exportProgressSlide": "Exporting {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "Prompt",
       "restoreTitle": "Restore this version?",
       "restoreHelp": "Creates a new version from this snapshot. Your current content stays in history and can be restored again."
-    }
+    },
+    "deviceAuto": "Auto",
+    "deviceDesktop": "Desktop",
+    "deviceTablet": "Tablet",
+    "deviceMobile": "Mobile",
+    "present": "Present",
+    "presentInTab": "Present in window",
+    "presentFullscreen": "Present fullscreen",
+    "exitPresent": "Exit present (Esc)"
   }
 }

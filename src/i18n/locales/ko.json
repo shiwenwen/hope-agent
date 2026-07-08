@@ -6222,7 +6222,10 @@
       "refining": "댓글에 따라 다듬는 중…",
       "refined": "다듬었습니다. 새 버전을 확인하세요",
       "refineFailed": "다듬기 실패",
-      "addToChat": "대화에 추가"
+      "addToChat": "대화에 추가",
+      "batchToChat": "선택 항목을 채팅으로",
+      "batchScopeHint": "아래에 표시된 요소만 변경하고 나머지는 그대로 두세요:",
+      "batchLabel": "댓글 {{count}}개"
     },
     "exporting": "내보내는 중…",
     "exportProgressSlide": "내보내는 중 {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "프롬프트",
       "restoreTitle": "이 버전으로 복원할까요?",
       "restoreHelp": "이 스냅샷으로 새 버전을 만듭니다. 현재 내용은 기록에 남아 다시 복원할 수 있습니다."
-    }
+    },
+    "deviceAuto": "자동",
+    "deviceDesktop": "데스크톱",
+    "deviceTablet": "태블릿",
+    "deviceMobile": "모바일",
+    "present": "발표",
+    "presentInTab": "이 창에서 발표",
+    "presentFullscreen": "전체 화면 발표",
+    "exitPresent": "발표 종료 (Esc)"
   }
 }

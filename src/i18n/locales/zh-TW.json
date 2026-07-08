@@ -6222,7 +6222,10 @@
       "refining": "依批註精修中…",
       "refined": "已依批註精修，查看新版本",
       "refineFailed": "精修失敗",
-      "addToChat": "帶到對話"
+      "addToChat": "帶到對話",
+      "batchToChat": "多選帶到對話",
+      "batchScopeHint": "請僅修改下列被標註的元素，其它保持不變：",
+      "batchLabel": "{{count}} 則批註"
     },
     "exporting": "正在匯出…",
     "exportProgressSlide": "正在匯出 {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "提示詞",
       "restoreTitle": "還原到此版本？",
       "restoreHelp": "會以該版本內容產生一個新版本，目前內容仍保留在歷史中，可再切回。"
-    }
+    },
+    "deviceAuto": "自動",
+    "deviceDesktop": "桌面",
+    "deviceTablet": "平板",
+    "deviceMobile": "手機",
+    "present": "簡報",
+    "presentInTab": "本視窗簡報",
+    "presentFullscreen": "全螢幕簡報",
+    "exitPresent": "退出簡報 (Esc)"
   }
 }

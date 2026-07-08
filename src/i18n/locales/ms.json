@@ -6222,7 +6222,10 @@
       "refining": "Menambah baik ikut komen…",
       "refined": "Ditambah baik — lihat versi baharu",
       "refineFailed": "Gagal menambah baik",
-      "addToChat": "Tambah ke sembang"
+      "addToChat": "Tambah ke sembang",
+      "batchToChat": "Hantar pilihan ke sembang",
+      "batchScopeHint": "Ubah HANYA elemen bertanda di bawah; kekalkan yang lain:",
+      "batchLabel": "{{count}} komen"
     },
     "exporting": "Mengeksport…",
     "exportProgressSlide": "Mengeksport {{done}}/{{total}}",
@@ -6425,6 +6428,14 @@
       "prompt": "Gesaan",
       "restoreTitle": "Pulihkan versi ini?",
       "restoreHelp": "Mencipta versi baharu daripada syot kilat ini. Kandungan semasa anda kekal dalam sejarah dan boleh dipulihkan semula."
-    }
+    },
+    "deviceAuto": "Auto",
+    "deviceDesktop": "Desktop",
+    "deviceTablet": "Tablet",
+    "deviceMobile": "Mudah alih",
+    "present": "Bentang",
+    "presentInTab": "Bentang dalam tetingkap",
+    "presentFullscreen": "Bentang skrin penuh",
+    "exitPresent": "Keluar bentang (Esc)"
   }
 }
