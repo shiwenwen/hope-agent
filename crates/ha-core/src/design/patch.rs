@@ -251,11 +251,12 @@ pub fn apply_style_patch(
             }
         }
     }
-    // 合并（净化：属性名限字母/-，值去 `<`/`"`）。
+    // 合并（净化：属性名限字母/-；值走安全白名单，非法函数/结构一律拒）。
     for (k, v) in props {
         let key = sanitize_css_ident(k);
         let val = sanitize_css_value(v);
-        if key.is_empty() {
+        // 值被白名单拒（空）→ 跳过，绝不用空值覆写既有属性（既是安全也避免误清空）。
+        if key.is_empty() || val.is_empty() {
             continue;
         }
         if let Some(slot) = existing.iter_mut().find(|(ek, _)| *ek == key) {
@@ -396,12 +397,53 @@ fn sanitize_css_ident(s: &str) -> String {
         .to_ascii_lowercase()
 }
 
+/// 可视化微调可写的 CSS 值里允许出现的函数名（白名单，B0-7）。**不含 `url` / `image-set` /
+/// `expression` 等可加载远程资源或执行的向量**，同时放行 calc/var/color/gradient/transform/
+/// filter/grid 等全部合法值函数——收紧安全面而不弱化正常调值能力。
+const SAFE_CSS_FUNCTIONS: &[&str] = &[
+    "calc", "min", "max", "clamp", "var", "env", "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch",
+    "oklab", "oklch", "color", "color-mix", "linear-gradient", "radial-gradient", "conic-gradient",
+    "repeating-linear-gradient", "repeating-radial-gradient", "repeating-conic-gradient",
+    "translate", "translatex", "translatey", "translatez", "translate3d", "scale", "scalex",
+    "scaley", "scalez", "scale3d", "rotate", "rotatex", "rotatey", "rotatez", "rotate3d", "skew",
+    "skewx", "skewy", "matrix", "matrix3d", "perspective", "blur", "brightness", "contrast",
+    "drop-shadow", "grayscale", "hue-rotate", "invert", "opacity", "saturate", "sepia",
+    "cubic-bezier", "steps", "linear", "minmax", "repeat", "fit-content", "counter", "counters",
+    "attr", "circle", "ellipse", "inset", "polygon", "path", "rect", "format", "local",
+];
+
+/// 值里每个 `name(` 函数名必须在白名单内（裸括号分组允许）；有一个越界即整值拒绝。
+fn css_functions_allowed(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    for (i, &c) in b.iter().enumerate() {
+        if c == b'(' {
+            let mut j = i;
+            while j > 0 && (b[j - 1].is_ascii_alphanumeric() || b[j - 1] == b'-') {
+                j -= 1;
+            }
+            let name = &lower[j..i];
+            if !name.is_empty() && !SAFE_CSS_FUNCTIONS.contains(&name) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// 安全 CSS 值净化（B0-7，白名单）：
+/// 1. 去结构性字符 `< > " ; { }`（防越出 style 属性 / 注入声明）；
+/// 2. 函数白名单——非法函数（url/expression/image-set…）整值拒绝，返回空 = 调用方跳过该声明。
 fn sanitize_css_value(s: &str) -> String {
-    s.chars()
+    let cleaned: String = s
+        .chars()
         .filter(|c| *c != '<' && *c != '>' && *c != '"' && *c != ';' && *c != '{' && *c != '}')
-        .collect::<String>()
-        .trim()
-        .to_string()
+        .collect();
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() || !css_functions_allowed(cleaned) {
+        return String::new();
+    }
+    cleaned.to_string()
 }
 
 /// 从 open tag 字符串里取属性值（仅支持双/单引号形式）。
@@ -469,6 +511,68 @@ fn find_attr_pos(open_tag: &str, attr: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── B0-7: CSS 值白名单硬化 ──────────────────────────────────
+
+    #[test]
+    fn css_whitelist_allows_legit_value_functions() {
+        for v in [
+            "16px",
+            "#3b5bdb",
+            "calc(100% - 2rem)",
+            "var(--ds-color-primary)",
+            "rgba(0,0,0,.5)",
+            "oklch(0.7 0.1 250)",
+            "linear-gradient(90deg, red, blue)",
+            "translateX(10px) rotate(4deg)",
+            "drop-shadow(0 1px 2px rgba(0,0,0,.3))",
+            "clamp(1rem, 2vw, 3rem)",
+        ] {
+            assert_eq!(sanitize_css_value(v), v, "合法值不该被白名单误拒: {v}");
+        }
+    }
+
+    #[test]
+    fn css_whitelist_rejects_resource_and_exec_vectors() {
+        // url() / image-set() / expression() 含不在白名单的函数 → 整值拒绝（返回空）。
+        for v in [
+            "url(https://evil.example/x.png)",
+            "url('data:text/html,<script>')",
+            "image-set(url(a.png) 1x)",
+            "expression(alert(1))",
+            "URL(x)", // 大小写不敏感
+        ] {
+            assert_eq!(sanitize_css_value(v), "", "危险函数必须被白名单拒: {v}");
+        }
+    }
+
+    #[test]
+    fn css_whitelist_still_strips_structural_chars() {
+        // 结构性字符仍被过滤（防越出 style 属性）；过滤后若无非法函数则保留。
+        assert_eq!(sanitize_css_value("red\"; color: blue"), "red color: blue");
+    }
+
+    #[test]
+    fn style_patch_drops_rejected_value_keeping_existing() {
+        // 试图用 url() 覆写既有属性 → 被拒，既有值保留、不写空。
+        // （map 偏移索引进原始 src，故传 src 而非 annotate 输出——对齐其它 style patch 测试。）
+        let src = "<div style=\"background: #fff\">x</div>";
+        let (_, map) = annotate(src);
+        let r = apply_style_patch(
+            src,
+            &map,
+            0,
+            &[("background".into(), "url(https://evil/x.png)".into())],
+            None,
+        )
+        .unwrap();
+        assert!(
+            r.new_source.contains("background: #fff"),
+            "被拒的 url() 不该覆写既有背景: {}",
+            r.new_source
+        );
+        assert!(!r.new_source.contains("url("), "url() 绝不能落进产物源码");
+    }
 
     #[test]
     fn annotate_injects_oids() {

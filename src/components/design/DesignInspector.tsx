@@ -139,8 +139,14 @@ function NumberRow({
     setV(String(value))
   }
   // 脏值守卫：未改不 commit（防聚焦+失焦把 computed 值原样写回源码，review #4）。
+  // NaN / 空守卫（B0-7）：非法输入回填原值、绝不静默 commit 成 0 抹掉尺寸；负值仍合法（不钳）。
   const commit = () => {
-    if ((parseFloat(v) || 0) !== value) onCommit(prop, `${parseFloat(v) || 0}${suffix}`)
+    const n = parseFloat(v)
+    if (!Number.isFinite(n)) {
+      setV(String(value))
+      return
+    }
+    if (n !== value) onCommit(prop, `${n}${suffix}`)
   }
   return (
     <label className="flex items-center justify-between gap-2 text-sm">
