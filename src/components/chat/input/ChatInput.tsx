@@ -964,14 +964,14 @@ export default function ChatInput({
           hero && "shadow-floating",
           incognitoEnabled &&
             [
-              "[--color-surface-floating:hsl(220_13%_13%)]",
-              "[--color-surface-subtle:hsl(220_13%_18%)]",
-              "[--color-secondary:hsl(220_13%_20%)]",
+              "[--color-surface-floating:hsl(0_0%_13%)]",
+              "[--color-surface-subtle:hsl(0_0%_16%)]",
+              "[--color-secondary:hsl(0_0%_17%)]",
               "[--color-foreground:hsl(0_0%_96%)]",
-              "[--color-muted-foreground:hsl(215_14%_70%)]",
-              "[--color-border:hsl(220_13%_24%)]",
-              "[--color-border-soft:hsl(220_13%_24%)]",
-              "shadow-[0_18px_52px_hsl(220_18%_10%/0.24)]",
+              "[--color-muted-foreground:hsl(0_0%_70%)]",
+              "[--color-border:hsl(0_0%_22%)]",
+              "[--color-border-soft:hsl(0_0%_22%)]",
+              "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
             ],
         )}
       >

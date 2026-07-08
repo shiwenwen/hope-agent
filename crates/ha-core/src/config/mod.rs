@@ -1094,8 +1094,8 @@ pub struct AppConfig {
     /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
     #[serde(default = "default_language")]
     pub language: String,
-    /// Whether UI background effects (stars, weather) are enabled
-    #[serde(default = "crate::default_true")]
+    /// Whether UI background effects (stars, weather) are enabled. Default off.
+    #[serde(default)]
     pub ui_effects_enabled: bool,
     /// Prevent the host from idle-sleeping while the app runs (user setting,
     /// default off). When on, the primary process holds an OS sleep assertion
@@ -1354,7 +1354,7 @@ impl Default for AppConfig {
             tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),
-            ui_effects_enabled: true,
+            ui_effects_enabled: false,
             prevent_sleep: false,
             sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),

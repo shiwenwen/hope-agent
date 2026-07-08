@@ -29,7 +29,7 @@ function AppBackgroundInner() {
   const nextId = useRef(0)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const [uiEffectsEnabled, setUiEffectsEnabled] = useState(true)
+  const [uiEffectsEnabled, setUiEffectsEnabled] = useState(false)
   const [weatherCode, setWeatherCode] = useState<number | null>(null)
   const [windSpeed, setWindSpeed] = useState(0)
 

@@ -25,6 +25,7 @@ interface AgentSwitcherProps {
   currentAgentId: string
   agentName: string
   disabled?: boolean
+  compactLabel?: boolean
   onSelect: (agentId: string) => void
 }
 
@@ -33,6 +34,7 @@ export default function AgentSwitcher({
   currentAgentId,
   agentName,
   disabled,
+  compactLabel,
   onSelect,
 }: AgentSwitcherProps) {
   const [open, setOpen] = useState(false)
@@ -54,6 +56,14 @@ export default function AgentSwitcher({
   }, [open])
 
   if (disabled) {
+    if (compactLabel) {
+      return (
+        <span className="inline-flex h-5 max-w-[140px] shrink-0 items-center overflow-hidden rounded-md bg-foreground/10 px-2 text-[12px] font-medium leading-none text-foreground/70">
+          <span className="min-w-0 truncate">{agentName}</span>
+        </span>
+      )
+    }
+
     return (
       <span className="flex h-5 shrink-0 items-center text-sm font-medium leading-none text-foreground">
         <AgentSelectDisplay
@@ -71,17 +81,25 @@ export default function AgentSwitcher({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex h-5 items-center gap-0.5 text-sm font-medium leading-none text-foreground transition-colors",
-          "hover:text-primary",
+          compactLabel
+            ? "inline-flex h-5 max-w-[160px] items-center gap-1 overflow-hidden rounded-md bg-foreground/10 px-2 text-[12px] font-medium leading-none text-foreground/70 transition-colors hover:bg-foreground/15 hover:text-foreground"
+            : "flex h-5 items-center gap-0.5 text-sm font-medium leading-none text-foreground transition-colors hover:text-primary",
         )}
       >
-        <AgentSelectDisplay
-          agent={currentAgent}
-          fallbackName={agentName}
-          className="leading-none"
-        />
+        {compactLabel ? (
+          <span className="min-w-0 truncate">{agentName}</span>
+        ) : (
+          <AgentSelectDisplay
+            agent={currentAgent}
+            fallbackName={agentName}
+            className="leading-none"
+          />
+        )}
         <ChevronDown
-          className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")}
+          className={cn(
+            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
         />
       </button>
       <FloatingMenu
