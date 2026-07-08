@@ -2805,7 +2805,7 @@ function LaunchHome({
         </div>
 
         {/* Prompt card */}
-        <div className="rounded-2xl border border-border/60 bg-card p-3.5 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15">
+        <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15">
           <Textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -2819,9 +2819,9 @@ function LaunchHome({
               "design.launchPlaceholder",
               "描述你想要的设计，例如「一个 SaaS 产品的定价页，三档套餐」…",
             )}
-            className="min-h-[112px] resize-none border-0 bg-transparent px-2.5 py-2 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+            className="min-h-[72px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
           />
-          <div className="mt-1.5 flex items-center justify-between gap-2 border-t border-border/50 px-1 pt-2.5">
+          <div className="mt-1 flex items-center justify-between gap-2 border-t border-border/50 px-1 pt-2">
             <Button
               variant="ghost"
               size="sm"
