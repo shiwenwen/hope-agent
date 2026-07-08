@@ -6154,7 +6154,14 @@
       "effects": "Effects",
       "opacity": "Opacity",
       "shadow": "Shadow",
-      "shadowNone": "None"
+      "shadowNone": "None",
+      "link": "Link",
+      "href": "Link URL",
+      "image": "Image",
+      "imageSrc": "Image URL",
+      "uploadImage": "Upload image",
+      "imageAlt": "Alt text",
+      "imageAltHint": "Describe the image"
     },
     "settings": {
       "desc": "Design Space: generate, fine-tune, and export deliverable design artifacts.",
@@ -6436,6 +6443,8 @@
     "present": "Present",
     "presentInTab": "Present in window",
     "presentFullscreen": "Present fullscreen",
-    "exitPresent": "Exit present (Esc)"
+    "exitPresent": "Exit present (Esc)",
+    "undo": "Undo",
+    "redo": "Redo"
   }
 }

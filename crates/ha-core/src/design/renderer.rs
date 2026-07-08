@@ -301,8 +301,13 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     var cs=getComputedStyle(el), styles={};
     CSS_PROPS.forEach(function(p){styles[p]=cs.getPropertyValue(p)});
     var r=el.getBoundingClientRect();
-    return {oid:el.getAttribute('data-ds-oid'),tag:el.tagName.toLowerCase(),
-      styles:styles,text:el.textContent||'',isLeaf:el.childElementCount===0,
+    var tag=el.tagName.toLowerCase();
+    // B5：<a>/<img> 的可编辑属性回传父窗（inspector 据 tag 显示链接 / 图片段）。
+    var attrs={};
+    if(tag==='a'){attrs.href=el.getAttribute('href')||''}
+    if(tag==='img'){attrs.src=el.getAttribute('src')||'';attrs.alt=el.getAttribute('alt')||''}
+    return {oid:el.getAttribute('data-ds-oid'),tag:tag,
+      styles:styles,attrs:attrs,text:el.textContent||'',isLeaf:el.childElementCount===0,
       rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
   }
   function clearHover(){if(hovered){hovered.style.outline='';hovered=null}}
@@ -441,6 +446,12 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
       (d.props||[]).forEach(function(kv){el.style.setProperty(kv[0],kv[1])});
     }
     else if(d.type==='ds_set_text'){var el=elByOid(d.oid);if(el)el.textContent=d.text}
+    else if(d.type==='ds_preview_attr'){
+      // B5：href/src/alt 乐观 live 预览（真回写走确定性 patch）。只认白名单属性。
+      var el=elByOid(d.oid);if(!el)return;
+      (d.attrs||[]).forEach(function(kv){
+        var n=kv[0];if(n==='href'||n==='src'||n==='alt'){el.setAttribute(n,kv[1])}});
+    }
     else if(d.type==='ds_reselect'){var el=elByOid(d.oid);
       if(el){clearSel();selected=el;el.style.outline='2px solid #2563eb';
         parent.postMessage({type:'ds_selected',payload:info(el)},'*')}}

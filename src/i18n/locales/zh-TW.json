@@ -6154,7 +6154,14 @@
       "effects": "效果",
       "opacity": "不透明度",
       "shadow": "陰影",
-      "shadowNone": "無"
+      "shadowNone": "無",
+      "link": "連結",
+      "href": "連結網址",
+      "image": "圖片",
+      "imageSrc": "圖片網址",
+      "uploadImage": "上傳本機圖片",
+      "imageAlt": "替代文字 (alt)",
+      "imageAltHint": "圖片描述"
     },
     "settings": {
       "desc": "設計空間：產生、微調並匯出可交付的設計產物。",
@@ -6436,6 +6443,8 @@
     "present": "簡報",
     "presentInTab": "本視窗簡報",
     "presentFullscreen": "全螢幕簡報",
-    "exitPresent": "退出簡報 (Esc)"
+    "exitPresent": "退出簡報 (Esc)",
+    "undo": "復原",
+    "redo": "重做"
   }
 }

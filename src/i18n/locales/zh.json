@@ -6154,7 +6154,14 @@
       "effects": "效果",
       "opacity": "不透明度",
       "shadow": "阴影",
-      "shadowNone": "无"
+      "shadowNone": "无",
+      "link": "链接",
+      "href": "链接地址",
+      "image": "图片",
+      "imageSrc": "图片地址",
+      "uploadImage": "上传本地图片",
+      "imageAlt": "替代文本 (alt)",
+      "imageAltHint": "图片描述"
     },
     "settings": {
       "desc": "设计空间：生成、微调并导出可交付的设计产物。",
@@ -6436,6 +6443,8 @@
     "present": "演示",
     "presentInTab": "本窗口演示",
     "presentFullscreen": "全屏演示",
-    "exitPresent": "退出演示 (Esc)"
+    "exitPresent": "退出演示 (Esc)",
+    "undo": "撤销",
+    "redo": "重做"
   }
 }

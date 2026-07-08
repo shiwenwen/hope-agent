@@ -294,6 +294,112 @@ pub fn apply_style_patch(
     Ok(PatchResult { new_source })
 }
 
+/// 属性编辑白名单（B5，红线）：只放行 `href`/`src`/`alt`——绝不允许写任意属性，否则可注入
+/// `onclick`/`onerror` 等事件处理器或 `style`（`style` 走 `apply_style_patch` 的 CSS 白名单）。
+pub const ALLOWED_ATTRS: &[&str] = &["href", "src", "alt"];
+
+/// HTML 属性值转义（`&`/`<`/`>`/`"` → 实体；属性用双引号包裹故必须转义 `"`）。
+fn escape_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// 属性值净化（B5，红线）：去控制字符 + 危险 scheme（`javascript:`/`vbscript:`/`data:text/html`）
+/// 一律拒（返回 `None` = 跳过该属性，绝不写危险值）；`href` 额外拒 `data:`，`src` 只放行
+/// `data:image/*`（保产物自包含），`alt` 纯文本。通过后 HTML 属性转义。
+pub(crate) fn sanitize_attr_value(attr: &str, value: &str) -> Option<String> {
+    let cleaned: String = value.trim().chars().filter(|c| !c.is_control()).collect();
+    let lower = cleaned.trim_start().to_ascii_lowercase();
+    if lower.starts_with("javascript:")
+        || lower.starts_with("vbscript:")
+        || lower.starts_with("data:text/html")
+    {
+        return None;
+    }
+    match attr {
+        "href" => {
+            if lower.starts_with("data:") {
+                return None; // 链接不放行任何 data: URI
+            }
+            Some(escape_attr(&cleaned))
+        }
+        "src" => {
+            // http/https/相对路径放行；data: 仅 data:image/*（守自包含 + 挡 data:text/*）。
+            if lower.starts_with("data:") && !lower.starts_with("data:image/") {
+                return None;
+            }
+            Some(escape_attr(&cleaned))
+        }
+        "alt" => Some(escape_attr(&cleaned)),
+        _ => None,
+    }
+}
+
+/// 编辑目标元素的属性（B5：`href`/`src`/`alt`）。逐属性 remove+insert 重建 open tag，
+/// 单次 splice 回源。**只放行 `ALLOWED_ATTRS`**（红线）；值经 `sanitize_attr_value`，被拒的
+/// 属性跳过（绝不写空 / 危险值）。空字符串值 = 显式清除该属性（alt 常见）。
+pub fn apply_attr_patch(
+    source: &str,
+    map: &[OidEntry],
+    oid: u32,
+    attrs: &[(String, String)],
+    expected_hash: Option<&str>,
+) -> Result<PatchResult, PatchError> {
+    if let Some(h) = expected_hash {
+        if body_hash(source) != h {
+            return Err(PatchError::Stale);
+        }
+    }
+    let e = find_entry(map, oid).ok_or(PatchError::OidNotFound(oid))?;
+    let open = &source[e.open_start..e.open_end];
+    let self_closing = open.trim_end().ends_with("/>");
+    let mut tag = open.to_string();
+    for (attr, value) in attrs {
+        let name = attr.trim().to_ascii_lowercase();
+        if !ALLOWED_ATTRS.contains(&name.as_str()) {
+            continue; // 红线：越界属性名静默跳过
+        }
+        let without = remove_attr(&tag, &name);
+        // 空值 = 清除属性（remove 后不再插入）。
+        if value.trim().is_empty() {
+            tag = without;
+            continue;
+        }
+        let Some(safe) = sanitize_attr_value(&name, value) else {
+            // 危险 / 被拒值：保留原属性不动（不清除、不写坏值）。
+            continue;
+        };
+        let insert_at = if self_closing {
+            without.rfind("/>").unwrap_or(without.len().saturating_sub(1))
+        } else {
+            without.rfind('>').unwrap_or(without.len().saturating_sub(1))
+        };
+        let mut nt = String::with_capacity(without.len() + name.len() + safe.len() + 8);
+        nt.push_str(without[..insert_at].trim_end());
+        nt.push_str(&format!(" {name}=\"{safe}\""));
+        if self_closing {
+            nt.push_str(" />");
+        } else {
+            nt.push('>');
+        }
+        tag = nt;
+    }
+    let mut new_source = String::with_capacity(source.len() + 64);
+    new_source.push_str(&source[..e.open_start]);
+    new_source.push_str(&tag);
+    new_source.push_str(&source[e.open_end..]);
+    Ok(PatchResult { new_source })
+}
+
 /// 替换目标元素内部文本（bridge 只对叶子元素开放；`new_text` 会被 HTML 转义）。
 pub fn apply_text_patch(
     source: &str,
@@ -554,18 +660,38 @@ fn remove_attr(open_tag: &str, attr: &str) -> String {
     s
 }
 
-/// 找到属性名在 open tag 里的字节起点（须是单词边界，避免 `data-style` 误匹配 `style`）。
+/// 找到属性名在 open tag **顶层**（不在引号内）的字节起点；须词首边界（前为空白，避免
+/// `data-style` 误命中 `style`）、紧跟 `=`。**引号感知（review 修复 #4）**：扫描时跳过带引号的
+/// 属性值，避免值里的 ` name=` 子串（如 `alt="见 src=x"`）被误命中 → 移除失败 + 重复属性 →
+/// 编辑被静默丢弃、旧值残留。仍要求 `name=` 紧邻（不含空格；我方渲染器只产此形态）。
 fn find_attr_pos(open_tag: &str, attr: &str) -> Option<usize> {
-    let needle = format!("{attr}=");
-    let mut from = 0;
-    while let Some(rel) = open_tag[from..].find(&needle) {
-        let pos = from + rel;
-        let ok_before =
-            pos == 0 || matches!(open_tag.as_bytes()[pos - 1], b' ' | b'\t' | b'\n' | b'\r');
-        if ok_before {
-            return Some(pos);
+    let bytes = open_tag.as_bytes();
+    let alen = attr.len();
+    let mut i = 0usize;
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
         }
-        from = pos + needle.len();
+        if c == b'"' || c == b'\'' {
+            quote = Some(c);
+            i += 1;
+            continue;
+        }
+        let boundary = i > 0 && matches!(bytes[i - 1], b' ' | b'\t' | b'\n' | b'\r');
+        if boundary
+            && i + alen < bytes.len()
+            && bytes[i..i + alen].eq_ignore_ascii_case(attr.as_bytes())
+            && bytes[i + alen] == b'='
+        {
+            return Some(i);
+        }
+        i += 1;
     }
     None
 }
@@ -749,6 +875,87 @@ mod tests {
         let (_, map) = annotate(src);
         let r = apply_text_patch(src, &map, 0, "new & shiny", None).unwrap();
         assert_eq!(r.new_source, "<h1>new &amp; shiny</h1>");
+    }
+
+    // ── B5 属性编辑（href/src/alt）+ 安全白名单 ─────────────────────
+
+    #[test]
+    fn attr_patch_sets_href() {
+        let src = "<a href=\"/old\">go</a>";
+        let (_, map) = annotate(src);
+        let r =
+            apply_attr_patch(src, &map, 0, &[("href".into(), "https://x.com".into())], None).unwrap();
+        assert_eq!(r.new_source, "<a href=\"https://x.com\">go</a>");
+    }
+
+    #[test]
+    fn attr_patch_sets_img_src_alt() {
+        let src = "<img src=\"a.png\" />";
+        let (_, map) = annotate(src);
+        let r = apply_attr_patch(
+            src,
+            &map,
+            0,
+            &[
+                ("src".into(), "data:image/png;base64,AAAA".into()),
+                ("alt".into(), "a \"quoted\" cat".into()),
+            ],
+            None,
+        )
+        .unwrap();
+        assert!(r.new_source.contains("src=\"data:image/png;base64,AAAA\""));
+        assert!(r.new_source.contains("alt=\"a &quot;quoted&quot; cat\""));
+    }
+
+    #[test]
+    fn attr_patch_rejects_dangerous_and_offlist() {
+        // javascript: href 被拒 → 保留原值不动。
+        let src = "<a href=\"/safe\">x</a>";
+        let (_, map) = annotate(src);
+        let r =
+            apply_attr_patch(src, &map, 0, &[("href".into(), "javascript:alert(1)".into())], None)
+                .unwrap();
+        assert_eq!(r.new_source, "<a href=\"/safe\">x</a>");
+
+        // href 不放行 data:；src 不放行 data:text/*。
+        assert_eq!(sanitize_attr_value("href", "data:text/html,x"), None);
+        assert_eq!(sanitize_attr_value("src", "data:text/html,x"), None);
+        assert!(sanitize_attr_value("src", "data:image/png;base64,AAAA").is_some());
+
+        // 白名单外属性名（onclick / style）静默跳过，open tag 不变。
+        let r2 = apply_attr_patch(
+            src,
+            &map,
+            0,
+            &[
+                ("onclick".into(), "alert(1)".into()),
+                ("style".into(), "color:red".into()),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(r2.new_source, src);
+    }
+
+    #[test]
+    fn attr_patch_empty_value_clears() {
+        let src = "<img src=\"a.png\" alt=\"old\" />";
+        let (_, map) = annotate(src);
+        let r = apply_attr_patch(src, &map, 0, &[("alt".into(), "".into())], None).unwrap();
+        assert!(!r.new_source.contains("alt="));
+        assert!(r.new_source.contains("src=\"a.png\""));
+    }
+
+    #[test]
+    fn attr_patch_quote_aware_no_duplicate() {
+        // review #4：前一属性的**值**里含 ` src=` 子串，不得误命中导致重复属性 / 编辑丢弃。
+        let src = "<img alt=\"see src=old for ref\" src=\"a.png\" />";
+        let (_, map) = annotate(src);
+        let r = apply_attr_patch(src, &map, 0, &[("src".into(), "b.png".into())], None).unwrap();
+        // 真正的 src 被替换，alt 的值原样保留，全程只一个 src= 属性。
+        assert!(r.new_source.contains("src=\"b.png\""));
+        assert!(r.new_source.contains("alt=\"see src=old for ref\""));
+        assert_eq!(r.new_source.matches("src=\"").count(), 1, "不得产生重复 src 属性");
     }
 
     #[test]

@@ -1457,6 +1457,9 @@ pub struct ElementPatch {
     pub text: Option<String>,
     #[serde(default)]
     pub styles: Option<Vec<(String, String)>>,
+    /// 属性编辑（B5：`href`/`src`/`alt`，白名单外静默跳过）。空值 = 清除该属性。
+    #[serde(default)]
+    pub attrs: Option<Vec<(String, String)>>,
     /// 可选 stale-write 守卫（load 时拿到的 bodyHash）。
     #[serde(default)]
     pub expected_hash: Option<String>,
@@ -1484,15 +1487,27 @@ pub fn patch_element(p: ElementPatch) -> Result<DesignArtifact> {
     }
 
     let mut new_body = body;
-    // 先文本（改内部内容，位于 open tag 之后），后样式（改 open tag，range 未被文本移动）。
+    let mut map = oidmap;
+    // 先文本（改内部内容，位于 open tag 之后），后属性 / 样式（都改 open tag）。**每次改动 open tag
+    // 后 re-annotate 拿新 offset**——attrs 与 styles 同改一个 open tag，若共用旧 map 第二次会用到
+    // 被第一次改动移位的字节范围（值仅变、结构不变故 oid 稳定，re-annotate 给回同一 oid 的新偏移）。
     if let Some(text) = &p.text {
-        let r = patch::apply_text_patch(&new_body, &oidmap, p.oid, text, None)
+        let r = patch::apply_text_patch(&new_body, &map, p.oid, text, None)
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         new_body = r.new_source;
+        map = patch::annotate(&new_body).1;
+    }
+    if let Some(attrs) = &p.attrs {
+        if !attrs.is_empty() {
+            let r = patch::apply_attr_patch(&new_body, &map, p.oid, attrs, None)
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            new_body = r.new_source;
+            map = patch::annotate(&new_body).1;
+        }
     }
     if let Some(styles) = &p.styles {
         if !styles.is_empty() {
-            let r = patch::apply_style_patch(&new_body, &oidmap, p.oid, styles, None)
+            let r = patch::apply_style_patch(&new_body, &map, p.oid, styles, None)
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             new_body = r.new_source;
         }

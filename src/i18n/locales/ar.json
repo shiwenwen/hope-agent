@@ -6154,7 +6154,14 @@
       "effects": "التأثيرات",
       "opacity": "الشفافية",
       "shadow": "ظل",
-      "shadowNone": "لا شيء"
+      "shadowNone": "لا شيء",
+      "link": "رابط",
+      "href": "عنوان الرابط",
+      "image": "صورة",
+      "imageSrc": "عنوان الصورة",
+      "uploadImage": "رفع صورة",
+      "imageAlt": "نص بديل (alt)",
+      "imageAltHint": "صف الصورة"
     },
     "settings": {
       "desc": "مساحة التصميم: أنشئ عناصر تصميم قابلة للتسليم واضبطها وصدّرها.",
@@ -6436,6 +6443,8 @@
     "present": "عرض",
     "presentInTab": "عرض في النافذة",
     "presentFullscreen": "عرض ملء الشاشة",
-    "exitPresent": "إنهاء العرض (Esc)"
+    "exitPresent": "إنهاء العرض (Esc)",
+    "undo": "تراجع",
+    "redo": "إعادة"
   }
 }

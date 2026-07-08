@@ -49,6 +49,8 @@ import {
   FolderOpen,
   Tablet,
   Maximize2,
+  Undo2,
+  Redo2,
   Wand2,
   FileImage,
   FileType2,
@@ -175,6 +177,47 @@ const DEVICE_PRESETS: Record<Exclude<PreviewDevice, "auto">, { w: number; h: num
   mobile: { w: 390, h: 844 },
 }
 
+/** 可视化编辑 undo/redo 的 inverse-patch 载荷 / 记录（B5）。 */
+type PatchPayload = { styles?: [string, string][]; text?: string; attrs?: [string, string][] }
+type EditOp = { oid: number; before: PatchPayload; after: PatchPayload }
+
+/**
+ * 本地图片 → 自包含 data-uri（B5）。fetch src（objectURL / Tauri convertFileSrc 均可 fetch）
+ * → blob → canvas 降采样 + 字节预算，PNG 保留透明（logo）/ 其余 JPEG 压缩。产物须自包含故
+ * 用 data-uri（与参照的项目相对路径分歧、记账本）。失败返回 null。
+ */
+async function imageToDataUri(src: string): Promise<string | null> {
+  const blob = await (await fetch(src)).blob()
+  if (!blob.type.startsWith("image/")) return null
+  const needsAlpha = /png|gif|webp|svg/.test(blob.type)
+  const bmp = await createImageBitmap(blob)
+  const BUDGET = 700 * 1024 // data-uri 字符上限，控源码体积
+  let last: string | null = null
+  try {
+    for (const maxEdge of [1600, 1200, 800, 512]) {
+      const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height))
+      const w = Math.max(1, Math.round(bmp.width * scale))
+      const h = Math.max(1, Math.round(bmp.height * scale))
+      const canvas = document.createElement("canvas")
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return null
+      ctx.drawImage(bmp, 0, 0, w, h)
+      const candidates = needsAlpha
+        ? [canvas.toDataURL("image/png")]
+        : [0.85, 0.7, 0.55].map((q) => canvas.toDataURL("image/jpeg", q))
+      for (const uri of candidates) {
+        last = uri
+        if (uri.length <= BUDGET) return uri
+      }
+    }
+  } finally {
+    bmp.close?.()
+  }
+  return last // 尽力而为：仍超预算也返回最小的一版
+}
+
 export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
@@ -281,6 +324,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const activeArtifactRef = useRef<DesignArtifactView | null>(null)
   activeArtifactRef.current = activeArtifact
 
+  // 提前声明（commit handlers 在历史块之前引用；实体在 undo/redo 块内赋值）。
+  const pushHistoryRef = useRef<(op: EditOp) => void>(() => {})
+  const activeArtifactId = activeArtifact?.id
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
@@ -765,8 +811,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   }, [tx])
 
   const commitPatch = useCallback(
-    async (patch: { oid: number; styles?: [string, string][]; text?: string }) => {
-      if (!activeArtifact) return
+    async (patch: {
+      oid: number
+      styles?: [string, string][]
+      text?: string
+      attrs?: [string, string][]
+    }) => {
+      if (!activeArtifact) return false
       suppressReloadRef.current = true
       try {
         await tx.call("patch_design_element_cmd", {
@@ -777,6 +828,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           },
         })
         await refreshView()
+        return true
       } catch (e) {
         // stale write or error → hard reload to resync; clear the now-invalid
         // selection and tell the user to re-pick (oid may no longer match).
@@ -785,6 +837,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setSelected(null)
         logger.error("design", "DesignView::commitPatch", "patch failed", e)
         toast.error(t("design.staleReselect", "源已更新，请重新选择元素后再试"))
+        return false
       }
     },
     [tx, activeArtifact, refreshView, t],
@@ -805,11 +858,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // 先 live-apply 到 iframe：commitPatch 会抑制重挂，否则 commit-only 控件（字号/间距/布局/
       // 尺寸/描边/阴影…）提交后预览无变化（review #1）。
       postToIframe({ type: "ds_preview_style", oid, props: [[prop, value]] })
+      const before = selectedRef.current?.styles?.[prop] ?? ""
       // 乐观刷新 selected.styles：让派生控件（isFlexish / display·align Select 值 / 不透明度）
       // 立即反映本次提交，不等重选（review #3）。
       setSelected((prev) =>
         prev ? { ...prev, styles: { ...prev.styles, [prop]: value } } : prev,
       )
+      pushHistoryRef.current({
+        oid: Number(oid),
+        before: { styles: [[prop, before]] },
+        after: { styles: [[prop, value]] },
+      })
       void commitPatch({ oid: Number(oid), styles: [[prop, value]] })
     },
     [commitPatch, postToIframe],
@@ -826,10 +885,141 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     (text: string) => {
       const oid = selectedRef.current?.oid
       if (oid == null) return
+      const before = selectedRef.current?.text ?? ""
+      pushHistoryRef.current({ oid: Number(oid), before: { text: before }, after: { text } })
       void commitPatch({ oid: Number(oid), text })
     },
     [commitPatch],
   )
+
+  // ── 可视化编辑 undo/redo（B5：inverse-patch 栈，客户端）─────────
+  // 每次 commit 记 {oid, before, after}（before 值来自 selected 的当前/计算值），undo=回放 before、
+  // redo=回放 after，均经确定性 patch 引擎（视觉等价；样式从「未显式设」回退为计算值、无害）。
+  const [undoStack, setUndoStack] = useState<EditOp[]>([])
+  const [redoStack, setRedoStack] = useState<EditOp[]>([])
+  // 镜像栈到 ref，让串行化的 runHistoryStep 读到当前值而不进 deps（避免 keydown 监听反复重挂）。
+  const undoStackRef = useRef<EditOp[]>([])
+  const redoStackRef = useRef<EditOp[]>([])
+  undoStackRef.current = undoStack
+  redoStackRef.current = redoStack
+  const pushHistory = useCallback((op: EditOp) => {
+    // undo/redo 经 commitPatch 直提交、不走 commit handlers，故不会触发 pushHistory —— 无需
+    // 「正在回放」守卫（旧守卫在 undo 的 async 窗口内会误吞用户此刻的真实编辑，review 修复 #6）。
+    setUndoStack((s) => [...s.slice(-49), op]) // 上限 50，防无界增长
+    setRedoStack([])
+  }, [])
+  // 让 commit handlers 引用最新 pushHistory（ref 提前声明，此处赋值）。
+  pushHistoryRef.current = pushHistory
+
+  const applyPayloadLive = useCallback(
+    (oid: number, p: PatchPayload) => {
+      if (p.styles) for (const [k, v] of p.styles) postToIframe({ type: "ds_preview_style", oid, props: [[k, v]] })
+      if (p.text != null) postToIframe({ type: "ds_set_text", oid, text: p.text })
+      if (p.attrs) postToIframe({ type: "ds_preview_attr", oid, attrs: p.attrs })
+    },
+    [postToIframe],
+  )
+  // undo/redo 单步：**串行化 + 提交成功后才移栈**（review 修复）。
+  // ① `historyBusyRef` 防并发/连按（键盘自动重复）——commit 在途时后续按键忽略，
+  //    保证下一步用的是 refreshView 之后的新 bodyHash（否则同一 stale hash 触发 stale-write 全拒）。
+  // ② 一切副作用（live 预览 / setSelected / commit / 移栈）都在 updater **之外**（updater 须纯，
+  //    StrictMode 双调不再双跑 commit）。③ commit 失败（stale 等）**不移栈**，历史与磁盘不脱节。
+  const historyBusyRef = useRef(false)
+  const runHistoryStep = useCallback(
+    async (which: "undo" | "redo") => {
+      if (historyBusyRef.current) return
+      const stack = which === "undo" ? undoStackRef.current : redoStackRef.current
+      if (stack.length === 0) return
+      const op = stack[stack.length - 1]
+      const payload = which === "undo" ? op.before : op.after
+      historyBusyRef.current = true
+      applyPayloadLive(op.oid, payload)
+      setSelected((prev) => {
+        if (!prev || Number(prev.oid) !== op.oid) return prev
+        const next = { ...prev, styles: { ...prev.styles }, attrs: { ...(prev.attrs ?? {}) } }
+        if (payload.styles) for (const [k, v] of payload.styles) next.styles[k] = v
+        if (payload.text != null) next.text = payload.text
+        if (payload.attrs) for (const [k, v] of payload.attrs) next.attrs[k] = v
+        return next
+      })
+      const ok = await commitPatch({ oid: op.oid, ...payload })
+      historyBusyRef.current = false
+      if (!ok) return // 提交失败：保持栈不动（不脱节）
+      if (which === "undo") {
+        setUndoStack((s) => s.slice(0, -1))
+        setRedoStack((r) => [...r, op])
+      } else {
+        setRedoStack((r) => r.slice(0, -1))
+        setUndoStack((s) => [...s, op])
+      }
+    },
+    [applyPayloadLive, commitPatch],
+  )
+  const undo = useCallback(() => void runHistoryStep("undo"), [runHistoryStep])
+  const redo = useCallback(() => void runHistoryStep("redo"), [runHistoryStep])
+  // 清空历史：切产物时（oid 空间变、旧 op 不再适用）。
+  useEffect(() => {
+    setUndoStack([])
+    setRedoStack([])
+  }, [activeArtifactId])
+  // Cmd/Ctrl+Z 撤销 / Cmd/Ctrl+Shift+Z 重做——但焦点在输入框 / contenteditable 时让位原生撤销。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return
+      const ae = document.activeElement as HTMLElement | null
+      const tag = ae?.tagName
+      if (tag === "INPUT" || tag === "TEXTAREA" || ae?.isContentEditable) return
+      e.preventDefault()
+      if (e.shiftKey) redo()
+      else undo()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [undo, redo])
+
+  // ── B5：链接 / 图片属性编辑 ──
+  const handleLiveAttr = useCallback(
+    (attr: string, value: string) => {
+      const oid = selectedRef.current?.oid
+      if (oid == null) return
+      postToIframe({ type: "ds_preview_attr", oid, attrs: [[attr, value]] })
+    },
+    [postToIframe],
+  )
+  const handleCommitAttr = useCallback(
+    (attr: string, value: string) => {
+      const oid = selectedRef.current?.oid
+      if (oid == null) return
+      const before = selectedRef.current?.attrs?.[attr] ?? ""
+      postToIframe({ type: "ds_preview_attr", oid, attrs: [[attr, value]] })
+      setSelected((prev) =>
+        prev ? { ...prev, attrs: { ...(prev.attrs ?? {}), [attr]: value } } : prev,
+      )
+      pushHistoryRef.current({
+        oid: Number(oid),
+        before: { attrs: [[attr, before]] },
+        after: { attrs: [[attr, value]] },
+      })
+      void commitPatch({ oid: Number(oid), attrs: [[attr, value]] })
+    },
+    [commitPatch, postToIframe],
+  )
+  // 选本地图 → data-uri（fetch src→blob→canvas 降采样，统一桌面/HTTP；Tauri 无 File 也走 src fetch）。
+  const handlePickImage = useCallback(async (): Promise<string | null> => {
+    let picked: Awaited<ReturnType<typeof tx.pickLocalImage>> = null
+    try {
+      picked = await tx.pickLocalImage()
+      if (!picked?.src) return null
+      return await imageToDataUri(picked.src)
+    } catch (e) {
+      logger.error("design", "DesignView::handlePickImage", "pick image failed", e)
+      toast.error(t("design.err.load", "加载失败"))
+      return null
+    } finally {
+      // 无论成功 / 抛错都释放 objectURL（review 修复 #7：失败路径原会泄漏 blob: URL）。
+      picked?.revoke?.()
+    }
+  }, [tx, t])
 
   // ── 批注钉 handlers ──
   const loadComments = useCallback(async () => {
@@ -1482,7 +1672,6 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   }, [refreshView, activeProject]) // loadArtifacts/setPreviewKey stable
 
   // ── 设备视口 (B4-3) + 演示态 (B4-4) ───────────────────────────
-  const activeArtifactId = activeArtifact?.id
   // per-artifact 记忆（localStorage）：切产物时载回上次的设备选择。
   useEffect(() => {
     if (!activeArtifactId) return
@@ -2314,6 +2503,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         </IconTip>
                       </>
                     )}
+                    {/* 撤销 / 重做可视化编辑（B5，Cmd/Ctrl+Z） */}
+                    {(undoStack.length > 0 || redoStack.length > 0) && (
+                      <div className="flex items-center rounded-md border border-border/60 p-0.5">
+                        <IconTip label={t("design.undo", "撤销")} side="bottom">
+                          <button
+                            type="button"
+                            onClick={undo}
+                            disabled={undoStack.length === 0}
+                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                          >
+                            <Undo2 className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                        <IconTip label={t("design.redo", "重做")} side="bottom">
+                          <button
+                            type="button"
+                            onClick={redo}
+                            disabled={redoStack.length === 0}
+                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                          >
+                            <Redo2 className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      </div>
+                    )}
                     {/* 设备视口切换（B4-3） */}
                     <div className="flex items-center rounded-md border border-border/60 p-0.5">
                       {(
@@ -2608,6 +2822,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onCommitStyle={handleCommitStyle}
               onLiveText={handleLiveText}
               onCommitText={handleCommitText}
+              onLiveAttr={handleLiveAttr}
+              onCommitAttr={handleCommitAttr}
+              onPickImage={handlePickImage}
               onClose={() => setSelected(null)}
             />
           )}

@@ -6154,7 +6154,14 @@
       "effects": "Hiệu ứng",
       "opacity": "Độ mờ",
       "shadow": "Đổ bóng",
-      "shadowNone": "Không"
+      "shadowNone": "Không",
+      "link": "Liên kết",
+      "href": "URL liên kết",
+      "image": "Hình ảnh",
+      "imageSrc": "URL hình ảnh",
+      "uploadImage": "Tải ảnh lên",
+      "imageAlt": "Văn bản thay thế (alt)",
+      "imageAltHint": "Mô tả hình ảnh"
     },
     "settings": {
       "desc": "Không gian Thiết kế: tạo, tinh chỉnh và xuất các sản phẩm thiết kế bàn giao được.",
@@ -6436,6 +6443,8 @@
     "present": "Trình bày",
     "presentInTab": "Trình bày trong cửa sổ",
     "presentFullscreen": "Trình bày toàn màn hình",
-    "exitPresent": "Thoát trình bày (Esc)"
+    "exitPresent": "Thoát trình bày (Esc)",
+    "undo": "Hoàn tác",
+    "redo": "Làm lại"
   }
 }

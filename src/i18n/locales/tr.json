@@ -6154,7 +6154,14 @@
       "effects": "Efektler",
       "opacity": "Saydamlık",
       "shadow": "Gölge",
-      "shadowNone": "Yok"
+      "shadowNone": "Yok",
+      "link": "Bağlantı",
+      "href": "Bağlantı URL'si",
+      "image": "Görsel",
+      "imageSrc": "Görsel URL'si",
+      "uploadImage": "Görsel yükle",
+      "imageAlt": "Alternatif metin (alt)",
+      "imageAltHint": "Görseli açıklayın"
     },
     "settings": {
       "desc": "Tasarım Alanı: teslim edilebilir tasarım çıktıları üret, ince ayar yap ve dışa aktar.",
@@ -6436,6 +6443,8 @@
     "present": "Sun",
     "presentInTab": "Pencerede sun",
     "presentFullscreen": "Tam ekran sun",
-    "exitPresent": "Sunumdan çık (Esc)"
+    "exitPresent": "Sunumdan çık (Esc)",
+    "undo": "Geri al",
+    "redo": "Yinele"
   }
 }

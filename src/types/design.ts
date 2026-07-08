@@ -91,6 +91,8 @@ export interface DesignSelectedElement {
   oid: string;
   tag: string;
   styles: Record<string, string>;
+  /** B5：<a>/<img> 的可编辑属性（href/src/alt）；其它 tag 为空。 */
+  attrs?: Record<string, string>;
   text: string;
   isLeaf: boolean;
   rect: { x: number; y: number; w: number; h: number };
@@ -138,6 +140,8 @@ export interface ElementPatchInput {
   oid: number;
   text?: string;
   styles?: [string, string][];
+  /** B5 属性编辑（href/src/alt）；空值 = 清除该属性。 */
+  attrs?: [string, string][];
   expectedHash?: string;
 }
 

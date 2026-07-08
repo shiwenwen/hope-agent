@@ -6154,7 +6154,14 @@
       "effects": "Kesan",
       "opacity": "Kelegapan",
       "shadow": "Bayang",
-      "shadowNone": "Tiada"
+      "shadowNone": "Tiada",
+      "link": "Pautan",
+      "href": "URL pautan",
+      "image": "Imej",
+      "imageSrc": "URL imej",
+      "uploadImage": "Muat naik imej",
+      "imageAlt": "Teks alt",
+      "imageAltHint": "Terangkan imej"
     },
     "settings": {
       "desc": "Ruang Reka Bentuk: jana, tala halus dan eksport artifak reka bentuk boleh serah.",
@@ -6436,6 +6443,8 @@
     "present": "Bentang",
     "presentInTab": "Bentang dalam tetingkap",
     "presentFullscreen": "Bentang skrin penuh",
-    "exitPresent": "Keluar bentang (Esc)"
+    "exitPresent": "Keluar bentang (Esc)",
+    "undo": "Buat asal",
+    "redo": "Buat semula"
   }
 }

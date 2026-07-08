@@ -6154,7 +6154,14 @@
       "effects": "Efeitos",
       "opacity": "Opacidade",
       "shadow": "Sombra",
-      "shadowNone": "Nenhuma"
+      "shadowNone": "Nenhuma",
+      "link": "Link",
+      "href": "URL do link",
+      "image": "Imagem",
+      "imageSrc": "URL da imagem",
+      "uploadImage": "Enviar imagem",
+      "imageAlt": "Texto alternativo (alt)",
+      "imageAltHint": "Descreva a imagem"
     },
     "settings": {
       "desc": "Espaço de Design: gere, ajuste e exporte artefatos de design entregáveis.",
@@ -6436,6 +6443,8 @@
     "present": "Apresentar",
     "presentInTab": "Apresentar na janela",
     "presentFullscreen": "Apresentar em tela cheia",
-    "exitPresent": "Sair da apresentação (Esc)"
+    "exitPresent": "Sair da apresentação (Esc)",
+    "undo": "Desfazer",
+    "redo": "Refazer"
   }
 }

@@ -8,7 +8,7 @@
 
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { X, AlignLeft, AlignCenter, AlignRight } from "lucide-react"
+import { X, AlignLeft, AlignCenter, AlignRight, Link2, ImageUp, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -29,6 +29,12 @@ interface Props {
   onCommitStyle: (prop: string, value: string) => void
   onLiveText: (text: string) => void
   onCommitText: (text: string) => void
+  /** B5：href/src/alt 即时预览（ds_preview_attr）。 */
+  onLiveAttr: (attr: string, value: string) => void
+  /** B5：href/src/alt 提交回写（确定性 patch）。 */
+  onCommitAttr: (attr: string, value: string) => void
+  /** B5：选本地图 → data-uri（桌面/HTTP 统一）；返回 null = 取消/失败。 */
+  onPickImage: () => Promise<string | null>
   onClose: () => void
 }
 
@@ -283,17 +289,43 @@ export default function DesignInspector({
   onCommitStyle,
   onLiveText,
   onCommitText,
+  onLiveAttr,
+  onCommitAttr,
+  onPickImage,
   onClose,
 }: Props) {
   const { t } = useTranslation()
   const s = selected.styles
   const [text, setText] = useState(selected.text)
-  // Reset the editable text when the selected element changes (render-phase
-  // prev-prop tracking — avoids setState-in-effect cascading renders).
-  const [prevOid, setPrevOid] = useState(selected.oid)
-  if (selected.oid !== prevOid) {
-    setPrevOid(selected.oid)
-    setText(selected.text)
+  // B5：链接 / 图片属性本地草稿。
+  const [href, setHref] = useState(selected.attrs?.href ?? "")
+  const [imgSrc, setImgSrc] = useState(selected.attrs?.src ?? "")
+  const [imgAlt, setImgAlt] = useState(selected.attrs?.alt ?? "")
+  const [uploading, setUploading] = useState(false)
+  // 草稿跟随**外部值变化**（不只 oid）——否则 undo/redo 改了同一元素的 text/href/src/alt 后，输入框
+  // 还停在旧草稿，一次失焦会把旧值重新提交、把 undo 抵消（review 修复）。渲染期 prev-prop 对账，
+  // 只重置真正变了的字段；打字期（onLive* 不改 selected）外部值不变故不与用户输入相争。
+  const extText = selected.text
+  const extHref = selected.attrs?.href ?? ""
+  const extSrc = selected.attrs?.src ?? ""
+  const extAlt = selected.attrs?.alt ?? ""
+  const [prevExt, setPrevExt] = useState({
+    text: extText,
+    href: extHref,
+    src: extSrc,
+    alt: extAlt,
+  })
+  if (
+    prevExt.text !== extText ||
+    prevExt.href !== extHref ||
+    prevExt.src !== extSrc ||
+    prevExt.alt !== extAlt
+  ) {
+    if (prevExt.text !== extText) setText(extText)
+    if (prevExt.href !== extHref) setHref(extHref)
+    if (prevExt.src !== extSrc) setImgSrc(extSrc)
+    if (prevExt.alt !== extAlt) setImgAlt(extAlt)
+    setPrevExt({ text: extText, href: extHref, src: extSrc, alt: extAlt })
   }
 
   const align = s["text-align"] || "left"
@@ -330,6 +362,94 @@ export default function DesignInspector({
             rows={2}
             className="resize-none"
           />
+        </Section>
+      )}
+
+      {/* B5：链接编辑（<a href>） */}
+      {selected.tag === "a" && (
+        <Section title={t("design.insp.link", "链接")}>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Link2 className="h-3 w-3" />
+              {t("design.insp.href", "链接地址")}
+            </label>
+            <Input
+              value={href}
+              onChange={(e) => {
+                setHref(e.target.value)
+                onLiveAttr("href", e.target.value)
+              }}
+              onBlur={() => {
+                if (href !== (selected.attrs?.href ?? "")) onCommitAttr("href", href)
+              }}
+              placeholder="https://…"
+              className="h-8 text-xs"
+            />
+          </div>
+        </Section>
+      )}
+
+      {/* B5：图片编辑（<img src/alt> + 本地上传→data-uri） */}
+      {selected.tag === "img" && (
+        <Section title={t("design.insp.image", "图片")}>
+          <div className="space-y-2">
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-muted-foreground">
+                {t("design.insp.imageSrc", "图片地址")}
+              </label>
+              <Input
+                value={imgSrc}
+                onChange={(e) => {
+                  setImgSrc(e.target.value)
+                  onLiveAttr("src", e.target.value)
+                }}
+                onBlur={() => {
+                  if (imgSrc !== (selected.attrs?.src ?? "")) onCommitAttr("src", imgSrc)
+                }}
+                placeholder="https://… / data:image/…"
+                className="h-8 text-xs"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-full gap-1.5 text-xs"
+              disabled={uploading}
+              onClick={async () => {
+                setUploading(true)
+                try {
+                  const dataUri = await onPickImage()
+                  if (dataUri) {
+                    setImgSrc(dataUri)
+                    onCommitAttr("src", dataUri)
+                  }
+                } finally {
+                  setUploading(false)
+                }
+              }}
+            >
+              {uploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ImageUp className="h-3.5 w-3.5" />
+              )}
+              {t("design.insp.uploadImage", "上传本地图片")}
+            </Button>
+            <div className="space-y-1.5">
+              <label className="text-[11px] text-muted-foreground">
+                {t("design.insp.imageAlt", "替代文本 (alt)")}
+              </label>
+              <Input
+                value={imgAlt}
+                onChange={(e) => setImgAlt(e.target.value)}
+                onBlur={() => {
+                  if (imgAlt !== (selected.attrs?.alt ?? "")) onCommitAttr("alt", imgAlt)
+                }}
+                placeholder={t("design.insp.imageAltHint", "图片描述")}
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
         </Section>
       )}
 

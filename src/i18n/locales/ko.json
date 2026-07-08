@@ -6154,7 +6154,14 @@
       "effects": "효과",
       "opacity": "불투명도",
       "shadow": "그림자",
-      "shadowNone": "없음"
+      "shadowNone": "없음",
+      "link": "링크",
+      "href": "링크 주소",
+      "image": "이미지",
+      "imageSrc": "이미지 주소",
+      "uploadImage": "이미지 업로드",
+      "imageAlt": "대체 텍스트 (alt)",
+      "imageAltHint": "이미지 설명"
     },
     "settings": {
       "desc": "디자인 스페이스: 전달 가능한 디자인 산출물을 생성·조정·내보내기.",
@@ -6436,6 +6443,8 @@
     "present": "발표",
     "presentInTab": "이 창에서 발표",
     "presentFullscreen": "전체 화면 발표",
-    "exitPresent": "발표 종료 (Esc)"
+    "exitPresent": "발표 종료 (Esc)",
+    "undo": "실행 취소",
+    "redo": "다시 실행"
   }
 }
