@@ -6,7 +6,7 @@
  * `save_design_system_cmd`：user/extracted 就地更新；内置只读 → 存为「我的」新副本（fork）。
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, Code2, Eye, Check } from "lucide-react"
 import {
@@ -148,6 +148,44 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
 
   const isBuiltin = system?.source === "builtin"
 
+  // 实时套件预览（B1-2）：结构 HTML 一次性取，token 改动经 postMessage 覆盖 :root 活重染。
+  const kitIframeRef = useRef<HTMLIFrameElement>(null)
+  const [kitHtml, setKitHtml] = useState<string | null>(null)
+
+  // 打开时加载套件 HTML（预览失败不阻断编辑）。
+  useEffect(() => {
+    if (!open || !system) {
+      setKitHtml(null)
+      return
+    }
+    let cancelled = false
+    tx.call<string>("get_design_system_kit_cmd", { id: system.id })
+      .then((h) => {
+        if (!cancelled) setKitHtml(h)
+      })
+      .catch((e) => logger.error("design", "DesignTokenEditor::kit", "load kit failed", e))
+    return () => {
+      cancelled = true
+    }
+  }, [open, system, tx])
+
+  // token 草稿变化 → 防抖 200ms → 把当前 :root 覆盖 post 进套件 iframe 活重染（值过滤 {}<;
+  // 对齐后端注入安全）。
+  useEffect(() => {
+    const src = mode === "source" ? parseSource(sourceText) : tokens
+    const css =
+      ":root{" +
+      Object.entries(src)
+        .filter(([k]) => k.startsWith("--ds-"))
+        .map(([k, v]) => `${k}:${String(v).replace(/[{}<;]/g, "")}`)
+        .join(";") +
+      "}"
+    const id = setTimeout(() => {
+      kitIframeRef.current?.contentWindow?.postMessage({ type: "ds_kit_tokens", css }, "*")
+    }, 200)
+    return () => clearTimeout(id)
+  }, [tokens, sourceText, mode])
+
   // 打开时加载完整系统（tokens + system_md）。
   useEffect(() => {
     if (!open || !system) return
@@ -225,7 +263,7 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
 
   return (
     <Dialog open={open} onOpenChange={(o) => !saving && onOpenChange(o)}>
-      <DialogContent className="max-w-lg gap-0 overflow-hidden p-0">
+      <DialogContent className="flex max-w-4xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="flex-row items-center justify-between gap-2 border-b px-4 py-3">
           <DialogTitle className="flex items-center gap-2 text-sm">
             {t("design.token.title", "编辑设计变量")}
@@ -253,7 +291,9 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
           </div>
         </DialogHeader>
 
-        <div className="max-h-[56vh] overflow-y-auto p-3">
+        <div className="flex min-h-0 flex-1">
+        {/* 左：token 编辑 */}
+        <div className="w-[400px] shrink-0 overflow-y-auto border-r p-3">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -310,6 +350,23 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
               ))}
             </div>
           )}
+        </div>
+        {/* 右：实时套件预览（token 改动即时重染） */}
+        <div className="relative min-h-[60vh] flex-1 bg-muted/30">
+          {kitHtml ? (
+            <iframe
+              ref={kitIframeRef}
+              title={t("design.kit.title", "设计系统套件")}
+              srcDoc={kitHtml}
+              sandbox="allow-scripts"
+              className="h-full w-full border-0 bg-white"
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+        </div>
         </div>
 
         <DialogFooter className="border-t px-4 py-2.5">

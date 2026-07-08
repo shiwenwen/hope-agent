@@ -191,7 +191,9 @@ padding:.5rem .7rem;font-size:.85rem;background:var(--ds-color-bg,#fff);color:in
 .b-warning{{background:var(--ds-color-warning,#d97706);color:#fff}}
 .b-danger{{background:var(--ds-color-danger,#dc2626);color:#fff}}
 .stack{{display:flex;flex-direction:column;gap:.7rem}}
-</style></head>
+</style>
+<style id="ds-live"></style>
+</head>
 <body>
 <header><h1>{name}</h1><button class="toggle" onclick="document.body.classList.toggle('dark')">明 / 暗</button></header>
 <main>
@@ -217,7 +219,11 @@ padding:.5rem .7rem;font-size:.85rem;background:var(--ds-color-bg,#fff);color:in
 <button class="btn btn-primary" style="align-self:flex-start">了解更多</button>
 </div></div>
 </div></section>
-</main></body></html>"##,
+</main>
+<script>
+window.addEventListener('message',function(e){{var d=e.data;if(d&&d.type==='ds_kit_tokens'){{var s=document.getElementById('ds-live');if(s)s.textContent=String(d.css||'')}}}});
+</script>
+</body></html>"##,
         name = esc_name,
         root = root,
         colors = section("色彩 · Colors", &color_swatches, "swatches"),
