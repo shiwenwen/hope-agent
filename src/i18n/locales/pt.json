@@ -6206,7 +6206,7 @@
       "mode": "Comentar: clique num elemento para dar feedback",
       "locate": "Ir para o pino",
       "detached": "sem âncora",
-      "sendToChat": "Enviar para a IA",
+      "sendToChat": "Refinar num clique",
       "reopen": "Reabrir",
       "resolve": "Marcar como resolvido",
       "add": "Adicionar comentário",
@@ -6217,7 +6217,8 @@
       "sendSoon": "Enviar para a IA em breve",
       "refining": "A refinar conforme o comentário…",
       "refined": "Refinado: veja a nova versão",
-      "refineFailed": "Falha ao refinar"
+      "refineFailed": "Falha ao refinar",
+      "addToChat": "Adicionar ao chat"
     },
     "exporting": "A exportar…",
     "exportProgressSlide": "A exportar {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "Novo chat",
       "history": "Histórico",
       "hide": "Ocultar chat",
-      "show": "Mostrar chat"
+      "show": "Mostrar chat",
+      "startTitle": "Diga à IA o que projetar",
+      "startSub": "Descreva numa frase — a IA gera um design pronto para entregar.",
+      "startTitleArtifact": "Diga à IA: edite este artefato diretamente",
+      "startSubArtifact": "Descreva a alteração; a IA atualiza no local e salva uma nova versão.",
+      "starterPaletteTitle": "Ajustar cores",
+      "starterPalettePrompt": "Deixe a paleta geral mais refinada: cor principal mais contida, hierarquia mais clara, contraste legível.",
+      "starterDarkTitle": "Versão escura",
+      "starterDarkPrompt": "Crie uma versão em modo escuro do design atual, mantendo hierarquia e contraste legíveis.",
+      "starterLayoutTitle": "Refazer o layout",
+      "starterLayoutPrompt": "Refaça esta página com um layout mais limpo: amplie o espaço em branco, unifique espaçamento e escala tipográfica."
     },
     "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um."
   }

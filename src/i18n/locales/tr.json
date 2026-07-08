@@ -6206,7 +6206,7 @@
       "mode": "Yorum: geri bildirim için bir öğeye tıklayın",
       "locate": "Pime git",
       "detached": "bağlantısı koptu",
-      "sendToChat": "Yapay zekâya gönder",
+      "sendToChat": "Tek tıkla iyileştir",
       "reopen": "Yeniden aç",
       "resolve": "Çözüldü olarak işaretle",
       "add": "Yorum ekle",
@@ -6217,7 +6217,8 @@
       "sendSoon": "Yapay zekâya gönderme yakında",
       "refining": "Yoruma göre iyileştiriliyor…",
       "refined": "İyileştirildi — yeni sürüme bakın",
-      "refineFailed": "İyileştirme başarısız"
+      "refineFailed": "İyileştirme başarısız",
+      "addToChat": "Sohbete ekle"
     },
     "exporting": "Dışa aktarılıyor…",
     "exportProgressSlide": "Dışa aktarılıyor {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "Yeni sohbet",
       "history": "Geçmiş",
       "hide": "Sohbeti gizle",
-      "show": "Sohbeti göster"
+      "show": "Sohbeti göster",
+      "startTitle": "Yapay zekaya ne tasarlayacağını söyle",
+      "startSub": "Bir cümleyle anlat — yapay zeka teslime hazır bir tasarım üretir.",
+      "startTitleArtifact": "Yapay zekaya söyle — bu çıktıyı doğrudan düzenle",
+      "startSubArtifact": "Değişikliği anlat; yapay zeka yerinde günceller ve yeni sürüm kaydeder.",
+      "starterPaletteTitle": "Renkleri ayarla",
+      "starterPalettePrompt": "Genel paleti daha rafine yap: daha ölçülü bir ana renk, daha net hiyerarşi, okunaklı kontrast.",
+      "starterDarkTitle": "Koyu sürüm",
+      "starterDarkPrompt": "Mevcut tasarımın koyu mod sürümünü oluştur; hiyerarşiyi ve kontrast okunaklılığını koru.",
+      "starterLayoutTitle": "Düzeni yeniden kur",
+      "starterLayoutPrompt": "Bu sayfayı daha temiz bir düzene taşı: boşlukları aç, boşluk ve tipografi ölçeğini birleştir."
     },
     "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin."
   }

@@ -8,7 +8,16 @@
 
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { MessageSquare, X, Check, Trash2, Pencil, Send, CornerDownLeft } from "lucide-react"
+import {
+  MessageSquare,
+  MessagesSquare,
+  X,
+  Check,
+  Trash2,
+  Pencil,
+  Send,
+  CornerDownLeft,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
@@ -25,7 +34,10 @@ interface Props {
   onEdit: (id: number, body: string) => void
   onDelete: (id: number) => void
   onFocus: (id: number) => void
+  /** 一键快捷：让 AI 按这条批注就地精修出新版本（不进对话）。 */
   onSendToChat: (id: number) => void
+  /** 带到对话：把这条批注作为 quote 塞进左侧 AI 对话 composer，用户可补充后随 turn 发。 */
+  onAddToChat: (id: number) => void
   onClose: () => void
 }
 
@@ -39,6 +51,7 @@ export default function DesignCommentPanel({
   onDelete,
   onFocus,
   onSendToChat,
+  onAddToChat,
   onClose,
 }: Props) {
   const { t } = useTranslation()
@@ -134,7 +147,17 @@ export default function DesignCommentPanel({
       </div>
       {editingId !== c.id && (
         <div className="mt-1.5 flex items-center justify-end gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">
-          <IconTip label={t("design.comment.sendToChat", "发给 AI 精修")}>
+          <IconTip label={t("design.comment.addToChat", "带到对话")}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              onClick={() => onAddToChat(c.id)}
+            >
+              <MessagesSquare className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+          <IconTip label={t("design.comment.sendToChat", "一键精修")}>
             <Button
               size="icon"
               variant="ghost"

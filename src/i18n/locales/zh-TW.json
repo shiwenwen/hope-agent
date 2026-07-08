@@ -6206,7 +6206,7 @@
       "mode": "批註：點選元素留回饋",
       "locate": "定位到釘",
       "detached": "已脫錨",
-      "sendToChat": "傳給 AI 精修",
+      "sendToChat": "一鍵精修",
       "reopen": "取消解決",
       "resolve": "標記已解決",
       "add": "新增批註",
@@ -6217,7 +6217,8 @@
       "sendSoon": "回灌對話即將上線",
       "refining": "依批註精修中…",
       "refined": "已依批註精修，查看新版本",
-      "refineFailed": "精修失敗"
+      "refineFailed": "精修失敗",
+      "addToChat": "帶到對話"
     },
     "exporting": "正在匯出…",
     "exportProgressSlide": "正在匯出 {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "新對話",
       "history": "歷史對話",
       "hide": "隱藏對話",
-      "show": "顯示對話"
+      "show": "顯示對話",
+      "startTitle": "跟 AI 說一句，開始設計",
+      "startSub": "一句話描述，AI 直接生成可交付的設計產物。",
+      "startTitleArtifact": "跟 AI 說，直接改這個產物",
+      "startSubArtifact": "描述想要的改動，AI 就地更新並出新版本。",
+      "starterPaletteTitle": "調整配色",
+      "starterPalettePrompt": "把整體配色調得更高級一些：主色更克制、層次更清晰、對比度可讀。",
+      "starterDarkTitle": "出深色版",
+      "starterDarkPrompt": "基於目前設計做一個深色模式版本，保持資訊層級與對比度可讀。",
+      "starterLayoutTitle": "改版面",
+      "starterLayoutPrompt": "把這個頁面改成更清晰的版面：拉開留白、統一間距與字級層次。"
     },
     "emptyArtifactsInline": "還沒有產物——右上角「新增產物」，或直接讓左側 AI 生成。"
   }

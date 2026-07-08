@@ -54,7 +54,7 @@ import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import DesignInspector from "@/components/design/DesignInspector"
-import DesignChatPanel from "@/components/design/chat/DesignChatPanel"
+import DesignChatPanel, { type DesignChatPanelHandle } from "@/components/design/chat/DesignChatPanel"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
@@ -186,6 +186,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   // AI 对话左栏（复刻 open-design：左对话 / 右预览，可拖宽 · 可折叠）。宽度持久化。
+  const chatPanelRef = useRef<DesignChatPanelHandle>(null)
   const [chatOpen, setChatOpen] = useState(true)
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem("design_chat_width"))
@@ -799,8 +800,30 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, loadComments],
   )
 
-  // 回灌对话：让 AI 按批注精修产物。design-space 原生——产物就地更新新版本、无需切走；
-  // `design:reload` 事件自动刷新预览。
+  // 批注带到对话（复刻 open-design：批注 → composer quote chip，用户可补充后随 turn 发，
+  // AI 在有完整对话上下文下迭代）。展开被折叠的对话栏并把反馈作为可删 quote 塞进 composer。
+  const handleAddCommentToChat = useCallback(
+    (id: number) => {
+      const c = comments.find((x) => x.id === id)
+      if (!c) return
+      setChatOpen(true)
+      const label = c.snippet?.trim()
+        ? `${t("design.comment.title", "批注")} · ${c.snippet.trim().slice(0, 40)}`
+        : t("design.comment.title", "批注")
+      const context = c.snippet?.trim() ? `元素「${c.snippet.trim()}」` : "选中的元素"
+      chatPanelRef.current?.addQuote({
+        path: `design-comment:${id}`,
+        name: label,
+        startLine: 0,
+        endLine: 0,
+        content: `针对${context}的反馈：${c.body}`,
+      })
+    },
+    [comments, t],
+  )
+
+  // 回灌对话：让 AI 按批注精修产物（一键快捷路径）。design-space 原生——产物就地更新新版本、
+  // 无需切走；`design:reload` 事件自动刷新预览。
   const handleSendCommentToChat = useCallback(
     async (id: number) => {
       const aid = activeArtifactRef.current?.id
@@ -1441,9 +1464,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         if (proj) void loadArtifacts(proj.id)
       }),
       // ── 流式生成：壳建成 / 逐帧回填 / 定稿 / 失败 ────────────────
-      tx.listen("design:artifact_generating", () => {
+      tx.listen("design:artifact_generating", (raw) => {
         const proj = activeProjectRef.current
         if (proj) void loadArtifacts(proj.id)
+        // Chat-first flow: the model just spun up a new artifact and nothing is
+        // open — auto-focus the generating shell so the stream renders live in
+        // the preview instead of the user having to click the new chip.
+        const p = parsePayload<{ artifactId?: string }>(raw)
+        if (p?.artifactId && !activeArtifactRef.current) {
+          void openArtifact({ id: p.artifactId } as DesignArtifact)
+        }
       }),
       tx.listen("design:generate_delta", (raw) => {
         const p = parsePayload<{
@@ -1850,6 +1880,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               style={{ width: chatWidth }}
             >
               <DesignChatPanel
+                ref={chatPanelRef}
                 projectId={activeProject.id}
                 activeArtifact={
                   activeArtifact
@@ -2213,6 +2244,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onDelete={handleDeleteComment}
               onFocus={(id) => postToIframe({ type: "ds_comment_focus", id })}
               onSendToChat={handleSendCommentToChat}
+              onAddToChat={handleAddCommentToChat}
               onClose={() => setCommentMode(false)}
             />
           )}

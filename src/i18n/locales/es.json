@@ -6206,7 +6206,7 @@
       "mode": "Comentar: haz clic en un elemento para dar feedback",
       "locate": "Ir al pin",
       "detached": "sin anclaje",
-      "sendToChat": "Enviar a la IA",
+      "sendToChat": "Refinar al instante",
       "reopen": "Reabrir",
       "resolve": "Marcar como resuelto",
       "add": "Añadir comentario",
@@ -6217,7 +6217,8 @@
       "sendSoon": "Enviar a la IA disponible pronto",
       "refining": "Refinando según tu comentario…",
       "refined": "Refinado: revisa la nueva versión",
-      "refineFailed": "Error al refinar"
+      "refineFailed": "Error al refinar",
+      "addToChat": "Añadir al chat"
     },
     "exporting": "Exportando…",
     "exportProgressSlide": "Exportando {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "Nuevo chat",
       "history": "Historial",
       "hide": "Ocultar chat",
-      "show": "Mostrar chat"
+      "show": "Mostrar chat",
+      "startTitle": "Dile a la IA qué diseñar",
+      "startSub": "Descríbelo en una frase: la IA genera un diseño listo para entregar.",
+      "startTitleArtifact": "Dile a la IA: edita este artefacto directamente",
+      "startSubArtifact": "Describe el cambio; la IA lo actualiza en el sitio y guarda una nueva versión.",
+      "starterPaletteTitle": "Ajustar colores",
+      "starterPalettePrompt": "Haz que la paleta general se vea más refinada: un color principal más contenido, jerarquía más clara, contraste legible.",
+      "starterDarkTitle": "Versión oscura",
+      "starterDarkPrompt": "Crea una versión en modo oscuro del diseño actual, manteniendo la jerarquía y el contraste legibles.",
+      "starterLayoutTitle": "Rehacer el diseño",
+      "starterLayoutPrompt": "Rehaz esta página con una maquetación más limpia: amplía el espacio en blanco, unifica el espaciado y la escala tipográfica."
     },
     "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno."
   }

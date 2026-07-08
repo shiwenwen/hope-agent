@@ -6206,7 +6206,7 @@
       "mode": "Bình luận: nhấp vào phần tử để để lại phản hồi",
       "locate": "Đến ghim",
       "detached": "đã mất neo",
-      "sendToChat": "Gửi cho AI",
+      "sendToChat": "Tinh chỉnh nhanh",
       "reopen": "Mở lại",
       "resolve": "Đánh dấu đã giải quyết",
       "add": "Thêm bình luận",
@@ -6217,7 +6217,8 @@
       "sendSoon": "Gửi cho AI sắp ra mắt",
       "refining": "Đang tinh chỉnh theo bình luận…",
       "refined": "Đã tinh chỉnh — xem phiên bản mới",
-      "refineFailed": "Tinh chỉnh thất bại"
+      "refineFailed": "Tinh chỉnh thất bại",
+      "addToChat": "Thêm vào trò chuyện"
     },
     "exporting": "Đang xuất…",
     "exportProgressSlide": "Đang xuất {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "Trò chuyện mới",
       "history": "Lịch sử",
       "hide": "Ẩn trò chuyện",
-      "show": "Hiện trò chuyện"
+      "show": "Hiện trò chuyện",
+      "startTitle": "Nói cho AI biết bạn muốn thiết kế gì",
+      "startSub": "Mô tả bằng một câu — AI tạo ra thiết kế sẵn sàng bàn giao.",
+      "startTitleArtifact": "Nói cho AI — chỉnh sửa sản phẩm này trực tiếp",
+      "startSubArtifact": "Mô tả thay đổi; AI cập nhật tại chỗ và lưu phiên bản mới.",
+      "starterPaletteTitle": "Điều chỉnh màu",
+      "starterPalettePrompt": "Làm bảng màu tổng thể tinh tế hơn: màu chính tiết chế hơn, phân cấp rõ hơn, tương phản dễ đọc.",
+      "starterDarkTitle": "Bản nền tối",
+      "starterDarkPrompt": "Tạo phiên bản chế độ tối từ thiết kế hiện tại, giữ phân cấp và độ tương phản dễ đọc.",
+      "starterLayoutTitle": "Bố cục lại",
+      "starterLayoutPrompt": "Bố cục lại trang này gọn gàng hơn: mở rộng khoảng trắng, thống nhất khoảng cách và thang cỡ chữ."
     },
     "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái."
   }

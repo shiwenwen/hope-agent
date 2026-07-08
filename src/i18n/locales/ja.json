@@ -6206,7 +6206,7 @@
       "mode": "コメント：要素をクリックしてフィードバック",
       "locate": "ピンへ移動",
       "detached": "未固定",
-      "sendToChat": "AI に送る",
+      "sendToChat": "ワンクリック調整",
       "reopen": "未解決に戻す",
       "resolve": "解決済みにする",
       "add": "コメントを追加",
@@ -6217,7 +6217,8 @@
       "sendSoon": "AI 連携は近日対応",
       "refining": "コメントに沿って調整中…",
       "refined": "調整しました。新バージョンを確認",
-      "refineFailed": "調整に失敗しました"
+      "refineFailed": "調整に失敗しました",
+      "addToChat": "チャットに追加"
     },
     "exporting": "エクスポート中…",
     "exportProgressSlide": "エクスポート中 {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "新しいチャット",
       "history": "履歴",
       "hide": "チャットを隠す",
-      "show": "チャットを表示"
+      "show": "チャットを表示",
+      "startTitle": "AI に伝えて、デザインを始めよう",
+      "startSub": "一言で説明すれば、AI が納品可能なデザインを生成します。",
+      "startTitleArtifact": "AI に伝えて、この成果物を直接編集",
+      "startSubArtifact": "変更内容を伝えると、AI がその場で更新し新バージョンを保存します。",
+      "starterPaletteTitle": "配色を調整",
+      "starterPalettePrompt": "全体の配色をより洗練された印象に：主色は控えめに、階層を明確に、コントラストは読みやすく。",
+      "starterDarkTitle": "ダーク版を作成",
+      "starterDarkPrompt": "現在のデザインをもとにダークモード版を作成し、階層とコントラストの可読性を保つ。",
+      "starterLayoutTitle": "レイアウトを変更",
+      "starterLayoutPrompt": "このページをより整理されたレイアウトに：余白を広げ、間隔と文字サイズの階層を統一する。"
     },
     "emptyArtifactsInline": "アーティファクトはまだありません — 右上の「新規アーティファクト」か、左の AI に生成を頼んでください。"
   }

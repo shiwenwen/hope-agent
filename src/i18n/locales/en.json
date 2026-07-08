@@ -6206,7 +6206,7 @@
       "mode": "Comment: click an element to leave feedback",
       "locate": "Jump to pin",
       "detached": "detached",
-      "sendToChat": "Send to AI",
+      "sendToChat": "Quick refine",
       "reopen": "Reopen",
       "resolve": "Mark resolved",
       "add": "Add comment",
@@ -6217,7 +6217,8 @@
       "sendSoon": "Send-to-chat coming soon",
       "refining": "Refining per your comment…",
       "refined": "Refined — check the new version",
-      "refineFailed": "Refine failed"
+      "refineFailed": "Refine failed",
+      "addToChat": "Add to chat"
     },
     "exporting": "Exporting…",
     "exportProgressSlide": "Exporting {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "New chat",
       "history": "History",
       "hide": "Hide chat",
-      "show": "Show chat"
+      "show": "Show chat",
+      "startTitle": "Tell the AI what to design",
+      "startSub": "Describe it in a sentence — the AI generates a ready-to-ship design.",
+      "startTitleArtifact": "Tell the AI — edit this artifact directly",
+      "startSubArtifact": "Describe the change; the AI updates it in place and saves a new version.",
+      "starterPaletteTitle": "Adjust colors",
+      "starterPalettePrompt": "Make the overall palette feel more refined: a more restrained primary, clearer hierarchy, readable contrast.",
+      "starterDarkTitle": "Dark version",
+      "starterDarkPrompt": "Create a dark-mode version of the current design, keeping hierarchy and contrast readable.",
+      "starterLayoutTitle": "Rework layout",
+      "starterLayoutPrompt": "Rework this page into a cleaner layout: open up whitespace, unify spacing and type scale."
     },
     "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one."
   }

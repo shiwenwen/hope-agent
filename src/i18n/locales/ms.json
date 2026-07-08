@@ -6206,7 +6206,7 @@
       "mode": "Komen: klik elemen untuk beri maklum balas",
       "locate": "Pergi ke pin",
       "detached": "tanpa sauh",
-      "sendToChat": "Hantar ke AI",
+      "sendToChat": "Perhalus segera",
       "reopen": "Buka semula",
       "resolve": "Tanda selesai",
       "add": "Tambah komen",
@@ -6217,7 +6217,8 @@
       "sendSoon": "Hantar ke AI akan datang",
       "refining": "Menambah baik ikut komen…",
       "refined": "Ditambah baik — lihat versi baharu",
-      "refineFailed": "Gagal menambah baik"
+      "refineFailed": "Gagal menambah baik",
+      "addToChat": "Tambah ke sembang"
     },
     "exporting": "Mengeksport…",
     "exportProgressSlide": "Mengeksport {{done}}/{{total}}",
@@ -6344,7 +6345,17 @@
       "newConversation": "Sembang baharu",
       "history": "Sejarah",
       "hide": "Sembunyikan sembang",
-      "show": "Tunjukkan sembang"
+      "show": "Tunjukkan sembang",
+      "startTitle": "Beritahu AI apa yang hendak direka",
+      "startSub": "Terangkan dalam satu ayat — AI menjana reka bentuk sedia diserahkan.",
+      "startTitleArtifact": "Beritahu AI — sunting artifak ini terus",
+      "startSubArtifact": "Terangkan perubahan; AI mengemas kini di tempatnya dan menyimpan versi baharu.",
+      "starterPaletteTitle": "Laraskan warna",
+      "starterPalettePrompt": "Jadikan palet keseluruhan lebih halus: warna utama lebih terkawal, hierarki lebih jelas, kontras mudah dibaca.",
+      "starterDarkTitle": "Versi gelap",
+      "starterDarkPrompt": "Cipta versi mod gelap daripada reka bentuk semasa, mengekalkan hierarki dan kontras mudah dibaca.",
+      "starterLayoutTitle": "Susun semula reka letak",
+      "starterLayoutPrompt": "Susun semula halaman ini kepada reka letak lebih kemas: luaskan ruang putih, seragamkan jarak dan skala taip."
     },
     "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya."
   }

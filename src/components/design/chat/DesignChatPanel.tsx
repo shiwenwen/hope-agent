@@ -24,6 +24,43 @@ import type { PendingFileQuote } from "@/types/chat"
 import { useDesignChat } from "./useDesignChat"
 import { DesignConversationHistory } from "./DesignConversationHistory"
 
+/** Starter prompts for the empty chat (click fills the composer, no auto-send).
+ *  Both title and prompt are i18n so 12 locales stay complete; fallbacks are the
+ *  zh source. Kept generic so they read well against any open artifact. */
+const DESIGN_STARTERS: {
+  key: string
+  icon: string
+  titleKey: string
+  titleFallback: string
+  promptKey: string
+  promptFallback: string
+}[] = [
+  {
+    key: "palette",
+    icon: "🎨",
+    titleKey: "design.chat.starterPaletteTitle",
+    titleFallback: "调整配色",
+    promptKey: "design.chat.starterPalettePrompt",
+    promptFallback: "把整体配色调得更高级一些：主色更克制、层次更清晰、对比度可读。",
+  },
+  {
+    key: "dark",
+    icon: "🌙",
+    titleKey: "design.chat.starterDarkTitle",
+    titleFallback: "出深色版",
+    promptKey: "design.chat.starterDarkPrompt",
+    promptFallback: "基于当前设计做一个深色模式版本，保持信息层级与对比度可读。",
+  },
+  {
+    key: "layout",
+    icon: "📐",
+    titleKey: "design.chat.starterLayoutTitle",
+    titleFallback: "改布局",
+    promptKey: "design.chat.starterLayoutPrompt",
+    promptFallback: "把这个页面改成更清晰的布局：拉开留白、统一间距与字号层级。",
+  },
+]
+
 /** The design artifact the user currently has open in the preview — injected as
  *  per-turn context so "改这个 / 当前" resolves to it without the user restating. */
 export interface DesignChatContext {
@@ -234,17 +271,52 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         </div>
       </div>
 
-      {/* Messages — height-bounded flex column so MessageList scrolls internally. */}
+      {/* Messages — height-bounded flex column so MessageList scrolls internally.
+          Empty draft (no messages) shows starter prompts (click fills, no auto-send). */}
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <MessageList
-          messages={session.messages}
-          loading={session.loading}
-          agents={session.agents}
-          hasMore={session.hasMore}
-          loadingMore={session.loadingMore}
-          onLoadMore={session.handleLoadMore}
-          sessionId={session.currentSessionId}
-        />
+        {session.messages.length === 0 && !session.loading ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 overflow-y-auto p-5 text-center">
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                {activeArtifact
+                  ? t("design.chat.startTitleArtifact", "跟 AI 说，直接改这个产物")
+                  : t("design.chat.startTitle", "跟 AI 说一句，开始设计")}
+              </p>
+              <p className="mx-auto mt-1 max-w-[15rem] text-xs leading-relaxed text-muted-foreground">
+                {activeArtifact
+                  ? t("design.chat.startSubArtifact", "描述想要的改动，AI 就地更新并出新版本。")
+                  : t("design.chat.startSub", "一句话描述，AI 直接生成可交付的设计产物。")}
+              </p>
+            </div>
+            <div className="flex w-full max-w-[17rem] flex-col gap-1.5">
+              {DESIGN_STARTERS.map((s) => (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => stream.setInput(t(s.promptKey, s.promptFallback))}
+                  className="group flex items-center gap-2.5 rounded-xl border border-border/60 bg-card px-3 py-2 text-left transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-sm"
+                >
+                  <span className="text-base">{s.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium">
+                      {t(s.titleKey, s.titleFallback)}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <MessageList
+            messages={session.messages}
+            loading={session.loading}
+            agents={session.agents}
+            hasMore={session.hasMore}
+            loadingMore={session.loadingMore}
+            onLoadMore={session.handleLoadMore}
+            sessionId={session.currentSessionId}
+          />
+        )}
       </div>
 
       <ApprovalDialog requests={stream.approvalRequests} onRespond={stream.handleApprovalResponse} />
