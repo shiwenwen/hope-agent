@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "Mevcut tasarımın koyu mod sürümünü oluştur; hiyerarşiyi ve kontrast okunaklılığını koru.",
       "starterLayoutTitle": "Düzeni yeniden kur",
       "starterLayoutPrompt": "Bu sayfayı daha temiz bir düzene taşı: boşlukları aç, boşluk ve tipografi ölçeğini birleştir.",
-      "producedArtifact": "Çıktı"
+      "producedArtifact": "Çıktı",
+      "starterOutlineTitle": "Önce ana hattı planla",
+      "starterOutlinePrompt": "Yapmadan önce bana yapısal bir ana hat ver (bölüm/slayt başlıkları, ana noktalar, anlatı sırası). Onayladıktan sonra bu ana hattan nihai ürünü oluştur."
     },
     "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "Tam ekran sun",
     "exitPresent": "Sunumdan çık (Esc)",
     "undo": "Geri al",
-    "redo": "Yinele"
+    "redo": "Yinele",
+    "brief": {
+      "toggle": "Kısa brief ekle (isteğe bağlı, 30sn)",
+      "audience": "Hedef kitle",
+      "audiencePh": "Kim görecek/kullanacak, örn. \"kurumsal alıcılar\"",
+      "tone": "Ton / stil",
+      "tonePh": "örn. \"profesyonel ve sade\", \"canlı\"",
+      "points": "Ana noktalar",
+      "pointsPh": "Olmazsa olmaz mesajlar / avantajlar, her satıra bir tane",
+      "reference": "Referans",
+      "referencePh": "Referans URL / ürün / stil"
+    }
   }
 }

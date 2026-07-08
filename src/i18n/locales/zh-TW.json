@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "基於目前設計做一個深色模式版本，保持資訊層級與對比度可讀。",
       "starterLayoutTitle": "改版面",
       "starterLayoutPrompt": "把這個頁面改成更清晰的版面：拉開留白、統一間距與字級層次。",
-      "producedArtifact": "本輪產物"
+      "producedArtifact": "本輪產物",
+      "starterOutlineTitle": "先規劃大綱",
+      "starterOutlinePrompt": "先別急著做，請先給我一份結構大綱（分節 / 分頁的標題與要點、敘事順序），我確認後你再按大綱生成正式產物。"
     },
     "emptyArtifactsInline": "還沒有產物——右上角「新增產物」，或直接讓左側 AI 生成。",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "全螢幕簡報",
     "exitPresent": "退出簡報 (Esc)",
     "undo": "復原",
-    "redo": "重做"
+    "redo": "重做",
+    "brief": {
+      "toggle": "補充簡報（可選，30 秒）",
+      "audience": "受眾",
+      "audiencePh": "誰會看 / 用，例如「企業採購決策者」",
+      "tone": "語氣 / 風格",
+      "tonePh": "例如「專業克制」「活潑年輕」",
+      "points": "要點",
+      "pointsPh": "必須體現的關鍵資訊 / 賣點，逐條列",
+      "reference": "參考",
+      "referencePh": "參考網址 / 產品 / 風格描述"
+    }
   }
 }

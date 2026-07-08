@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "Cipta versi mod gelap daripada reka bentuk semasa, mengekalkan hierarki dan kontras mudah dibaca.",
       "starterLayoutTitle": "Susun semula reka letak",
       "starterLayoutPrompt": "Susun semula halaman ini kepada reka letak lebih kemas: luaskan ruang putih, seragamkan jarak dan skala taip.",
-      "producedArtifact": "Artifak"
+      "producedArtifact": "Artifak",
+      "starterOutlineTitle": "Rancang rangka dahulu",
+      "starterOutlinePrompt": "Sebelum membina, beri saya rangka struktur dahulu (tajuk bahagian/slaid, perkara utama, susunan naratif). Selepas saya sahkan, jana artifak akhir daripada rangka itu."
     },
     "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "Bentang skrin penuh",
     "exitPresent": "Keluar bentang (Esc)",
     "undo": "Buat asal",
-    "redo": "Buat semula"
+    "redo": "Buat semula",
+    "brief": {
+      "toggle": "Tambah brief (pilihan, 30s)",
+      "audience": "Audiens",
+      "audiencePh": "Siapa akan lihat/guna, cth. \"pembeli korporat\"",
+      "tone": "Nada / gaya",
+      "tonePh": "cth. \"profesional & terkawal\", \"ceria\"",
+      "points": "Perkara utama",
+      "pointsPh": "Mesej / kelebihan wajib, satu setiap baris",
+      "reference": "Rujukan",
+      "referencePh": "URL / produk / gaya rujukan"
+    }
   }
 }

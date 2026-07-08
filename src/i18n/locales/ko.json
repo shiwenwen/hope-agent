@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "현재 디자인을 바탕으로 다크 모드 버전을 만들고 위계와 대비 가독성을 유지하세요.",
       "starterLayoutTitle": "레이아웃 변경",
       "starterLayoutPrompt": "이 페이지를 더 깔끔한 레이아웃으로: 여백을 넓히고 간격과 타이포 스케일을 통일하세요.",
-      "producedArtifact": "산출물"
+      "producedArtifact": "산출물",
+      "starterOutlineTitle": "먼저 개요 계획",
+      "starterOutlinePrompt": "만들기 전에 먼저 구조 개요(섹션/슬라이드 제목과 핵심, 서술 순서)를 주세요. 제가 확인한 뒤 개요에 따라 최종 산출물을 생성하세요."
     },
     "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "전체 화면 발표",
     "exitPresent": "발표 종료 (Esc)",
     "undo": "실행 취소",
-    "redo": "다시 실행"
+    "redo": "다시 실행",
+    "brief": {
+      "toggle": "브리프 추가 (선택, 30초)",
+      "audience": "대상",
+      "audiencePh": "누가 보고/사용하나요, 예: 기업 구매 담당자",
+      "tone": "톤 / 스타일",
+      "tonePh": "예: \"전문적이고 절제된\", \"발랄한\"",
+      "points": "핵심 사항",
+      "pointsPh": "꼭 담아야 할 메시지 / 강점을 한 줄씩",
+      "reference": "참고",
+      "referencePh": "참고 URL / 제품 / 스타일"
+    }
   }
 }

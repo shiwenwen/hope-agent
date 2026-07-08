@@ -40,6 +40,15 @@ const DESIGN_STARTERS: {
   promptFallback: string
 }[] = [
   {
+    // B6-2：先规划大纲再生成（对话式 outline-first，对齐参照的软性两段流）。
+    key: "outline",
+    icon: "🗂️",
+    titleKey: "design.chat.starterOutlineTitle",
+    titleFallback: "先规划大纲",
+    promptKey: "design.chat.starterOutlinePrompt",
+    promptFallback: "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。",
+  },
+  {
     key: "palette",
     icon: "🎨",
     titleKey: "design.chat.starterPaletteTitle",

@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "Tạo phiên bản chế độ tối từ thiết kế hiện tại, giữ phân cấp và độ tương phản dễ đọc.",
       "starterLayoutTitle": "Bố cục lại",
       "starterLayoutPrompt": "Bố cục lại trang này gọn gàng hơn: mở rộng khoảng trắng, thống nhất khoảng cách và thang cỡ chữ.",
-      "producedArtifact": "Sản phẩm"
+      "producedArtifact": "Sản phẩm",
+      "starterOutlineTitle": "Lập dàn ý trước",
+      "starterOutlinePrompt": "Trước khi làm, hãy cho tôi dàn ý cấu trúc trước (tiêu đề mục/trang, các ý chính, trình tự kể chuyện). Sau khi tôi xác nhận, hãy tạo sản phẩm cuối theo dàn ý."
     },
     "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "Trình bày toàn màn hình",
     "exitPresent": "Thoát trình bày (Esc)",
     "undo": "Hoàn tác",
-    "redo": "Làm lại"
+    "redo": "Làm lại",
+    "brief": {
+      "toggle": "Thêm brief (tùy chọn, 30 giây)",
+      "audience": "Đối tượng",
+      "audiencePh": "Ai sẽ xem/dùng, vd. \"người mua doanh nghiệp\"",
+      "tone": "Giọng điệu / phong cách",
+      "tonePh": "vd. \"chuyên nghiệp, tiết chế\", \"trẻ trung\"",
+      "points": "Điểm chính",
+      "pointsPh": "Thông điệp / điểm bán bắt buộc, mỗi dòng một ý",
+      "reference": "Tham khảo",
+      "referencePh": "URL / sản phẩm / phong cách tham khảo"
+    }
   }
 }

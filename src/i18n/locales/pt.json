@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "Crie uma versão em modo escuro do design atual, mantendo hierarquia e contraste legíveis.",
       "starterLayoutTitle": "Refazer o layout",
       "starterLayoutPrompt": "Refaça esta página com um layout mais limpo: amplie o espaço em branco, unifique espaçamento e escala tipográfica.",
-      "producedArtifact": "Artefato"
+      "producedArtifact": "Artefato",
+      "starterOutlineTitle": "Planeje o esboço primeiro",
+      "starterOutlinePrompt": "Antes de construir, dê-me primeiro um esboço estrutural (títulos de seções/slides, pontos-chave, ordem narrativa). Após eu confirmar, gere o artefato final a partir do esboço."
     },
     "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "Apresentar em tela cheia",
     "exitPresent": "Sair da apresentação (Esc)",
     "undo": "Desfazer",
-    "redo": "Refazer"
+    "redo": "Refazer",
+    "brief": {
+      "toggle": "Adicionar um brief (opcional, 30s)",
+      "audience": "Público",
+      "audiencePh": "Quem verá/usará, ex.: \"compradores corporativos\"",
+      "tone": "Tom / estilo",
+      "tonePh": "ex.: \"profissional e contido\", \"descontraído\"",
+      "points": "Pontos-chave",
+      "pointsPh": "Mensagens / diferenciais obrigatórios, um por linha",
+      "reference": "Referência",
+      "referencePh": "URL / produto / estilo de referência"
+    }
   }
 }

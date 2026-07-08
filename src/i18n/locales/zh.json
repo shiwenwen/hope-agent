@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "基于当前设计做一个深色模式版本，保持信息层级与对比度可读。",
       "starterLayoutTitle": "改布局",
       "starterLayoutPrompt": "把这个页面改成更清晰的布局：拉开留白、统一间距与字号层级。",
-      "producedArtifact": "本轮产物"
+      "producedArtifact": "本轮产物",
+      "starterOutlineTitle": "先规划大纲",
+      "starterOutlinePrompt": "先别急着做，请先给我一份结构大纲（分节 / 分页的标题与要点、叙事顺序），我确认后你再按大纲生成正式产物。"
     },
     "emptyArtifactsInline": "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "全屏演示",
     "exitPresent": "退出演示 (Esc)",
     "undo": "撤销",
-    "redo": "重做"
+    "redo": "重做",
+    "brief": {
+      "toggle": "补充简报（可选，30 秒）",
+      "audience": "受众",
+      "audiencePh": "谁会看 / 用，例如「企业采购决策者」",
+      "tone": "语气 / 风格",
+      "tonePh": "例如「专业克制」「活泼年轻」",
+      "points": "要点",
+      "pointsPh": "必须体现的关键信息 / 卖点，逐条列",
+      "reference": "参考",
+      "referencePh": "参考网址 / 产品 / 风格描述"
+    }
   }
 }

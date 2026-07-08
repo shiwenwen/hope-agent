@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "Create a dark-mode version of the current design, keeping hierarchy and contrast readable.",
       "starterLayoutTitle": "Rework layout",
       "starterLayoutPrompt": "Rework this page into a cleaner layout: open up whitespace, unify spacing and type scale.",
-      "producedArtifact": "Artifact"
+      "producedArtifact": "Artifact",
+      "starterOutlineTitle": "Plan the outline first",
+      "starterOutlinePrompt": "Before building, give me a structural outline first (section/slide titles, key points, narrative order). After I confirm it, generate the final artifact from the outline."
     },
     "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "Present fullscreen",
     "exitPresent": "Exit present (Esc)",
     "undo": "Undo",
-    "redo": "Redo"
+    "redo": "Redo",
+    "brief": {
+      "toggle": "Add a brief (optional, 30s)",
+      "audience": "Audience",
+      "audiencePh": "Who will see/use it, e.g. \"enterprise buyers\"",
+      "tone": "Tone / style",
+      "tonePh": "e.g. \"professional & restrained\", \"playful\"",
+      "points": "Key points",
+      "pointsPh": "Must-have messages / selling points, one per line",
+      "reference": "Reference",
+      "referencePh": "Reference URL / product / style"
+    }
   }
 }

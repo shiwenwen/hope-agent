@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "現在のデザインをもとにダークモード版を作成し、階層とコントラストの可読性を保つ。",
       "starterLayoutTitle": "レイアウトを変更",
       "starterLayoutPrompt": "このページをより整理されたレイアウトに：余白を広げ、間隔と文字サイズの階層を統一する。",
-      "producedArtifact": "生成物"
+      "producedArtifact": "生成物",
+      "starterOutlineTitle": "まず構成を計画",
+      "starterOutlinePrompt": "作り始める前に、まず構成の概要（セクション/スライドの見出しと要点、話の流れ）を出してください。確認後、その概要に沿って正式な成果物を生成してください。"
     },
     "emptyArtifactsInline": "アーティファクトはまだありません — 右上の「新規アーティファクト」か、左の AI に生成を頼んでください。",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "全画面で発表",
     "exitPresent": "発表を終了 (Esc)",
     "undo": "元に戻す",
-    "redo": "やり直し"
+    "redo": "やり直し",
+    "brief": {
+      "toggle": "ブリーフを追加（任意・30秒）",
+      "audience": "対象者",
+      "audiencePh": "誰が見る/使うか（例：法人購買担当）",
+      "tone": "トーン / スタイル",
+      "tonePh": "例：「プロで控えめ」「若々しく元気」",
+      "points": "要点",
+      "pointsPh": "必ず盛り込む要点／訴求を箇条書きで",
+      "reference": "参考",
+      "referencePh": "参考URL／製品／スタイル"
+    }
   }
 }

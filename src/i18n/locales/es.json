@@ -6377,7 +6377,9 @@
       "starterDarkPrompt": "Crea una versión en modo oscuro del diseño actual, manteniendo la jerarquía y el contraste legibles.",
       "starterLayoutTitle": "Rehacer el diseño",
       "starterLayoutPrompt": "Rehaz esta página con una maquetación más limpia: amplía el espacio en blanco, unifica el espaciado y la escala tipográfica.",
-      "producedArtifact": "Artefacto"
+      "producedArtifact": "Artefacto",
+      "starterOutlineTitle": "Planifica el esquema primero",
+      "starterOutlinePrompt": "Antes de construir, dame primero un esquema estructural (títulos de secciones/diapositivas, puntos clave, orden narrativo). Tras confirmarlo, genera el artefacto final a partir del esquema."
     },
     "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno.",
     "review": {
@@ -6445,6 +6447,17 @@
     "presentFullscreen": "Presentar en pantalla completa",
     "exitPresent": "Salir de la presentación (Esc)",
     "undo": "Deshacer",
-    "redo": "Rehacer"
+    "redo": "Rehacer",
+    "brief": {
+      "toggle": "Añadir un brief (opcional, 30s)",
+      "audience": "Audiencia",
+      "audiencePh": "Quién lo verá/usará, p. ej. \"compradores de empresa\"",
+      "tone": "Tono / estilo",
+      "tonePh": "p. ej. \"profesional y sobrio\", \"desenfadado\"",
+      "points": "Puntos clave",
+      "pointsPh": "Mensajes / argumentos imprescindibles, uno por línea",
+      "reference": "Referencia",
+      "referencePh": "URL / producto / estilo de referencia"
+    }
   }
 }
