@@ -161,21 +161,45 @@ font stacks): {vocab}\n\nBRIEF:\n{brief}",
 const ANTISCRAPE_HINT: &str = "该网站可能启用了反爬 / 人机验证，直接抓取被拦。建议：① 截图该页面后用「从截图提取」（视觉模型对任何能看到的页面都可用、绕过反爬）；② 或换一个可直接访问的 URL。";
 
 /// 挑战页 / WAF 拦截页特征（Cloudflare / 通用）。命中即视为被反爬拦截而非真内容。
+///
+/// **误判红线（B1 review 修复）**：结构性/足够特异的标记全文匹配；两个过于通用的短语
+/// （"just a moment" / "attention required"）**仅在 `<title>` 内匹配**——CF 挑战页标题固定
+/// `<title>Just a moment...</title>` / `<title>Attention Required! | Cloudflare</title>`，
+/// 而正常营销页的 loading splash / i18n 串 / 告警文案正文里偶现同名子串**不得误拒**（守
+/// from_url 既有提取能力不弱化）。
 fn looks_like_antiscrape(html: &str) -> bool {
     let low = html.to_ascii_lowercase();
-    const MARKERS: &[&str] = &[
-        "just a moment",
-        "checking your browser",
+    const FULLTEXT: &[&str] = &[
         "cf-browser-verification",
         "cf-challenge",
-        "attention required",
         "cf-error-details",
+        "checking your browser before",
         "enable javascript and cookies to continue",
         "ddos protection by",
         "please verify you are a human",
         "px-captcha",
     ];
-    MARKERS.iter().any(|m| low.contains(m))
+    if FULLTEXT.iter().any(|m| low.contains(m)) {
+        return true;
+    }
+    const TITLE_ONLY: &[&str] = &["just a moment", "attention required"];
+    let title = extract_title_lower(&low);
+    TITLE_ONLY.iter().any(|m| title.contains(m))
+}
+
+/// 取首个 `<title>…</title>` 的内容（入参已 lowercase）；无则空串。
+fn extract_title_lower(low: &str) -> &str {
+    let Some(s) = low.find("<title") else {
+        return "";
+    };
+    let Some(gt) = low[s..].find('>') else {
+        return "";
+    };
+    let start = s + gt + 1;
+    match low[start..].find("</title>") {
+        Some(end) => &low[start..start + end],
+        None => "",
+    }
 }
 
 /// 从 URL 提取：抓**原始 HTML**（含 `<style>`/inline style，不走 Readability 清洗）
@@ -1009,11 +1033,16 @@ mod tests {
 
     #[test]
     fn antiscrape_detects_challenge_pages() {
+        // CF 挑战页：通用短语在 <title> 内 → 命中。
         assert!(looks_like_antiscrape(
-            "<html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>"
+            "<html><head><title>Just a moment...</title></head><body>...</body></html>"
         ));
         assert!(looks_like_antiscrape(
-            "<div>Attention Required! | Cloudflare</div>"
+            "<html><head><title>Attention Required! | Cloudflare</title></head><body>x</body></html>"
+        ));
+        // 结构性/特异标记：全文命中。
+        assert!(looks_like_antiscrape(
+            "<html><body><div class=\"cf-browser-verification\">x</div></body></html>"
         ));
         assert!(looks_like_antiscrape(
             "Please enable JavaScript and cookies to continue"
@@ -1021,6 +1050,16 @@ mod tests {
         // 正常内容不误判。
         assert!(!looks_like_antiscrape(
             "<html><body><h1>Acme 定价</h1><p>三档套餐</p></body></html>"
+        ));
+    }
+
+    #[test]
+    fn antiscrape_no_false_positive_on_generic_body_phrases() {
+        // 「现有能力不弱化」红线（B1 review 修复）：通用短语出现在正文/内联脚本/标题以外的
+        // 正常 200 页，绝不误判为反爬硬拒提取——仅 <title> 内的这些短语才算挑战页。
+        assert!(!looks_like_antiscrape(
+            "<html><head><title>Acme 首页</title></head>\
+<body><div class=\"loader\">Just a moment…</div><p>Attention required for admins</p></body></html>"
         ));
     }
 
