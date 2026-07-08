@@ -19,6 +19,8 @@ import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import AgentSwitcher from "@/components/chat/AgentSwitcher"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useClickOutside } from "@/hooks/useClickOutside"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
 import type { PendingFileQuote } from "@/types/chat"
 import { useDesignChat } from "./useDesignChat"
@@ -265,6 +267,26 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
               onPick={(sid) => {
                 setHistoryOpen(false)
                 void session.switchThread(sid)
+              }}
+              onRename={(sid, title) => {
+                void getTransport()
+                  .call("rename_session_cmd", { sessionId: sid, title })
+                  .then(() => session.reloadThreads())
+                  .catch((e) =>
+                    logger.error("ui", "DesignChat::rename", "rename thread failed", e),
+                  )
+              }}
+              onDelete={(sid) => {
+                void getTransport()
+                  .call("delete_session_cmd", { sessionId: sid })
+                  .then(() => {
+                    // 删的是当前线程 → 回到草稿态；否则仅刷新历史。
+                    if (session.currentSessionIdRef.current === sid) session.handleNewThread()
+                    return session.reloadThreads()
+                  })
+                  .catch((e) =>
+                    logger.error("ui", "DesignChat::delete", "delete thread failed", e),
+                  )
               }}
             />
           )}
