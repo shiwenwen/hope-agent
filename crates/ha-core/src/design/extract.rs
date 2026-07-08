@@ -370,6 +370,10 @@ fn figma_color_hex(c: &serde_json::Value) -> Option<String> {
 /// Figma paint（fill）→ hex：有效 alpha = `color.a × paint.opacity`（paint 级 opacity 单列，
 /// 忽略它会把半透明填充误报成不透明色）。
 fn paint_hex(paint: &serde_json::Value) -> Option<String> {
+    // 跳过隐藏 paint（`visible:false`）——否则隐藏填充会被当作品牌色上报给 LLM。
+    if paint.get("visible") == Some(&serde_json::Value::Bool(false)) {
+        return None;
+    }
     let mult = paint.get("opacity").and_then(|v| v.as_f64()).unwrap_or(1.0);
     figma_color_hex_alpha(paint.get("color")?, mult)
 }
@@ -567,13 +571,22 @@ pub async fn describe_reference_image(
     b64: &str,
     kind: super::renderer::ArtifactKind,
 ) -> Result<String> {
+    let limit_mb = crate::config::cached_config().design.max_extract_image_mb;
+    let trimmed = b64.trim();
+    // **解码前**按 b64 长度估算拦截，避免超大输入在 decode 时先分配 ~0.75× 才被拒（与 from_image
+    // 走 metadata 先查同理）。
+    if limit_mb > 0 && (trimmed.len() as u64) * 3 / 4 > (limit_mb as u64) * 1024 * 1024 {
+        anyhow::bail!(
+            "reference image is over the {} MB limit (raise it in Settings → Tools → Design Space)",
+            limit_mb
+        );
+    }
     let raw = base64::engine::general_purpose::STANDARD
-        .decode(b64.trim())
+        .decode(trimmed)
         .context("invalid reference image base64")?;
     if raw.is_empty() {
         anyhow::bail!("reference image is empty");
     }
-    let limit_mb = crate::config::cached_config().design.max_extract_image_mb;
     if limit_mb > 0 && raw.len() as u64 > (limit_mb as u64) * 1024 * 1024 {
         anyhow::bail!(
             "reference image is over the {} MB limit (raise it in Settings → Tools → Design Space)",
@@ -704,6 +717,11 @@ fn collect_style_samples(root: &Path) -> Result<String> {
             continue;
         };
         for entry in entries.flatten() {
+            // 跳过符号链接（`file_type` 不跟随）——防受限根内一个指向外部的目录/文件符号链接把遍历
+            // 带出根、读根外样式文件外发模型（scoped_local_path 只 canonicalize 根、未复核每 entry）。
+            if entry.file_type().map(|t| t.is_symlink()).unwrap_or(true) {
+                continue;
+            }
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
             // 跳过依赖 / 构建目录。

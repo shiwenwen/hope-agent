@@ -6237,14 +6237,16 @@
       "setSystem": "Falha ao definir o sistema de design",
       "importMd": "Falha ao importar DESIGN.md",
       "generate": "A geração falhou — tente novamente",
-      "depInstall": "Falha ao baixar a dependência — tente novamente ou use menor fidelidade"
+      "depInstall": "Falha ao baixar a dependência — tente novamente ou use menor fidelidade",
+      "restyle": "Falha ao reestilizar"
     },
     "ok": {
       "adopted": "Direção de design aplicada",
       "exported": "Exportado",
       "extracted": "Sistema de design extraído",
       "restored": "Restaurado para esta versão",
-      "imported": "Sistema de design importado"
+      "imported": "Sistema de design importado",
+      "restyled": "Reestilizado"
     },
     "exportMd": "Markdown",
     "exportZip": "Pacote-fonte (ZIP)",

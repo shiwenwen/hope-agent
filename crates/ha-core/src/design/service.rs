@@ -45,9 +45,20 @@ fn emit(event: &str, payload: serde_json::Value) {
 
 /// 解析设计系统的 CSS 变量 token（注入产物 `:root`）。
 ///
+/// 设计系统 id 是否安全（`[A-Za-z0-9-_]`，非空，无 `..`/路径分隔符）。**红线**：`system_id`
+/// 由模型经 `create_artifact` 透传并持久化，`design_system_dir` 直接 join 之——不消毒即路径穿越
+/// （读越界 `tokens.json`）。builtins 与 `slugify` 产出（`[a-z0-9-]`）均满足。
+pub(crate) fn is_valid_system_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+}
+
 /// Phase 3 返回空（内置设计系统在 Phase 2 落地，届时读 `systems/{id}/tokens.json`）。
 fn resolve_tokens(system_id: Option<&str>) -> Vec<(String, String)> {
-    let Some(id) = system_id else {
+    let Some(id) = system_id.filter(|id| is_valid_system_id(id)) else {
         return Vec::new();
     };
     let Ok(dir) = paths::design_system_dir(id) else {
@@ -1332,6 +1343,69 @@ pub fn update_artifact(input: UpdateArtifactInput) -> Result<DesignArtifact> {
         .context("artifact gone after update")
 }
 
+/// **就地换设计系统**（restyle without rebuilding，open-design 核心能力 #4 的就地操作）：改产物
+/// `system_id` + 用新系统 token 重渲染 `index.html`（**源码不变**，换皮靠产物 CSS 的 `var(--ds-*)`
+/// + `:root` 注入新值），落新版本快照可回滚。owner 平面。`system_id=None` = 清除设计系统。
+pub fn restyle_artifact(artifact_id: &str, system_id: Option<&str>) -> Result<DesignArtifact> {
+    if let Some(sid) = system_id {
+        if !is_valid_system_id(sid) {
+            anyhow::bail!("非法设计系统 id: {sid}");
+        }
+    }
+    // 与 update_artifact 同锁，串行化 read→重渲染→bump→snapshot→prune。
+    let lock = artifact_lock(artifact_id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+
+    db.set_artifact_system_id(&a.id, system_id)?;
+    let tokens = resolve_tokens(system_id);
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens)?;
+    write_working(&dir, &html, &parts, &oidmap_json)?;
+
+    let next = a.current_version + 1;
+    write_version_snapshot(&dir, next, &html, &parts, &oidmap_json)?;
+    let ts = now();
+    // 正文未改：status / selfCheck 保持不变，仅 bump 版本。
+    db.update_artifact_review(
+        &a.id,
+        None,
+        &a.status,
+        Some(next),
+        a.metadata.as_deref(),
+        &ts,
+    )?;
+    db.create_version(&DesignArtifactVersion {
+        id: 0,
+        artifact_id: a.id.clone(),
+        version_number: next,
+        message: Some("Restyle".to_string()),
+        critique_score: None,
+        created_at: ts.clone(),
+    })?;
+    let keep = crate::config::cached_config()
+        .design
+        .max_versions_per_artifact
+        .max(1);
+    let _ = db.cleanup_old_versions(&a.id, keep);
+    if let Ok(remaining) = db.list_versions(&a.id) {
+        let keep_set: std::collections::HashSet<i64> =
+            remaining.iter().map(|v| v.version_number).collect();
+        prune_version_dirs_to_db(&dir, &keep_set);
+    }
+    db.touch_project(&a.project_id, &ts)?;
+    emit("design:reload", json!({ "artifactId": a.id }));
+    db.get_artifact(&a.id)?
+        .context("artifact gone after restyle")
+}
+
 // ── Knowledge integration (D4) ─────────────────────────────────────
 
 /// 把产物沉淀为知识空间笔记（进第二大脑可检索）。`kb_id` 缺省用默认 KB。
@@ -1818,7 +1892,19 @@ pub fn bind_code_project(
 ) -> Result<DesignCodeBinding> {
     let formats = normalize_binding_formats(formats)?;
     // 校验（并创建）写入目录——绑定即确保目标可写、路径受控。
-    resolve_binding_write_dir(target_dir, subfolder)?;
+    let write_dir = resolve_binding_write_dir(target_dir, subfolder)?;
+    // 防覆盖用户真实文件（review S2-1）：若目标目录已有同名 token 文件、且无本工具 manifest
+    // （非既往本工具管理的目录），拒绝绑定——否则首次 sync 会静默清掉用户手写的 tokens.css 等。
+    if !write_dir.join("DESIGN_TOKENS.md").exists() {
+        let clash = super::token_export::export_all(&std::collections::BTreeMap::new())
+            .iter()
+            .any(|e| write_dir.join(&e.filename).exists());
+        if clash {
+            anyhow::bail!(
+                "目标目录已存在同名 token 文件且非本工具管理——请改用一个专用/空子目录（如 design-tokens），或先移除这些文件，避免同步覆盖你的现有内容。"
+            );
+        }
+    }
     let canonical = std::fs::canonicalize(target_dir)?
         .to_string_lossy()
         .into_owned();
@@ -1842,6 +1928,9 @@ fn parse_tokens_json(raw: &str) -> Result<Vec<(String, String)>> {
 }
 
 fn resolve_tokens_strict(system_id: &str) -> Result<Vec<(String, String)>> {
+    if !is_valid_system_id(system_id) {
+        anyhow::bail!("非法设计系统 id: {system_id}");
+    }
     let dir = paths::design_system_dir(system_id)?;
     let path = dir.join("tokens.json");
     let raw = match std::fs::read_to_string(&path) {
@@ -2154,13 +2243,21 @@ pub fn restore_version(artifact_id: &str, version_number: i64) -> Result<DesignA
     if !vsrc.exists() {
         anyhow::bail!("version {version_number} not found");
     }
-    let read = |name: &str| std::fs::read_to_string(vsrc.join(name)).unwrap_or_default();
+    // fail-closed 读快照：NotFound→空（合法缺文件）；其它 IO 错误→上抛，绝不 unwrap_or_default
+    // 把瞬时读错静默写成空正文的新版本（对齐 read_source 的硬化，review S4-3）。
+    let read = |name: &str| -> Result<String> {
+        match std::fs::read_to_string(vsrc.join(name)) {
+            Ok(s) => Ok(s),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+            Err(e) => Err(anyhow::anyhow!("read version source/{name}: {e}")),
+        }
+    };
     update_artifact(UpdateArtifactInput {
         id: a.id.clone(),
         title: None,
-        body_html: Some(read("body.html")),
-        css: Some(read("style.css")),
-        js: Some(read("script.js")),
+        body_html: Some(read("body.html")?),
+        css: Some(read("style.css")?),
+        js: Some(read("script.js")?),
         message: Some(format!("Restored from v{version_number}")),
         expected_body_hash: None,
     })
@@ -2428,7 +2525,23 @@ mod handoff_tests {
 
 #[cfg(test)]
 mod binding_tests {
-    use super::{normalize_binding_formats, parse_tokens_json, resolve_binding_write_dir};
+    use super::{
+        is_valid_system_id, normalize_binding_formats, parse_tokens_json, resolve_binding_write_dir,
+    };
+
+    #[test]
+    fn valid_system_id_rejects_traversal() {
+        // builtins + slugify 产出（[a-z0-9-]）均合法。
+        assert!(is_valid_system_id("minimal-modern"));
+        assert!(is_valid_system_id("brand-linear"));
+        assert!(is_valid_system_id("t-dark"));
+        // 路径穿越 / 分隔符 / 空 一律拒（review S4-2）。
+        assert!(!is_valid_system_id("../../../etc/passwd"));
+        assert!(!is_valid_system_id("a/b"));
+        assert!(!is_valid_system_id(".."));
+        assert!(!is_valid_system_id("a.b"));
+        assert!(!is_valid_system_id(""));
+    }
 
     #[test]
     fn parse_tokens_json_fails_closed_on_corrupt() {

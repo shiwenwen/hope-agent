@@ -6237,14 +6237,16 @@
       "setSystem": "Tasarım sistemi ayarlanamadı",
       "importMd": "DESIGN.md içe aktarılamadı",
       "generate": "Oluşturma başarısız — lütfen tekrar deneyin",
-      "depInstall": "Bağımlılık indirilemedi — yeniden deneyin veya düşük kalite kullanın"
+      "depInstall": "Bağımlılık indirilemedi — yeniden deneyin veya düşük kalite kullanın",
+      "restyle": "Yeniden biçimlendirme başarısız"
     },
     "ok": {
       "adopted": "Tasarım yönü uygulandı",
       "exported": "Dışa aktarıldı",
       "extracted": "Tasarım sistemi çıkarıldı",
       "restored": "Bu sürüme geri yüklendi",
-      "imported": "Tasarım sistemi içe aktarıldı"
+      "imported": "Tasarım sistemi içe aktarıldı",
+      "restyled": "Yeniden biçimlendirildi"
     },
     "exportMd": "Markdown",
     "exportZip": "Kaynak paketi (ZIP)",

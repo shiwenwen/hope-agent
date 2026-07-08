@@ -6237,14 +6237,16 @@
       "setSystem": "Đặt hệ thống thiết kế thất bại",
       "importMd": "Nhập DESIGN.md thất bại",
       "generate": "Tạo không thành công — vui lòng thử lại",
-      "depInstall": "Tải phụ thuộc thất bại — thử lại hoặc dùng chất lượng thấp hơn"
+      "depInstall": "Tải phụ thuộc thất bại — thử lại hoặc dùng chất lượng thấp hơn",
+      "restyle": "Đổi hệ thống thiết kế thất bại"
     },
     "ok": {
       "adopted": "Đã áp dụng hướng thiết kế",
       "exported": "Đã xuất",
       "extracted": "Đã trích xuất hệ thống thiết kế",
       "restored": "Đã khôi phục về phiên bản này",
-      "imported": "Đã nhập hệ thống thiết kế"
+      "imported": "Đã nhập hệ thống thiết kế",
+      "restyled": "Đã đổi hệ thống thiết kế"
     },
     "exportMd": "Markdown",
     "exportZip": "Gói nguồn (ZIP)",

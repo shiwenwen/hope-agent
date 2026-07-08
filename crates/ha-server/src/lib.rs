@@ -1867,6 +1867,10 @@ fn build_router_with_cors(
             post(routes::design::critique_artifact),
         )
         .route(
+            "/design/artifacts/{id}/restyle",
+            post(routes::design::restyle_artifact),
+        )
+        .route(
             "/design/artifacts/{id}",
             get(routes::design::get_artifact).delete(routes::design::delete_artifact),
         )

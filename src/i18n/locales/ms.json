@@ -6237,14 +6237,16 @@
       "setSystem": "Gagal menetapkan sistem reka bentuk",
       "importMd": "Import DESIGN.md gagal",
       "generate": "Penjanaan gagal — sila cuba lagi",
-      "depInstall": "Muat turun kebergantungan gagal — cuba semula atau guna fideliti lebih rendah"
+      "depInstall": "Muat turun kebergantungan gagal — cuba semula atau guna fideliti lebih rendah",
+      "restyle": "Gagal mengubah gaya"
     },
     "ok": {
       "adopted": "Arah reka bentuk diterapkan",
       "exported": "Dieksport",
       "extracted": "Sistem reka bentuk diekstrak",
       "restored": "Dipulihkan ke versi ini",
-      "imported": "Sistem reka bentuk diimport"
+      "imported": "Sistem reka bentuk diimport",
+      "restyled": "Diubah gaya"
     },
     "exportMd": "Markdown",
     "exportZip": "Pakej sumber (ZIP)",

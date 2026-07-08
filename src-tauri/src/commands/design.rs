@@ -118,6 +118,15 @@ pub async fn critique_design_artifact_cmd(id: String) -> Result<CritiqueResult, 
     service::critique_artifact(&id).await.map_err(Into::into)
 }
 
+/// 就地换设计系统（restyle）：改产物设计系统 + 用新 token 重渲染 + 落新版本。owner 平面。
+#[tauri::command]
+pub async fn restyle_design_artifact_cmd(
+    id: String,
+    system_id: Option<String>,
+) -> Result<DesignArtifact, CmdError> {
+    service::restyle_artifact(&id, system_id.as_deref()).map_err(Into::into)
+}
+
 /// 导出代码交付包（handoff ZIP，content 为 base64）。owner 平面。
 #[tauri::command]
 pub async fn export_design_handoff_cmd(id: String) -> Result<ExportResult, CmdError> {

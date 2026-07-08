@@ -362,6 +362,24 @@ pub async fn unbind_code(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "ok": true })))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestyleBody {
+    #[serde(default)]
+    pub system_id: Option<String>,
+}
+
+/// `POST /api/design/artifacts/{id}/restyle` — 就地换设计系统（重渲染 + 落新版本）。
+pub async fn restyle_artifact(
+    Path(id): Path<String>,
+    Json(body): Json<RestyleBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    let a = service::restyle_artifact(&id, body.system_id.as_deref())
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(a))
+}
+
 /// `POST /api/design/artifacts/{id}/critique` — 5-dimension quality review.
 pub async fn critique_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;

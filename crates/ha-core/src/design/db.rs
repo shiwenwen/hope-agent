@@ -423,7 +423,7 @@ impl DesignDb {
         let conn = self.lock()?;
         conn.execute(
             "UPDATE design_projects SET
-                title = COALESCE(?2, title),
+                title = COALESCE(NULLIF(?2, ''), title),
                 description = COALESCE(?3, description),
                 color = COALESCE(?4, color),
                 default_system_id = COALESCE(?5, default_system_id),
@@ -533,7 +533,7 @@ impl DesignDb {
         let conn = self.lock()?;
         conn.execute(
             "UPDATE design_artifacts SET
-                title = COALESCE(?2, title),
+                title = COALESCE(NULLIF(?2, ''), title),
                 status = COALESCE(?3, status),
                 current_version = COALESCE(?4, current_version),
                 critique_score = COALESCE(?5, critique_score),
@@ -569,13 +569,23 @@ impl DesignDb {
         let conn = self.lock()?;
         conn.execute(
             "UPDATE design_artifacts SET
-                title = COALESCE(?2, title),
+                title = COALESCE(NULLIF(?2, ''), title),
                 status = ?3,
                 current_version = COALESCE(?4, current_version),
                 metadata = ?5,
                 updated_at = ?6
              WHERE id = ?1",
             rusqlite::params![id, title, status, current_version, metadata, updated_at],
+        )?;
+        Ok(())
+    }
+
+    /// 就地换设计系统（restyle）：改产物的 `system_id`（弱引用，允许 None = 不用设计系统）。
+    pub fn set_artifact_system_id(&self, id: &str, system_id: Option<&str>) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_artifacts SET system_id = ?2 WHERE id = ?1",
+            rusqlite::params![id, system_id],
         )?;
         Ok(())
     }

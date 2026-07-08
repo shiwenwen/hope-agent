@@ -6237,14 +6237,16 @@
       "setSystem": "設定設計系統失敗",
       "importMd": "DESIGN.md 匯入失敗",
       "generate": "生成失敗，請重試",
-      "depInstall": "相依項下載失敗，請重試或改用較低保真"
+      "depInstall": "相依項下載失敗，請重試或改用較低保真",
+      "restyle": "更換設計系統失敗"
     },
     "ok": {
       "adopted": "已套用設計方向",
       "exported": "已匯出",
       "extracted": "已擷取設計系統",
       "restored": "已還原到該版本",
-      "imported": "已匯入設計系統"
+      "imported": "已匯入設計系統",
+      "restyled": "已換設計系統"
     },
     "exportMd": "Markdown",
     "exportZip": "原始碼包 (ZIP)",

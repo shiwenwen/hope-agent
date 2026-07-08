@@ -6237,14 +6237,16 @@
       "setSystem": "设置设计系统失败",
       "importMd": "DESIGN.md 导入失败",
       "generate": "生成失败，请重试",
-      "depInstall": "依赖下载失败，请重试或改用较低保真"
+      "depInstall": "依赖下载失败，请重试或改用较低保真",
+      "restyle": "换设计系统失败"
     },
     "ok": {
       "adopted": "已应用设计方向",
       "exported": "已导出",
       "extracted": "已提取设计系统",
       "restored": "已恢复到该版本",
-      "imported": "已导入设计系统"
+      "imported": "已导入设计系统",
+      "restyled": "已换设计系统"
     },
     "exportMd": "Markdown",
     "exportZip": "源码包 (ZIP)",

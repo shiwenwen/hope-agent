@@ -6237,14 +6237,16 @@
       "setSystem": "디자인 시스템 설정 실패",
       "importMd": "DESIGN.md 가져오기 실패",
       "generate": "생성에 실패했습니다. 다시 시도해 주세요",
-      "depInstall": "종속성 다운로드 실패 — 다시 시도하거나 저충실도를 사용하세요"
+      "depInstall": "종속성 다운로드 실패 — 다시 시도하거나 저충실도를 사용하세요",
+      "restyle": "디자인 시스템 변경 실패"
     },
     "ok": {
       "adopted": "디자인 방향 적용됨",
       "exported": "내보냄",
       "extracted": "디자인 시스템 추출됨",
       "restored": "이 버전으로 복원됨",
-      "imported": "디자인 시스템을 가져왔습니다"
+      "imported": "디자인 시스템을 가져왔습니다",
+      "restyled": "디자인 시스템을 변경했습니다"
     },
     "exportMd": "Markdown",
     "exportZip": "소스 번들 (ZIP)",

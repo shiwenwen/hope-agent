@@ -6237,14 +6237,16 @@
       "setSystem": "Failed to set design system",
       "importMd": "DESIGN.md import failed",
       "generate": "Generation failed — please retry",
-      "depInstall": "Dependency download failed — retry or use lower fidelity"
+      "depInstall": "Dependency download failed — retry or use lower fidelity",
+      "restyle": "Restyle failed"
     },
     "ok": {
       "adopted": "Design direction applied",
       "exported": "Exported",
       "extracted": "Design system extracted",
       "restored": "Restored to this version",
-      "imported": "Design system imported"
+      "imported": "Design system imported",
+      "restyled": "Restyled"
     },
     "exportMd": "Markdown",
     "exportZip": "Source bundle (ZIP)",

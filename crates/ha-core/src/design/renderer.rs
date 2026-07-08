@@ -240,10 +240,16 @@ pub fn build_artifact_html(
         "width=device-width, initial-scale=1".to_string()
     };
 
+    // 中和 user CSS/JS 里的 `</style>`/`</script>`（大小写不敏感），防其提前闭合 raw-text 块致
+    // 整页版式错乱——与 build_component_html 对齐（沙盒已隔离，故是产物正确性而非安全问题）。
+    let safe_user_css = neutralize_closing(&parts.css, "</style");
     let user_js = if parts.js.trim().is_empty() {
         String::new()
     } else {
-        format!("<script>\n{}\n</script>", parts.js)
+        format!(
+            "<script>\n{}\n</script>",
+            neutralize_closing(&parts.js, "</script")
+        )
     };
 
     let html = format!(
@@ -259,7 +265,7 @@ pub fn build_artifact_html(
         root = root_css,
         base = base_css,
         frame = frame_css,
-        user_css = parts.css,
+        user_css = safe_user_css,
         body = wrapped_body,
         user_js = user_js,
         deck_js = deck_js,

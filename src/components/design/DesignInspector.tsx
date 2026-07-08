@@ -317,7 +317,10 @@ export default function DesignInspector({
               setText(e.target.value)
               onLiveText(e.target.value)
             }}
-            onBlur={() => onCommitText(text)}
+            onBlur={() => {
+              // dirty-guard：文本未变不提交，避免每次失焦都产生冗余 patch + 新版本（review Frontend-3）。
+              if (text !== (selected.text ?? "")) onCommitText(text)
+            }}
             rows={2}
             className="resize-none"
           />

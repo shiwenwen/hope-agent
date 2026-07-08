@@ -180,10 +180,10 @@ pub fn get_design_tool() -> ToolDefinition {
                         "list_recipes", "get_recipe", "list_systems", "get_system", "extract_system",
                         "import_design_md", "export_system", "export_tokens",
                         "propose_directions", "list_projects", "list_artifacts", "get_artifact",
-                        "create_artifact", "update_artifact", "delete_artifact",
+                        "create_artifact", "update_artifact", "restyle", "delete_artifact",
                         "versions", "restore", "critique", "save_to_knowledge", "show"
                     ],
-                    "description": "Design operation to perform. import_design_md = import a DESIGN.md-spec design system from 'content' (interop format); export_system = export a design system as a portable DESIGN.md; export_tokens = export a design system's tokens as developer code (CSS/SCSS/TS/Swift/Android XML/DTCG JSON) — optionally pass 'format' for a single target."
+                    "description": "Design operation to perform. import_design_md = import a DESIGN.md-spec design system from 'content' (interop format); export_system = export a design system as a portable DESIGN.md; export_tokens = export a design system's tokens as developer code (CSS/SCSS/TS/Swift/Android XML/DTCG JSON) — optionally pass 'format' for a single target; restyle = re-skin an EXISTING artifact with a different design system in place (pass artifact_id + system_id; source unchanged, re-rendered with the new tokens, new version snapshot; omit system_id to clear)."
                 },
                 "kind": {
                     "type": "string",

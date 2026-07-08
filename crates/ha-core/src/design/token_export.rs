@@ -124,6 +124,22 @@ fn core_name(k: &str) -> &str {
         .unwrap_or_else(|| k.trim_start_matches("--"))
 }
 
+/// 是否合法标识符（字母/`_` 开头，其余字母数字/`_`）——数字开头的 camel 名（`2xl`）非法。
+fn is_ident(name: &str) -> bool {
+    let mut it = name.chars();
+    matches!(it.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && it.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Swift 标识符：合法则原样，否则反引号转义（`` `2xl` `` 是合法 Swift）。
+fn swift_ident(name: &str) -> String {
+    if is_ident(name) {
+        name.to_string()
+    } else {
+        format!("`{name}`")
+    }
+}
+
 /// `--ds-color-primary` → `colorPrimary`。
 fn to_camel(k: &str) -> String {
     let mut out = String::new();
@@ -222,7 +238,10 @@ fn gen_scss(tokens: &BTreeMap<String, String>) -> TokenExport {
 fn gen_ts(tokens: &BTreeMap<String, String>) -> TokenExport {
     let mut body = String::from("export const tokens = {\n");
     for (k, v) in tokens {
-        body.push_str(&format!("  {}: {},\n", to_camel(k), js_string(v)));
+        let key = to_camel(k);
+        // 非法 JS 标识符（数字开头，如 `2xl`）作裸对象键是 SyntaxError → 加引号（`"2xl": …` 合法）。
+        let ts_key = if is_ident(&key) { key } else { js_string(&key) };
+        body.push_str(&format!("  {}: {},\n", ts_key, js_string(v)));
     }
     body.push_str("} as const\n\nexport type DesignTokens = typeof tokens\n");
     TokenExport {
@@ -277,7 +296,9 @@ fn gen_swift(tokens: &BTreeMap<String, String>) -> TokenExport {
     );
     let mut has_color = false;
     for (k, v) in tokens {
-        let name = to_camel(k);
+        // 数字开头的 camel 名（如 `--ds-2xl`→`2xl`）是非法 Swift 标识符——反引号转义（`` `2xl` ``）
+        // 否则 .swift 编不过（review：值侧已降级，键名侧此前漏了，token_export 契约要求「绝不产编不过的文件」）。
+        let name = swift_ident(&to_camel(k));
         match classify(k, v) {
             // 仅 3/6/8 位 hex 交给 UIColor(ds:)（init 能解析）；其余颜色保留原值字符串 + 提示
             // 手工转换，绝不让 rgba/oklch 静默变透明（review #1/#4）。
@@ -701,6 +722,22 @@ mod tests {
         assert!(all
             .iter()
             .all(|e| !e.content.is_empty() && !e.filename.is_empty()));
+    }
+
+    #[test]
+    fn number_leading_names_stay_compilable() {
+        // `--ds-2xl` → camel `2xl`（数字开头）——TS 裸键 / Swift 裸 let 名都编不过，须引号/反引号。
+        let t = toks(&[("--ds-2xl", "18px"), ("--ds-3d-shadow", "#fff")]);
+        let all = export_all(&t);
+        let ts = &all.iter().find(|e| e.format == "ts").unwrap().content;
+        assert!(ts.contains("\"2xl\":"), "TS 数字键须加引号: {ts}");
+        assert!(!ts.contains("\n  2xl:"), "TS 不应有裸数字键");
+        let swift = &all.iter().find(|e| e.format == "swift").unwrap().content;
+        assert!(
+            swift.contains("let `2xl`"),
+            "Swift 数字标识符须反引号: {swift}"
+        );
+        assert!(is_ident("colorPrimary") && !is_ident("2xl") && !is_ident(""));
     }
 
     #[test]

@@ -812,6 +812,7 @@ pub fn run() {
             commands::design::list_design_code_bindings_cmd,
             commands::design::unbind_design_code_project_cmd,
             commands::design::critique_design_artifact_cmd,
+            commands::design::restyle_design_artifact_cmd,
             commands::design::list_design_systems_cmd,
             commands::design::get_design_system_cmd,
             commands::design::save_design_system_cmd,

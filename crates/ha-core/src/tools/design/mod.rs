@@ -21,6 +21,14 @@ pub(crate) async fn tool_design(
     let session_id = ctx.session_id.as_deref();
     let agent_id = ctx.agent_id.as_deref();
 
+    // 无痕会话 fail-closed：设计空间产物 / 系统落盘落库（session_id 键），与「关闭即焚」冲突，
+    // 且 design 是 project 类持久容器、本就与 incognito 互斥（对齐 AGENTS incognito 红线）。
+    if crate::session::is_session_incognito(session_id) {
+        anyhow::bail!(
+            "设计空间在无痕会话中不可用——产物会落盘持久化，与无痕「关闭即焚」冲突。请在普通会话中使用。"
+        );
+    }
+
     match action {
         "list_recipes" => action_list_recipes(args),
         "get_recipe" => action_get_recipe(args),
@@ -36,6 +44,7 @@ pub(crate) async fn tool_design(
         "get_artifact" => action_get_artifact(args),
         "create_artifact" => action_create_artifact(args, session_id, agent_id).await,
         "update_artifact" => action_update_artifact(args),
+        "restyle" => action_restyle(args),
         "delete_artifact" => action_delete_artifact(args),
         "versions" => action_versions(args),
         "restore" => action_restore(args),
@@ -277,6 +286,18 @@ fn action_update_artifact(args: &Value) -> Result<String> {
     ok(json!({
         "status": "updated",
         "artifactId": artifact.id,
+        "version": artifact.current_version,
+    }))
+}
+
+/// 就地换设计系统（restyle）：不改源码，用新系统 token 重渲染既有产物。省略 `system_id` = 清除。
+fn action_restyle(args: &Value) -> Result<String> {
+    let id = require_str(args, "artifact_id")?;
+    let artifact = service::restyle_artifact(id, str_arg(args, "system_id"))?;
+    ok(json!({
+        "status": "restyled",
+        "artifactId": artifact.id,
+        "systemId": artifact.system_id,
         "version": artifact.current_version,
     }))
 }

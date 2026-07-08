@@ -286,6 +286,27 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, activeProject, t],
   )
 
+  // 就地换设计系统：对当前打开的产物 restyle（后端重渲染 + 落新版本，源码不变）。
+  const restyleActiveArtifact = useCallback(
+    async (systemId: string | null) => {
+      if (!activeArtifactRef.current) return
+      try {
+        await tx.call<DesignArtifact>("restyle_design_artifact_cmd", {
+          id: activeArtifactRef.current.id,
+          systemId: systemId ?? undefined,
+        })
+        await refreshView()
+        setPreviewKey((k) => k + 1)
+        toast.success(t("design.ok.restyled", "已换设计系统"))
+      } catch (e) {
+        logger.error("design", "DesignView::restyle", "restyle failed", e)
+        toast.error(t("design.err.restyle", "换设计系统失败"))
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tx, t],
+  )
+
   const createProject = useCallback(async () => {
     setCreatingProject(true)
     try {
@@ -786,6 +807,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // Receive selection from the iframe bridge + stream-host ready handshake.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
+      // 只信任来自预览 iframe 自身的消息——沙盒（allow-scripts）里 AI 生成/可能被注入的脚本能向
+      // parent postMessage，而 host 会据此回写产物源（ds_text_commit 等）。校验 e.source 收窄面。
+      if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return
       const d = e.data as {
         type?: string
         payload?: DesignSelectedElement
@@ -1493,9 +1517,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
   // ── Preview iframe src ───────────────────────────────────────
 
-  const iframeSrc = activeArtifact
-    ? tx.resolveAssetUrl(`${activeArtifact.artifactPath}/index.html`) ?? ""
-    : ""
+  // cache-bust 键 previewKey：生成/编辑/恢复/刷新 index.html 后端 max-age=60，且流式壳与定稿写
+  // 同一 index.html——不带 cache-bust 时 remount 会取回缓存的旧页（server 模式尤甚，卡旧内容 ≤60s）。
+  const iframeSrc = (() => {
+    if (!activeArtifact) return ""
+    const base = tx.resolveAssetUrl(`${activeArtifact.artifactPath}/index.html`) ?? ""
+    if (!base) return ""
+    return `${base}${base.includes("?") ? "&" : "?"}v=${previewKey}`
+  })()
 
   // Preview scaling. "fit" stretches the iframe to fill the pane. A numeric zoom
   // renders at the artifact's natural viewport size and visually scales it, with the
@@ -1553,14 +1582,26 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               >
                 <Palette className="h-3.5 w-3.5 opacity-70" />
                 <span className="max-w-[120px] truncate">
-                  {systems.find((s) => s.id === activeProject.defaultSystemId)?.name ??
-                    t("design.pickSystem", "选择设计系统")}
+                  {(() => {
+                    // 有活跃产物 → 显示/切换该产物的设计系统（restyle）；否则项目默认系统。
+                    const curId = activeArtifact
+                      ? activeArtifact.systemId
+                      : activeProject.defaultSystemId
+                    return (
+                      systems.find((s) => s.id === curId)?.name ??
+                      t("design.pickSystem", "选择设计系统")
+                    )
+                  })()}
                 </span>
               </Button>
               <DesignSystemPicker
                 systems={systems}
-                value={activeProject.defaultSystemId ?? null}
-                onChange={(id) => void setProjectSystem(id)}
+                value={
+                  (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId) ?? null
+                }
+                onChange={(id) =>
+                  activeArtifact ? void restyleActiveArtifact(id) : void setProjectSystem(id)
+                }
                 open={systemPickerOpen}
                 onOpenChange={setSystemPickerOpen}
                 footer={

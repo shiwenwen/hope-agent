@@ -6237,14 +6237,16 @@
       "setSystem": "No se pudo establecer el sistema de diseño",
       "importMd": "Error al importar DESIGN.md",
       "generate": "La generación falló, inténtalo de nuevo",
-      "depInstall": "Error al descargar la dependencia: reintenta o usa menor fidelidad"
+      "depInstall": "Error al descargar la dependencia: reintenta o usa menor fidelidad",
+      "restyle": "Error al rediseñar"
     },
     "ok": {
       "adopted": "Dirección de diseño aplicada",
       "exported": "Exportado",
       "extracted": "Sistema de diseño extraído",
       "restored": "Restaurado a esta versión",
-      "imported": "Sistema de diseño importado"
+      "imported": "Sistema de diseño importado",
+      "restyled": "Rediseñado"
     },
     "exportMd": "Markdown",
     "exportZip": "Paquete fuente (ZIP)",
