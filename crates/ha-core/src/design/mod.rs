@@ -10,6 +10,7 @@ mod brands;
 pub mod compile;
 pub mod critique;
 pub mod db;
+pub mod deploy;
 pub mod design_md;
 pub mod export;
 pub mod extract;

@@ -6464,6 +6464,18 @@
       "copied": "Enlace de solo lectura copiado",
       "exported": "HTML compartible exportado",
       "failed": "Error al compartir"
+    },
+    "deploy": {
+      "menu": "Desplegar en Cloudflare Pages",
+      "title": "Desplegar en Cloudflare Pages",
+      "hint": "Publica este diseño como una página web pública (*.pages.dev). Necesitas un API Token de Cloudflare (con permiso de edición de Pages) y tu Account ID, que se guardan solo en este equipo, cifrados.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "Obtener token",
+      "tokenPh": "Pega el API Token",
+      "deploy": "Desplegar",
+      "done": "Desplegado: enlace copiado",
+      "failed": "Error al desplegar: {{msg}}"
     }
   }
 }

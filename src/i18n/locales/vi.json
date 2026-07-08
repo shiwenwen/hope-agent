@@ -6464,6 +6464,18 @@
       "copied": "Đã sao chép liên kết chia sẻ chỉ đọc",
       "exported": "Đã xuất HTML có thể chia sẻ",
       "failed": "Chia sẻ thất bại"
+    },
+    "deploy": {
+      "menu": "Triển khai lên Cloudflare Pages",
+      "title": "Triển khai lên Cloudflare Pages",
+      "hint": "Xuất bản thiết kế này thành trang web công khai (*.pages.dev). Bạn cần Cloudflare API Token (có quyền chỉnh sửa Pages) và Account ID — chỉ lưu trên máy này, được mã hóa.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "Lấy token",
+      "tokenPh": "Dán API Token",
+      "deploy": "Triển khai",
+      "done": "Đã triển khai — đã sao chép liên kết",
+      "failed": "Triển khai thất bại: {{msg}}"
     }
   }
 }

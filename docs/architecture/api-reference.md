@@ -455,6 +455,9 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_design_share_cmd` | `GET /api/design/artifacts/{artifactId}/share` | ✅ |
 | `revoke_design_share_cmd` | `DELETE /api/design/artifacts/{artifactId}/share` | ✅ |
 | _(公开只读快照，无鉴权)_ | `GET /api/design/share/{token}` | ✅ HTTP-only |
+| `save_cf_deploy_config_cmd` | `PUT /api/design/deploy/config` | ✅ |
+| `get_cf_deploy_config_cmd` | `GET /api/design/deploy/config` | ✅ |
+| `deploy_design_artifact_cmd` | `POST /api/design/artifacts/{artifactId}/deploy` | ✅ |
 | `restore_design_version_cmd` | `POST /api/design/artifacts/{artifactId}/restore` | ✅ |
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
 | `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |

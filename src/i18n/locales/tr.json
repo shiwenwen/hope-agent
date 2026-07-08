@@ -6464,6 +6464,18 @@
       "copied": "Salt okunur paylaşım bağlantısı kopyalandı",
       "exported": "Paylaşılabilir HTML dışa aktarıldı",
       "failed": "Paylaşım başarısız"
+    },
+    "deploy": {
+      "menu": "Cloudflare Pages'e dağıt",
+      "title": "Cloudflare Pages'e dağıt",
+      "hint": "Bu tasarımı herkese açık bir web sayfası (*.pages.dev) olarak yayımlayın. Bir Cloudflare API Token (Pages düzenleme izniyle) ve Account ID gerekir; yalnızca bu cihazda şifreli saklanır.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "Token al",
+      "tokenPh": "API Token'ı yapıştır",
+      "deploy": "Dağıt",
+      "done": "Dağıtıldı — bağlantı kopyalandı",
+      "failed": "Dağıtım başarısız: {{msg}}"
     }
   }
 }

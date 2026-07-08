@@ -53,6 +53,7 @@ import {
   Redo2,
   ChevronDown,
   Share2,
+  Cloud,
   Wand2,
   FileImage,
   FileType2,
@@ -75,6 +76,7 @@ import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
 import DesignKitModal from "@/components/design/DesignKitModal"
 import DesignVersionHistoryModal from "@/components/design/DesignVersionHistoryModal"
+import DesignDeployModal from "@/components/design/DesignDeployModal"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
@@ -1636,6 +1638,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 分享（B7-1）：HTTP/server 模式 = 建只读分享链接（公开 token 快照）+ 复制；
   // 桌面（无公开 server）= 直接导出干净自包含 HTML 供发送（拍板的降级路径）。
   const [sharing, setSharing] = useState(false)
+  const [deployOpen, setDeployOpen] = useState(false) // B7-2 CF 部署对话框
   const handleShare = useCallback(async () => {
     const a = activeArtifactRef.current
     if (!a || sharing) return
@@ -2773,6 +2776,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             </DropdownMenuItem>
                           </>
                         )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => setDeployOpen(true)}>
+                          <Cloud className="mr-2 h-4 w-4" />
+                          {t("design.deploy.menu", "部署到 Cloudflare Pages")}
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -3187,6 +3195,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         artifactId={activeArtifact?.id ?? null}
         currentVersion={activeArtifact?.currentVersion ?? 0}
         onRestored={onVersionRestored}
+      />
+
+      <DesignDeployModal
+        open={deployOpen}
+        onClose={() => setDeployOpen(false)}
+        artifactId={activeArtifact?.id ?? null}
       />
 
       {/* 本窗口无 chrome 演示态（B4-4）：Escape 退出 */}

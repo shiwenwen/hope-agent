@@ -1457,8 +1457,18 @@ pub fn revoke_share_for_artifact(artifact_id: &str) -> Result<bool> {
     }
 }
 
-/// 公开路由：token → 产物当前**干净**自包含快照 HTML（`render_clean`，无 inspector bridge /
-/// oid，导出态一致）。token 查不到 / 产物已删 → None（路由回 404）。
+/// 产物当前**干净**自包含快照 HTML（`render_clean`，无 inspector bridge / oid，导出态一致）。
+/// 分享公开路由 + CF 部署（B7-1/7-2）共用单一来源。
+pub fn render_clean_html_for_artifact(a: &DesignArtifact) -> Result<String> {
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    Ok(render_clean(kind, &a.title, &parts, &tokens))
+}
+
+/// 公开路由：token → 产物干净快照 HTML。token 查不到 / 产物已删 → None（路由回 404）。
 pub fn render_share_html(token: &str) -> Result<Option<String>> {
     let db = open_db()?;
     let Some(artifact_id) = db.resolve_share(token)? else {
@@ -1467,12 +1477,7 @@ pub fn render_share_html(token: &str) -> Result<Option<String>> {
     let Some(a) = db.get_artifact(&artifact_id)? else {
         return Ok(None);
     };
-    let kind = ArtifactKind::from_str(&a.kind)
-        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
-    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
-    let parts = read_source(&dir)?;
-    let tokens = resolve_tokens(a.system_id.as_deref());
-    Ok(Some(render_clean(kind, &a.title, &parts, &tokens)))
+    Ok(Some(render_clean_html_for_artifact(&a)?))
 }
 
 /// 产物预览信息（前端 iframe 加载用）。

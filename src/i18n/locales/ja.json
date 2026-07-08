@@ -6464,6 +6464,18 @@
       "copied": "読み取り専用の共有リンクをコピーしました",
       "exported": "共有可能なHTMLを書き出しました",
       "failed": "共有に失敗しました"
+    },
+    "deploy": {
+      "menu": "Cloudflare Pages にデプロイ",
+      "title": "Cloudflare Pages にデプロイ",
+      "hint": "このデザインを公開ウェブページ（*.pages.dev）として公開します。Cloudflare API Token（Pages 編集権限）と Account ID が必要です。この端末にのみ暗号化して保存されます。",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "トークンを取得",
+      "tokenPh": "API Token を貼り付け",
+      "deploy": "デプロイ",
+      "done": "デプロイ完了、リンクをコピーしました",
+      "failed": "デプロイに失敗しました：{{msg}}"
     }
   }
 }

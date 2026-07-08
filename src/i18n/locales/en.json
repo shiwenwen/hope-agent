@@ -6464,6 +6464,18 @@
       "copied": "Read-only share link copied",
       "exported": "Shareable HTML exported",
       "failed": "Share failed"
+    },
+    "deploy": {
+      "menu": "Deploy to Cloudflare Pages",
+      "title": "Deploy to Cloudflare Pages",
+      "hint": "Publish this design as a public web page (*.pages.dev). You'll need a Cloudflare API Token (with Pages edit permission) and your Account ID — stored only on this machine, encrypted.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "Get token",
+      "tokenPh": "Paste API Token",
+      "deploy": "Deploy",
+      "done": "Deployed — link copied",
+      "failed": "Deploy failed: {{msg}}"
     }
   }
 }

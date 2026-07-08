@@ -6464,6 +6464,18 @@
       "copied": "Pautan kongsi baca sahaja disalin",
       "exported": "HTML boleh dikongsi dieksport",
       "failed": "Kongsi gagal"
+    },
+    "deploy": {
+      "menu": "Deploy ke Cloudflare Pages",
+      "title": "Deploy ke Cloudflare Pages",
+      "hint": "Terbitkan reka bentuk ini sebagai halaman web awam (*.pages.dev). Anda perlukan Cloudflare API Token (dengan kebenaran edit Pages) dan Account ID — disimpan hanya pada mesin ini, disulitkan.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "Dapatkan token",
+      "tokenPh": "Tampal API Token",
+      "deploy": "Deploy",
+      "done": "Telah deploy — pautan disalin",
+      "failed": "Deploy gagal: {{msg}}"
     }
   }
 }

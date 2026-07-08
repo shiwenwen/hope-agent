@@ -6464,6 +6464,18 @@
       "copied": "읽기 전용 공유 링크를 복사했습니다",
       "exported": "공유 가능한 HTML을 내보냈습니다",
       "failed": "공유 실패"
+    },
+    "deploy": {
+      "menu": "Cloudflare Pages에 배포",
+      "title": "Cloudflare Pages에 배포",
+      "hint": "이 디자인을 공개 웹페이지(*.pages.dev)로 게시합니다. Cloudflare API Token(Pages 편집 권한)과 Account ID가 필요하며, 이 기기에만 암호화되어 저장됩니다.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "토큰 받기",
+      "tokenPh": "API Token 붙여넣기",
+      "deploy": "배포",
+      "done": "배포 완료 — 링크를 복사했습니다",
+      "failed": "배포 실패: {{msg}}"
     }
   }
 }

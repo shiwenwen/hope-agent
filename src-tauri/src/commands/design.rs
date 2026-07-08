@@ -135,6 +135,35 @@ pub async fn revoke_design_share_cmd(artifact_id: String) -> Result<bool, CmdErr
     service::revoke_share_for_artifact(&artifact_id).map_err(Into::into)
 }
 
+// ── Cloudflare Pages 部署（B7-2，owner 平面 opt-in）─────────────────
+
+/// 保存 CF 部署配置（token 0600 落 credentials；token=mask 保留原值）。
+#[tauri::command]
+pub async fn save_cf_deploy_config_cmd(
+    api_token: String,
+    account_id: String,
+) -> Result<(), CmdError> {
+    ha_core::design::deploy::save_cf_config(&api_token, &account_id).map_err(Into::into)
+}
+
+/// 读 CF 部署配置（**token 脱敏**：只回 hasToken + mask 哨兵）。
+#[tauri::command]
+pub async fn get_cf_deploy_config_cmd(
+) -> Result<ha_core::design::deploy::CfConfigPublic, CmdError> {
+    ha_core::design::deploy::public_cf_config().map_err(Into::into)
+}
+
+/// 部署产物到 CF Pages，返回 `{ url }`（与 HTTP `POST /deploy` 同形，前端统一读 `res.url`）。
+#[derive(serde::Serialize)]
+pub struct DeployUrl {
+    pub url: String,
+}
+#[tauri::command]
+pub async fn deploy_design_artifact_cmd(artifact_id: String) -> Result<DeployUrl, CmdError> {
+    let url = ha_core::design::deploy::deploy_artifact(&artifact_id).await?;
+    Ok(DeployUrl { url })
+}
+
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {
     service::patch_element(input).map_err(Into::into)

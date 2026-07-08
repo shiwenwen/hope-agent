@@ -6464,6 +6464,18 @@
       "copied": "تم نسخ رابط المشاركة للقراءة فقط",
       "exported": "تم تصدير HTML قابل للمشاركة",
       "failed": "فشلت المشاركة"
+    },
+    "deploy": {
+      "menu": "النشر على Cloudflare Pages",
+      "title": "النشر على Cloudflare Pages",
+      "hint": "انشر هذا التصميم كصفحة ويب عامة (*.pages.dev). تحتاج إلى Cloudflare API Token (بصلاحية تعديل Pages) و Account ID، ويُحفظان على هذا الجهاز فقط ومشفّرين.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "الحصول على الرمز",
+      "tokenPh": "الصق API Token",
+      "deploy": "نشر",
+      "done": "تم النشر — تم نسخ الرابط",
+      "failed": "فشل النشر: {{msg}}"
     }
   }
 }

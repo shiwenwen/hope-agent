@@ -6464,6 +6464,18 @@
       "copied": "Ссылка только для чтения скопирована",
       "exported": "Экспортирован HTML для отправки",
       "failed": "Не удалось поделиться"
+    },
+    "deploy": {
+      "menu": "Развернуть на Cloudflare Pages",
+      "title": "Развернуть на Cloudflare Pages",
+      "hint": "Опубликуйте этот дизайн как публичную веб-страницу (*.pages.dev). Нужны Cloudflare API Token (с правом редактирования Pages) и ваш Account ID — хранятся только на этом устройстве, в зашифрованном виде.",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "Получить токен",
+      "tokenPh": "Вставьте API Token",
+      "deploy": "Развернуть",
+      "done": "Развёрнуто — ссылка скопирована",
+      "failed": "Не удалось развернуть: {{msg}}"
     }
   }
 }

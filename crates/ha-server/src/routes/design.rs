@@ -482,6 +482,38 @@ pub async fn serve_share(Path(token): Path<String>) -> Result<Response, AppError
     }
 }
 
+// ── Cloudflare Pages 部署（B7-2，owner）─────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CfConfigBody {
+    pub api_token: String,
+    pub account_id: String,
+}
+
+/// `PUT /api/design/deploy/config` — 保存 CF token（0600）+ account。
+pub async fn save_deploy_config(Json(body): Json<CfConfigBody>) -> Result<Json<Value>, AppError> {
+    ha_core::design::deploy::save_cf_config(&body.api_token, &body.account_id)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `GET /api/design/deploy/config` — 读配置（**token 脱敏**）。
+pub async fn get_deploy_config() -> Result<Json<Value>, AppError> {
+    let cfg = ha_core::design::deploy::public_cf_config()
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(cfg).unwrap_or(Value::Null)))
+}
+
+/// `POST /api/design/artifacts/{id}/deploy` — 部署到 CF Pages，返回 `{ url }`。
+pub async fn deploy_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let url = ha_core::design::deploy::deploy_artifact(&id)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "url": url })))
+}
+
 /// `POST /api/design/artifacts/{id}/restore` — restore a historical version.
 pub async fn restore_version(
     Path(id): Path<String>,

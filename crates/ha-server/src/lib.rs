@@ -1907,6 +1907,14 @@ fn build_router_with_cors(
                 .delete(routes::design::revoke_share),
         )
         .route(
+            "/design/deploy/config",
+            get(routes::design::get_deploy_config).put(routes::design::save_deploy_config),
+        )
+        .route(
+            "/design/artifacts/{id}/deploy",
+            post(routes::design::deploy_artifact),
+        )
+        .route(
             "/design/artifacts/{id}/export",
             get(routes::design::export_artifact),
         )

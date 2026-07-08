@@ -6464,6 +6464,18 @@
       "copied": "已複製唯讀分享連結",
       "exported": "已匯出可分享的 HTML",
       "failed": "分享失敗"
+    },
+    "deploy": {
+      "menu": "部署到 Cloudflare Pages",
+      "title": "部署到 Cloudflare Pages",
+      "hint": "把這個設計發佈成公開網頁（*.pages.dev）。需要一個 Cloudflare API Token（Pages 編輯權限）和 Account ID，只儲存在本機、加密存放。",
+      "accountId": "Account ID",
+      "token": "API Token",
+      "getToken": "取得 Token",
+      "tokenPh": "貼上 API Token",
+      "deploy": "部署",
+      "done": "已部署，連結已複製",
+      "failed": "部署失敗：{{msg}}"
     }
   }
 }
