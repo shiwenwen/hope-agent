@@ -246,6 +246,18 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("blocks mouse and keyboard sends while send is disabled", () => {
+    const onSend = vi.fn()
+    renderChatInput({ input: "hello", onSend, sendDisabled: true })
+
+    const sendButton = screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement
+    expect(sendButton.disabled).toBe(true)
+    fireEvent.click(sendButton)
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   test("allows sending when only attachments are present", () => {
     const onSend = vi.fn()
     const file = new File(["image"], "photo.png", { type: "image/png" })

@@ -92,6 +92,7 @@ interface ChatInputProps {
   inputHistory?: string[]
   quickPrompts?: QuickPromptItem[]
   onSend: () => void
+  sendDisabled?: boolean
   loading: boolean
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
@@ -209,6 +210,7 @@ export default function ChatInput({
   inputHistory = [],
   quickPrompts = [],
   onSend,
+  sendDisabled = false,
   loading,
   availableModels,
   activeModel,
@@ -717,10 +719,13 @@ export default function ChatInput({
     [historyIndex, input, inputHandleRef, inputHistory, onInputChange],
   )
 
+  const sendUnavailable = sendDisabled || !hasSendableContent
+
   const handleSend = useCallback(() => {
+    if (sendUnavailable) return
     resetHistoryBrowsing()
     onSend()
-  }, [onSend, resetHistoryBrowsing])
+  }, [onSend, resetHistoryBrowsing, sendUnavailable])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
@@ -1450,15 +1455,21 @@ export default function ChatInput({
                 )}
 
                 <IconTip
-                  label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
+                  label={
+                    loading && hasSendableContent && !sendDisabled
+                      ? t("chat.queueMessage")
+                      : t("chat.send")
+                  }
                 >
                   <Button
                     size="icon"
                     className="h-8 w-8 rounded-full shrink-0"
                     onClick={handleSend}
-                    disabled={!hasSendableContent}
+                    disabled={sendUnavailable}
                     aria-label={
-                      loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")
+                      loading && hasSendableContent && !sendDisabled
+                        ? t("chat.queueMessage")
+                        : t("chat.send")
                     }
                   >
                     <Send className="h-4 w-4" />

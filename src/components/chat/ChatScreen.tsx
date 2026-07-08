@@ -2952,6 +2952,7 @@ export default function ChatScreen({
                       inputHistory={inputHistory}
                       quickPrompts={quickPrompts}
                       onSend={() => stream.handleSend()}
+                      sendDisabled={session.historyLoading}
                       loading={session.loading}
                       availableModels={availableModels}
                       activeModel={activeModel}
