@@ -1387,7 +1387,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       toast.success(t("design.ok.extracted", "已提取设计系统"))
     } catch (e) {
       logger.error("design", "DesignView::runExtract", "extract failed", e)
-      toast.error(t("design.err.extract", "反向提取失败"))
+      // 后端带的可操作提示（反爬协作式引导 B1-5 等）优先展示，否则通用文案。
+      const msg = e instanceof Error ? e.message.trim() : ""
+      toast.error(msg && msg.length <= 300 ? msg : t("design.err.extract", "反向提取失败"))
     } finally {
       setExtracting(false)
     }

@@ -156,12 +156,38 @@ font stacks): {vocab}\n\nBRIEF:\n{brief}",
     Ok(wrap.directions)
 }
 
+/// 反爬 / 人机验证被拦时的协作式引导（B1-5）。截图提取（`from_image` 走视觉模型）能对
+/// **任何用户能看到的页面**工作、完全绕过抓取层反爬，故是最实用的 fallback。
+const ANTISCRAPE_HINT: &str = "该网站可能启用了反爬 / 人机验证，直接抓取被拦。建议：① 截图该页面后用「从截图提取」（视觉模型对任何能看到的页面都可用、绕过反爬）；② 或换一个可直接访问的 URL。";
+
+/// 挑战页 / WAF 拦截页特征（Cloudflare / 通用）。命中即视为被反爬拦截而非真内容。
+fn looks_like_antiscrape(html: &str) -> bool {
+    let low = html.to_ascii_lowercase();
+    const MARKERS: &[&str] = &[
+        "just a moment",
+        "checking your browser",
+        "cf-browser-verification",
+        "cf-challenge",
+        "attention required",
+        "cf-error-details",
+        "enable javascript and cookies to continue",
+        "ddos protection by",
+        "please verify you are a human",
+        "px-captcha",
+    ];
+    MARKERS.iter().any(|m| low.contains(m))
+}
+
 /// 从 URL 提取：抓**原始 HTML**（含 `<style>`/inline style，不走 Readability 清洗）
-/// 后交 LLM 归纳。出站必过 SSRF（红线）。
+/// 后交 LLM 归纳。出站必过 SSRF（红线）。命中反爬 → 协作式引导（B1-5）。
 pub async fn from_url(url: &str) -> Result<ExtractedSystem> {
     let html = fetch_raw_html(url).await?;
     if html.trim().is_empty() {
         anyhow::bail!("fetched empty page from {url}");
+    }
+    // HTTP 成功但内容是挑战页 → 同样协作式引导（B1-5）。
+    if looks_like_antiscrape(&html) {
+        anyhow::bail!("{ANTISCRAPE_HINT}");
     }
     let mut sys = run_extract("web page raw HTML (with inline styles)", &html).await?;
     // B1-4：确定性 harvest logo/hero 配图（LLM 之外的旁路，失败不阻断提取）。
@@ -423,8 +449,13 @@ async fn fetch_raw_html(url: &str) -> Result<String> {
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("fetch failed: {e}"))?;
+    let status = resp.status().as_u16();
     if !resp.status().is_success() {
-        anyhow::bail!("fetch failed with status {}", resp.status().as_u16());
+        // 反爬/限流状态 → 协作式引导（B1-5）：截图提取绕过。
+        if matches!(status, 403 | 429 | 503) {
+            anyhow::bail!("{ANTISCRAPE_HINT}（HTTP {status}）");
+        }
+        anyhow::bail!("fetch failed with status {status}");
     }
     let content_type = resp
         .headers()
@@ -975,6 +1006,23 @@ fn collect_style_samples(root: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn antiscrape_detects_challenge_pages() {
+        assert!(looks_like_antiscrape(
+            "<html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>"
+        ));
+        assert!(looks_like_antiscrape(
+            "<div>Attention Required! | Cloudflare</div>"
+        ));
+        assert!(looks_like_antiscrape(
+            "Please enable JavaScript and cookies to continue"
+        ));
+        // 正常内容不误判。
+        assert!(!looks_like_antiscrape(
+            "<html><body><h1>Acme 定价</h1><p>三档套餐</p></body></html>"
+        ));
+    }
 
     #[test]
     fn figma_key_parsing() {
