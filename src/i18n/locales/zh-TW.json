@@ -6240,7 +6240,8 @@
       "importMd": "DESIGN.md 匯入失敗",
       "generate": "生成失敗，請重試",
       "depInstall": "相依項下載失敗，請重試或改用較低保真",
-      "restyle": "更換設計系統失敗"
+      "restyle": "更換設計系統失敗",
+      "save": "儲存失敗"
     },
     "ok": {
       "adopted": "已套用設計方向",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "設計系統套件",
       "preview": "預覽套件"
-    }
+    },
+    "default": "預設",
+    "setDefault": "設為新對話預設",
+    "unsetDefault": "取消預設",
+    "setDefaultDone": "已設為新對話預設設計系統",
+    "clearDefaultDone": "已清除預設設計系統"
   }
 }

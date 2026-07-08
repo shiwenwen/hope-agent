@@ -308,6 +308,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       .catch(() => {})
   }, [tx])
 
+  // 设为新对话/新项目默认设计系统（B1-3）：写 design.default_system_id；解析链 explicit >
+  // 项目 default > **此全局 default** 已在后端就绪，LaunchHome 生成也已 seed 此值。
+  const setDefaultSystem = useCallback(
+    async (systemId: string | null) => {
+      if (!designConfig) return
+      const next: DesignConfig = { ...designConfig, defaultSystemId: systemId ?? undefined }
+      setDesignConfig(next) // 乐观更新
+      try {
+        await tx.call("save_design_config_cmd", { config: next })
+        toast.success(
+          systemId
+            ? t("design.setDefaultDone", "已设为新对话默认设计系统")
+            : t("design.clearDefaultDone", "已清除默认设计系统"),
+        )
+      } catch (e) {
+        logger.error("design", "DesignView::setDefault", "save default system failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, designConfig, t],
+  )
+
   const setProjectSystem = useCallback(
     async (systemId: string | null) => {
       if (!activeProject) return
@@ -1711,6 +1733,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 open={systemPickerOpen}
                 onOpenChange={setSystemPickerOpen}
                 onPreviewKit={(id, name) => setKitSystem({ id, name })}
+                defaultSystemId={designConfig?.defaultSystemId ?? null}
+                onSetDefault={(id) => void setDefaultSystem(id)}
                 footer={
                   <div className="flex flex-wrap gap-1">
                     <Button

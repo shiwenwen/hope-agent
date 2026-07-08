@@ -6240,7 +6240,8 @@
       "importMd": "Import DESIGN.md gagal",
       "generate": "Penjanaan gagal — sila cuba lagi",
       "depInstall": "Muat turun kebergantungan gagal — cuba semula atau guna fideliti lebih rendah",
-      "restyle": "Gagal mengubah gaya"
+      "restyle": "Gagal mengubah gaya",
+      "save": "Gagal menyimpan"
     },
     "ok": {
       "adopted": "Arah reka bentuk diterapkan",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "Kit sistem reka bentuk",
       "preview": "Pratonton kit"
-    }
+    },
+    "default": "Lalai",
+    "setDefault": "Tetapkan sebagai lalai untuk sembang baharu",
+    "unsetDefault": "Nyahtetap lalai",
+    "setDefaultDone": "Ditetapkan sebagai sistem reka bentuk lalai untuk sembang baharu",
+    "clearDefaultDone": "Sistem reka bentuk lalai dinyahtetap"
   }
 }

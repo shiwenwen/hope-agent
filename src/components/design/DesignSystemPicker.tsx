@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Eye, Palette, Search } from "lucide-react"
+import { Check, Eye, Palette, Search, Star } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,10 @@ interface Props {
   allowNone?: boolean
   /** 预览某系统的套件视图（Kit）；提供时每行显示「预览套件」按钮。 */
   onPreviewKit?: (systemId: string, name: string) => void
+  /** 当前「新对话默认设计系统」id；提供 onSetDefault 时该行显示「默认」态。 */
+  defaultSystemId?: string | null
+  /** 设为/取消新对话默认设计系统；提供时每行显示「设为默认」按钮。 */
+  onSetDefault?: (systemId: string | null) => void
   /** 底部附加操作（反向提取 / 导入 / 导出等）。 */
   footer?: ReactNode
 }
@@ -50,6 +54,8 @@ export function DesignSystemPicker({
   onOpenChange,
   allowNone = true,
   onPreviewKit,
+  defaultSystemId,
+  onSetDefault,
   footer,
 }: Props) {
   const { t } = useTranslation()
@@ -144,13 +150,51 @@ export function DesignSystemPicker({
                     className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm">{s.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-sm">{s.name}</span>
+                        {onSetDefault && defaultSystemId === s.id && (
+                          <span className="shrink-0 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+                            {t("design.default", "默认")}
+                          </span>
+                        )}
+                      </div>
                       {s.summary && (
                         <div className="truncate text-xs text-muted-foreground">{s.summary}</div>
                       )}
                     </div>
                     {value === s.id && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
                   </button>
+                  {onSetDefault && (
+                    <IconTip
+                      label={
+                        defaultSystemId === s.id
+                          ? t("design.unsetDefault", "取消默认")
+                          : t("design.setDefault", "设为新对话默认")
+                      }
+                      side="left"
+                    >
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "h-7 w-7 shrink-0 transition-opacity",
+                          defaultSystemId === s.id
+                            ? "text-primary opacity-100"
+                            : "opacity-0 group-hover/sys:opacity-100",
+                        )}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSetDefault(defaultSystemId === s.id ? null : s.id)
+                        }}
+                      >
+                        <Star
+                          className="h-4 w-4"
+                          fill={defaultSystemId === s.id ? "currentColor" : "none"}
+                        />
+                      </Button>
+                    </IconTip>
+                  )}
                   {onPreviewKit && (
                     <IconTip label={t("design.kit.preview", "预览套件")} side="left">
                       <Button

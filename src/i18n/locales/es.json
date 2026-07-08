@@ -6240,7 +6240,8 @@
       "importMd": "Error al importar DESIGN.md",
       "generate": "La generación falló, inténtalo de nuevo",
       "depInstall": "Error al descargar la dependencia: reintenta o usa menor fidelidad",
-      "restyle": "Error al rediseñar"
+      "restyle": "Error al rediseñar",
+      "save": "Error al guardar"
     },
     "ok": {
       "adopted": "Dirección de diseño aplicada",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "Kit del sistema de diseño",
       "preview": "Previsualizar kit"
-    }
+    },
+    "default": "Predeterminado",
+    "setDefault": "Establecer por defecto para nuevos chats",
+    "unsetDefault": "Quitar predeterminado",
+    "setDefaultDone": "Establecido como sistema de diseño por defecto para nuevos chats",
+    "clearDefaultDone": "Se quitó el sistema de diseño por defecto"
   }
 }

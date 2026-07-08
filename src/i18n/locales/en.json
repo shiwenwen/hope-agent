@@ -6240,7 +6240,8 @@
       "importMd": "DESIGN.md import failed",
       "generate": "Generation failed — please retry",
       "depInstall": "Dependency download failed — retry or use lower fidelity",
-      "restyle": "Restyle failed"
+      "restyle": "Restyle failed",
+      "save": "Save failed"
     },
     "ok": {
       "adopted": "Design direction applied",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "Design system kit",
       "preview": "Preview kit"
-    }
+    },
+    "default": "Default",
+    "setDefault": "Set as default for new chats",
+    "unsetDefault": "Unset default",
+    "setDefaultDone": "Set as the default design system for new chats",
+    "clearDefaultDone": "Cleared the default design system"
   }
 }

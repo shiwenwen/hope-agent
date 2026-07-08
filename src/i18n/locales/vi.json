@@ -6240,7 +6240,8 @@
       "importMd": "Nhập DESIGN.md thất bại",
       "generate": "Tạo không thành công — vui lòng thử lại",
       "depInstall": "Tải phụ thuộc thất bại — thử lại hoặc dùng chất lượng thấp hơn",
-      "restyle": "Đổi hệ thống thiết kế thất bại"
+      "restyle": "Đổi hệ thống thiết kế thất bại",
+      "save": "Lưu thất bại"
     },
     "ok": {
       "adopted": "Đã áp dụng hướng thiết kế",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "Bộ công cụ hệ thống thiết kế",
       "preview": "Xem trước bộ"
-    }
+    },
+    "default": "Mặc định",
+    "setDefault": "Đặt làm mặc định cho cuộc trò chuyện mới",
+    "unsetDefault": "Bỏ mặc định",
+    "setDefaultDone": "Đã đặt làm hệ thống thiết kế mặc định cho cuộc trò chuyện mới",
+    "clearDefaultDone": "Đã xóa hệ thống thiết kế mặc định"
   }
 }

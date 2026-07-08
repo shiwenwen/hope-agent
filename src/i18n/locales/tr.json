@@ -6240,7 +6240,8 @@
       "importMd": "DESIGN.md içe aktarılamadı",
       "generate": "Oluşturma başarısız — lütfen tekrar deneyin",
       "depInstall": "Bağımlılık indirilemedi — yeniden deneyin veya düşük kalite kullanın",
-      "restyle": "Yeniden biçimlendirme başarısız"
+      "restyle": "Yeniden biçimlendirme başarısız",
+      "save": "Kaydetme başarısız"
     },
     "ok": {
       "adopted": "Tasarım yönü uygulandı",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "Tasarım sistemi kiti",
       "preview": "Kiti önizle"
-    }
+    },
+    "default": "Varsayılan",
+    "setDefault": "Yeni sohbetler için varsayılan yap",
+    "unsetDefault": "Varsayılanı kaldır",
+    "setDefaultDone": "Yeni sohbetler için varsayılan tasarım sistemi olarak ayarlandı",
+    "clearDefaultDone": "Varsayılan tasarım sistemi kaldırıldı"
   }
 }

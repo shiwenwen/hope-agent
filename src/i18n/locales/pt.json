@@ -6240,7 +6240,8 @@
       "importMd": "Falha ao importar DESIGN.md",
       "generate": "A geração falhou — tente novamente",
       "depInstall": "Falha ao baixar a dependência — tente novamente ou use menor fidelidade",
-      "restyle": "Falha ao reestilizar"
+      "restyle": "Falha ao reestilizar",
+      "save": "Falha ao salvar"
     },
     "ok": {
       "adopted": "Direção de design aplicada",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "Kit do sistema de design",
       "preview": "Pré-visualizar kit"
-    }
+    },
+    "default": "Padrão",
+    "setDefault": "Definir como padrão para novos chats",
+    "unsetDefault": "Remover padrão",
+    "setDefaultDone": "Definido como sistema de design padrão para novos chats",
+    "clearDefaultDone": "Sistema de design padrão removido"
   }
 }

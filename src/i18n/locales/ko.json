@@ -6240,7 +6240,8 @@
       "importMd": "DESIGN.md 가져오기 실패",
       "generate": "생성에 실패했습니다. 다시 시도해 주세요",
       "depInstall": "종속성 다운로드 실패 — 다시 시도하거나 저충실도를 사용하세요",
-      "restyle": "디자인 시스템 변경 실패"
+      "restyle": "디자인 시스템 변경 실패",
+      "save": "저장 실패"
     },
     "ok": {
       "adopted": "디자인 방향 적용됨",
@@ -6369,6 +6370,11 @@
     "kit": {
       "title": "디자인 시스템 키트",
       "preview": "키트 미리보기"
-    }
+    },
+    "default": "기본",
+    "setDefault": "새 대화 기본으로 설정",
+    "unsetDefault": "기본 해제",
+    "setDefaultDone": "새 대화의 기본 디자인 시스템으로 설정했습니다",
+    "clearDefaultDone": "기본 디자인 시스템을 해제했습니다"
   }
 }
