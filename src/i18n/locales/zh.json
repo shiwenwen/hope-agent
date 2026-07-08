@@ -6385,6 +6385,12 @@
       "variantPrompt": "另出一个不同气质的设计变体供对比（同内容、不同视觉方向）。",
       "critiqueTitle": "质量评审",
       "critiquePrompt": "对当前产物做一次质量评审，指出可改进的层级、间距、对比与可用性问题。"
+    },
+    "toolbox": {
+      "title": "设计工具箱",
+      "search": "搜索模板 / 场景…",
+      "empty": "没有匹配的模板",
+      "startPrompt": "用「{{name}}」模板做一个：{{scenario}}"
     }
   }
 }

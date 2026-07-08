@@ -6385,6 +6385,12 @@
       "variantPrompt": "Produza uma variante de design alternativa para comparar (mesmo conteúdo, direção visual diferente).",
       "critiqueTitle": "Revisão de qualidade",
       "critiquePrompt": "Faça uma revisão de qualidade do artefato atual, apontando problemas de hierarquia, espaçamento, contraste e usabilidade."
+    },
+    "toolbox": {
+      "title": "Caixa de ferramentas de design",
+      "search": "Pesquisar modelos / cenários…",
+      "empty": "Nenhum modelo correspondente",
+      "startPrompt": "Use o modelo \"{{name}}\" para fazer: {{scenario}}"
     }
   }
 }

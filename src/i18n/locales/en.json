@@ -6385,6 +6385,12 @@
       "variantPrompt": "Produce an alternative design variant to compare (same content, different visual direction).",
       "critiqueTitle": "Quality review",
       "critiquePrompt": "Run a quality review of the current artifact, flagging hierarchy, spacing, contrast, and usability issues to improve."
+    },
+    "toolbox": {
+      "title": "Design toolbox",
+      "search": "Search templates / scenarios…",
+      "empty": "No matching templates",
+      "startPrompt": "Use the \"{{name}}\" template to make: {{scenario}}"
     }
   }
 }

@@ -6385,6 +6385,12 @@
       "variantPrompt": "비교용으로 다른 분위기의 디자인 변형을 만드세요(내용 동일, 시각 방향 상이).",
       "critiqueTitle": "품질 검토",
       "critiquePrompt": "현재 산출물의 품질을 검토하여 위계·간격·대비·사용성 개선점을 지적하세요."
+    },
+    "toolbox": {
+      "title": "디자인 도구상자",
+      "search": "템플릿 / 시나리오 검색…",
+      "empty": "일치하는 템플릿이 없습니다",
+      "startPrompt": "\"{{name}}\" 템플릿으로 만들기: {{scenario}}"
     }
   }
 }

@@ -8,7 +8,7 @@ import {
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
-import { Plus, History, FileStack } from "lucide-react"
+import { Plus, History, FileStack, Blocks } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -23,8 +23,10 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
 import type { Message, PendingFileQuote } from "@/types/chat"
+import type { DesignRecipe } from "@/types/design"
 import { useDesignChat } from "./useDesignChat"
 import { DesignConversationHistory } from "./DesignConversationHistory"
+import { DesignToolboxPopover } from "./DesignToolboxPopover"
 
 /** Starter prompts for the empty chat (click fills the composer, no auto-send).
  *  Both title and prompt are i18n so 12 locales stay complete; fallbacks are the
@@ -137,6 +139,10 @@ interface Props {
   onFocusArtifact?: (artifactId: string) => void
   /** Resolve an artifact id → title (for the Produced chip label). */
   resolveArtifactTitle?: (artifactId: string) => string | null
+  /** 设计模板库（工具箱 B2-2）；空则不显示工具箱按钮。 */
+  recipes?: DesignRecipe[]
+  /** 形态本地化标签（工具箱分组用）。 */
+  kindLabel?: (kind: string) => string
 }
 
 /** design 工具里会「产/改产物」的 action（据此从本轮 tool_calls 提取产物 chip）。 */
@@ -190,6 +196,8 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
     onJumpToQuote,
     onFocusArtifact,
     resolveArtifactTitle,
+    recipes,
+    kindLabel,
   },
   ref,
 ) {
@@ -203,6 +211,12 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   useClickOutside(
     historyRef,
     useCallback(() => setHistoryOpen(false), []),
+  )
+  const [toolboxOpen, setToolboxOpen] = useState(false)
+  const toolboxRef = useRef<HTMLDivElement>(null)
+  useClickOutside(
+    toolboxRef,
+    useCallback(() => setToolboxOpen(false), []),
   )
 
   // Stable readers so the per-turn context always reflects the live open artifact.
@@ -356,6 +370,30 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             onSelect={session.handleSwitchAgent}
           />
         </div>
+        {recipes && recipes.length > 0 && (
+          <div className="relative" ref={toolboxRef}>
+            <IconTip label={t("design.toolbox.title", "设计工具箱")}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn("h-7 w-7", toolboxOpen && "bg-secondary")}
+                onClick={() => setToolboxOpen((v) => !v)}
+              >
+                <Blocks className="h-4 w-4" />
+              </Button>
+            </IconTip>
+            {toolboxOpen && (
+              <DesignToolboxPopover
+                recipes={recipes}
+                kindLabel={kindLabel}
+                onPick={(prompt) => {
+                  setToolboxOpen(false)
+                  stream.setInput(prompt)
+                }}
+              />
+            )}
+          </div>
+        )}
         <IconTip label={t("design.chat.newConversation", "新对话")}>
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={session.handleNewThread}>
             <Plus className="h-4 w-4" />

@@ -6385,6 +6385,12 @@
       "variantPrompt": "Karşılaştırma için farklı bir tasarım varyantı üret (aynı içerik, farklı görsel yön).",
       "critiqueTitle": "Kalite incelemesi",
       "critiquePrompt": "Mevcut çıktının kalite incelemesini yap; hiyerarşi, boşluk, kontrast ve kullanılabilirlik sorunlarını belirt."
+    },
+    "toolbox": {
+      "title": "Tasarım araç kutusu",
+      "search": "Şablon / senaryo ara…",
+      "empty": "Eşleşen şablon yok",
+      "startPrompt": "\"{{name}}\" şablonuyla şunu yap: {{scenario}}"
     }
   }
 }

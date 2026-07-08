@@ -6385,6 +6385,12 @@
       "variantPrompt": "Hasilkan varian reka bentuk alternatif untuk perbandingan (kandungan sama, arah visual berbeza).",
       "critiqueTitle": "Semakan kualiti",
       "critiquePrompt": "Jalankan semakan kualiti artifak semasa, tandakan isu hierarki, jarak, kontras dan kebolehgunaan."
+    },
+    "toolbox": {
+      "title": "Kotak alat reka bentuk",
+      "search": "Cari templat / senario…",
+      "empty": "Tiada templat sepadan",
+      "startPrompt": "Guna templat \"{{name}}\" untuk membuat: {{scenario}}"
     }
   }
 }

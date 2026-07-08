@@ -6385,6 +6385,12 @@
       "variantPrompt": "Tạo một biến thể thiết kế khác để so sánh (cùng nội dung, hướng thị giác khác).",
       "critiqueTitle": "Đánh giá chất lượng",
       "critiquePrompt": "Đánh giá chất lượng sản phẩm hiện tại, chỉ ra vấn đề về phân cấp, khoảng cách, tương phản và khả dụng."
+    },
+    "toolbox": {
+      "title": "Hộp công cụ thiết kế",
+      "search": "Tìm mẫu / kịch bản…",
+      "empty": "Không có mẫu phù hợp",
+      "startPrompt": "Dùng mẫu «{{name}}» để làm: {{scenario}}"
     }
   }
 }

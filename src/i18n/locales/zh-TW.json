@@ -6385,6 +6385,12 @@
       "variantPrompt": "另出一個不同氣質的設計變體供對比（同內容、不同視覺方向）。",
       "critiqueTitle": "品質評審",
       "critiquePrompt": "對目前產物做一次品質評審，指出可改進的層級、間距、對比與可用性問題。"
+    },
+    "toolbox": {
+      "title": "設計工具箱",
+      "search": "搜尋模板 / 場景…",
+      "empty": "沒有符合的模板",
+      "startPrompt": "用「{{name}}」模板做一個：{{scenario}}"
     }
   }
 }

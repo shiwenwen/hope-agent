@@ -1980,6 +1980,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   void openArtifact(found ?? ({ id } as DesignArtifact))
                 }}
                 resolveArtifactTitle={(id) => artifacts.find((a) => a.id === id)?.title ?? null}
+                recipes={recipes}
+                kindLabel={(k) => kindLabel(k as ArtifactKind)}
                 active
               />
             </div>
