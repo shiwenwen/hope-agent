@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Markdown 文件链接复用统一文件类型图标**：本地文件超链接现在使用与下挂文件一致的彩色文件类型图标，可按 CSS / TSX / Rust / Markdown 等后缀显示对应图标，而不是统一显示通用代码图标。
 - **插件浏览器控制会唤出实时 BrowserPanel**：通过 Chrome 扩展接管真实浏览器标签页时，BrowserPanel 截帧不再只查全局 CDP 缓存；`browser:frame` 与 `browser_capture_frame` 现在按会话优先捕获 extension claimed tab，并在前端按 `sessionId` 过滤，避免其它会话的浏览器动作误打开当前右侧面板。
 - **切换长会话与重载侧边栏更顺滑**：切换未缓存会话时先立即切换会话 shell、异步加载历史消息，并用非布局占位避免历史加载动画推挤内容；启动 / reload 期间侧边栏会等会话、项目与显示模式首屏数据稳定后再渲染列表，且仅在用户首次交互后恢复展开动画，减少长会话和会话列表的卡顿与重影。
+- **Provider 网络错误识别与提示更准确**：LLM 调用失败时，`connection error` / `network error` / DNS lookup / `error sending request` / TCP connect 等传输层错误会归类为 `Timeout`，触发同 key 退避重试而不是误判为未知错误；桌面事件、模型可见系统事件与 IM 通知也会区分「限流」「上游繁忙」「网络 / 代理 / DNS 不可达」，给出更具体的排查方向。 (#428)
+- **Chrome 扩展本地安装引导更清楚**：Settings 里的扩展安装向导将 alpha / dev fallback 从「Load unpacked」改为先显示本地扩展目录，并提示在 `chrome://extensions` 开启开发者模式后拖入该目录（仍保留复制路径后用 Load unpacked 的方式），减少找不到扩展目录或选错路径的情况。 (#429)
 
 ## [0.16.0] - 2026-07-06
 
