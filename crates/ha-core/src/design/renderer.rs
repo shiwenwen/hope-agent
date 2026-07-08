@@ -136,9 +136,20 @@ fn kind_frame_css(kind: ArtifactKind) -> &'static str {
              border-radius:44px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);margin:24px 0}"
         }
         ArtifactKind::Deck => {
+            // 屏显：仅 active 幻灯片可见 + pager 切换。打印（printToPDF / Ctrl+P）：@page 定 1280×720
+            // 横版、**每张幻灯片强制显示并各占一页**（否则裸 printToPDF 只印首张 active、Letter 竖版裁切）；
+            // 隐藏 pager chrome。配合 render_native 的 landscape + preferCSSPageSize（B7-3）。
             "body{background:#0b0b0c}\n\
              .ds-slide{width:1280px;min-height:720px;margin:0 auto;background:var(--ds-color-bg,#fff);\
-             display:none}\n.ds-slide.active{display:block}"
+             display:none}\n.ds-slide.active{display:block}\n\
+             @media print{\
+             @page{size:1280px 720px;margin:0}\
+             html,body{width:1280px!important;height:auto!important;background:#fff!important;margin:0!important}\
+             .ds-slide{display:block!important;width:1280px!important;height:720px!important;\
+             min-height:720px!important;margin:0!important;page-break-after:always;break-after:page;\
+             overflow:hidden}\
+             .ds-slide:last-child{page-break-after:auto;break-after:auto}\
+             .ds-deck-pager{display:none!important}}"
         }
         ArtifactKind::Poster => {
             "body{display:flex;justify-content:center;align-items:flex-start;background:#0b0b0c}\n\
@@ -216,6 +227,7 @@ pub fn build_artifact_html(
   var slides=[].slice.call(document.querySelectorAll('.ds-slide'));
   if(!slides.length)return;var i=0;
   var pager=document.createElement('div');
+  pager.className='ds-deck-pager';
   pager.style.cssText='position:fixed;right:16px;bottom:12px;font:12px system-ui;color:#888;z-index:9';
   document.body.appendChild(pager);
   function show(n){i=Math.max(0,Math.min(slides.length-1,n));
@@ -788,5 +800,17 @@ mod tests {
         assert!(!html.contains("'</script>"), "raw </script leaked: {html}");
         assert!(html.contains("<\\/script"), "not neutralized: {html}");
         assert!(!html.contains("'</style>"), "raw </style leaked");
+    }
+
+    #[test]
+    fn deck_frame_has_print_pagination_css() {
+        // B7-3：deck 打印样式必须存在——每张幻灯片一页、横版纸张、隐藏 pager。
+        let css = kind_frame_css(ArtifactKind::Deck);
+        assert!(css.contains("@media print"), "deck 缺 @media print");
+        assert!(css.contains("@page{size:1280px 720px"), "deck 缺 @page 尺寸");
+        assert!(css.contains("page-break-after:always"), "deck 缺每页分页");
+        assert!(css.contains(".ds-deck-pager{display:none"), "deck 打印未隐藏 pager");
+        // 屏显行为不变：仍是 active 单页可见（零回归）。
+        assert!(css.contains(".ds-slide.active{display:block}"), "deck 屏显被改坏");
     }
 }

@@ -112,6 +112,8 @@ pub struct PdfParams {
     pub paper_format: Option<String>,
     pub landscape: Option<bool>,
     pub print_background: Option<bool>,
+    /// 让页内 `@page { size: … }` 决定纸张尺寸（deck 每页 1 张幻灯片的关键）。
+    pub prefer_css_page_size: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1865,6 +1865,9 @@ impl BrowserBackend for ExtensionBackend {
         if let Some(print_background) = params.print_background {
             cdp_params["printBackground"] = json!(print_background);
         }
+        if let Some(css_page) = params.prefer_css_page_size {
+            cdp_params["preferCSSPageSize"] = json!(css_page);
+        }
         if let Some(paper) = params.paper_format.as_deref() {
             let (w, h) = match paper.to_ascii_lowercase().as_str() {
                 "a3" => (11.69, 16.54),

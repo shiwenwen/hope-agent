@@ -122,13 +122,20 @@ pub async fn capture_artifact(artifact_id: &str, kind: CaptureKind) -> Result<Ve
         tokio::time::sleep(std::time::Duration::from_millis(600)).await;
 
         match kind {
-            CaptureKind::Pdf => backend
-                .save_pdf(PdfParams {
-                    print_background: Some(true),
-                    ..Default::default()
-                })
-                .await
-                .context("printToPDF failed"),
+            CaptureKind::Pdf => {
+                // Deck：横向 + 让页内 `@page{size:1280px 720px}`（renderer 的 @media print）
+                // 决定纸张——一张幻灯片一页、满幅不裁（B7-3 修复：此前裸默认=Letter 竖版只印首张）。
+                let is_deck = a.kind == "deck";
+                backend
+                    .save_pdf(PdfParams {
+                        print_background: Some(true),
+                        landscape: if is_deck { Some(true) } else { None },
+                        prefer_css_page_size: if is_deck { Some(true) } else { None },
+                        ..Default::default()
+                    })
+                    .await
+                    .context("printToPDF failed")
+            }
             CaptureKind::Png => backend
                 .take_screenshot(ScreenshotParams {
                     format: ImageFormat::Png,

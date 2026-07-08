@@ -981,6 +981,9 @@ impl BrowserBackend for CdpBackend {
         if let Some(b) = params.print_background {
             p.print_background = Some(b);
         }
+        if let Some(c) = params.prefer_css_page_size {
+            p.prefer_css_page_size = Some(c);
+        }
         page.pdf(p)
             .await
             .map_err(|e| anyhow!("PDF export failed: {}", e))

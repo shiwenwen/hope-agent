@@ -988,6 +988,7 @@ async fn snapshot_pdf(args: &Value, backend: &dyn BrowserBackend) -> Result<Stri
             paper_format: get_str(args, "paper_format").map(String::from),
             landscape: get_bool(args, "landscape"),
             print_background: get_bool(args, "print_background"),
+            ..Default::default()
         })
         .await?;
     // `output_path` is LLM-controlled: a prompt-injected page could ask
