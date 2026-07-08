@@ -2184,6 +2184,13 @@ pub fn get_system_full(id: &str) -> Result<DesignSystemFull> {
     system::read_full(&db, id)
 }
 
+/// 设计系统「套件视图」自包含 HTML（B1-1）：色板 / 字阶 / 间距 / 圆角+阴影 / 组件 showcase，
+/// 全走 `var(--ds-*)`——套件即系统真实视觉。前端进沙箱 iframe 渲染。
+pub fn get_system_kit_html(id: &str) -> Result<String> {
+    let full = get_system_full(id)?;
+    Ok(super::kit::build_kit_html(&full.meta.name, &full.tokens))
+}
+
 /// 新建 / 更新用户设计系统入参。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

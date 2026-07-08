@@ -427,6 +427,12 @@ pub async fn design_comment_refine_cmd(
         .map_err(Into::into)
 }
 
+/// 设计系统套件视图自包含 HTML（前端进沙箱 iframe 渲染）。
+#[tauri::command]
+pub async fn get_design_system_kit_cmd(id: String) -> Result<String, CmdError> {
+    service::get_system_kit_html(&id).map_err(Into::into)
+}
+
 /// 反-slop 自查复查：`action ∈ recheck|dismiss`，返回更新后的产物。
 #[tauri::command]
 pub async fn design_review_artifact_cmd(

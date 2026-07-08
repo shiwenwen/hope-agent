@@ -482,6 +482,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `design_comment_delete_cmd` | `DELETE /api/design/artifacts/{artifactId}/comments/{commentId}` | ✅ |
 | `design_comment_refine_cmd` | `POST /api/design/artifacts/{artifactId}/comments/{commentId}/refine`（回灌对话：AI 按批注精修产物、落新版本） | ✅ |
 | `design_review_artifact_cmd` | `POST /api/design/artifacts/{artifactId}/review`（反-slop 自查复查：`action ∈ recheck\|dismiss`） | ✅ |
+| `get_design_system_kit_cmd` | `GET /api/design/systems/{id}/kit`（设计系统套件视图自包含 HTML，返回 JSON 字符串） | ✅ |
 | `design_chat_thread_get_cmd` | `GET /api/design/projects/{projectId}/chat/thread`（设计对话默认加载目标：该项目最近一条对话线程的 SessionMeta，无则空） | ✅ |
 | `design_chat_threads_list_cmd` | `GET /api/design/projects/{projectId}/chat/threads`（设计对话历史选择器分页，`query` FTS 过滤） | ✅ |
 | （静态托管，iframe 直连） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | ✅ |

@@ -6365,6 +6365,10 @@
       "flagged": "Self-check flagged a possible quality issue — please review",
       "recheck": "Re-check",
       "dismiss": "Mark reviewed"
+    },
+    "kit": {
+      "title": "Design system kit",
+      "preview": "Preview kit"
     }
   }
 }

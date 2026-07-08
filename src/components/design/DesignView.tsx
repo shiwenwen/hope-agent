@@ -58,6 +58,7 @@ import DesignInspector from "@/components/design/DesignInspector"
 import DesignChatPanel, { type DesignChatPanelHandle } from "@/components/design/chat/DesignChatPanel"
 import DesignCommentPanel from "@/components/design/DesignCommentPanel"
 import { DesignSystemPicker } from "@/components/design/DesignSystemPicker"
+import DesignKitModal from "@/components/design/DesignKitModal"
 import { DesignTokenEditor } from "@/components/design/DesignTokenEditor"
 import { DesignTokenExport } from "@/components/design/DesignTokenExport"
 import { DesignFigmaImport } from "@/components/design/DesignFigmaImport"
@@ -185,6 +186,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  // 设计系统套件（Kit）预览模态：选择器行内「预览套件」触发（B1-1）。
+  const [kitSystem, setKitSystem] = useState<{ id: string; name: string } | null>(null)
 
   // AI 对话左栏（chat-to-edit：左对话 / 右预览，可拖宽 · 可折叠）。宽度持久化。
   const chatPanelRef = useRef<DesignChatPanelHandle>(null)
@@ -1706,6 +1710,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 }
                 open={systemPickerOpen}
                 onOpenChange={setSystemPickerOpen}
+                onPreviewKit={(id, name) => setKitSystem({ id, name })}
                 footer={
                   <div className="flex flex-wrap gap-1">
                     <Button
@@ -2466,6 +2471,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             void setProjectSystem(systemId)
           }
         }}
+      />
+
+      {/* 设计系统套件视图（B1-1，从选择器行内「预览套件」触发） */}
+      <DesignKitModal
+        systemId={kitSystem?.id ?? null}
+        systemName={kitSystem?.name}
+        onClose={() => setKitSystem(null)}
       />
 
       {/* 多平台 Token 导出（P3 工程轴 A） */}

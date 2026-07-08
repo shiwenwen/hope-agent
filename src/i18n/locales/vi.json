@@ -6365,6 +6365,10 @@
       "flagged": "Tự kiểm tra phát hiện vấn đề chất lượng có thể có — hãy xem lại",
       "recheck": "Kiểm tra lại",
       "dismiss": "Đánh dấu đã xem"
+    },
+    "kit": {
+      "title": "Bộ công cụ hệ thống thiết kế",
+      "preview": "Xem trước bộ"
     }
   }
 }

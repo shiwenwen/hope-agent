@@ -6365,6 +6365,10 @@
       "flagged": "La autocomprobación detectó un posible problema de calidad; revísalo",
       "recheck": "Volver a comprobar",
       "dismiss": "Marcar revisado"
+    },
+    "kit": {
+      "title": "Kit del sistema de diseño",
+      "preview": "Previsualizar kit"
     }
   }
 }

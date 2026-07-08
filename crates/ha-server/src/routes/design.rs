@@ -716,6 +716,14 @@ pub async fn refine_comment(
     ))
 }
 
+/// `GET /api/design/systems/{id}/kit` — 设计系统套件视图自包含 HTML（返回 JSON 字符串，
+/// 与 Tauri `get_design_system_kit_cmd` 的 `String` 返回一致，前端 `call<string>` 两态通用）。
+pub async fn system_kit(Path(id): Path<String>) -> Result<Json<String>, AppError> {
+    validate_id(&id)?;
+    let html = service::get_system_kit_html(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(html))
+}
+
 #[derive(serde::Deserialize)]
 pub struct ReviewBody {
     pub action: String,

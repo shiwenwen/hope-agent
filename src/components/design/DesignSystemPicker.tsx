@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Palette, Search } from "lucide-react"
+import { Check, Eye, Palette, Search } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import type { DesignSystemMeta } from "@/types/design"
 
@@ -33,6 +35,8 @@ interface Props {
   onOpenChange: (open: boolean) => void
   /** 是否提供「无设计系统」选项。 */
   allowNone?: boolean
+  /** 预览某系统的套件视图（Kit）；提供时每行显示「预览套件」按钮。 */
+  onPreviewKit?: (systemId: string, name: string) => void
   /** 底部附加操作（反向提取 / 导入 / 导出等）。 */
   footer?: ReactNode
 }
@@ -45,6 +49,7 @@ export function DesignSystemPicker({
   open,
   onOpenChange,
   allowNone = true,
+  onPreviewKit,
   footer,
 }: Props) {
   const { t } = useTranslation()
@@ -126,23 +131,43 @@ export function DesignSystemPicker({
                 {group} · {items.length}
               </div>
               {items.map((s) => (
-                <button
+                <div
                   key={s.id}
-                  type="button"
-                  onClick={() => pick(s.id)}
                   className={cn(
-                    "flex w-full items-start gap-2 rounded-md px-2.5 py-1.5 text-left hover:bg-accent",
+                    "group/sys flex items-center gap-1 rounded-md pr-1 hover:bg-accent",
                     value === s.id && "bg-accent",
                   )}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm">{s.name}</div>
-                    {s.summary && (
-                      <div className="truncate text-xs text-muted-foreground">{s.summary}</div>
-                    )}
-                  </div>
-                  {value === s.id && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => pick(s.id)}
+                    className="flex min-w-0 flex-1 items-start gap-2 px-2.5 py-1.5 text-left"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm">{s.name}</div>
+                      {s.summary && (
+                        <div className="truncate text-xs text-muted-foreground">{s.summary}</div>
+                      )}
+                    </div>
+                    {value === s.id && <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                  </button>
+                  {onPreviewKit && (
+                    <IconTip label={t("design.kit.preview", "预览套件")} side="left">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover/sys:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onPreviewKit(s.id, s.name)
+                        }}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </IconTip>
+                  )}
+                </div>
               ))}
             </div>
           ))}

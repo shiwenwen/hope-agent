@@ -21,6 +21,7 @@ pub mod render_native;
 pub mod renderer;
 pub mod selfcheck;
 pub mod service;
+pub mod kit;
 pub mod system;
 pub mod threads;
 pub mod token_export;

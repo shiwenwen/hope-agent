@@ -92,8 +92,8 @@ pub struct ArtifactParts {
 
 /// 设计系统 token → `:root{--ds-*}` CSS 变量串。空 tokens = 空串（用骨架默认值）。
 /// 单一来源——`build_artifact_html`（定稿产物）与 `build_stream_host_html`（流式占位页）
-/// 共用，保证明暗自适应变量在两态字节一致。
-fn tokens_root_css(tokens: &[(String, String)]) -> String {
+/// 及 Kit 套件页（`design/kit.rs`）共用，保证 token 注入的安全过滤在各处字节一致。
+pub(crate) fn tokens_root_css(tokens: &[(String, String)]) -> String {
     if tokens.is_empty() {
         return String::new();
     }
