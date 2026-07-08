@@ -379,9 +379,13 @@ pub fn apply_attr_patch(
             continue;
         };
         let insert_at = if self_closing {
-            without.rfind("/>").unwrap_or(without.len().saturating_sub(1))
+            without
+                .rfind("/>")
+                .unwrap_or(without.len().saturating_sub(1))
         } else {
-            without.rfind('>').unwrap_or(without.len().saturating_sub(1))
+            without
+                .rfind('>')
+                .unwrap_or(without.len().saturating_sub(1))
         };
         let mut nt = String::with_capacity(without.len() + name.len() + safe.len() + 8);
         nt.push_str(without[..insert_at].trim_end());
@@ -883,8 +887,14 @@ mod tests {
     fn attr_patch_sets_href() {
         let src = "<a href=\"/old\">go</a>";
         let (_, map) = annotate(src);
-        let r =
-            apply_attr_patch(src, &map, 0, &[("href".into(), "https://x.com".into())], None).unwrap();
+        let r = apply_attr_patch(
+            src,
+            &map,
+            0,
+            &[("href".into(), "https://x.com".into())],
+            None,
+        )
+        .unwrap();
         assert_eq!(r.new_source, "<a href=\"https://x.com\">go</a>");
     }
 
@@ -912,9 +922,14 @@ mod tests {
         // javascript: href 被拒 → 保留原值不动。
         let src = "<a href=\"/safe\">x</a>";
         let (_, map) = annotate(src);
-        let r =
-            apply_attr_patch(src, &map, 0, &[("href".into(), "javascript:alert(1)".into())], None)
-                .unwrap();
+        let r = apply_attr_patch(
+            src,
+            &map,
+            0,
+            &[("href".into(), "javascript:alert(1)".into())],
+            None,
+        )
+        .unwrap();
         assert_eq!(r.new_source, "<a href=\"/safe\">x</a>");
 
         // href 不放行 data:；src 不放行 data:text/*。
@@ -955,7 +970,11 @@ mod tests {
         // 真正的 src 被替换，alt 的值原样保留，全程只一个 src= 属性。
         assert!(r.new_source.contains("src=\"b.png\""));
         assert!(r.new_source.contains("alt=\"see src=old for ref\""));
-        assert_eq!(r.new_source.matches("src=\"").count(), 1, "不得产生重复 src 属性");
+        assert_eq!(
+            r.new_source.matches("src=\"").count(),
+            1,
+            "不得产生重复 src 属性"
+        );
     }
 
     #[test]

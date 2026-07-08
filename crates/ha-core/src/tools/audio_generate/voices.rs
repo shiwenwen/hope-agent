@@ -52,11 +52,7 @@ pub async fn list_elevenlabs_voices(limit: u32) -> Result<Vec<VoiceOption>> {
     // 缓存键含凭据**指纹**（非明文），key 换了即 miss。
     let fp = &blake3::hash(key.as_bytes()).to_hex()[..16];
     let cache_key = format!("{base}|{page_size}|{fp}");
-    if let Some((t, v)) = cache()
-        .lock()
-        .ok()
-        .and_then(|m| m.get(&cache_key).cloned())
-    {
+    if let Some((t, v)) = cache().lock().ok().and_then(|m| m.get(&cache_key).cloned()) {
         if t.elapsed() < CACHE_TTL {
             return Ok(v);
         }
@@ -65,8 +61,8 @@ pub async fn list_elevenlabs_voices(limit: u32) -> Result<Vec<VoiceOption>> {
     let url = format!("{base}/v2/voices?page_size={page_size}");
     // base_url 为 owner 配置（可信），SSRF Strict 兜底挡内网 / 元数据。
     crate::security::ssrf::check_url(&url, crate::security::ssrf::SsrfPolicy::Strict, &[]).await?;
-    let client = crate::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15)))
-        .build()?;
+    let client =
+        crate::provider::apply_proxy(Client::builder().timeout(Duration::from_secs(15))).build()?;
     let resp = client
         .get(&url)
         .header("xi-api-key", key)

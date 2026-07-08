@@ -84,7 +84,10 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
         AudioKind::Music => {
             // /v1/music：可选时长（毫秒）——**钳到合法区间**（防 5s 桶值 / NaN 触 422，review 修复）。
             let mut b = serde_json::json!({ "prompt": params.prompt, "model_id": params.model });
-            if let Some(secs) = params.duration_seconds.filter(|s| s.is_finite() && *s > 0.0) {
+            if let Some(secs) = params
+                .duration_seconds
+                .filter(|s| s.is_finite() && *s > 0.0)
+            {
                 let secs = secs.clamp(MUSIC_MIN_SECS, MUSIC_MAX_SECS);
                 b["music_length_ms"] = serde_json::json!((secs * 1000.0).round() as u64);
             }

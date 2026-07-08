@@ -1437,7 +1437,11 @@ pub fn create_share(artifact_id: &str) -> Result<String> {
     db.get_artifact(artifact_id)?
         .with_context(|| format!("artifact not found: {artifact_id}"))?;
     let token = db.upsert_share(artifact_id, &new_share_token(), &now())?;
-    crate::app_info!("design", "share", "created share for artifact {artifact_id}");
+    crate::app_info!(
+        "design",
+        "share",
+        "created share for artifact {artifact_id}"
+    );
     Ok(token)
 }
 
@@ -1454,7 +1458,11 @@ pub fn revoke_share_for_artifact(artifact_id: &str) -> Result<bool> {
         Some(tok) => {
             let ok = db.delete_share(&tok)?;
             if ok {
-                crate::app_info!("design", "share", "revoked share for artifact {artifact_id}");
+                crate::app_info!(
+                    "design",
+                    "share",
+                    "revoked share for artifact {artifact_id}"
+                );
             }
             Ok(ok)
         }

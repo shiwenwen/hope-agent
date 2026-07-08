@@ -251,8 +251,8 @@ pub async fn save_audio_generate_config(
 
 /// 策展音频模型目录（B8-1，GUI picker 预设，只读）。
 #[tauri::command]
-pub async fn get_audio_model_catalog_cmd() -> Result<Vec<tools::audio_generate::AudioModelInfo>, CmdError>
-{
+pub async fn get_audio_model_catalog_cmd(
+) -> Result<Vec<tools::audio_generate::AudioModelInfo>, CmdError> {
     Ok(tools::audio_generate::audio_model_catalog())
 }
 

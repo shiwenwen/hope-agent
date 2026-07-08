@@ -57,7 +57,13 @@ pub struct AudioModelInfo {
 
 /// 策展音频模型目录（每 kind 已知模型；default 扫描定默认）。
 pub fn audio_model_catalog() -> Vec<AudioModelInfo> {
-    let m = |id: &str, label: &str, hint: &str, provider: &str, kind: &str, default: bool, dur: bool| {
+    let m = |id: &str,
+             label: &str,
+             hint: &str,
+             provider: &str,
+             kind: &str,
+             default: bool,
+             dur: bool| {
         AudioModelInfo {
             id: id.into(),
             label: label.into(),
@@ -70,13 +76,53 @@ pub fn audio_model_catalog() -> Vec<AudioModelInfo> {
     };
     vec![
         // Speech (TTS)
-        m("eleven_v3", "ElevenLabs v3", "natural, multilingual", "elevenlabs", "speech", true, false),
-        m("eleven_multilingual_v2", "ElevenLabs Multilingual v2", "stable multilingual", "elevenlabs", "speech", false, false),
-        m("gpt-4o-mini-tts", "OpenAI gpt-4o-mini-tts", "fast, low-cost", "openai", "speech", false, false),
+        m(
+            "eleven_v3",
+            "ElevenLabs v3",
+            "natural, multilingual",
+            "elevenlabs",
+            "speech",
+            true,
+            false,
+        ),
+        m(
+            "eleven_multilingual_v2",
+            "ElevenLabs Multilingual v2",
+            "stable multilingual",
+            "elevenlabs",
+            "speech",
+            false,
+            false,
+        ),
+        m(
+            "gpt-4o-mini-tts",
+            "OpenAI gpt-4o-mini-tts",
+            "fast, low-cost",
+            "openai",
+            "speech",
+            false,
+            false,
+        ),
         // Music
-        m("music_v1", "ElevenLabs Music", "text-to-music", "elevenlabs", "music", true, true),
+        m(
+            "music_v1",
+            "ElevenLabs Music",
+            "text-to-music",
+            "elevenlabs",
+            "music",
+            true,
+            true,
+        ),
         // SFX
-        m("eleven_text_to_sound_v2", "ElevenLabs Sound Effects", "short SFX, 0.5–30s", "elevenlabs", "sfx", true, true),
+        m(
+            "eleven_text_to_sound_v2",
+            "ElevenLabs Sound Effects",
+            "short SFX, 0.5–30s",
+            "elevenlabs",
+            "sfx",
+            true,
+            true,
+        ),
     ]
 }
 
@@ -209,10 +255,7 @@ mod tests {
     fn audio_catalog_has_one_default_per_kind_and_sfx_duration() {
         let cat = audio_model_catalog();
         for kind in ["speech", "music", "sfx"] {
-            let defaults: Vec<_> = cat
-                .iter()
-                .filter(|m| m.kind == kind && m.default)
-                .collect();
+            let defaults: Vec<_> = cat.iter().filter(|m| m.kind == kind && m.default).collect();
             assert_eq!(defaults.len(), 1, "{kind} 须恰好一个默认模型");
         }
         // SFX 默认模型是专用音效模型且吃时长。

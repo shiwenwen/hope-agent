@@ -693,14 +693,11 @@ impl DesignDb {
     /// 幂等建分享：产物已有分享则复用同一 token（不换链接），否则插新行。返回 token。
     pub fn upsert_share(&self, artifact_id: &str, token: &str, created_at: &str) -> Result<String> {
         let conn = self.lock()?;
-        if let Some(existing) = conn
-            .query_row(
-                "SELECT token FROM design_shares WHERE artifact_id = ?1",
-                rusqlite::params![artifact_id],
-                |r| r.get::<_, String>(0),
-            )
-            .ok()
-        {
+        if let Ok(existing) = conn.query_row(
+            "SELECT token FROM design_shares WHERE artifact_id = ?1",
+            rusqlite::params![artifact_id],
+            |r| r.get::<_, String>(0),
+        ) {
             return Ok(existing);
         }
         conn.execute(
@@ -1212,13 +1209,19 @@ mod tests {
         assert_eq!(t1, "tok_aaa");
         assert_eq!(t2, "tok_aaa", "二次分享必须复用同一 token");
         assert_eq!(db.resolve_share("tok_aaa").unwrap().as_deref(), Some("a1"));
-        assert_eq!(db.share_token_for_artifact(&aid).unwrap().as_deref(), Some("tok_aaa"));
+        assert_eq!(
+            db.share_token_for_artifact(&aid).unwrap().as_deref(),
+            Some("tok_aaa")
+        );
         assert!(db.delete_share("tok_aaa").unwrap());
         assert!(db.resolve_share("tok_aaa").unwrap().is_none());
         // 级联：重建分享后删产物 → 分享行随 ON DELETE CASCADE 消失。
         db.upsert_share(&aid, "tok_ccc", "t").unwrap();
         db.delete_artifact(&aid).unwrap();
-        assert!(db.resolve_share("tok_ccc").unwrap().is_none(), "删产物未级联删分享");
+        assert!(
+            db.resolve_share("tok_ccc").unwrap().is_none(),
+            "删产物未级联删分享"
+        );
     }
 
     #[test]
@@ -1226,7 +1229,11 @@ mod tests {
         // B3-1：项目卡状态徽标读取时聚合 status='needs_review' 的产物数。
         let (_d, db) = open_temp();
         seed_artifact(&db); // a1 = ready
-        for (id, status) in [("a2", "needs_review"), ("a3", "needs_review"), ("a4", "failed")] {
+        for (id, status) in [
+            ("a2", "needs_review"),
+            ("a3", "needs_review"),
+            ("a4", "failed"),
+        ] {
             db.create_artifact(&DesignArtifact {
                 id: id.into(),
                 project_id: "p1".into(),

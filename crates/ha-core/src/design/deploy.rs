@@ -33,7 +33,9 @@ fn cf_config_path() -> Result<std::path::PathBuf> {
 pub fn load_cf_config() -> Result<Option<CloudflareConfig>> {
     let path = cf_config_path()?;
     match std::fs::read(&path) {
-        Ok(b) => Ok(Some(serde_json::from_slice(&b).context("parse cloudflare.json")?)),
+        Ok(b) => Ok(Some(
+            serde_json::from_slice(&b).context("parse cloudflare.json")?,
+        )),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(anyhow!("read cloudflare.json: {e}")),
     }
@@ -69,7 +71,10 @@ pub struct CfConfigPublic {
 pub fn public_cf_config() -> Result<CfConfigPublic> {
     let cfg = load_cf_config()?;
     Ok(CfConfigPublic {
-        account_id: cfg.as_ref().map(|c| c.account_id.clone()).unwrap_or_default(),
+        account_id: cfg
+            .as_ref()
+            .map(|c| c.account_id.clone())
+            .unwrap_or_default(),
         has_token: cfg.as_ref().is_some_and(|c| !c.api_token.is_empty()),
         token_mask: TOKEN_MASK.to_string(),
     })
@@ -149,7 +154,10 @@ async fn cf_json(resp: reqwest::Response, ctx: &str) -> Result<serde_json::Value
             .unwrap_or("unknown error");
         bail!("{ctx} failed (HTTP {status}): {msg}");
     }
-    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    Ok(body
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null))
 }
 
 /// 部署产物到 CF Pages，返回 `https://<name>.pages.dev`。owner 平面显式调用。
@@ -171,7 +179,11 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     let hash = asset_hash(&b64, ".html");
 
     let http = client()?;
-    crate::app_info!("design", "deploy", "deploying artifact {artifact_id} to CF project {name}");
+    crate::app_info!(
+        "design",
+        "deploy",
+        "deploying artifact {artifact_id} to CF project {name}"
+    );
 
     // ① ensure project（GET；404 → POST 建；已存在容忍）。
     let proj_url = format!("{CF_API}/accounts/{acct}/pages/projects/{name}");
@@ -280,7 +292,11 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
         .unwrap_or_else(|| format!("https://{name}.pages.dev"));
-    crate::app_info!("design", "deploy", "deployed artifact {artifact_id} -> {url}");
+    crate::app_info!(
+        "design",
+        "deploy",
+        "deployed artifact {artifact_id} -> {url}"
+    );
     Ok(url)
 }
 
@@ -294,7 +310,8 @@ mod tests {
         assert!(n.starts_with("ha-"), "{n}");
         assert!(n.len() <= 63);
         assert!(
-            n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+            n.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
             "非 DNS-safe: {n}"
         );
         assert!(!n.starts_with('-') && !n.ends_with('-'));
@@ -323,7 +340,9 @@ mod tests {
         // 防御纵深红线：即便请求被构造指向内网 / 云元数据端点也必拒（字面 IP → classify_ip
         // 确定性拒，离线可测）。实际部署 URL host 恒为硬编码 api.cloudflare.com（acct/name 只进
         // path 不改 authority），故主约束在硬编码 host，guard 兜底 SSRF。
-        assert!(guard("http://169.254.169.254/latest/meta-data").await.is_err());
+        assert!(guard("http://169.254.169.254/latest/meta-data")
+            .await
+            .is_err());
         assert!(guard("http://127.0.0.1:8080/x").await.is_err());
         assert!(guard("http://10.0.0.1/x").await.is_err());
     }

@@ -148,8 +148,8 @@ pub async fn save_cf_deploy_config_cmd(
 
 /// 读 CF 部署配置（**token 脱敏**：只回 hasToken + mask 哨兵）。
 #[tauri::command]
-pub async fn get_cf_deploy_config_cmd(
-) -> Result<ha_core::design::deploy::CfConfigPublic, CmdError> {
+pub async fn get_cf_deploy_config_cmd() -> Result<ha_core::design::deploy::CfConfigPublic, CmdError>
+{
     ha_core::design::deploy::public_cf_config().map_err(Into::into)
 }
 

@@ -807,10 +807,19 @@ mod tests {
         // B7-3：deck 打印样式必须存在——每张幻灯片一页、横版纸张、隐藏 pager。
         let css = kind_frame_css(ArtifactKind::Deck);
         assert!(css.contains("@media print"), "deck 缺 @media print");
-        assert!(css.contains("@page{size:1280px 720px"), "deck 缺 @page 尺寸");
+        assert!(
+            css.contains("@page{size:1280px 720px"),
+            "deck 缺 @page 尺寸"
+        );
         assert!(css.contains("page-break-after:always"), "deck 缺每页分页");
-        assert!(css.contains(".ds-deck-pager{display:none"), "deck 打印未隐藏 pager");
+        assert!(
+            css.contains(".ds-deck-pager{display:none"),
+            "deck 打印未隐藏 pager"
+        );
         // 屏显行为不变：仍是 active 单页可见（零回归）。
-        assert!(css.contains(".ds-slide.active{display:block}"), "deck 屏显被改坏");
+        assert!(
+            css.contains(".ds-slide.active{display:block}"),
+            "deck 屏显被改坏"
+        );
     }
 }
