@@ -2188,7 +2188,12 @@ pub fn get_system_full(id: &str) -> Result<DesignSystemFull> {
 /// 全走 `var(--ds-*)`——套件即系统真实视觉。前端进沙箱 iframe 渲染。
 pub fn get_system_kit_html(id: &str) -> Result<String> {
     let full = get_system_full(id)?;
-    Ok(super::kit::build_kit_html(&full.meta.name, &full.tokens))
+    Ok(super::kit::build_kit_html(
+        &full.meta.name,
+        &full.tokens,
+        &full.assets.logos,
+        &full.assets.images,
+    ))
 }
 
 /// 新建 / 更新用户设计系统入参。
@@ -2365,6 +2370,14 @@ pub async fn extract_system(input: ExtractSystemInput) -> Result<DesignSystemMet
         &extracted.tokens,
         "extracted",
     )?;
+    // B1-4：落盘 harvest 的 logo/配图资产（best-effort，失败不阻断系统创建）。
+    let _ = system::write_assets(
+        &id,
+        &system::DesignAssets {
+            logos: extracted.logos,
+            images: extracted.images,
+        },
+    );
     emit("design:system_changed", json!({ "systemId": id }));
     Ok(meta)
 }

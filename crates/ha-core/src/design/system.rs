@@ -9,7 +9,7 @@
 //! 目录 + 注册 `design.db`，用户可 fork / 编辑。
 
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::db::{DesignDb, DesignSystemMeta};
@@ -26,6 +26,43 @@ pub struct DesignSystemFull {
     pub system_md: String,
     /// CSS 变量 token（有序）。
     pub tokens: BTreeMap<String, String>,
+    /// 提取时 harvest 的 logo / 配图资产（data-uri）。B1-4；非提取系统为空。
+    #[serde(default)]
+    pub assets: DesignAssets,
+}
+
+/// 设计系统资产（`assets.json`，B1-4）：logo / 配图均为自包含 data-uri。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesignAssets {
+    #[serde(default)]
+    pub logos: Vec<String>,
+    #[serde(default)]
+    pub images: Vec<String>,
+}
+
+/// 落盘/读取系统资产 `assets.json`（写经原子写；读缺失/损坏回退空）。
+pub fn write_assets(id: &str, assets: &DesignAssets) -> Result<()> {
+    if assets.logos.is_empty() && assets.images.is_empty() {
+        return Ok(());
+    }
+    let dir = paths::design_system_dir(id)?;
+    std::fs::create_dir_all(&dir).ok();
+    crate::platform::write_atomic(
+        &dir.join("assets.json"),
+        serde_json::to_string(assets)?.as_bytes(),
+    )
+    .map_err(|e| anyhow::anyhow!("write assets.json: {e}"))
+}
+
+fn read_assets(id: &str) -> DesignAssets {
+    let Ok(dir) = paths::design_system_dir(id) else {
+        return DesignAssets::default();
+    };
+    std::fs::read_to_string(dir.join("assets.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
 }
 
 /// 内置系统定义（代码内）。
@@ -523,6 +560,7 @@ pub fn read_full(db: &DesignDb, id: &str) -> Result<DesignSystemFull> {
         meta,
         system_md,
         tokens,
+        assets: read_assets(id),
     })
 }
 

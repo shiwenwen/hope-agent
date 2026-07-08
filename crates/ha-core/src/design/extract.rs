@@ -21,6 +21,13 @@ pub struct ExtractedSystem {
     pub system_md: String,
     #[serde(default)]
     pub tokens: BTreeMap<String, String>,
+    /// 从 URL 确定性 harvest 的 logo 候选（data-uri，优先链 apple-touch-icon > og:image >
+    /// favicon > logo img）。仅 `from_url` 填充，其余通道空。B1-4。
+    #[serde(default)]
+    pub logos: Vec<String>,
+    /// 从 URL 确定性 harvest 的 hero/封面配图（data-uri，og:image + 大图）。B1-4。
+    #[serde(default)]
+    pub images: Vec<String>,
 }
 
 /// 核心 token 词表（每个都必须填值，与 `system::expand` / DESIGN.md 互通格式对齐）。
@@ -156,7 +163,196 @@ pub async fn from_url(url: &str) -> Result<ExtractedSystem> {
     if html.trim().is_empty() {
         anyhow::bail!("fetched empty page from {url}");
     }
-    run_extract("web page raw HTML (with inline styles)", &html).await
+    let mut sys = run_extract("web page raw HTML (with inline styles)", &html).await?;
+    // B1-4：确定性 harvest logo/hero 配图（LLM 之外的旁路，失败不阻断提取）。
+    let (logos, images) = harvest_assets(url, &html).await;
+    sys.logos = logos;
+    sys.images = images;
+    Ok(sys)
+}
+
+/// logo / hero 配图上限（防单站抓一大堆）。
+const MAX_LOGOS: usize = 4;
+const MAX_IMAGES: usize = 6;
+/// 单资产字节门：太小多为 tracking 像素 / 空白，太大不内嵌。
+const MIN_ASSET_BYTES: usize = 256;
+const MAX_ASSET_BYTES: usize = 6 * 1024 * 1024;
+
+/// 从页面 HTML 确定性抽取 logo / 配图候选 URL（优先链对齐参照品类），逐个 SSRF-gated 抓取、
+/// content-hash 去重、转 data-uri。失败/越界的静默跳过，绝不阻断主提取。**复用
+/// `security::ssrf::check_url`**（不自写 IP 校验）。
+async fn harvest_assets(base_url: &str, html: &str) -> (Vec<String>, Vec<String>) {
+    let Ok(base) = url::Url::parse(base_url) else {
+        return (Vec::new(), Vec::new());
+    };
+    let (mut logo_urls, mut image_urls) = parse_asset_candidates(&base, html);
+    // 限尝试预算：candidate 可能很多，逐个 20s 超时抓取，全失败会拖很久 → 截断候选。
+    logo_urls.truncate(8);
+    image_urls.truncate(14);
+    // content-hash 去重跨 logo/image（og:image 常与某 hero img 同图）。
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let logos = fetch_assets_into(logo_urls, MAX_LOGOS, &mut seen).await;
+    let images = fetch_assets_into(image_urls, MAX_IMAGES, &mut seen).await;
+    (logos, images)
+}
+
+/// 顺序抓取候选 URL（保优先序）→ size-gate + content-hash 去重 → data-uri，至多 `cap` 个。
+async fn fetch_assets_into(
+    urls: Vec<String>,
+    cap: usize,
+    seen: &mut std::collections::HashSet<u64>,
+) -> Vec<String> {
+    use std::hash::{Hash, Hasher};
+    let mut out = Vec::new();
+    for u in urls {
+        if out.len() >= cap {
+            break;
+        }
+        let Some((bytes, mime)) = fetch_asset(&u).await else {
+            continue;
+        };
+        if bytes.len() < MIN_ASSET_BYTES {
+            continue;
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut h);
+        if !seen.insert(h.finish()) {
+            continue;
+        }
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        out.push(format!("data:{mime};base64,{b64}"));
+    }
+    out
+}
+
+/// 解析 logo/image 候选 URL（绝对化、去重、按优先序）。用 `scraper` 稳健解析，不裸正则。
+fn parse_asset_candidates(base: &url::Url, html: &str) -> (Vec<String>, Vec<String>) {
+    use scraper::{Html, Selector};
+    let doc = Html::parse_document(html);
+    let abs = |href: &str| -> Option<String> {
+        let h = href.trim();
+        if h.is_empty() || h.starts_with("data:") {
+            return None;
+        }
+        base.join(h)
+            .ok()
+            .map(|u| u.to_string())
+            .filter(|u| u.starts_with("http"))
+    };
+    let attr = |sel: &str, a: &str| -> Vec<String> {
+        Selector::parse(sel)
+            .ok()
+            .map(|s| {
+                doc.select(&s)
+                    .filter_map(|e| e.value().attr(a))
+                    .filter_map(abs)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+
+    // logo 优先链：apple-touch-icon > og:image > favicon > 带 "logo" 的 img。
+    let mut logos: Vec<String> = Vec::new();
+    logos.extend(attr("link[rel~=\"apple-touch-icon\"]", "href"));
+    logos.extend(attr("meta[property=\"og:image\"]", "content"));
+    logos.extend(attr("link[rel~=\"icon\"]", "href"));
+    if let Ok(imgsel) = Selector::parse("img") {
+        for e in doc.select(&imgsel) {
+            let hay = format!(
+                "{} {} {}",
+                e.value().attr("class").unwrap_or(""),
+                e.value().attr("alt").unwrap_or(""),
+                e.value().attr("src").unwrap_or("")
+            )
+            .to_ascii_lowercase();
+            if hay.contains("logo") {
+                if let Some(u) = e.value().attr("src").and_then(abs) {
+                    logos.push(u);
+                }
+            }
+        }
+    }
+
+    // image 优先链：og:image > twitter:image > 前若干 <img>（跳 svg / 明显图标）。
+    let mut images: Vec<String> = Vec::new();
+    images.extend(attr("meta[property=\"og:image\"]", "content"));
+    images.extend(attr("meta[name=\"twitter:image\"]", "content"));
+    if let Ok(imgsel) = Selector::parse("img") {
+        for e in doc.select(&imgsel).take(40) {
+            if let Some(u) = e.value().attr("src").and_then(abs) {
+                if !u.to_ascii_lowercase().ends_with(".svg") {
+                    images.push(u);
+                }
+            }
+        }
+    }
+
+    (dedup_keep_order(logos), dedup_keep_order(images))
+}
+
+fn dedup_keep_order(v: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    v.into_iter().filter(|u| seen.insert(u.clone())).collect()
+}
+
+/// 抓取单个资产字节 + mime（SSRF-gated，size-cap）。失败/越界返回 None（调用方跳过）。
+async fn fetch_asset(url: &str) -> Option<(Vec<u8>, String)> {
+    use futures_util::StreamExt;
+    let ssrf_cfg = crate::config::cached_config().ssrf.clone();
+    let policy = ssrf_cfg.web_fetch();
+    let trusted = ssrf_cfg.trusted_hosts.clone();
+    let parsed = crate::security::ssrf::check_url(url, policy, &trusted)
+        .await
+        .ok()?;
+
+    let redirect_hosts = trusted.clone();
+    let redirect_policy = reqwest::redirect::Policy::custom(move |attempt| {
+        if attempt.previous().len() >= 5 {
+            return attempt.error("too many redirects");
+        }
+        if let Some(host) = attempt.url().host_str() {
+            if crate::security::ssrf::check_host_blocking_sync(host, policy, &redirect_hosts) {
+                return attempt.stop();
+            }
+        }
+        attempt.follow()
+    });
+    let client = crate::provider::apply_proxy(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(20))
+            .redirect(redirect_policy),
+    )
+    .build()
+    .ok()?;
+    let resp = crate::tools::web_fetch_common::apply_browser_headers(client.get(parsed))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let mime = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(';').next().unwrap_or("").trim().to_string())
+        .filter(|m| m.starts_with("image/"))
+        .unwrap_or_default();
+    let mut bytes = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.ok()?;
+        bytes.extend_from_slice(&chunk);
+        if bytes.len() > MAX_ASSET_BYTES {
+            return None; // 超上限直接弃（不内嵌巨图）
+        }
+    }
+    let mime = if mime.is_empty() {
+        sniff_image_mime(&bytes).to_string()
+    } else {
+        mime
+    };
+    Some((bytes, mime))
 }
 
 /// 从 `Content-Type` header / `<meta charset>` 探测编码并正确解码（非 UTF-8 页——GBK /
@@ -674,6 +870,8 @@ pub async fn from_design_md(md: &str) -> Result<ExtractedSystem> {
             summary,
             system_md,
             tokens,
+            logos: Vec::new(),
+            images: Vec::new(),
         })
     } else {
         // token 不足 → LLM 从正文合成 token，但保留原 DESIGN.md 正文。
@@ -682,6 +880,8 @@ pub async fn from_design_md(md: &str) -> Result<ExtractedSystem> {
             summary,
             system_md,
             tokens: synth.tokens,
+            logos: Vec::new(),
+            images: Vec::new(),
         })
     }
 }

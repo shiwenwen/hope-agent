@@ -26,8 +26,14 @@ fn group<'a>(
 }
 
 /// 生成设计系统套件页（自包含 HTML，进沙箱 iframe）。`name` 作标题，`tokens` 为系统展开
-/// 后的 `--ds-*` 变量。空 tokens 也能出页（用骨架默认值 + 组件 showcase）。
-pub fn build_kit_html(name: &str, tokens: &BTreeMap<String, String>) -> String {
+/// 后的 `--ds-*` 变量。空 tokens 也能出页（用骨架默认值 + 组件 showcase）。`logos`/`images`
+/// 是 harvest 的 data-uri 资产（B1-4），空则不出对应段。
+pub fn build_kit_html(
+    name: &str,
+    tokens: &BTreeMap<String, String>,
+    logos: &[String],
+    images: &[String],
+) -> String {
     let token_vec: Vec<(String, String)> =
         tokens.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let root = tokens_root_css(&token_vec);
@@ -128,6 +134,28 @@ pub fn build_kit_html(name: &str, tokens: &BTreeMap<String, String>) -> String {
         })
         .collect();
 
+    // ── logo / 配图（B1-4，仅放行 data:image/ 自包含资产）──
+    let logo_html: String = logos
+        .iter()
+        .filter(|u| u.starts_with("data:image/"))
+        .map(|u| {
+            format!(
+                "<div class=\"logo-tile\"><img src=\"{}\" alt=\"logo\" loading=\"lazy\"></div>",
+                html_escape(u)
+            )
+        })
+        .collect();
+    let image_html: String = images
+        .iter()
+        .filter(|u| u.starts_with("data:image/"))
+        .map(|u| {
+            format!(
+                "<figure class=\"img-tile\"><img src=\"{}\" alt=\"\" loading=\"lazy\"></figure>",
+                html_escape(u)
+            )
+        })
+        .collect();
+
     let section = |title: &str, inner: &str, cls: &str| -> String {
         if inner.trim().is_empty() {
             String::new()
@@ -191,13 +219,22 @@ padding:.5rem .7rem;font-size:.85rem;background:var(--ds-color-bg,#fff);color:in
 .b-warning{{background:var(--ds-color-warning,#d97706);color:#fff}}
 .b-danger{{background:var(--ds-color-danger,#dc2626);color:#fff}}
 .stack{{display:flex;flex-direction:column;gap:.7rem}}
+.logos{{display:flex;flex-wrap:wrap;gap:.9rem;align-items:center}}
+.logo-tile{{display:flex;align-items:center;justify-content:center;height:56px;min-width:100px;padding:.5rem .9rem;
+border:1px solid var(--ds-color-border,#e5e7eb);border-radius:var(--ds-radius-md,8px);background:var(--ds-color-muted,#f8fafc)}}
+.logo-tile img{{max-height:40px;max-width:160px;object-fit:contain}}
+.imagery{{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.9rem}}
+.img-tile{{margin:0;border-radius:var(--ds-radius-md,8px);overflow:hidden;border:1px solid var(--ds-color-border,#eef0f3);aspect-ratio:16/10;background:var(--ds-color-muted,#f1f5f9)}}
+.img-tile img{{width:100%;height:100%;object-fit:cover;display:block}}
 </style>
 <style id="ds-live"></style>
 </head>
 <body>
 <header><h1>{name}</h1><button class="toggle" onclick="document.body.classList.toggle('dark')">明 / 暗</button></header>
 <main>
+{logos}
 {colors}
+{images}
 {fonts}
 {texts}
 {spaces}
@@ -226,6 +263,8 @@ window.addEventListener('message',function(e){{var d=e.data;if(d&&d.type==='ds_k
 </body></html>"##,
         name = esc_name,
         root = root,
+        logos = section("Logo", &logo_html, "logos"),
+        images = section("配图 · Imagery", &image_html, "imagery"),
         colors = section("色彩 · Colors", &color_swatches, "swatches"),
         fonts = section("字体 · Typography", &fonts, "type-scale"),
         texts = section("字号阶 · Type scale", &text_scale, "type-scale"),
@@ -255,7 +294,7 @@ mod tests {
 
     #[test]
     fn kit_is_self_contained_and_reflects_tokens() {
-        let html = build_kit_html("测试系统", &sys());
+        let html = build_kit_html("测试系统", &sys(), &[], &[]);
         assert!(html.starts_with("<!doctype html>"));
         // 无外链 / 无网络（自包含红线）。
         assert!(!html.contains("http://") && !html.contains("https://"));
@@ -274,16 +313,41 @@ mod tests {
     fn kit_escapes_name_and_values() {
         let mut t = sys();
         t.insert("--ds-color-x".into(), "#fff".into());
-        let html = build_kit_html("<script>alert(1)</script>", &t);
+        let html = build_kit_html("<script>alert(1)</script>", &t, &[], &[]);
         assert!(!html.contains("<script>alert(1)"));
         assert!(html.contains("&lt;script&gt;"));
     }
 
     #[test]
     fn kit_handles_empty_tokens() {
-        let html = build_kit_html("空系统", &BTreeMap::new());
+        let html = build_kit_html("空系统", &BTreeMap::new(), &[], &[]);
         assert!(html.contains("空系统"));
         // 空 token 也出组件 showcase（用骨架默认值），不 panic、不空页。
         assert!(html.contains("btn-primary"));
+    }
+
+    #[test]
+    fn kit_renders_data_uri_assets_only() {
+        // B1-4：data:image/ 资产渲染进 Logo/配图段；非 data:image/ 的（防注入）被滤掉。
+        let logos = vec![
+            "data:image/png;base64,iVBORw0KGgo=".to_string(),
+            "https://evil.example/x.png".to_string(), // 非 data → 滤掉
+        ];
+        let images = vec!["data:image/jpeg;base64,/9j/4AAQ".to_string()];
+        let html = build_kit_html("带资产", &sys(), &logos, &images);
+        assert!(html.contains("data:image/png;base64,iVBORw0KGgo="));
+        assert!(html.contains("data:image/jpeg;base64,/9j/4AAQ"));
+        assert!(html.contains("class=\"logo-tile\""));
+        // 非 data:image/ 的 http URL 不进套件（守自包含 + 防注入）。
+        assert!(!html.contains("evil.example"));
+    }
+
+    #[test]
+    fn kit_no_assets_omits_asset_sections() {
+        // 无资产 → 不出 Logo/配图段（section() 空 inner 返回空）；CSS 里的类名不算。
+        let html = build_kit_html("无资产", &sys(), &[], &[]);
+        assert!(!html.contains(">Logo</h2>"));
+        assert!(!html.contains("配图 · Imagery</h2>"));
+        assert!(!html.contains("<img"));
     }
 }

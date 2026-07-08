@@ -239,6 +239,8 @@ export interface DesignSystemFull {
   meta: DesignSystemMeta;
   systemMd: string;
   tokens: Record<string, string>;
+  /** 提取时 harvest 的 logo/配图资产（data-uri）；非提取系统为空。套件视图后端渲染时消费。 */
+  assets?: { logos: string[]; images: string[] };
 }
 
 /** 反向提取入参（`extract_design_system_cmd`）。 */
