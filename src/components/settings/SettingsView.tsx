@@ -242,6 +242,7 @@ export default function SettingsView({
   onCodexAuth,
   onCodexReauth,
   initialSection,
+  initialToolTab,
   initialAgentId,
   initialChannelId,
   onProfileSaved,
@@ -250,6 +251,8 @@ export default function SettingsView({
   onCodexAuth: () => Promise<void>
   onCodexReauth?: () => void
   initialSection?: SettingsSection
+  /** When `initialSection === "tools"`, pre-select this Tools sub-tab (e.g. "design"). */
+  initialToolTab?: string
   initialAgentId?: string
   /** When `initialSection === "channels"`, pre-open the Add dialog with
    *  this channel pre-selected. Used by the onboarding wizard. */
@@ -392,7 +395,7 @@ export default function SettingsView({
             {activeSection === "memory" && <MemoryPanel />}
             {activeSection === "knowledge" && <KnowledgePanel />}
             {activeSection === "notifications" && <NotificationPanel />}
-            {activeSection === "tools" && <ToolSettingsPanel />}
+            {activeSection === "tools" && <ToolSettingsPanel initialTab={initialToolTab} />}
             {activeSection === "mcp" && <McpServersPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
             {activeSection === "browser" && <BrowserPanel />}

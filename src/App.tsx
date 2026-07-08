@@ -77,6 +77,8 @@ export default function App() {
     undefined,
   )
   const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
+  // Tools 设置页的子 tab 深链（如从设计空间齿轮直达「设计空间」子 tab）。
+  const [settingsInitialToolTab, setSettingsInitialToolTab] = useState<string | undefined>(undefined)
   const [dashboardInitialTab, setDashboardInitialTab] = useState<string | undefined>(undefined)
   const [dashboardInitialReportId, setDashboardInitialReportId] = useState<string | null>(null)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
@@ -182,12 +184,16 @@ export default function App() {
   }, [configHealth])
 
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
-  const handleOpenSettings = useCallback((section?: SettingsSection) => {
-    if (keepConfigRecoveryView()) return
-    setSettingsInitialSection(section)
-    setSettingsInitialSectionRequestKey((n) => n + 1)
-    setView("settings")
-  }, [keepConfigRecoveryView])
+  const handleOpenSettings = useCallback(
+    (section?: SettingsSection, toolTab?: string) => {
+      if (keepConfigRecoveryView()) return
+      setSettingsInitialSection(section)
+      setSettingsInitialToolTab(toolTab)
+      setSettingsInitialSectionRequestKey((n) => n + 1)
+      setView("settings")
+    },
+    [keepConfigRecoveryView],
+  )
   const handleOpenDashboard = useCallback((tab?: string, reportId?: string | null) => {
     if (keepConfigRecoveryView()) return
     setDashboardInitialTab(tab)
@@ -554,6 +560,7 @@ export default function App() {
                   onCodexAuth={handleCodexAuth}
                   onCodexReauth={handleCodexAuth}
                   initialSection={settingsInitialSection}
+                  initialToolTab={settingsInitialToolTab}
                 />
               )}
               {view === "skills" && (
@@ -686,7 +693,7 @@ export default function App() {
                 >
                   <DesignView
                     onBack={() => setView("chat")}
-                    onOpenSettings={() => handleOpenSettings()}
+                    onOpenSettings={() => handleOpenSettings("tools", "design")}
                   />
                 </Suspense>
               )}

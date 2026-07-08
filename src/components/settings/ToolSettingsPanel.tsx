@@ -10,11 +10,14 @@ import CanvasSettingsPanel from "@/components/settings/CanvasSettingsPanel"
 import DesignSettingsPanel from "@/components/settings/DesignSettingsPanel"
 import AsyncToolsPanel from "@/components/settings/AsyncToolsPanel"
 
-export default function ToolSettingsPanel() {
+export default function ToolSettingsPanel({ initialTab }: { initialTab?: string } = {}) {
   const { t } = useTranslation()
 
   return (
-    <Tabs defaultValue="general" className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <Tabs
+      defaultValue={initialTab ?? "general"}
+      className="flex-1 flex flex-col min-h-0 overflow-hidden"
+    >
       <div className="px-6 pt-4 pb-2 shrink-0">
         <TabsList className="w-fit">
           <TabsTrigger value="general">{t("settings.toolGeneral")}</TabsTrigger>
