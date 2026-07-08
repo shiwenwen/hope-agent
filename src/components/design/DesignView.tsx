@@ -1898,6 +1898,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       (activeArtifact ? activeArtifact.systemId : activeProject.defaultSystemId),
                   )?.name ?? null
                 }
+                onJumpToQuote={(q) => {
+                  // 点选带到对话的批注 quote chip → 在预览里聚焦对应元素钉。
+                  const m = /^design-comment:(\d+)$/.exec(q.path)
+                  if (m) postToIframe({ type: "ds_comment_focus", id: Number(m[1]) })
+                }}
                 active
               />
             </div>

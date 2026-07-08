@@ -187,8 +187,8 @@ pub fn get_design_tool() -> ToolDefinition {
                 },
                 "kind": {
                     "type": "string",
-                    "enum": ["web", "mobile", "deck", "dashboard", "poster", "document", "email", "image", "motion"],
-                    "description": "Artifact form (for create_artifact / filtering list_recipes). web=landing/desktop page, mobile=390x844 framed, deck=16:9 slides (each <section class=\"ds-slide\">), dashboard=data panels, poster=1080x1080, document=long-form, email=table-based, image=generated raster (needs 'prompt'), motion=1280x720 self-contained CSS/JS animation."
+                    "enum": ["web", "mobile", "deck", "dashboard", "poster", "document", "email", "image", "motion", "audio"],
+                    "description": "Artifact form (for create_artifact / filtering list_recipes). web=landing/desktop page, mobile=390x844 framed, deck=16:9 slides (each <section class=\"ds-slide\">), dashboard=data panels, poster=1080x1080, document=long-form, email=table-based, image=generated raster (needs 'prompt'), motion=1280x720 self-contained CSS/JS animation, audio=generated TTS narration / music / SFX (needs 'prompt')."
                 },
                 "recipe_id": { "type": "string", "description": "Recipe id (for get_recipe)" },
                 "project_id": { "type": "string", "description": "Design project id (optional; defaults to the session's draft project)" },

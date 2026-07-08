@@ -175,6 +175,12 @@ fn wrap_kind_body(kind: ArtifactKind, inner: &str) -> String {
     }
 }
 
+/// 沙箱预览 iframe（`sandbox="allow-scripts"` → opaque origin → 原生 Web Storage
+/// 访问抛 `SecurityError`）里给 `localStorage`/`sessionStorage` 兜一层内存 shim：
+/// **仅在原生访问真的抛错时才影子替换**，故导出产物在真实 origin 打开仍用原生存储。
+/// 必须在 body 脚本前运行——任何挂载即读写 storage 的 AI 产物否则直接白屏。
+const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};return{getItem:function(k){return Object.prototype.hasOwnProperty.call(s,k)?s[k]:null},setItem:function(k,v){s[k]=String(v)},removeItem:function(k){delete s[k]},clear:function(){s={}},key:function(i){return Object.keys(s)[i]||null},get length(){return Object.keys(s).length}}}['localStorage','sessionStorage'].forEach(function(n){try{window[n].getItem('_ds_probe_')}catch(e){try{Object.defineProperty(window,n,{value:mk(),configurable:true})}catch(_){}}});})();</script>";
+
 /// 编译自包含 `index.html`。
 ///
 /// `tokens` 是设计系统展开的 CSS 变量（`("--ds-color-primary","#..")`），注入
@@ -256,11 +262,13 @@ pub fn build_artifact_html(
         "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"{kind}\">\n<head>\n\
 <meta charset=\"utf-8\">\n\
 <meta name=\"viewport\" content=\"{viewport}\">\n\
+{storage}\n\
 <title>{title}</title>\n\
 <style>\n{root}\n{base}\n{frame}\n{user_css}\n</style>\n\
 </head>\n<body>\n{body}\n{user_js}\n{deck_js}\n{inspector_js}\n</body>\n</html>\n",
         kind = kind.as_str(),
         viewport = viewport_meta,
+        storage = STORAGE_POLYFILL,
         title = esc_title,
         root = root_css,
         base = base_css,
@@ -510,12 +518,14 @@ pub fn build_stream_host_html(
         "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"{kind}\" data-ds-streaming=\"1\">\n<head>\n\
 <meta charset=\"utf-8\">\n\
 <meta name=\"viewport\" content=\"{viewport}\">\n\
+{storage}\n\
 <title>{title}</title>\n\
 <style>\n{root}\n{base}\n{frame}\n{host}\n</style>\n\
 <style id=\"ds-user-css\"></style>\n\
 </head>\n<body>\n{body}\n{host_js}\n</body>\n</html>\n",
         kind = kind.as_str(),
         viewport = viewport_meta,
+        storage = STORAGE_POLYFILL,
         title = esc_title,
         root = root_css,
         base = base_css,
