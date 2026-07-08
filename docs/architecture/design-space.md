@@ -660,6 +660,14 @@ brief 缺设计系统时，`design(action="propose_directions", brief)` 返回 N
 | 静态托管 | （Tauri `asset://` 直读） | `GET /api/design/projects/{pid}/artifacts/{aid}/{*rest}` | iframe 直连 |
 | 配置读写 | `get/save_design_config_cmd` | `GET/PUT /api/config/design` | 同名 |
 
+### 15.1 分发面（工程轴对外集成）—— HTTP 即分发面，不做 design 专属 MCP
+
+外部编码 agent / 脚本要复用本设计引擎（生成产物、反查设计系统、导出交付包、部署），**分发面就是上表这套已完整的 `/api/design/*` HTTP 表面**——在 server 模式（`hope-agent server`）下经 Bearer Token 鉴权全量可用，无需任何新协议层。典型集成链：`extract_system`（反查品牌）→ `create/generate_artifact`（生成）→ `critique`（质量门）→ `export` / `handoff`（取交付包）→ `deploy`（CF Pages 发布）→ `share`（公开只读快照）。
+
+**刻意不做 design-scoped MCP server（红线决策）**：单独为设计空间起一个 MCP server 属于**层错**——对外把 Hope Agent 暴露成 MCP server 是**平台级议题**（覆盖 memory / knowledge / design 等全部子系统的统一鉴权、会话、审批面），若在设计子系统内先造一个专属 MCP server，等平台级方案落地必然返工重做。因此工程轴分发短期指路已存在的 HTTP 面，中期作为「Hope Agent as MCP server」平台议题统一收口、设计做第一个消费者。
+
+**Backlog（不在本轴范围）**：设计系统包从 GitHub / 本地目录导入（安全安装路径）是独立能力，不依赖 MCP，保留在 Backlog 独立推进。
+
 ---
 
 ## 16. 文件清单（注册触点）
