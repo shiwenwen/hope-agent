@@ -1894,10 +1894,7 @@ fn build_router_with_cors(
             "/design/artifacts/{id}/review",
             post(routes::design::review_artifact),
         )
-        .route(
-            "/design/systems/{id}/kit",
-            get(routes::design::system_kit),
-        )
+        .route("/design/systems/{id}/kit", get(routes::design::system_kit))
         .route(
             "/design/artifacts/{id}/handoff",
             get(routes::design::export_handoff),
