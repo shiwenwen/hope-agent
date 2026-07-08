@@ -6,7 +6,7 @@
  * 点条目 → 通知 bridge 聚焦对应钉。纯受控，父层负责 owner 命令与 iframe 通信。
  */
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   MessageSquare,
@@ -38,6 +38,9 @@ interface Props {
   onSendToChat: (id: number) => void
   /** 带到对话：把这条批注作为 quote 塞进左侧 AI 对话 composer，用户可补充后随 turn 发。 */
   onAddToChat: (id: number) => void
+  /** 预览里点钉请求聚焦的批注 id（B0-3）：滚动到该卡并进入编辑；消费后经 onFocusHandled 清空。 */
+  focusCommentId?: number | null
+  onFocusHandled?: () => void
   onClose: () => void
 }
 
@@ -52,12 +55,15 @@ export default function DesignCommentPanel({
   onFocus,
   onSendToChat,
   onAddToChat,
+  focusCommentId,
+  onFocusHandled,
   onClose,
 }: Props) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState("")
+  const cardRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
   // 新钉锚点变了（落到另一元素）→ 清空新建草稿，避免上一次输入带到新钉（review #6）。
   // 用 React「渲染期调整 state」模式而非 effect 内 setState（后者会触发级联渲染，eslint 拦）。
@@ -67,6 +73,24 @@ export default function DesignCommentPanel({
     setLastPendingKey(pendingKey)
     setDraft("")
   }
+
+  // 预览点钉 → 聚焦该批注：滚动到卡片、进入编辑，消费后通知父层清空（B0-3）。
+  // state 变更延到下一帧，避免 effect 内同步 setState 触发级联渲染（仓库 eslint 拦）。
+  useEffect(() => {
+    if (focusCommentId == null) return
+    cardRefs.current
+      .get(focusCommentId)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    const c = comments.find((x) => x.id === focusCommentId)
+    const raf = requestAnimationFrame(() => {
+      if (c && !c.resolved) {
+        setEditingId(c.id)
+        setEditDraft(c.body)
+      }
+      onFocusHandled?.()
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [focusCommentId, comments, onFocusHandled])
 
   const open = comments.filter((c) => !c.resolved)
   const resolved = comments.filter((c) => c.resolved)
@@ -91,6 +115,10 @@ export default function DesignCommentPanel({
   const renderCard = (c: DesignComment, index: number) => (
     <div
       key={c.id}
+      ref={(el) => {
+        if (el) cardRefs.current.set(c.id, el)
+        else cardRefs.current.delete(c.id)
+      }}
       className={cn(
         "group rounded-lg border p-2.5 text-sm transition-colors",
         c.resolved ? "bg-muted/40 opacity-70" : "bg-card hover:border-primary/40",

@@ -229,6 +229,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const commentsRef = useRef<DesignComment[]>([])
   commentsRef.current = comments
   const [pendingPlacement, setPendingPlacement] = useState<CommentPlacement | null>(null)
+  // 点预览钉时要在面板里聚焦/编辑的批注 id（B0-3）；面板消费后回调清空。
+  const [focusCommentId, setFocusCommentId] = useState<number | null>(null)
   // Live refs so the EventBus subscription can read current project/artifact without
   // being a dependency (avoids re-subscribing — and dropping events — on every edit).
   const activeProjectRef = useRef<DesignProject | null>(null)
@@ -933,6 +935,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           Number(d.relX ?? 0.5),
           Number(d.relY ?? 0.5),
         )
+      }
+      // 点击预览里已有的钉（未拖动）→ 展开批注面板并滚动/高亮该条进入编辑（B0-3，此前死接线）。
+      else if (d?.type === "ds_comment_click" && d.id != null) {
+        setCommentMode(true)
+        setFocusCommentId(Number(d.id))
       }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
       else if (d?.type === "ds_stream_ready") {
@@ -2311,6 +2318,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               onFocus={(id) => postToIframe({ type: "ds_comment_focus", id })}
               onSendToChat={handleSendCommentToChat}
               onAddToChat={handleAddCommentToChat}
+              focusCommentId={focusCommentId}
+              onFocusHandled={() => setFocusCommentId(null)}
               onClose={() => setCommentMode(false)}
             />
           )}
