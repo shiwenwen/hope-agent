@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "레이아웃 변경",
       "starterLayoutPrompt": "이 페이지를 더 깔끔한 레이아웃으로: 여백을 넓히고 간격과 타이포 스케일을 통일하세요."
     },
-    "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요."
+    "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요.",
+    "review": {
+      "dismissed": "검토함으로 표시됨",
+      "rechecked": "다시 검사함",
+      "flagged": "자체 점검에서 품질 문제가 감지되었습니다. 검토하세요",
+      "recheck": "다시 검사",
+      "dismiss": "검토함으로 표시"
+    }
   }
 }

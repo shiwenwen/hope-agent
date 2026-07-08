@@ -257,6 +257,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_design_project_cmd:            { method: "GET",    path: "/api/design/projects/{id}" },
   delete_design_project_cmd:         { method: "DELETE", path: "/api/design/projects/{id}" },
   list_design_artifacts_cmd:         { method: "GET",    path: "/api/design/projects/{projectId}/artifacts" },
+  design_review_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/review" },
   design_chat_thread_get_cmd:        { method: "GET",    path: "/api/design/projects/{projectId}/chat/thread" },
   design_chat_threads_list_cmd:      { method: "GET",    path: "/api/design/projects/{projectId}/chat/threads" },
   create_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts" },

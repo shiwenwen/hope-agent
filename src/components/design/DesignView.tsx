@@ -19,6 +19,7 @@ import {
   Palette,
   PanelLeft,
   PanelLeftClose,
+  ShieldAlert,
   Loader2,
   Monitor,
   Smartphone,
@@ -114,7 +115,7 @@ import type {
   DesignComment,
   CommentPlacement,
 } from "@/types/design"
-import { ARTIFACT_KINDS } from "@/types/design"
+import { ARTIFACT_KINDS, parseSelfCheck } from "@/types/design"
 import {
   exportPng,
   exportPdf,
@@ -826,6 +827,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       })
     },
     [comments, t],
+  )
+
+  // 反-slop 自查复查（B0-2）：recheck 对当前正文重跑自查、dismiss 用户判定无碍强制清标记。
+  const handleReviewArtifact = useCallback(
+    async (action: "recheck" | "dismiss") => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid) return
+      try {
+        const updated = await tx.call<DesignArtifact>("design_review_artifact_cmd", {
+          artifactId: aid,
+          action,
+        })
+        await openArtifact(updated) // 取全视图（含预览路径）+ 刷新 status/metadata
+        if (activeProjectRef.current) void loadArtifacts(activeProjectRef.current.id)
+        toast.success(
+          action === "dismiss"
+            ? t("design.review.dismissed", "已标记为已复查")
+            : t("design.review.rechecked", "已重新检查"),
+        )
+      } catch (e) {
+        logger.error("design", "DesignView::reviewArtifact", "review failed", e)
+        toast.error(t("design.err.load", "加载失败"))
+      }
+    },
+    [tx, openArtifact, loadArtifacts, t],
   )
 
   // 回灌对话：让 AI 按批注精修产物（一键快捷路径）。design-space 原生——产物就地更新新版本、
@@ -1975,6 +2001,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         {a.status === "failed" && (
                           <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
                         )}
+                        {a.status === "needs_review" && (
+                          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                        )}
                       </button>
                       <Button
                         variant="ghost"
@@ -2149,6 +2178,31 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     </DropdownMenu>
                   </div>
                 </div>
+                {activeArtifact.status === "needs_review" && (
+                  <div className="flex shrink-0 items-center gap-2 border-b border-amber-400/40 bg-amber-50/70 px-3 py-1.5 text-xs dark:bg-amber-950/25">
+                    <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span className="min-w-0 flex-1 truncate text-amber-800 dark:text-amber-200">
+                      {parseSelfCheck(activeArtifact.metadata)?.detail ??
+                        t("design.review.flagged", "自查发现可能的质量问题，建议复查")}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 shrink-0 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                      onClick={() => void handleReviewArtifact("recheck")}
+                    >
+                      {t("design.review.recheck", "重新检查")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 shrink-0 px-2 text-xs text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                      onClick={() => void handleReviewArtifact("dismiss")}
+                    >
+                      {t("design.review.dismiss", "标记已复查")}
+                    </Button>
+                  </div>
+                )}
                 <div className="relative flex-1 overflow-auto p-4">
                   {editMode && !selected && (
                     <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex justify-center">

@@ -427,6 +427,15 @@ pub async fn design_comment_refine_cmd(
         .map_err(Into::into)
 }
 
+/// 反-slop 自查复查：`action ∈ recheck|dismiss`，返回更新后的产物。
+#[tauri::command]
+pub async fn design_review_artifact_cmd(
+    artifact_id: String,
+    action: String,
+) -> Result<DesignArtifact, CmdError> {
+    service::review_artifact(&artifact_id, &action).map_err(Into::into)
+}
+
 // ── Design-space per-project chat threads ───────────────────────
 
 /// Default-load target: the most recent chat thread anchored to `projectId`.

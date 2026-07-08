@@ -934,6 +934,38 @@ pub fn set_artifact_status(id: &str, status: &str) -> Result<()> {
     open_db()?.update_artifact(id, None, Some(status), None, None, None, &now())
 }
 
+/// 反-slop 自查复查动作（owner 平面，B0-2）：
+/// - `"recheck"`：对**当前磁盘正文**重跑确定性自查——用户改过后命中即清、仍命中则更新 detail；
+/// - `"dismiss"`：用户判定无碍，强制 `ready` + 剥 `selfCheck` 键（保留其它 metadata）。
+///
+/// 只动 `status` + `selfCheck` 键，不碰正文/版本；返回更新后的产物。emit `design:artifact_ready`
+/// 让库列表刷新徽章。
+pub fn review_artifact(id: &str, action: &str) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    let (status, metadata) = if action == "dismiss" {
+        (
+            "ready".to_string(),
+            super::selfcheck::merge_into_metadata(a.metadata.as_deref(), None),
+        )
+    } else {
+        // recheck：读当前磁盘正文重跑自查（未开自查 → 归 ready 清键）。
+        let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+        let parts = read_source(&dir)?;
+        resolve_self_check(a.metadata.as_deref(), &parts.body_html)
+    };
+    db.update_artifact_review(id, None, &status, None, metadata.as_deref(), &now())?;
+    crate::app_info!("design", "service", "review artifact {} -> {}", id, status);
+    emit(
+        "design:artifact_ready",
+        json!({ "projectId": a.project_id, "artifactId": id }),
+    );
+    db.get_artifact(id)?
+        .with_context(|| format!("artifact not found after review: {id}"))
+}
+
 /// 定稿 generating 产物：`artifact_lock` 下单次 render(editable) + write_working +
 /// write_version_snapshot + status=ready + create_version(1)，随后 emit done。
 ///

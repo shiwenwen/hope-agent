@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "Rehacer el diseño",
       "starterLayoutPrompt": "Rehaz esta página con una maquetación más limpia: amplía el espacio en blanco, unifica el espaciado y la escala tipográfica."
     },
-    "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno."
+    "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno.",
+    "review": {
+      "dismissed": "Marcado como revisado",
+      "rechecked": "Vuelto a comprobar",
+      "flagged": "La autocomprobación detectó un posible problema de calidad; revísalo",
+      "recheck": "Volver a comprobar",
+      "dismiss": "Marcar revisado"
+    }
   }
 }

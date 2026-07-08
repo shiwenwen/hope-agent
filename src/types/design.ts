@@ -19,7 +19,29 @@ export type ArtifactKind =
   | "component";
 
 /** 产物生成状态。 */
-export type ArtifactStatus = "planned" | "generating" | "ready" | "failed";
+export type ArtifactStatus =
+  | "planned"
+  | "generating"
+  | "ready"
+  | "failed"
+  | "needs_review";
+
+/** 反-slop 自查命中详情，存于 `DesignArtifact.metadata` 的 `selfCheck` 键。 */
+export interface SelfCheckFlag {
+  flag: string;
+  detail: string;
+}
+
+/** 从产物 metadata（JSON 字符串）解析自查命中；无 / 解析失败 → null。 */
+export function parseSelfCheck(metadata?: string | null): SelfCheckFlag | null {
+  if (!metadata) return null;
+  try {
+    const obj = JSON.parse(metadata) as { selfCheck?: SelfCheckFlag };
+    return obj?.selfCheck?.detail ? obj.selfCheck : null;
+  } catch {
+    return null;
+  }
+}
 
 /** 设计项目：顶层容器。 */
 export interface DesignProject {

@@ -716,6 +716,23 @@ pub async fn refine_comment(
     ))
 }
 
+#[derive(serde::Deserialize)]
+pub struct ReviewBody {
+    pub action: String,
+}
+
+/// `POST /api/design/artifacts/{id}/review` — 反-slop 自查复查（recheck|dismiss）。
+pub async fn review_artifact(
+    Path(id): Path<String>,
+    Json(body): Json<ReviewBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::review_artifact(&id, &body.action)
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 // ── Design-space per-project chat threads ───────────────────────
 
 #[derive(serde::Deserialize)]

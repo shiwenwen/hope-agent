@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "Refazer o layout",
       "starterLayoutPrompt": "Refaça esta página com um layout mais limpo: amplie o espaço em branco, unifique espaçamento e escala tipográfica."
     },
-    "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um."
+    "emptyArtifactsInline": "Ainda sem artefatos — clique em “Novo artefato” (canto superior direito) ou peça à IA à esquerda para gerar um.",
+    "review": {
+      "dismissed": "Marcado como revisado",
+      "rechecked": "Verificado novamente",
+      "flagged": "A autoverificação detectou um possível problema de qualidade; revise",
+      "recheck": "Verificar de novo",
+      "dismiss": "Marcar revisado"
+    }
   }
 }

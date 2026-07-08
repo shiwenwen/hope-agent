@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "Bố cục lại",
       "starterLayoutPrompt": "Bố cục lại trang này gọn gàng hơn: mở rộng khoảng trắng, thống nhất khoảng cách và thang cỡ chữ."
     },
-    "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái."
+    "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái.",
+    "review": {
+      "dismissed": "Đã đánh dấu là đã xem lại",
+      "rechecked": "Đã kiểm tra lại",
+      "flagged": "Tự kiểm tra phát hiện vấn đề chất lượng có thể có — hãy xem lại",
+      "recheck": "Kiểm tra lại",
+      "dismiss": "Đánh dấu đã xem"
+    }
   }
 }

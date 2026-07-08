@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "Düzeni yeniden kur",
       "starterLayoutPrompt": "Bu sayfayı daha temiz bir düzene taşı: boşlukları aç, boşluk ve tipografi ölçeğini birleştir."
     },
-    "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin."
+    "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin.",
+    "review": {
+      "dismissed": "İncelendi olarak işaretlendi",
+      "rechecked": "Yeniden denetlendi",
+      "flagged": "Öz denetim olası bir kalite sorunu buldu; lütfen inceleyin",
+      "recheck": "Yeniden denetle",
+      "dismiss": "İncelendi işaretle"
+    }
   }
 }

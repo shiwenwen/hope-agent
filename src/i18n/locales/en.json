@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "Rework layout",
       "starterLayoutPrompt": "Rework this page into a cleaner layout: open up whitespace, unify spacing and type scale."
     },
-    "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one."
+    "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one.",
+    "review": {
+      "dismissed": "Marked as reviewed",
+      "rechecked": "Re-checked",
+      "flagged": "Self-check flagged a possible quality issue — please review",
+      "recheck": "Re-check",
+      "dismiss": "Mark reviewed"
+    }
   }
 }

@@ -6357,6 +6357,13 @@
       "starterLayoutTitle": "Susun semula reka letak",
       "starterLayoutPrompt": "Susun semula halaman ini kepada reka letak lebih kemas: luaskan ruang putih, seragamkan jarak dan skala taip."
     },
-    "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya."
+    "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya.",
+    "review": {
+      "dismissed": "Ditanda sebagai disemak",
+      "rechecked": "Disemak semula",
+      "flagged": "Semakan kendiri mengesan isu kualiti berkemungkinan — sila semak",
+      "recheck": "Semak semula",
+      "dismiss": "Tanda disemak"
+    }
   }
 }
