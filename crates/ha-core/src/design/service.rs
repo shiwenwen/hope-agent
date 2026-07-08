@@ -1419,6 +1419,62 @@ pub fn get_artifact_version_html(artifact_id: &str, version_number: i64) -> Resu
     }
 }
 
+// ── Shares（B7-1 只读分享）────────────────────────────────────────
+
+/// 分享 token（32 hex，不可猜，url-safe）。
+fn new_share_token() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// 建/取产物只读分享 token（幂等：已分享复用同一链接）。owner 平面。
+pub fn create_share(artifact_id: &str) -> Result<String> {
+    let db = open_db()?;
+    db.get_artifact(artifact_id)?
+        .with_context(|| format!("artifact not found: {artifact_id}"))?;
+    let token = db.upsert_share(artifact_id, &new_share_token(), &now())?;
+    crate::app_info!("design", "share", "created share for artifact {artifact_id}");
+    Ok(token)
+}
+
+/// 产物当前分享 token（GUI 显示已有链接；无则 None）。
+pub fn share_token_for_artifact(artifact_id: &str) -> Result<Option<String>> {
+    open_db()?.share_token_for_artifact(artifact_id)
+}
+
+/// 撤销某产物的分享（按产物 id，与 owner 路由 `/artifacts/{id}/share` 对齐，避开公开
+/// `/share/{token}` 路径）。无分享返回 false。
+pub fn revoke_share_for_artifact(artifact_id: &str) -> Result<bool> {
+    let db = open_db()?;
+    match db.share_token_for_artifact(artifact_id)? {
+        Some(tok) => {
+            let ok = db.delete_share(&tok)?;
+            if ok {
+                crate::app_info!("design", "share", "revoked share for artifact {artifact_id}");
+            }
+            Ok(ok)
+        }
+        None => Ok(false),
+    }
+}
+
+/// 公开路由：token → 产物当前**干净**自包含快照 HTML（`render_clean`，无 inspector bridge /
+/// oid，导出态一致）。token 查不到 / 产物已删 → None（路由回 404）。
+pub fn render_share_html(token: &str) -> Result<Option<String>> {
+    let db = open_db()?;
+    let Some(artifact_id) = db.resolve_share(token)? else {
+        return Ok(None);
+    };
+    let Some(a) = db.get_artifact(&artifact_id)? else {
+        return Ok(None);
+    };
+    let kind = ArtifactKind::from_str(&a.kind)
+        .with_context(|| format!("unknown artifact kind: {}", a.kind))?;
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    Ok(Some(render_clean(kind, &a.title, &parts, &tokens)))
+}
+
 /// 产物预览信息（前端 iframe 加载用）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

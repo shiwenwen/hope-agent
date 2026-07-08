@@ -6458,6 +6458,12 @@
       "pointsPh": "必須體現的關鍵資訊 / 賣點，逐條列",
       "reference": "參考",
       "referencePh": "參考網址 / 產品 / 風格描述"
+    },
+    "share": {
+      "button": "分享",
+      "copied": "已複製唯讀分享連結",
+      "exported": "已匯出可分享的 HTML",
+      "failed": "分享失敗"
     }
   }
 }

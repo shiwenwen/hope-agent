@@ -115,6 +115,26 @@ pub async fn get_design_artifact_version_html_cmd(
     service::get_artifact_version_html(&artifact_id, version_number).map_err(Into::into)
 }
 
+// ── Shares（B7-1 只读分享，owner 平面）────────────────────────────
+
+/// 建/取产物只读分享 token（幂等）。
+#[tauri::command]
+pub async fn create_design_share_cmd(artifact_id: String) -> Result<String, CmdError> {
+    service::create_share(&artifact_id).map_err(Into::into)
+}
+
+/// 取产物当前分享 token（无则 None）。
+#[tauri::command]
+pub async fn get_design_share_cmd(artifact_id: String) -> Result<Option<String>, CmdError> {
+    service::share_token_for_artifact(&artifact_id).map_err(Into::into)
+}
+
+/// 撤销产物分享。
+#[tauri::command]
+pub async fn revoke_design_share_cmd(artifact_id: String) -> Result<bool, CmdError> {
+    service::revoke_share_for_artifact(&artifact_id).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {
     service::patch_element(input).map_err(Into::into)

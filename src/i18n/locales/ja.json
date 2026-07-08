@@ -6458,6 +6458,12 @@
       "pointsPh": "必ず盛り込む要点／訴求を箇条書きで",
       "reference": "参考",
       "referencePh": "参考URL／製品／スタイル"
+    },
+    "share": {
+      "button": "共有",
+      "copied": "読み取り専用の共有リンクをコピーしました",
+      "exported": "共有可能なHTMLを書き出しました",
+      "failed": "共有に失敗しました"
     }
   }
 }

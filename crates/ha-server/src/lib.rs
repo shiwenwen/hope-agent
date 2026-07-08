@@ -113,6 +113,12 @@ fn build_router_with_cors(
         .route(
             "/api/server/status",
             get(routes::server_status::server_status),
+        )
+        // B7-1 只读分享：**公开无鉴权**——token 是唯一不可猜凭证，服务干净快照（sandbox
+        // opaque-origin）。放公开路由（与 /api/health 同层），不进 require_api_key 保护面。
+        .route(
+            "/api/design/share/{token}",
+            get(routes::design::serve_share),
         );
 
     // Protected API routes
@@ -1893,6 +1899,12 @@ fn build_router_with_cors(
         .route(
             "/design/artifacts/{id}/versions/{version}/html",
             get(routes::design::get_version_html),
+        )
+        .route(
+            "/design/artifacts/{id}/share",
+            get(routes::design::get_share)
+                .post(routes::design::create_share)
+                .delete(routes::design::revoke_share),
         )
         .route(
             "/design/artifacts/{id}/export",

@@ -6458,6 +6458,12 @@
       "pointsPh": "Mesej / kelebihan wajib, satu setiap baris",
       "reference": "Rujukan",
       "referencePh": "URL / produk / gaya rujukan"
+    },
+    "share": {
+      "button": "Kongsi",
+      "copied": "Pautan kongsi baca sahaja disalin",
+      "exported": "HTML boleh dikongsi dieksport",
+      "failed": "Kongsi gagal"
     }
   }
 }

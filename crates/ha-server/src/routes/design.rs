@@ -427,6 +427,61 @@ pub async fn get_version_html(
     Ok(Json(html))
 }
 
+// ── Shares（B7-1 只读分享）─────────────────────────────────────────
+
+/// `POST /api/design/artifacts/{id}/share` — 建/取只读分享 token（owner，幂等）。
+pub async fn create_share(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let token = service::create_share(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "token": token })))
+}
+
+/// `GET /api/design/artifacts/{id}/share` — 产物当前分享 token（owner；无则 null）。
+pub async fn get_share(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let token =
+        service::share_token_for_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "token": token })))
+}
+
+/// `DELETE /api/design/artifacts/{id}/share` — 撤销分享（owner）。
+pub async fn revoke_share(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let ok =
+        service::revoke_share_for_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": ok })))
+}
+
+/// `GET /api/design/share/{token}` — **公开（无鉴权）**只读快照。token 是唯一不可猜凭证；
+/// 返回干净自包含 HTML（`render_clean`，无 bridge/oid），`sandbox allow-scripts` 隔离到 opaque
+/// origin（不能读服务端 cookie / 同源接口）+ no-referrer。token 非法 / 查不到一律 404。
+pub async fn serve_share(Path(token): Path<String>) -> Result<Response, AppError> {
+    // token 形态白名单：纯 ASCII 字母数字（uuid simple = 32 hex），挡路径穿越 / 注入。
+    if token.is_empty() || token.len() > 128 || !token.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(AppError::not_found("share not found"));
+    }
+    match service::render_share_html(&token).map_err(|e| AppError::internal(e.to_string()))? {
+        Some(html) => {
+            let mut resp = axum::response::Html(html).into_response();
+            let h = resp.headers_mut();
+            h.insert(
+                axum::http::header::CONTENT_SECURITY_POLICY,
+                axum::http::HeaderValue::from_static("sandbox allow-scripts"),
+            );
+            h.insert(
+                axum::http::header::REFERRER_POLICY,
+                axum::http::HeaderValue::from_static("no-referrer"),
+            );
+            h.insert(
+                axum::http::header::X_CONTENT_TYPE_OPTIONS,
+                axum::http::HeaderValue::from_static("nosniff"),
+            );
+            Ok(resp)
+        }
+        None => Err(AppError::not_found("share not found")),
+    }
+}
+
 /// `POST /api/design/artifacts/{id}/restore` — restore a historical version.
 pub async fn restore_version(
     Path(id): Path<String>,

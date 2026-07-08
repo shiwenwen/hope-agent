@@ -52,6 +52,7 @@ import {
   Undo2,
   Redo2,
   ChevronDown,
+  Share2,
   Wand2,
   FileImage,
   FileType2,
@@ -1632,6 +1633,50 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     }
   }, [tx, t])
 
+  // 分享（B7-1）：HTTP/server 模式 = 建只读分享链接（公开 token 快照）+ 复制；
+  // 桌面（无公开 server）= 直接导出干净自包含 HTML 供发送（拍板的降级路径）。
+  const [sharing, setSharing] = useState(false)
+  const handleShare = useCallback(async () => {
+    const a = activeArtifactRef.current
+    if (!a || sharing) return
+    setSharing(true)
+    try {
+      if (tx.supportsLocalFileOps()) {
+        // 桌面：导出干净 HTML（自包含，可直接发送 / 托管）。
+        const res = await tx.call<{ filename: string; mime: string; content: string }>(
+          "export_design_artifact_cmd",
+          { id: a.id, format: "html" },
+        )
+        if (res?.content) {
+          // export_artifact("html") 返回**原始 HTML 字符串**（非 base64）——直接建 blob，
+          // 不走 base64ToBlob（其 atob 会在 HTML 字符上抛，review 修复）。
+          downloadBlob(
+            new Blob([res.content], { type: res.mime || "text/html" }),
+            res.filename || `${safeFilename(a.title)}.html`,
+          )
+          toast.success(t("design.share.exported", "已导出可分享的 HTML"))
+        }
+      } else {
+        // server 模式：建/取分享 token → 公开链接（前端由 server 托管故 origin 即公开基址）。
+        const res = await tx.call<{ token: string }>("create_design_share_cmd", {
+          artifactId: a.id,
+        })
+        const url = `${window.location.origin}/api/design/share/${res.token}`
+        try {
+          await navigator.clipboard.writeText(url)
+          toast.success(t("design.share.copied", "已复制只读分享链接"))
+        } catch {
+          toast.success(url) // 剪贴板不可用 → 直接展示链接
+        }
+      }
+    } catch (e) {
+      logger.error("design", "DesignView::handleShare", "share failed", e)
+      toast.error(t("design.share.failed", "分享失败"))
+    } finally {
+      setSharing(false)
+    }
+  }, [tx, t, sharing])
+
   // ── DESIGN.md 规范：导入 / 导出设计系统（互通格式）──────────────
   const [importMdOpen, setImportMdOpen] = useState(false)
   const [importMdName, setImportMdName] = useState("")
@@ -2644,6 +2689,21 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     <IconTip label={t("design.history", "版本历史")} side="bottom">
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={openHistory}>
                         <History className="h-3.5 w-3.5" />
+                      </Button>
+                    </IconTip>
+                    <IconTip label={t("design.share.button", "分享")} side="bottom">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        disabled={sharing}
+                        onClick={() => void handleShare()}
+                      >
+                        {sharing ? (
+                          <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Share2 className="h-3.5 w-3.5" />
+                        )}
                       </Button>
                     </IconTip>
                     <DropdownMenu>

@@ -344,6 +344,16 @@ impl DesignDb {
                 last_synced_at TEXT
             );
 
+            -- B7-1 分享：不可猜 token → 产物只读快照（server 模式公开路由查此表）。
+            -- 产物删除级联删分享；每产物至多一条（uq 唯一）以便「已分享则复用同一链接」。
+            CREATE TABLE IF NOT EXISTS design_shares (
+                token TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL REFERENCES design_artifacts(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_design_shares_artifact
+                ON design_shares(artifact_id);
+
             CREATE INDEX IF NOT EXISTS idx_design_artifacts_project
                 ON design_artifacts(project_id, updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_design_versions_artifact
@@ -676,6 +686,62 @@ impl DesignDb {
             rusqlite::params![artifact_id, keep],
         )?;
         Ok(deleted as u64)
+    }
+
+    // ── Shares（B7-1 只读分享）────────────────────────────────────
+
+    /// 幂等建分享：产物已有分享则复用同一 token（不换链接），否则插新行。返回 token。
+    pub fn upsert_share(&self, artifact_id: &str, token: &str, created_at: &str) -> Result<String> {
+        let conn = self.lock()?;
+        if let Some(existing) = conn
+            .query_row(
+                "SELECT token FROM design_shares WHERE artifact_id = ?1",
+                rusqlite::params![artifact_id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+        {
+            return Ok(existing);
+        }
+        conn.execute(
+            "INSERT INTO design_shares (token, artifact_id, created_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![token, artifact_id, created_at],
+        )?;
+        Ok(token.to_string())
+    }
+
+    /// token → artifact_id（公开路由查此，找不到返回 None）。
+    pub fn resolve_share(&self, token: &str) -> Result<Option<String>> {
+        let conn = self.lock()?;
+        Ok(conn
+            .query_row(
+                "SELECT artifact_id FROM design_shares WHERE token = ?1",
+                rusqlite::params![token],
+                |r| r.get::<_, String>(0),
+            )
+            .ok())
+    }
+
+    /// 产物当前分享 token（GUI 显示已有链接）。
+    pub fn share_token_for_artifact(&self, artifact_id: &str) -> Result<Option<String>> {
+        let conn = self.lock()?;
+        Ok(conn
+            .query_row(
+                "SELECT token FROM design_shares WHERE artifact_id = ?1",
+                rusqlite::params![artifact_id],
+                |r| r.get::<_, String>(0),
+            )
+            .ok())
+    }
+
+    /// 撤销分享（删 token 行）。返回是否删到。
+    pub fn delete_share(&self, token: &str) -> Result<bool> {
+        let conn = self.lock()?;
+        let n = conn.execute(
+            "DELETE FROM design_shares WHERE token = ?1",
+            rusqlite::params![token],
+        )?;
+        Ok(n > 0)
     }
 
     // ── Systems (registry over SYSTEM.md) ──────────────────────────
@@ -1134,6 +1200,25 @@ mod tests {
         let v2 = rows.iter().find(|v| v.version_number == 2).unwrap();
         assert_eq!(v2.origin.as_deref(), Some("ai"));
         assert_eq!(v2.prompt_summary.as_deref(), Some("做一个定价页"));
+    }
+
+    #[test]
+    fn share_upsert_is_idempotent_and_cascades() {
+        // B7-1：同产物二次分享复用同一 token（链接不变）；resolve 回产物；删产物级联删分享。
+        let (_d, db) = open_temp();
+        let aid = seed_artifact(&db); // project p1 + artifact a1
+        let t1 = db.upsert_share(&aid, "tok_aaa", "t").unwrap();
+        let t2 = db.upsert_share(&aid, "tok_bbb", "t").unwrap();
+        assert_eq!(t1, "tok_aaa");
+        assert_eq!(t2, "tok_aaa", "二次分享必须复用同一 token");
+        assert_eq!(db.resolve_share("tok_aaa").unwrap().as_deref(), Some("a1"));
+        assert_eq!(db.share_token_for_artifact(&aid).unwrap().as_deref(), Some("tok_aaa"));
+        assert!(db.delete_share("tok_aaa").unwrap());
+        assert!(db.resolve_share("tok_aaa").unwrap().is_none());
+        // 级联：重建分享后删产物 → 分享行随 ON DELETE CASCADE 消失。
+        db.upsert_share(&aid, "tok_ccc", "t").unwrap();
+        db.delete_artifact(&aid).unwrap();
+        assert!(db.resolve_share("tok_ccc").unwrap().is_none(), "删产物未级联删分享");
     }
 
     #[test]

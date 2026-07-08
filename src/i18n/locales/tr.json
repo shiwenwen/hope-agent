@@ -6458,6 +6458,12 @@
       "pointsPh": "Olmazsa olmaz mesajlar / avantajlar, her satıra bir tane",
       "reference": "Referans",
       "referencePh": "Referans URL / ürün / stil"
+    },
+    "share": {
+      "button": "Paylaş",
+      "copied": "Salt okunur paylaşım bağlantısı kopyalandı",
+      "exported": "Paylaşılabilir HTML dışa aktarıldı",
+      "failed": "Paylaşım başarısız"
     }
   }
 }

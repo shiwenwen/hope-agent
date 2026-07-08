@@ -6458,6 +6458,12 @@
       "pointsPh": "Thông điệp / điểm bán bắt buộc, mỗi dòng một ý",
       "reference": "Tham khảo",
       "referencePh": "URL / sản phẩm / phong cách tham khảo"
+    },
+    "share": {
+      "button": "Chia sẻ",
+      "copied": "Đã sao chép liên kết chia sẻ chỉ đọc",
+      "exported": "Đã xuất HTML có thể chia sẻ",
+      "failed": "Chia sẻ thất bại"
     }
   }
 }

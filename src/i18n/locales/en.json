@@ -6458,6 +6458,12 @@
       "pointsPh": "Must-have messages / selling points, one per line",
       "reference": "Reference",
       "referencePh": "Reference URL / product / style"
+    },
+    "share": {
+      "button": "Share",
+      "copied": "Read-only share link copied",
+      "exported": "Shareable HTML exported",
+      "failed": "Share failed"
     }
   }
 }

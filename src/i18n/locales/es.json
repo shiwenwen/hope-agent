@@ -6458,6 +6458,12 @@
       "pointsPh": "Mensajes / argumentos imprescindibles, uno por línea",
       "reference": "Referencia",
       "referencePh": "URL / producto / estilo de referencia"
+    },
+    "share": {
+      "button": "Compartir",
+      "copied": "Enlace de solo lectura copiado",
+      "exported": "HTML compartible exportado",
+      "failed": "Error al compartir"
     }
   }
 }
