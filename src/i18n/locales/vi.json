@@ -6375,6 +6375,16 @@
     "setDefault": "Đặt làm mặc định cho cuộc trò chuyện mới",
     "unsetDefault": "Bỏ mặc định",
     "setDefaultDone": "Đã đặt làm hệ thống thiết kế mặc định cho cuộc trò chuyện mới",
-    "clearDefaultDone": "Đã xóa hệ thống thiết kế mặc định"
+    "clearDefaultDone": "Đã xóa hệ thống thiết kế mặc định",
+    "nextStep": {
+      "refineTitle": "Tinh chỉnh",
+      "refinePrompt": "Tinh chỉnh thiết kế hiện tại thêm một bậc: thống nhất khoảng cách và thang cỡ chữ, tiết chế bảng màu, bo góc và đổ bóng chừng mực hơn.",
+      "darkTitle": "Bản nền tối",
+      "darkPrompt": "Tạo phiên bản chế độ tối từ thiết kế hiện tại, giữ phân cấp và độ tương phản dễ đọc.",
+      "variantTitle": "Biến thể",
+      "variantPrompt": "Tạo một biến thể thiết kế khác để so sánh (cùng nội dung, hướng thị giác khác).",
+      "critiqueTitle": "Đánh giá chất lượng",
+      "critiquePrompt": "Đánh giá chất lượng sản phẩm hiện tại, chỉ ra vấn đề về phân cấp, khoảng cách, tương phản và khả dụng."
+    }
   }
 }

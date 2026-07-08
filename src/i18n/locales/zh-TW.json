@@ -6375,6 +6375,16 @@
     "setDefault": "設為新對話預設",
     "unsetDefault": "取消預設",
     "setDefaultDone": "已設為新對話預設設計系統",
-    "clearDefaultDone": "已清除預設設計系統"
+    "clearDefaultDone": "已清除預設設計系統",
+    "nextStep": {
+      "refineTitle": "更精緻",
+      "refinePrompt": "把目前設計再精緻一檔：統一間距與字級層次、收斂配色、圓角與陰影更克制。",
+      "darkTitle": "深色版",
+      "darkPrompt": "基於目前設計出一個深色模式版本，保持資訊層級與對比度可讀。",
+      "variantTitle": "出個變體",
+      "variantPrompt": "另出一個不同氣質的設計變體供對比（同內容、不同視覺方向）。",
+      "critiqueTitle": "品質評審",
+      "critiquePrompt": "對目前產物做一次品質評審，指出可改進的層級、間距、對比與可用性問題。"
+    }
   }
 }

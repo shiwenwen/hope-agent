@@ -6375,6 +6375,16 @@
     "setDefault": "Tetapkan sebagai lalai untuk sembang baharu",
     "unsetDefault": "Nyahtetap lalai",
     "setDefaultDone": "Ditetapkan sebagai sistem reka bentuk lalai untuk sembang baharu",
-    "clearDefaultDone": "Sistem reka bentuk lalai dinyahtetap"
+    "clearDefaultDone": "Sistem reka bentuk lalai dinyahtetap",
+    "nextStep": {
+      "refineTitle": "Perhalus",
+      "refinePrompt": "Perhalus reka bentuk semasa satu tahap: seragamkan jarak dan skala taip, kawal palet, jadikan jejari dan bayang lebih terkawal.",
+      "darkTitle": "Versi gelap",
+      "darkPrompt": "Cipta versi mod gelap daripada reka bentuk semasa, mengekalkan hierarki dan kontras mudah dibaca.",
+      "variantTitle": "Varian",
+      "variantPrompt": "Hasilkan varian reka bentuk alternatif untuk perbandingan (kandungan sama, arah visual berbeza).",
+      "critiqueTitle": "Semakan kualiti",
+      "critiquePrompt": "Jalankan semakan kualiti artifak semasa, tandakan isu hierarki, jarak, kontras dan kebolehgunaan."
+    }
   }
 }

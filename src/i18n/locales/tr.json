@@ -6375,6 +6375,16 @@
     "setDefault": "Yeni sohbetler için varsayılan yap",
     "unsetDefault": "Varsayılanı kaldır",
     "setDefaultDone": "Yeni sohbetler için varsayılan tasarım sistemi olarak ayarlandı",
-    "clearDefaultDone": "Varsayılan tasarım sistemi kaldırıldı"
+    "clearDefaultDone": "Varsayılan tasarım sistemi kaldırıldı",
+    "nextStep": {
+      "refineTitle": "İnceltme",
+      "refinePrompt": "Mevcut tasarımı bir kademe rafine et: boşluk ve tipografi ölçeğini birleştir, paleti daralt, köşe ve gölgeleri ölçülü yap.",
+      "darkTitle": "Koyu sürüm",
+      "darkPrompt": "Mevcut tasarımın koyu mod sürümünü oluştur; hiyerarşiyi ve kontrast okunaklılığını koru.",
+      "variantTitle": "Varyant",
+      "variantPrompt": "Karşılaştırma için farklı bir tasarım varyantı üret (aynı içerik, farklı görsel yön).",
+      "critiqueTitle": "Kalite incelemesi",
+      "critiquePrompt": "Mevcut çıktının kalite incelemesini yap; hiyerarşi, boşluk, kontrast ve kullanılabilirlik sorunlarını belirt."
+    }
   }
 }

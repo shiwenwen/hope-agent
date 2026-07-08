@@ -6375,6 +6375,16 @@
     "setDefault": "新規チャットの既定に設定",
     "unsetDefault": "既定を解除",
     "setDefaultDone": "新規チャットの既定デザインシステムに設定しました",
-    "clearDefaultDone": "既定のデザインシステムを解除しました"
+    "clearDefaultDone": "既定のデザインシステムを解除しました",
+    "nextStep": {
+      "refineTitle": "洗練",
+      "refinePrompt": "現在のデザインをさらに洗練：余白と文字サイズの階層を統一し、配色を絞り、角丸と影を控えめに。",
+      "darkTitle": "ダーク版",
+      "darkPrompt": "現在のデザインをもとにダークモード版を作成し、階層とコントラストの可読性を保つ。",
+      "variantTitle": "バリエーション",
+      "variantPrompt": "比較用に別の雰囲気のデザインバリエーションを作成（内容は同じ、視覚的方向性は異なる）。",
+      "critiqueTitle": "品質レビュー",
+      "critiquePrompt": "現在の成果物の品質レビューを行い、階層・余白・コントラスト・使いやすさの改善点を指摘。"
+    }
   }
 }

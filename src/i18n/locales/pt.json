@@ -6375,6 +6375,16 @@
     "setDefault": "Definir como padrão para novos chats",
     "unsetDefault": "Remover padrão",
     "setDefaultDone": "Definido como sistema de design padrão para novos chats",
-    "clearDefaultDone": "Sistema de design padrão removido"
+    "clearDefaultDone": "Sistema de design padrão removido",
+    "nextStep": {
+      "refineTitle": "Refinar",
+      "refinePrompt": "Refine o design atual mais um nível: unifique espaçamento e escala tipográfica, contenha a paleta, modere raios e sombras.",
+      "darkTitle": "Versão escura",
+      "darkPrompt": "Crie uma versão em modo escuro do design atual, mantendo hierarquia e contraste legíveis.",
+      "variantTitle": "Variante",
+      "variantPrompt": "Produza uma variante de design alternativa para comparar (mesmo conteúdo, direção visual diferente).",
+      "critiqueTitle": "Revisão de qualidade",
+      "critiquePrompt": "Faça uma revisão de qualidade do artefato atual, apontando problemas de hierarquia, espaçamento, contraste e usabilidade."
+    }
   }
 }

@@ -6375,6 +6375,16 @@
     "setDefault": "새 대화 기본으로 설정",
     "unsetDefault": "기본 해제",
     "setDefaultDone": "새 대화의 기본 디자인 시스템으로 설정했습니다",
-    "clearDefaultDone": "기본 디자인 시스템을 해제했습니다"
+    "clearDefaultDone": "기본 디자인 시스템을 해제했습니다",
+    "nextStep": {
+      "refineTitle": "더 정교하게",
+      "refinePrompt": "현재 디자인을 한 단계 더 정교하게: 간격과 타이포 스케일 통일, 색상 절제, 반경과 그림자 억제.",
+      "darkTitle": "다크 버전",
+      "darkPrompt": "현재 디자인을 바탕으로 다크 모드 버전을 만들고 위계와 대비 가독성을 유지하세요.",
+      "variantTitle": "변형안",
+      "variantPrompt": "비교용으로 다른 분위기의 디자인 변형을 만드세요(내용 동일, 시각 방향 상이).",
+      "critiqueTitle": "품질 검토",
+      "critiquePrompt": "현재 산출물의 품질을 검토하여 위계·간격·대비·사용성 개선점을 지적하세요."
+    }
   }
 }

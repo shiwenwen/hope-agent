@@ -63,6 +63,50 @@ const DESIGN_STARTERS: {
   },
 ]
 
+/** 回合后的 next-step 引导动作（B2-1）：点击填 composer 不自动发，让用户永远知道下一步能做
+ *  什么。title/prompt 均 i18n；fallback 为 zh 源。 */
+const DESIGN_NEXT_STEP_ACTIONS: {
+  key: string
+  icon: string
+  titleKey: string
+  titleFallback: string
+  promptKey: string
+  promptFallback: string
+}[] = [
+  {
+    key: "refine",
+    icon: "✨",
+    titleKey: "design.nextStep.refineTitle",
+    titleFallback: "更精致",
+    promptKey: "design.nextStep.refinePrompt",
+    promptFallback: "把当前设计再精致一档：统一间距与字号层级、收敛配色、圆角与阴影更克制。",
+  },
+  {
+    key: "dark",
+    icon: "🌙",
+    titleKey: "design.nextStep.darkTitle",
+    titleFallback: "深色版",
+    promptKey: "design.nextStep.darkPrompt",
+    promptFallback: "基于当前设计出一个深色模式版本，保持信息层级与对比度可读。",
+  },
+  {
+    key: "variant",
+    icon: "🔀",
+    titleKey: "design.nextStep.variantTitle",
+    titleFallback: "出个变体",
+    promptKey: "design.nextStep.variantPrompt",
+    promptFallback: "另出一个不同气质的设计变体供对比（同内容、不同视觉方向）。",
+  },
+  {
+    key: "critique",
+    icon: "🔎",
+    titleKey: "design.nextStep.critiqueTitle",
+    titleFallback: "质量评审",
+    promptKey: "design.nextStep.critiquePrompt",
+    promptFallback: "对当前产物做一次质量评审，指出可改进的层级、间距、对比与可用性问题。",
+  },
+]
+
 /** The design artifact the user currently has open in the preview — injected as
  *  per-turn context so "改这个 / 当前" resolves to it without the user restating. */
 export interface DesignChatContext {
@@ -417,6 +461,27 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
       </div>
 
       <ApprovalDialog requests={stream.approvalRequests} onRespond={stream.handleApprovalResponse} />
+
+      {/* Next-step 引导条（B2-1）：idle + 末条是 assistant 回复时显示，点击填 composer 不自动发。
+          输入框已有内容 / 生成中不显示，避免打扰。 */}
+      {!session.loading &&
+        !stream.input.trim() &&
+        session.messages[session.messages.length - 1]?.role === "assistant" &&
+        session.messages[session.messages.length - 1]?.content.trim() && (
+          <div className="flex flex-wrap gap-1.5 px-3 pb-1.5">
+            {DESIGN_NEXT_STEP_ACTIONS.map((a) => (
+              <button
+                key={a.key}
+                type="button"
+                onClick={() => stream.setInput(t(a.promptKey, a.promptFallback))}
+                className="flex items-center gap-1 rounded-full border border-border/60 px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
+              >
+                <span>{a.icon}</span>
+                {t(a.titleKey, a.titleFallback)}
+              </button>
+            ))}
+          </div>
+        )}
 
       {/* Composer — borderless, sits on the surface like the main chat composer. */}
       <div>

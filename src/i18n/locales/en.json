@@ -6375,6 +6375,16 @@
     "setDefault": "Set as default for new chats",
     "unsetDefault": "Unset default",
     "setDefaultDone": "Set as the default design system for new chats",
-    "clearDefaultDone": "Cleared the default design system"
+    "clearDefaultDone": "Cleared the default design system",
+    "nextStep": {
+      "refineTitle": "Refine",
+      "refinePrompt": "Polish the current design one notch: unify spacing and type scale, tighten the palette, restrain radii and shadows.",
+      "darkTitle": "Dark version",
+      "darkPrompt": "Create a dark-mode version of the current design, keeping hierarchy and contrast readable.",
+      "variantTitle": "Variant",
+      "variantPrompt": "Produce an alternative design variant to compare (same content, different visual direction).",
+      "critiqueTitle": "Quality review",
+      "critiquePrompt": "Run a quality review of the current artifact, flagging hierarchy, spacing, contrast, and usability issues to improve."
+    }
   }
 }
