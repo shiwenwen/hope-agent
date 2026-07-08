@@ -63,6 +63,9 @@ async fn generate_impl(params: AudioGenParams<'_>) -> Result<AudioGenResult> {
             .timeout(Duration::from_secs(params.timeout_secs)),
     )
     .build()?;
+    // SSRF 红线：base_url 属可写设置项（audio_generate LOW risk、非 BLOCKED_UPDATE），
+    // 模型可经 update_settings 改写指向内网/metadata，出站前必过 check_url（与 voices.rs 同源）。
+    crate::security::ssrf::check_url(&url, crate::security::ssrf::SsrfPolicy::Strict, &[]).await?;
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", params.api_key))

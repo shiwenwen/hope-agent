@@ -446,6 +446,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate` | ✅ |
 | `design_ffmpeg_doctor_cmd` | `GET /api/design/ffmpeg/doctor` | ✅ |
 | `design_install_ffmpeg_cmd` | `POST /api/design/ffmpeg/install` | ✅ |
+| `design_browser_doctor_cmd` | `GET /api/design/browser/doctor` | ✅ |
+| `design_install_browser_cmd` | `POST /api/design/browser/install` | ✅ |
 | `list_all_design_artifacts_cmd` | `GET /api/design/artifacts` | ✅ |
 | `get_design_artifact_cmd` | `GET /api/design/artifacts/{id}` | ✅ |
 | `delete_design_artifact_cmd` | `DELETE /api/design/artifacts/{id}` | ✅ |
@@ -459,6 +461,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_cf_deploy_config_cmd` | `GET /api/design/deploy/config` | ✅ |
 | `deploy_design_artifact_cmd` | `POST /api/design/artifacts/{artifactId}/deploy` | ✅ |
 | `restore_design_version_cmd` | `POST /api/design/artifacts/{artifactId}/restore` | ✅ |
+| `restyle_design_artifact_cmd` | `POST /api/design/artifacts/{id}/restyle`（换设计系统重染，新版本快照） | ✅ |
 | `patch_design_element_cmd` | `POST /api/design/patch` | ✅ |
 | `export_design_artifact_cmd` | `GET /api/design/artifacts/{id}/export`（format=html 干净自包含 / markdown HTML→MD） | ✅ |
 | `export_design_handoff_cmd` | `GET /api/design/artifacts/{id}/handoff`（代码交付包 ZIP：index.html + source/ + 多平台 tokens/ + HANDOFF.md，base64） | ✅ |
@@ -577,6 +580,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 |---|---|---|
 | `get_audio_model_catalog_cmd` | `GET /api/config/audio-model-catalog` | ✅ |
 | `list_elevenlabs_voices_cmd` | `GET /api/config/elevenlabs-voices` | ✅ |
+| `get_audio_generate_config` | `GET /api/config/audio-generate` | ✅ |
+| `save_audio_generate_config` | `PUT /api/config/audio-generate` | ✅ |
 | `get_embedding_config` | `GET /api/config/embedding` | ✅ |
 | `save_embedding_config` | `PUT /api/config/embedding` | ✅ |
 | `get_embedding_presets` | `GET /api/config/embedding/presets` | ✅ |

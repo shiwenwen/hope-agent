@@ -968,11 +968,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       const ok = await commitPatch({ oid: op.oid, ...payload })
       historyBusyRef.current = false
       if (!ok) return // 提交失败：保持栈不动（不脱节）
+      // **按身份移栈**（review 修复）：commit 的 await 窗口内若有并发 live 检视器编辑
+      //（`historyBusyRef` 只串行 undo/redo，不挡 `handleCommitStyle`）会向 undoStack 顶
+      // push 新 op；此时按位置 `slice(0,-1)` 会误删那条新编辑而非本次撤销的 `op`，令内存历史
+      // 与磁盘脱节。改按对象身份 filter 掉 `op`（EditOp 每次新建、引用唯一），并发编辑安然留栈。
       if (which === "undo") {
-        setUndoStack((s) => s.slice(0, -1))
+        setUndoStack((s) => s.filter((x) => x !== op))
         setRedoStack((r) => [...r, op])
       } else {
-        setRedoStack((r) => r.slice(0, -1))
+        setRedoStack((r) => r.filter((x) => x !== op))
         setUndoStack((s) => [...s, op])
       }
     },
