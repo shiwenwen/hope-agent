@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "Bản nền tối",
       "starterDarkPrompt": "Tạo phiên bản chế độ tối từ thiết kế hiện tại, giữ phân cấp và độ tương phản dễ đọc.",
       "starterLayoutTitle": "Bố cục lại",
-      "starterLayoutPrompt": "Bố cục lại trang này gọn gàng hơn: mở rộng khoảng trắng, thống nhất khoảng cách và thang cỡ chữ."
+      "starterLayoutPrompt": "Bố cục lại trang này gọn gàng hơn: mở rộng khoảng trắng, thống nhất khoảng cách và thang cỡ chữ.",
+      "producedArtifact": "Sản phẩm"
     },
     "emptyArtifactsInline": "Chưa có sản phẩm — nhấn “Sản phẩm mới” ở trên cùng bên phải, hoặc yêu cầu AI bên trái tạo một cái.",
     "review": {

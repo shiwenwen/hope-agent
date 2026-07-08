@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "Koyu sürüm",
       "starterDarkPrompt": "Mevcut tasarımın koyu mod sürümünü oluştur; hiyerarşiyi ve kontrast okunaklılığını koru.",
       "starterLayoutTitle": "Düzeni yeniden kur",
-      "starterLayoutPrompt": "Bu sayfayı daha temiz bir düzene taşı: boşlukları aç, boşluk ve tipografi ölçeğini birleştir."
+      "starterLayoutPrompt": "Bu sayfayı daha temiz bir düzene taşı: boşlukları aç, boşluk ve tipografi ölçeğini birleştir.",
+      "producedArtifact": "Çıktı"
     },
     "emptyArtifactsInline": "Henüz çıktı yok — sağ üstteki “Yeni çıktı”ya tıklayın ya da soldaki yapay zekadan üretmesini isteyin.",
     "review": {

@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "Versi gelap",
       "starterDarkPrompt": "Cipta versi mod gelap daripada reka bentuk semasa, mengekalkan hierarki dan kontras mudah dibaca.",
       "starterLayoutTitle": "Susun semula reka letak",
-      "starterLayoutPrompt": "Susun semula halaman ini kepada reka letak lebih kemas: luaskan ruang putih, seragamkan jarak dan skala taip."
+      "starterLayoutPrompt": "Susun semula halaman ini kepada reka letak lebih kemas: luaskan ruang putih, seragamkan jarak dan skala taip.",
+      "producedArtifact": "Artifak"
     },
     "emptyArtifactsInline": "Belum ada artifak — klik “Artifak baharu” (kanan atas), atau minta AI di kiri menjananya.",
     "review": {

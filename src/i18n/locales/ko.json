@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "다크 버전",
       "starterDarkPrompt": "현재 디자인을 바탕으로 다크 모드 버전을 만들고 위계와 대비 가독성을 유지하세요.",
       "starterLayoutTitle": "레이아웃 변경",
-      "starterLayoutPrompt": "이 페이지를 더 깔끔한 레이아웃으로: 여백을 넓히고 간격과 타이포 스케일을 통일하세요."
+      "starterLayoutPrompt": "이 페이지를 더 깔끔한 레이아웃으로: 여백을 넓히고 간격과 타이포 스케일을 통일하세요.",
+      "producedArtifact": "산출물"
     },
     "emptyArtifactsInline": "아직 산출물이 없습니다 — 오른쪽 위 ‘새 산출물’을 누르거나 왼쪽 AI에게 생성을 요청하세요.",
     "review": {

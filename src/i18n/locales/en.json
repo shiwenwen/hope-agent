@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "Dark version",
       "starterDarkPrompt": "Create a dark-mode version of the current design, keeping hierarchy and contrast readable.",
       "starterLayoutTitle": "Rework layout",
-      "starterLayoutPrompt": "Rework this page into a cleaner layout: open up whitespace, unify spacing and type scale."
+      "starterLayoutPrompt": "Rework this page into a cleaner layout: open up whitespace, unify spacing and type scale.",
+      "producedArtifact": "Artifact"
     },
     "emptyArtifactsInline": "No artifacts yet — click “New artifact” (top right), or just ask the AI on the left to generate one.",
     "review": {

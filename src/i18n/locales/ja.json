@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "ダーク版を作成",
       "starterDarkPrompt": "現在のデザインをもとにダークモード版を作成し、階層とコントラストの可読性を保つ。",
       "starterLayoutTitle": "レイアウトを変更",
-      "starterLayoutPrompt": "このページをより整理されたレイアウトに：余白を広げ、間隔と文字サイズの階層を統一する。"
+      "starterLayoutPrompt": "このページをより整理されたレイアウトに：余白を広げ、間隔と文字サイズの階層を統一する。",
+      "producedArtifact": "生成物"
     },
     "emptyArtifactsInline": "アーティファクトはまだありません — 右上の「新規アーティファクト」か、左の AI に生成を頼んでください。",
     "review": {

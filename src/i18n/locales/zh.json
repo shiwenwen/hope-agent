@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "出深色版",
       "starterDarkPrompt": "基于当前设计做一个深色模式版本，保持信息层级与对比度可读。",
       "starterLayoutTitle": "改布局",
-      "starterLayoutPrompt": "把这个页面改成更清晰的布局：拉开留白、统一间距与字号层级。"
+      "starterLayoutPrompt": "把这个页面改成更清晰的布局：拉开留白、统一间距与字号层级。",
+      "producedArtifact": "本轮产物"
     },
     "emptyArtifactsInline": "还没有产物——右上角「新建产物」，或直接让左侧 AI 生成。",
     "review": {

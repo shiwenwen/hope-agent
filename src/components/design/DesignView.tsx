@@ -1943,6 +1943,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   const m = /^design-comment:(\d+)$/.exec(q.path)
                   if (m) postToIframe({ type: "ds_comment_focus", id: Number(m[1]) })
                 }}
+                onFocusArtifact={(id) => {
+                  // 本轮产物 chip → 打开/聚焦该产物预览（列表里有则直接取，否则按 id 拉全视图）。
+                  const found = artifacts.find((a) => a.id === id)
+                  void openArtifact(found ?? ({ id } as DesignArtifact))
+                }}
+                resolveArtifactTitle={(id) => artifacts.find((a) => a.id === id)?.title ?? null}
                 active
               />
             </div>

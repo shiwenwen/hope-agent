@@ -6355,7 +6355,8 @@
       "starterDarkTitle": "Versión oscura",
       "starterDarkPrompt": "Crea una versión en modo oscuro del diseño actual, manteniendo la jerarquía y el contraste legibles.",
       "starterLayoutTitle": "Rehacer el diseño",
-      "starterLayoutPrompt": "Rehaz esta página con una maquetación más limpia: amplía el espacio en blanco, unifica el espaciado y la escala tipográfica."
+      "starterLayoutPrompt": "Rehaz esta página con una maquetación más limpia: amplía el espacio en blanco, unifica el espaciado y la escala tipográfica.",
+      "producedArtifact": "Artefacto"
     },
     "emptyArtifactsInline": "Aún no hay artefactos: pulsa «Nuevo artefacto» (arriba a la derecha) o pídele a la IA de la izquierda que genere uno.",
     "review": {

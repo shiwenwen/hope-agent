@@ -8,7 +8,7 @@ import {
   useState,
 } from "react"
 import { useTranslation } from "react-i18next"
-import { Plus, History } from "lucide-react"
+import { Plus, History, FileStack } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -22,7 +22,7 @@ import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ChatAttachment } from "@/lib/transport"
-import type { PendingFileQuote } from "@/types/chat"
+import type { Message, PendingFileQuote } from "@/types/chat"
 import { useDesignChat } from "./useDesignChat"
 import { DesignConversationHistory } from "./DesignConversationHistory"
 
@@ -89,6 +89,44 @@ interface Props {
   active?: boolean
   /** Click a staged quote chip → focus that element in the preview. */
   onJumpToQuote?: (q: PendingFileQuote) => void
+  /** Click a "本轮产物" chip → open/focus that artifact in the preview. */
+  onFocusArtifact?: (artifactId: string) => void
+  /** Resolve an artifact id → title (for the Produced chip label). */
+  resolveArtifactTitle?: (artifactId: string) => string | null
+}
+
+/** design 工具里会「产/改产物」的 action（据此从本轮 tool_calls 提取产物 chip）。 */
+const DESIGN_MUTATING_ACTIONS = new Set([
+  "create_artifact",
+  "update_artifact",
+  "restyle",
+  "restore",
+])
+
+/** 从一条 assistant 消息的 design 工具调用里提取本轮产/改的 artifactId（去重、按序）。 */
+function producedArtifactIds(msg: Message): string[] {
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const tc of msg.toolCalls ?? []) {
+    if (tc.name !== "design" || !tc.result || tc.isError) continue
+    let action = ""
+    try {
+      action = (JSON.parse(tc.arguments) as { action?: string })?.action ?? ""
+    } catch {
+      /* ignore */
+    }
+    if (!DESIGN_MUTATING_ACTIONS.has(action)) continue
+    try {
+      const r = JSON.parse(tc.result) as { artifactId?: string }
+      if (r.artifactId && !seen.has(r.artifactId)) {
+        seen.add(r.artifactId)
+        ids.push(r.artifactId)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return ids
 }
 
 /**
@@ -100,7 +138,15 @@ interface Props {
  * context so the model edits the right thing.
  */
 export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function DesignChatPanel(
-  { projectId, activeArtifact, systemName, active = true, onJumpToQuote },
+  {
+    projectId,
+    activeArtifact,
+    systemName,
+    active = true,
+    onJumpToQuote,
+    onFocusArtifact,
+    resolveArtifactTitle,
+  },
   ref,
 ) {
   const { t } = useTranslation()
@@ -214,6 +260,34 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
     }),
     [stream],
+  )
+
+  // 本轮产物 chip 条（B0-8）：从 assistant 消息的 design 工具调用里提取产/改的产物，
+  // 点击聚焦到右侧预览——让「这轮到底产出了什么」在对话流里可见可达。
+  const renderMessageActions = useCallback(
+    (msg: Message) => {
+      if (msg.role !== "assistant" || !onFocusArtifact) return null
+      const ids = producedArtifactIds(msg)
+      if (ids.length === 0) return null
+      return (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {ids.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onFocusArtifact(id)}
+              className="flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+            >
+              <FileStack className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span className="max-w-[180px] truncate">
+                {resolveArtifactTitle?.(id) ?? t("design.chat.producedArtifact", "本轮产物")}
+              </span>
+            </button>
+          ))}
+        </div>
+      )
+    },
+    [onFocusArtifact, resolveArtifactTitle, t],
   )
 
   if (!projectId) {
@@ -337,6 +411,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             loadingMore={session.loadingMore}
             onLoadMore={session.handleLoadMore}
             sessionId={session.currentSessionId}
+            renderMessageActions={renderMessageActions}
           />
         )}
       </div>
