@@ -5025,7 +5025,10 @@
     "audioGenModel": "模型",
     "audioGenVoice": "语音 (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "请求超时（秒）"
+    "audioGenTimeout": "请求超时（秒）",
+    "audioGenFetchVoices": "拉取语音",
+    "audioGenKnownModels": "已知模型",
+    "audioGenPickVoice": "从列表选择…"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",

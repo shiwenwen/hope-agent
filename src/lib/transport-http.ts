@@ -577,6 +577,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   save_image_generate_config:      { method: "PUT",    path: "/api/config/image-generate" },
   get_audio_generate_config:       { method: "GET",    path: "/api/config/audio-generate" },
   save_audio_generate_config:      { method: "PUT",    path: "/api/config/audio-generate" },
+  get_audio_model_catalog_cmd:     { method: "GET",    path: "/api/config/audio-model-catalog" },
+  list_elevenlabs_voices_cmd:      { method: "GET",    path: "/api/config/elevenlabs-voices" },
 
   // -- Web search --
   get_web_search_config:           { method: "GET",    path: "/api/config/web-search" },

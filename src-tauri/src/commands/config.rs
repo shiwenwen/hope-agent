@@ -249,6 +249,23 @@ pub async fn save_audio_generate_config(
     .map_err(Into::into)
 }
 
+/// 策展音频模型目录（B8-1，GUI picker 预设，只读）。
+#[tauri::command]
+pub async fn get_audio_model_catalog_cmd() -> Result<Vec<tools::audio_generate::AudioModelInfo>, CmdError>
+{
+    Ok(tools::audio_generate::audio_model_catalog())
+}
+
+/// 实时拉 ElevenLabs 语音列表（B8-1，语音 picker）。
+#[tauri::command]
+pub async fn list_elevenlabs_voices_cmd(
+    limit: Option<u32>,
+) -> Result<Vec<tools::audio_generate::VoiceOption>, CmdError> {
+    tools::audio_generate::list_elevenlabs_voices(limit.unwrap_or(100))
+        .await
+        .map_err(Into::into)
+}
+
 /// Core logic for desktop manual context compaction.
 pub(crate) async fn compact_context_now_core(
     session_id: &str,

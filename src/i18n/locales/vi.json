@@ -5025,7 +5025,10 @@
     "audioGenModel": "Mô hình",
     "audioGenVoice": "Giọng (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Thời gian chờ (giây)"
+    "audioGenTimeout": "Thời gian chờ (giây)",
+    "audioGenFetchVoices": "Lấy giọng nói",
+    "audioGenKnownModels": "Mô hình đã biết",
+    "audioGenPickVoice": "Chọn từ danh sách…"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",

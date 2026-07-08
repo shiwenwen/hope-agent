@@ -5025,7 +5025,10 @@
     "audioGenModel": "モデル",
     "audioGenVoice": "音声 (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "リクエストタイムアウト（秒）"
+    "audioGenTimeout": "リクエストタイムアウト（秒）",
+    "audioGenFetchVoices": "音声を取得",
+    "audioGenKnownModels": "既知のモデル",
+    "audioGenPickVoice": "リストから選択…"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",

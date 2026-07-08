@@ -5025,7 +5025,10 @@
     "audioGenModel": "النموذج",
     "audioGenVoice": "الصوت (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "مهلة الطلب (ث)"
+    "audioGenTimeout": "مهلة الطلب (ث)",
+    "audioGenFetchVoices": "جلب الأصوات",
+    "audioGenKnownModels": "النماذج المعروفة",
+    "audioGenPickVoice": "اختر من القائمة…"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",

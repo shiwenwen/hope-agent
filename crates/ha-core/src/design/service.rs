@@ -555,6 +555,9 @@ pub struct CreateArtifactInput {
     /// image 形态：比例提示（"1:1" / "16:9" / "9:16"…）透传给生图 provider。B0-4。
     #[serde(default)]
     pub aspect_ratio: Option<String>,
+    /// audio 形态：music / sfx 目标时长（秒）透传给音频 provider。B8-2。
+    #[serde(default)]
+    pub audio_duration_secs: Option<f64>,
 }
 
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
@@ -603,7 +606,9 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
             .clone()
             .filter(|p| !p.trim().is_empty())
             .unwrap_or_else(|| input.title.clone());
-        let parts = super::audio::generate_audio_parts(&prompt, &input.title).await?;
+        let parts =
+            super::audio::generate_audio_parts(&prompt, &input.title, input.audio_duration_secs)
+                .await?;
         input.body_html = Some(parts.body_html);
     } else if body_empty && input.kind == "component" {
         // component 形态：brief → 生成 React 组件源（JSX），render() 时后端 oxc 编译。
@@ -2835,6 +2840,7 @@ pub async fn refine_artifact_with_comment(
         reference_image_mime: None,
         recipe_id: None,
         aspect_ratio: None,
+        audio_duration_secs: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
     let instruction = compose_refine_instruction(&comment);

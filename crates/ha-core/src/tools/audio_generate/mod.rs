@@ -9,11 +9,13 @@
 mod elevenlabs;
 mod openai;
 mod types;
+pub mod voices;
 
 pub use types::{
-    backfill_providers, AudioGenConfig, AudioGenParams, AudioGenProviderEntry,
-    AudioGenProviderImpl, AudioGenResult, AudioKind,
+    audio_model_catalog, backfill_providers, AudioGenConfig, AudioGenParams, AudioGenProviderEntry,
+    AudioGenProviderImpl, AudioGenResult, AudioKind, AudioModelInfo, AUDIO_DURATIONS_SEC,
 };
+pub use voices::{list_elevenlabs_voices, VoiceOption};
 
 /// Lowercase-normalize a provider id (backward compat: "OpenAI" → "openai").
 pub fn normalize_provider_id(id: &str) -> String {

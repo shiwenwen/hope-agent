@@ -6,7 +6,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
-import { Check, Loader2, Info } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Check, Loader2, Info, RefreshCw } from "lucide-react"
 
 interface AudioGenProviderEntry {
   id: string
@@ -56,8 +63,41 @@ export default function AudioGeneratePanel() {
   const [savedSnapshot, setSavedSnapshot] = useState("")
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  // B8-1：ElevenLabs 语音实时列表（点按拉取，需已填 key）。
+  const [voices, setVoices] = useState<{ voiceId: string; name: string; category?: string }[]>([])
+  const [voicesLoading, setVoicesLoading] = useState(false)
+  // B8-1：策展音频模型目录（后端单一真相源），按 provider 呈现已知模型预设提示。
+  const [catalog, setCatalog] = useState<
+    { id: string; label: string; provider: string; kind: string; default: boolean }[]
+  >([])
+  useEffect(() => {
+    let cancelled = false
+    void getTransport()
+      .call<typeof catalog>("get_audio_model_catalog_cmd")
+      .then((c) => {
+        if (!cancelled) setCatalog(c ?? [])
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
+
+  const fetchVoices = async () => {
+    setVoicesLoading(true)
+    try {
+      const list = await getTransport().call<
+        { voiceId: string; name: string; category?: string }[]
+      >("list_elevenlabs_voices_cmd", { limit: 100 })
+      setVoices(list ?? [])
+    } catch (e) {
+      logger.error("settings", "AudioGeneratePanel", "fetch voices failed", e)
+    } finally {
+      setVoicesLoading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -177,15 +217,58 @@ export default function AudioGeneratePanel() {
                             placeholder={meta.defaultModel}
                             onChange={(e) => updateProvider(index, { model: e.target.value || null })}
                           />
+                          {(() => {
+                            const known = catalog.filter((m) => m.provider === provider.id)
+                            return known.length > 0 ? (
+                              <p className="text-[11px] leading-snug text-muted-foreground">
+                                {t("settings.audioGenKnownModels", "已知模型")}：
+                                {known.map((m) => `${m.label} (${m.kind})`).join(" · ")}
+                              </p>
+                            ) : null
+                          })()}
                         </div>
                         <div className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">
+                          <span className="flex items-center justify-between text-xs text-muted-foreground">
                             {t("settings.audioGenVoice", "语音 (TTS)")}
+                            {provider.id === "elevenlabs" && (
+                              <button
+                                type="button"
+                                onClick={() => void fetchVoices()}
+                                disabled={voicesLoading}
+                                className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50"
+                              >
+                                {voicesLoading ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="h-3 w-3" />
+                                )}
+                                {t("settings.audioGenFetchVoices", "拉取语音")}
+                              </button>
+                            )}
                           </span>
+                          {/* 拉到语音后给一个便捷 picker（选中即填入下方输入框）；raw id 输入框
+                              **始终保留**——列表外的自定义 / 克隆 / 分页外语音仍可见可编辑（review 修复）。 */}
+                          {provider.id === "elevenlabs" && voices.length > 0 && (
+                            <Select value="" onValueChange={(v) => updateProvider(index, { voice: v || null })}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder={t("settings.audioGenPickVoice", "从列表选择…")} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {voices.map((v) => (
+                                  <SelectItem key={v.voiceId} value={v.voiceId}>
+                                    {v.name}
+                                    {v.category ? ` · ${v.category}` : ""}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
                           <Input
                             value={provider.voice ?? ""}
                             placeholder={meta.voiceHint}
-                            onChange={(e) => updateProvider(index, { voice: e.target.value || null })}
+                            onChange={(e) =>
+                              updateProvider(index, { voice: e.target.value || null })
+                            }
                           />
                         </div>
                       </div>

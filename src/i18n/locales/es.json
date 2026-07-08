@@ -5025,7 +5025,10 @@
     "audioGenModel": "Modelo",
     "audioGenVoice": "Voz (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Tiempo de espera (s)"
+    "audioGenTimeout": "Tiempo de espera (s)",
+    "audioGenFetchVoices": "Obtener voces",
+    "audioGenKnownModels": "Modelos conocidos",
+    "audioGenPickVoice": "Elegir de la lista…"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",

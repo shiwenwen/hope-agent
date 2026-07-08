@@ -346,6 +346,8 @@ pub fn run() {
             commands::config::save_image_generate_config,
             commands::config::get_audio_generate_config,
             commands::config::save_audio_generate_config,
+            commands::config::get_audio_model_catalog_cmd,
+            commands::config::list_elevenlabs_voices_cmd,
             commands::config::get_proxy_config,
             commands::config::save_proxy_config,
             commands::config::test_proxy,

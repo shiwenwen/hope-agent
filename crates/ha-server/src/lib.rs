@@ -1204,6 +1204,14 @@ fn build_router_with_cors(
             get(routes::config::get_audio_generate_config)
                 .put(routes::config::save_audio_generate_config),
         )
+        .route(
+            "/config/audio-model-catalog",
+            get(routes::config::get_audio_model_catalog),
+        )
+        .route(
+            "/config/elevenlabs-voices",
+            get(routes::config::list_elevenlabs_voices),
+        )
         .route("/config/canvas", get(routes::config::get_canvas_config))
         .route("/config/canvas", put(routes::config::save_canvas_config))
         .route("/config/design", get(routes::config::get_design_config))

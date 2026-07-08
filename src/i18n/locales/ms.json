@@ -5025,7 +5025,10 @@
     "audioGenModel": "Model",
     "audioGenVoice": "Suara (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "Had masa permintaan (s)"
+    "audioGenTimeout": "Had masa permintaan (s)",
+    "audioGenFetchVoices": "Dapatkan suara",
+    "audioGenKnownModels": "Model diketahui",
+    "audioGenPickVoice": "Pilih dari senarai…"
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",

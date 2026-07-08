@@ -575,6 +575,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
+| `get_audio_model_catalog_cmd` | `GET /api/config/audio-model-catalog` | ✅ |
+| `list_elevenlabs_voices_cmd` | `GET /api/config/elevenlabs-voices` | ✅ |
 | `get_embedding_config` | `GET /api/config/embedding` | ✅ |
 | `save_embedding_config` | `PUT /api/config/embedding` | ✅ |
 | `get_embedding_presets` | `GET /api/config/embedding/presets` | ✅ |

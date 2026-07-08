@@ -26,9 +26,14 @@ pub fn infer_audio_kind(prompt: &str) -> AudioKind {
 }
 
 /// 文本 prompt → 生成音频 → 返回内嵌 data-uri `<audio>` 播放器的 `ArtifactParts`。
-pub async fn generate_audio_parts(prompt: &str, title: &str) -> Result<ArtifactParts> {
+/// `duration_seconds`（B8-2）：music / sfx 的可选目标时长。
+pub async fn generate_audio_parts(
+    prompt: &str,
+    title: &str,
+    duration_seconds: Option<f64>,
+) -> Result<ArtifactParts> {
     let kind = infer_audio_kind(prompt);
-    let (bytes, mime) = generate_audio_bytes(prompt, kind).await?;
+    let (bytes, mime) = generate_audio_bytes(prompt, kind, duration_seconds).await?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let esc_title = html_escape(title);
     let label = match kind {
@@ -54,7 +59,12 @@ font-family:var(--ds-font-sans,system-ui,-apple-system,sans-serif)\">\
 }
 
 /// 生成音频字节，按配置顺序在**支持该 kind** 的多个 provider 间 failover。
-async fn generate_audio_bytes(prompt: &str, kind: AudioKind) -> Result<(Vec<u8>, String)> {
+/// `duration_seconds`（B8-2）：music / sfx 的目标时长，None = provider 默认（各自钳合法区间）。
+async fn generate_audio_bytes(
+    prompt: &str,
+    kind: AudioKind,
+    duration_seconds: Option<f64>,
+) -> Result<(Vec<u8>, String)> {
     if prompt.trim().is_empty() {
         anyhow::bail!("audio prompt is empty");
     }
@@ -104,6 +114,7 @@ async fn generate_audio_bytes(prompt: &str, kind: AudioKind) -> Result<(Vec<u8>,
             prompt: clean,
             kind,
             timeout_secs: cfg.timeout_seconds,
+            duration_seconds,
             entry,
         };
         match provider.generate(params).await {

@@ -5025,7 +5025,10 @@
     "audioGenModel": "Model",
     "audioGenVoice": "Ses (TTS)",
     "audioGenBaseUrl": "Base URL",
-    "audioGenTimeout": "İstek zaman aşımı (sn)"
+    "audioGenTimeout": "İstek zaman aşımı (sn)",
+    "audioGenFetchVoices": "Sesleri getir",
+    "audioGenKnownModels": "Bilinen modeller",
+    "audioGenPickVoice": "Listeden seç…"
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
