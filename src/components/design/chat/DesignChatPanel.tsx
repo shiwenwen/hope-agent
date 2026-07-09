@@ -131,6 +131,8 @@ export interface DesignChatPanelHandle {
   addQuote: (quote: PendingFileQuote) => void
   /** Append text/token to the composer input. */
   insertToken: (token: string) => void
+  /** Stage an image File as a chat attachment (B4-1 画框批注合成图 → vision 输入)。 */
+  addImageAttachment: (file: File) => void
 }
 
 interface Props {
@@ -325,6 +327,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
         ),
       insertToken: (token) =>
         stream.setInput((prev) => (prev.trim() ? `${prev} ${token}` : token)),
+      addImageAttachment: (file) => stream.setAttachedFiles((prev) => [...prev, file]),
     }),
     [stream],
   )

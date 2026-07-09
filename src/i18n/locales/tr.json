@@ -6479,6 +6479,23 @@
       "deploy": "Dağıt",
       "done": "Dağıtıldı — bağlantı kopyalandı",
       "failed": "Dağıtım başarısız: {{msg}}"
+    },
+    "draw": {
+      "mode": "İşaretleme: değişecek bölgeyi kutu/kalemle işaretleyip ekran görüntüsü olarak sohbete gönder",
+      "toolBox": "Kutu",
+      "toolPen": "Kalem",
+      "undo": "Geri al",
+      "redo": "Yinele",
+      "clear": "Temizle",
+      "notePlaceholder": "Neyin değişeceğini yaz…",
+      "send": "Sohbete gönder",
+      "exit": "İşaretlemeden çık",
+      "quoteName": "Bölge işaretleme",
+      "scopeHeader": "[Bölge işaretleme] Kullanıcı «{{title}}» önizlemesinde değiştirilecek bölgeleri işaretledi.",
+      "scopeImage": "Ekli ekran görüntüsündeki kırmızı kutular / çizgiler işaretlenen bölgelerdir.",
+      "scopeNoImage": "{{n}} işaretli bölge (ekran görüntüsü yok; yalnızca metin).",
+      "scopeNote": "Kullanıcı notu: {{note}}",
+      "scopeInstruction": "Yalnızca işaretli bölgeleri değiştir; gerisini aynı bırak."
     }
   }
 }

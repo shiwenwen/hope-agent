@@ -6479,6 +6479,23 @@
       "deploy": "Desplegar",
       "done": "Desplegado: enlace copiado",
       "failed": "Error al desplegar: {{msg}}"
+    },
+    "draw": {
+      "mode": "Marcado: encuadra/dibuja la región a cambiar y envíala como captura al chat",
+      "toolBox": "Recuadro",
+      "toolPen": "Lápiz",
+      "undo": "Deshacer",
+      "redo": "Rehacer",
+      "clear": "Limpiar",
+      "notePlaceholder": "Describe qué cambiar…",
+      "send": "Enviar al chat",
+      "exit": "Salir del marcado",
+      "quoteName": "Marcado de región",
+      "scopeHeader": "[Marcado de región] El usuario marcó regiones a cambiar en la vista previa de «{{title}}».",
+      "scopeImage": "Los recuadros / trazos rojos de la captura adjunta son las regiones marcadas.",
+      "scopeNoImage": "{{n}} región(es) marcada(s) (captura no disponible; solo texto).",
+      "scopeNote": "Nota del usuario: {{note}}",
+      "scopeInstruction": "Cambia solo las regiones marcadas; deja el resto sin cambios."
     }
   }
 }

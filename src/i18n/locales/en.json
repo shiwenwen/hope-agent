@@ -6479,6 +6479,23 @@
       "deploy": "Deploy",
       "done": "Deployed — link copied",
       "failed": "Deploy failed: {{msg}}"
+    },
+    "draw": {
+      "mode": "Markup: box/pen the region to change, sent as a screenshot to chat",
+      "toolBox": "Box",
+      "toolPen": "Pen",
+      "undo": "Undo",
+      "redo": "Redo",
+      "clear": "Clear",
+      "notePlaceholder": "Describe what to change…",
+      "send": "Send to chat",
+      "exit": "Exit markup",
+      "quoteName": "Region markup",
+      "scopeHeader": "[Region markup] The user marked regions to change on the preview of “{{title}}”.",
+      "scopeImage": "The red boxes / strokes in the attached screenshot are the marked regions.",
+      "scopeNoImage": "{{n}} marked region(s) (screenshot unavailable; text only).",
+      "scopeNote": "User note: {{note}}",
+      "scopeInstruction": "Only change the marked regions; leave everything else unchanged."
     }
   }
 }

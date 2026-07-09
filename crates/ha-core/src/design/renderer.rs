@@ -473,6 +473,17 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
       var fc=comments.filter(function(x){return x.id===d.id})[0];
       if(fc&&fc.oid!=null){var fe=elByOid(String(fc.oid));
         if(fe){fe.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(renderPins,320)}}}
+    else if(d.type==='ds_viewport'){
+      // B4-1 画框批注：回传滚动/视口度量（父层不可跨源读取），用于把父层归一化笔画
+      // 映射到离屏全页渲染坐标。纯读取、与 active 无关、无副作用。
+      var de=document.documentElement,bo=document.body;
+      parent.postMessage({type:'ds_viewport_result',id:d.id,
+        scrollX:window.scrollX||de.scrollLeft||0,scrollY:window.scrollY||de.scrollTop||0,
+        clientWidth:de.clientWidth||window.innerWidth||0,
+        clientHeight:de.clientHeight||window.innerHeight||0,
+        scrollWidth:Math.max(de.scrollWidth||0,bo?bo.scrollWidth:0),
+        scrollHeight:Math.max(de.scrollHeight||0,bo?bo.scrollHeight:0)},'*')}
+    else if(d.type==='ds_scroll_by'){window.scrollBy(d.dx||0,d.dy||0)}
   });
 })();
 </script>"#;

@@ -6479,6 +6479,23 @@
       "deploy": "Triển khai",
       "done": "Đã triển khai — đã sao chép liên kết",
       "failed": "Triển khai thất bại: {{msg}}"
+    },
+    "draw": {
+      "mode": "Đánh dấu: khoanh/vẽ vùng cần đổi rồi gửi ảnh chụp vào trò chuyện",
+      "toolBox": "Khung",
+      "toolPen": "Bút",
+      "undo": "Hoàn tác",
+      "redo": "Làm lại",
+      "clear": "Xóa",
+      "notePlaceholder": "Mô tả cần thay đổi gì…",
+      "send": "Gửi vào trò chuyện",
+      "exit": "Thoát đánh dấu",
+      "quoteName": "Đánh dấu vùng",
+      "scopeHeader": "[Đánh dấu vùng] Người dùng đã đánh dấu vùng cần thay đổi trên bản xem trước của “{{title}}”.",
+      "scopeImage": "Các khung / nét đỏ trong ảnh chụp đính kèm là vùng được đánh dấu.",
+      "scopeNoImage": "{{n}} vùng được đánh dấu (không có ảnh chụp; chỉ văn bản).",
+      "scopeNote": "Ghi chú của người dùng: {{note}}",
+      "scopeInstruction": "Chỉ thay đổi các vùng được đánh dấu; giữ nguyên phần còn lại."
     }
   }
 }

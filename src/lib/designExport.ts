@@ -129,6 +129,34 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   )
 }
 
+/**
+ * B4-1 画框批注底图：把自包含 HTML 按 `viewportWidth` 离屏整页栅格化（复用 export 同款
+ * 跨源/无 Chrome 底座）。**渲染宽度必须 = 屏上内容视口宽（bridge `clientWidth`）**，否则
+ * 响应式重排会与用户所见错位。返回整页 canvas（documentElement，含全滚动高度）+ 实际倍率，
+ * 供父层把归一化笔画按 `px = (scrollX + nx*clientWidth) * scale` 合成到画布再裁剪。
+ */
+export async function rasterizeArtifactFull(
+  html: string,
+  viewportWidth: number,
+  opts?: ExportOpts,
+): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
+  const reqScale = scaleOf(opts)
+  const h = await renderHtml(html, Math.max(1, Math.round(viewportWidth)))
+  try {
+    const de = h.doc.documentElement
+    // **钳倍率使 canvas 单边 ≤ MAX_CANVAS_PX（review MED 修复）**：超限时 WKWebView 静默返回
+    // 空白 canvas 且不抛错 → 会绕过「捕获失败降级文字」，把空白图当截图发给模型。按内容真实尺寸
+    // 反推安全倍率（长产物自动降清晰度换取完整、不空白）；返回的 scale 供合成侧 1:1 映射。
+    const w = Math.max(1, de.scrollWidth)
+    const contentH = Math.max(1, de.scrollHeight)
+    const scale = Math.max(0.1, Math.min(reqScale, MAX_CANVAS_PX / w, MAX_CANVAS_PX / contentH))
+    const canvas = await rasterize(de, scale)
+    return { canvas, scale }
+  } finally {
+    h.cleanup()
+  }
+}
+
 /** 单 canvas 安全边长上限（WKWebView ~16384 / Chromium 更高，取保守值）。 */
 const MAX_CANVAS_PX = 16000
 

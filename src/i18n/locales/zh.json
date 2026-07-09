@@ -6479,6 +6479,23 @@
       "deploy": "部署",
       "done": "已部署，链接已复制",
       "failed": "部署失败：{{msg}}"
+    },
+    "draw": {
+      "mode": "画框批注：框选/画笔标注要改的区域，带截图到对话",
+      "toolBox": "画框",
+      "toolPen": "自由笔",
+      "undo": "撤销",
+      "redo": "重做",
+      "clear": "清空",
+      "notePlaceholder": "说明要改什么…",
+      "send": "带到对话",
+      "exit": "退出批注",
+      "quoteName": "画框批注",
+      "scopeHeader": "【画框批注】用户在产物「{{title}}」的预览上标注了要修改的区域。",
+      "scopeImage": "随附截图中的红框 / 红线即标注区域。",
+      "scopeNoImage": "共 {{n}} 处标注（截图未生成，仅文字说明）。",
+      "scopeNote": "用户说明：{{note}}",
+      "scopeInstruction": "请只针对标注区域修改，其余部分保持不变。"
     }
   }
 }

@@ -6479,6 +6479,23 @@
       "deploy": "Implantar",
       "done": "Implantado — link copiado",
       "failed": "Falha na implantação: {{msg}}"
+    },
+    "draw": {
+      "mode": "Marcação: enquadre/desenhe a região a alterar e envie como captura ao chat",
+      "toolBox": "Caixa",
+      "toolPen": "Caneta",
+      "undo": "Desfazer",
+      "redo": "Refazer",
+      "clear": "Limpar",
+      "notePlaceholder": "Descreva o que alterar…",
+      "send": "Enviar ao chat",
+      "exit": "Sair da marcação",
+      "quoteName": "Marcação de região",
+      "scopeHeader": "[Marcação de região] O usuário marcou regiões a alterar na prévia de “{{title}}”.",
+      "scopeImage": "As caixas / traços vermelhos na captura anexa são as regiões marcadas.",
+      "scopeNoImage": "{{n}} região(ões) marcada(s) (captura indisponível; apenas texto).",
+      "scopeNote": "Nota do usuário: {{note}}",
+      "scopeInstruction": "Altere apenas as regiões marcadas; mantenha o restante inalterado."
     }
   }
 }

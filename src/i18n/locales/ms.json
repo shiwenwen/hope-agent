@@ -6479,6 +6479,23 @@
       "deploy": "Deploy",
       "done": "Telah deploy — pautan disalin",
       "failed": "Deploy gagal: {{msg}}"
+    },
+    "draw": {
+      "mode": "Tanda: kotak/pen kawasan untuk diubah dan hantar sebagai tangkapan skrin ke sembang",
+      "toolBox": "Kotak",
+      "toolPen": "Pen",
+      "undo": "Buat asal",
+      "redo": "Buat semula",
+      "clear": "Kosongkan",
+      "notePlaceholder": "Terangkan apa yang perlu diubah…",
+      "send": "Hantar ke sembang",
+      "exit": "Keluar tanda",
+      "quoteName": "Tanda kawasan",
+      "scopeHeader": "[Tanda kawasan] Pengguna menanda kawasan untuk diubah pada pratonton “{{title}}”.",
+      "scopeImage": "Kotak / lakaran merah dalam tangkapan skrin yang dilampirkan ialah kawasan yang ditanda.",
+      "scopeNoImage": "{{n}} kawasan ditanda (tangkapan skrin tiada; teks sahaja).",
+      "scopeNote": "Nota pengguna: {{note}}",
+      "scopeInstruction": "Ubah kawasan yang ditanda sahaja; kekalkan yang lain."
     }
   }
 }

@@ -31,6 +31,7 @@ import {
   Sparkles,
   MousePointerClick,
   MessageSquare,
+  Highlighter,
   SlidersHorizontal,
   Download,
   Gauge,
@@ -141,8 +142,10 @@ import {
   downloadBlob,
   base64ToBlob,
   safeFilename,
+  rasterizeArtifactFull,
 } from "@/lib/designExport"
 import { exportVideo } from "@/lib/designVideo"
+import DesignDrawOverlay, { type DesignDrawSubmit } from "@/components/design/DesignDrawOverlay"
 
 interface DesignViewProps {
   onBack: () => void
@@ -235,6 +238,110 @@ async function imageToDataUri(src: string): Promise<string | null> {
   return last // 尽力而为：仍超预算也返回最小的一版
 }
 
+/** iframe 视口/滚动度量（B4-1，经 `ds_viewport` 桥回传；父层跨源无法直接读）。 */
+interface ViewportMetrics {
+  scrollX: number
+  scrollY: number
+  clientWidth: number
+  clientHeight: number
+  scrollWidth: number
+  scrollHeight: number
+}
+
+/**
+ * 把归一化画框批注合成到离屏整页渲染上并裁剪成聚焦 PNG（B4-1）。
+ * 坐标：归一化(视口 0..1) → 产物 CSS px `ax=scrollX+nx*clientWidth` → 画布 px `ax*renderScale`
+ *（`bg` 由 rasterizeArtifactFull 按 `clientWidth` 视口、`renderScale` 倍率整页渲染，故此式 1:1 对齐）。
+ * 裁剪到 marks 并union bbox + 15% padding，输出封顶 1600px 长边控 token 预算。无 marks 返回 null。
+ */
+async function compositeAnnotation(
+  bg: HTMLCanvasElement,
+  renderScale: number,
+  vp: ViewportMetrics,
+  payload: DesignDrawSubmit,
+): Promise<File | null> {
+  const ctx = bg.getContext("2d")
+  if (!ctx) return null
+  const W = bg.width
+  const H = bg.height
+  const toPx = (nx: number, ny: number): [number, number] => [
+    (vp.scrollX + nx * vp.clientWidth) * renderScale,
+    (vp.scrollY + ny * vp.clientHeight) * renderScale,
+  ]
+  const STROKE = "#ff3b30"
+  ctx.lineJoin = "round"
+  ctx.lineCap = "round"
+  const bboxes: [number, number, number, number][] = []
+  for (const b of payload.boxes) {
+    const [x0, y0] = toPx(b.x, b.y)
+    const [x1, y1] = toPx(b.x + b.width, b.y + b.height)
+    const x = Math.min(x0, x1)
+    const y = Math.min(y0, y1)
+    const w = Math.abs(x1 - x0)
+    const h = Math.abs(y1 - y0)
+    ctx.fillStyle = "rgba(255,59,48,0.10)"
+    ctx.fillRect(x, y, w, h)
+    ctx.strokeStyle = STROKE
+    ctx.lineWidth = Math.max(2, 2 * renderScale)
+    ctx.setLineDash([10 * renderScale, 6 * renderScale])
+    ctx.strokeRect(x, y, w, h)
+    ctx.setLineDash([])
+    bboxes.push([x, y, w, h])
+  }
+  ctx.strokeStyle = STROKE
+  ctx.lineWidth = Math.max(2, 3 * renderScale)
+  for (const pts of payload.strokes) {
+    if (pts.length < 2) continue
+    let minx = Infinity
+    let miny = Infinity
+    let maxx = -Infinity
+    let maxy = -Infinity
+    ctx.beginPath()
+    pts.forEach((p, i) => {
+      const [px, py] = toPx(p.x, p.y)
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.lineTo(px, py)
+      minx = Math.min(minx, px)
+      miny = Math.min(miny, py)
+      maxx = Math.max(maxx, px)
+      maxy = Math.max(maxy, py)
+    })
+    ctx.stroke()
+    bboxes.push([minx, miny, maxx - minx, maxy - miny])
+  }
+  if (bboxes.length === 0) return null
+  let minx = Infinity
+  let miny = Infinity
+  let maxx = -Infinity
+  let maxy = -Infinity
+  for (const [x, y, w, h] of bboxes) {
+    minx = Math.min(minx, x)
+    miny = Math.min(miny, y)
+    maxx = Math.max(maxx, x + w)
+    maxy = Math.max(maxy, y + h)
+  }
+  const padX = Math.max(24, (maxx - minx) * 0.15)
+  const padY = Math.max(24, (maxy - miny) * 0.15)
+  const cx = Math.max(0, Math.floor(minx - padX))
+  const cy = Math.max(0, Math.floor(miny - padY))
+  const cw = Math.min(W - cx, Math.ceil(maxx - minx + padX * 2))
+  const ch = Math.min(H - cy, Math.ceil(maxy - miny + padY * 2))
+  if (cw <= 0 || ch <= 0) return null
+  const MAX_EDGE = 1600
+  const outScale = Math.min(1, MAX_EDGE / Math.max(cw, ch))
+  const ow = Math.max(1, Math.round(cw * outScale))
+  const oh = Math.max(1, Math.round(ch * outScale))
+  const out = document.createElement("canvas")
+  out.width = ow
+  out.height = oh
+  const octx = out.getContext("2d")
+  if (!octx) return null
+  octx.drawImage(bg, cx, cy, cw, ch, 0, 0, ow, oh)
+  const blob: Blob | null = await new Promise((r) => out.toBlob((b) => r(b), "image/png"))
+  if (!blob) return null
+  return new File([blob], "design-annotation.png", { type: "image/png" })
+}
+
 export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) {
   const { t } = useTranslation()
   const tx = getTransport()
@@ -292,6 +399,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     pendingQuotesRef.current = []
     for (const q of queued) chatPanelRef.current.addQuote(q)
   }, [chatOpen])
+  // 画框批注合成图作对话图附件（同 quote 缓冲：面板未挂载先缓冲、chatOpen 后 flush 恰好一次）。
+  const pendingImagesRef = useRef<File[]>([])
+  const enqueueChatImage = useCallback((file: File) => {
+    setChatOpen(true)
+    if (chatPanelRef.current) chatPanelRef.current.addImageAttachment(file)
+    else pendingImagesRef.current.push(file)
+  }, [])
+  useEffect(() => {
+    if (!chatOpen || !chatPanelRef.current || pendingImagesRef.current.length === 0) return
+    const queued = pendingImagesRef.current
+    pendingImagesRef.current = []
+    for (const f of queued) chatPanelRef.current.addImageAttachment(f)
+  }, [chatOpen])
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem("design_chat_width"))
     return Number.isFinite(saved) && saved >= 320 && saved <= 640 ? saved : 400
@@ -334,6 +454,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [pendingPlacement, setPendingPlacement] = useState<CommentPlacement | null>(null)
   // 点预览钉时要在面板里聚焦/编辑的批注 id（B0-3）；面板消费后回调清空。
   const [focusCommentId, setFocusCommentId] = useState<number | null>(null)
+  // 画框批注（B4-1）：父层 canvas 叠层，与 editMode/commentMode 三态互斥；drawBusy=捕获/合成在途。
+  const [drawMode, setDrawMode] = useState(false)
+  const drawModeRef = useRef(false)
+  drawModeRef.current = drawMode
+  const [drawBusy, setDrawBusy] = useState(false)
   // Live refs so the EventBus subscription can read current project/artifact without
   // being a dependency (avoids re-subscribing — and dropping events — on every edit).
   const activeProjectRef = useRef<DesignProject | null>(null)
@@ -347,6 +472,101 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
+
+  // ── 画框批注 orchestration（B4-1）──
+  // ds_viewport round-trip：跨源无法直接读 iframe 滚动/视口，postMessage 请求 → 回传 resolve。
+  const viewportReqRef = useRef(new Map<number, (m: ViewportMetrics) => void>())
+  const viewportReqIdRef = useRef(0)
+  const requestViewportMetrics = useCallback((): Promise<ViewportMetrics | null> => {
+    const win = iframeRef.current?.contentWindow
+    if (!win) return Promise.resolve(null)
+    const id = ++viewportReqIdRef.current
+    return new Promise((resolve) => {
+      const timer = window.setTimeout(() => {
+        viewportReqRef.current.delete(id)
+        resolve(null)
+      }, 1500)
+      viewportReqRef.current.set(id, (m) => {
+        window.clearTimeout(timer)
+        viewportReqRef.current.delete(id)
+        resolve(m)
+      })
+      win.postMessage({ type: "ds_viewport", id }, "*")
+    })
+  }, [])
+  const forwardScrollToIframe = useCallback(
+    (dx: number, dy: number) => postToIframe({ type: "ds_scroll_by", dx, dy }),
+    [postToIframe],
+  )
+  const describeMarks = useCallback(
+    (payload: DesignDrawSubmit, hasImage: boolean, title: string): string => {
+      const lines: string[] = [
+        t("design.draw.scopeHeader", "【画框批注】用户在产物「{{title}}」的预览上标注了要修改的区域。", {
+          title,
+        }),
+      ]
+      if (hasImage) lines.push(t("design.draw.scopeImage", "随附截图中的红框 / 红线即标注区域。"))
+      else {
+        const n = payload.boxes.length + payload.strokes.length
+        lines.push(t("design.draw.scopeNoImage", "共 {{n}} 处标注（截图未生成，仅文字说明）。", { n }))
+      }
+      if (payload.note) lines.push(t("design.draw.scopeNote", "用户说明：{{note}}", { note: payload.note }))
+      lines.push(t("design.draw.scopeInstruction", "请只针对标注区域修改，其余部分保持不变。"))
+      return lines.join("\n")
+    },
+    [t],
+  )
+  // 提交：捕获底图（离屏整页栅格化，跨源/无 Chrome 通用）→ 合成红框/红线 → 裁剪 → 图附件 + 区域
+  // 描述 quote 一起带到对话（draft 语义：用户审后手动发）。捕获失败静默降级为「区域+文字」，永不阻塞。
+  const handleDrawSubmit = useCallback(
+    async (payload: DesignDrawSubmit) => {
+      const art = activeArtifactRef.current
+      if (!art) return
+      setDrawBusy(true)
+      try {
+        let file: File | null = null
+        const vp = await requestViewportMetrics()
+        const hasMarks = payload.boxes.length > 0 || payload.strokes.length > 0
+        // deck / motion 是**多帧/多态**产物：离屏 fresh render 只会渲默认态（deck slide 1 /
+        // motion 首帧），与用户所看的当前帧不符 → 底图会误导（review MED）。这类只发文字标注、
+        // 不烧底图（describeMarks 的 !file 分支给「仅文字说明」），宁缺勿错。
+        const captureable = art.kind !== "deck" && art.kind !== "motion"
+        if (captureable && vp && vp.clientWidth > 0 && vp.clientHeight > 0 && hasMarks) {
+          try {
+            const res = await tx.call<{ content: string }>("export_design_artifact_cmd", {
+              id: art.id,
+              format: "html",
+            })
+            if (res?.content) {
+              const { canvas, scale } = await rasterizeArtifactFull(res.content, vp.clientWidth, {
+                scale: 2,
+              })
+              file = await compositeAnnotation(canvas, scale, vp, payload)
+            }
+          } catch (e) {
+            logger.warn(
+              "design",
+              "DesignView::handleDrawSubmit",
+              "capture/composite failed; degrading to text-only",
+              e,
+            )
+          }
+        }
+        enqueueChatQuote({
+          path: `design-draw:${art.id}:${viewportReqIdRef.current}`,
+          name: t("design.draw.quoteName", "画框批注"),
+          startLine: 0,
+          endLine: 0,
+          content: describeMarks(payload, !!file, art.title),
+        })
+        if (file) enqueueChatImage(file)
+        setDrawMode(false)
+      } finally {
+        setDrawBusy(false)
+      }
+    },
+    [tx, t, requestViewportMetrics, describeMarks, enqueueChatQuote, enqueueChatImage],
+  )
 
   // 流式生成态：streamRef 追当前流（streamId 变化=新流重置、seq 丢乱序帧）；
   // snapshotRef 存最新 css/body 供 iframe 加载完 `ds_stream_ready` 时补投。
@@ -993,6 +1213,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return
+      // 画框批注期 Cmd/Ctrl+Z 归叠层自己的 mark undo（其监听后注册、无法阻断本 window sibling
+      // 监听）；不加此守卫会连带回退上一次可视化编辑并落盘（review HIGH：静默数据篡改）。
+      if (drawModeRef.current) return
       const ae = document.activeElement as HTMLElement | null
       const tag = ae?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || ae?.isContentEditable) return
@@ -1275,6 +1498,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         tag?: string
         snippet?: string
       }
+      // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
+      if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
+        viewportReqRef.current.get(d.id)?.(e.data as ViewportMetrics)
+        return
+      }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)
       // 就地文本编辑提交：双击叶子元素改文案 → 走同一确定性回写（apply_text_patch +
       // expectedHash）。仅编辑态受理；oid 直接来自被编辑元素。
@@ -1318,17 +1546,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     return () => window.removeEventListener("message", onMsg)
   }, [postToIframe, commitPatch, handleRelocateComment])
 
-  // Toggle bridge activation with edit mode.
+  // Toggle bridge activation with edit mode. 画框批注（父层叠层）需 iframe bridge 关闭，避免
+  // 底层 iframe 抢事件 / 出选中框——drawMode 期间强制 ds_deactivate（editMode 已被三态互斥关掉）。
   useEffect(() => {
-    postToIframe({ type: editMode ? "ds_activate" : "ds_deactivate" })
+    postToIframe({ type: editMode && !drawMode ? "ds_activate" : "ds_deactivate" })
     if (!editMode) setSelected(null)
-  }, [editMode, postToIframe])
+  }, [editMode, drawMode, postToIframe])
 
   // Reset edit state when switching artifacts.
   useEffect(() => {
     setEditMode(false)
     setSelected(null)
     setCommentMode(false)
+    setDrawMode(false)
   }, [activeArtifact?.id])
 
   // Re-arm bridge + restore selection after an iframe (re)mount.
@@ -2132,6 +2362,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     : zoom === "fit"
       ? undefined
       : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
+  // B4-1 画框叠层 canvas 尺寸：贴合 iframe **可视 footprint**（纯宽高、无 transform），逐像素与
+  // iframe 屏上占位一致。**红线（review 坐标漂移修复）**：不可用 `inset-0`——设备/缩放模式下
+  // border-box + 6px 边框会让 content box 比 iframe scaled footprint 窄 12px（footprint 溢出被
+  // overflow-hidden 裁），canvas 只覆 content box 而映射用满 clientWidth → 右/下边缘按 12/deviceScale
+  // 漂移。改让 canvas 与 iframe 同 footprint（同溢出同裁剪），getBoundingClientRect 一致，映射归零漂移。
+  const overlayFrameStyle: CSSProperties = devicePreset
+    ? { width: `${devicePreset.w * deviceScale}px`, height: `${deviceH * deviceScale}px` }
+    : zoom === "fit"
+      ? { width: "100%", height: "100%" }
+      : { width: `${naturalW * zoom}px`, height: `${naturalH * zoom}px` }
 
   // ── Render ───────────────────────────────────────────────────
 
@@ -2554,6 +2794,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             onClick={() => {
                               setEditMode((v) => !v)
                               setCommentMode(false)
+                              setDrawMode(false)
                             }}
                           >
                             <MousePointerClick className="h-3.5 w-3.5" />
@@ -2570,9 +2811,27 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             onClick={() => {
                               setCommentMode((v) => !v)
                               setEditMode(false)
+                              setDrawMode(false)
                             }}
                           >
                             <MessageSquare className="h-3.5 w-3.5" />
+                          </Button>
+                        </IconTip>
+                        <IconTip
+                          label={t("design.draw.mode", "画框批注：框选/画笔标注要改的区域，带截图到对话")}
+                          side="bottom"
+                        >
+                          <Button
+                            variant={drawMode ? "default" : "ghost"}
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => {
+                              setDrawMode((v) => !v)
+                              setEditMode(false)
+                              setCommentMode(false)
+                            }}
+                          >
+                            <Highlighter className="h-3.5 w-3.5" />
                           </Button>
                         </IconTip>
                       </>
@@ -2830,7 +3089,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                   )}
                   <div
                     className={cn(
-                      "overflow-hidden bg-white",
+                      "relative overflow-hidden bg-white",
                       devicePreset
                         ? "shrink-0 rounded-[1.5rem] border-[6px] border-neutral-800 shadow-xl dark:border-neutral-700"
                         : cn(
@@ -2838,6 +3097,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                             zoom === "fit" ? "mx-auto h-full w-full" : "mx-auto",
                           ),
                       editMode && "ring-2 ring-primary/40",
+                      drawMode && "ring-2 ring-primary/40",
                     )}
                     style={frameWrapStyle}
                   >
@@ -2851,6 +3111,22 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       className="border-0"
                       style={scaleStyle}
                     />
+                    {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
+                        pane。仅 drawMode 期条件挂载 —— 卸载即天然复位全部 marks/note，无需 setState 复位。 */}
+                    {drawMode && (
+                      // key 含 previewKey：内容刷新（agent 编辑 / 精修 / 手动刷新 → iframe 重挂、
+                      // 布局可能重排）时叠层随之重挂，天然弃掉旧的归一化 marks，不落到新内容错位处
+                      //（review MED：同产物 previewKey 变而叠层不重置会把 v1 marks 合成到 v2 布局）。
+                      <DesignDrawOverlay
+                        key={`${activeArtifact.id}-${previewKey}`}
+                        busy={drawBusy}
+                        onExit={() => setDrawMode(false)}
+                        onSubmit={handleDrawSubmit}
+                        onWheelScroll={forwardScrollToIframe}
+                        toolbarHost={previewPaneRef.current}
+                        frameStyle={overlayFrameStyle}
+                      />
+                    )}
                   </div>
                 </div>
               </>

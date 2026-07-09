@@ -6479,6 +6479,23 @@
       "deploy": "部署",
       "done": "已部署，連結已複製",
       "failed": "部署失敗：{{msg}}"
+    },
+    "draw": {
+      "mode": "畫框批註：框選/畫筆標註要改的區域，帶截圖到對話",
+      "toolBox": "畫框",
+      "toolPen": "自由筆",
+      "undo": "復原",
+      "redo": "重做",
+      "clear": "清空",
+      "notePlaceholder": "說明要改什麼…",
+      "send": "帶到對話",
+      "exit": "退出批註",
+      "quoteName": "畫框批註",
+      "scopeHeader": "【畫框批註】使用者在產物「{{title}}」的預覽上標註了要修改的區域。",
+      "scopeImage": "隨附截圖中的紅框 / 紅線即標註區域。",
+      "scopeNoImage": "共 {{n}} 處標註（截圖未生成，僅文字說明）。",
+      "scopeNote": "使用者說明：{{note}}",
+      "scopeInstruction": "請只針對標註區域修改，其餘部分保持不變。"
     }
   }
 }
