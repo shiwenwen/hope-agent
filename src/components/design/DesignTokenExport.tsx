@@ -19,7 +19,8 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
-import { downloadBlob, safeFilename } from "@/lib/designExport"
+import { safeFilename } from "@/lib/designExport"
+import { presentSaveResult } from "./exportSave"
 import { logger } from "@/lib/logger"
 import { toast } from "sonner"
 import type { DesignSystemMeta, TokenExport } from "@/types/design"
@@ -71,9 +72,18 @@ export function DesignTokenExport({ system, open, onOpenChange }: Props) {
     }
   }
 
-  const download = (e: TokenExport) => {
+  const download = async (e: TokenExport) => {
     const prefix = system ? `${safeFilename(system.name)}-` : ""
-    downloadBlob(new Blob([e.content], { type: "text/plain;charset=utf-8" }), `${prefix}${e.filename}`)
+    try {
+      const res = await tx.saveFileAs(
+        new Blob([e.content], { type: "text/plain;charset=utf-8" }),
+        `${prefix}${e.filename}`,
+      )
+      presentSaveResult(res, tx, t)
+    } catch (err) {
+      logger.error("design", "DesignTokenExport::download", "save failed", err)
+      toast.error(t("design.err.export", "导出失败"))
+    }
   }
 
   return (
@@ -131,7 +141,7 @@ export function DesignTokenExport({ system, open, onOpenChange }: Props) {
                     variant="outline"
                     size="sm"
                     className="h-7 gap-1.5"
-                    onClick={() => download(e)}
+                    onClick={() => void download(e)}
                   >
                     <Download className="h-3.5 w-3.5" />
                     {t("design.export.download", "下载")}

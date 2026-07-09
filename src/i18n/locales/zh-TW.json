@@ -6319,7 +6319,9 @@
       "copyErr": "複製失敗",
       "empty": "此設計系統沒有可匯出的變數",
       "copy": "複製",
-      "download": "下載"
+      "download": "下載",
+      "reveal": "在資料夾中顯示",
+      "downloaded": "已下載到瀏覽器下載目錄"
     },
     "figma": {
       "entry": "從 Figma 匯入…",

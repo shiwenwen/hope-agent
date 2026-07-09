@@ -1,5 +1,6 @@
 use crate::commands::CmdError;
 use anyhow::{anyhow, Context};
+use ha_core::app_info;
 use std::path::Path;
 use tauri;
 
@@ -72,6 +73,30 @@ pub async fn reveal_in_folder(path: String) -> Result<(), CmdError> {
             .unwrap_or(resolved);
         open::that(&parent).context("Failed to open folder")?;
     }
+    Ok(())
+}
+
+/// Write user-exported bytes (base64) to a path the user just picked in the
+/// native "Save As" dialog (Design Space exports). Desktop-only; there is
+/// deliberately **no HTTP route** — remote clients save on their own machine via
+/// the File System Access API / browser download, never to the server's disk
+/// (that would be a remote-write / exfiltration surface).
+#[tauri::command]
+pub async fn save_exported_file(path: String, data_base64: String) -> Result<(), CmdError> {
+    use base64::Engine;
+    let resolved = resolve_user_path(path);
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|e| CmdError::from(anyhow!("invalid base64 export payload: {e}")))?;
+    std::fs::write(&resolved, &bytes)
+        .with_context(|| format!("failed to write exported file: {resolved}"))?;
+    app_info!(
+        "design",
+        "save_exported_file",
+        "wrote export to {} ({} bytes)",
+        resolved,
+        bytes.len()
+    );
     Ok(())
 }
 

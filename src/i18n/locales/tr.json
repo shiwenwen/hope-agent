@@ -6319,7 +6319,9 @@
       "copyErr": "Kopyalama başarısız",
       "empty": "Bu tasarım sisteminde dışa aktarılabilir değişken yok",
       "copy": "Kopyala",
-      "download": "İndir"
+      "download": "İndir",
+      "reveal": "Klasörde göster",
+      "downloaded": "Tarayıcının İndirilenler klasörüne indirildi"
     },
     "figma": {
       "entry": "Figma'dan içe aktar…",

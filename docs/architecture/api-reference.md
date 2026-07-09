@@ -188,6 +188,8 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `previewRawUrl(path,{sessionId},download)` | `resolveAssetUrl(path)`（`convertFileSrc`） | tokened `/api/sessions/{id}/files/by-path?...&download=` |
 | `supportsLocalFileOps()` | `true` | `false` |
 | `pickLocalImage()` | `@tauri-apps/plugin-dialog.open` | 隐藏 `<input type="file">` + blob URL |
+| `saveFileAs(blob, filename)` | `@tauri-apps/plugin-dialog.save`（记住上次目录）→ `invoke("save_exported_file", {path, dataBase64})`；返回 `path` 供 reveal | `showSaveFilePicker`（Chromium + 安全上下文）否则回退 `<a download>`；`path=null`。**绝不写服务器磁盘** |
+| `revealFile(path)` | `invoke("reveal_in_folder", {path})` | no-op（Web 沙箱无法 reveal 本机文件） |
 
 **文件上传特殊路径**（在 `HttpTransport.call()` 中走 multipart/form-data 而非 JSON）：
 
@@ -1141,6 +1143,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `open_url` | `POST /api/desktop/open-url` | HTTP 端点保留但返回 no-op（浏览器无系统调用权限） |
 | `open_directory` | `POST /api/desktop/open-directory` | 同上 |
 | `reveal_in_folder` | `POST /api/desktop/reveal-in-folder` | 同上 |
+| `save_exported_file` | — | 仅桌面：把导出字节（base64）写到原生保存框选定的路径（设计空间导出）。**故意无 HTTP 端点**——远端经 File System Access / 浏览器下载在本机保存，绝不写服务器磁盘（防远程写盘 / 外泄） |
 | `set_dock_badge_cmd` | — | 仅桌面：把全局未读总数写到 app icon / Dock 角标（`count=0` 清除）；前端按 `isTauriMode()` 门控，Web 端不调用，无 HTTP 端点 |
 | `get_system_prompt` | `POST /api/system-prompt` | 调试端点 |
 

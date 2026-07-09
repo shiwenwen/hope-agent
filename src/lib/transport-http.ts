@@ -18,11 +18,13 @@ import type {
   FileTextContent,
   ProjectFsScope,
   UploadResult,
+  SaveResult,
   SessionArtifacts,
   WorkspaceEnvironmentSnapshot,
 } from "@/lib/transport";
 import type { FileChangesMetadata, MediaItem } from "@/types/chat";
 import { dispatchAuthRequired, setStoredApiKey } from "@/lib/api-key-storage";
+import { downloadBlob } from "@/lib/fileDownload";
 
 // ---------------------------------------------------------------------------
 // Command → REST endpoint mapping
@@ -1506,6 +1508,49 @@ export class HttpTransport implements Transport {
 
   supportsLocalFileOps(): boolean {
     return false;
+  }
+
+  async saveFileAs(blob: Blob, filename: string): Promise<SaveResult> {
+    // Prefer the File System Access API (Chromium + secure context) so the user
+    // can pick a directory + filename. Falls back to a plain browser download on
+    // Firefox/Safari or plain-http, where the API is unavailable.
+    // NOTE: deliberately client-side only — a remote client must NEVER write to
+    // the server's disk (that would be a remote-write / exfil surface).
+    const picker = (
+      window as unknown as {
+        showSaveFilePicker?: (opts: {
+          suggestedName?: string;
+        }) => Promise<{
+          createWritable: () => Promise<{
+            write: (data: Blob) => Promise<void>;
+            close: () => Promise<void>;
+          }>;
+        }>;
+      }
+    ).showSaveFilePicker;
+    if (typeof picker === "function" && window.isSecureContext) {
+      try {
+        const handle = await picker({ suggestedName: filename });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return { status: "saved", path: null };
+      } catch (e) {
+        // AbortError = the user dismissed the picker → treat as cancel, don't
+        // silently dump a download they didn't ask for.
+        if (e instanceof DOMException && e.name === "AbortError") {
+          return { status: "canceled" };
+        }
+        // Any other failure (NotAllowedError, etc.) → fall through to download.
+      }
+    }
+    downloadBlob(blob, filename);
+    return { status: "downloaded" };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async revealFile(_path: string): Promise<void> {
+    // No-op in HTTP mode — a sandboxed web client cannot reveal a local file.
   }
 
   async pickLocalImage(): Promise<PickedImage | null> {

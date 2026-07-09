@@ -6319,7 +6319,9 @@
       "copyErr": "복사 실패",
       "empty": "이 디자인 시스템에는 내보낼 변수가 없습니다",
       "copy": "복사",
-      "download": "다운로드"
+      "download": "다운로드",
+      "reveal": "폴더에서 보기",
+      "downloaded": "브라우저 다운로드 폴더에 저장됨"
     },
     "figma": {
       "entry": "Figma에서 가져오기…",

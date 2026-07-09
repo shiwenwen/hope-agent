@@ -247,6 +247,7 @@ pub fn run() {
             commands::config::test_issue_reporting_connection,
             commands::misc::open_directory,
             commands::misc::reveal_in_folder,
+            commands::misc::save_exported_file,
             commands::misc::open_url,
             commands::misc::write_export_file,
             commands::misc::set_dock_badge_cmd,

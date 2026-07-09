@@ -76,6 +76,19 @@ export interface ChatStartArgs {
 }
 
 /**
+ * Outcome of {@link Transport.saveFileAs}.
+ * - `saved` — bytes written; `path` is the on-disk path on desktop (for reveal),
+ *   or `null` when saved via the web File System Access API (can't reveal).
+ * - `downloaded` — fell back to a browser download (file is in the browser's
+ *   Downloads folder; no path).
+ * - `canceled` — the user dismissed the save picker.
+ */
+export type SaveResult =
+  | { status: "saved"; path: string | null }
+  | { status: "downloaded" }
+  | { status: "canceled" };
+
+/**
  * Transport defines the three communication primitives the app needs:
  *
  * 1. `call` – request/response (command invocation)
@@ -186,6 +199,27 @@ export interface Transport {
    * False in HTTP/Web mode — UIs should hide the "Reveal" action.
    */
   supportsLocalFileOps(): boolean;
+
+  /**
+   * Save arbitrary bytes to a user-chosen location (used by Design Space exports).
+   * - Tauri: native "Save As" dialog (pre-filled with the last-used directory);
+   *   writes to the picked path; the returned `path` is set so callers can offer
+   *   "reveal in folder".
+   * - HTTP/Web: File System Access picker where available (Chromium + secure
+   *   context), otherwise a plain browser download; `path` is always `null`
+   *   (a sandboxed web client cannot reveal a local file).
+   *
+   * Returns `{status:"canceled"}` if the user dismisses the picker. Throws on a
+   * genuine write failure (callers surface an error toast).
+   */
+  saveFileAs(blob: Blob, filename: string): Promise<SaveResult>;
+
+  /**
+   * Reveal a saved file in the OS file manager (Finder / Explorer highlight).
+   * No-op on HTTP/Web — only meaningful for a {@link SaveResult} whose `path`
+   * is set (i.e. desktop).
+   */
+  revealFile(path: string): Promise<void>;
 
   /**
    * Prompt the user to pick a local image and return a {@link PickedImage}

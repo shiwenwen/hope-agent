@@ -6319,7 +6319,9 @@
       "copyErr": "Sao chép thất bại",
       "empty": "Hệ thống thiết kế này không có biến nào để xuất",
       "copy": "Sao chép",
-      "download": "Tải xuống"
+      "download": "Tải xuống",
+      "reveal": "Hiện trong thư mục",
+      "downloaded": "Đã tải về thư mục Tải xuống của trình duyệt"
     },
     "figma": {
       "entry": "Nhập từ Figma…",

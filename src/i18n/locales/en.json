@@ -6319,7 +6319,9 @@
       "copyErr": "Copy failed",
       "empty": "This design system has no exportable variables",
       "copy": "Copy",
-      "download": "Download"
+      "download": "Download",
+      "reveal": "Show in folder",
+      "downloaded": "Downloaded to your browser's Downloads folder"
     },
     "figma": {
       "entry": "Import from Figma…",

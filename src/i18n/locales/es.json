@@ -6319,7 +6319,9 @@
       "copyErr": "Error al copiar",
       "empty": "Este sistema de diseño no tiene variables exportables",
       "copy": "Copiar",
-      "download": "Descargar"
+      "download": "Descargar",
+      "reveal": "Mostrar en carpeta",
+      "downloaded": "Descargado en la carpeta de Descargas del navegador"
     },
     "figma": {
       "entry": "Importar de Figma…",

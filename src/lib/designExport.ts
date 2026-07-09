@@ -307,17 +307,9 @@ export function base64ToBlob(b64: string, mime: string): Blob {
   return new Blob([bytes], { type: mime })
 }
 
-/** 触发浏览器下载一个 Blob。 */
-export function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
+// `downloadBlob` 已抽到 leaf module `fileDownload.ts`（避免 transport-http import 环）；
+// 此处 re-export 保持旧调用点 `import { downloadBlob } from "@/lib/designExport"` 不变。
+export { downloadBlob } from "@/lib/fileDownload"
 
 /** 文件名安全化。 */
 export function safeFilename(title: string): string {

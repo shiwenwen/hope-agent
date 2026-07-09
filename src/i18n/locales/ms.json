@@ -6319,7 +6319,9 @@
       "copyErr": "Gagal menyalin",
       "empty": "Sistem reka bentuk ini tiada pemboleh ubah untuk dieksport",
       "copy": "Salin",
-      "download": "Muat turun"
+      "download": "Muat turun",
+      "reveal": "Tunjuk dalam folder",
+      "downloaded": "Dimuat turun ke folder Muat Turun pelayar"
     },
     "figma": {
       "entry": "Import dari Figma…",

@@ -139,11 +139,11 @@ import {
   exportPng,
   exportPdf,
   exportPptx,
-  downloadBlob,
   base64ToBlob,
   safeFilename,
   rasterizeArtifactFull,
 } from "@/lib/designExport"
+import { presentSaveResult } from "./exportSave"
 import { exportVideo } from "@/lib/designVideo"
 import DesignDrawOverlay, { type DesignDrawSubmit } from "@/components/design/DesignDrawOverlay"
 import { ArtifactThumb } from "@/components/design/ArtifactThumb"
@@ -1787,6 +1787,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           : undefined
       try {
         const base = safeFilename(activeArtifact.title)
+        // 统一保存出口：桌面弹原生「保存到…」框（记住上次目录）+ 存后可「在文件夹中显示」；
+        // 网页走 File System Access 选目录、否则回退浏览器下载。取消保存框 = 静默关 loading。
+        const save = async (blob: Blob, name: string) =>
+          presentSaveResult(await tx.saveFileAs(blob, name), tx, t, { toastId })
         // Text formats (HTML / Markdown) — backend returns the content directly.
         if (format === "html" || format === "md") {
           const fmt = format === "md" ? "markdown" : "html"
@@ -1795,7 +1799,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             { id: activeArtifact.id, format: fmt },
           )
           if (!res) return
-          downloadBlob(new Blob([res.content], { type: res.mime }), res.filename || `${base}.${format}`)
+          await save(new Blob([res.content], { type: res.mime }), res.filename || `${base}.${format}`)
           return
         }
         // ZIP — backend assembles a source bundle (base64).
@@ -1804,8 +1808,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             artifactId: activeArtifact.id,
           })
           if (!res?.zip) return
-          downloadBlob(base64ToBlob(res.zip, "application/zip"), `${base}.zip`)
-          if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
+          await save(base64ToBlob(res.zip, "application/zip"), `${base}.zip`)
           return
         }
         // Handoff — 代码交付包（index.html + source/ + 多平台 tokens/ + HANDOFF.md，base64 zip）。
@@ -1815,11 +1818,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             { id: activeArtifact.id },
           )
           if (!res?.content) return
-          downloadBlob(
+          await save(
             base64ToBlob(res.content, res.mime || "application/zip"),
             res.filename || `${base}-handoff.zip`,
           )
-          if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
           return
         }
         // Rasterized formats (PNG/PDF/PPTX/MP4) need the clean self-contained HTML.
@@ -1836,6 +1838,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           jpegQuality: designConfig?.exportJpegQuality,
           onProgress,
         }
+        // 栅格化分支只负责**产出字节**（native 强路失败才回退客户端）；保存放到分支之后统一
+        // 走一次 save()——否则把 save() 塞进 native try 里，一次真实的写盘失败会被「native
+        // 引擎失败→客户端回退」的 catch 误吞，白白重跑一遍昂贵的客户端重渲染 + 再弹一次保存框
+        // （review MED）。保存失败落到外层 catch = 正确的「导出失败」。
+        let out: { blob: Blob; name: string } | null = null
         if (format === "png" || format === "pdf") {
           // PDF/PNG 强路 = 真实浏览器原生捕获（PDF 矢量可选文字 / PNG 全保真）。先预检浏览器
           // 引擎：未就绪则弹门让用户主动选（下载 Chromium runtime / 引导 / 用较低保真客户端）。
@@ -1852,7 +1859,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               "export_design_native_cmd",
               { id: activeArtifact.id, format },
             )
-            downloadBlob(base64ToBlob(nat.data, nat.mime), `${base}.${format}`)
+            out = { blob: base64ToBlob(nat.data, nat.mime), name: `${base}.${format}` }
           } catch (e) {
             logger.error(
               "design",
@@ -1860,17 +1867,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               `native ${format} failed after ready engine, using client fallback`,
               e,
             )
-            if (format === "png") {
-              downloadBlob(await exportPng(res.content, kind, vw, exportOpts), `${base}.png`)
-            } else {
-              downloadBlob(await exportPdf(res.content, kind, vw, exportOpts), `${base}.pdf`)
-            }
+            const blob =
+              format === "png"
+                ? await exportPng(res.content, kind, vw, exportOpts)
+                : await exportPdf(res.content, kind, vw, exportOpts)
+            out = { blob, name: `${base}.${format}` }
           }
         } else if (format === "pptx") {
-          downloadBlob(
-            await exportPptx(res.content, kind, activeArtifact.title, vw, exportOpts),
-            `${base}.pptx`,
-          )
+          out = {
+            blob: await exportPptx(res.content, kind, activeArtifact.title, vw, exportOpts),
+            name: `${base}.pptx`,
+          }
         } else if (format === "video") {
           // MP4 强路 = 真实浏览器逐帧渲染 + ffmpeg 编码，**两个依赖都要**（ffmpeg 编码器 + 浏览器
           // 引擎）。两个都预检，任一未就绪即弹门让用户主动选，不静默降级（缺浏览器时若只检
@@ -1895,7 +1902,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               "export_design_native_cmd",
               { id: activeArtifact.id, format: "video" },
             )
-            downloadBlob(base64ToBlob(nat.data, nat.mime), `${base}.mp4`)
+            out = { blob: base64ToBlob(nat.data, nat.mime), name: `${base}.mp4` }
           } catch (e) {
             logger.error(
               "design",
@@ -1903,16 +1910,16 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               "native video failed after ready ffmpeg, using client WebCodecs fallback",
               e,
             )
-            downloadBlob(
-              await exportVideo(res.content, vw, activeArtifact.viewportH, {
-                scale: designConfig?.exportScale,
-                onProgress,
-              }),
-              `${base}.mp4`,
-            )
+            const blob = await exportVideo(res.content, vw, activeArtifact.viewportH, {
+              scale: designConfig?.exportScale,
+              onProgress,
+            })
+            out = { blob, name: `${base}.mp4` }
           }
         }
-        if (toastId !== undefined) toast.success(t("design.ok.exported", "已导出"), { id: toastId })
+        // 统一保存出口：产出字节后弹保存框；成功/取消提示由 save()→presentSaveResult 逐路给出
+        // （含桌面 reveal 动作），写盘失败抛到外层 catch → 正确的「导出失败」。
+        if (out) await save(out.blob, out.name)
       } catch (e) {
         logger.error("design", "DesignView::handleExport", `export ${format} failed`, e)
         toast.error(t("design.err.export", "导出失败"), toastId !== undefined ? { id: toastId } : undefined)
@@ -1932,23 +1939,39 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     setExporting(g.format)
     setGateInstalling(true)
     setGateProgress(null)
+    // 阶段一：装依赖——失败才是真·「依赖下载失败」。
     try {
       await tx.call(g.dep === "ffmpeg" ? "design_install_ffmpeg_cmd" : "design_install_browser_cmd")
-      setExportGate(null)
-      const tid = toast.loading(t("design.exporting", "正在导出…"))
+    } catch (e) {
+      logger.error("design", "DesignView::gateInstall", `${g.dep} install failed`, e)
+      toast.error(t("design.err.depInstall", "依赖下载失败，请重试或改用较低保真"))
+      setGateInstalling(false)
+      setGateProgress(null)
+      setExporting(null)
+      return
+    }
+    setExportGate(null)
+    setGateInstalling(false)
+    setGateProgress(null)
+    // 阶段二：原生捕获 + 保存——写盘失败 = 「导出失败」并复用 tid 撤 loading（不再误报依赖失败 /
+    // 卡住 loading 转圈，review MED）。取消保存框由 presentSaveResult 撤 tid。
+    const tid = toast.loading(t("design.exporting", "正在导出…"))
+    try {
       const nat = await tx.call<{ data: string; mime: string }>("export_design_native_cmd", {
         id: activeArtifact.id,
         format: g.format === "video" ? "video" : g.format,
       })
       const ext = g.format === "video" ? "mp4" : g.format
-      downloadBlob(base64ToBlob(nat.data, nat.mime), `${g.base}.${ext}`)
-      toast.success(t("design.ok.exported", "已导出"), { id: tid })
+      presentSaveResult(
+        await tx.saveFileAs(base64ToBlob(nat.data, nat.mime), `${g.base}.${ext}`),
+        tx,
+        t,
+        { toastId: tid },
+      )
     } catch (e) {
-      logger.error("design", "DesignView::gateInstall", `${g.dep} install/export failed`, e)
-      toast.error(t("design.err.depInstall", "依赖下载失败，请重试或改用较低保真"))
+      logger.error("design", "DesignView::gateInstall", "native export/save failed", e)
+      toast.error(t("design.err.export", "导出失败"), { id: tid })
     } finally {
-      setGateInstalling(false)
-      setGateProgress(null)
       setExporting(null)
     }
   }, [exportGate, activeArtifact, tx, t])
@@ -1961,27 +1984,28 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     setExportGate(null)
     const tid = toast.loading(t("design.exporting", "正在导出…"))
     const opts = { scale: designConfig?.exportScale, jpegQuality: designConfig?.exportJpegQuality }
+    const save = async (blob: Blob, name: string) =>
+      presentSaveResult(await tx.saveFileAs(blob, name), tx, t, { toastId: tid })
     try {
       if (g.format === "video") {
-        downloadBlob(
+        await save(
           await exportVideo(g.html, activeArtifact.viewportW, activeArtifact.viewportH, {
             scale: designConfig?.exportScale,
           }),
           `${g.base}.mp4`,
         )
       } else if (g.format === "png") {
-        downloadBlob(await exportPng(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.png`)
+        await save(await exportPng(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.png`)
       } else if (g.format === "pdf") {
-        downloadBlob(await exportPdf(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.pdf`)
+        await save(await exportPdf(g.html, activeArtifact.kind, activeArtifact.viewportW, opts), `${g.base}.pdf`)
       }
-      toast.success(t("design.ok.exported", "已导出"), { id: tid })
     } catch (e) {
       logger.error("design", "DesignView::gateClient", "client export failed", e)
       toast.error(t("design.err.export", "导出失败"), { id: tid })
     } finally {
       setExporting(null)
     }
-  }, [exportGate, activeArtifact, designConfig, t])
+  }, [exportGate, activeArtifact, designConfig, tx, t])
 
   // 依赖下载进度（ffmpeg 与 Chromium 各自的 emit 通道）。
   useEffect(() => {
@@ -2009,8 +2033,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         projectId: activeProject.id,
       })
       if (!res?.zip) return
-      downloadBlob(base64ToBlob(res.zip, "application/zip"), `${safeFilename(activeProject.title)}.zip`)
-      toast.success(t("design.ok.exported", "已导出"), { id: toastId })
+      presentSaveResult(
+        await tx.saveFileAs(
+          base64ToBlob(res.zip, "application/zip"),
+          `${safeFilename(activeProject.title)}.zip`,
+        ),
+        tx,
+        t,
+        { toastId },
+      )
     } catch (e) {
       logger.error("design", "DesignView::exportProject", "export project failed", e)
       toast.error(t("design.err.export", "导出失败"), { id: toastId })
@@ -2059,11 +2090,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         if (res?.content) {
           // export_artifact("html") 返回**原始 HTML 字符串**（非 base64）——直接建 blob，
           // 不走 base64ToBlob（其 atob 会在 HTML 字符上抛，review 修复）。
-          downloadBlob(
-            new Blob([res.content], { type: res.mime || "text/html" }),
-            res.filename || `${safeFilename(a.title)}.html`,
+          presentSaveResult(
+            await tx.saveFileAs(
+              new Blob([res.content], { type: res.mime || "text/html" }),
+              res.filename || `${safeFilename(a.title)}.html`,
+            ),
+            tx,
+            t,
+            { savedMsg: t("design.share.exported", "已导出可分享的 HTML") },
           )
-          toast.success(t("design.share.exported", "已导出可分享的 HTML"))
         }
       } else {
         // server 模式：建/取分享 token → 公开链接（前端由 server 托管故 origin 即公开基址）。
@@ -2118,11 +2153,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       try {
         const res = await tx.call<{ designMd: string }>("export_design_md_cmd", { systemId })
         if (!res?.designMd) return
-        downloadBlob(
-          new Blob([res.designMd], { type: "text/markdown" }),
-          `${safeFilename(name)}-DESIGN.md`,
+        presentSaveResult(
+          await tx.saveFileAs(
+            new Blob([res.designMd], { type: "text/markdown" }),
+            `${safeFilename(name)}-DESIGN.md`,
+          ),
+          tx,
+          t,
         )
-        toast.success(t("design.ok.exported", "已导出"))
       } catch (e) {
         logger.error("design", "DesignView::exportDesignMd", "export failed", e)
         toast.error(t("design.err.export", "导出失败"))

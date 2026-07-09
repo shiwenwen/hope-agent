@@ -6319,7 +6319,9 @@
       "copyErr": "复制失败",
       "empty": "该设计系统没有可导出的变量",
       "copy": "复制",
-      "download": "下载"
+      "download": "下载",
+      "reveal": "在文件夹中显示",
+      "downloaded": "已下载到浏览器下载目录"
     },
     "figma": {
       "entry": "从 Figma 导入…",
