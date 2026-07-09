@@ -357,6 +357,101 @@ pub fn duplicate_project(id: &str) -> Result<DesignProject> {
         .with_context(|| "duplicated project vanished".to_string())
 }
 
+/// 轻量改名产物（仅 `title`，不重渲染 / 不新增版本 / 不碰 source）。空标题拒绝。
+pub fn rename_artifact(id: &str, title: &str) -> Result<DesignArtifact> {
+    let title = title.trim();
+    if title.is_empty() {
+        anyhow::bail!("artifact title cannot be empty");
+    }
+    let db = open_db()?;
+    let a = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    db.rename_artifact(id, title, &now())?;
+    db.touch_project(&a.project_id, &now())?;
+    emit(
+        "design:artifact_renamed",
+        json!({ "projectId": a.project_id, "artifactId": id, "title": title }),
+    );
+    db.get_artifact(id)?
+        .with_context(|| "renamed artifact vanished".to_string())
+}
+
+/// 复制单个产物（同项目内）：新 id + 深拷贝 `artifacts/{id}/`（index.html / source / versions /
+/// oidmap）+ 版本行（保留溯源）；标题加「(副本)」；位序自增追加末尾。失败整体回滚。
+pub fn duplicate_artifact(id: &str) -> Result<DesignArtifact> {
+    let db = open_db()?;
+    // 持 artifact_lock 串行化整段拷贝（与 finalize/update/restyle/patch 互斥，防拷到源被并发
+    // 改写中的半新半旧目录 / 版本行 TOCTOU，review 修复）。锁内读 src 保证状态一致。
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let src = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    // 生成中的产物没有稳定正文/版本行，拷出来是永远转圈的幽灵 → 拒绝（review 修复）。
+    if src.status == "generating" {
+        anyhow::bail!("cannot duplicate an artifact that is still generating");
+    }
+    let ts = now();
+    let new_aid = new_id();
+    let dup_title = format!("{} (副本)", src.title);
+    let src_dir = paths::design_artifact_dir(&src.project_id, &src.id)?;
+    let dst_dir = paths::design_artifact_dir(&src.project_id, &new_aid)?;
+    let done = (|| -> Result<()> {
+        copy_dir_recursive(&src_dir, &dst_dir)?;
+        let meta = ArtifactMeta {
+            id: new_aid.clone(),
+            project_id: src.project_id.clone(),
+            title: dup_title.clone(),
+            kind: src.kind.clone(),
+            system_id: src.system_id.clone(),
+            current_version: src.current_version,
+        };
+        write_atomic(
+            &dst_dir.join("artifact.json"),
+            serde_json::to_string_pretty(&meta)?.as_bytes(),
+        )?;
+        let new_artifact = DesignArtifact {
+            id: new_aid.clone(),
+            title: dup_title.clone(),
+            created_at: ts.clone(),
+            updated_at: ts.clone(),
+            ..src.clone()
+        };
+        db.create_artifact(&new_artifact)?;
+        for v in db.list_versions(&src.id)? {
+            db.create_version(&DesignArtifactVersion {
+                id: 0,
+                artifact_id: new_aid.clone(),
+                version_number: v.version_number,
+                message: v.message,
+                critique_score: v.critique_score,
+                origin: v.origin,
+                prompt_summary: v.prompt_summary,
+                created_at: v.created_at,
+            })?;
+        }
+        Ok(())
+    })();
+    if let Err(e) = done {
+        let _ = db.delete_artifact(&new_aid); // 版本行 ON DELETE CASCADE
+        let _ = std::fs::remove_dir_all(&dst_dir);
+        return Err(e);
+    }
+    db.touch_project(&src.project_id, &ts)?;
+    crate::app_info!("design", "service", "duplicate artifact {id} -> {new_aid}");
+    db.get_artifact(&new_aid)?
+        .with_context(|| "duplicated artifact vanished".to_string())
+}
+
+/// 重排 project 内产物页面顺序（用户拖动）：按 `ordered_ids` 下标写 `position`。
+pub fn reorder_artifacts(project_id: &str, ordered_ids: &[String]) -> Result<()> {
+    let db = open_db()?;
+    db.reorder_artifacts(project_id, ordered_ids)?;
+    db.touch_project(project_id, &now())?;
+    Ok(())
+}
+
 pub fn list_projects() -> Result<Vec<DesignProject>> {
     open_db()?.list_projects()
 }
@@ -1557,13 +1652,19 @@ pub fn ensure_artifact_render_fresh(id: &str) -> Result<bool> {
     let index_path = dir.join("index.html");
     let marker = format!("data-ds-r=\"{}\"", renderer::RENDER_VERSION);
     // 快路径：锁外读一次，已最新直接 no-op（避免无谓锁竞争，绝大多数打开走这里）。
-    if head_contains_marker(&std::fs::read_to_string(&index_path).unwrap_or_default(), &marker) {
+    if head_contains_marker(
+        &std::fs::read_to_string(&index_path).unwrap_or_default(),
+        &marker,
+    ) {
         return Ok(false);
     }
     // 慢路径：持锁串行化，锁内双检。
     let lock = artifact_lock(id);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    if head_contains_marker(&std::fs::read_to_string(&index_path).unwrap_or_default(), &marker) {
+    if head_contains_marker(
+        &std::fs::read_to_string(&index_path).unwrap_or_default(),
+        &marker,
+    ) {
         return Ok(false); // 并发写者已刷新（其 render 亦带当前标记）
     }
     let parts = read_source(&dir)?;

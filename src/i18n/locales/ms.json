@@ -6496,6 +6496,11 @@
       "scopeNoImage": "{{n}} kawasan ditanda (tangkapan skrin tiada; teks sahaja).",
       "scopeNote": "Nota pengguna: {{note}}",
       "scopeInstruction": "Ubah kawasan yang ditanda sahaja; kekalkan yang lain."
-    }
+    },
+    "dblClickRename": "Klik dua kali untuk namakan semula",
+    "duplicatePage": "Salin halaman",
+    "pagesOverview": "Semua halaman (imej kecil · seret untuk susun semula)",
+    "pagesOverviewHint": "Semua halaman · seret untuk susun semula · klik dua kali tajuk untuk namakan semula",
+    "clickRenameProject": "Klik untuk namakan semula projek"
   }
 }

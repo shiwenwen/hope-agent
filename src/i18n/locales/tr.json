@@ -6496,6 +6496,11 @@
       "scopeNoImage": "{{n}} işaretli bölge (ekran görüntüsü yok; yalnızca metin).",
       "scopeNote": "Kullanıcı notu: {{note}}",
       "scopeInstruction": "Yalnızca işaretli bölgeleri değiştir; gerisini aynı bırak."
-    }
+    },
+    "dblClickRename": "Yeniden adlandırmak için çift tıkla",
+    "duplicatePage": "Sayfayı çoğalt",
+    "pagesOverview": "Tüm sayfalar (küçük resimler · sürükleyerek sırala)",
+    "pagesOverviewHint": "Tüm sayfalar · sürükleyerek sırala · başlığa çift tıklayarak yeniden adlandır",
+    "clickRenameProject": "Projeyi yeniden adlandırmak için tıkla"
   }
 }

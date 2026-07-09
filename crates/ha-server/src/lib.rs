@@ -1901,6 +1901,18 @@ fn build_router_with_cors(
             get(routes::design::get_artifact).delete(routes::design::delete_artifact),
         )
         .route(
+            "/design/artifacts/{id}/title",
+            axum::routing::put(routes::design::rename_artifact),
+        )
+        .route(
+            "/design/artifacts/{id}/duplicate",
+            post(routes::design::duplicate_artifact),
+        )
+        .route(
+            "/design/projects/{id}/artifacts/reorder",
+            post(routes::design::reorder_artifacts),
+        )
+        .route(
             "/design/artifacts/{id}/versions",
             get(routes::design::list_versions),
         )

@@ -6496,6 +6496,11 @@
       "scopeNoImage": "{{n}} marked region(s) (screenshot unavailable; text only).",
       "scopeNote": "User note: {{note}}",
       "scopeInstruction": "Only change the marked regions; leave everything else unchanged."
-    }
+    },
+    "dblClickRename": "Double-click to rename",
+    "duplicatePage": "Duplicate page",
+    "pagesOverview": "All pages (thumbnails · drag to reorder)",
+    "pagesOverviewHint": "All pages · drag to reorder · double-click title to rename",
+    "clickRenameProject": "Click to rename project"
   }
 }

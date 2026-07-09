@@ -6496,6 +6496,11 @@
       "scopeNoImage": "{{n}} región(es) marcada(s) (captura no disponible; solo texto).",
       "scopeNote": "Nota del usuario: {{note}}",
       "scopeInstruction": "Cambia solo las regiones marcadas; deja el resto sin cambios."
-    }
+    },
+    "dblClickRename": "Doble clic para renombrar",
+    "duplicatePage": "Duplicar página",
+    "pagesOverview": "Todas las páginas (miniaturas · arrastra para reordenar)",
+    "pagesOverviewHint": "Todas las páginas · arrastra para reordenar · doble clic en el título para renombrar",
+    "clickRenameProject": "Haz clic para renombrar el proyecto"
   }
 }

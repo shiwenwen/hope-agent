@@ -369,6 +369,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [deleteTarget, setDeleteTarget] = useState<
     { type: "project"; id: string; title: string } | { type: "artifact"; id: string; title: string } | null
   >(null)
+  // 页面组织（本轮）：产物总览网格 / 就地改名（产物 + 项目）/ 拖动排序。
+  const [showGrid, setShowGrid] = useState(false)
+  const [renamingArtifactId, setRenamingArtifactId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState("")
+  const [renamingProject, setRenamingProject] = useState(false)
+  const artifactsRef = useRef<DesignArtifact[]>([])
+  artifactsRef.current = artifacts
+  const dragIdRef = useRef<string | null>(null)
 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
@@ -715,6 +723,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       if (!next) return
       try {
         await tx.call<DesignProject>("update_design_project_cmd", { input: { id, title: next } })
+        // 就地改名后同步当前打开项目（工作室标题读 activeProject）+ 刷新项目墙列表。
+        setActiveProject((prev) => (prev && prev.id === id ? { ...prev, title: next } : prev))
         await loadProjects()
       } catch (e) {
         logger.error("design", "DesignView::renameProject", "rename failed", e)
@@ -760,7 +770,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
 
   const loadArtifacts = useCallback(
-    // `selectFirst`：打开项目时自动选中列表首项（后端按 updated_at DESC 返回 = 最近编辑的产物），
+    // `selectFirst`：打开项目时自动选中列表首项（后端按 position ASC 返回 = 第一个页面），
     // 其余调用方（新建 / 刷新后重载）不传，保留当前选中不被顶掉。
     async (projectId: string, selectFirst = false) => {
       setLoadingArtifacts(true)
@@ -780,10 +790,79 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, t, openArtifact],
   )
 
+  // ── 产物（页面）改名 / 复制 / 拖动排序（本轮）──
+  const renameArtifact = useCallback(
+    async (id: string, title: string) => {
+      const next = title.trim()
+      if (!next) return
+      try {
+        await tx.call("rename_design_artifact_cmd", { id, title: next })
+        const pid = activeProjectRef.current?.id
+        if (pid) await loadArtifacts(pid)
+        setActiveArtifact((prev) => (prev && prev.id === id ? { ...prev, title: next } : prev))
+      } catch (e) {
+        logger.error("design", "DesignView::renameArtifact", "rename failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadArtifacts],
+  )
+  const duplicateArtifact = useCallback(
+    async (id: string) => {
+      try {
+        const dup = await tx.call<DesignArtifact>("duplicate_design_artifact_cmd", { id })
+        const pid = activeProjectRef.current?.id
+        if (pid) await loadArtifacts(pid)
+        if (dup) void openArtifact(dup)
+      } catch (e) {
+        logger.error("design", "DesignView::duplicateArtifact", "duplicate failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadArtifacts, openArtifact],
+  )
+  const reorderArtifacts = useCallback(
+    async (orderedIds: string[]) => {
+      const pid = activeProjectRef.current?.id
+      if (!pid) return
+      try {
+        await tx.call("reorder_design_artifacts_cmd", { projectId: pid, orderedIds })
+      } catch (e) {
+        logger.error("design", "DesignView::reorderArtifacts", "reorder failed", e)
+        await loadArtifacts(pid) // 回滚到服务器真相
+      }
+    },
+    [tx, loadArtifacts],
+  )
+  // 拖动排序：dragOver 时 live 重排本地数组（即时反馈），dragEnd 落库。
+  const onGridDragOver = useCallback((e: React.DragEvent, overId: string) => {
+    e.preventDefault()
+    const dragId = dragIdRef.current
+    if (!dragId || dragId === overId) return
+    setArtifacts((prev) => {
+      const from = prev.findIndex((a) => a.id === dragId)
+      const to = prev.findIndex((a) => a.id === overId)
+      if (from < 0 || to < 0 || from === to) return prev
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      return next
+    })
+  }, [])
+  const onGridDragEnd = useCallback(() => {
+    if (dragIdRef.current) {
+      dragIdRef.current = null
+      void reorderArtifacts(artifactsRef.current.map((a) => a.id))
+    }
+  }, [reorderArtifacts])
+
   const openProject = useCallback(
     (project: DesignProject) => {
       setActiveProject(project)
       setActiveArtifact(null)
+      setShowGrid(false)
+      setRenamingProject(false)
+      setRenamingArtifactId(null)
       void loadArtifacts(project.id, true)
     },
     [loadArtifacts],
@@ -2418,9 +2497,35 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           </IconTip>
         )}
         <Palette className="h-4 w-4 text-primary" />
-        <span className="text-sm font-semibold">
-          {activeProject ? activeProject.title : t("design.title", "设计空间")}
-        </span>
+        {activeProject && renamingProject ? (
+          <input
+            autoFocus
+            defaultValue={activeProject.title}
+            onBlur={(e) => {
+              const v = e.target.value.trim()
+              if (v && v !== activeProject.title) void renameProject(activeProject.id, v)
+              setRenamingProject(false)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+              else if (e.key === "Escape") setRenamingProject(false)
+            }}
+            className="w-48 rounded border border-primary/50 bg-background px-2 py-0.5 text-sm font-semibold outline-none"
+          />
+        ) : (
+          <span
+            className={cn(
+              "text-sm font-semibold",
+              activeProject && "cursor-text rounded px-1 hover:bg-muted",
+            )}
+            title={activeProject ? t("design.clickRenameProject", "点击改项目名") : undefined}
+            onClick={() => {
+              if (activeProject) setRenamingProject(true)
+            }}
+          >
+            {activeProject ? activeProject.title : t("design.title", "设计空间")}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1">
           {activeProject && (
             <>
@@ -2579,6 +2684,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 }
               />
             </>
+          )}
+          {activeProject && artifacts.length > 0 && (
+            <IconTip label={t("design.pagesOverview", "所有页面总览（缩略图 · 拖动排序）")}>
+              <Button
+                variant={showGrid ? "default" : "ghost"}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setShowGrid((v) => !v)}
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </Button>
+            </IconTip>
           )}
           {activeProject && (
             <DropdownMenu>
@@ -2752,42 +2869,84 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                 artifacts.map((a) => {
                   const Icon = KIND_ICON[a.kind] ?? Monitor
                   const active = activeArtifact?.id === a.id
+                  // 网格开启时改名在网格里进行（避免 chip 与网格卡同时渲染两个 input）。
+                  const renaming = renamingArtifactId === a.id && !showGrid
                   return (
                     <div key={a.id} className="group/chip relative shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => void openArtifact(a)}
-                        className={cn(
-                          "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-7 text-xs transition-colors",
-                          active
-                            ? "bg-primary/10 text-primary"
-                            : "text-foreground hover:bg-muted",
-                        )}
-                      >
-                        <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        <span className="truncate">{a.title}</span>
-                        {a.status === "generating" && (
-                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-                        )}
-                        {a.status === "failed" && (
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-                        )}
-                        {a.status === "needs_review" && (
-                          <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                        )}
-                      </button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("common.delete", "删除")}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
-                        }}
-                        className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/chip:opacity-100"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      {renaming ? (
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onBlur={() => {
+                            void renameArtifact(a.id, renameDraft)
+                            setRenamingArtifactId(null)
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              void renameArtifact(a.id, renameDraft)
+                              setRenamingArtifactId(null)
+                            } else if (e.key === "Escape") setRenamingArtifactId(null)
+                          }}
+                          className="w-[150px] rounded-lg border border-primary/50 bg-background px-2.5 py-1 text-xs outline-none"
+                        />
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void openArtifact(a)}
+                            onDoubleClick={() => {
+                              setRenamingArtifactId(a.id)
+                              setRenameDraft(a.title)
+                            }}
+                            title={t("design.dblClickRename", "双击改名")}
+                            className={cn(
+                              "flex max-w-[180px] items-center gap-1.5 rounded-lg py-1 pl-2.5 pr-11 text-xs transition-colors",
+                              active
+                                ? "bg-primary/10 text-primary"
+                                : "text-foreground hover:bg-muted",
+                            )}
+                          >
+                            <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                            <span className="truncate">{a.title}</span>
+                            {a.status === "generating" && (
+                              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                            )}
+                            {a.status === "failed" && (
+                              <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                            )}
+                            {a.status === "needs_review" && (
+                              <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                            )}
+                          </button>
+                          <div className="absolute right-0.5 top-1/2 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/chip:opacity-100">
+                            <IconTip label={t("design.duplicatePage", "复制页面")}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void duplicateArtifact(a.id)
+                                }}
+                                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </IconTip>
+                            <IconTip label={t("common.delete", "删除")}>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
+                                }}
+                                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </IconTip>
+                          </div>
+                        </>
+                      )}
                     </div>
                   )
                 })
@@ -2796,7 +2955,110 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
             {/* Single-artifact preview */}
             <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
-            {activeArtifact ? (
+            {showGrid && artifacts.length > 0 ? (
+              /* 页面总览网格（本轮）：全部页面缩略图 + 拖动排序 + 双击改名 + 复制/删除。
+                 空列表（删光最后一页）时自动落回单产物/空态，不把用户困在空网格（review 修复）。 */
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3 text-xs text-muted-foreground">
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span>{t("design.pagesOverviewHint", "全部页面 · 拖动排序 · 双击标题改名")}</span>
+                  <span className="ml-auto tabular-nums">{artifacts.length}</span>
+                </div>
+                <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 overflow-y-auto p-4">
+                  {artifacts.map((a) => {
+                    const renaming = renamingArtifactId === a.id
+                    return (
+                      <div
+                        key={a.id}
+                        draggable={!renaming}
+                        onDragStart={() => {
+                          dragIdRef.current = a.id
+                        }}
+                        onDragOver={(e) => onGridDragOver(e, a.id)}
+                        onDragEnd={onGridDragEnd}
+                        className={cn(
+                          "group/card flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md",
+                          activeArtifact?.id === a.id && "ring-2 ring-primary/40",
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void openArtifact(a)
+                            setShowGrid(false)
+                          }}
+                          className="relative block aspect-[3/4] w-full overflow-hidden bg-muted"
+                        >
+                          {/* component 是客户端 React 水合，缩略图 sandbox="" 禁脚本 → 空白，
+                              改用类型图标占位（review 修复）。其余 kind 静态可渲染。 */}
+                          {a.kind === "component" ? (
+                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-muted to-muted/40">
+                              {(() => {
+                                const KIcon = KIND_ICON[a.kind] ?? Monitor
+                                return <KIcon className="h-8 w-8 text-muted-foreground/50" />
+                              })()}
+                            </div>
+                          ) : (
+                            <ArtifactThumb artifactId={a.id} />
+                          )}
+                        </button>
+                        <div className="flex items-center gap-1 border-t px-2 py-1.5">
+                          {renaming ? (
+                            <input
+                              autoFocus
+                              value={renameDraft}
+                              onChange={(e) => setRenameDraft(e.target.value)}
+                              onBlur={() => {
+                                void renameArtifact(a.id, renameDraft)
+                                setRenamingArtifactId(null)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  void renameArtifact(a.id, renameDraft)
+                                  setRenamingArtifactId(null)
+                                } else if (e.key === "Escape") setRenamingArtifactId(null)
+                              }}
+                              className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-xs outline-none"
+                            />
+                          ) : (
+                            <span
+                              className="min-w-0 flex-1 cursor-text truncate text-xs"
+                              title={t("design.dblClickRename", "双击改名")}
+                              onDoubleClick={() => {
+                                setRenamingArtifactId(a.id)
+                                setRenameDraft(a.title)
+                              }}
+                            >
+                              {a.title}
+                            </span>
+                          )}
+                          <IconTip label={t("design.duplicatePage", "复制页面")}>
+                            <button
+                              type="button"
+                              onClick={() => void duplicateArtifact(a.id)}
+                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/card:opacity-100"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </button>
+                          </IconTip>
+                          <IconTip label={t("common.delete", "删除")}>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
+                              }
+                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/card:opacity-100"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </IconTip>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : activeArtifact ? (
               <>
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3">
                   <span className="truncate text-xs font-medium text-muted-foreground">

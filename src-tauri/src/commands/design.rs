@@ -105,6 +105,30 @@ pub async fn delete_design_artifact_cmd(id: String) -> Result<(), CmdError> {
     service::delete_artifact(&id).map_err(Into::into)
 }
 
+/// 轻量改名产物（仅 title）。
+#[tauri::command]
+pub async fn rename_design_artifact_cmd(
+    id: String,
+    title: String,
+) -> Result<DesignArtifact, CmdError> {
+    service::rename_artifact(&id, &title).map_err(Into::into)
+}
+
+/// 复制产物（同项目内，深拷贝，标题加「(副本)」）。
+#[tauri::command]
+pub async fn duplicate_design_artifact_cmd(id: String) -> Result<DesignArtifact, CmdError> {
+    service::duplicate_artifact(&id).map_err(Into::into)
+}
+
+/// 重排项目内产物页面顺序（拖动）。
+#[tauri::command]
+pub async fn reorder_design_artifacts_cmd(
+    project_id: String,
+    ordered_ids: Vec<String>,
+) -> Result<(), CmdError> {
+    service::reorder_artifacts(&project_id, &ordered_ids).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn list_design_artifact_versions_cmd(
     id: String,

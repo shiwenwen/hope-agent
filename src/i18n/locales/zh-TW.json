@@ -6496,6 +6496,11 @@
       "scopeNoImage": "共 {{n}} 處標註（截圖未生成，僅文字說明）。",
       "scopeNote": "使用者說明：{{note}}",
       "scopeInstruction": "請只針對標註區域修改，其餘部分保持不變。"
-    }
+    },
+    "dblClickRename": "雙擊改名",
+    "duplicatePage": "複製頁面",
+    "pagesOverview": "所有頁面總覽（縮圖 · 拖動排序）",
+    "pagesOverviewHint": "全部頁面 · 拖動排序 · 雙擊標題改名",
+    "clickRenameProject": "點擊改專案名"
   }
 }

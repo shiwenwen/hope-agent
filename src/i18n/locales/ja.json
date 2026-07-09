@@ -6496,6 +6496,11 @@
       "scopeNoImage": "{{n}} 箇所のマーク（スクリーンショットは生成できず、テキストのみ）。",
       "scopeNote": "ユーザーの説明：{{note}}",
       "scopeInstruction": "マークした領域のみを変更し、それ以外はそのままにしてください。"
-    }
+    },
+    "dblClickRename": "ダブルクリックで名前変更",
+    "duplicatePage": "ページを複製",
+    "pagesOverview": "全ページ一覧（サムネイル · ドラッグで並べ替え）",
+    "pagesOverviewHint": "全ページ · ドラッグで並べ替え · タイトルをダブルクリックで名前変更",
+    "clickRenameProject": "クリックしてプロジェクト名を変更"
   }
 }

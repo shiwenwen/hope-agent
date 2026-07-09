@@ -6496,6 +6496,11 @@
       "scopeNoImage": "{{n}} vùng được đánh dấu (không có ảnh chụp; chỉ văn bản).",
       "scopeNote": "Ghi chú của người dùng: {{note}}",
       "scopeInstruction": "Chỉ thay đổi các vùng được đánh dấu; giữ nguyên phần còn lại."
-    }
+    },
+    "dblClickRename": "Nhấp đúp để đổi tên",
+    "duplicatePage": "Nhân bản trang",
+    "pagesOverview": "Tất cả trang (hình thu nhỏ · kéo để sắp xếp)",
+    "pagesOverviewHint": "Tất cả trang · kéo để sắp xếp · nhấp đúp tiêu đề để đổi tên",
+    "clickRenameProject": "Nhấp để đổi tên dự án"
   }
 }

@@ -452,6 +452,9 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `get_design_artifact_cmd` | `GET /api/design/artifacts/{id}` | ✅ |
 | `ensure_design_artifact_fresh_cmd` | `POST /api/design/artifacts/{id}/ensure-fresh`（打开时自愈渲染版本，返回是否重渲染） | ✅ |
 | `delete_design_artifact_cmd` | `DELETE /api/design/artifacts/{id}` | ✅ |
+| `rename_design_artifact_cmd` | `PUT /api/design/artifacts/{id}/title`（轻量改名，不重渲染/不新版本） | ✅ |
+| `duplicate_design_artifact_cmd` | `POST /api/design/artifacts/{id}/duplicate`（同项目内深拷贝） | ✅ |
+| `reorder_design_artifacts_cmd` | `POST /api/design/projects/{projectId}/artifacts/reorder`（拖动排序，body `orderedIds`） | ✅ |
 | `list_design_artifact_versions_cmd` | `GET /api/design/artifacts/{id}/versions` | ✅ |
 | `get_design_artifact_version_html_cmd` | `GET /api/design/artifacts/{artifactId}/versions/{versionNumber}/html` | ✅ |
 | `create_design_share_cmd` | `POST /api/design/artifacts/{artifactId}/share` | ✅ |

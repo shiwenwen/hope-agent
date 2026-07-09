@@ -214,6 +214,49 @@ pub async fn duplicate_project(Path(id): Path<String>) -> Result<Json<DesignProj
     ))
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameArtifactBody {
+    pub title: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderArtifactsBody {
+    pub ordered_ids: Vec<String>,
+}
+
+/// `PUT /api/design/artifacts/{id}/title` — 轻量改名产物。
+pub async fn rename_artifact(
+    Path(id): Path<String>,
+    Json(body): Json<RenameArtifactBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::rename_artifact(&id, &body.title)
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/artifacts/{id}/duplicate` — 复制产物（同项目内）。
+pub async fn duplicate_artifact(Path(id): Path<String>) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::duplicate_artifact(&id).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/projects/{id}/artifacts/reorder` — 重排项目内产物页面顺序。
+pub async fn reorder_artifacts(
+    Path(id): Path<String>,
+    Json(body): Json<ReorderArtifactsBody>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::reorder_artifacts(&id, &body.ordered_ids)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 // ── Artifacts ──────────────────────────────────────────────────────
 
 /// `GET /api/design/projects/{project_id}/artifacts`

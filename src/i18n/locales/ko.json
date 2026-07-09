@@ -6496,6 +6496,11 @@
       "scopeNoImage": "표시 {{n}}곳 (스크린샷을 생성하지 못해 텍스트만 제공).",
       "scopeNote": "사용자 설명: {{note}}",
       "scopeInstruction": "표시된 영역만 변경하고 나머지는 그대로 두세요."
-    }
+    },
+    "dblClickRename": "더블클릭하여 이름 변경",
+    "duplicatePage": "페이지 복제",
+    "pagesOverview": "전체 페이지 개요(썸네일 · 드래그로 정렬)",
+    "pagesOverviewHint": "전체 페이지 · 드래그로 정렬 · 제목 더블클릭으로 이름 변경",
+    "clickRenameProject": "클릭하여 프로젝트 이름 변경"
   }
 }

@@ -377,6 +377,21 @@ impl DesignDb {
             "ALTER TABLE design_artifact_versions ADD COLUMN prompt_summary TEXT",
             [],
         );
+        // 产物页面排序（用户可拖动排序）：per-project 位序。旧 dev DB 幂等补列 + 按 created_at
+        // 回填 1-based 位序（仅 NULL，幂等）；新库/新行的位序在 create_artifact INSERT 时自增。
+        let _ = conn.execute(
+            "ALTER TABLE design_artifacts ADD COLUMN position INTEGER",
+            [],
+        );
+        let _ = conn.execute(
+            "UPDATE design_artifacts SET position = (
+                 SELECT COUNT(*) FROM design_artifacts a2
+                 WHERE a2.project_id = design_artifacts.project_id
+                   AND (a2.created_at < design_artifacts.created_at
+                        OR (a2.created_at = design_artifacts.created_at AND a2.id <= design_artifacts.id))
+             ) WHERE position IS NULL",
+            [],
+        );
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -501,8 +516,9 @@ impl DesignDb {
         conn.execute(
             "INSERT INTO design_artifacts
                 (id, project_id, title, kind, system_id, status, viewport_w, viewport_h,
-                 current_version, critique_score, thumbnail_path, created_at, updated_at, metadata)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                 current_version, critique_score, thumbnail_path, created_at, updated_at, metadata, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                 (SELECT COALESCE(MAX(position), 0) + 1 FROM design_artifacts WHERE project_id = ?2))",
             rusqlite::params![
                 a.id,
                 a.project_id,
@@ -536,11 +552,36 @@ impl DesignDb {
 
     pub fn list_artifacts(&self, project_id: &str) -> Result<Vec<DesignArtifact>> {
         let conn = self.lock()?;
+        // 用户可拖动排序 → 按 position 升序（created_at 兜底 tiebreak，回填后一般已全非空）。
         let mut stmt = conn.prepare(&format!(
-            "{ARTIFACT_COLUMNS} WHERE project_id = ?1 ORDER BY updated_at DESC"
+            "{ARTIFACT_COLUMNS} WHERE project_id = ?1 ORDER BY position ASC, created_at ASC"
         ))?;
         let rows = stmt.query_map(rusqlite::params![project_id], map_artifact_row)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// 轻量改名：仅更新 `title` + `updated_at`（不重渲染、不新增版本、不碰 source）。
+    pub fn rename_artifact(&self, id: &str, title: &str, updated_at: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_artifacts SET title = ?2, updated_at = ?3 WHERE id = ?1",
+            rusqlite::params![id, title, updated_at],
+        )?;
+        Ok(())
+    }
+
+    /// 重排 project 内产物页面顺序：按 `ordered_ids` 下标写 `position`（事务，仅本项目行）。
+    pub fn reorder_artifacts(&self, project_id: &str, ordered_ids: &[String]) -> Result<()> {
+        let mut conn = self.lock()?;
+        let tx = conn.transaction()?;
+        for (idx, id) in ordered_ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE design_artifacts SET position = ?3 WHERE id = ?1 AND project_id = ?2",
+                rusqlite::params![id, project_id, idx as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// 全部产物（跨项目，用于产物库缩略图墙）。
