@@ -3085,11 +3085,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               />
             ) : activeArtifact ? (
               <>
-                <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3">
-                  <span className="truncate text-xs font-medium text-muted-foreground">
+                {/* 工具栏控件多（编辑模式 + 设备 + 缩放 + 演示 / 刷新 / 评审 / 历史 / 分享 / 导出），
+                    窄窗口下必须能**换行**而非溢出裁切：外层 min-h + 允许纵向增高，标题 min-w-0 先截断
+                    腾地方，控件组 flex-1 + flex-wrap + justify-end → 右对齐逐行回落、任何宽度都不丢按钮。 */}
+                <div className="flex min-h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3 py-1">
+                  <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">
                     {activeArtifact.title}
                   </span>
-                  <div className="ml-auto flex items-center gap-1">
+                  <div className="flex flex-1 flex-wrap items-center justify-end gap-1">
                     {isEditableKind(activeArtifact.kind) && (
                       <>
                         <IconTip
