@@ -94,6 +94,12 @@ pub async fn get_design_artifact_cmd(id: String) -> Result<Option<ArtifactView>,
     service::get_artifact_view(&id).map_err(Into::into)
 }
 
+/// 打开产物时自愈渲染版本（inspector bridge 等工具层升级对老产物生效）。返回是否重渲染。
+#[tauri::command]
+pub async fn ensure_design_artifact_fresh_cmd(id: String) -> Result<bool, CmdError> {
+    service::ensure_artifact_render_fresh(&id).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn delete_design_artifact_cmd(id: String) -> Result<(), CmdError> {
     service::delete_artifact(&id).map_err(Into::into)

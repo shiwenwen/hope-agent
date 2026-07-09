@@ -450,6 +450,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `design_install_browser_cmd` | `POST /api/design/browser/install` | ✅ |
 | `list_all_design_artifacts_cmd` | `GET /api/design/artifacts` | ✅ |
 | `get_design_artifact_cmd` | `GET /api/design/artifacts/{id}` | ✅ |
+| `ensure_design_artifact_fresh_cmd` | `POST /api/design/artifacts/{id}/ensure-fresh`（打开时自愈渲染版本，返回是否重渲染） | ✅ |
 | `delete_design_artifact_cmd` | `DELETE /api/design/artifacts/{id}` | ✅ |
 | `list_design_artifact_versions_cmd` | `GET /api/design/artifacts/{id}/versions` | ✅ |
 | `get_design_artifact_version_html_cmd` | `GET /api/design/artifacts/{artifactId}/versions/{versionNumber}/html` | ✅ |

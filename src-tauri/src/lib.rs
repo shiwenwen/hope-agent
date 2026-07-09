@@ -805,6 +805,7 @@ pub fn run() {
             commands::design::generate_design_artifact_cmd,
             commands::design::list_all_design_artifacts_cmd,
             commands::design::get_design_artifact_cmd,
+            commands::design::ensure_design_artifact_fresh_cmd,
             commands::design::delete_design_artifact_cmd,
             commands::design::list_design_artifact_versions_cmd,
             commands::design::get_design_artifact_version_html_cmd,

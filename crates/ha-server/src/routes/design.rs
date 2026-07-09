@@ -514,6 +514,15 @@ pub async fn deploy_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppE
     Ok(Json(json!({ "url": url })))
 }
 
+/// `POST /api/design/artifacts/{id}/ensure-fresh` — 自愈渲染版本（工具层升级对老产物生效）。
+/// 返回 `bool`（是否重渲染），与 Tauri `ensure_design_artifact_fresh_cmd` 同形。
+pub async fn ensure_artifact_fresh(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
+    validate_id(&id)?;
+    let rerendered = service::ensure_artifact_render_fresh(&id)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(rerendered))
+}
+
 /// `POST /api/design/artifacts/{id}/restore` — restore a historical version.
 pub async fn restore_version(
     Path(id): Path<String>,

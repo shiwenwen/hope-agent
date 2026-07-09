@@ -1485,6 +1485,23 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     if (!pendingPlacement) postToIframe({ type: "ds_comment_pending_clear" })
   }, [pendingPlacement, postToIframe])
+  // 打开产物时**自愈渲染版本**：inspector bridge 等编辑工具层升级后，老产物 index.html 仍烧着
+  // 旧 bridge（bridge 烧死在渲染产物里）。静默用当前 renderer 重渲染（内容不变、不新增版本），
+  // 重渲染了就 bump previewKey 重载 iframe。只对 ready 态跑；id / status 变化各触发一次。
+  useEffect(() => {
+    const art = activeArtifactRef.current
+    if (!art || art.status !== "ready") return
+    let cancelled = false
+    void tx
+      .call<boolean>("ensure_design_artifact_fresh_cmd", { id: art.id })
+      .then((rerendered) => {
+        if (!cancelled && rerendered) setPreviewKey((k) => k + 1)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [activeArtifactId, activeArtifact?.status, tx])
 
   // Receive selection from the iframe bridge + stream-host ready handshake.
   useEffect(() => {

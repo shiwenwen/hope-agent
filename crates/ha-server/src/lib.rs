@@ -1952,6 +1952,10 @@ fn build_router_with_cors(
             post(routes::design::restore_version),
         )
         .route(
+            "/design/artifacts/{id}/ensure-fresh",
+            post(routes::design::ensure_artifact_fresh),
+        )
+        .route(
             "/design/artifacts/{id}/comments",
             get(routes::design::list_comments).post(routes::design::add_comment),
         )

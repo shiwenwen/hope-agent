@@ -196,6 +196,11 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 ///
 /// `tokens` 是设计系统展开的 CSS 变量（`("--ds-color-primary","#..")`），注入
 /// `:root`；产物 CSS 引用变量即可换皮。空 = 不注入（用骨架默认值）。
+/// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
+/// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
+/// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
+pub const RENDER_VERSION: u32 = 2;
+
 pub fn build_artifact_html(
     kind: ArtifactKind,
     title: &str,
@@ -270,8 +275,15 @@ pub fn build_artifact_html(
         )
     };
 
+    // 可编辑态烧进渲染版本标记（`data-ds-r`），供打开时自愈判定；导出态干净、不带。
+    let ver_attr = if editable {
+        format!(" data-ds-r=\"{RENDER_VERSION}\"")
+    } else {
+        String::new()
+    };
+
     let html = format!(
-        "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"{kind}\">\n<head>\n\
+        "<!doctype html>\n<html lang=\"zh\" data-ds-kind=\"{kind}\"{ver}>\n<head>\n\
 <meta charset=\"utf-8\">\n\
 <meta name=\"viewport\" content=\"{viewport}\">\n\
 {storage}\n\
@@ -279,6 +291,7 @@ pub fn build_artifact_html(
 <style>\n{root}\n{base}\n{frame}\n{user_css}\n</style>\n\
 </head>\n<body>\n{body}\n{user_js}\n{deck_js}\n{inspector_js}\n</body>\n</html>\n",
         kind = kind.as_str(),
+        ver = ver_attr,
         viewport = viewport_meta,
         storage = STORAGE_POLYFILL,
         title = esc_title,

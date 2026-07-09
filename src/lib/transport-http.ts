@@ -270,6 +270,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   design_install_browser_cmd:        { method: "POST",   path: "/api/design/browser/install" },
   list_all_design_artifacts_cmd:     { method: "GET",    path: "/api/design/artifacts" },
   get_design_artifact_cmd:           { method: "GET",    path: "/api/design/artifacts/{id}" },
+  ensure_design_artifact_fresh_cmd:  { method: "POST",   path: "/api/design/artifacts/{id}/ensure-fresh" },
   delete_design_artifact_cmd:        { method: "DELETE", path: "/api/design/artifacts/{id}" },
   list_design_artifact_versions_cmd: { method: "GET",    path: "/api/design/artifacts/{id}/versions" },
   get_design_artifact_version_html_cmd: { method: "GET", path: "/api/design/artifacts/{artifactId}/versions/{versionNumber}/html" },

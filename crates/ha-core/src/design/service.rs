@@ -1520,6 +1520,67 @@ pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
     }))
 }
 
+/// 渲染版本标记是否已在 head（`<body>` 之前）出现——只扫 head 区，避免用户 body HTML 里恰好
+/// 出现同串导致 stale 文件被误判为 fresh 而永不自愈。
+fn head_contains_marker(html: &str, marker: &str) -> bool {
+    html.split("<body").next().unwrap_or(html).contains(marker)
+}
+
+/// 打开产物时自愈：若磁盘 `index.html` 的渲染版本落后当前 `RENDER_VERSION`（如 inspector bridge
+/// 升级），用当前 renderer 从磁盘源重渲染 `index.html` + `oidmap.json`（**内容不变、不新增版本、
+/// 不动 source**），使编辑工具层升级无需用户重编辑即对老产物生效——bridge 烧死在 index.html，
+/// 否则老产物永远用旧工具。仅 `ready` / `needs_review` 的可编辑 kind 执行；已最新或不适用即 no-op。
+/// 返回是否发生重渲染（前端据此决定是否重载 iframe）。
+///
+/// **并发安全（review 修复）**：整段 RMW 持 `artifact_lock`（与 update/restyle/finalize/patch 互斥）。
+/// 锁内**双检**重读磁盘标记——由于每个写者（`render` 均烧当前 `data-ds-r`）落盘即带最新标记，若
+/// 并发编辑已在锁外快路径窗口写了新内容，锁内重读即见 fresh → no-op，绝不用旧源覆盖新编辑。
+pub fn ensure_artifact_render_fresh(id: &str) -> Result<bool> {
+    let Some(a) = open_db()?.get_artifact(id)? else {
+        return Ok(false);
+    };
+    // ready + needs_review 都是稳定可编辑态（有 bridge、可微调/批注）；generating/planned/failed 不碰。
+    if !matches!(a.status.as_str(), "ready" | "needs_review") {
+        return Ok(false);
+    }
+    let Some(kind) = ArtifactKind::from_str(&a.kind) else {
+        return Ok(false);
+    };
+    // Image/Audio 无 inspector bridge、Component 是编译产物无 oid → 无 bridge 可自愈。
+    if matches!(
+        kind,
+        ArtifactKind::Image | ArtifactKind::Audio | ArtifactKind::Component
+    ) {
+        return Ok(false);
+    }
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let index_path = dir.join("index.html");
+    let marker = format!("data-ds-r=\"{}\"", renderer::RENDER_VERSION);
+    // 快路径：锁外读一次，已最新直接 no-op（避免无谓锁竞争，绝大多数打开走这里）。
+    if head_contains_marker(&std::fs::read_to_string(&index_path).unwrap_or_default(), &marker) {
+        return Ok(false);
+    }
+    // 慢路径：持锁串行化，锁内双检。
+    let lock = artifact_lock(id);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    if head_contains_marker(&std::fs::read_to_string(&index_path).unwrap_or_default(), &marker) {
+        return Ok(false); // 并发写者已刷新（其 render 亦带当前标记）
+    }
+    let parts = read_source(&dir)?;
+    let tokens = resolve_tokens(a.system_id.as_deref());
+    let (html, oidmap_json) = render(kind, &a.title, &parts, &tokens)?;
+    write_atomic(&index_path, html.as_bytes())?;
+    write_atomic(&dir.join("oidmap.json"), oidmap_json.as_bytes())?;
+    crate::app_info!(
+        "design",
+        "service",
+        "self-healed stale render (bridge v{}) for artifact {}",
+        renderer::RENDER_VERSION,
+        id
+    );
+    Ok(true)
+}
+
 /// 可视化微调：单元素样式 / 文本回写（D1）。text 先于 style 应用（两段字节范围
 /// 不重叠且 text 在 open tag 之后，故 style 用同一 oidmap 仍有效）。
 #[derive(Debug, Clone, Deserialize)]
