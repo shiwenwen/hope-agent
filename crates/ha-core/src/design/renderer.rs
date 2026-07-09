@@ -302,7 +302,7 @@ pub fn build_artifact_html(
 const INSPECTOR_BRIDGE: &str = r#"<script>
 (function(){
   var active=false, hovered=null, selected=null, editing=null, editOrig=null;
-  var commentMode=false, comments=[], pinLayer=null;
+  var commentMode=false, comments=[], pinLayer=null, commentSel=null;
   var CSS_PROPS=['color','background-color','font-size','font-weight','font-style','text-align',
     'text-transform','text-decoration','line-height','letter-spacing',
     'padding','margin','gap','width','height','max-width','min-height',
@@ -324,6 +324,8 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   }
   function clearHover(){if(hovered){hovered.style.outline='';hovered=null}}
   function clearSel(){if(selected){selected.style.outline='';selected=null}}
+  // 批注态**当前待填元素**的持久高亮（此前点选无任何反馈，用户不知选中了谁）；填完/取消/切元素/退出清除。
+  function clearCommentSel(){if(commentSel){commentSel.style.outline='';commentSel.style.outlineOffset='';commentSel=null}}
   // 结束就地编辑：commit 时把新 textContent（拍平任何 contenteditable 插入的标记）发父窗
   // 走确定性回写并回传最新 info 同步 inspector；取消 / 无变化则还原原文。先置 editing=null 防 blur 重入。
   function endEdit(commit){
@@ -345,16 +347,27 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     document.documentElement.appendChild(pinLayer);
     return pinLayer;
   }
-  // 解析钉的锚元素：oid 命中(同 tag)优先；失配则按 snippet 前缀在同 tag 元素中重锚
-  // （跨设计变更/重生成 oid 漂移时软着陆）；再无 → null（脱锚）。
+  // 元素**人类可读标签**（面板展示 + 重锚软着陆）：优先可见文本（设计师最易辨认「哪个元素」），
+  // 无文本回退 img alt / aria-label / 文件名。**不再回传 raw outerHTML**（此前面板显示 `<h1 data-ds-oid=…>`
+  // 残缺标签，交互不友好；且 outerHTML 含 oid、重生成后 oid 漂移使 prefix 永不命中 = 重锚假死）。
+  function labelOf(el){
+    var t=(el.textContent||'').replace(/\s+/g,' ').trim();
+    if(t)return t.slice(0,80);
+    var tag=el.tagName.toLowerCase();
+    if(tag==='img')return el.getAttribute('alt')||(el.getAttribute('src')||'').split('/').pop()||'';
+    var al=el.getAttribute&&el.getAttribute('aria-label');
+    return al?al.slice(0,80):'';
+  }
+  // 解析钉的锚元素：oid 命中(同 tag)优先；失配则按**标签文本**在同 tag 元素中重锚
+  // （跨设计变更/重生成 oid 漂移时软着陆，比旧 outerHTML-prefix 稳——不含漂移的 oid 属性）；再无 → null（脱锚）。
   function resolveEl(c){
     if(c.oid!=null){var el=elByOid(String(c.oid));
       if(el&&(!c.tag||el.tagName.toLowerCase()===c.tag))return el}
-    var pre=(c.snippet||'').slice(0,40);
+    var pre=(c.snippet||'').trim();
     if(pre){var cands=document.querySelectorAll('[data-ds-oid]');
       for(var i=0;i<cands.length;i++){var e=cands[i];
         if(c.tag&&e.tagName.toLowerCase()!==c.tag)continue;
-        if((e.outerHTML||'').indexOf(pre)===0)return e}}
+        if((e.textContent||'').replace(/\s+/g,' ').trim().indexOf(pre)===0)return e}}
     return null;
   }
   function pinPos(c,i){
@@ -409,22 +422,28 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   window.addEventListener('scroll',scheduleReflow,true);
   window.addEventListener('resize',scheduleReflow);
   document.addEventListener('mouseover',function(e){
-    if(!active||editing)return;var el=e.target.closest('[data-ds-oid]');if(!el||el===selected)return;
+    // 编辑态 **或批注态** 都做 hover 高亮（批注态此前 active=false 无任何悬停反馈，交互不友好）；
+    // 跳过当前已选 / 批注待填元素（已有 2px 框，不被 1px hover 覆盖）。
+    if((!active&&!commentMode)||editing)return;
+    var el=e.target.closest('[data-ds-oid]');if(!el||el===selected||el===commentSel)return;
     clearHover();hovered=el;el.style.outline='1px solid rgba(37,99,235,.5)';
   },true);
-  document.addEventListener('mouseout',function(){if(active&&!editing)clearHover()},true);
+  document.addEventListener('mouseout',function(){if((active||commentMode)&&!editing)clearHover()},true);
   document.addEventListener('click',function(e){
     if(commentMode){
       e.preventDefault();e.stopPropagation(); // 批注态吞掉所有点击，不泄漏到设计自身 handler
       var cel=e.target.closest('[data-ds-oid]');
       if(!cel)return; // 点在钉 / 空白 → 已吞事件、不落新钉（钉自身走 pointerup）
+      // **持久高亮当前待填元素**（2px 蓝框，填批注期间一直在，用户明确知道在标注谁）。
+      clearHover();clearCommentSel();
+      commentSel=cel;cel.style.outline='2px solid #2563eb';cel.style.outlineOffset='1px';
       var cr=cel.getBoundingClientRect();
       parent.postMessage({type:'ds_comment_place',
         oid:Number(cel.getAttribute('data-ds-oid')),
         relX:cr.width?(e.clientX-cr.left)/cr.width:0.5,
         relY:cr.height?(e.clientY-cr.top)/cr.height:0.5,
         tag:cel.tagName.toLowerCase(),
-        snippet:(cel.outerHTML||'').slice(0,200)},'*');
+        snippet:labelOf(cel)},'*');
       return;
     }
     if(!active)return;
@@ -452,7 +471,7 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   window.addEventListener('message',function(e){
     var d=e.data||{};
     if(d.type==='ds_activate'){active=true}
-    else if(d.type==='ds_deactivate'){active=false;endEdit(false);clearSel();clearHover()}
+    else if(d.type==='ds_deactivate'){active=false;endEdit(false);clearSel();clearHover();clearCommentSel()}
     else if(d.type==='ds_preview_style'){
       var el=elByOid(d.oid);if(!el)return;
       (d.props||[]).forEach(function(kv){el.style.setProperty(kv[0],kv[1])});
@@ -467,7 +486,8 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     else if(d.type==='ds_reselect'){var el=elByOid(d.oid);
       if(el){clearSel();selected=el;el.style.outline='2px solid #2563eb';
         parent.postMessage({type:'ds_selected',payload:info(el)},'*')}}
-    else if(d.type==='ds_comment_mode'){commentMode=!!d.on;renderPins()}
+    else if(d.type==='ds_comment_mode'){commentMode=!!d.on;if(!commentMode)clearCommentSel();renderPins()}
+    else if(d.type==='ds_comment_pending_clear'){clearCommentSel()} // 待填钉保存/取消 → 撤高亮
     else if(d.type==='ds_comments_set'){comments=Array.isArray(d.comments)?d.comments:[];renderPins()}
     else if(d.type==='ds_comment_focus'){
       var fc=comments.filter(function(x){return x.id===d.id})[0];

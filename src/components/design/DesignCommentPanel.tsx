@@ -170,10 +170,19 @@ export default function DesignCommentPanel({
           {index + 1}
         </button>
         <div className="min-w-0 flex-1">
-          {c.snippet && (
-            <div className="mb-1 truncate font-mono text-[10px] text-muted-foreground">
-              {c.oid == null ? `⚠ ${t("design.comment.detached", "已脱锚")} · ` : ""}
-              {c.snippet}
+          {(c.snippet || c.tag) && (
+            <div className="mb-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              {c.oid == null && (
+                <span className="shrink-0 text-amber-500">
+                  ⚠ {t("design.comment.detached", "已脱锚")}
+                </span>
+              )}
+              {c.tag && (
+                <span className="shrink-0 rounded bg-muted px-1 py-px font-mono text-[9px] uppercase">
+                  {c.tag}
+                </span>
+              )}
+              {c.snippet && <span className="truncate">{c.snippet}</span>}
             </div>
           )}
           {editingId === c.id ? (
@@ -326,10 +335,14 @@ export default function DesignCommentPanel({
         {/* 待填的新钉 */}
         {pending ? (
           <div className="rounded-lg border border-amber-400/60 bg-amber-50/50 p-2.5 dark:bg-amber-950/20">
-            {pending.snippet && (
-              <div className="mb-1.5 truncate font-mono text-[10px] text-muted-foreground">
-                {pending.tag ? `<${pending.tag}> ` : ""}
-                {pending.snippet}
+            {(pending.snippet || pending.tag) && (
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                {pending.tag && (
+                  <span className="shrink-0 rounded bg-muted px-1 py-px font-mono text-[9px] uppercase">
+                    {pending.tag}
+                  </span>
+                )}
+                {pending.snippet && <span className="truncate">{pending.snippet}</span>}
               </div>
             )}
             <Textarea

@@ -1480,6 +1480,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   useEffect(() => {
     if (commentMode) postToIframe({ type: "ds_comments_set", comments })
   }, [comments, commentMode, postToIframe])
+  // 待填钉解析（保存 / 取消 / 复位任一路径 → pendingPlacement 归 null）时，撤掉 bridge 里
+  // 当前待填元素的持久高亮。统一走此处，覆盖全部清空点（切元素时 bridge 自身已换高亮，不受影响）。
+  useEffect(() => {
+    if (!pendingPlacement) postToIframe({ type: "ds_comment_pending_clear" })
+  }, [pendingPlacement, postToIframe])
 
   // Receive selection from the iframe bridge + stream-host ready handshake.
   useEffect(() => {
