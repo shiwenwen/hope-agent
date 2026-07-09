@@ -452,6 +452,88 @@ pub fn reorder_artifacts(project_id: &str, ordered_ids: &[String]) -> Result<()>
     Ok(())
 }
 
+// ── 页面分组文件夹（OD path-based 模型）──────────────────────────────
+
+/// 文件夹路径合法化：去空段、拒 `.`/`..`、每段裁剪 → 斜杠路径（空 = 根）。
+fn sanitize_folder(path: &str) -> String {
+    path.split('/')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && *s != "." && *s != "..")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// 项目内全部文件夹路径（产物 folder ∪ 持久化空文件夹，含祖先，已排序）。
+pub fn list_folders(project_id: &str) -> Result<Vec<String>> {
+    open_db()?.list_folder_paths(project_id)
+}
+
+/// 新建（空）文件夹。`name` 可含斜杠建嵌套。
+pub fn create_folder(project_id: &str, name: &str) -> Result<()> {
+    let path = sanitize_folder(name);
+    if path.is_empty() {
+        anyhow::bail!("folder name cannot be empty");
+    }
+    let db = open_db()?;
+    db.create_folder(project_id, &path, &now())?;
+    emit("design:folders_changed", json!({ "projectId": project_id }));
+    Ok(())
+}
+
+/// 删文件夹：**把其中页面移到根（不删页面，防误删——本项 wired-by-us 的安全语义）** + 删文件夹记录。
+pub fn delete_folder(project_id: &str, path: &str) -> Result<()> {
+    let path = sanitize_folder(path);
+    if path.is_empty() {
+        anyhow::bail!("invalid folder path");
+    }
+    let db = open_db()?;
+    db.detach_artifacts_from_folder(project_id, &path, &now())?;
+    db.delete_folder_records(project_id, &path)?;
+    db.touch_project(project_id, &now())?;
+    emit("design:folders_changed", json!({ "projectId": project_id }));
+    Ok(())
+}
+
+/// 文件夹改名/移动（前缀替换到 `to`，同时改其中页面 folder 与子文件夹记录）。
+pub fn rename_folder(project_id: &str, from: &str, to: &str) -> Result<()> {
+    let from = sanitize_folder(from);
+    let to = sanitize_folder(to);
+    if from.is_empty() || to.is_empty() {
+        anyhow::bail!("invalid folder path");
+    }
+    if from == to {
+        return Ok(());
+    }
+    // 拒绝把文件夹移进自己的子孙（`to` 在 `from/` 之下）——否则 exact-match 分支先把
+    // `from` 改成 `to`，紧接 subpath 分支又用 `from/%` 去匹配已改过的行，前缀替换二次
+    // 处理产生错乱路径（review MED）。同名不同层的合法移动不受影响。
+    if to.starts_with(&format!("{from}/")) {
+        anyhow::bail!("cannot move a folder into its own descendant");
+    }
+    let db = open_db()?;
+    db.rename_folder_prefix(project_id, &from, &to, &now())?;
+    db.touch_project(project_id, &now())?;
+    emit("design:folders_changed", json!({ "projectId": project_id }));
+    Ok(())
+}
+
+/// 把页面移到某文件夹（`folder` 空 = 移到根）。
+pub fn move_artifact_to_folder(id: &str, folder: &str) -> Result<DesignArtifact> {
+    let folder = sanitize_folder(folder);
+    let db = open_db()?;
+    let a = db
+        .get_artifact(id)?
+        .with_context(|| format!("artifact not found: {id}"))?;
+    db.set_artifact_folder(id, &folder, &now())?;
+    db.touch_project(&a.project_id, &now())?;
+    emit(
+        "design:artifact_moved",
+        json!({ "projectId": a.project_id, "artifactId": id, "folder": folder }),
+    );
+    db.get_artifact(id)?
+        .with_context(|| "moved artifact vanished".to_string())
+}
+
 pub fn list_projects() -> Result<Vec<DesignProject>> {
     open_db()?.list_projects()
 }
@@ -653,6 +735,9 @@ pub struct CreateArtifactInput {
     /// audio 形态：music / sfx 目标时长（秒）透传给音频 provider。B8-2。
     #[serde(default)]
     pub audio_duration_secs: Option<f64>,
+    /// 新页面落入的文件夹（页面分组）：斜杠路径，缺省 = 根。OD「新文件落 currentDir」的对应。
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 /// 若 image 形态且无 body，用 prompt/title 调 image_generate 生成后再落库。
@@ -900,6 +985,7 @@ pub fn create_artifact(input: CreateArtifactInput) -> Result<DesignArtifact> {
         created_at: ts.clone(),
         updated_at: ts.clone(),
         metadata: self_check_meta,
+        folder: input.folder.clone().unwrap_or_default(),
     };
     let meta = ArtifactMeta {
         id: artifact.id.clone(),
@@ -1141,6 +1227,7 @@ pub fn create_artifact_shell(input: &CreateArtifactInput) -> Result<DesignArtifa
         created_at: ts.clone(),
         updated_at: ts.clone(),
         metadata: None,
+        folder: input.folder.clone().unwrap_or_default(),
     };
     let meta = ArtifactMeta {
         id: artifact.id.clone(),
@@ -3011,6 +3098,7 @@ pub async fn refine_artifact_with_comment(
         recipe_id: None,
         aspect_ratio: None,
         audio_duration_secs: None,
+        folder: None,
     };
     let (system_md, tokens) = resolve_system_for_generation(&sys_input);
     let instruction = compose_refine_instruction(&comment);

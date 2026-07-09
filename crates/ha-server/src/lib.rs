@@ -1913,6 +1913,17 @@ fn build_router_with_cors(
             post(routes::design::reorder_artifacts),
         )
         .route(
+            "/design/projects/{id}/folders",
+            get(routes::design::list_folders)
+                .post(routes::design::create_folder)
+                .put(routes::design::rename_folder)
+                .delete(routes::design::delete_folder),
+        )
+        .route(
+            "/design/artifacts/{id}/folder",
+            axum::routing::put(routes::design::move_artifact),
+        )
+        .route(
             "/design/artifacts/{id}/versions",
             get(routes::design::list_versions),
         )

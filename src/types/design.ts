@@ -77,6 +77,8 @@ export interface DesignArtifact {
   createdAt: string;
   updatedAt: string;
   metadata?: string;
+  /** 所属文件夹（页面分组）：斜杠路径，空串 = 根。 */
+  folder?: string;
 }
 
 /** 产物 + 已解析预览路径（`get_design_artifact_cmd` 返回）。 */

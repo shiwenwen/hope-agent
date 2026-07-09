@@ -6501,6 +6501,25 @@
     "duplicatePage": "Duplicar página",
     "pagesOverview": "Todas las páginas (miniaturas · arrastra para reordenar)",
     "pagesOverviewHint": "Todas las páginas · arrastra para reordenar · doble clic en el título para renombrar",
-    "clickRenameProject": "Haz clic para renombrar el proyecto"
+    "clickRenameProject": "Haz clic para renombrar el proyecto",
+    "files": {
+      "secPages": "Páginas",
+      "secDecks": "Presentaciones",
+      "secDashboards": "Paneles",
+      "secPosters": "Carteles",
+      "secDocuments": "Documentos",
+      "secEmails": "Correos",
+      "secComponents": "Componentes",
+      "secImages": "Imágenes",
+      "secMotion": "Animación",
+      "secAudio": "Audio",
+      "sectionFolders": "Carpetas",
+      "root": "Todas las páginas",
+      "newFolder": "Nueva carpeta",
+      "folderNamePh": "Nombre de carpeta",
+      "deleteFolder": "Eliminar carpeta (las páginas van a Todas)",
+      "moveTo": "Mover a carpeta",
+      "emptyFolder": "Esta carpeta aún no tiene páginas: arrastra páginas aquí o usa el menú ⋯."
+    }
   }
 }

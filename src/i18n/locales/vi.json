@@ -6501,6 +6501,25 @@
     "duplicatePage": "Nhân bản trang",
     "pagesOverview": "Tất cả trang (hình thu nhỏ · kéo để sắp xếp)",
     "pagesOverviewHint": "Tất cả trang · kéo để sắp xếp · nhấp đúp tiêu đề để đổi tên",
-    "clickRenameProject": "Nhấp để đổi tên dự án"
+    "clickRenameProject": "Nhấp để đổi tên dự án",
+    "files": {
+      "secPages": "Trang",
+      "secDecks": "Trình chiếu",
+      "secDashboards": "Bảng điều khiển",
+      "secPosters": "Áp phích",
+      "secDocuments": "Tài liệu",
+      "secEmails": "Email",
+      "secComponents": "Thành phần",
+      "secImages": "Hình ảnh",
+      "secMotion": "Chuyển động",
+      "secAudio": "Âm thanh",
+      "sectionFolders": "Thư mục",
+      "root": "Tất cả trang",
+      "newFolder": "Thư mục mới",
+      "folderNamePh": "Tên thư mục",
+      "deleteFolder": "Xóa thư mục (trang chuyển về Tất cả)",
+      "moveTo": "Chuyển vào thư mục",
+      "emptyFolder": "Thư mục này chưa có trang — kéo trang vào, hoặc dùng menu ⋯."
+    }
   }
 }

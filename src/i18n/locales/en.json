@@ -6501,6 +6501,25 @@
     "duplicatePage": "Duplicate page",
     "pagesOverview": "All pages (thumbnails · drag to reorder)",
     "pagesOverviewHint": "All pages · drag to reorder · double-click title to rename",
-    "clickRenameProject": "Click to rename project"
+    "clickRenameProject": "Click to rename project",
+    "files": {
+      "secPages": "Pages",
+      "secDecks": "Decks",
+      "secDashboards": "Dashboards",
+      "secPosters": "Posters",
+      "secDocuments": "Documents",
+      "secEmails": "Emails",
+      "secComponents": "Components",
+      "secImages": "Images",
+      "secMotion": "Motion",
+      "secAudio": "Audio",
+      "sectionFolders": "Folders",
+      "root": "All pages",
+      "newFolder": "New folder",
+      "folderNamePh": "Folder name",
+      "deleteFolder": "Delete folder (pages move to All)",
+      "moveTo": "Move to folder",
+      "emptyFolder": "This folder has no pages yet — drag pages in, or use the ⋯ menu."
+    }
   }
 }

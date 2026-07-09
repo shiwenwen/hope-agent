@@ -6501,6 +6501,25 @@
     "duplicatePage": "複製頁面",
     "pagesOverview": "所有頁面總覽（縮圖 · 拖動排序）",
     "pagesOverviewHint": "全部頁面 · 拖動排序 · 雙擊標題改名",
-    "clickRenameProject": "點擊改專案名"
+    "clickRenameProject": "點擊改專案名",
+    "files": {
+      "secPages": "頁面",
+      "secDecks": "簡報",
+      "secDashboards": "儀表板",
+      "secPosters": "海報",
+      "secDocuments": "文件",
+      "secEmails": "郵件",
+      "secComponents": "元件",
+      "secImages": "圖像",
+      "secMotion": "動效",
+      "secAudio": "音訊",
+      "sectionFolders": "資料夾",
+      "root": "全部頁面",
+      "newFolder": "新增資料夾",
+      "folderNamePh": "資料夾名",
+      "deleteFolder": "刪除資料夾（頁面移到全部）",
+      "moveTo": "移到資料夾",
+      "emptyFolder": "這個資料夾還沒有頁面——把頁面拖進來，或用 ⋯ 選單移入。"
+    }
   }
 }

@@ -71,6 +71,9 @@ pub struct DesignArtifact {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<String>,
+    /// 所属文件夹（页面分组，OD path-based 模型）：斜杠分隔的目录路径，空串 = 根。
+    #[serde(default)]
+    pub folder: String,
 }
 
 /// 产物版本快照（元数据；正文在磁盘 `versions/{n}/`）。
@@ -194,8 +197,17 @@ fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignProject> {
 
 const ARTIFACT_COLUMNS: &str =
     "SELECT id, project_id, title, kind, system_id, status, viewport_w, \
-     viewport_h, current_version, critique_score, thumbnail_path, created_at, updated_at, metadata \
+     viewport_h, current_version, critique_score, thumbnail_path, created_at, updated_at, metadata, \
+     COALESCE(folder, '') \
      FROM design_artifacts";
+
+/// 转义 SQL LIKE 通配符（`\` `%` `_`），配合 `ESCAPE '\'` 使文件夹名里的 `_`/`%` 按**字面**匹配。
+/// 否则 `app_a/%` 会把 `_` 当单字通配、误匹配同长兄弟 `app-a/...`（跨文件夹误伤，review HIGH 修复）。
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
 
 fn map_artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignArtifact> {
     Ok(DesignArtifact {
@@ -213,6 +225,7 @@ fn map_artifact_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DesignArtifact>
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
         metadata: row.get(13)?,
+        folder: row.get(14)?,
     })
 }
 
@@ -392,6 +405,22 @@ impl DesignDb {
              ) WHERE position IS NULL",
             [],
         );
+        // 页面分组文件夹（OD path-based 模型）：artifact.folder = 斜杠目录路径（空=根）。
+        // 旧 dev DB 幂等补列（NOT NULL DEFAULT '' 自动回填旧行）。
+        let _ = conn.execute(
+            "ALTER TABLE design_artifacts ADD COLUMN folder TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        // 持久化空文件夹（无产物的文件夹仍要可见/可导航——OD 同样持久化空目录，与路径派生的合并）。
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS design_folders (
+                project_id TEXT NOT NULL REFERENCES design_projects(id) ON DELETE CASCADE,
+                path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (project_id, path)
+            )",
+            [],
+        )?;
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -516,8 +545,8 @@ impl DesignDb {
         conn.execute(
             "INSERT INTO design_artifacts
                 (id, project_id, title, kind, system_id, status, viewport_w, viewport_h,
-                 current_version, critique_score, thumbnail_path, created_at, updated_at, metadata, position)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                 current_version, critique_score, thumbnail_path, created_at, updated_at, metadata, folder, position)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
                  (SELECT COALESCE(MAX(position), 0) + 1 FROM design_artifacts WHERE project_id = ?2))",
             rusqlite::params![
                 a.id,
@@ -534,7 +563,139 @@ impl DesignDb {
                 a.created_at,
                 a.updated_at,
                 a.metadata,
+                a.folder,
             ],
+        )?;
+        Ok(())
+    }
+
+    /// 移动产物到文件夹（改 `folder`；空串 = 根）。轻量元数据更新，不动正文/版本。
+    pub fn set_artifact_folder(&self, id: &str, folder: &str, updated_at: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_artifacts SET folder = ?2, updated_at = ?3 WHERE id = ?1",
+            rusqlite::params![id, folder, updated_at],
+        )?;
+        Ok(())
+    }
+
+    // ── Folders（页面分组，OD path-based）──────────────────────────────
+    /// 项目内全部文件夹路径：产物 folder 去重 ∪ 持久化空文件夹（含所有祖先路径）。
+    pub fn list_folder_paths(&self, project_id: &str) -> Result<Vec<String>> {
+        let conn = self.lock()?;
+        let mut set = std::collections::BTreeSet::new();
+        // 产物所在文件夹（及其祖先）。
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT folder FROM design_artifacts WHERE project_id = ?1 AND folder <> ''",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![project_id], |r| r.get::<_, String>(0))?;
+        for r in rows {
+            let p = r?;
+            // 派生所有祖先段（a/b/c → a, a/b, a/b/c），确保中间层可导航。
+            let mut acc = String::new();
+            for seg in p.split('/').filter(|s| !s.is_empty()) {
+                if acc.is_empty() {
+                    acc = seg.to_string();
+                } else {
+                    acc = format!("{acc}/{seg}");
+                }
+                set.insert(acc.clone());
+            }
+        }
+        // 持久化空文件夹（含祖先）。
+        let mut stmt2 = conn.prepare("SELECT path FROM design_folders WHERE project_id = ?1")?;
+        let rows2 = stmt2.query_map(rusqlite::params![project_id], |r| r.get::<_, String>(0))?;
+        for r in rows2 {
+            let p = r?;
+            let mut acc = String::new();
+            for seg in p.split('/').filter(|s| !s.is_empty()) {
+                if acc.is_empty() {
+                    acc = seg.to_string();
+                } else {
+                    acc = format!("{acc}/{seg}");
+                }
+                set.insert(acc.clone());
+            }
+        }
+        Ok(set.into_iter().collect())
+    }
+
+    /// 持久化一个（空）文件夹。
+    pub fn create_folder(&self, project_id: &str, path: &str, created_at: &str) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT OR IGNORE INTO design_folders (project_id, path, created_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![project_id, path, created_at],
+        )?;
+        Ok(())
+    }
+
+    /// 删除持久化文件夹记录（含子文件夹记录，前缀匹配）。产物迁移在 service 层处理。
+    pub fn delete_folder_records(&self, project_id: &str, path: &str) -> Result<()> {
+        let conn = self.lock()?;
+        let like = format!("{}/%", escape_like(path));
+        conn.execute(
+            "DELETE FROM design_folders WHERE project_id = ?1 \
+             AND (path = ?2 OR path LIKE ?3 ESCAPE '\\')",
+            rusqlite::params![project_id, path, like],
+        )?;
+        Ok(())
+    }
+
+    /// 文件夹改名/移动：把 `from`（及子路径 `from/…`）前缀替换为 `to`，同时改产物 folder 与持久化记录。
+    pub fn rename_folder_prefix(
+        &self,
+        project_id: &str,
+        from: &str,
+        to: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        let mut conn = self.lock()?;
+        let tx = conn.transaction()?;
+        // LIKE pattern 转义（防 `_`/`%` 误匹配兄弟文件夹，review HIGH）。
+        let like = format!("{}/%", escape_like(from));
+        // 子路径 substr 从 `from_chars+1`（1-based）起——**SQLite substr 按字符计数、非字节**，故用
+        // `chars().count()` 而非 `len()`（否则中文等多字节名的子路径被截断/丢失，review HIGH）。substr
+        // 含前导 `/`，故前缀拼 `to`（非 `to/`）不产生双斜杠：`to` || `/login` = `to/login`。
+        let from_chars = from.chars().count() as i64;
+        // 精确等于 from 的产物 → to。
+        tx.execute(
+            "UPDATE design_artifacts SET folder = ?3, updated_at = ?4 WHERE project_id = ?1 AND folder = ?2",
+            rusqlite::params![project_id, from, to, updated_at],
+        )?;
+        // 子路径 from/… → to/…（替换前缀）。
+        tx.execute(
+            "UPDATE design_artifacts SET folder = ?3 || substr(folder, ?4), updated_at = ?5 \
+             WHERE project_id = ?1 AND folder LIKE ?2 ESCAPE '\\'",
+            rusqlite::params![project_id, like, to, from_chars + 1, updated_at],
+        )?;
+        // 持久化记录同理。
+        tx.execute(
+            "UPDATE OR IGNORE design_folders SET path = ?3 WHERE project_id = ?1 AND path = ?2",
+            rusqlite::params![project_id, from, to],
+        )?;
+        tx.execute(
+            "UPDATE OR IGNORE design_folders SET path = ?3 || substr(path, ?4) \
+             WHERE project_id = ?1 AND path LIKE ?2 ESCAPE '\\'",
+            rusqlite::params![project_id, like, to, from_chars + 1],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// 把某文件夹（及子文件夹）内的产物全部移到根（删文件夹时用）。
+    pub fn detach_artifacts_from_folder(
+        &self,
+        project_id: &str,
+        path: &str,
+        updated_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        let like = format!("{}/%", escape_like(path));
+        conn.execute(
+            "UPDATE design_artifacts SET folder = '', updated_at = ?4 \
+             WHERE project_id = ?1 AND (folder = ?2 OR folder LIKE ?3 ESCAPE '\\')",
+            rusqlite::params![project_id, path, like, updated_at],
         )?;
         Ok(())
     }
@@ -1094,6 +1255,7 @@ mod tests {
             created_at: "t".into(),
             updated_at: "t".into(),
             metadata: None,
+            folder: String::new(),
         })
         .unwrap();
         "a1".into()
@@ -1290,6 +1452,7 @@ mod tests {
                 created_at: "t".into(),
                 updated_at: "t".into(),
                 metadata: None,
+                folder: String::new(),
             })
             .unwrap();
         }

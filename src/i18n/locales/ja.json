@@ -6501,6 +6501,25 @@
     "duplicatePage": "ページを複製",
     "pagesOverview": "全ページ一覧（サムネイル · ドラッグで並べ替え）",
     "pagesOverviewHint": "全ページ · ドラッグで並べ替え · タイトルをダブルクリックで名前変更",
-    "clickRenameProject": "クリックしてプロジェクト名を変更"
+    "clickRenameProject": "クリックしてプロジェクト名を変更",
+    "files": {
+      "secPages": "ページ",
+      "secDecks": "デッキ",
+      "secDashboards": "ダッシュボード",
+      "secPosters": "ポスター",
+      "secDocuments": "ドキュメント",
+      "secEmails": "メール",
+      "secComponents": "コンポーネント",
+      "secImages": "画像",
+      "secMotion": "モーション",
+      "secAudio": "オーディオ",
+      "sectionFolders": "フォルダ",
+      "root": "すべてのページ",
+      "newFolder": "新規フォルダ",
+      "folderNamePh": "フォルダ名",
+      "deleteFolder": "フォルダを削除（ページはすべてへ移動）",
+      "moveTo": "フォルダへ移動",
+      "emptyFolder": "このフォルダにはまだページがありません——ページをドラッグするか、⋯ メニューから移動してください。"
+    }
   }
 }

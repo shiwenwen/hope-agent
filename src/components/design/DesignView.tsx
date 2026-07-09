@@ -146,6 +146,8 @@ import {
 } from "@/lib/designExport"
 import { exportVideo } from "@/lib/designVideo"
 import DesignDrawOverlay, { type DesignDrawSubmit } from "@/components/design/DesignDrawOverlay"
+import { ArtifactThumb } from "@/components/design/ArtifactThumb"
+import DesignFilesPanel from "@/components/design/DesignFilesPanel"
 
 interface DesignViewProps {
   onBack: () => void
@@ -371,12 +373,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   >(null)
   // 页面组织（本轮）：产物总览网格 / 就地改名（产物 + 项目）/ 拖动排序。
   const [showGrid, setShowGrid] = useState(false)
+  const [folders, setFolders] = useState<string[]>([]) // 页面分组文件夹路径
   const [renamingArtifactId, setRenamingArtifactId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
   const [renamingProject, setRenamingProject] = useState(false)
-  const artifactsRef = useRef<DesignArtifact[]>([])
-  artifactsRef.current = artifacts
-  const dragIdRef = useRef<string | null>(null)
 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
@@ -825,6 +825,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     async (orderedIds: string[]) => {
       const pid = activeProjectRef.current?.id
       if (!pid) return
+      // 乐观更新：立即按新顺序重排本地 artifacts，拖拽结果即时反映（review MED），
+      // 失败再 loadArtifacts 回滚到服务器真相。
+      setArtifacts((prev) => {
+        const rank = new Map(orderedIds.map((id, i) => [id, i]))
+        return [...prev].sort((a, b) => {
+          const ra = rank.get(a.id)
+          const rb = rank.get(b.id)
+          if (ra == null && rb == null) return 0
+          if (ra == null) return 1
+          if (rb == null) return -1
+          return ra - rb
+        })
+      })
       try {
         await tx.call("reorder_design_artifacts_cmd", { projectId: pid, orderedIds })
       } catch (e) {
@@ -834,27 +847,79 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     },
     [tx, loadArtifacts],
   )
-  // 拖动排序：dragOver 时 live 重排本地数组（即时反馈），dragEnd 落库。
-  const onGridDragOver = useCallback((e: React.DragEvent, overId: string) => {
-    e.preventDefault()
-    const dragId = dragIdRef.current
-    if (!dragId || dragId === overId) return
-    setArtifacts((prev) => {
-      const from = prev.findIndex((a) => a.id === dragId)
-      const to = prev.findIndex((a) => a.id === overId)
-      if (from < 0 || to < 0 || from === to) return prev
-      const next = [...prev]
-      const [moved] = next.splice(from, 1)
-      next.splice(to, 0, moved)
-      return next
-    })
-  }, [])
-  const onGridDragEnd = useCallback(() => {
-    if (dragIdRef.current) {
-      dragIdRef.current = null
-      void reorderArtifacts(artifactsRef.current.map((a) => a.id))
-    }
-  }, [reorderArtifacts])
+  // ── 页面分组文件夹（本轮·复刻 OD）──
+  const loadFolders = useCallback(
+    async (projectId: string) => {
+      try {
+        const list = await tx.call<string[]>("list_design_folders_cmd", { projectId })
+        setFolders(list ?? [])
+      } catch (e) {
+        logger.error("design", "DesignView::loadFolders", "list folders failed", e)
+      }
+    },
+    [tx],
+  )
+  const createFolder = useCallback(
+    async (path: string) => {
+      const pid = activeProjectRef.current?.id
+      if (!pid) return
+      try {
+        await tx.call("create_design_folder_cmd", { projectId: pid, name: path })
+        await loadFolders(pid)
+      } catch (e) {
+        logger.error("design", "DesignView::createFolder", "create folder failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadFolders],
+  )
+  const deleteFolder = useCallback(
+    async (path: string) => {
+      const pid = activeProjectRef.current?.id
+      if (!pid) return
+      try {
+        await tx.call("delete_design_folder_cmd", { projectId: pid, path })
+        await Promise.all([loadFolders(pid), loadArtifacts(pid)]) // 页面已移到根
+      } catch (e) {
+        logger.error("design", "DesignView::deleteFolder", "delete folder failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadFolders, loadArtifacts],
+  )
+  const renameFolder = useCallback(
+    async (from: string, to: string) => {
+      const pid = activeProjectRef.current?.id
+      if (!pid) return
+      try {
+        await tx.call("rename_design_folder_cmd", { projectId: pid, from, to })
+        await Promise.all([loadFolders(pid), loadArtifacts(pid)])
+      } catch (e) {
+        logger.error("design", "DesignView::renameFolder", "rename folder failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadFolders, loadArtifacts],
+  )
+  const moveArtifactToFolder = useCallback(
+    async (id: string, folder: string) => {
+      const pid = activeProjectRef.current?.id
+      if (!pid) return
+      try {
+        await tx.call("move_design_artifact_cmd", { id, folder })
+        await Promise.all([loadFolders(pid), loadArtifacts(pid)])
+      } catch (e) {
+        logger.error("design", "DesignView::moveArtifact", "move failed", e)
+        toast.error(t("design.err.save", "保存失败"))
+      }
+    },
+    [tx, t, loadFolders, loadArtifacts],
+  )
+  // 文件夹随项目/产物变化重载（folder 由产物路径 ∪ 持久化空文件夹派生，产物增删移都可能改动）。
+  useEffect(() => {
+    const pid = activeProject?.id
+    if (pid) void loadFolders(pid)
+  }, [activeProject?.id, artifacts, loadFolders])
 
   const openProject = useCallback(
     (project: DesignProject) => {
@@ -910,7 +975,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           },
         })
         await loadArtifacts(activeProject.id)
-        if (artifact) void openArtifact(artifact)
+        if (artifact) {
+          // 关掉产物墙面板：新产物落在根文件夹，若面板正停在某子文件夹里，新建结果既不在
+          // 当前面板视图、又被面板盖住单产物预览 = 用户看不到反馈（review MED）。收起面板
+          // 直接呈现新产物预览。
+          setShowGrid(false)
+          void openArtifact(artifact)
+        }
       } catch (e) {
         logger.error("design", "DesignView::createArtifact", "create artifact failed", e)
         toast.error(
@@ -2685,8 +2756,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               />
             </>
           )}
-          {activeProject && artifacts.length > 0 && (
-            <IconTip label={t("design.pagesOverview", "所有页面总览（缩略图 · 拖动排序）")}>
+          {activeProject && (
+            <IconTip label={t("design.pagesOverview", "所有页面 · 文件夹分组")}>
               <Button
                 variant={showGrid ? "default" : "ghost"}
                 size="icon"
@@ -2955,109 +3026,25 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
             {/* Single-artifact preview */}
             <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
-            {showGrid && artifacts.length > 0 ? (
-              /* 页面总览网格（本轮）：全部页面缩略图 + 拖动排序 + 双击改名 + 复制/删除。
-                 空列表（删光最后一页）时自动落回单产物/空态，不把用户困在空网格（review 修复）。 */
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3 text-xs text-muted-foreground">
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  <span>{t("design.pagesOverviewHint", "全部页面 · 拖动排序 · 双击标题改名")}</span>
-                  <span className="ml-auto tabular-nums">{artifacts.length}</span>
-                </div>
-                <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-4 overflow-y-auto p-4">
-                  {artifacts.map((a) => {
-                    const renaming = renamingArtifactId === a.id
-                    return (
-                      <div
-                        key={a.id}
-                        draggable={!renaming}
-                        onDragStart={() => {
-                          dragIdRef.current = a.id
-                        }}
-                        onDragOver={(e) => onGridDragOver(e, a.id)}
-                        onDragEnd={onGridDragEnd}
-                        className={cn(
-                          "group/card flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md",
-                          activeArtifact?.id === a.id && "ring-2 ring-primary/40",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void openArtifact(a)
-                            setShowGrid(false)
-                          }}
-                          className="relative block aspect-[3/4] w-full overflow-hidden bg-muted"
-                        >
-                          {/* component 是客户端 React 水合，缩略图 sandbox="" 禁脚本 → 空白，
-                              改用类型图标占位（review 修复）。其余 kind 静态可渲染。 */}
-                          {a.kind === "component" ? (
-                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-muted to-muted/40">
-                              {(() => {
-                                const KIcon = KIND_ICON[a.kind] ?? Monitor
-                                return <KIcon className="h-8 w-8 text-muted-foreground/50" />
-                              })()}
-                            </div>
-                          ) : (
-                            <ArtifactThumb artifactId={a.id} />
-                          )}
-                        </button>
-                        <div className="flex items-center gap-1 border-t px-2 py-1.5">
-                          {renaming ? (
-                            <input
-                              autoFocus
-                              value={renameDraft}
-                              onChange={(e) => setRenameDraft(e.target.value)}
-                              onBlur={() => {
-                                void renameArtifact(a.id, renameDraft)
-                                setRenamingArtifactId(null)
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  void renameArtifact(a.id, renameDraft)
-                                  setRenamingArtifactId(null)
-                                } else if (e.key === "Escape") setRenamingArtifactId(null)
-                              }}
-                              className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-xs outline-none"
-                            />
-                          ) : (
-                            <span
-                              className="min-w-0 flex-1 cursor-text truncate text-xs"
-                              title={t("design.dblClickRename", "双击改名")}
-                              onDoubleClick={() => {
-                                setRenamingArtifactId(a.id)
-                                setRenameDraft(a.title)
-                              }}
-                            >
-                              {a.title}
-                            </span>
-                          )}
-                          <IconTip label={t("design.duplicatePage", "复制页面")}>
-                            <button
-                              type="button"
-                              onClick={() => void duplicateArtifact(a.id)}
-                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/card:opacity-100"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
-                          </IconTip>
-                          <IconTip label={t("common.delete", "删除")}>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setDeleteTarget({ type: "artifact", id: a.id, title: a.title })
-                              }
-                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/card:opacity-100"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </button>
-                          </IconTip>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+            {showGrid ? (
+              /* 页面文件管理面（本轮·源码级复刻 OD DesignFilesPanel）：面包屑 + 文件夹 + 类型分组。 */
+              <DesignFilesPanel
+                artifacts={artifacts}
+                folders={folders}
+                activeArtifactId={activeArtifact?.id}
+                onOpen={(a) => {
+                  void openArtifact(a)
+                  setShowGrid(false)
+                }}
+                onRename={(id, title) => void renameArtifact(id, title)}
+                onDuplicate={(id) => void duplicateArtifact(id)}
+                onDelete={(a) => setDeleteTarget({ type: "artifact", id: a.id, title: a.title })}
+                onMove={(id, folder) => void moveArtifactToFolder(id, folder)}
+                onCreateFolder={(path) => void createFolder(path)}
+                onRenameFolder={(from, to) => void renameFolder(from, to)}
+                onDeleteFolder={(path) => void deleteFolder(path)}
+                onReorder={(ids) => void reorderArtifacts(ids)}
+              />
             ) : activeArtifact ? (
               <>
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b bg-background/60 px-3">
@@ -3991,82 +3978,6 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   )
 }
 
-// ── Thumbnails ──────────────────────────────────────────────────
-// 静态渲染缩略图：懒挂载（IntersectionObserver）+ sandbox=""（**不跑 JS**，画廊零动画
-// 开销、性能稳定）+ ResizeObserver 等比缩放。复用产物 index.html 的 asset 服务，无需另建
-// 缩略图存储管线。
-
-const THUMB_DESIGN_W = 1280
-
-function ArtifactThumb({ artifactId }: { artifactId: string }) {
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const [src, setSrc] = useState<string | null>(null)
-  const [scale, setScale] = useState(0.2)
-
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    const ro = new ResizeObserver(() => {
-      if (el.clientWidth > 0) setScale(el.clientWidth / THUMB_DESIGN_W)
-    })
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    let done = false
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (done || !entries.some((e) => e.isIntersecting)) return
-        done = true
-        io.disconnect()
-        getTransport()
-          .call<DesignArtifactView | null>("get_design_artifact_cmd", { id: artifactId })
-          .then((v) => {
-            const p = v?.artifactPath
-            if (p) {
-              const url = getTransport().resolveAssetUrl(`${p}/index.html`)
-              if (url) setSrc(url)
-            }
-          })
-          .catch(() => {})
-      },
-      { rootMargin: "300px" },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [artifactId])
-
-  return (
-    <div
-      ref={wrapRef}
-      className="relative h-full w-full overflow-hidden bg-gradient-to-br from-muted to-muted/40"
-    >
-      {src ? (
-        <iframe
-          src={src}
-          sandbox=""
-          scrolling="no"
-          tabIndex={-1}
-          aria-hidden="true"
-          title=""
-          className="pointer-events-none absolute left-0 top-0 origin-top-left border-0"
-          style={{
-            width: THUMB_DESIGN_W,
-            height: THUMB_DESIGN_W * 0.75,
-            transform: `scale(${scale})`,
-          }}
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <Palette className="h-6 w-6 text-muted-foreground/25" />
-        </div>
-      )}
-    </div>
-  )
-}
 
 /** 项目卡缩略图：懒取该项目最近一个产物 → 渲染其静态缩略图。 */
 function ProjectThumb({ projectId }: { projectId: string }) {

@@ -455,6 +455,11 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `rename_design_artifact_cmd` | `PUT /api/design/artifacts/{id}/title`（轻量改名，不重渲染/不新版本） | ✅ |
 | `duplicate_design_artifact_cmd` | `POST /api/design/artifacts/{id}/duplicate`（同项目内深拷贝） | ✅ |
 | `reorder_design_artifacts_cmd` | `POST /api/design/projects/{projectId}/artifacts/reorder`（拖动排序，body `orderedIds`） | ✅ |
+| `list_design_folders_cmd` | `GET /api/design/projects/{projectId}/folders`（页面分组文件夹路径） | ✅ |
+| `create_design_folder_cmd` | `POST /api/design/projects/{projectId}/folders`（新建空文件夹，body `name`） | ✅ |
+| `rename_design_folder_cmd` | `PUT /api/design/projects/{projectId}/folders`（文件夹改名/移动，body `from`/`to`） | ✅ |
+| `delete_design_folder_cmd` | `DELETE /api/design/projects/{projectId}/folders?path=`（删文件夹，页面移到根） | ✅ |
+| `move_design_artifact_cmd` | `PUT /api/design/artifacts/{id}/folder`（把页面移到文件夹，body `folder`） | ✅ |
 | `list_design_artifact_versions_cmd` | `GET /api/design/artifacts/{id}/versions` | ✅ |
 | `get_design_artifact_version_html_cmd` | `GET /api/design/artifacts/{artifactId}/versions/{versionNumber}/html` | ✅ |
 | `create_design_share_cmd` | `POST /api/design/artifacts/{artifactId}/share` | ✅ |

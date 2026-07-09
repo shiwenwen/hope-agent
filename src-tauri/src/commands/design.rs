@@ -129,6 +129,40 @@ pub async fn reorder_design_artifacts_cmd(
     service::reorder_artifacts(&project_id, &ordered_ids).map_err(Into::into)
 }
 
+// ── 页面分组文件夹 ──
+#[tauri::command]
+pub async fn list_design_folders_cmd(project_id: String) -> Result<Vec<String>, CmdError> {
+    service::list_folders(&project_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn create_design_folder_cmd(project_id: String, name: String) -> Result<(), CmdError> {
+    service::create_folder(&project_id, &name).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn delete_design_folder_cmd(project_id: String, path: String) -> Result<(), CmdError> {
+    service::delete_folder(&project_id, &path).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn rename_design_folder_cmd(
+    project_id: String,
+    from: String,
+    to: String,
+) -> Result<(), CmdError> {
+    service::rename_folder(&project_id, &from, &to).map_err(Into::into)
+}
+
+/// 把页面移到某文件夹（folder 空 = 根）。
+#[tauri::command]
+pub async fn move_design_artifact_cmd(
+    id: String,
+    folder: String,
+) -> Result<DesignArtifact, CmdError> {
+    service::move_artifact_to_folder(&id, &folder).map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn list_design_artifact_versions_cmd(
     id: String,

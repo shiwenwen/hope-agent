@@ -6501,6 +6501,25 @@
     "duplicatePage": "复制页面",
     "pagesOverview": "所有页面总览（缩略图 · 拖动排序）",
     "pagesOverviewHint": "全部页面 · 拖动排序 · 双击标题改名",
-    "clickRenameProject": "点击改项目名"
+    "clickRenameProject": "点击改项目名",
+    "files": {
+      "secPages": "页面",
+      "secDecks": "演示",
+      "secDashboards": "仪表盘",
+      "secPosters": "海报",
+      "secDocuments": "文档",
+      "secEmails": "邮件",
+      "secComponents": "组件",
+      "secImages": "图像",
+      "secMotion": "动效",
+      "secAudio": "音频",
+      "sectionFolders": "文件夹",
+      "root": "全部页面",
+      "newFolder": "新建文件夹",
+      "folderNamePh": "文件夹名",
+      "deleteFolder": "删除文件夹（页面移到全部）",
+      "moveTo": "移到文件夹",
+      "emptyFolder": "这个文件夹还没有页面——把页面拖进来，或用 ⋯ 菜单移入。"
+    }
   }
 }

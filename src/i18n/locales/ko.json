@@ -6501,6 +6501,25 @@
     "duplicatePage": "페이지 복제",
     "pagesOverview": "전체 페이지 개요(썸네일 · 드래그로 정렬)",
     "pagesOverviewHint": "전체 페이지 · 드래그로 정렬 · 제목 더블클릭으로 이름 변경",
-    "clickRenameProject": "클릭하여 프로젝트 이름 변경"
+    "clickRenameProject": "클릭하여 프로젝트 이름 변경",
+    "files": {
+      "secPages": "페이지",
+      "secDecks": "덱",
+      "secDashboards": "대시보드",
+      "secPosters": "포스터",
+      "secDocuments": "문서",
+      "secEmails": "이메일",
+      "secComponents": "컴포넌트",
+      "secImages": "이미지",
+      "secMotion": "모션",
+      "secAudio": "오디오",
+      "sectionFolders": "폴더",
+      "root": "전체 페이지",
+      "newFolder": "새 폴더",
+      "folderNamePh": "폴더 이름",
+      "deleteFolder": "폴더 삭제(페이지는 전체로 이동)",
+      "moveTo": "폴더로 이동",
+      "emptyFolder": "이 폴더에는 아직 페이지가 없습니다 — 페이지를 끌어다 놓거나 ⋯ 메뉴로 옮기세요."
+    }
   }
 }

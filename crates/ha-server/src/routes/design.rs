@@ -257,6 +257,83 @@ pub async fn reorder_artifacts(
     Ok(Json(json!({ "ok": true })))
 }
 
+// ── 页面分组文件夹 ──
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateFolderBody {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameFolderBody {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteFolderQuery {
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveArtifactBody {
+    pub folder: String,
+}
+
+/// `GET /api/design/projects/{id}/folders` — 项目内全部文件夹路径。
+pub async fn list_folders(Path(id): Path<String>) -> Result<Json<Vec<String>>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::list_folders(&id).map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
+/// `POST /api/design/projects/{id}/folders` — 新建（空）文件夹。
+pub async fn create_folder(
+    Path(id): Path<String>,
+    Json(body): Json<CreateFolderBody>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::create_folder(&id, &body.name).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `PUT /api/design/projects/{id}/folders` — 文件夹改名/移动（body `from`/`to`）。
+pub async fn rename_folder(
+    Path(id): Path<String>,
+    Json(body): Json<RenameFolderBody>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::rename_folder(&id, &body.from, &body.to)
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `DELETE /api/design/projects/{id}/folders?path=…` — 删文件夹（页面移到根，query `path`）。
+pub async fn delete_folder(
+    Path(id): Path<String>,
+    Query(q): Query<DeleteFolderQuery>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    service::delete_folder(&id, &q.path).map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `PUT /api/design/artifacts/{id}/folder` — 把页面移到某文件夹（body `folder`，空=根）。
+pub async fn move_artifact(
+    Path(id): Path<String>,
+    Json(body): Json<MoveArtifactBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&id)?;
+    Ok(Json(
+        service::move_artifact_to_folder(&id, &body.folder)
+            .map_err(|e| AppError::internal(e.to_string()))?,
+    ))
+}
+
 // ── Artifacts ──────────────────────────────────────────────────────
 
 /// `GET /api/design/projects/{project_id}/artifacts`

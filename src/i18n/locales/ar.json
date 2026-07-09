@@ -6501,6 +6501,25 @@
     "duplicatePage": "تكرار الصفحة",
     "pagesOverview": "كل الصفحات (صور مصغّرة · اسحب لإعادة الترتيب)",
     "pagesOverviewHint": "كل الصفحات · اسحب لإعادة الترتيب · انقر نقرًا مزدوجًا على العنوان لإعادة التسمية",
-    "clickRenameProject": "انقر لإعادة تسمية المشروع"
+    "clickRenameProject": "انقر لإعادة تسمية المشروع",
+    "files": {
+      "secPages": "الصفحات",
+      "secDecks": "العروض",
+      "secDashboards": "اللوحات",
+      "secPosters": "الملصقات",
+      "secDocuments": "المستندات",
+      "secEmails": "الرسائل",
+      "secComponents": "المكونات",
+      "secImages": "الصور",
+      "secMotion": "الحركة",
+      "secAudio": "الصوت",
+      "sectionFolders": "المجلدات",
+      "root": "كل الصفحات",
+      "newFolder": "مجلد جديد",
+      "folderNamePh": "اسم المجلد",
+      "deleteFolder": "حذف المجلد (تنتقل الصفحات إلى الكل)",
+      "moveTo": "نقل إلى مجلد",
+      "emptyFolder": "لا توجد صفحات في هذا المجلد بعد — اسحب الصفحات إليه أو استخدم قائمة ⋯."
+    }
   }
 }

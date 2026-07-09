@@ -6501,6 +6501,25 @@
     "duplicatePage": "Sayfayı çoğalt",
     "pagesOverview": "Tüm sayfalar (küçük resimler · sürükleyerek sırala)",
     "pagesOverviewHint": "Tüm sayfalar · sürükleyerek sırala · başlığa çift tıklayarak yeniden adlandır",
-    "clickRenameProject": "Projeyi yeniden adlandırmak için tıkla"
+    "clickRenameProject": "Projeyi yeniden adlandırmak için tıkla",
+    "files": {
+      "secPages": "Sayfalar",
+      "secDecks": "Sunumlar",
+      "secDashboards": "Panolar",
+      "secPosters": "Posterler",
+      "secDocuments": "Belgeler",
+      "secEmails": "E-postalar",
+      "secComponents": "Bileşenler",
+      "secImages": "Görseller",
+      "secMotion": "Hareket",
+      "secAudio": "Ses",
+      "sectionFolders": "Klasörler",
+      "root": "Tüm sayfalar",
+      "newFolder": "Yeni klasör",
+      "folderNamePh": "Klasör adı",
+      "deleteFolder": "Klasörü sil (sayfalar Tümü'ne taşınır)",
+      "moveTo": "Klasöre taşı",
+      "emptyFolder": "Bu klasörde henüz sayfa yok — sayfaları sürükleyin veya ⋯ menüsünü kullanın."
+    }
   }
 }
