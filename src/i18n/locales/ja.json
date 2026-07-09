@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} 件の成果物",
     "zoomFit": "フィット",
     "reload": "再読込",
-    "exportArtifact": "エクスポート",
+    "exportArtifact": "このページをエクスポート",
     "systemNone": "デザインシステムなし",
     "startFromTemplate": "テンプレートから始める",
     "launchHeading": "何をデザインしますか？",
@@ -6275,7 +6275,7 @@
       "pathCopied": "パスをコピーしました"
     },
     "exportMd": "Markdown",
-    "exportZip": "ソースパック (ZIP)",
+    "exportZip": "このページのソース (ZIP)",
     "exportVideo": "動画 (MP4)",
     "exportProject": "プロジェクトを書き出し (ZIP)",
     "importDesignMd": "DESIGN.md を読み込み",

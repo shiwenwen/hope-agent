@@ -6063,7 +6063,7 @@
     "artifactCount": "산출물 {{count}}개",
     "zoomFit": "맞춤",
     "reload": "새로고침",
-    "exportArtifact": "내보내기",
+    "exportArtifact": "이 페이지 내보내기",
     "systemNone": "디자인 시스템 없음",
     "startFromTemplate": "템플릿으로 시작",
     "launchHeading": "무엇을 디자인할까요?",
@@ -6275,7 +6275,7 @@
       "pathCopied": "경로를 복사했습니다"
     },
     "exportMd": "Markdown",
-    "exportZip": "소스 번들 (ZIP)",
+    "exportZip": "이 페이지 소스 (ZIP)",
     "exportVideo": "동영상 (MP4)",
     "exportProject": "프로젝트 내보내기 (ZIP)",
     "importDesignMd": "DESIGN.md 가져오기",

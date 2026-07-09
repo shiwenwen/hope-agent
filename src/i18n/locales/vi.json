@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} sản phẩm",
     "zoomFit": "Vừa khung",
     "reload": "Tải lại",
-    "exportArtifact": "Xuất",
+    "exportArtifact": "Xuất trang này",
     "systemNone": "Không có hệ thống thiết kế",
     "startFromTemplate": "Bắt đầu từ mẫu",
     "launchHeading": "Bạn muốn thiết kế gì?",
@@ -6275,7 +6275,7 @@
       "pathCopied": "Đã sao chép đường dẫn"
     },
     "exportMd": "Markdown",
-    "exportZip": "Gói nguồn (ZIP)",
+    "exportZip": "Mã nguồn trang này (ZIP)",
     "exportVideo": "Video (MP4)",
     "exportProject": "Xuất dự án (ZIP)",
     "importDesignMd": "Nhập DESIGN.md",

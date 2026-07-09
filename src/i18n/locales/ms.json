@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} artifak",
     "zoomFit": "Muat",
     "reload": "Muat semula",
-    "exportArtifact": "Eksport",
+    "exportArtifact": "Eksport halaman ini",
     "systemNone": "Tiada sistem reka bentuk",
     "startFromTemplate": "Mula dengan templat",
     "launchHeading": "Apa yang anda mahu reka?",
@@ -6275,7 +6275,7 @@
       "pathCopied": "Laluan disalin"
     },
     "exportMd": "Markdown",
-    "exportZip": "Pakej sumber (ZIP)",
+    "exportZip": "Sumber halaman ini (ZIP)",
     "exportVideo": "Video (MP4)",
     "exportProject": "Eksport projek (ZIP)",
     "importDesignMd": "Import DESIGN.md",

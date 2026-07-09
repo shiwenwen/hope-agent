@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} artefatos",
     "zoomFit": "Ajustar",
     "reload": "Recarregar",
-    "exportArtifact": "Exportar",
+    "exportArtifact": "Exportar esta página",
     "systemNone": "Sem sistema de design",
     "startFromTemplate": "Começar com um modelo",
     "launchHeading": "O que você quer desenhar?",
@@ -6275,7 +6275,7 @@
       "pathCopied": "Caminho copiado"
     },
     "exportMd": "Markdown",
-    "exportZip": "Pacote-fonte (ZIP)",
+    "exportZip": "Código-fonte desta página (ZIP)",
     "exportVideo": "Vídeo (MP4)",
     "exportProject": "Exportar projeto (ZIP)",
     "importDesignMd": "Importar DESIGN.md",

@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} çıktı",
     "zoomFit": "Sığdır",
     "reload": "Yenile",
-    "exportArtifact": "Dışa aktar",
+    "exportArtifact": "Bu sayfayı dışa aktar",
     "systemNone": "Tasarım sistemi yok",
     "startFromTemplate": "Bir şablonla başla",
     "launchHeading": "Ne tasarlamak istiyorsun?",
@@ -6275,7 +6275,7 @@
       "pathCopied": "Yol kopyalandı"
     },
     "exportMd": "Markdown",
-    "exportZip": "Kaynak paketi (ZIP)",
+    "exportZip": "Bu sayfanın kaynağı (ZIP)",
     "exportVideo": "Video (MP4)",
     "exportProject": "Projeyi dışa aktar (ZIP)",
     "importDesignMd": "DESIGN.md içe aktar",

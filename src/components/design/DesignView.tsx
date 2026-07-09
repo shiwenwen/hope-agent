@@ -3285,7 +3285,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       </Button>
                     </IconTip>
                     <DropdownMenu>
-                      <IconTip label={t("design.exportArtifact", "导出")} side="bottom">
+                      <IconTip label={t("design.exportArtifact", "导出本页")} side="bottom">
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-6 w-6" disabled={!!exporting}>
                             {exporting ? (
@@ -3332,7 +3332,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onSelect={() => void handleExport("zip")}>
                           <FileArchive className="mr-2 h-4 w-4" />
-                          {t("design.exportZip", "源码包 (ZIP)")}
+                          {t("design.exportZip", "本页源码 (ZIP)")}
                         </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => void handleExport("handoff")}>
                           <Braces className="mr-2 h-4 w-4" />

@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} عنصر",
     "zoomFit": "ملاءمة",
     "reload": "إعادة تحميل",
-    "exportArtifact": "تصدير",
+    "exportArtifact": "تصدير هذه الصفحة",
     "systemNone": "بدون نظام تصميم",
     "startFromTemplate": "ابدأ من قالب",
     "launchHeading": "ماذا تريد أن تصمّم؟",
@@ -6275,7 +6275,7 @@
       "pathCopied": "تم نسخ المسار"
     },
     "exportMd": "Markdown",
-    "exportZip": "حزمة المصدر (ZIP)",
+    "exportZip": "مصدر هذه الصفحة (ZIP)",
     "exportVideo": "فيديو (MP4)",
     "exportProject": "تصدير المشروع (ZIP)",
     "importDesignMd": "استيراد DESIGN.md",

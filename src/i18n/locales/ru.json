@@ -6063,7 +6063,7 @@
     "artifactCount": "Артефактов: {{count}}",
     "zoomFit": "Вписать",
     "reload": "Обновить",
-    "exportArtifact": "Экспорт",
+    "exportArtifact": "Экспорт этой страницы",
     "systemNone": "Без дизайн-системы",
     "startFromTemplate": "Начать с шаблона",
     "launchHeading": "Что вы хотите спроектировать?",
@@ -6275,7 +6275,7 @@
       "pathCopied": "Путь скопирован"
     },
     "exportMd": "Markdown",
-    "exportZip": "Пакет исходников (ZIP)",
+    "exportZip": "Исходники этой страницы (ZIP)",
     "exportVideo": "Видео (MP4)",
     "exportProject": "Экспорт проекта (ZIP)",
     "importDesignMd": "Импорт DESIGN.md",

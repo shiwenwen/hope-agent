@@ -6063,7 +6063,7 @@
     "artifactCount": "{{count}} 个产物",
     "zoomFit": "适应",
     "reload": "刷新",
-    "exportArtifact": "导出",
+    "exportArtifact": "导出本页",
     "systemNone": "无设计系统",
     "startFromTemplate": "从模板开始",
     "launchHeading": "你想设计什么？",
@@ -6275,7 +6275,7 @@
       "pathCopied": "已复制路径"
     },
     "exportMd": "Markdown",
-    "exportZip": "源码包 (ZIP)",
+    "exportZip": "本页源码 (ZIP)",
     "exportVideo": "视频 (MP4)",
     "exportProject": "导出项目 (ZIP)",
     "importDesignMd": "导入 DESIGN.md",
