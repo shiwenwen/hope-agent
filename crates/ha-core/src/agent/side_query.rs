@@ -405,21 +405,18 @@ impl AssistantAgent {
         crate::model_usage::record_model_usage_best_effort(event);
     }
 
-    /// Independent one-shot call that can carry image attachments.
-    ///
-    /// Used by owner-plane workflows such as Knowledge Source OCR: no chat
-    /// history, no tools, no cached user prefix, and no execution loop. The
-    /// caller supplies a scoped system prompt so text inside the image is read
-    /// as untrusted source material rather than as instructions.
-    pub(crate) async fn independent_query_with_attachments(
+    /// Raw one-shot-with-attachments call — no usage recording. Both
+    /// [`Self::independent_query_with_attachments`] (records `KIND_SIDE_QUERY`)
+    /// and [`Self::transcribe_images_for_vision_bridge`] (records `KIND_VISION`)
+    /// wrap this so the shared client + Codex-OAuth-hydration + one_shot logic
+    /// lives in one place while the ledger kind differs per caller.
+    async fn run_one_shot_with_attachments(
         &self,
         system: &str,
         instruction: &str,
         attachments: &[Attachment],
         max_tokens: u32,
     ) -> Result<SideQueryResult> {
-        let operation = "agent.independent_query_with_attachments".to_string();
-        let started = std::time::Instant::now();
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
@@ -465,13 +462,33 @@ impl AssistantAgent {
                     user_content: Some(user_content),
                 },
             )
-            .await;
-        match result {
-            Ok(result) => {
-                let out = SideQueryResult {
-                    text: result.text,
-                    usage: result.usage,
-                };
+            .await?;
+        Ok(SideQueryResult {
+            text: result.text,
+            usage: result.usage,
+        })
+    }
+
+    /// Independent one-shot call that can carry image attachments.
+    ///
+    /// Used by owner-plane workflows such as Knowledge Source OCR: no chat
+    /// history, no tools, no cached user prefix, and no execution loop. The
+    /// caller supplies a scoped system prompt so text inside the image is read
+    /// as untrusted source material rather than as instructions.
+    pub(crate) async fn independent_query_with_attachments(
+        &self,
+        system: &str,
+        instruction: &str,
+        attachments: &[Attachment],
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        let operation = "agent.independent_query_with_attachments".to_string();
+        let started = std::time::Instant::now();
+        match self
+            .run_one_shot_with_attachments(system, instruction, attachments, max_tokens)
+            .await
+        {
+            Ok(out) => {
                 self.record_side_query_usage(
                     &operation,
                     "independent_attachments",
@@ -494,6 +511,75 @@ impl AssistantAgent {
                 Err(e)
             }
         }
+    }
+
+    /// Vision bridge (issue #434): transcribe images to text for a text-only
+    /// main model. Same one-shot-with-images path as
+    /// [`Self::independent_query_with_attachments`], but records usage under
+    /// `KIND_VISION` (with `session_id` so incognito sessions auto-skip the
+    /// ledger) instead of `KIND_SIDE_QUERY`, so the Dashboard tracks vision
+    /// transcription cost distinctly.
+    pub(crate) async fn transcribe_images_for_vision_bridge(
+        &self,
+        system: &str,
+        instruction: &str,
+        attachments: &[Attachment],
+        max_tokens: u32,
+        timeout: std::time::Duration,
+    ) -> Result<SideQueryResult> {
+        let started = std::time::Instant::now();
+        // Apply the timeout HERE (not at the caller) so a timed-out call still
+        // records a failure ledger row — a caller-side `tokio::time::timeout`
+        // would drop this future before the record below runs, silently
+        // undercounting slow/hung vision providers.
+        let call = self.run_one_shot_with_attachments(system, instruction, attachments, max_tokens);
+        let outcome = match tokio::time::timeout(timeout, call).await {
+            Ok(res) => res,
+            Err(_) => Err(anyhow::anyhow!(
+                "vision transcription timed out after {}s",
+                timeout.as_secs()
+            )),
+        };
+        self.record_vision_bridge_usage(
+            max_tokens,
+            started.elapsed().as_millis() as u64,
+            outcome.as_ref().ok().map(|o| &o.usage),
+            outcome.as_ref().err().map(|e| e.to_string()),
+        );
+        outcome
+    }
+
+    /// Ledger writer for [`Self::transcribe_images_for_vision_bridge`] —
+    /// mirrors [`Self::record_side_query_usage`] but stamps `KIND_VISION`.
+    fn record_vision_bridge_usage(
+        &self,
+        max_tokens: u32,
+        duration_ms: u64,
+        usage: Option<&crate::agent::types::ChatUsage>,
+        error: Option<String>,
+    ) {
+        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_VISION);
+        event.operation = Some("agent.vision_bridge_transcribe".to_string());
+        event.source = Some("vision_bridge".to_string());
+        event.provider_id = self.provider_config.as_ref().map(|p| p.id.clone());
+        event.provider_name = self.provider_config.as_ref().map(|p| p.name.clone());
+        event.model_id = Some(self.provider.model().to_string());
+        event.session_id = self.session_id.clone();
+        event.agent_id = Some(self.agent_id.clone());
+        event.duration_ms = Some(duration_ms);
+        event.success = error.is_none();
+        event.error = error;
+        // `path` mirrors record_side_query_usage so analytics can slice
+        // KIND_VISION rows the same way (side_query rows carry metadata.path).
+        event.metadata =
+            Some(json!({ "path": "vision_bridge_transcribe", "max_tokens": max_tokens }));
+        if let Some(usage) = usage {
+            event.input_tokens = Some(usage.input_tokens);
+            event.output_tokens = Some(usage.output_tokens);
+            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+        }
+        crate::model_usage::record_model_usage_best_effort(event);
     }
 
     /// Bare one-shot LLM call against an arbitrary `ProviderConfig` + model.

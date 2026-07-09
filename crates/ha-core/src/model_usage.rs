@@ -15,6 +15,10 @@ pub const KIND_SIDE_QUERY: &str = "side_query";
 pub const KIND_EMBEDDING: &str = "embedding";
 pub const KIND_STT: &str = "stt";
 pub const KIND_JUDGE: &str = "judge";
+/// Vision bridge (issue #434): a text-only main model's images are transcribed
+/// to text by a separately-configured vision model. Tracked as its own kind so
+/// the Dashboard surfaces "vision transcription" cost distinctly from side_query.
+pub const KIND_VISION: &str = "vision";
 pub const KIND_SUMMARIZE: &str = "summarize";
 pub const KIND_WEB_SEARCH: &str = "web_search";
 pub const KIND_IMAGE_GENERATION: &str = "image_generation";

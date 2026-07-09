@@ -13,6 +13,7 @@ pub mod event_bus;
 pub mod app_init;
 pub mod async_jobs;
 pub mod attachments;
+pub mod blocking;
 pub mod globals;
 mod util;
 

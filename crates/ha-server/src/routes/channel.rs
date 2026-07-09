@@ -107,8 +107,11 @@ pub async fn set_auto_transcribe_voice(
     Path(account_id): Path<String>,
     Json(body): Json<AutoTranscribeBody>,
 ) -> Result<Json<Value>, AppError> {
-    accounts::set_account_auto_transcribe_voice(&account_id, body.enabled, "http")
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(move || {
+        accounts::set_account_auto_transcribe_voice(&account_id, body.enabled, "http")
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -240,7 +243,11 @@ pub struct ListSessionsQuery {
 pub async fn list_sessions(
     axum::extract::Query(q): axum::extract::Query<ListSessionsQuery>,
 ) -> Result<Json<Vec<Value>>, AppError> {
-    let conversations = channel_db()?.list_conversations(&q.channel_id, &q.account_id)?;
+    let conversations = {
+        let db = channel_db()?;
+        ha_core::blocking::run_blocking(move || db.list_conversations(&q.channel_id, &q.account_id))
+            .await?
+    };
     Ok(Json(
         conversations
             .into_iter()
@@ -319,19 +326,26 @@ pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, App
         .map(ChatType::from_lowercase)
         .unwrap_or(ChatType::Dm);
 
-    channel_db()?
-        .attach_session(
-            &body.channel_id,
-            &body.account_id,
-            &body.chat_id,
-            body.thread_id.as_deref(),
-            &body.session_id,
-            ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
-            None,
-            None,
-            &resolved_chat_type,
-        )
+    let body = std::sync::Arc::new(body);
+    {
+        let db = channel_db()?;
+        let body = body.clone();
+        ha_core::blocking::run_blocking(move || {
+            db.attach_session(
+                &body.channel_id,
+                &body.account_id,
+                &body.chat_id,
+                body.thread_id.as_deref(),
+                &body.session_id,
+                ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
+                None,
+                None,
+                &resolved_chat_type,
+            )
+        })
+        .await
         .map_err(|e| AppError::internal(format!("Handover failed: {}", e)))?;
+    }
 
     // Replay the latest assistant turn (text + media) so the receiving IM
     // chat isn't left with zero context — same catch-up the IM-side

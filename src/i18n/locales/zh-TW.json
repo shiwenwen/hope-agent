@@ -698,7 +698,9 @@
       "collapse": "折疊右側面板",
       "expand": "展開右側面板",
       "switch": "切換右側面板"
-    }
+    },
+    "visionBridgeEngaged": "主模型不支援看圖，已用 {{model}} 轉述圖片內容。",
+    "visionBridgeUnavailable": "視覺模型轉述圖片失敗，已忽略該圖片。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "記憶重嵌入"
         }
       }
+    },
+    "usageKind": {
+      "all": "全部用量",
+      "chat": "對話",
+      "side_query": "旁路查詢",
+      "embedding": "嵌入",
+      "stt": "語音轉文字",
+      "judge": "評判",
+      "summarize": "摘要",
+      "web_search": "網頁搜尋",
+      "image_generation": "圖片生成",
+      "provider_test": "供應商測試",
+      "vision": "視覺"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "請求逾時（秒）",
     "audioGenFetchVoices": "取得語音",
     "audioGenKnownModels": "已知模型",
-    "audioGenPickVoice": "從清單選擇…"
+    "audioGenPickVoice": "從清單選擇…",
+    "visionBridgeModel": "視覺橋模型",
+    "visionBridgeModelDesc": "僅當主模型不支援看圖時生效。用一個單獨的模型把圖片轉成文字描述，讓對話繼續。",
+    "visionBridgeModelClear": "關閉視覺橋",
+    "selectVisionBridgeModel": "選擇視覺模型"
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",

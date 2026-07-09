@@ -4,37 +4,47 @@ use crate::memory;
 
 #[tauri::command]
 pub async fn memory_add(entry: memory::NewMemory) -> Result<i64, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.add(entry).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let id = ha_core::blocking::run_blocking(move || backend.add(entry)).await?;
+    Ok(id)
 }
 
 #[tauri::command]
 pub async fn memory_update(id: i64, content: String, tags: Vec<String>) -> Result<(), CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.update(id, &content, &tags).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    ha_core::blocking::run_blocking(move || backend.update(id, &content, &tags)).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn memory_toggle_pin(id: i64, pinned: bool) -> Result<(), CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.toggle_pin(id, pinned).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    ha_core::blocking::run_blocking(move || backend.toggle_pin(id, pinned)).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn memory_delete(id: i64) -> Result<(), CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.delete(id).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    ha_core::blocking::run_blocking(move || backend.delete(id)).await?;
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn memory_get(id: i64) -> Result<Option<memory::MemoryEntry>, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.get(id).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let entry = ha_core::blocking::run_blocking(move || backend.get(id)).await?;
+    Ok(entry)
 }
 
 /// List structured claims (next-gen Dreaming, read-only). Optional scope
@@ -51,21 +61,25 @@ pub async fn claim_list(
     offset: Option<usize>,
 ) -> Result<Vec<memory::claims::ClaimRecord>, CmdError> {
     let scope = memory::claims::parse_claim_scope(scope_type.as_deref(), scope_id.as_deref())?;
-    memory::claims::list_claims(memory::claims::ClaimListFilter {
-        scope,
-        status,
-        claim_type,
-        limit,
-        offset,
+    let claims = ha_core::blocking::run_blocking(move || {
+        memory::claims::list_claims(memory::claims::ClaimListFilter {
+            scope,
+            status,
+            claim_type,
+            limit,
+            offset,
+        })
     })
-    .map_err(Into::into)
+    .await?;
+    Ok(claims)
 }
 
 /// Fetch a single claim plus its evidence + legacy-memory links. Returns
 /// `null` if the id is unknown. Maps to `GET /api/claims/{id}`.
 #[tauri::command]
 pub async fn claim_get(id: String) -> Result<Option<memory::claims::ClaimDetail>, CmdError> {
-    memory::claims::get_claim(&id).map_err(Into::into)
+    let detail = ha_core::blocking::run_blocking(move || memory::claims::get_claim(&id)).await?;
+    Ok(detail)
 }
 
 /// User correction (Lucid Review, design §5.2 §5.3): partial-update one claim —
@@ -89,20 +103,23 @@ pub async fn claim_update(
     pinned: Option<bool>,
     note: Option<String>,
 ) -> Result<memory::claims::ClaimActionOutcome, CmdError> {
-    memory::claims::update_claim(memory::claims::ClaimUpdate {
-        claim_id: id,
-        content,
-        subject,
-        predicate,
-        object,
-        tags,
-        status,
-        scope_type,
-        scope_id,
-        pinned,
-        note,
+    let outcome = ha_core::blocking::run_blocking(move || {
+        memory::claims::update_claim(memory::claims::ClaimUpdate {
+            claim_id: id,
+            content,
+            subject,
+            predicate,
+            object,
+            tags,
+            status,
+            scope_type,
+            scope_id,
+            pinned,
+            note,
+        })
     })
-    .map_err(Into::into)
+    .await?;
+    Ok(outcome)
 }
 
 /// Forget a claim (design §5.3): `permanent=false` archives it (kept as an audit
@@ -115,8 +132,11 @@ pub async fn claim_forget(
     permanent: Option<bool>,
     note: Option<String>,
 ) -> Result<memory::claims::ClaimActionOutcome, CmdError> {
-    memory::claims::forget_claim(&id, permanent.unwrap_or(false), note.as_deref())
-        .map_err(Into::into)
+    let outcome = ha_core::blocking::run_blocking(move || {
+        memory::claims::forget_claim(&id, permanent.unwrap_or(false), note.as_deref())
+    })
+    .await?;
+    Ok(outcome)
 }
 
 /// Dry-run: scan legacy memories and return a backfill plan (exact summary +
@@ -148,39 +168,49 @@ pub async fn memory_list(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<Vec<memory::MemoryEntry>, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend
-        .list(
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let entries = ha_core::blocking::run_blocking(move || {
+        backend.list(
             scope.as_ref(),
             types.as_deref(),
             limit.unwrap_or(50),
             offset.unwrap_or(0),
         )
-        .map_err(Into::into)
+    })
+    .await?;
+    Ok(entries)
 }
 
 #[tauri::command]
 pub async fn memory_search(
     query: memory::MemorySearchQuery,
 ) -> Result<Vec<memory::MemoryEntry>, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.search(&query).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let results = ha_core::blocking::run_blocking(move || backend.search(&query)).await?;
+    Ok(results)
 }
 
 #[tauri::command]
 pub async fn memory_count(scope: Option<memory::MemoryScope>) -> Result<usize, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.count(scope.as_ref()).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let count = ha_core::blocking::run_blocking(move || backend.count(scope.as_ref())).await?;
+    Ok(count)
 }
 
 #[tauri::command]
 pub async fn memory_export(scope: Option<memory::MemoryScope>) -> Result<String, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.export_markdown(scope.as_ref()).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let md =
+        ha_core::blocking::run_blocking(move || backend.export_markdown(scope.as_ref())).await?;
+    Ok(md)
 }
 
 #[tauri::command]
@@ -189,21 +219,26 @@ pub async fn memory_find_similar(
     threshold: Option<f32>,
     limit: Option<usize>,
 ) -> Result<Vec<memory::MemoryEntry>, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
     let dedup_cfg = memory::load_dedup_config();
     let threshold = threshold.unwrap_or(dedup_cfg.threshold_merge);
     let limit = limit.unwrap_or(5);
-    backend
-        .find_similar(&content, None, None, threshold, limit)
-        .map_err(Into::into)
+    let results = ha_core::blocking::run_blocking(move || {
+        backend.find_similar(&content, None, None, threshold, limit)
+    })
+    .await?;
+    Ok(results)
 }
 
 #[tauri::command]
 pub async fn memory_delete_batch(ids: Vec<i64>) -> Result<usize, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.delete_batch(&ids).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let deleted = ha_core::blocking::run_blocking(move || backend.delete_batch(&ids)).await?;
+    Ok(deleted)
 }
 
 #[tauri::command]
@@ -219,28 +254,36 @@ pub async fn memory_import(
     dedup: bool,
 ) -> Result<memory::ImportResult, CmdError> {
     let entries = memory::parse_import(&content, &format)?;
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.import_entries(entries, dedup).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let result =
+        ha_core::blocking::run_blocking(move || backend.import_entries(entries, dedup)).await?;
+    Ok(result)
 }
 
 #[tauri::command]
 pub async fn memory_reembed(ids: Option<Vec<i64>>) -> Result<usize, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    match ids {
-        Some(ids) => backend.reembed_batch(&ids).map_err(Into::into),
-        None => backend.reembed_all().map_err(Into::into),
-    }
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let count = ha_core::blocking::run_blocking(move || match ids {
+        Some(ids) => backend.reembed_batch(&ids),
+        None => backend.reembed_all(),
+    })
+    .await?;
+    Ok(count)
 }
 
 #[tauri::command]
 pub async fn memory_stats(
     scope: Option<memory::MemoryScope>,
 ) -> Result<memory::MemoryStats, CmdError> {
-    let backend =
-        get_memory_backend().ok_or_else(|| CmdError::msg("Memory backend not initialized"))?;
-    backend.stats(scope.as_ref()).map_err(Into::into)
+    let backend = get_memory_backend()
+        .ok_or_else(|| CmdError::msg("Memory backend not initialized"))?
+        .clone();
+    let stats = ha_core::blocking::run_blocking(move || backend.stats(scope.as_ref())).await?;
+    Ok(stats)
 }
 
 #[tauri::command]
@@ -251,10 +294,11 @@ pub async fn get_extract_config() -> Result<memory::MemoryExtractConfig, CmdErro
 
 #[tauri::command]
 pub async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("memory_extract", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("memory_extract", "settings-ui"), move |store| {
         store.memory_extract = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -268,10 +312,11 @@ pub async fn get_memory_selection_config() -> Result<memory::MemorySelectionConf
 pub async fn save_memory_selection_config(
     config: memory::MemorySelectionConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("memory_selection", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("memory_selection", "settings-ui"), move |store| {
         store.memory_selection = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -282,10 +327,11 @@ pub async fn get_memory_budget_config() -> Result<memory::MemoryBudgetConfig, Cm
 
 #[tauri::command]
 pub async fn save_memory_budget_config(config: memory::MemoryBudgetConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("memory_budget", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("memory_budget", "settings-ui"), move |store| {
         store.memory_budget = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -297,10 +343,11 @@ pub async fn get_dedup_config() -> Result<memory::DedupConfig, CmdError> {
 
 #[tauri::command]
 pub async fn save_dedup_config(config: memory::DedupConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("memory_dedup", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("memory_dedup", "settings-ui"), move |store| {
         store.dedup = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -314,10 +361,11 @@ pub async fn get_hybrid_search_config() -> Result<memory::HybridSearchConfig, Cm
 
 #[tauri::command]
 pub async fn save_hybrid_search_config(config: memory::HybridSearchConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("hybrid_search", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("hybrid_search", "settings-ui"), move |store| {
         store.hybrid_search = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -331,10 +379,11 @@ pub async fn get_temporal_decay_config() -> Result<memory::TemporalDecayConfig, 
 pub async fn save_temporal_decay_config(
     config: memory::TemporalDecayConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("temporal_decay", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("temporal_decay", "settings-ui"), move |store| {
         store.temporal_decay = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -346,10 +395,11 @@ pub async fn get_mmr_config() -> Result<memory::MmrConfig, CmdError> {
 
 #[tauri::command]
 pub async fn save_mmr_config(config: memory::MmrConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("memory_mmr", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("memory_mmr", "settings-ui"), move |store| {
         store.mmr = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -363,10 +413,11 @@ pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig
 pub async fn save_embedding_cache_config(
     config: memory::EmbeddingCacheConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("embedding_cache", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("embedding_cache", "settings-ui"), move |store| {
         store.embedding_cache = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -378,10 +429,11 @@ pub async fn get_multimodal_config() -> Result<memory::MultimodalConfig, CmdErro
 
 #[tauri::command]
 pub async fn save_multimodal_config(config: memory::MultimodalConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("multimodal", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("multimodal", "settings-ui"), move |store| {
         store.multimodal = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -470,7 +522,11 @@ pub async fn memory_reembed_start(
         .ok_or_else(|| {
             CmdError::msg("No memory embedding model is currently active".to_string())
         })?;
-    memory::start_memory_reembed_job(&model_id, mode, None).map_err(Into::into)
+    let snapshot = ha_core::blocking::run_blocking(move || {
+        memory::start_memory_reembed_job(&model_id, mode, None)
+    })
+    .await?;
+    Ok(snapshot)
 }
 
 #[tauri::command]

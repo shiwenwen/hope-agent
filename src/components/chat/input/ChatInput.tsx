@@ -92,6 +92,7 @@ interface ChatInputProps {
   inputHistory?: string[]
   quickPrompts?: QuickPromptItem[]
   onSend: () => void
+  sendDisabled?: boolean
   loading: boolean
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
@@ -209,6 +210,7 @@ export default function ChatInput({
   inputHistory = [],
   quickPrompts = [],
   onSend,
+  sendDisabled = false,
   loading,
   availableModels,
   activeModel,
@@ -717,10 +719,13 @@ export default function ChatInput({
     [historyIndex, input, inputHandleRef, inputHistory, onInputChange],
   )
 
+  const sendUnavailable = sendDisabled || !hasSendableContent
+
   const handleSend = useCallback(() => {
+    if (sendUnavailable) return
     resetHistoryBrowsing()
     onSend()
-  }, [onSend, resetHistoryBrowsing])
+  }, [onSend, resetHistoryBrowsing, sendUnavailable])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
@@ -964,14 +969,14 @@ export default function ChatInput({
           hero && "shadow-floating",
           incognitoEnabled &&
             [
-              "[--color-surface-floating:hsl(220_13%_13%)]",
-              "[--color-surface-subtle:hsl(220_13%_18%)]",
-              "[--color-secondary:hsl(220_13%_20%)]",
+              "[--color-surface-floating:hsl(0_0%_13%)]",
+              "[--color-surface-subtle:hsl(0_0%_16%)]",
+              "[--color-secondary:hsl(0_0%_17%)]",
               "[--color-foreground:hsl(0_0%_96%)]",
-              "[--color-muted-foreground:hsl(215_14%_70%)]",
-              "[--color-border:hsl(220_13%_24%)]",
-              "[--color-border-soft:hsl(220_13%_24%)]",
-              "shadow-[0_18px_52px_hsl(220_18%_10%/0.24)]",
+              "[--color-muted-foreground:hsl(0_0%_70%)]",
+              "[--color-border:hsl(0_0%_22%)]",
+              "[--color-border-soft:hsl(0_0%_22%)]",
+              "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
             ],
         )}
       >
@@ -1450,15 +1455,21 @@ export default function ChatInput({
                 )}
 
                 <IconTip
-                  label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
+                  label={
+                    loading && hasSendableContent && !sendDisabled
+                      ? t("chat.queueMessage")
+                      : t("chat.send")
+                  }
                 >
                   <Button
                     size="icon"
                     className="h-8 w-8 rounded-full shrink-0"
                     onClick={handleSend}
-                    disabled={!hasSendableContent}
+                    disabled={sendUnavailable}
                     aria-label={
-                      loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")
+                      loading && hasSendableContent && !sendDisabled
+                        ? t("chat.queueMessage")
+                        : t("chat.send")
                     }
                   >
                     <Send className="h-4 w-4" />

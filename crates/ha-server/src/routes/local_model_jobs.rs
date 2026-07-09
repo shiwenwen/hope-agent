@@ -10,6 +10,7 @@ use ha_core::local_llm::{ModelCandidate, OllamaPullRequest};
 use ha_core::local_model_jobs::{self, LocalModelJobLogEntry, LocalModelJobSnapshot};
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 #[derive(Debug, Deserialize)]
 pub struct StartChatBody {
@@ -44,49 +45,60 @@ pub struct LogsQuery {
 pub async fn start_chat_model(
     Json(body): Json<StartChatBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::start_chat_model_job(
-        body.model, None,
-    )?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::start_chat_model_job(body.model, None)).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/embedding`
 pub async fn start_embedding(
     Json(body): Json<StartEmbeddingBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::start_embedding_job(body.model)?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::start_embedding_job(body.model)).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/ollama-install`
 pub async fn start_ollama_install() -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::start_ollama_install_job()?))
+    Ok(Json(
+        run_blocking(local_model_jobs::start_ollama_install_job).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/ollama-pull`
 pub async fn start_ollama_pull(
     Json(body): Json<StartOllamaPullBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::start_ollama_pull_job(body.request)?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::start_ollama_pull_job(body.request)).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/ollama-preload`
 pub async fn start_ollama_preload(
     Json(body): Json<StartOllamaPreloadBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::start_ollama_preload_job(
-        body.model_id,
-        body.display_name,
-    )?))
+    Ok(Json(
+        run_blocking(move || {
+            local_model_jobs::start_ollama_preload_job(body.model_id, body.display_name)
+        })
+        .await?,
+    ))
 }
 
 /// `GET /api/local-model-jobs`
 pub async fn list_jobs() -> Result<Json<Vec<LocalModelJobSnapshot>>, AppError> {
-    Ok(Json(local_model_jobs::list_jobs()?))
+    Ok(Json(run_blocking(local_model_jobs::list_jobs).await?))
 }
 
 /// `GET /api/local-model-jobs/{id}`
 pub async fn get_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    let job = local_model_jobs::get_job(&id)?
-        .ok_or_else(|| AppError::not_found(format!("local model job not found: {id}")))?;
+    let job = {
+        let id = id.clone();
+        run_blocking(move || local_model_jobs::get_job(&id)).await?
+    }
+    .ok_or_else(|| AppError::not_found(format!("local model job not found: {id}")))?;
     Ok(Json(job))
 }
 
@@ -95,26 +107,34 @@ pub async fn get_logs(
     Path(id): Path<String>,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<Vec<LocalModelJobLogEntry>>, AppError> {
-    Ok(Json(local_model_jobs::get_logs(&id, q.after_seq)?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::get_logs(&id, q.after_seq)).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/{id}/cancel`
 pub async fn cancel_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::cancel_job(&id)?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::cancel_job(&id)).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/{id}/pause`
 pub async fn pause_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::pause_job(&id)?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::pause_job(&id)).await?,
+    ))
 }
 
 /// `POST /api/local-model-jobs/{id}/retry`
 pub async fn retry_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
-    Ok(Json(local_model_jobs::retry_job(&id, None)?))
+    Ok(Json(
+        run_blocking(move || local_model_jobs::retry_job(&id, None)).await?,
+    ))
 }
 
 /// `DELETE /api/local-model-jobs/{id}`
 pub async fn clear_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    local_model_jobs::clear_job(&id)?;
+    run_blocking(move || local_model_jobs::clear_job(&id)).await?;
     Ok(Json(json!({ "cleared": true })))
 }

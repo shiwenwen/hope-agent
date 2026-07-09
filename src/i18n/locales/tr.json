@@ -698,7 +698,9 @@
       "collapse": "Sağ paneli daralt",
       "expand": "Sağ paneli genişlet",
       "switch": "Sağ paneli değiştir"
-    }
+    },
+    "visionBridgeEngaged": "Ana model görselleri göremediği için {{model}} onları onun yerine tanımladı.",
+    "visionBridgeUnavailable": "Görsel modeli görseli tanımlayamadı, bu yüzden görsel atlandı."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "Bellek yeniden embedding"
         }
       }
+    },
+    "usageKind": {
+      "all": "Tüm kullanım",
+      "chat": "Sohbet",
+      "side_query": "Yan sorgu",
+      "embedding": "Gömme",
+      "stt": "Konuşmadan metne",
+      "judge": "Değerlendirme",
+      "summarize": "Özetleme",
+      "web_search": "Web araması",
+      "image_generation": "Görsel oluşturma",
+      "provider_test": "Sağlayıcı testi",
+      "vision": "Görsel"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "İstek zaman aşımı (sn)",
     "audioGenFetchVoices": "Sesleri getir",
     "audioGenKnownModels": "Bilinen modeller",
-    "audioGenPickVoice": "Listeden seç…"
+    "audioGenPickVoice": "Listeden seç…",
+    "visionBridgeModel": "Görsel köprü modeli",
+    "visionBridgeModelDesc": "Yalnızca ana model görselleri göremediğinde kullanılır. Ayrı bir model, sohbetin devam edebilmesi için görselleri metin açıklamalarına dönüştürür.",
+    "visionBridgeModelClear": "Görsel köprüyü kapat",
+    "selectVisionBridgeModel": "Görsel modeli seç"
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",

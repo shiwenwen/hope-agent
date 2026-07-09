@@ -28,18 +28,19 @@ interface Provider {
 }
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all" | "custom"
-const USAGE_KIND_OPTIONS = [
-  { value: "__all__", label: "All usage" },
-  { value: "chat", label: "Chat" },
-  { value: "side_query", label: "Side query" },
-  { value: "embedding", label: "Embedding" },
-  { value: "stt", label: "Speech-to-text" },
-  { value: "judge", label: "Judge" },
-  { value: "summarize", label: "Summarize" },
-  { value: "web_search", label: "Web search" },
-  { value: "image_generation", label: "Image generation" },
-  { value: "provider_test", label: "Provider test" },
-]
+const USAGE_KIND_VALUES = [
+  "__all__",
+  "chat",
+  "side_query",
+  "embedding",
+  "stt",
+  "judge",
+  "summarize",
+  "web_search",
+  "image_generation",
+  "provider_test",
+  "vision",
+] as const
 
 function computeDateRange(key: RangeKey): { start: string | null; end: string | null } {
   if (key === "all") return { start: null, end: null }
@@ -228,12 +229,14 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
         }
       >
         <SelectTrigger className="h-7 w-40 text-xs">
-          <SelectValue placeholder="All usage" />
+          <SelectValue placeholder={t("dashboard.usageKind.all")} />
         </SelectTrigger>
         <SelectContent>
-          {USAGE_KIND_OPTIONS.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>
-              {opt.label}
+          {USAGE_KIND_VALUES.map((value) => (
+            <SelectItem key={value} value={value}>
+              {value === "__all__"
+                ? t("dashboard.usageKind.all")
+                : t(`dashboard.usageKind.${value}`, value)}
             </SelectItem>
           ))}
         </SelectContent>

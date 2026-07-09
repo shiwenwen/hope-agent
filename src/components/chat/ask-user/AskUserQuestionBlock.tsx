@@ -112,7 +112,15 @@ function localizedText(
   })
 }
 
-function OptionPreview({ option }: { option: AskUserQuestionOption }) {
+function OptionPreview({
+  option,
+  fill = false,
+}: {
+  option: AskUserQuestionOption
+  /** Fill the parent (side pane) instead of sizing to content — keeps the
+      pane height constant so hovering between previews never reflows. */
+  fill?: boolean
+}) {
   const { t } = useTranslation()
   const kind = option.previewKind ?? "markdown"
   const preview = option.preview ?? ""
@@ -120,11 +128,19 @@ function OptionPreview({ option }: { option: AskUserQuestionOption }) {
 
   if (kind === "image") {
     return (
-      <div className="mt-2 rounded-md border border-border overflow-hidden">
+      <div
+        className={cn(
+          "mt-2 rounded-md border border-border overflow-hidden",
+          fill && "flex-1 min-h-0"
+        )}
+      >
         <img
           src={preview}
           alt={localizedText(option.label, t)}
-          className="max-h-64 w-full object-contain bg-muted"
+          className={cn(
+            "w-full object-contain bg-muted",
+            fill ? "h-full" : "max-h-64"
+          )}
           loading="lazy"
         />
       </div>
@@ -133,7 +149,12 @@ function OptionPreview({ option }: { option: AskUserQuestionOption }) {
 
   const body = kind === "mermaid" ? "```mermaid\n" + preview + "\n```" : preview
   return (
-    <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs max-h-[28rem] overflow-auto">
+    <div
+      className={cn(
+        "mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs overflow-auto",
+        fill ? "flex-1 min-h-0" : "max-h-[28rem]"
+      )}
+    >
       <MarkdownStreamdown plugins={staticPlugins}>
         {body}
       </MarkdownStreamdown>
@@ -370,15 +391,27 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         const state = answers[q.questionId]
         const focused = focusedOption[q.questionId]
         const focusedOpt = q.options.find((o) => o.value === focused)
-        const showSidePreview = hasAnyPreview && !!focusedOpt?.preview
+        // Side-preview pane content: the hovered option's own preview, or a
+        // fallback to the first option that has one so the pane never
+        // unmounts. Toggling the pane/grid on hover used to reflow the option
+        // column width and made the option boxes jitter (issue #433); the
+        // grid itself is reserved group-wide via `hasAnyPreview` so columns
+        // stay aligned across questions too.
+        const previewOpt = focusedOpt?.preview
+          ? focusedOpt
+          : q.options.find((o) => !!o.preview)
+        // The fallback preview does not describe the focused option — dim it
+        // so it reads as reference, not as the hovered option's detail.
+        const previewIsFallback = !!previewOpt && previewOpt !== focusedOpt
         const customSelected = state?.customSelected ?? false
         return (
           <div
             key={q.questionId}
             className={cn(
               "space-y-2",
-              showSidePreview &&
-                "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0"
+              hasAnyPreview &&
+                "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0",
+              previewOpt && "md:min-h-64"
             )}
           >
             {/* Left column: title + options */}
@@ -480,8 +513,13 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                               </div>
                             ) : null
                           })()}
-                          {/* Inline preview (when no side pane is active for this question) */}
-                          {opt.preview && !hasAnyPreview && <OptionPreview option={opt} />}
+                          {/* Inline preview for narrow viewports where the
+                              side pane (`hidden md:block`) is not shown. */}
+                          {opt.preview && (
+                            <div className="md:hidden">
+                              <OptionPreview option={opt} />
+                            </div>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -538,14 +576,26 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
               </div>
             </div>
 
-            {/* Right column: side preview pane aligned to the question's top */}
-            {showSidePreview && (
-              <div className="hidden md:block">
-                <div className="flex items-center text-[10px] uppercase tracking-wide text-muted-foreground mb-1 leading-5 h-5">
-                  {t("planMode.question.preview", { defaultValue: "Preview" })}:{" "}
-                  {localizedText(focusedOpt!.label, t)}
+            {/* Right column: side preview pane. Absolutely filled inside the
+                grid cell so its content height never drives the row height —
+                hovering between previews of different sizes cannot reflow the
+                layout (issue #433); tall previews scroll internally. */}
+            {previewOpt && (
+              <div className="hidden md:block relative">
+                <div className="absolute inset-0 flex flex-col">
+                  <div className="flex items-center text-[10px] uppercase tracking-wide text-muted-foreground mb-1 leading-5 h-5 shrink-0">
+                    {t("planMode.question.preview", { defaultValue: "Preview" })}:{" "}
+                    {localizedText(previewOpt.label, t)}
+                  </div>
+                  <div
+                    className={cn(
+                      "flex-1 min-h-0 flex flex-col transition-opacity",
+                      previewIsFallback && "opacity-60"
+                    )}
+                  >
+                    <OptionPreview option={previewOpt} fill />
+                  </div>
                 </div>
-                <OptionPreview option={focusedOpt!} />
               </div>
             )}
           </div>

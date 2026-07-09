@@ -698,7 +698,9 @@
       "collapse": "Свернуть правую панель",
       "expand": "Развернуть правую панель",
       "switch": "Переключить правую панель"
-    }
+    },
+    "visionBridgeEngaged": "Основная модель не поддерживает изображения, поэтому {{model}} описала их за неё.",
+    "visionBridgeUnavailable": "Модель зрения не смогла описать изображение, поэтому оно было пропущено."
   },
   "codexAuth": {
     "expiredDescription": "Ваш OAuth-токен Codex больше не действителен. Войдите снова, чтобы продолжить.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "Переиндексация памяти"
         }
       }
+    },
+    "usageKind": {
+      "all": "Всё использование",
+      "chat": "Чат",
+      "side_query": "Побочный запрос",
+      "embedding": "Эмбеддинг",
+      "stt": "Речь в текст",
+      "judge": "Оценка",
+      "summarize": "Суммирование",
+      "web_search": "Веб-поиск",
+      "image_generation": "Генерация изображений",
+      "provider_test": "Тест провайдера",
+      "vision": "Зрение"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "Тайм-аут запроса (с)",
     "audioGenFetchVoices": "Загрузить голоса",
     "audioGenKnownModels": "Известные модели",
-    "audioGenPickVoice": "Выбрать из списка…"
+    "audioGenPickVoice": "Выбрать из списка…",
+    "visionBridgeModel": "Модель зрительного моста",
+    "visionBridgeModelDesc": "Используется только когда основная модель не поддерживает изображения. Отдельная модель преобразует изображения в текстовые описания, чтобы диалог мог продолжиться.",
+    "visionBridgeModelClear": "Отключить зрительный мост",
+    "selectVisionBridgeModel": "Выбрать модель зрения"
   },
   "shortcuts": {
     "actionOpenSettings": "Открыть настройки",

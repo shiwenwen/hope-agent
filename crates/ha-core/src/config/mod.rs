@@ -12,8 +12,8 @@ mod persistence;
 #[cfg(test)]
 pub use persistence::replace_cache_for_test;
 pub use persistence::{
-    cached_config, config_health, load_config, mutate_config, reload_cache_from_disk, save_config,
-    ConfigHealth,
+    cached_config, config_health, load_config, mutate_config, mutate_config_async,
+    reload_cache_from_disk, save_config, ConfigHealth,
 };
 
 use serde::{Deserialize, Serialize};
@@ -1100,8 +1100,8 @@ pub struct AppConfig {
     /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
     #[serde(default = "default_language")]
     pub language: String,
-    /// Whether UI background effects (stars, weather) are enabled
-    #[serde(default = "crate::default_true")]
+    /// Whether UI background effects (stars, weather) are enabled. Default off.
+    #[serde(default)]
     pub ui_effects_enabled: bool,
     /// Prevent the host from idle-sleeping while the app runs (user setting,
     /// default off). When on, the primary process holds an OS sleep assertion
@@ -1278,6 +1278,27 @@ pub struct AppConfig {
     /// paths. See `crate::updater::AutoUpdateConfig`.
     #[serde(default)]
     pub auto_update: crate::updater::AutoUpdateConfig,
+
+    /// Per-function model overrides (issue #434). Currently just the vision
+    /// bridge: when the main model can't see images, a separately-configured
+    /// vision model transcribes them to text. Opt-in — `vision = None` keeps
+    /// the existing drop-image + placeholder behavior. See `agent::vision_bridge`.
+    #[serde(default)]
+    pub function_models: FunctionModelsConfig,
+}
+
+// ── Per-function model overrides (issue #434) ───────────────────────
+
+/// Model overrides keyed by function type. Extensible container so future
+/// function→model routing (tool-use, reasoning, …) can be added without
+/// reshaping `AppConfig`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionModelsConfig {
+    /// Vision bridge model: transcribes images to text when the main model is
+    /// text-only. `None` = bridge disabled (drop image + placeholder, as before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vision: Option<ActiveModel>,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -1362,7 +1383,7 @@ impl Default for AppConfig {
             tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),
-            ui_effects_enabled: true,
+            ui_effects_enabled: false,
             prevent_sleep: false,
             sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),
@@ -1398,6 +1419,7 @@ impl Default for AppConfig {
             disable_all_hooks: false,
             hooks_allow_project_scope: false,
             auto_update: crate::updater::AutoUpdateConfig::default(),
+            function_models: FunctionModelsConfig::default(),
         }
     }
 }

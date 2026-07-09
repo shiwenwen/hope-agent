@@ -66,10 +66,13 @@ pub async fn finalize_codex_auth() -> Result<Json<Value>, AppError> {
             AppError::internal("Failed to extract account ID from Codex token".to_string())
         })?;
 
-    ha_core::provider::ensure_codex_provider_persisted(
-        ActiveModelUpdate::Always(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
-        "oauth-finalize-http",
-    )
+    ha_core::blocking::run_blocking(|| {
+        ha_core::provider::ensure_codex_provider_persisted(
+            ActiveModelUpdate::Always(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
+            "oauth-finalize-http",
+        )
+    })
+    .await
     .map_err(|e| AppError::internal(e.to_string()))?;
 
     // Persist token for subsequent sessions.
@@ -128,8 +131,11 @@ pub async fn logout_codex() -> Result<Json<Value>, AppError> {
         *lock = None;
     }
 
-    ha_core::provider::delete_providers_by_api_type(ApiType::Codex, "http")
-        .map_err(|e| AppError::internal(e.to_string()))?;
+    ha_core::blocking::run_blocking(|| {
+        ha_core::provider::delete_providers_by_api_type(ApiType::Codex, "http")
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
 
     oauth::clear_token().map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
@@ -178,10 +184,13 @@ pub async fn try_restore_session() -> Result<Json<Value>, AppError> {
     // Ensure the Codex provider row exists so subsequent `chat` calls can
     // find it. Avoid a disk write + autosave snapshot when nothing actually
     // changed — this handler fires on every server-mode startup.
-    ha_core::provider::ensure_codex_provider_persisted(
-        ActiveModelUpdate::IfMissing(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
-        "session-restore-http",
-    )
+    ha_core::blocking::run_blocking(|| {
+        ha_core::provider::ensure_codex_provider_persisted(
+            ActiveModelUpdate::IfMissing(ha_core::agent::DEFAULT_CODEX_MODEL_ID.to_string()),
+            "session-restore-http",
+        )
+    })
+    .await
     .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(json!({ "restored": true })))
@@ -211,12 +220,13 @@ pub async fn set_codex_model(Json(body): Json<SetCodexModelBody>) -> Result<Json
     }
 
     let model = body.model;
-    ha_core::config::mutate_config(("active_model", "set-codex-model"), |store| {
+    ha_core::config::mutate_config_async(("active_model", "set-codex-model"), move |store| {
         if let Some(ref mut active) = store.active_model {
-            active.model_id = model.clone();
+            active.model_id = model;
         }
         Ok(())
-    })?;
+    })
+    .await?;
 
     Ok(Json(json!({ "ok": true })))
 }

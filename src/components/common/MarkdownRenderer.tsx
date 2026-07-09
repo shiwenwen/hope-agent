@@ -47,6 +47,7 @@ import { shouldRenderAsBareJson } from "./markdownJson"
 import { useFileActions } from "@/components/chat/files/useFileActions"
 import { FileContextMenu } from "@/components/chat/files/FileActionMenu"
 import type { PreviewTarget } from "@/components/chat/files/useFilePreview"
+import { FileTypeIcon } from "@/components/icons/FileTypeIcon"
 import { AgentMentionChip } from "@/components/chat/agent-mention/AgentMentionChip"
 import { agentIdFromHref } from "@/components/chat/agent-mention/agentTokens"
 import { SkillMentionChip } from "@/components/chat/skill-mention/SkillMentionChip"
@@ -314,6 +315,15 @@ function MarkdownLinkIcon({ icon }: { icon: LinkIconInfo }) {
   return <Icon aria-hidden="true" className="markdown-link-icon" />
 }
 
+function MarkdownFileTypeIcon({ name }: { name: string }) {
+  return (
+    <FileTypeIcon
+      name={name}
+      className="markdown-link-icon markdown-link-file-type-icon"
+    />
+  )
+}
+
 function MarkdownWebLinkIcon({ href, enabled }: { href: string | undefined; enabled: boolean }) {
   const faviconBudget = useContext(MarkdownFaviconBudgetContext)
   const faviconDataUrl = useSafeFavicon(href, {
@@ -480,6 +490,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   )
   const { primary, run } = useFileActions(target)
   const linkIcon = linkIconForHref(href, true)
+  const fileName = basename(localPath)
   return (
     <FileContextMenu target={target}>
       <a
@@ -494,7 +505,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           run(primary)
         }}
       >
-        {linkIcon && <MarkdownLinkIcon icon={linkIcon} />}
+        <MarkdownFileTypeIcon name={fileName} />
         <span className="markdown-link-label">{children}</span>
       </a>
     </FileContextMenu>

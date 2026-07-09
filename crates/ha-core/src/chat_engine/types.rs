@@ -410,6 +410,7 @@ impl EventSink for ChannelStreamSink {
             || event.contains("\"type\":\"context_compacted\"")
             || event.contains("\"type\":\"thinking_auto_disabled\"")
             || event.contains("\"type\":\"vision_auto_disabled\"")
+            || event.contains("\"type\":\"vision_bridge\"")
         {
             // Friendly status notices that mirror the GUI's inline banners.
             // Routed through the dedicated `system_notice_tx` so the stream

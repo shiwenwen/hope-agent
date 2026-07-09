@@ -111,6 +111,7 @@ interface ProjectSectionProps {
   getAgentInfo: (agentId: string) => AgentSummaryForSidebar | undefined
   formatRelativeTime: (dateStr: string) => string
   displayMode: SidebarDisplayMode
+  motionDisabled?: boolean
 }
 
 const EXPANDED_STORAGE_KEY = "ha:project-expanded"
@@ -144,6 +145,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
     setExpanded,
     onAddProject,
     onReorderProjects,
+    motionDisabled = false,
   } = props
   const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
   const archivedProjects = useMemo(() => projects.filter((p) => p.archived), [projects])
@@ -271,7 +273,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
         }
       />
 
-      <AnimatedCollapse open={expanded}>
+      <AnimatedCollapse open={expanded} durationMs={motionDisabled ? 0 : undefined}>
         <div className="space-y-0.5 px-3 pb-1 pt-1">
           {visibleProjects.length === 0 && (
             <button
@@ -337,7 +339,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
                   {archivedProjects.length}
                 </span>
               </button>
-              <AnimatedCollapse open={archivedExpanded}>
+              <AnimatedCollapse open={archivedExpanded} durationMs={motionDisabled ? 0 : undefined}>
                 <div className="mt-0.5 space-y-0.5">
                   {archivedProjects.map((project) => (
                     <ProjectGroup
@@ -438,6 +440,7 @@ function ProjectGroup({
   isDragging = false,
   suppressChildren = false,
   onPrepareReorder,
+  motionDisabled = false,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
   // The active session is already excluded from `project.unreadCount` by the
@@ -669,7 +672,7 @@ function ProjectGroup({
       </div>
 
       {!suppressChildren && (
-        <AnimatedCollapse open={groupExpanded}>
+        <AnimatedCollapse open={groupExpanded} durationMs={motionDisabled ? 0 : undefined}>
           <div
             className={cn(
               "pl-4 pr-1 mt-0.5",

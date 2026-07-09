@@ -140,7 +140,7 @@ Tauri ↔ COMMAND_MAP 差集为 13 条合法非 REST 命令（5 条 Desktop-only
 | `design:show` / `design:reload` / `design:artifact_ready` / `design:artifact_deleted` / `design:project_changed` / `design:system_changed` / `design:critiqued` | 设计空间（产物生成 / 预览刷新 / 系统变更 / 质量评审） |
 | `design:artifact_generating` / `design:generate_delta` / `design:generate_done` / `design:generate_error` | 设计空间真流式生成（建 generating 壳 / 逐帧回填预览 / 定稿受控 swap / 失败降级）。`generate_delta` payload `{ projectId, artifactId, streamId, seq, css, bodyHtml, done }` |
 | `design:ffmpeg_download_progress` | MP4 导出编码器（ffmpeg）按需下载进度。Payload `{ stage: "downloading"\|"ready", percent?, downloadedBytes?, totalBytes?, binaryPath? }` |
-| `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底 |
+| `browser:frame` | 浏览器活动 tab 的实时 JPEG 帧。Payload `{ sessionId?, targetId?, url?, title?, jpegBase64, capturedAt, backend }`。在 `act` / `navigate` / `tabs.new|select|claim` 后由后端自动 emit；BrowserPanel 同时以 1Hz 轮询 `browser_capture_frame` 兜底并按当前会话过滤 |
 
 ### MCP
 
@@ -519,6 +519,8 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `set_active_model` | `POST /api/models/active` | ✅ |
 | `get_fallback_models` | `GET /api/models/fallback` | ✅ |
 | `set_fallback_models` | `POST /api/models/fallback` | ✅ |
+| `get_vision_model` | `GET /api/models/vision` | ✅ |
+| `set_vision_model` | `PUT /api/models/vision` | ✅ |
 | `set_reasoning_effort` | `POST /api/models/reasoning-effort` | ✅ |
 | `get_current_settings` | `GET /api/models/settings` | ✅ |
 | `get_global_temperature` | `GET /api/models/temperature` | ✅ |
@@ -1028,7 +1030,7 @@ Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲
 | `browser_launch` | `POST /api/browser/launch` | ✅ |
 | `browser_connect` | `POST /api/browser/connect` | ✅ |
 | `browser_disconnect` | `POST /api/browser/disconnect` | ✅ |
-| `browser_capture_frame` | `POST /api/browser/capture-frame` | ✅ |
+| `browser_capture_frame` | `POST /api/browser/capture-frame`，body 可带 `{ sessionId? }` | ✅ |
 | `browser_spawn_user_chrome` | `POST /api/browser/spawn-user-chrome` | ✅ |
 | `browser_doctor` | `GET /api/browser/doctor` | ✅ |
 | `browser_get_config` | `GET /api/browser/config` | ✅ |

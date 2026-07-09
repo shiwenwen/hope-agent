@@ -698,7 +698,9 @@
       "collapse": "오른쪽 패널 접기",
       "expand": "오른쪽 패널 펼치기",
       "switch": "오른쪽 패널 전환"
-    }
+    },
+    "visionBridgeEngaged": "기본 모델이 이미지를 볼 수 없어 {{model}}이(가) 이미지 내용을 설명했습니다.",
+    "visionBridgeUnavailable": "비전 모델이 이미지를 설명하지 못해 해당 이미지는 제외되었습니다."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "메모리 재임베딩"
         }
       }
+    },
+    "usageKind": {
+      "all": "모든 사용",
+      "chat": "채팅",
+      "side_query": "사이드 쿼리",
+      "embedding": "임베딩",
+      "stt": "음성 인식",
+      "judge": "판정",
+      "summarize": "요약",
+      "web_search": "웹 검색",
+      "image_generation": "이미지 생성",
+      "provider_test": "제공자 테스트",
+      "vision": "비전"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "요청 시간 초과(초)",
     "audioGenFetchVoices": "음성 가져오기",
     "audioGenKnownModels": "알려진 모델",
-    "audioGenPickVoice": "목록에서 선택…"
+    "audioGenPickVoice": "목록에서 선택…",
+    "visionBridgeModel": "비전 브리지 모델",
+    "visionBridgeModelDesc": "기본 모델이 이미지를 볼 수 없을 때만 사용됩니다. 별도의 모델이 이미지를 텍스트 설명으로 변환해 대화를 이어갑니다.",
+    "visionBridgeModelClear": "비전 브리지 끄기",
+    "selectVisionBridgeModel": "비전 모델 선택"
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",

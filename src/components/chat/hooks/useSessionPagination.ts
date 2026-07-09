@@ -32,6 +32,7 @@ export interface UseSessionPaginationReturn {
   loadingMoreAfter: boolean
   hasMoreSessions: boolean
   setHasMoreSessions: React.Dispatch<React.SetStateAction<boolean>>
+  sessionsLoading: boolean
   loadingMoreSessions: boolean
   handleLoadMore: () => Promise<void>
   handleLoadMoreAfter: () => Promise<void>
@@ -63,10 +64,14 @@ export function useSessionPagination({
   const [hasMoreAfter, setHasMoreAfter] = useState(false)
   const [loadingMoreAfter, setLoadingMoreAfter] = useState(false)
   const [hasMoreSessions, setHasMoreSessions] = useState(false)
+  const [sessionsLoading, setSessionsLoading] = useState(true)
   const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
   const loadedSessionRowsRef = useRef(0)
+  const sessionsLoadedOnceRef = useRef(false)
 
   const reloadSessions = useCallback(async () => {
+    const isInitialLoad = !sessionsLoadedOnceRef.current
+    if (isInitialLoad) setSessionsLoading(true)
     try {
       const [list, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
@@ -88,6 +93,11 @@ export function useSessionPagination({
       setHasMoreSessions(list.length + (hasActiveExtra ? 1 : 0) < total)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
+    } finally {
+      if (isInitialLoad) {
+        sessionsLoadedOnceRef.current = true
+        setSessionsLoading(false)
+      }
     }
   }, [setSessions, currentSessionIdRef, sessionsRef])
 
@@ -301,6 +311,7 @@ export function useSessionPagination({
     loadingMoreAfter,
     hasMoreSessions,
     setHasMoreSessions,
+    sessionsLoading,
     loadingMoreSessions,
     handleLoadMore,
     handleLoadMoreAfter,

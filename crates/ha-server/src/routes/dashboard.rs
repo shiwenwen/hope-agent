@@ -1,6 +1,7 @@
 use axum::Json;
 use serde::Deserialize;
 
+use ha_core::blocking::run_blocking;
 use ha_core::dashboard::{self, *};
 
 use crate::error::AppError;
@@ -15,38 +16,51 @@ pub struct FilterBody {
 }
 
 pub async fn overview(Json(body): Json<FilterBody>) -> Result<Json<OverviewStats>, AppError> {
-    Ok(Json(query_overview(
-        session_db()?,
-        log_db()?,
-        cron_db()?,
-        &body.filter,
-    )?))
+    let (session_db, log_db, cron_db) = (session_db()?, log_db()?, cron_db()?);
+    Ok(Json(
+        run_blocking(move || query_overview(session_db, log_db, cron_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn token_usage(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<DashboardTokenData>, AppError> {
-    Ok(Json(query_token_usage(session_db()?, &body.filter)?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || query_token_usage(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn tool_usage(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<ToolUsageStats>>, AppError> {
-    Ok(Json(query_tool_usage(session_db()?, &body.filter)?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || query_tool_usage(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn sessions(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<DashboardSessionData>, AppError> {
-    Ok(Json(query_sessions(session_db()?, &body.filter)?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || query_sessions(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn errors(Json(body): Json<FilterBody>) -> Result<Json<DashboardErrorData>, AppError> {
-    Ok(Json(query_errors(log_db()?, &body.filter)?))
+    let log_db = log_db()?;
+    Ok(Json(
+        run_blocking(move || query_errors(log_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn tasks(Json(body): Json<FilterBody>) -> Result<Json<DashboardTaskData>, AppError> {
-    Ok(Json(query_tasks(session_db()?, cron_db()?, &body.filter)?))
+    let (session_db, cron_db) = (session_db()?, cron_db()?);
+    Ok(Json(
+        run_blocking(move || query_tasks(session_db, cron_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn system_metrics() -> Result<Json<dashboard::SystemMetrics>, AppError> {
@@ -59,63 +73,66 @@ pub async fn system_metrics() -> Result<Json<dashboard::SystemMetrics>, AppError
 pub async fn session_list(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<dashboard::DashboardSessionItem>>, AppError> {
-    Ok(Json(dashboard::query_session_list(
-        session_db()?,
-        &body.filter,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_session_list(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn message_list(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<dashboard::DashboardMessageItem>>, AppError> {
-    Ok(Json(dashboard::query_message_list(
-        session_db()?,
-        &body.filter,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_message_list(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn tool_call_list(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<dashboard::DashboardToolCallItem>>, AppError> {
-    Ok(Json(dashboard::query_tool_call_list(
-        session_db()?,
-        &body.filter,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_tool_call_list(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn error_list(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<dashboard::DashboardErrorItem>>, AppError> {
-    Ok(Json(dashboard::query_error_list(log_db()?, &body.filter)?))
+    let log_db = log_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_error_list(log_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn agent_list(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<dashboard::DashboardAgentItem>>, AppError> {
-    Ok(Json(dashboard::query_agent_list(
-        session_db()?,
-        &body.filter,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_agent_list(session_db, &body.filter)).await?,
+    ))
 }
 
 pub async fn overview_delta(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<OverviewStatsWithDelta>, AppError> {
-    Ok(Json(dashboard::query_overview_with_delta(
-        session_db()?,
-        log_db()?,
-        cron_db()?,
-        &body.filter,
-    )?))
+    let (session_db, log_db, cron_db) = (session_db()?, log_db()?, cron_db()?);
+    Ok(Json(
+        run_blocking(move || {
+            dashboard::query_overview_with_delta(session_db, log_db, cron_db, &body.filter)
+        })
+        .await?,
+    ))
 }
 
 pub async fn insights(Json(body): Json<FilterBody>) -> Result<Json<DashboardInsights>, AppError> {
-    Ok(Json(dashboard::query_insights(
-        session_db()?,
-        log_db()?,
-        cron_db()?,
-        &body.filter,
-    )?))
+    let (session_db, log_db, cron_db) = (session_db()?, log_db()?, cron_db()?);
+    Ok(Json(
+        run_blocking(move || dashboard::query_insights(session_db, log_db, cron_db, &body.filter))
+            .await?,
+    ))
 }
 
 // ── Phase B'4: Learning Dashboard ──────────────────────────────
@@ -142,53 +159,60 @@ fn default_limit() -> Option<usize> {
 pub async fn learning_overview(
     Json(body): Json<WindowBody>,
 ) -> Result<Json<dashboard::LearningOverview>, AppError> {
-    Ok(Json(dashboard::query_learning_overview(
-        session_db()?,
-        body.window_days,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_learning_overview(session_db, body.window_days))
+            .await?,
+    ))
 }
 
 pub async fn learning_timeline(
     Json(body): Json<WindowBody>,
 ) -> Result<Json<Vec<dashboard::TimelinePoint>>, AppError> {
-    Ok(Json(dashboard::query_skill_timeline(
-        session_db()?,
-        body.window_days,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_skill_timeline(session_db, body.window_days)).await?,
+    ))
 }
 
 pub async fn top_skills(
     Json(body): Json<WindowBody>,
 ) -> Result<Json<Vec<dashboard::SkillUsage>>, AppError> {
-    Ok(Json(dashboard::query_top_skills(
-        session_db()?,
-        body.window_days,
-        body.limit.unwrap_or(10),
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || {
+            dashboard::query_top_skills(session_db, body.window_days, body.limit.unwrap_or(10))
+        })
+        .await?,
+    ))
 }
 
 pub async fn recall_stats(
     Json(body): Json<WindowBody>,
 ) -> Result<Json<dashboard::RecallStats>, AppError> {
-    Ok(Json(dashboard::query_recall_stats(
-        session_db()?,
-        body.window_days,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || dashboard::query_recall_stats(session_db, body.window_days)).await?,
+    ))
 }
 
 pub async fn plan_stats(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<dashboard::PlanStats>, AppError> {
-    Ok(Json(dashboard::query_plan_stats(&body.filter)?))
+    Ok(Json(
+        run_blocking(move || dashboard::query_plan_stats(&body.filter)).await?,
+    ))
 }
 
 pub async fn local_model_usage(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<dashboard::LocalModelUsage>, AppError> {
-    let names = dashboard::local_provider_names();
-    Ok(Json(dashboard::query_local_model_usage(
-        session_db()?,
-        &body.filter,
-        &names,
-    )?))
+    let session_db = session_db()?;
+    Ok(Json(
+        run_blocking(move || {
+            let names = dashboard::local_provider_names();
+            dashboard::query_local_model_usage(session_db, &body.filter, &names)
+        })
+        .await?,
+    ))
 }

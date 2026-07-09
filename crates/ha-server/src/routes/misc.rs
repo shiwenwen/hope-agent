@@ -37,16 +37,13 @@ pub struct SetDangerousBody {
 pub async fn set_dangerous_skip_all_approvals(
     Json(body): Json<SetDangerousBody>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    store.permission.global_yolo = body.enabled;
-    let _reason = ha_core::backup::scope_save_reason("security", "ui");
-    ha_core::config::save_config(&store)?;
-    drop(_reason);
-    if let Some(bus) = ha_core::get_event_bus() {
-        bus.emit(
-            "config:changed",
-            serde_json::json!({ "category": "security" }),
-        );
-    }
+    // mutate_config_async handles the save-reason scoping + `config:changed`
+    // emit internally (the manual scope_save_reason / bus.emit dance this
+    // replaced is exactly what the config contract centralizes).
+    ha_core::config::mutate_config_async(("security", "ui"), move |store| {
+        store.permission.global_yolo = body.enabled;
+        Ok(())
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }

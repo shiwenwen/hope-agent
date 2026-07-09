@@ -377,6 +377,7 @@ export function handleStreamEvent(
   if (
     event.type === "thinking_auto_disabled" ||
     event.type === "vision_auto_disabled" ||
+    event.type === "vision_bridge" ||
     event.type === "profile_rotation" ||
     event.type === "context_compacted" ||
     event.type === "context_compaction_progress" ||

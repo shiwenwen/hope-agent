@@ -698,7 +698,9 @@
       "collapse": "折叠右侧面板",
       "expand": "展开右侧面板",
       "switch": "切换右侧面板"
-    }
+    },
+    "visionBridgeEngaged": "主模型不支持看图，已用 {{model}} 转述图片内容。",
+    "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "记忆重嵌入"
         }
       }
+    },
+    "usageKind": {
+      "all": "全部用量",
+      "chat": "对话",
+      "side_query": "旁路查询",
+      "embedding": "嵌入",
+      "stt": "语音转文字",
+      "judge": "评判",
+      "summarize": "摘要",
+      "web_search": "网页搜索",
+      "image_generation": "图片生成",
+      "provider_test": "供应商测试",
+      "vision": "视觉"
     }
   },
   "diffPanel": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "请求超时（秒）",
     "audioGenFetchVoices": "拉取语音",
     "audioGenKnownModels": "已知模型",
-    "audioGenPickVoice": "从列表选择…"
+    "audioGenPickVoice": "从列表选择…",
+    "visionBridgeModel": "视觉桥模型",
+    "visionBridgeModelDesc": "仅当主模型不支持看图时生效。用一个单独的模型把图片转成文字描述，让对话继续。",
+    "visionBridgeModelClear": "关闭视觉桥",
+    "selectVisionBridgeModel": "选择视觉模型"
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",

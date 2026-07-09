@@ -137,7 +137,7 @@ export default function SessionItem({
           role="button"
           tabIndex={0}
           className={cn(
-            "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
+            "relative flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-left group cursor-pointer",
             isCompact && "gap-1.5 px-2 py-[7px] rounded-md",
             isActive
               ? "bg-secondary/70 border border-border/50"
@@ -327,7 +327,7 @@ export default function SessionItem({
                         </IconTip>
                       )}
                       {/* hover 时在原行右侧就地显示 agent 头像 + 名称（替换时间），不弹浮层 */}
-                      <span className="hidden min-w-0 items-center gap-1 group-hover:flex animate-in fade-in-0 slide-in-from-right-1 duration-200">
+                      <span className="hidden min-w-0 items-center gap-1 group-hover:flex">
                         <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10 text-[8px] text-primary">
                           {agent?.avatar ? (
                             <img

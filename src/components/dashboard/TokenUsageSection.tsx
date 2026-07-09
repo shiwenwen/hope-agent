@@ -29,18 +29,6 @@ const PIE_COLORS = [
   "#f97316",
 ]
 
-const USAGE_KIND_LABELS: Record<string, string> = {
-  chat: "Chat",
-  side_query: "Side query",
-  embedding: "Embedding",
-  stt: "Speech-to-text",
-  judge: "Judge",
-  summarize: "Summarize",
-  web_search: "Web search",
-  image_generation: "Image generation",
-  provider_test: "Provider test",
-}
-
 interface TokenUsageSectionProps {
   data: DashboardTokenData | null
   loading: boolean
@@ -183,7 +171,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                 className="grid grid-cols-8 gap-2 text-xs py-2 border-b border-border/50 min-w-[760px]"
               >
                 <div className="truncate font-medium">
-                  {USAGE_KIND_LABELS[row.kind] ?? row.kind}
+                  {t(`dashboard.usageKind.${row.kind}`, row.kind)}
                 </div>
                 <div className="text-right">{formatNumber(row.callCount)}</div>
                 <div className="text-right">{formatNumber(row.inputTokens)}</div>

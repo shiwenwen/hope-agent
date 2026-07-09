@@ -3,6 +3,7 @@ use arc_swap::ArcSwap;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::paths;
 
@@ -117,10 +118,58 @@ fn ensure_no_initial_load_failure_for_write() -> Result<()> {
     Ok(())
 }
 
+/// Minimum spacing between ambient disk-read recovery attempts while a load
+/// failure is recorded. Without this, *every* `load_config()` call (the
+/// settings page alone issues ~20 on open) synchronously re-reads the
+/// unreadable file on the caller's thread — a burst of blocking IO exactly
+/// when the filesystem is already misbehaving. Within the cooldown callers
+/// fail fast with the recorded error instead. The user-facing Retry path
+/// (`config_health`) is intentionally not throttled.
+const RECOVER_RETRY_COOLDOWN: Duration = Duration::from_secs(2);
+
+fn last_recover_attempt() -> &'static Mutex<Option<Instant>> {
+    static LAST: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    LAST.get_or_init(|| Mutex::new(None))
+}
+
 fn recover_from_load_failure() -> Result<AppConfig> {
+    recover_from_load_failure_inner(false)
+}
+
+/// Recovery that ignores [`RECOVER_RETRY_COOLDOWN`]. For the explicit,
+/// user-driven Retry path only ([`config_health`]) — a person clicking Retry
+/// expects an immediate fresh read, never a stale "still broken" answer just
+/// because an ambient `load_config()` happened to attempt recovery in the last
+/// 2 seconds.
+fn recover_from_load_failure_forced() -> Result<AppConfig> {
+    recover_from_load_failure_inner(true)
+}
+
+fn recover_from_load_failure_inner(force: bool) -> Result<AppConfig> {
     let Some(previous_failure) = current_config_load_failure() else {
         return Ok((*cached_config()).clone());
     };
+
+    {
+        let mut slot = last_recover_attempt()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if !force {
+            if let Some(prev) = *slot {
+                if prev.elapsed() < RECOVER_RETRY_COOLDOWN {
+                    // Re-check under the lock: another thread may have recovered
+                    // successfully in the window, in which case the failure is
+                    // already cleared and we should hand back the good config
+                    // rather than a stale "broken" error.
+                    if current_config_load_failure().is_none() {
+                        return Ok((*cached_config()).clone());
+                    }
+                    bail!("{}", load_failure_message(&previous_failure));
+                }
+            }
+        }
+        *slot = Some(Instant::now());
+    }
 
     match read_from_disk() {
         Ok(cfg) => {
@@ -172,7 +221,7 @@ pub fn config_health() -> ConfigHealth {
     }
 
     if current_config_load_failure().is_some() {
-        match recover_from_load_failure() {
+        match recover_from_load_failure_forced() {
             Ok(_) => ConfigHealth::ok(Some(path)),
             Err(_) => {
                 let failure = current_config_load_failure().unwrap_or(ConfigLoadFailure {
@@ -446,6 +495,29 @@ where
     // ConfigChange hook (observation): fire with the real category + source.
     crate::hooks::fire_config_change(reason.0, reason.1);
     Ok(result)
+}
+
+/// Async wrapper for [`mutate_config`]: runs the whole clone → mutate →
+/// persist → publish cycle on tokio's blocking pool.
+///
+/// [`mutate_config`] holds the global write lock across synchronous file IO
+/// (pre-write validation read, autosave backup copy, `fs::write`). Called
+/// inline from an async fn that pins a tokio worker for the full duration —
+/// and if the IO stalls (antivirus, cloud-synced home dir), pinned workers
+/// accumulate until the runtime starves. **Async contexts must use this
+/// wrapper** so config writes only ever tie up expendable blocking-pool
+/// threads (see `crate::blocking`).
+pub async fn mutate_config_async<F, T>(reason: (&str, &str), f: F) -> Result<T>
+where
+    F: FnOnce(&mut AppConfig) -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    let category = reason.0.to_string();
+    let source = reason.1.to_string();
+    // Label with the caller's closure type, not the wrapper below.
+    let label = std::any::type_name::<F>();
+    crate::blocking::run_blocking_labeled(label, move || mutate_config((&category, &source), f))
+        .await
 }
 
 /// Force a fresh disk read into the cache. Use after an out-of-band write

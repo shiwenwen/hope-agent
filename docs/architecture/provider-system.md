@@ -980,3 +980,39 @@ flowchart TD
 | 前端模板 | `src/components/settings/provider-setup/templates/` | 44 个 Provider 模板（335 个预设模型） |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
 | Dashboard 定价 | `crates/ha-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |
+
+## 12. 视觉桥（Vision Bridge，issue #434）
+
+主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id)==false`，即 `ModelConfig.input_types` 显式不含 `"image"`，如 DeepSeek 系列）却收到图片时，用一个**单独配置**的视觉模型把图片转成文字描述注入主模型，替代旧行为「丢图 + `[image omitted]` 占位符」。核心实现 [`agent/vision_bridge.rs`](../../crates/ha-core/src/agent/vision_bridge.rs)。
+
+### 12.1 配置与解析
+
+- `AppConfig.function_models.vision: Option<ActiveModel>`（`FunctionModelsConfig` 容器，camelCase `functionModels.vision`）。**opt-in**：`None` = 视觉桥关闭（维持占位符行为），不做自动挑选。
+- 设置三件套（MEDIUM）：GUI 全局模型区 `ModelSelector`（过滤 `inputTypes` 含 `image`）、`ha-settings` `function_models` category（纯模型引用无凭据、不 redact）、SKILL.md 登记。专用命令 `get_vision_model` / `set_vision_model`（Tauri + HTTP `GET`/`PUT /api/models/vision`）。
+- `vision_bridge::prepare(session_id)` 解析：取 `function_models.vision` → `find_provider` → 校验 `model_supports_vision` → `AssistantAgent::try_new_from_provider` → **`set_session_id(sid)`**（令 `KIND_VISION` 用量按 incognito 跳过）。任一步失败返回 `None`（桥关闭，调用方回退占位符）。
+
+### 12.2 流水线：memo-cache + 每轮临时 transform
+
+**决定性约束**：tool loop 在内存 `conversation_history` 里逐轮追加、整体重发（不每轮从 SQLite 重载），且 `save_agent_context` 把 `conversation_history` **原样序列化落 `context_json`**——所以**绝不能就地把图换成文字**（永久丢图、不可逆，日后换回视觉模型无法恢复）。
+
+方案 = **进程级 memo cache（异步填、每图一次）+ 每轮对临时 `api_messages` 副本做同步 rewrite**，`conversation_history` 保持原样可逆：
+
+- 挂接点：[`streaming_loop.rs`](../../crates/ha-core/src/agent/streaming_loop.rs) **round head**，`prepare_messages_for_api(&messages)` 产出 `api_messages` 之后。`ResolvedVisionBridge::apply(&mut api_messages, fmt)`：
+  1. `collect_identities` 递归扫 `api_messages`，按 content 形态识别图片（**不读文件**，file marker 用路径作 identity）：用户图块 `{"type":"image"}`（Anthropic）/ `image_url`（OpenAI Chat）/ `input_image`（Responses·Codex）+ 工具结果 `__IMAGE_BASE64__` / `__IMAGE_FILE__` marker（`tools/image_markers.rs`）。
+  2. 对 cache miss（`(image_identity_hash, vision_model_id)` 未命中 / 失败 TTL 过期）**并发有界**转述（每图 `timeout`），填 cache。仅 miss 才 `encode_marker_image`（读盘）。
+  3. `rewrite` 递归把每张图换成 `[Image description: …]` 文本 part（fmt 相应 `text`/`input_text`）或占位符（转述失败）。
+- **单 round-head hook 统一两条路**：round 0 覆盖用户图，round N 覆盖上一轮 `append_round_to_history` 追加的工具图。memo cache 令重扫廉价（每图只转述一次，跨 round / 跨 turn）。
+- **provider 无关**：统一 transform 是唯一降级点，顺带覆盖 Anthropic/Responses/Codex（现状它们不降级、无视觉主模型会 400）。下游各 adapter 的 `expand_*_image_markers_for_api` 此时已无图可处理、自然 no-op（保留作 defense-in-depth）。
+
+### 12.3 转述调用与用量
+
+- `AssistantAgent::transcribe_images_for_vision_bridge`（[`side_query.rs`](../../crates/ha-core/src/agent/side_query.rs)）：复用 `run_one_shot_with_attachments`（与 `independent_query_with_attachments` 同一带图 one_shot 路径），但记 **`KIND_VISION`**（非 `KIND_SIDE_QUERY`）→ Dashboard 单独统计「视觉」成本。**不走 failover**（单次 one_shot，失败即 `Err`）。
+- **鲁棒**：未配置 / 不可解析 / 转述失败 / 超时 → 回退占位符，**绝不 hard-fail 整个 turn**（超时在 `transcribe_images_for_vision_bridge` **内部**，令超时也记 ledger）。一次性提示事件 `{"type":"vision_bridge","status":"engaged"|"unavailable"}`（每 turn 最多一条；GUI banner + IM `im_system_message` 双通道）。
+- **注入即 untrusted（红线）**：转录文本含图片内逐字转录的可见文字，作 `<untrusted_external_data source="vision_bridge:image">` 信封注入 + 转义 `<`/`&`——图片藏 `SYSTEM: ignore prior instructions…` 只能作数据、不作指令（对齐 `[[note]]` / 被动召回红线）。
+- **incognito（红线）**：照常运行（图片可用性是核心功能），但 `set_session_id` + `model_usage.rs` 对 `sessions.incognito!=0` 自动跳过入账；且 **incognito 转录走 per-turn 临时缓存、绝不写全局共享缓存**（转录含敏感文字，关闭即焚 + 不跨会话/跨租户命中）。全局缓存是有界 `TtlCache`（256 cap + 6h TTL + LRU），非无界 HashMap。
+- **agent 惰性构建**：`prepare` 只解析 + 校验配置（廉价、不建 agent），vision agent 在 `apply` 首个真图 cache-miss 时才经 `try_new_from_provider().with_failover_context(prov)` 构建并 memoize 一 turn——纯文字 turn 永不白建 agent。`with_failover_context` 也让 `KIND_VISION` 事件带 provider 归因。
+- **build 超时兜底（红线）**：惰性单独不足以防主对话冻结——含图轮的**首次**构建仍会在关键路径同步跑 Codex OAuth 刷新（其自身无 timeout，曾是冻结向量）。故 `agent()` 的构建整体套 `tokio::time::timeout(AGENT_BUILD_TIMEOUT=20s)`：超时即 `app_warn` + 返 `None`（静默回退占位符），且 **`None`-init 不写 memo**（`OnceCell` 超时未初始化，下一轮重试）——一次瞬时 OAuth 卡顿不永久禁用本 turn 的视觉桥。
+- **取消可响应 + 不缓存（红线）**：`apply` 收 `cancel: &AtomicBool`，把「build（含上述超时）+ 并发转述」整体作 `work` future 经 `tokio::select!` 与 `poll_cancel(cancel)` **竞速**——用户 Stop 触发即腰斩在途 build/转述、`apply` 立即返回。被取消的图 transcription **绝不写缓存**（取消 ≠ 失败，须干净重试，不能像真失败那样缓存 `None` 抑制重试）；取消同时**抑制** `vision_bridge:unavailable` 一次性提示（取消不是「视觉不可用」，避免误导 banner）。转述并发受 `Semaphore(MAX_CONCURRENT=4)` + 每图 `TRANSCRIBE_TIMEOUT=30s` 约束。
+- **扫描范围**：只处理 user / tool-result 消息，**跳过 assistant 消息**——其 tool_use / tool_call 参数可能形似图片块，改写会毁坏 tool 调用。
+- **防递归红线**：转述本身带图调视觉模型，`apply` 只在主对话 `run_streaming_chat` round head 挂接，**绝不在 side_query 路径触发**。
+- **已知限制**：① bridge 门只看静态 catalog `model_supports_vision`，被误标为支持视觉的模型（OpenAI 兼容代理常见）运行时 400 翻 `vision_runtime_disabled` 走旧降级、bridge 不介入；② side_query 缓存快照仍按旧降级折成 `[image omitted]`，与 bridge 改写的 `[Image description]` 不一致，bridge 活跃时 side_query prompt cache 可能 miss；③ 多图消息 round-head 转述串行受 `MAX_CONCURRENT=4` + 每图 30s 超时限。

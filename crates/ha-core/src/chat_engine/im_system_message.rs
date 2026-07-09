@@ -16,7 +16,7 @@ use serde_json::Value;
 /// Format a chat-engine system event as an IM-side notice. Returns
 /// `None` when:
 /// - `event` isn't an object
-/// - `type` is missing or not one of the four recognized variants
+/// - `type` is missing or not one of the recognized variants
 /// - it's a noisy `context_compacted` (Tier 0 / 1 reactive micro-compact)
 pub fn format_im_system_event(event: &Value) -> Option<String> {
     let obj = event.as_object()?;
@@ -27,6 +27,7 @@ pub fn format_im_system_event(event: &Value) -> Option<String> {
         "context_compacted" => format_context_compacted(obj),
         "thinking_auto_disabled" => Some(format_thinking_auto_disabled()),
         "vision_auto_disabled" => Some(format_vision_auto_disabled()),
+        "vision_bridge" => Some(format_vision_bridge(obj)),
         _ => None,
     }
 }
@@ -106,6 +107,23 @@ fn format_thinking_auto_disabled() -> String {
 
 fn format_vision_auto_disabled() -> String {
     "🖼️ _This model can't read images — continuing with the image(s) ignored._".to_string()
+}
+
+/// Vision bridge (issue #434): the main model can't see images, so a separate
+/// vision model transcribed them (`engaged`) — or transcription failed and the
+/// image(s) were dropped (`unavailable`).
+fn format_vision_bridge(obj: &serde_json::Map<String, Value>) -> String {
+    let unavailable = obj.get("status").and_then(Value::as_str) == Some("unavailable");
+    if unavailable {
+        "🖼️ _Couldn't read the image(s) with the vision model — continuing with them ignored._"
+            .to_string()
+    } else {
+        let model = obj
+            .get("model_id")
+            .and_then(Value::as_str)
+            .unwrap_or("a vision model");
+        format!("🖼️ _This model can't read images, so **{model}** described them for it._")
+    }
 }
 
 /// Map serialized [`crate::failover::FailoverReason`] (snake_case) to a
@@ -189,6 +207,18 @@ mod tests {
             format_im_system_event(&event).as_deref(),
             Some("🔄 _Rotating auth profile to **secondary** (rate limit)_"),
         );
+    }
+
+    #[test]
+    fn vision_bridge_engaged_and_unavailable() {
+        let engaged = json!({"type":"vision_bridge","status":"engaged","model_id":"gpt-4o"});
+        let out = format_im_system_event(&engaged).expect("should render");
+        assert!(out.contains("gpt-4o"));
+        assert!(out.contains("described them"));
+
+        let unavailable = json!({"type":"vision_bridge","status":"unavailable"});
+        let out = format_im_system_event(&unavailable).expect("should render");
+        assert!(out.contains("Couldn't read"));
     }
 
     #[test]

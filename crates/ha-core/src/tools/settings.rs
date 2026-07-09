@@ -99,6 +99,7 @@ fn risk_level(category: &str) -> &'static str {
         | "knowledge_passive_recall"
         | "knowledge_search"
         | "cron"
+        | "function_models"
         | "sprite"
         | "design" => "medium",
 
@@ -588,6 +589,9 @@ fn read_category(category: &str) -> Result<Value> {
         "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
         "local_llm_auto_maintenance" => Ok(serde_json::to_value(&cfg.local_llm)?),
         "smart_mode" => Ok(serde_json::to_value(&cfg.permission.smart)?),
+        // Vision bridge model reference — plain provider/model id, no credentials
+        // (the API key lives in the referenced ProviderConfig), so no redact.
+        "function_models" => Ok(serde_json::to_value(&cfg.function_models)?),
         "filesystem" => Ok(serde_json::to_value(&cfg.filesystem)?),
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
@@ -1123,6 +1127,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "issue_reporting" => merge_field(&mut store.issue_reporting, values)?,
         "smart_mode" => merge_field(&mut store.permission.smart, values)?,
+        "function_models" => merge_field(&mut store.function_models, values)?,
         "filesystem" => merge_field(&mut store.filesystem, values)?,
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,
@@ -1395,7 +1400,13 @@ mod tests {
 
     #[test]
     fn risk_level_medium_includes_new_categories() {
-        for cat in ["multimodal", "dreaming", "sprite", "knowledge_search"] {
+        for cat in [
+            "multimodal",
+            "dreaming",
+            "sprite",
+            "knowledge_search",
+            "function_models",
+        ] {
             assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
         }
     }

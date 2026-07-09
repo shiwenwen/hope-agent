@@ -698,7 +698,9 @@
       "collapse": "右パネルを折りたたむ",
       "expand": "右側のパネルを展開します",
       "switch": "右パネルを切り替えます"
-    }
+    },
+    "visionBridgeEngaged": "メインモデルは画像を扱えないため、{{model}} が画像の内容を説明しました。",
+    "visionBridgeUnavailable": "画像モデルが画像を説明できなかったため、この画像は無視されました。"
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "メモリ再埋め込み"
         }
       }
+    },
+    "usageKind": {
+      "all": "すべての使用",
+      "chat": "チャット",
+      "side_query": "サイドクエリ",
+      "embedding": "埋め込み",
+      "stt": "音声認識",
+      "judge": "判定",
+      "summarize": "要約",
+      "web_search": "ウェブ検索",
+      "image_generation": "画像生成",
+      "provider_test": "プロバイダーテスト",
+      "vision": "ビジョン"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "リクエストタイムアウト（秒）",
     "audioGenFetchVoices": "音声を取得",
     "audioGenKnownModels": "既知のモデル",
-    "audioGenPickVoice": "リストから選択…"
+    "audioGenPickVoice": "リストから選択…",
+    "visionBridgeModel": "ビジョンブリッジモデル",
+    "visionBridgeModelDesc": "メインモデルが画像を扱えない場合にのみ使用されます。別のモデルが画像をテキストの説明に変換し、会話を継続できるようにします。",
+    "visionBridgeModelClear": "ビジョンブリッジをオフにする",
+    "selectVisionBridgeModel": "ビジョンモデルを選択"
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",

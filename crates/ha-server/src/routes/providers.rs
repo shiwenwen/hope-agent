@@ -47,7 +47,9 @@ pub async fn has_providers() -> Result<Json<bool>, AppError> {
 pub async fn add_provider(
     Json(config): Json<ProviderConfig>,
 ) -> Result<Json<ProviderConfig>, AppError> {
-    let masked = provider::add_provider(config, "http").map_err(provider_write_error)?;
+    let masked = ha_core::blocking::run_blocking(move || provider::add_provider(config, "http"))
+        .await
+        .map_err(provider_write_error)?;
     Ok(Json(masked))
 }
 
@@ -57,13 +59,17 @@ pub async fn update_provider(
     Json(mut config): Json<ProviderConfig>,
 ) -> Result<Json<Value>, AppError> {
     config.id = id;
-    provider::update_provider(config, "http").map_err(provider_write_error)?;
+    ha_core::blocking::run_blocking(move || provider::update_provider(config, "http"))
+        .await
+        .map_err(provider_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }
 
 /// `DELETE /api/providers/{id}` — delete a provider.
 pub async fn delete_provider(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    provider::delete_provider(id, "http").map_err(provider_write_error)?;
+    ha_core::blocking::run_blocking(move || provider::delete_provider(id, "http"))
+        .await
+        .map_err(provider_write_error)?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -96,7 +102,9 @@ pub struct ReorderBody {
 
 /// `POST /api/providers/reorder` — reorder providers.
 pub async fn reorder_providers(Json(body): Json<ReorderBody>) -> Result<Json<Value>, AppError> {
-    provider::reorder_providers(body.provider_ids, "http").map_err(provider_write_error)?;
+    ha_core::blocking::run_blocking(move || provider::reorder_providers(body.provider_ids, "http"))
+        .await
+        .map_err(provider_write_error)?;
     Ok(Json(json!({ "reordered": true })))
 }
 
@@ -166,7 +174,10 @@ pub async fn test_model(Json(body): Json<TestModelBody>) -> Result<Json<Value>, 
 pub async fn set_active_model(
     Json(body): Json<SetActiveModelRequest>,
 ) -> Result<Json<Value>, AppError> {
-    provider::set_active_model(body.provider_id, body.model_id, "http")
-        .map_err(provider_write_error)?;
+    ha_core::blocking::run_blocking(move || {
+        provider::set_active_model(body.provider_id, body.model_id, "http")
+    })
+    .await
+    .map_err(provider_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }

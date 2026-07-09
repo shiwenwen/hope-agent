@@ -178,6 +178,8 @@ pub fn run() {
             commands::provider::set_active_model,
             commands::provider::get_fallback_models,
             commands::provider::set_fallback_models,
+            commands::provider::get_vision_model,
+            commands::provider::set_vision_model,
             commands::provider::has_providers,
             // Legacy auth
             commands::auth::initialize_agent,

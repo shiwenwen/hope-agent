@@ -48,6 +48,7 @@ use super::file_serve::{
 };
 use crate::error::AppError;
 use crate::AppContext;
+use ha_core::blocking::run_blocking;
 
 fn registry() -> Result<&'static std::sync::Arc<knowledge::KnowledgeRegistry>, AppError> {
     ha_core::get_knowledge_db().ok_or_else(|| AppError::internal("knowledge db not initialized"))
@@ -286,16 +287,19 @@ impl<T> AgentInputBody<T> {
 pub async fn list_kbs(
     Query(q): Query<ListKbsQuery>,
 ) -> Result<Json<Vec<KnowledgeBaseMeta>>, AppError> {
-    Ok(Json(service::list_kb_meta(
-        q.include_archived.unwrap_or(false),
-    )?))
+    Ok(Json(
+        run_blocking(move || service::list_kb_meta(q.include_archived.unwrap_or(false))).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}`
 pub async fn get_kb(Path(kb_id): Path<String>) -> Result<Json<KnowledgeBase>, AppError> {
-    let kb = registry()?
-        .get(&kb_id)?
-        .ok_or_else(|| AppError::not_found(format!("knowledge base not found: {kb_id}")))?;
+    let reg = registry()?;
+    let kb = {
+        let kb_id = kb_id.clone();
+        run_blocking(move || reg.get(&kb_id)).await?
+    }
+    .ok_or_else(|| AppError::not_found(format!("knowledge base not found: {kb_id}")))?;
     Ok(Json(kb))
 }
 
@@ -304,7 +308,10 @@ pub async fn create_kb(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<CreateKbBody>,
 ) -> Result<Json<KnowledgeBase>, AppError> {
-    let kb = registry()?.create(body.input)?;
+    let kb = {
+        let reg = registry()?;
+        run_blocking(move || reg.create(body.input)).await?
+    };
     knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
     let _ = knowledge::watcher::start_watcher(&kb.id);
     emit(&ctx, "knowledge:created", json!({ "kbId": kb.id }));
@@ -317,7 +324,10 @@ pub async fn update_kb(
     Path(kb_id): Path<String>,
     Json(body): Json<UpdateKbBody>,
 ) -> Result<Json<KnowledgeBase>, AppError> {
-    let kb = registry()?.update(&kb_id, body.patch)?;
+    let kb = {
+        let reg = registry()?;
+        run_blocking(move || reg.update(&kb_id, body.patch)).await?
+    };
     emit(
         &ctx,
         "knowledge:changed",
@@ -332,7 +342,10 @@ pub async fn delete_kb(
     Path(kb_id): Path<String>,
 ) -> Result<Json<bool>, AppError> {
     knowledge::watcher::stop_watcher(&kb_id);
-    let removed = knowledge::delete_kb_cascade(&kb_id)?;
+    let removed = {
+        let kb_id = kb_id.clone();
+        run_blocking(move || knowledge::delete_kb_cascade(&kb_id)).await?
+    };
     emit(
         &ctx,
         "knowledge:changed",
@@ -345,7 +358,10 @@ pub async fn delete_kb(
 pub async fn reindex_kb(Path(kb_id): Path<String>) -> Result<Json<bool>, AppError> {
     // Single-KB rebuild through the KnowledgeReembed job (progress-tracked, no
     // signature stamp). Rebuilds FTS + (if embedding enabled) vectors.
-    knowledge::start_knowledge_reembed_job(Some(vec![kb_id]), "manual-reindex")?;
+    run_blocking(move || {
+        knowledge::start_knowledge_reembed_job(Some(vec![kb_id]), "manual-reindex")
+    })
+    .await?;
     Ok(Json(true))
 }
 
@@ -420,14 +436,18 @@ pub async fn kb_source_import_runs_list(
     Path(kb_id): Path<String>,
     Query(query): Query<KbSourceImportRunsQuery>,
 ) -> Result<Json<Vec<KnowledgeSourceImportRun>>, AppError> {
-    Ok(Json(service::source_import_runs_list(&kb_id, query.limit)?))
+    Ok(Json(
+        run_blocking(move || service::source_import_runs_list(&kb_id, query.limit)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources/import-runs/{run_id}`
 pub async fn kb_source_import_run_detail(
     Path((kb_id, run_id)): Path<(String, String)>,
 ) -> Result<Json<KnowledgeSourceImportRunDetail>, AppError> {
-    Ok(Json(service::source_import_run_detail(&kb_id, &run_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_import_run_detail(&kb_id, &run_id)).await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/sources/import-runs/{run_id}/retry-failed`
@@ -443,7 +463,9 @@ pub async fn kb_source_import_retry_failed(
 pub async fn kb_source_similarity_groups(
     Path(kb_id): Path<String>,
 ) -> Result<Json<Vec<KnowledgeSourceSimilarityGroup>>, AppError> {
-    Ok(Json(service::source_similarity_groups(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_similarity_groups(&kb_id)).await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/sources/similar/dismiss`
@@ -451,7 +473,9 @@ pub async fn kb_source_similarity_dismiss(
     Path(kb_id): Path<String>,
     Json(input): Json<KnowledgeSourceSimilarityDismissInput>,
 ) -> Result<Json<Vec<KnowledgeSourceSimilarityGroup>>, AppError> {
-    Ok(Json(service::source_similarity_dismiss(&kb_id, input)?))
+    Ok(Json(
+        run_blocking(move || service::source_similarity_dismiss(&kb_id, input)).await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/sources/similar/resolve`
@@ -459,21 +483,27 @@ pub async fn kb_source_similarity_resolve(
     Path(kb_id): Path<String>,
     Json(input): Json<KnowledgeSourceSimilarityResolveInput>,
 ) -> Result<Json<KnowledgeSourceSimilarityResolveResult>, AppError> {
-    Ok(Json(service::source_similarity_resolve(&kb_id, input)?))
+    Ok(Json(
+        run_blocking(move || service::source_similarity_resolve(&kb_id, input)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources`
 pub async fn kb_source_list(
     Path(kb_id): Path<String>,
 ) -> Result<Json<Vec<KnowledgeSource>>, AppError> {
-    Ok(Json(service::source_list(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_list(&kb_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources/{source_id}`
 pub async fn kb_source_read(
     Path((kb_id, source_id)): Path<(String, String)>,
 ) -> Result<Json<KnowledgeSourceReadResult>, AppError> {
-    Ok(Json(service::source_read(&kb_id, &source_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_read(&kb_id, &source_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}/link`
@@ -481,7 +511,9 @@ pub async fn kb_source_asset_link(
     Path((kb_id, source_id, asset_kind)): Path<(String, String, String)>,
 ) -> Result<Json<Option<KnowledgeSourceAssetLink>>, AppError> {
     let kind = parse_source_asset_kind(&asset_kind)?;
-    Ok(Json(service::source_asset_link(&kb_id, &source_id, kind)?))
+    Ok(Json(
+        run_blocking(move || service::source_asset_link(&kb_id, &source_id, kind)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources/{source_id}/assets/{asset_kind}?download=`
@@ -491,7 +523,12 @@ pub async fn kb_source_asset_file(
     request: Request,
 ) -> Result<Response, AppError> {
     let kind = parse_source_asset_kind(&asset_kind)?;
-    let Some((link, abs)) = knowledge::source::source_asset_file(&kb_id, &source_id, kind)? else {
+    let asset = {
+        let kb_id = kb_id.clone();
+        let source_id = source_id.clone();
+        run_blocking(move || knowledge::source::source_asset_file(&kb_id, &source_id, kind)).await?
+    };
+    let Some((link, abs)) = asset else {
         return Err(AppError::not_found("source asset not found"));
     };
     if !abs.exists() {
@@ -551,7 +588,9 @@ pub async fn kb_source_refresh(
 pub async fn kb_source_versions(
     Path((kb_id, source_id)): Path<(String, String)>,
 ) -> Result<Json<KnowledgeSourceVersionHistory>, AppError> {
-    Ok(Json(service::source_versions(&kb_id, &source_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_versions(&kb_id, &source_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources/{source_id}/diff?toSourceId=...`
@@ -559,32 +598,36 @@ pub async fn kb_source_diff(
     Path((kb_id, source_id)): Path<(String, String)>,
     Query(query): Query<KbSourceDiffQuery>,
 ) -> Result<Json<KnowledgeSourceDiff>, AppError> {
-    Ok(Json(service::source_diff(
-        &kb_id,
-        &source_id,
-        &query.to_source_id,
-    )?))
+    Ok(Json(
+        run_blocking(move || service::source_diff(&kb_id, &source_id, &query.to_source_id)).await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/sources/{source_id}/reextract`
 pub async fn kb_source_reextract(
     Path((kb_id, source_id)): Path<(String, String)>,
 ) -> Result<Json<KnowledgeSource>, AppError> {
-    Ok(Json(service::source_reextract(&kb_id, &source_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_reextract(&kb_id, &source_id)).await?,
+    ))
 }
 
 /// `DELETE /api/knowledge/{kb_id}/sources/{source_id}`
 pub async fn kb_source_delete(
     Path((kb_id, source_id)): Path<(String, String)>,
 ) -> Result<Json<bool>, AppError> {
-    Ok(Json(service::source_delete(&kb_id, &source_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_delete(&kb_id, &source_id)).await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/sources/sync-external-raw`
 pub async fn kb_source_sync_external_raw(
     Path(kb_id): Path<String>,
 ) -> Result<Json<KnowledgeSourceExternalRawSyncResult>, AppError> {
-    Ok(Json(service::source_sync_external_raw(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::source_sync_external_raw(&kb_id)).await?,
+    ))
 }
 
 // ── Knowledge Compiler (Phase 2) ─────────────────────────────────
@@ -601,14 +644,16 @@ pub async fn kb_compile_start(
 pub async fn kb_compile_runs_list(
     Path(kb_id): Path<String>,
 ) -> Result<Json<Vec<CompileRun>>, AppError> {
-    Ok(Json(service::compile_runs_list(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::compile_runs_list(&kb_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/compile-runs/{run_id}`
 pub async fn kb_compile_status(
     Path((kb_id, run_id)): Path<(String, String)>,
 ) -> Result<Json<CompileRun>, AppError> {
-    let run = service::compile_status(&run_id)?;
+    let run = run_blocking(move || service::compile_status(&run_id)).await?;
     if run.kb_id != kb_id {
         return Err(anyhow::anyhow!("compile run not found in knowledge base").into());
     }
@@ -619,11 +664,16 @@ pub async fn kb_compile_status(
 pub async fn kb_compile_run_cancel(
     Path((kb_id, run_id)): Path<(String, String)>,
 ) -> Result<Json<CompileRun>, AppError> {
-    let run = service::compile_status(&run_id)?;
+    let run = {
+        let run_id = run_id.clone();
+        run_blocking(move || service::compile_status(&run_id)).await?
+    };
     if run.kb_id != kb_id {
         return Err(anyhow::anyhow!("compile run not found in knowledge base").into());
     }
-    Ok(Json(service::compile_run_cancel(&run_id)?))
+    Ok(Json(
+        run_blocking(move || service::compile_run_cancel(&run_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/compile-proposals`
@@ -631,18 +681,19 @@ pub async fn kb_compile_proposals_list(
     Path(kb_id): Path<String>,
     Query(q): Query<KbCompileProposalQuery>,
 ) -> Result<Json<Vec<CompileProposal>>, AppError> {
-    Ok(Json(service::compile_proposals_list(
-        &kb_id,
-        q.run_id.as_deref(),
-        q.status,
-    )?))
+    Ok(Json(
+        run_blocking(move || {
+            service::compile_proposals_list(&kb_id, q.run_id.as_deref(), q.status)
+        })
+        .await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/compile-proposals/{id}/approve`
 pub async fn kb_compile_proposal_approve(
     Path((kb_id, id)): Path<(String, i64)>,
 ) -> Result<Json<CompileProposal>, AppError> {
-    ensure_compile_proposal_in_kb(&kb_id, id)?;
+    run_blocking(move || ensure_compile_proposal_in_kb(&kb_id, id)).await?;
     Ok(Json(service::compile_proposal_approve(id).await?))
 }
 
@@ -650,8 +701,12 @@ pub async fn kb_compile_proposal_approve(
 pub async fn kb_compile_proposal_reject(
     Path((kb_id, id)): Path<(String, i64)>,
 ) -> Result<Json<bool>, AppError> {
-    ensure_compile_proposal_in_kb(&kb_id, id)?;
-    Ok(Json(service::compile_proposal_reject(id)?))
+    let removed = run_blocking(move || -> Result<_, AppError> {
+        ensure_compile_proposal_in_kb(&kb_id, id)?;
+        Ok(service::compile_proposal_reject(id)?)
+    })
+    .await?;
+    Ok(Json(removed))
 }
 
 /// `POST /api/knowledge/{kb_id}/query-file`
@@ -659,7 +714,9 @@ pub async fn kb_query_file(
     Path(kb_id): Path<String>,
     Json(body): Json<KbQueryFileBody>,
 ) -> Result<Json<CompileProposal>, AppError> {
-    Ok(Json(service::query_file(&kb_id, body.input)?))
+    Ok(Json(
+        run_blocking(move || service::query_file(&kb_id, body.input)).await?,
+    ))
 }
 
 fn ensure_compile_proposal_in_kb(kb_id: &str, id: i64) -> Result<(), AppError> {
@@ -674,14 +731,18 @@ fn ensure_compile_proposal_in_kb(kb_id: &str, id: i64) -> Result<(), AppError> {
 
 /// `GET /api/knowledge/{kb_id}/schema-profile`
 pub async fn kb_schema_profile(Path(kb_id): Path<String>) -> Result<Json<SchemaProfile>, AppError> {
-    Ok(Json(service::schema_profile(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::schema_profile(&kb_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/schema-issues`
 pub async fn kb_schema_issues(
     Path(kb_id): Path<String>,
 ) -> Result<Json<Vec<SchemaIssue>>, AppError> {
-    Ok(Json(service::schema_issues(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::schema_issues(&kb_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/note/source-refs?path=...`
@@ -689,28 +750,36 @@ pub async fn kb_note_source_refs(
     Path(kb_id): Path<String>,
     Query(q): Query<KbNoteSourceRefsQuery>,
 ) -> Result<Json<Vec<NoteSourceRef>>, AppError> {
-    Ok(Json(service::note_source_refs(&kb_id, &q.path)?))
+    Ok(Json(
+        run_blocking(move || service::note_source_refs(&kb_id, &q.path)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/evidence/coverage`
 pub async fn kb_evidence_coverage(
     Path(kb_id): Path<String>,
 ) -> Result<Json<KnowledgeEvidenceCoverage>, AppError> {
-    Ok(Json(service::evidence_coverage(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::evidence_coverage(&kb_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/evidence/sources/{source_id}/claims`
 pub async fn kb_evidence_source_claims(
     Path((kb_id, source_id)): Path<(String, String)>,
 ) -> Result<Json<Vec<KnowledgeEvidenceClaim>>, AppError> {
-    Ok(Json(service::evidence_source_claims(&kb_id, &source_id)?))
+    Ok(Json(
+        run_blocking(move || service::evidence_source_claims(&kb_id, &source_id)).await?,
+    ))
 }
 
 /// `POST /api/knowledge/{kb_id}/evidence/rebuild`
 pub async fn kb_evidence_rebuild(
     Path(kb_id): Path<String>,
 ) -> Result<Json<KnowledgeEvidenceRebuildResult>, AppError> {
-    Ok(Json(service::evidence_rebuild(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::evidence_rebuild(&kb_id)).await?,
+    ))
 }
 
 // ── Phase 6 external-agent API ─────────────────────────────────
@@ -719,28 +788,36 @@ pub async fn kb_evidence_rebuild(
 pub async fn knowledge_agent_search(
     Json(body): Json<AgentInputBody<KnowledgeAgentSearchInput>>,
 ) -> Result<Json<KnowledgeAgentSearchResult>, AppError> {
-    Ok(Json(knowledge::agent_api::search(body.into_inner())?))
+    Ok(Json(
+        run_blocking(move || knowledge::agent_api::search(body.into_inner())).await?,
+    ))
 }
 
 /// `POST /api/knowledge/agent/read` — stable `knowledge.read` surface.
 pub async fn knowledge_agent_read(
     Json(body): Json<AgentInputBody<KnowledgeAgentReadInput>>,
 ) -> Result<Json<KnowledgeAgentReadResult>, AppError> {
-    Ok(Json(knowledge::agent_api::read(body.into_inner())?))
+    Ok(Json(
+        run_blocking(move || knowledge::agent_api::read(body.into_inner())).await?,
+    ))
 }
 
 /// `POST /api/knowledge/agent/expand` — stable `knowledge.expand` surface.
 pub async fn knowledge_agent_expand(
     Json(body): Json<AgentInputBody<KnowledgeAgentExpandInput>>,
 ) -> Result<Json<KnowledgeAgentExpandResult>, AppError> {
-    Ok(Json(knowledge::agent_api::expand(body.into_inner())?))
+    Ok(Json(
+        run_blocking(move || knowledge::agent_api::expand(body.into_inner())).await?,
+    ))
 }
 
 /// `POST /api/knowledge/agent/sources` — stable `knowledge.sources` surface.
 pub async fn knowledge_agent_sources(
     Json(body): Json<AgentInputBody<KnowledgeAgentSourcesInput>>,
 ) -> Result<Json<KnowledgeAgentSourcesResult>, AppError> {
-    Ok(Json(knowledge::agent_api::sources(body.into_inner())?))
+    Ok(Json(
+        run_blocking(move || knowledge::agent_api::sources(body.into_inner())).await?,
+    ))
 }
 
 /// `POST /api/knowledge/agent/compile/propose` — stable
@@ -763,14 +840,23 @@ pub async fn attach_kb(
 ) -> Result<Json<bool>, AppError> {
     let access = KbAccess::from_str_lenient(body.access.as_deref().unwrap_or("read"));
     let reg = registry()?;
-    if let Some(sid) = &body.session_id {
-        reg.attach_session(sid, &body.kb_id, access)?;
-    } else if let Some(pid) = &body.project_id {
-        reg.attach_project(pid, &body.kb_id, access)?;
-    } else {
-        return Err(AppError::bad_request(
-            "attach requires sessionId or projectId",
-        ));
+    {
+        let session_id = body.session_id.clone();
+        let project_id = body.project_id.clone();
+        let kb_id = body.kb_id.clone();
+        run_blocking(move || -> Result<(), AppError> {
+            if let Some(sid) = &session_id {
+                reg.attach_session(sid, &kb_id, access)?;
+            } else if let Some(pid) = &project_id {
+                reg.attach_project(pid, &kb_id, access)?;
+            } else {
+                return Err(AppError::bad_request(
+                    "attach requires sessionId or projectId",
+                ));
+            }
+            Ok(())
+        })
+        .await?;
     }
     emit(
         &ctx,
@@ -786,14 +872,23 @@ pub async fn detach_kb(
     Json(body): Json<AttachBody>,
 ) -> Result<Json<bool>, AppError> {
     let reg = registry()?;
-    if let Some(sid) = &body.session_id {
-        reg.detach_session(sid, &body.kb_id)?;
-    } else if let Some(pid) = &body.project_id {
-        reg.detach_project(pid, &body.kb_id)?;
-    } else {
-        return Err(AppError::bad_request(
-            "detach requires sessionId or projectId",
-        ));
+    {
+        let session_id = body.session_id.clone();
+        let project_id = body.project_id.clone();
+        let kb_id = body.kb_id.clone();
+        run_blocking(move || -> Result<(), AppError> {
+            if let Some(sid) = &session_id {
+                reg.detach_session(sid, &kb_id)?;
+            } else if let Some(pid) = &project_id {
+                reg.detach_project(pid, &kb_id)?;
+            } else {
+                return Err(AppError::bad_request(
+                    "detach requires sessionId or projectId",
+                ));
+            }
+            Ok(())
+        })
+        .await?;
     }
     emit(
         &ctx,
@@ -808,32 +903,36 @@ pub async fn list_session_kbs(
     Query(q): Query<ListSessionKbsQuery>,
 ) -> Result<Json<Vec<KbAttachment>>, AppError> {
     let reg = registry()?;
-    let mut out: Vec<KbAttachment> = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for (kb_id, access) in reg.list_session_attachments(&q.session_id)? {
-        if let Ok(Some(kb)) = reg.get(&kb_id) {
-            seen.insert(kb_id);
-            out.push(KbAttachment {
-                kb,
-                access,
-                via: "session".into(),
-            });
-        }
-    }
-    if let Some(pid) = q.project_id {
-        for (kb_id, access) in reg.list_project_attachments(&pid)? {
-            if seen.contains(&kb_id) {
-                continue;
-            }
+    let out = run_blocking(move || -> Result<Vec<KbAttachment>, AppError> {
+        let mut out: Vec<KbAttachment> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (kb_id, access) in reg.list_session_attachments(&q.session_id)? {
             if let Ok(Some(kb)) = reg.get(&kb_id) {
+                seen.insert(kb_id);
                 out.push(KbAttachment {
                     kb,
                     access,
-                    via: "project".into(),
+                    via: "session".into(),
                 });
             }
         }
-    }
+        if let Some(pid) = q.project_id {
+            for (kb_id, access) in reg.list_project_attachments(&pid)? {
+                if seen.contains(&kb_id) {
+                    continue;
+                }
+                if let Ok(Some(kb)) = reg.get(&kb_id) {
+                    out.push(KbAttachment {
+                        kb,
+                        access,
+                        via: "project".into(),
+                    });
+                }
+            }
+        }
+        Ok(out)
+    })
+    .await?;
     Ok(Json(out))
 }
 
@@ -849,16 +948,20 @@ pub async fn list_project_kbs(
     Query(q): Query<ListProjectKbsQuery>,
 ) -> Result<Json<Vec<KbAttachment>>, AppError> {
     let reg = registry()?;
-    let mut out: Vec<KbAttachment> = Vec::new();
-    for (kb_id, access) in reg.list_project_attachments(&q.project_id)? {
-        if let Ok(Some(kb)) = reg.get(&kb_id) {
-            out.push(KbAttachment {
-                kb,
-                access,
-                via: "project".into(),
-            });
+    let out = run_blocking(move || -> Result<Vec<KbAttachment>, AppError> {
+        let mut out: Vec<KbAttachment> = Vec::new();
+        for (kb_id, access) in reg.list_project_attachments(&q.project_id)? {
+            if let Ok(Some(kb)) = reg.get(&kb_id) {
+                out.push(KbAttachment {
+                    kb,
+                    access,
+                    via: "project".into(),
+                });
+            }
         }
-    }
+        Ok(out)
+    })
+    .await?;
     Ok(Json(out))
 }
 
@@ -866,7 +969,9 @@ pub async fn list_project_kbs(
 
 /// `GET /api/knowledge/{kb_id}/notes`
 pub async fn list_kb_notes(Path(kb_id): Path<String>) -> Result<Json<Vec<Note>>, AppError> {
-    Ok(Json(service::list_notes(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::list_notes(&kb_id)).await?,
+    ))
 }
 
 /// `GET /api/knowledge/{kb_id}/note?path=`
@@ -874,7 +979,9 @@ pub async fn kb_note_read(
     Path(kb_id): Path<String>,
     Query(q): Query<KbNotePathQuery>,
 ) -> Result<Json<NoteReadResult>, AppError> {
-    Ok(Json(service::note_read(&kb_id, &q.path)?))
+    Ok(Json(
+        run_blocking(move || service::note_read(&kb_id, &q.path)).await?,
+    ))
 }
 
 /// `PUT /api/knowledge/{kb_id}/note`
@@ -883,13 +990,16 @@ pub async fn kb_note_save(
     Json(body): Json<KbNoteSaveBody>,
 ) -> Result<Json<String>, AppError> {
     ensure_writes_allowed()?;
-    let hash = service::note_save(
-        &kb_id,
-        &body.path,
-        &body.content,
-        body.expected_file_hash.as_deref(),
-        body.create_only.unwrap_or(false),
-    )?;
+    let hash = run_blocking(move || {
+        service::note_save(
+            &kb_id,
+            &body.path,
+            &body.content,
+            body.expected_file_hash.as_deref(),
+            body.create_only.unwrap_or(false),
+        )
+    })
+    .await?;
     Ok(Json(hash))
 }
 
@@ -899,7 +1009,7 @@ pub async fn kb_note_delete(
     Query(q): Query<KbNotePathQuery>,
 ) -> Result<Json<bool>, AppError> {
     ensure_writes_allowed()?;
-    service::note_delete(&kb_id, &q.path)?;
+    run_blocking(move || service::note_delete(&kb_id, &q.path)).await?;
     Ok(Json(true))
 }
 
@@ -921,7 +1031,9 @@ pub async fn kb_list_dirs(Path(kb_id): Path<String>) -> Result<Json<Vec<String>>
 
 /// `GET /api/knowledge/{kb_id}/tags`
 pub async fn kb_list_tags(Path(kb_id): Path<String>) -> Result<Json<Vec<String>>, AppError> {
-    Ok(Json(service::list_tags(&kb_id)?))
+    Ok(Json(
+        run_blocking(move || service::list_tags(&kb_id)).await?,
+    ))
 }
 
 // ── Knowledge embedding selection (D7, owner plane) ─────────────
@@ -944,24 +1056,27 @@ pub struct KnowledgeEmbeddingSetDefaultBody {
 pub async fn knowledge_embedding_set_default(
     Json(body): Json<KnowledgeEmbeddingSetDefaultBody>,
 ) -> Result<Json<ha_core::memory::EmbeddingSelectionState>, AppError> {
-    Ok(Json(ha_core::knowledge::set_knowledge_embedding_default(
-        &body.model_config_id,
-        "http",
-    )?))
+    Ok(Json(
+        run_blocking(move || {
+            ha_core::knowledge::set_knowledge_embedding_default(&body.model_config_id, "http")
+        })
+        .await?,
+    ))
 }
 
 /// `POST /api/knowledge/embedding/disable`
 pub async fn knowledge_embedding_disable(
 ) -> Result<Json<ha_core::memory::EmbeddingSelectionState>, AppError> {
-    Ok(Json(ha_core::knowledge::disable_knowledge_embedding(
-        "http",
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::knowledge::disable_knowledge_embedding("http")).await?,
+    ))
 }
 
 /// `POST /api/knowledge/embedding/rebuild` — force a full rebuild of every KB
 /// under the active model (no same-signature short-circuit).
 pub async fn knowledge_embedding_rebuild() -> Result<Json<bool>, AppError> {
-    ha_core::knowledge::start_knowledge_reembed_job(None, "manual-rebuild")?;
+    run_blocking(move || ha_core::knowledge::start_knowledge_reembed_job(None, "manual-rebuild"))
+        .await?;
     Ok(Json(true))
 }
 
@@ -981,11 +1096,12 @@ pub struct KnowledgeChunkSetBody {
 pub async fn knowledge_chunk_set(
     Json(body): Json<KnowledgeChunkSetBody>,
 ) -> Result<Json<ha_core::knowledge::ChunkConfig>, AppError> {
-    Ok(Json(ha_core::knowledge::set_chunk_config(
-        body.max_chars,
-        body.overlap_chars,
-        "http",
-    )?))
+    Ok(Json(
+        run_blocking(move || {
+            ha_core::knowledge::set_chunk_config(body.max_chars, body.overlap_chars, "http")
+        })
+        .await?,
+    ))
 }
 
 /// `GET /api/knowledge/search-config` — current hybrid-search ranking parameters.

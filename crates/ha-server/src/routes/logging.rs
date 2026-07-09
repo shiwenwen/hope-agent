@@ -3,6 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use ha_core::blocking::run_blocking;
 use ha_core::logging;
 
 use crate::error::AppError;
@@ -28,12 +29,16 @@ pub async fn query_logs(
         body.page_size.min(500)
     };
     let pg = if body.page == 0 { 1 } else { body.page };
-    Ok(Json(log_db()?.query(&body.filter, pg, ps)?))
+    let db = log_db()?;
+    Ok(Json(
+        run_blocking(move || db.query(&body.filter, pg, ps)).await?,
+    ))
 }
 
 /// `GET /api/logs/stats`
 pub async fn get_log_stats() -> Result<Json<logging::LogStats>, AppError> {
-    Ok(Json(log_db()?.get_stats()?))
+    let db = log_db()?;
+    Ok(Json(run_blocking(move || db.get_stats()).await?))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -48,7 +53,8 @@ pub struct ClearLogsBody {
 /// we extract via `Json` rather than `Query`. Default impl lets empty /
 /// missing body deserialize to "clear everything".
 pub async fn clear_logs(Json(body): Json<ClearLogsBody>) -> Result<Json<Value>, AppError> {
-    let n = log_db()?.clear(body.before_date.as_deref())?;
+    let db = log_db()?;
+    let n = run_blocking(move || db.clear(body.before_date.as_deref())).await?;
     Ok(Json(json!({ "removed": n })))
 }
 
@@ -64,8 +70,12 @@ pub struct LogConfigBody {
 
 /// `PUT /api/logs/config`
 pub async fn save_log_config(Json(body): Json<LogConfigBody>) -> Result<Json<Value>, AppError> {
-    logging::save_log_config(&body.config)?;
-    logger()?.update_config(body.config);
+    run_blocking(move || -> Result<(), AppError> {
+        logging::save_log_config(&body.config)?;
+        logger()?.update_config(body.config);
+        Ok(())
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -174,7 +184,11 @@ pub struct ExportLogsBody {
 
 /// `POST /api/logs/export`
 pub async fn export_logs(Json(body): Json<ExportLogsBody>) -> Result<Json<Value>, AppError> {
-    let logs = log_db()?.export(&body.filter)?;
+    let logs = {
+        let db = log_db()?;
+        let filter = body.filter;
+        run_blocking(move || db.export(&filter)).await?
+    };
     let out = match body.format.as_str() {
         "csv" => {
             let mut csv =

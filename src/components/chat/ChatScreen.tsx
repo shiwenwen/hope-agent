@@ -92,6 +92,7 @@ import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionSta
 import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
 import { messagesHaveKnowledgeActivity } from "./workspace/useSessionKnowledge"
+import { messagesHaveBrowserActivity } from "./workspace/useSessionBrowserActivity"
 import SubagentSessionDialog from "./SubagentSessionDialog"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
@@ -642,6 +643,7 @@ export default function ChatScreen({
     reorderProjects,
     moveSessionToProject,
     reloadProjects,
+    initialLoading: projectsInitialLoading,
   } = useProjects({
     includeArchived: true,
     activeSessionIdRef: activeSessionIdForProjectsRef,
@@ -2260,6 +2262,12 @@ export default function ChatScreen({
     showRightPanelByUser("workspace")
   }, [showRightPanelByUser])
 
+  const openBrowserPanel = useCallback(() => {
+    browserPanelDismissedRef.current = false
+    setShowBrowserPanel(true)
+    showRightPanelByUser("browser")
+  }, [showRightPanelByUser])
+
   const openBackgroundJobsPanel = useCallback(
     (opts?: { activate?: boolean }) => {
       backgroundJobsPanelDismissedRef.current = false
@@ -2443,7 +2451,9 @@ export default function ChatScreen({
   // Auto-open the BrowserPanel only on the first `browser:frame` of a session
   // and only if the user hasn't already dismissed it.
   useEffect(() => {
-    const unlisten = getTransport().listen("browser:frame", () => {
+    const unlisten = getTransport().listen("browser:frame", (raw) => {
+      const payload = parsePayload<{ sessionId?: string | null }>(raw)
+      if (payload?.sessionId && payload.sessionId !== session.currentSessionId) return
       if (browserPanelDismissedRef.current) return
       setShowBrowserPanel((prev) => (prev ? prev : true))
     })
@@ -2454,7 +2464,7 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [])
+  }, [session.currentSessionId])
 
   useEffect(() => {
     const unlisten = getTransport().listen("browser:extension_required", (raw) => {
@@ -2510,6 +2520,7 @@ export default function ChatScreen({
     (taskProgressSnapshot?.total ?? 0) > 0 ||
     messagesHaveFileActivity(session.messages) ||
     messagesHaveUrlActivity(session.messages) ||
+    messagesHaveBrowserActivity(session.messages) ||
     messagesHaveKnowledgeActivity(session.messages)
   // 依赖里带 currentSessionId：切到「已有内容」的旧会话时 hasWorkspaceContent 不发生
   // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
@@ -2560,6 +2571,7 @@ export default function ChatScreen({
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
+    !session.historyLoading &&
     !session.loading &&
     !planMode.pendingQuestionGroup &&
     !planMode.planCardInfo &&
@@ -2578,8 +2590,10 @@ export default function ChatScreen({
         sessions={session.sessions}
         agents={session.agents}
         projects={projects}
+        projectsLoading={projectsInitialLoading}
         currentSessionId={session.currentSessionId}
         loadingSessionIds={session.loadingSessionIds}
+        sessionsLoading={session.sessionsLoading}
         panelWidth={panelWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
@@ -2843,6 +2857,7 @@ export default function ChatScreen({
             <FileActionsContext.Provider value={fileActionsValue}>
               <MessageList
                 messages={session.messages}
+                historyLoading={session.historyLoading}
                 loading={session.loading}
                 executionState={
                   session.currentSessionId
@@ -2937,6 +2952,7 @@ export default function ChatScreen({
                       inputHistory={inputHistory}
                       quickPrompts={quickPrompts}
                       onSend={() => stream.handleSend()}
+                      sendDisabled={session.historyLoading}
                       loading={session.loading}
                       availableModels={availableModels}
                       activeModel={activeModel}
@@ -3109,6 +3125,7 @@ export default function ChatScreen({
               close-only by user, then switchable from the title bar. */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
+              sessionId={session.currentSessionId}
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
@@ -3195,6 +3212,7 @@ export default function ChatScreen({
                 backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
                 onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
+                onOpenBrowserPanel={openBrowserPanel}
                 onViewSubagentSession={setSubagentPreviewSessionId}
                 onClose={() => {
                   workspacePanelDismissedRef.current = true

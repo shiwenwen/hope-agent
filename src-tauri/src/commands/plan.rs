@@ -8,7 +8,14 @@ pub async fn get_plan_mode(
     session_id: String,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<String, CmdError> {
-    if let Ok(Some(meta)) = app_state.session_db.get_session(&session_id) {
+    let meta = {
+        let session_id = session_id.clone();
+        app_state
+            .session_db
+            .run(move |db| db.get_session(&session_id))
+            .await
+    };
+    if let Ok(Some(meta)) = meta {
         if meta.plan_mode == PlanModeState::Off {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
             return Ok("off".to_string());

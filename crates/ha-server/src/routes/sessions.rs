@@ -510,17 +510,26 @@ pub async fn create_session(
         .map(str::trim)
         .filter(|id| !id.is_empty());
     let project = match (explicit_agent_id, body.project_id.as_deref()) {
-        (None, Some(project_id)) => ctx.project_db.get(project_id)?,
+        (None, Some(project_id)) => {
+            let project_db = ctx.project_db.clone();
+            let project_id = project_id.to_string();
+            ha_core::blocking::run_blocking(move || project_db.get(&project_id)).await?
+        }
         _ => None,
     };
     let agent_id = explicit_agent_id.map(ToOwned::to_owned).unwrap_or_else(|| {
         ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
     });
-    let meta = ctx.session_db.create_session_with_project(
-        &agent_id,
-        body.project_id.as_deref(),
-        body.incognito,
-    )?;
+    let meta = {
+        let agent_id = agent_id.clone();
+        let project_id = body.project_id.clone();
+        let incognito = body.incognito;
+        ctx.session_db
+            .run(move |db| {
+                db.create_session_with_project(&agent_id, project_id.as_deref(), incognito)
+            })
+            .await?
+    };
     Ok(Json(meta))
 }
 
@@ -530,21 +539,34 @@ pub async fn list_sessions(
     Query(q): Query<ListSessionsQuery>,
 ) -> Result<Json<PaginatedSessions>, AppError> {
     // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
-    let project_filter = if q.unassigned.unwrap_or(false) {
-        ha_core::session::ProjectFilter::Unassigned
-    } else if let Some(ref pid) = q.project_id {
-        ha_core::session::ProjectFilter::InProject(pid.as_str())
-    } else {
-        ha_core::session::ProjectFilter::All
+    let (mut sessions, total) = {
+        // `ProjectFilter` borrows from `q`; rebuild an owned filter inside the
+        // closure so the blocking task is 'static.
+        let unassigned = q.unassigned.unwrap_or(false);
+        let project_id = q.project_id.clone();
+        let agent_id = q.agent_id.clone();
+        let limit = q.limit;
+        let offset = q.offset;
+        let active_session_id = q.active_session_id.clone();
+        ctx.session_db
+            .run(move |db| {
+                let project_filter = if unassigned {
+                    ha_core::session::ProjectFilter::Unassigned
+                } else if let Some(ref pid) = project_id {
+                    ha_core::session::ProjectFilter::InProject(pid.as_str())
+                } else {
+                    ha_core::session::ProjectFilter::All
+                };
+                db.list_sessions_paged_for_sidebar(
+                    agent_id.as_deref(),
+                    project_filter,
+                    limit,
+                    offset,
+                    active_session_id.as_deref(),
+                )
+            })
+            .await?
     };
-
-    let (mut sessions, total) = ctx.session_db.list_sessions_paged_for_sidebar(
-        q.agent_id.as_deref(),
-        project_filter,
-        q.limit,
-        q.offset,
-        q.active_session_id.as_deref(),
-    )?;
 
     ha_core::session::enrich_pending_interactions(&mut sessions, &ctx.session_db).await?;
 
@@ -556,10 +578,11 @@ pub async fn get_session(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let meta = ctx
-        .session_db
-        .get_session(&id)?
-        .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
+    let meta = {
+        let id = id.clone();
+        ctx.session_db.run(move |db| db.get_session(&id)).await?
+    }
+    .ok_or_else(|| anyhow::anyhow!("session not found: {}", id))?;
     Ok(Json(serde_json::to_value(meta)?))
 }
 
@@ -568,7 +591,7 @@ pub async fn delete_session(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.delete_session(&id)?;
+    ctx.session_db.run(move |db| db.delete_session(&id)).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -578,7 +601,9 @@ pub async fn rename_session(
     Path(id): Path<String>,
     Json(body): Json<RenameSessionBody>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.update_session_title(&id, &body.title)?;
+    ctx.session_db
+        .run(move |db| db.update_session_title(&id, &body.title))
+        .await?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -588,7 +613,10 @@ pub async fn set_session_pinned(
     Path(id): Path<String>,
     Json(body): Json<SessionPinnedBody>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.set_session_pinned(&id, body.pinned)?;
+    let pinned = body.pinned;
+    ctx.session_db
+        .run(move |db| db.set_session_pinned(&id, pinned))
+        .await?;
     Ok(Json(json!({ "updated": true, "pinned": body.pinned })))
 }
 
@@ -598,7 +626,10 @@ pub async fn set_session_incognito(
     Path(id): Path<String>,
     Json(body): Json<SessionIncognitoBody>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.update_session_incognito(&id, body.enabled)?;
+    let enabled = body.enabled;
+    ctx.session_db
+        .run(move |db| db.update_session_incognito(&id, enabled))
+        .await?;
     Ok(Json(json!({ "updated": true })))
 }
 
@@ -611,7 +642,8 @@ pub async fn set_session_working_dir(
     Json(body): Json<SessionWorkingDirBody>,
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db
-        .update_session_working_dir(&id, body.working_dir)
+        .run(move |db| db.update_session_working_dir(&id, body.working_dir))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "updated": true })))
 }
@@ -625,7 +657,8 @@ pub async fn update_session_agent(
     Json(body): Json<SessionAgentBody>,
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db
-        .update_session_agent(&id, &body.agent_id)
+        .run(move |db| db.update_session_agent(&id, &body.agent_id))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "updated": true })))
 }
@@ -644,14 +677,22 @@ pub async fn set_session_model(
         .iter()
         .find(|p| p.id == body.provider_id && p.enabled)
         .map(|p| p.name.clone());
-    ctx.session_db
-        .update_session_model(
-            &id,
-            Some(&body.provider_id),
-            provider_name.as_deref(),
-            Some(&body.model_id),
-        )
-        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    {
+        let id = id.clone();
+        let provider_id = body.provider_id.clone();
+        let model_id = body.model_id.clone();
+        ctx.session_db
+            .run(move |db| {
+                db.update_session_model(
+                    &id,
+                    Some(&provider_id),
+                    provider_name.as_deref(),
+                    Some(&model_id),
+                )
+            })
+            .await
+            .map_err(|e| AppError::bad_request(e.to_string()))?;
+    }
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "session:model_updated",
@@ -672,7 +713,10 @@ pub async fn purge_session_if_incognito(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let purged = ctx.session_db.purge_session_if_incognito(&id)?;
+    let purged = ctx
+        .session_db
+        .run(move |db| db.purge_session_if_incognito(&id))
+        .await?;
     Ok(Json(json!({ "purged": purged })))
 }
 
@@ -691,11 +735,21 @@ pub async fn search_sessions(
                 .filter_map(ha_core::session::SessionTypeFilter::parse)
                 .collect()
         });
-    let type_slice = parsed_types.as_deref();
-
-    let results =
+    let results = {
+        let query = q.query.clone();
+        let agent_id = q.agent_id.clone();
         ctx.session_db
-            .search_messages(&q.query, q.agent_id.as_deref(), None, type_slice, limit)?;
+            .run(move |db| {
+                db.search_messages(
+                    &query,
+                    agent_id.as_deref(),
+                    None,
+                    parsed_types.as_deref(),
+                    limit,
+                )
+            })
+            .await?
+    };
     Ok(Json(results))
 }
 
@@ -710,7 +764,8 @@ pub async fn search_session_messages(
     let limit = q.limit.unwrap_or(200) as usize;
     let results = ctx
         .session_db
-        .search_messages(&q.query, None, Some(&id), None, limit)?;
+        .run(move |db| db.search_messages(&q.query, None, Some(&id), None, limit))
+        .await?;
     Ok(Json(results))
 }
 
@@ -728,7 +783,8 @@ pub async fn get_session_messages_around(
     let after = q.after.unwrap_or(20);
     let (messages, total, has_more_before, has_more_after) = ctx
         .session_db
-        .load_session_messages_around(&id, q.target_message_id, before, after)?;
+        .run(move |db| db.load_session_messages_around(&id, q.target_message_id, before, after))
+        .await?;
     let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([
         messages,
@@ -748,9 +804,10 @@ pub async fn get_session_messages_before(
     Query(q): Query<MessagesBeforeQuery>,
 ) -> Result<Json<Value>, AppError> {
     let limit = q.limit.unwrap_or(20);
-    let (messages, has_more) =
-        ctx.session_db
-            .load_session_messages_before(&id, q.before_id, limit)?;
+    let (messages, has_more) = ctx
+        .session_db
+        .run(move |db| db.load_session_messages_before(&id, q.before_id, limit))
+        .await?;
     let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([messages, has_more])))
 }
@@ -767,7 +824,8 @@ pub async fn get_session_messages_after(
     let limit = q.limit.unwrap_or(20);
     let (messages, has_more) = ctx
         .session_db
-        .load_session_messages_after(&id, q.after_id, limit)?;
+        .run(move |db| db.load_session_messages_after(&id, q.after_id, limit))
+        .await?;
     let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([messages, has_more])))
 }
@@ -780,7 +838,10 @@ pub async fn get_session_artifacts(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<ha_core::session::SessionArtifacts>, AppError> {
-    let artifacts = ha_core::session::aggregate_session_artifacts(&ctx.session_db, &id)?;
+    let artifacts = ctx
+        .session_db
+        .run(move |db| ha_core::session::aggregate_session_artifacts(db, &id))
+        .await?;
     Ok(Json(artifacts))
 }
 
@@ -852,7 +913,10 @@ pub async fn get_session_messages(
         .get("limit")
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
-    let (messages, total, has_more) = ctx.session_db.load_session_messages_latest(&id, limit)?;
+    let (messages, total, has_more) = ctx
+        .session_db
+        .run(move |db| db.load_session_messages_latest(&id, limit))
+        .await?;
     let messages = rewrite_messages_for_http(messages, ctx.api_key.as_deref());
     Ok(Json(json!([messages, total, has_more])))
 }
@@ -873,7 +937,12 @@ pub async fn download_session_file_by_path(
         return Err(AppError::bad_request("missing path"));
     }
 
-    let messages = ctx.session_db.load_session_messages(&id)?;
+    let messages = {
+        let id = id.clone();
+        ctx.session_db
+            .run(move |db| db.load_session_messages(&id))
+            .await?
+    };
     let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
     let meta = tokio::fs::metadata(&file_canon)
         .await
@@ -927,7 +996,12 @@ pub async fn read_session_file_by_path(
     if requested.is_empty() {
         return Err(AppError::bad_request("missing path"));
     }
-    let messages = ctx.session_db.load_session_messages(&id)?;
+    let messages = {
+        let id = id.clone();
+        ctx.session_db
+            .run(move |db| db.load_session_messages(&id))
+            .await?
+    };
     let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
     let content =
         tokio::task::spawn_blocking(move || ha_core::filesystem::read_text_abs(&file_canon))
@@ -949,7 +1023,12 @@ pub async fn extract_session_file_by_path(
     if requested.is_empty() {
         return Err(AppError::bad_request("missing path"));
     }
-    let messages = ctx.session_db.load_session_messages(&id)?;
+    let messages = {
+        let id = id.clone();
+        ctx.session_db
+            .run(move |db| db.load_session_messages(&id))
+            .await?
+    };
     let file_canon = authorized_canonical_file_path(&id, requested, &messages).await?;
     let content =
         tokio::task::spawn_blocking(move || ha_core::filesystem::extract_abs(&file_canon))
@@ -982,7 +1061,9 @@ pub async fn mark_session_read(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.mark_session_read(&id)?;
+    ctx.session_db
+        .run(move |db| db.mark_session_read(&id))
+        .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -992,7 +1073,9 @@ pub async fn mark_session_read_batch(
     Json(body): Json<ReadBatchBody>,
 ) -> Result<Json<Value>, AppError> {
     let count = body.session_ids.len();
-    ctx.session_db.mark_session_read_batch(&body.session_ids)?;
+    ctx.session_db
+        .run(move |db| db.mark_session_read_batch(&body.session_ids))
+        .await?;
     Ok(Json(json!({ "ok": true, "count": count })))
 }
 
@@ -1000,7 +1083,7 @@ pub async fn mark_session_read_batch(
 pub async fn mark_all_sessions_read(
     State(ctx): State<Arc<AppContext>>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.mark_all_sessions_read()?;
+    ctx.session_db.run(|db| db.mark_all_sessions_read()).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1016,10 +1099,11 @@ pub async fn compact_context_now(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let meta = ctx
-        .session_db
-        .get_session(&id)?
-        .ok_or_else(|| AppError::not_found("session not found"))?;
+    let meta = {
+        let id = id.clone();
+        ctx.session_db.run(move |db| db.get_session(&id)).await?
+    }
+    .ok_or_else(|| AppError::not_found("session not found"))?;
     let agent_id = meta.agent_id.clone();
 
     let store = ha_core::config::cached_config();
@@ -1090,7 +1174,10 @@ pub async fn get_session_awareness_config(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let json = ctx.session_db.get_session_awareness_config_json(&id)?;
+    let json = ctx
+        .session_db
+        .run(move |db| db.get_session_awareness_config_json(&id))
+        .await?;
     Ok(Json(json!({ "json": json })))
 }
 
@@ -1110,7 +1197,8 @@ pub async fn set_session_awareness_config(
         }
     }
     ctx.session_db
-        .set_session_awareness_config_json(&id, body.json.as_deref())?;
+        .run(move |db| db.set_session_awareness_config_json(&id, body.json.as_deref()))
+        .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -1145,7 +1233,10 @@ pub async fn export_session_http(
         include_thinking: q.include_thinking,
         include_tools: q.include_tools,
     };
-    let payload = ha_core::session::export::export_session(ctx.session_db.as_ref(), &id, opts)?;
+    let payload = ctx
+        .session_db
+        .run(move |db| ha_core::session::export::export_session(db, &id, opts))
+        .await?;
 
     // RFC 5987: provide both `filename=` (ASCII fallback) and `filename*=UTF-8''...`
     // so non-ASCII titles (e.g. CJK) survive the trip to the browser.

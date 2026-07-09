@@ -184,6 +184,27 @@ ACP minimal 的"少做"主要是后台 tier 选择（不跑 cron / dreaming / ch
 
 ---
 
+## Layer C′ · 阻塞工作隔离（`spawn_blocking` 池）
+
+Layer A–D 之外的一条横切约定，专治「同步阻塞把 async runtime 拖垮」。
+
+**背景**：全app 每个 SQLite 库（`sessions` / `cron` / `channel` / `logs`）都是同步 rusqlite 藏在 `Mutex<Connection>` 后面；config 持久化在全局写锁内做同步文件 IO（写前校验读 + autosave 拷贝 + `fs::write`）。直接从 `async fn` 里 inline 调用，会把一个 tokio worker 钉住整个「锁等待 + IO」时长。桌面默认 runtime 的 worker 只有 `num_cpus` 个（Windows 笔记本常 2–4）；一旦底层文件 IO 卡住（杀软实时扫描、云同步的 home 目录、慢盘），worker 被逐个吃光直到整个 runtime 饿死——表现为「进程还活着，但发消息永久转圈、设置页全部加载中」（issue #433 Bug 2 复现于 Windows）。
+
+**单一入口**：[`ha_core::blocking::run_blocking(f)`](../../crates/ha-core/src/blocking.rs) —— 把同步闭包丢到 tokio 的 blocking 池（数百条可挥霍的线程）并 `await`，卡住的库 / config 写只降级该功能，不再冻结全 app。慢于 5s 的 op 会 `app_warn!("blocking", ...)` 带闭包定义点落进 `logs.db`，把下次现场的卡死 IO 从 heisenbug 变成可 grep 的证据。
+
+**两个便捷包装**（调用方优先用它们）：
+
+| 包装 | 位置 | 用途 |
+|------|------|------|
+| `SessionDB::run(\|db\| ...)` | [`session/db.rs`](../../crates/ha-core/src/session/db.rs) | `Arc<SessionDB>` 上的所有同步方法（读 + 写）在 async 上下文里的唯一调用姿势 |
+| `config::mutate_config_async(reason, f)` | [`config/persistence.rs`](../../crates/ha-core/src/config/persistence.rs) | `mutate_config` 的 spawn_blocking 版；async 上下文改配置走它 |
+
+**红线（新增 async 路径必守）**：`src-tauri` 命令与 `ha-server` handler 里，任何 SessionDB / CronDB / ChannelDB / ProjectDB / LogDB 的同步调用、以及 `mutate_config` / provider crud 等走同步文件 IO 的 helper，**一律经 `run_blocking` / `SessionDB::run` / `mutate_config_async` 下放到 blocking 池，禁止 inline 在 async fn 里直接调**。例外：`cached_config()` / `load_config()` 是 lock-free 快照读，无需下放；已在独立 OS 线程 / 自建 runtime（Layer B）里跑的同步代码不重复包裹。相邻的多个同步调用应合并进**一个** `run_blocking` 闭包（保持原有顺序与错误语义），避免每调一次跳一次线程。
+
+**附带加固**：config 的 load-failure 恢复读盘（`recover_from_load_failure`）加 2s 冷却——`config.json` 短暂不可读时，设置页一次打开会触发 ~20 次 `load_config()`，旧逻辑每次都同步重读该不可读文件，冷却把这波「文件已经在闹脾气时的读 IO 风暴」压成每 2s 至多一次；用户可见的 Retry 路径（`config_health`）不受节流。
+
+---
+
 ## Layer D · 动态子进程（`Command::spawn`）
 
 按需拉起的外部二进制，分三类：

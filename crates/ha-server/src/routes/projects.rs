@@ -93,19 +93,25 @@ pub async fn list_projects(
     State(ctx): State<Arc<AppContext>>,
     Query(q): Query<ListProjectsQuery>,
 ) -> Result<Json<Vec<ProjectMeta>>, AppError> {
-    let mut projects = ctx.project_db.list(
-        q.include_archived.unwrap_or(false),
-        q.active_session_id.as_deref(),
-    )?;
+    let projects = {
+        let project_db = ctx.project_db.clone();
+        let include_archived = q.include_archived.unwrap_or(false);
+        let active_session_id = q.active_session_id.clone();
+        ha_core::blocking::run_blocking(move || -> anyhow::Result<_> {
+            let mut projects = project_db.list(include_archived, active_session_id.as_deref())?;
 
-    // Enrich with cross-DB memory counts (memory.db is separate).
-    if let Some(backend) = ha_core::get_memory_backend() {
-        for meta in &mut projects {
-            if let Ok(n) = backend.count_by_project(&meta.project.id) {
-                meta.memory_count = n as u32;
+            // Enrich with cross-DB memory counts (memory.db is separate).
+            if let Some(backend) = ha_core::get_memory_backend() {
+                for meta in &mut projects {
+                    if let Ok(n) = backend.count_by_project(&meta.project.id) {
+                        meta.memory_count = n as u32;
+                    }
+                }
             }
-        }
-    }
+            Ok(projects)
+        })
+        .await?
+    };
 
     Ok(Json(projects))
 }
@@ -115,10 +121,12 @@ pub async fn get_project(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Project>, AppError> {
-    let project = ctx
-        .project_db
-        .get(&id)?
-        .ok_or_else(|| anyhow::anyhow!("project not found: {}", id))?;
+    let project = {
+        let project_db = ctx.project_db.clone();
+        let id = id.clone();
+        ha_core::blocking::run_blocking(move || project_db.get(&id)).await?
+    }
+    .ok_or_else(|| anyhow::anyhow!("project not found: {}", id))?;
     Ok(Json(project))
 }
 
@@ -127,7 +135,10 @@ pub async fn create_project(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<CreateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
-    let project = ctx.project_db.create(body.input)?;
+    let project = {
+        let project_db = ctx.project_db.clone();
+        ha_core::blocking::run_blocking(move || project_db.create(body.input)).await?
+    };
 
     ctx.event_bus
         .emit("project:created", json!({ "projectId": project.id }));
@@ -140,7 +151,10 @@ pub async fn update_project(
     Path(id): Path<String>,
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
-    let project = ctx.project_db.update(&id, body.patch)?;
+    let project = {
+        let project_db = ctx.project_db.clone();
+        ha_core::blocking::run_blocking(move || project_db.update(&id, body.patch)).await?
+    };
     ctx.event_bus
         .emit("project:updated", json!({ "projectId": project.id }));
     Ok(Json(project))
@@ -151,7 +165,11 @@ pub async fn delete_project(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    let deleted = delete_project_cascade(&id, &ctx.project_db)?;
+    let deleted = {
+        let project_db = ctx.project_db.clone();
+        let id = id.clone();
+        ha_core::blocking::run_blocking(move || delete_project_cascade(&id, &project_db)).await?
+    };
     if deleted {
         ctx.event_bus
             .emit("project:deleted", json!({ "projectId": id }));
@@ -169,7 +187,10 @@ pub async fn archive_project(
         archived: Some(body.archived),
         ..Default::default()
     };
-    let project = ctx.project_db.update(&id, patch)?;
+    let project = {
+        let project_db = ctx.project_db.clone();
+        ha_core::blocking::run_blocking(move || project_db.update(&id, patch)).await?
+    };
     ctx.event_bus
         .emit("project:updated", json!({ "projectId": project.id }));
     Ok(Json(project))
@@ -180,7 +201,10 @@ pub async fn reorder_projects(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<ReorderProjectsBody>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.project_db.reorder(&body.project_ids)?;
+    {
+        let project_db = ctx.project_db.clone();
+        ha_core::blocking::run_blocking(move || project_db.reorder(&body.project_ids)).await?;
+    }
     ctx.event_bus
         .emit("project:updated", json!({ "kind": "reordered" }));
     Ok(Json(json!({ "ok": true })))
@@ -194,13 +218,23 @@ pub async fn list_project_sessions(
     Path(id): Path<String>,
     Query(q): Query<ListProjectSessionsQuery>,
 ) -> Result<Json<PaginatedSessions>, AppError> {
-    let (mut sessions, total) = ctx.session_db.list_sessions_paged_for_sidebar(
-        None,
-        ProjectFilter::InProject(&id),
-        q.limit,
-        q.offset,
-        q.active_session_id.as_deref(),
-    )?;
+    let (mut sessions, total) = {
+        let id = id.clone();
+        let limit = q.limit;
+        let offset = q.offset;
+        let active_session_id = q.active_session_id.clone();
+        ctx.session_db
+            .run(move |db| {
+                db.list_sessions_paged_for_sidebar(
+                    None,
+                    ProjectFilter::InProject(&id),
+                    limit,
+                    offset,
+                    active_session_id.as_deref(),
+                )
+            })
+            .await?
+    };
     ha_core::session::enrich_pending_interactions(&mut sessions, &ctx.session_db).await?;
     Ok(Json(PaginatedSessions { sessions, total }))
 }
@@ -211,11 +245,15 @@ pub async fn move_session_to_project(
     Path(id): Path<String>,
     Json(body): Json<MoveSessionBody>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db
-        .set_session_project(&id, body.project_id.as_deref())?;
+    let session: Option<SessionMeta> = ctx
+        .session_db
+        .run(move |db| -> anyhow::Result<_> {
+            db.set_session_project(&id, body.project_id.as_deref())?;
 
-    // Return updated session meta so the frontend can refresh cache.
-    let session: Option<SessionMeta> = ctx.session_db.get_session(&id)?;
+            // Return updated session meta so the frontend can refresh cache.
+            db.get_session(&id)
+        })
+        .await?;
     Ok(Json(json!({ "session": session })))
 }
 
@@ -224,7 +262,12 @@ pub async fn mark_project_sessions_read(
     State(ctx): State<Arc<AppContext>>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    ctx.session_db.mark_project_sessions_read(&id)?;
+    {
+        let id = id.clone();
+        ctx.session_db
+            .run(move |db| db.mark_project_sessions_read(&id))
+            .await?;
+    }
     ctx.event_bus
         .emit("project:updated", json!({ "projectId": id }));
     Ok(Json(json!({ "ok": true })))
@@ -241,11 +284,10 @@ pub async fn list_project_memories(
     let backend = ha_core::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("memory backend not initialized"))?;
     let scope = MemoryScope::Project { id };
-    let entries = backend.list(
-        Some(&scope),
-        None,
-        q.limit.unwrap_or(200) as usize,
-        q.offset.unwrap_or(0) as usize,
-    )?;
+    let limit = q.limit.unwrap_or(200) as usize;
+    let offset = q.offset.unwrap_or(0) as usize;
+    let entries =
+        ha_core::blocking::run_blocking(move || backend.list(Some(&scope), None, limit, offset))
+            .await?;
     Ok(Json(entries))
 }

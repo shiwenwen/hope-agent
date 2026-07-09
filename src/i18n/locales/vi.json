@@ -698,7 +698,9 @@
       "collapse": "Thu gọn bảng bên phải",
       "expand": "Mở rộng bảng bên phải",
       "switch": "Chuyển bảng bên phải"
-    }
+    },
+    "visionBridgeEngaged": "Mô hình chính không xem được hình ảnh, nên {{model}} đã mô tả chúng thay cho nó.",
+    "visionBridgeUnavailable": "Mô hình thị giác không mô tả được hình ảnh, nên hình ảnh đã bị bỏ qua."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "Re-embedding bộ nhớ"
         }
       }
+    },
+    "usageKind": {
+      "all": "Tất cả sử dụng",
+      "chat": "Trò chuyện",
+      "side_query": "Truy vấn phụ",
+      "embedding": "Nhúng",
+      "stt": "Chuyển giọng nói thành văn bản",
+      "judge": "Đánh giá",
+      "summarize": "Tóm tắt",
+      "web_search": "Tìm kiếm web",
+      "image_generation": "Tạo hình ảnh",
+      "provider_test": "Kiểm tra nhà cung cấp",
+      "vision": "Thị giác"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "Thời gian chờ (giây)",
     "audioGenFetchVoices": "Lấy giọng nói",
     "audioGenKnownModels": "Mô hình đã biết",
-    "audioGenPickVoice": "Chọn từ danh sách…"
+    "audioGenPickVoice": "Chọn từ danh sách…",
+    "visionBridgeModel": "Mô hình cầu nối thị giác",
+    "visionBridgeModelDesc": "Chỉ dùng khi mô hình chính không xem được hình ảnh. Một mô hình riêng chuyển hình ảnh thành mô tả văn bản để cuộc trò chuyện tiếp tục.",
+    "visionBridgeModelClear": "Tắt cầu nối thị giác",
+    "selectVisionBridgeModel": "Chọn mô hình thị giác"
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",

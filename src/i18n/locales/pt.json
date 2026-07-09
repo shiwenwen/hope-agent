@@ -698,7 +698,9 @@
       "collapse": "Recolher painel direito",
       "expand": "Expandir painel direito",
       "switch": "Alternar painel direito"
-    }
+    },
+    "visionBridgeEngaged": "O modelo principal não consegue ver imagens, então {{model}} as descreveu para ele.",
+    "visionBridgeUnavailable": "O modelo de visão não conseguiu descrever a imagem, então ela foi ignorada."
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "Re-embedding de memória"
         }
       }
+    },
+    "usageKind": {
+      "all": "Todo o uso",
+      "chat": "Chat",
+      "side_query": "Consulta paralela",
+      "embedding": "Incorporação",
+      "stt": "Fala para texto",
+      "judge": "Avaliação",
+      "summarize": "Resumo",
+      "web_search": "Pesquisa na web",
+      "image_generation": "Geração de imagens",
+      "provider_test": "Teste de provedor",
+      "vision": "Visão"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "Tempo limite (s)",
     "audioGenFetchVoices": "Buscar vozes",
     "audioGenKnownModels": "Modelos conhecidos",
-    "audioGenPickVoice": "Escolher da lista…"
+    "audioGenPickVoice": "Escolher da lista…",
+    "visionBridgeModel": "Modelo de ponte de visão",
+    "visionBridgeModelDesc": "Usado apenas quando o modelo principal não consegue ver imagens. Um modelo separado converte imagens em descrições de texto para que a conversa continue.",
+    "visionBridgeModelClear": "Desativar a ponte de visão",
+    "selectVisionBridgeModel": "Selecionar modelo de visão"
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",

@@ -347,6 +347,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_active_model:                { method: "POST",   path: "/api/models/active" },
   get_fallback_models:             { method: "GET",    path: "/api/models/fallback" },
   set_fallback_models:             { method: "POST",   path: "/api/models/fallback" },
+  get_vision_model:                { method: "GET",    path: "/api/models/vision" },
+  set_vision_model:                { method: "PUT",    path: "/api/models/vision" },
   set_reasoning_effort:            { method: "POST",   path: "/api/models/reasoning-effort" },
   get_current_settings:            { method: "GET",    path: "/api/models/settings" },
   get_global_temperature:          { method: "GET",    path: "/api/models/temperature" },

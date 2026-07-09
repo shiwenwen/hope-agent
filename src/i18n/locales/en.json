@@ -698,7 +698,9 @@
       "collapse": "Collapse right panel",
       "expand": "Expand right panel",
       "switch": "Switch right panel"
-    }
+    },
+    "visionBridgeEngaged": "The primary model can't view images, so {{model}} described them for it.",
+    "visionBridgeUnavailable": "The vision model couldn't describe the image, so it was left out."
   },
   "codexAuth": {
     "expiredDescription": "Your Codex OAuth token is no longer valid. Please sign in again to continue.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "Memory re-embedding"
         }
       }
+    },
+    "usageKind": {
+      "all": "All usage",
+      "chat": "Chat",
+      "side_query": "Side query",
+      "embedding": "Embedding",
+      "stt": "Speech-to-text",
+      "judge": "Judge",
+      "summarize": "Summarize",
+      "web_search": "Web search",
+      "image_generation": "Image generation",
+      "provider_test": "Provider test",
+      "vision": "Vision"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "Request timeout (s)",
     "audioGenFetchVoices": "Fetch voices",
     "audioGenKnownModels": "Known models",
-    "audioGenPickVoice": "Pick from list…"
+    "audioGenPickVoice": "Pick from list…",
+    "visionBridgeModel": "Vision Bridge Model",
+    "visionBridgeModelDesc": "Only used when the primary model can't view images. A separate model turns images into text descriptions so the conversation can continue.",
+    "visionBridgeModelClear": "Turn off vision bridge",
+    "selectVisionBridgeModel": "Select vision model"
   },
   "shortcuts": {
     "actionOpenSettings": "Open Settings",

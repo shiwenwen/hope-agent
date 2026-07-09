@@ -753,6 +753,10 @@ fn build_router_with_cors(
             post(routes::models::set_fallback_models),
         )
         .route(
+            "/models/vision",
+            get(routes::models::get_vision_model).put(routes::models::set_vision_model),
+        )
+        .route(
             "/models/reasoning-effort",
             post(routes::models::set_reasoning_effort),
         )

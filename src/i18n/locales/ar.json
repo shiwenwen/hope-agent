@@ -698,7 +698,9 @@
       "collapse": "طي اللوحة اليمنى",
       "expand": "قم بتوسيع اللوحة اليمنى",
       "switch": "تبديل اللوحة اليمنى"
-    }
+    },
+    "visionBridgeEngaged": "لا يمكن للنموذج الأساسي رؤية الصور، لذا قام {{model}} بوصفها نيابةً عنه.",
+    "visionBridgeUnavailable": "تعذّر على نموذج الرؤية وصف الصورة، لذا تم تجاهلها."
   },
   "codexAuth": {
     "expiredDescription": "رمز OAuth لـ Codex لم يعد صالحاً. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
@@ -1314,6 +1316,19 @@
           "memory_reembed": "إعادة تضمين الذاكرة"
         }
       }
+    },
+    "usageKind": {
+      "all": "كل الاستخدام",
+      "chat": "محادثة",
+      "side_query": "استعلام جانبي",
+      "embedding": "التضمين",
+      "stt": "تحويل الكلام إلى نص",
+      "judge": "التقييم",
+      "summarize": "التلخيص",
+      "web_search": "بحث الويب",
+      "image_generation": "توليد الصور",
+      "provider_test": "اختبار المزوّد",
+      "vision": "الرؤية"
     }
   },
   "fileActions": {
@@ -5028,7 +5043,11 @@
     "audioGenTimeout": "مهلة الطلب (ث)",
     "audioGenFetchVoices": "جلب الأصوات",
     "audioGenKnownModels": "النماذج المعروفة",
-    "audioGenPickVoice": "اختر من القائمة…"
+    "audioGenPickVoice": "اختر من القائمة…",
+    "visionBridgeModel": "نموذج جسر الرؤية",
+    "visionBridgeModelDesc": "يُستخدم فقط عندما لا يستطيع النموذج الأساسي رؤية الصور. يقوم نموذج منفصل بتحويل الصور إلى أوصاف نصية حتى تستمر المحادثة.",
+    "visionBridgeModelClear": "إيقاف جسر الرؤية",
+    "selectVisionBridgeModel": "اختر نموذج الرؤية"
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",

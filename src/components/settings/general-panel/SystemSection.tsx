@@ -136,7 +136,7 @@ export function PreventSleepToggle() {
 export function UiEffectsToggle() {
   const { t } = useTranslation()
 
-  const [uiEffectsEnabled, setUiEffectsEnabled] = useState(true)
+  const [uiEffectsEnabled, setUiEffectsEnabled] = useState(false)
   const [uiEffectsLoaded, setUiEffectsLoaded] = useState(false)
 
   useEffect(() => {
