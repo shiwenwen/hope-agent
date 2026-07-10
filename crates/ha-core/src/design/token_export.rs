@@ -210,6 +210,21 @@ fn gen_css(tokens: &BTreeMap<String, String>) -> TokenExport {
         body.push_str(&format!("  {k}: {v};\n"));
     }
     body.push_str("}\n");
+    // 双主题：从单 seed 确定性派生 dark（`.dark` / `[data-theme=dark]`）与 compact，随导出一并给出。
+    let dark = super::theme::derive_dark(tokens);
+    body.push_str("\n.dark, [data-theme=\"dark\"] {\n");
+    for (k, v) in dark.iter().filter(|(k, _)| k.starts_with("--ds-color-")) {
+        body.push_str(&format!("  {k}: {v};\n"));
+    }
+    body.push_str("}\n");
+    let compact = super::theme::derive_compact(tokens);
+    body.push_str("\n.compact, [data-density=\"compact\"] {\n");
+    for (k, v) in compact.iter().filter(|(k, _)| {
+        k.starts_with("--ds-text-") || k.starts_with("--ds-space-") || k.starts_with("--ds-radius-")
+    }) {
+        body.push_str(&format!("  {k}: {v};\n"));
+    }
+    body.push_str("}\n");
     TokenExport {
         format: "css".into(),
         label: "CSS Variables".into(),
