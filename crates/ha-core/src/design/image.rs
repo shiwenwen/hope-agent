@@ -24,6 +24,18 @@ pub struct ImageGenOptions {
     pub input_images: Vec<InputImage>,
 }
 
+/// 把图片字节内嵌成 `image` 形态 body（一张居中图，data-uri，守自包含红线）。
+/// 拖入导入 / 生成两条路径共用同一 body 结构。
+pub fn image_body_from_bytes(bytes: &[u8], mime: &str, alt: &str) -> String {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    let alt = html_escape(alt);
+    let mime = if mime.trim().is_empty() { "image/png" } else { mime };
+    format!(
+        "<img src=\"data:{mime};base64,{b64}\" alt=\"{alt}\" \
+style=\"display:block;margin:0 auto;max-width:100%;height:auto\">"
+    )
+}
+
 /// 文本 prompt → 生成图片 → 返回内嵌 data-uri 的 `ArtifactParts`（body 一张居中图）。
 pub async fn generate_image_parts(
     prompt: &str,
@@ -31,14 +43,8 @@ pub async fn generate_image_parts(
     opts: &ImageGenOptions,
 ) -> Result<ArtifactParts> {
     let (bytes, mime) = generate_image_bytes(prompt, opts).await?;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    let alt = html_escape(alt);
-    let body_html = format!(
-        "<img src=\"data:{mime};base64,{b64}\" alt=\"{alt}\" \
-style=\"display:block;margin:0 auto;max-width:100%;height:auto\">"
-    );
     Ok(ArtifactParts {
-        body_html,
+        body_html: image_body_from_bytes(&bytes, &mime, alt),
         css: String::new(),
         js: String::new(),
     })

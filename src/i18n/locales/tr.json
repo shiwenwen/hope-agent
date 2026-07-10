@@ -6658,6 +6658,12 @@
     "scene3": "Mobil uygulama giriş / kayıt ekranı, yuvarlak dostça stil",
     "scene4": "Bir ürün lansman afişi, büyük başlık + anahtar mesajlar",
     "scene5": "Bir veri panosu, KPI kartları + çizgi trendleri",
-    "loadingLibrary": "Kitaplık yükleniyor…"
+    "loadingLibrary": "Kitaplık yükleniyor…",
+    "dropImport": {
+      "onlyImages": "Yalnızca görüntü dosyaları bırakılabilir",
+      "failed": "İçe aktarma başarısız: {{name}}",
+      "done": "{{count}} görüntü içe aktarıldı",
+      "drop": "Görüntüleri içe aktarmak için bırakın"
+    }
   }
 }

@@ -6658,6 +6658,12 @@
     "scene3": "一个移动 App 的登录 / 注册页，圆角友好风",
     "scene4": "一张产品发布海报，大标题 + 关键卖点",
     "scene5": "一个数据看板，KPI 卡片 + 折线趋势",
-    "loadingLibrary": "正在加载产物库…"
+    "loadingLibrary": "正在加载产物库…",
+    "dropImport": {
+      "onlyImages": "只能拖入图片文件",
+      "failed": "导入失败：{{name}}",
+      "done": "已导入 {{count}} 张图片",
+      "drop": "松开以导入图片"
+    }
   }
 }

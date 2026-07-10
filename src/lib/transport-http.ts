@@ -271,6 +271,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   design_chat_thread_get_cmd:        { method: "GET",    path: "/api/design/projects/{projectId}/chat/thread" },
   design_chat_threads_list_cmd:      { method: "GET",    path: "/api/design/projects/{projectId}/chat/threads" },
   create_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts" },
+  import_design_image_cmd:           { method: "POST",   path: "/api/design/artifacts/import-image" },
   generate_design_artifact_cmd:      { method: "POST",   path: "/api/design/artifacts/generate" },
   design_ffmpeg_doctor_cmd:          { method: "GET",    path: "/api/design/ffmpeg/doctor" },
   design_install_ffmpeg_cmd:         { method: "POST",   path: "/api/design/ffmpeg/install" },

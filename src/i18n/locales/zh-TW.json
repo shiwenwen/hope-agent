@@ -6658,6 +6658,12 @@
     "scene3": "一個行動 App 的登入 / 註冊頁，圓角友善風",
     "scene4": "一張產品發表海報，大標題 + 關鍵賣點",
     "scene5": "一個資料儀表板，KPI 卡片 + 折線趨勢",
-    "loadingLibrary": "正在載入產物庫…"
+    "loadingLibrary": "正在載入產物庫…",
+    "dropImport": {
+      "onlyImages": "只能拖入圖片檔案",
+      "failed": "匯入失敗：{{name}}",
+      "done": "已匯入 {{count}} 張圖片",
+      "drop": "放開以匯入圖片"
+    }
   }
 }

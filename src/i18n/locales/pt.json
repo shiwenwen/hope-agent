@@ -6658,6 +6658,12 @@
     "scene3": "Uma tela de login / cadastro de app, estilo arredondado",
     "scene4": "Um pôster de lançamento, título grande + pontos de venda",
     "scene5": "Um painel de dados, cartões KPI + tendências de linha",
-    "loadingLibrary": "A carregar biblioteca…"
+    "loadingLibrary": "A carregar biblioteca…",
+    "dropImport": {
+      "onlyImages": "Só é possível arrastar arquivos de imagem",
+      "failed": "Falha ao importar: {{name}}",
+      "done": "{{count}} imagem(ns) importada(s)",
+      "drop": "Solte para importar imagens"
+    }
   }
 }

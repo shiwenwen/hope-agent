@@ -387,6 +387,34 @@ pub async fn create_artifact(
     ))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportImageBody {
+    pub project_id: String,
+    pub title: String,
+    pub mime: String,
+    pub data_b64: String,
+    #[serde(default)]
+    pub folder: Option<String>,
+}
+
+/// `POST /api/design/artifacts/import-image` — 拖入导入：base64 图片 → image 产物。
+pub async fn import_image(
+    Json(body): Json<ImportImageBody>,
+) -> Result<Json<DesignArtifact>, AppError> {
+    validate_id(&body.project_id)?;
+    let art = ha_core::blocking::run_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(body.data_b64.trim())
+            .map_err(|e| anyhow::anyhow!("base64 decode failed: {e}"))?;
+        service::import_image_artifact(&body.project_id, &body.title, &body.mime, &bytes, body.folder)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(art))
+}
+
 /// `POST /api/design/artifacts/generate` — streaming generate (returns generating
 /// shell immediately; content streams via `design:generate_delta` over WS).
 pub async fn generate_artifact(

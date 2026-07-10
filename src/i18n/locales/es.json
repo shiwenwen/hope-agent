@@ -6658,6 +6658,12 @@
     "scene3": "Una pantalla de acceso / registro de app móvil, estilo redondeado",
     "scene4": "Un póster de lanzamiento, gran titular + puntos clave",
     "scene5": "Un panel de datos, tarjetas KPI + tendencias de línea",
-    "loadingLibrary": "Cargando biblioteca…"
+    "loadingLibrary": "Cargando biblioteca…",
+    "dropImport": {
+      "onlyImages": "Solo se pueden soltar archivos de imagen",
+      "failed": "Error al importar: {{name}}",
+      "done": "{{count}} imagen(es) importada(s)",
+      "drop": "Suelta para importar imágenes"
+    }
   }
 }

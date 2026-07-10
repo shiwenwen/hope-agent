@@ -1166,6 +1166,51 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     [tx, activeProject, kindLabel, loadArtifacts, openArtifact, t],
   )
 
+  // 拖入导入：把拖进来的图片文件建成 image 形态产物（自包含 data-uri）。
+  const [dropActive, setDropActive] = useState(false)
+  const importImageFiles = useCallback(
+    async (files: File[]) => {
+      if (!activeProject) return
+      const images = files.filter((f) => f.type.startsWith("image/"))
+      if (images.length === 0) {
+        toast.error(t("design.dropImport.onlyImages", "只能拖入图片文件"))
+        return
+      }
+      let last: DesignArtifact | null = null
+      for (const f of images) {
+        try {
+          const dataB64 = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader()
+            r.onload = () => {
+              const s = String(r.result || "")
+              const i = s.indexOf(",")
+              resolve(i >= 0 ? s.slice(i + 1) : s)
+            }
+            r.onerror = () => reject(r.error)
+            r.readAsDataURL(f)
+          })
+          const art = await tx.call<DesignArtifact>("import_design_image_cmd", {
+            projectId: activeProject.id,
+            title: f.name.replace(/\.[^.]+$/, "").slice(0, 40) || "Imported image",
+            mime: f.type,
+            dataB64,
+          })
+          if (art) last = art
+        } catch (e) {
+          logger.error("design", "DesignView::importImage", "import failed", e)
+          toast.error(t("design.dropImport.failed", "导入失败：{{name}}", { name: f.name }))
+        }
+      }
+      await loadArtifacts(activeProject.id)
+      if (last) {
+        setShowGrid(false)
+        void openArtifact(last)
+        toast.success(t("design.dropImport.done", "已导入 {{count}} 张图片", { count: images.length }))
+      }
+    },
+    [tx, activeProject, loadArtifacts, openArtifact, t],
+  )
+
   // image 形态需要描述 prompt → 弹小对话框收集。
   const [imagePromptOpen, setImagePromptOpen] = useState(false)
   const [imagePrompt, setImagePrompt] = useState("")
@@ -3283,7 +3328,36 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           )}
 
           {/* Right: 顶部产物切换条 + 单产物预览 */}
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div
+            className="relative flex min-w-0 flex-1 flex-col"
+            onDragOver={(e) => {
+              if (!activeProject) return
+              if (Array.from(e.dataTransfer.types).includes("Files")) {
+                e.preventDefault()
+                if (!dropActive) setDropActive(true)
+              }
+            }}
+            onDragLeave={(e) => {
+              // 只在真正离开容器时收起（忽略子元素间冒泡）。
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropActive(false)
+            }}
+            onDrop={(e) => {
+              if (!Array.from(e.dataTransfer.types).includes("Files")) return
+              e.preventDefault()
+              setDropActive(false)
+              void importImageFiles(Array.from(e.dataTransfer.files))
+            }}
+          >
+            {dropActive && (
+              <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-primary/60 bg-primary/5 backdrop-blur-[1px]">
+                <div className="flex flex-col items-center gap-1.5 text-primary">
+                  <ImageIcon className="h-7 w-7" />
+                  <span className="text-sm font-medium">
+                    {t("design.dropImport.drop", "松开以导入图片")}
+                  </span>
+                </div>
+              </div>
+            )}
             {/* 顶部：对话折叠钮 + 横向产物切换条（原左侧列表收窄成条） */}
             <div className="flex h-11 shrink-0 items-center gap-1.5 overflow-x-auto border-b bg-background/60 px-2">
               <IconTip

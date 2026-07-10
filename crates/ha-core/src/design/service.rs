@@ -698,7 +698,7 @@ pub fn delete_project(id: &str) -> Result<()> {
 
 // ── Artifacts ──────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateArtifactInput {
     pub project_id: String,
@@ -1204,6 +1204,47 @@ fn reconcile_orphaned_generating(rows: &[DesignArtifact]) -> bool {
         }
     }
     degraded_any
+}
+
+/// 拖入导入上限（单张图，与部署单文件量级一致的保守值）。
+const MAX_IMPORT_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+
+/// 拖入导入：把一张图片字节内嵌成 `image` 形态产物（自包含 data-uri）。owner 平面。
+/// `mime` 必须是 `image/*`；超限拒。落入 `folder`（缺省根）。
+pub fn import_image_artifact(
+    project_id: &str,
+    title: &str,
+    mime: &str,
+    bytes: &[u8],
+    folder: Option<String>,
+) -> Result<DesignArtifact> {
+    if !mime.trim().to_ascii_lowercase().starts_with("image/") {
+        anyhow::bail!("仅支持导入图片文件（image/*），收到 mime={mime}");
+    }
+    if bytes.is_empty() {
+        anyhow::bail!("空文件");
+    }
+    if bytes.len() > MAX_IMPORT_IMAGE_BYTES {
+        anyhow::bail!(
+            "图片过大（{} MB，上限 {} MB）",
+            bytes.len() / 1024 / 1024,
+            MAX_IMPORT_IMAGE_BYTES / 1024 / 1024
+        );
+    }
+    let title = if title.trim().is_empty() {
+        "Imported image".to_string()
+    } else {
+        title.trim().to_string()
+    };
+    let body_html = super::image::image_body_from_bytes(bytes, mime, &title);
+    create_artifact(CreateArtifactInput {
+        project_id: project_id.to_string(),
+        title,
+        kind: "image".to_string(),
+        body_html: Some(body_html),
+        folder,
+        ..Default::default()
+    })
 }
 
 /// 建 generating 壳：status=generating + 流式占位 index.html（CSS-first head 定稿 + 空 body

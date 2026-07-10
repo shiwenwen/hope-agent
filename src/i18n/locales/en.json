@@ -6658,6 +6658,12 @@
     "scene3": "A mobile app sign-in / sign-up screen, rounded friendly style",
     "scene4": "A product launch poster, big headline + key selling points",
     "scene5": "A data dashboard, KPI cards + line trends",
-    "loadingLibrary": "Loading library…"
+    "loadingLibrary": "Loading library…",
+    "dropImport": {
+      "onlyImages": "Only image files can be dropped",
+      "failed": "Import failed: {{name}}",
+      "done": "Imported {{count}} image(s)",
+      "drop": "Drop to import images"
+    }
   }
 }

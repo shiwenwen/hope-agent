@@ -1919,6 +1919,11 @@ fn build_router_with_cors(
             // 参考图 base64（「照着这张图做」）可超 axum 默认 2 MiB body 限——放开到 16 MiB。
             post(routes::design::generate_artifact).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
+        .route(
+            "/design/artifacts/import-image",
+            // 拖入图片 base64 可超默认 body 限——放开到 32 MiB（image 上限 20 MiB + base64 膨胀）。
+            post(routes::design::import_image).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
         .route("/design/patch", post(routes::design::patch_element))
         .route(
             "/design/artifacts/{id}/critique",

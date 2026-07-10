@@ -451,6 +451,7 @@ KB 文件预览端点是**纯 owner 平面，无 session 参数、无 owner fall
 | `duplicate_design_project_cmd` | `POST /api/design/projects/{id}/duplicate` | ✅ |
 | `list_design_artifacts_cmd` | `GET /api/design/projects/{projectId}/artifacts` | ✅ |
 | `create_design_artifact_cmd` | `POST /api/design/artifacts` | ✅ |
+| `import_design_image_cmd` | `POST /api/design/artifacts/import-image`（拖入导入：base64 图片→image 产物） | ✅ |
 | `generate_design_artifact_cmd` | `POST /api/design/artifacts/generate` | ✅ |
 | `design_ffmpeg_doctor_cmd` | `GET /api/design/ffmpeg/doctor` | ✅ |
 | `design_install_ffmpeg_cmd` | `POST /api/design/ffmpeg/install` | ✅ |

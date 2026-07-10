@@ -87,6 +87,26 @@ pub async fn create_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// 拖入导入：base64 图片 → `image` 形态产物（自包含 data-uri）。
+#[tauri::command]
+pub async fn import_design_image_cmd(
+    project_id: String,
+    title: String,
+    mime: String,
+    data_b64: String,
+    folder: Option<String>,
+) -> Result<DesignArtifact, CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_b64.trim())
+            .map_err(|e| anyhow::anyhow!("base64 decode failed: {e}"))?;
+        service::import_image_artifact(&project_id, &title, &mime, &bytes, folder)
+    })
+    .await
+    .map_err(Into::into)
+}
+
 /// 「一句话 → 流式生成」：建 generating 壳同步返回，内容经 `design:generate_delta` 流式回填。
 /// image / 无 brief / 未知 kind 自动回落阻塞生成。
 #[tauri::command]
