@@ -603,6 +603,14 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
           onJumpToQuote={onJumpToQuote}
           pendingMessage={stream.pendingMessage}
           onCancelPending={() => stream.setPendingMessage(null)}
+          // 生成中排队多条：接内核已有 pendingSends 队列 UI（逐条编辑/删除/工具边界 force-insert 插队），
+          // 取代退化的单条 pending chip。与主对话一致，复用同一 useChatStream 能力。
+          pendingSends={stream.pendingSends}
+          onDiscardPending={() => stream.setPendingMessage(null)}
+          onEditPending={stream.editPendingSend}
+          onDiscardPendingItem={stream.discardPendingSend}
+          onForceInsertPending={stream.forceInsertPendingSend}
+          onCancelForceInsertPending={stream.cancelForceInsertPendingSend}
           onStop={stream.handleStop}
           currentSessionId={session.currentSessionId}
           currentAgentId={session.currentAgentId}
