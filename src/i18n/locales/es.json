@@ -6664,6 +6664,12 @@
       "failed": "Error al importar: {{name}}",
       "done": "{{count}} imagen(es) importada(s)",
       "drop": "Suelta para importar imágenes"
+    },
+    "presenter": {
+      "hide": "Ocultar notas del presentador",
+      "show": "Mostrar notas del presentador",
+      "slide": "Diapositiva {{n}}/{{total}}",
+      "notePlaceholder": "Notas del presentador para esta diapositiva (guardado automático)"
     }
   }
 }

@@ -6664,6 +6664,12 @@
       "failed": "Gagal mengimport: {{name}}",
       "done": "{{count}} imej diimport",
       "drop": "Lepaskan untuk mengimport imej"
+    },
+    "presenter": {
+      "hide": "Sembunyikan nota pembentang",
+      "show": "Tunjukkan nota pembentang",
+      "slide": "Slaid {{n}}/{{total}}",
+      "notePlaceholder": "Nota pembentang untuk slaid ini (simpan automatik)"
     }
   }
 }

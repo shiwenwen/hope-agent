@@ -6664,6 +6664,12 @@
       "failed": "匯入失敗：{{name}}",
       "done": "已匯入 {{count}} 張圖片",
       "drop": "放開以匯入圖片"
+    },
+    "presenter": {
+      "hide": "隱藏演講者備註",
+      "show": "顯示演講者備註",
+      "slide": "第 {{n}}/{{total}} 頁",
+      "notePlaceholder": "本頁演講者備註（自動儲存）"
     }
   }
 }

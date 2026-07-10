@@ -1206,6 +1206,27 @@ fn reconcile_orphaned_generating(rows: &[DesignArtifact]) -> bool {
     degraded_any
 }
 
+/// 保存 deck 演讲者备注（按 slide 顺序，存产物 `metadata.presenterNotes`）。owner 平面。
+/// 尾部空串保留位序（第 3 页有备注、1/2 空 → `["","","note"]`）。
+pub fn set_presenter_notes(artifact_id: &str, notes: Vec<String>) -> Result<()> {
+    let db = open_db()?;
+    let a = db
+        .get_artifact(artifact_id)?
+        .context("artifact not found")?;
+    let mut meta: serde_json::Value = a
+        .metadata
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !meta.is_object() {
+        meta = serde_json::json!({});
+    }
+    meta["presenterNotes"] = serde_json::json!(notes);
+    db.update_artifact_metadata(artifact_id, Some(&meta.to_string()), &now())?;
+    Ok(())
+}
+
 /// 拖入导入上限（单张图，与部署单文件量级一致的保守值）。
 const MAX_IMPORT_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 

@@ -817,6 +817,7 @@ pub fn run() {
             commands::design::list_design_artifacts_cmd,
             commands::design::create_design_artifact_cmd,
             commands::design::import_design_image_cmd,
+            commands::design::set_design_presenter_notes_cmd,
             commands::design::generate_design_artifact_cmd,
             commands::design::list_all_design_artifacts_cmd,
             commands::design::get_design_artifact_cmd,

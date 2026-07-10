@@ -6664,6 +6664,12 @@
       "failed": "Falha ao importar: {{name}}",
       "done": "{{count}} imagem(ns) importada(s)",
       "drop": "Solte para importar imagens"
+    },
+    "presenter": {
+      "hide": "Ocultar notas do apresentador",
+      "show": "Mostrar notas do apresentador",
+      "slide": "Slide {{n}}/{{total}}",
+      "notePlaceholder": "Notas do apresentador para este slide (salvo automaticamente)"
     }
   }
 }

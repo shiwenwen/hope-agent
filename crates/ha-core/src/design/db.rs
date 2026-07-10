@@ -840,6 +840,21 @@ impl DesignDb {
         Ok(())
     }
 
+    /// 只更新 metadata（演讲者备注等旁路数据；不碰 status/version）。
+    pub fn update_artifact_metadata(
+        &self,
+        id: &str,
+        metadata: Option<&str>,
+        updated_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "UPDATE design_artifacts SET metadata = ?2, updated_at = ?3 WHERE id = ?1",
+            rusqlite::params![id, metadata, updated_at],
+        )?;
+        Ok(())
+    }
+
     /// 就地换设计系统（restyle）：改产物的 `system_id`（弱引用，允许 None = 不用设计系统）。
     pub fn set_artifact_system_id(&self, id: &str, system_id: Option<&str>) -> Result<()> {
         let conn = self.lock()?;

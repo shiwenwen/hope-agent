@@ -87,6 +87,17 @@ pub async fn create_design_artifact_cmd(
         .map_err(Into::into)
 }
 
+/// 保存 deck 演讲者备注（按 slide 顺序）。
+#[tauri::command]
+pub async fn set_design_presenter_notes_cmd(
+    artifact_id: String,
+    notes: Vec<String>,
+) -> Result<(), CmdError> {
+    ha_core::blocking::run_blocking(move || service::set_presenter_notes(&artifact_id, notes))
+        .await
+        .map_err(Into::into)
+}
+
 /// 拖入导入：base64 图片 → `image` 形态产物（自包含 data-uri）。
 #[tauri::command]
 pub async fn import_design_image_cmd(

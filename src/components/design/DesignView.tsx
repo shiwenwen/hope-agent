@@ -33,6 +33,7 @@ import {
   FileText,
   Mail,
   Sparkles,
+  StickyNote,
   MousePointerClick,
   MessageSquare,
   Highlighter,
@@ -137,7 +138,7 @@ import type {
   DesignComment,
   CommentPlacement,
 } from "@/types/design"
-import { ARTIFACT_KINDS, parseSelfCheck } from "@/types/design"
+import { ARTIFACT_KINDS, parseSelfCheck, parsePresenterNotes } from "@/types/design"
 import {
   exportPng,
   exportPdf,
@@ -409,6 +410,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 预览设备视口（B4-3）+ 演示态（B4-4）。
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("auto")
   const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
+  // 演讲者备注（deck，按 slide 顺序，存产物 metadata.presenterNotes）+ 演示计时器 + 备注面板开关。
+  const [presenterNotes, setPresenterNotes] = useState<string[]>([])
+  const [presenterOpen, setPresenterOpen] = useState(true)
+  const [presentElapsed, setPresentElapsed] = useState(0)
   const previewPaneRef = useRef<HTMLDivElement>(null)
   const [paneSize, setPaneSize] = useState({ w: 0, h: 0 })
 
@@ -2596,6 +2601,37 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
   }, [presentMode])
+  // 演讲者备注：随打开产物解析 metadata 同步。
+  useEffect(() => {
+    setPresenterNotes(parsePresenterNotes(activeArtifact?.metadata))
+  }, [activeArtifact?.id, activeArtifact?.metadata])
+  // 演示计时器：进演示归零后每秒 +1。
+  useEffect(() => {
+    if (!presentMode) {
+      setPresentElapsed(0)
+      return
+    }
+    const id = window.setInterval(() => setPresentElapsed((s) => s + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [presentMode])
+  const savePresenterNote = useCallback(
+    (slideIndex: number, text: string) => {
+      const aid = activeArtifactRef.current?.id
+      if (!aid || slideIndex < 0) return
+      setPresenterNotes((prev) => {
+        const next = [...prev]
+        while (next.length <= slideIndex) next.push("")
+        next[slideIndex] = text
+        void tx
+          .call("set_design_presenter_notes_cmd", { artifactId: aid, notes: next })
+          .catch((e) =>
+            logger.error("design", "DesignView::presenterNote", "save failed", e),
+          )
+        return next
+      })
+    },
+    [tx],
+  )
   const presentFullscreen = useCallback(() => {
     const el = previewPaneRef.current
     if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {})
@@ -4342,23 +4378,44 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       {/* 本窗口无 chrome 演示态（B4-4）：Escape 退出 */}
       {presentMode && activeArtifact && (
         <div className="fixed inset-0 z-[100] flex flex-col bg-neutral-950">
-          <IconTip label={t("design.exitPresent", "退出演示 (Esc)")} side="left">
-            <Button
-              variant="secondary"
-              size="icon"
-              className="absolute right-4 top-4 z-10 h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
-              onClick={() => setPresentMode(false)}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <div className="absolute right-4 top-4 z-10 flex gap-2">
+            {activeArtifact.kind === "deck" && (
+              <IconTip
+                label={
+                  presenterOpen
+                    ? t("design.presenter.hide", "隐藏演讲者备注")
+                    : t("design.presenter.show", "显示演讲者备注")
+                }
+                side="bottom"
+              >
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
+                  onClick={() => setPresenterOpen((v) => !v)}
+                >
+                  <StickyNote className="h-4 w-4" />
+                </Button>
+              </IconTip>
+            )}
+            <IconTip label={t("design.exitPresent", "退出演示 (Esc)")} side="left">
+              <Button
+                variant="secondary"
+                size="icon"
+                className="h-9 w-9 rounded-full opacity-70 shadow-lg transition-opacity hover:opacity-100"
+                onClick={() => setPresentMode(false)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </IconTip>
+          </div>
           <iframe
             ref={presentIframeRef}
             key={`present-${activeArtifact.id}-${previewKey}`}
             src={iframeSrc}
             sandbox="allow-scripts"
             title={activeArtifact.title}
-            className="h-full w-full border-0 bg-white"
+            className="min-h-0 w-full flex-1 border-0 bg-white"
             onLoad={() => {
               // 进演示保温（Wave 2-⑧）：deck 从预览的当前页启动，而非被打回第 1 页。
               const s = deckStateRef.current
@@ -4372,6 +4429,50 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
               }
             }}
           />
+          {/* 演讲者备注条（deck）：计时器 + 页码 + 当前页备注（可编辑） */}
+          {activeArtifact.kind === "deck" && presenterOpen && deckState && (
+            <div className="flex shrink-0 items-stretch gap-3 border-t border-white/10 bg-neutral-900 p-3 text-neutral-200">
+              <div className="flex w-28 shrink-0 flex-col items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1">
+                <span className="font-mono text-lg tabular-nums">
+                  {`${String(Math.floor(presentElapsed / 60)).padStart(2, "0")}:${String(
+                    presentElapsed % 60,
+                  ).padStart(2, "0")}`}
+                </span>
+                <span className="text-[11px] text-neutral-400">
+                  {t("design.presenter.slide", "第 {{n}}/{{total}} 页", {
+                    n: deckState.active + 1,
+                    total: deckState.count,
+                  })}
+                </span>
+              </div>
+              <textarea
+                value={presenterNotes[deckState.active] ?? ""}
+                onChange={(e) => savePresenterNote(deckState.active, e.target.value)}
+                placeholder={t("design.presenter.notePlaceholder", "本页演讲者备注（自动保存）")}
+                className="min-h-[64px] flex-1 resize-none rounded-md border border-white/10 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 outline-none placeholder:text-neutral-500 focus-visible:ring-1 focus-visible:ring-primary/60"
+              />
+              <div className="flex shrink-0 flex-col justify-center gap-1">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8"
+                  disabled={deckState.active <= 0}
+                  onClick={() => deckNav("ds_slide_prev")}
+                >
+                  {t("design.deckPrev", "上一页")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-8"
+                  disabled={deckState.active >= deckState.count - 1}
+                  onClick={() => deckNav("ds_slide_next")}
+                >
+                  {t("design.deckNext", "下一页")}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

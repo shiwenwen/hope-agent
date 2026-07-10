@@ -6664,6 +6664,12 @@
       "failed": "Nhập thất bại: {{name}}",
       "done": "Đã nhập {{count}} hình ảnh",
       "drop": "Thả để nhập hình ảnh"
+    },
+    "presenter": {
+      "hide": "Ẩn ghi chú người trình bày",
+      "show": "Hiện ghi chú người trình bày",
+      "slide": "Trang {{n}}/{{total}}",
+      "notePlaceholder": "Ghi chú người trình bày cho trang này (tự động lưu)"
     }
   }
 }

@@ -43,6 +43,19 @@ export function parseSelfCheck(metadata?: string | null): SelfCheckFlag | null {
   }
 }
 
+/** 从产物 metadata 解析 deck 演讲者备注（按 slide 顺序）；无 / 解析失败 → []。 */
+export function parsePresenterNotes(metadata?: string | null): string[] {
+  if (!metadata) return [];
+  try {
+    const obj = JSON.parse(metadata) as { presenterNotes?: unknown };
+    return Array.isArray(obj?.presenterNotes)
+      ? obj.presenterNotes.map((n) => (typeof n === "string" ? n : ""))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 /** 设计项目：顶层容器。 */
 export interface DesignProject {
   id: string;

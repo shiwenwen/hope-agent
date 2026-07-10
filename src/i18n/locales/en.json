@@ -6664,6 +6664,12 @@
       "failed": "Import failed: {{name}}",
       "done": "Imported {{count}} image(s)",
       "drop": "Drop to import images"
+    },
+    "presenter": {
+      "hide": "Hide presenter notes",
+      "show": "Show presenter notes",
+      "slide": "Slide {{n}}/{{total}}",
+      "notePlaceholder": "Presenter notes for this slide (auto-saved)"
     }
   }
 }

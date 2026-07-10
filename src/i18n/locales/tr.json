@@ -6664,6 +6664,12 @@
       "failed": "İçe aktarma başarısız: {{name}}",
       "done": "{{count}} görüntü içe aktarıldı",
       "drop": "Görüntüleri içe aktarmak için bırakın"
+    },
+    "presenter": {
+      "hide": "Sunucu notlarını gizle",
+      "show": "Sunucu notlarını göster",
+      "slide": "Slayt {{n}}/{{total}}",
+      "notePlaceholder": "Bu slayt için sunucu notları (otomatik kaydedilir)"
     }
   }
 }
