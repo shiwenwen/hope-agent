@@ -17,6 +17,7 @@ import ChatInput from "@/components/chat/ChatInput"
 import MessageList from "@/components/chat/MessageList"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import AgentSwitcher from "@/components/chat/AgentSwitcher"
+import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDisplayMode"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { getTransport } from "@/lib/transport-provider"
@@ -215,6 +216,9 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
   const { t } = useTranslation()
   const isActive = active && !!projectId
   const session = useDesignChat(projectId, isActive)
+  // Follow 简约模式 (sidebar compact toggle) like the main chat title bar, so the
+  // design panel's agent picker renders as a compact pill when it's on.
+  const sidebarDisplayMode = useSidebarDisplayMode()
   const seqRef = useRef<Map<string, number>>(new Map())
   const endedRef = useRef<Map<string, string>>(new Map())
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -399,6 +403,7 @@ export const DesignChatPanel = forwardRef<DesignChatPanelHandle, Props>(function
             agents={session.agents}
             currentAgentId={session.currentAgentId}
             agentName={currentAgent?.name || t("chat.mainAgent")}
+            compactLabel={sidebarDisplayMode === "compact"}
             onSelect={session.handleSwitchAgent}
           />
         </div>

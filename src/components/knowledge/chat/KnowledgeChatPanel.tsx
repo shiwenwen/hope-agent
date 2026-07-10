@@ -18,6 +18,7 @@ import ChatInput from "@/components/chat/ChatInput"
 import MessageList from "@/components/chat/MessageList"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import AgentSwitcher from "@/components/chat/AgentSwitcher"
+import { useSidebarDisplayMode } from "@/components/chat/sidebar/useSidebarDisplayMode"
 import { useChatStream } from "@/components/chat/hooks/useChatStream"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import type { ChatAttachment } from "@/lib/transport"
@@ -71,6 +72,8 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
     const { t } = useTranslation()
     const isActive = active && !!kbId
     const session = useKnowledgeChat(kbId, notePath, isActive)
+    // Follow 简约模式 like the main chat title bar (compact-pill agent picker).
+    const sidebarDisplayMode = useSidebarDisplayMode()
     const seqRef = useRef<Map<string, number>>(new Map())
     const endedRef = useRef<Map<string, string>>(new Map())
     const [historyOpen, setHistoryOpen] = useState(false)
@@ -254,6 +257,7 @@ export const KnowledgeChatPanel = forwardRef<KnowledgeChatPanelHandle, Props>(
               agents={session.agents}
               currentAgentId={session.currentAgentId}
               agentName={currentAgent?.name || t("chat.mainAgent")}
+              compactLabel={sidebarDisplayMode === "compact"}
               onSelect={session.handleSwitchAgent}
             />
           </div>

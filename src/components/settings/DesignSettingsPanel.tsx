@@ -224,7 +224,6 @@ export default function DesignSettingsPanel() {
               </p>
             </div>
           </div>
-
         </div>
       </div>
 
