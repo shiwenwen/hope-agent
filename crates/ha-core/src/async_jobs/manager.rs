@@ -22,6 +22,19 @@ use super::types::{BackgroundJob, BackgroundJobSnapshot, JobKind, JobOrigin, Job
 use crate::subagent::SubagentStatus;
 use crate::tools::ToolExecContext;
 
+/// Per-item outcome counts for a finished knowledge source import run,
+/// carried on the `job:completed` payload so `useDesktopAlerts` can build a
+/// real "imported N, failed M" notification instead of showing the raw tool
+/// name. Plain `u32`s so `async_jobs` doesn't need to depend on `knowledge`
+/// types — the caller (`knowledge::source`) maps its own richer run/item
+/// model down to this before calling `JobManager::finish_knowledge_import`.
+pub struct KnowledgeImportCounts {
+    pub imported: u32,
+    pub duplicate: u32,
+    pub failed: u32,
+    pub total: u32,
+}
+
 /// Single entry point for background-job operations (R1). Zero-sized; all
 /// methods are associated functions delegating to the shared internals.
 pub struct JobManager;
@@ -295,11 +308,22 @@ impl JobManager {
         Some(job_id)
     }
 
+    /// Push a per-item progress tick for a running knowledge import job
+    /// (`current` of `total` items settled). First real `Tool`-kind caller of
+    /// `events::emit_progress` — previously only `Group` fan-out used it.
+    /// A batch is capped at `MAX_SOURCE_IMPORT_BATCH_ITEMS` items and this is
+    /// called at most twice per item, so unlike `local_model_jobs` progress
+    /// there's no need for throttling here.
+    pub fn progress_knowledge_import(job_id: &str, current: usize, total: usize) {
+        super::events::emit_progress(job_id, JobKind::Tool, None, current, total);
+    }
+
     pub fn finish_knowledge_import(
         job_id: &str,
         status: JobStatus,
         result_preview: Option<&str>,
         error: Option<&str>,
+        counts: Option<KnowledgeImportCounts>,
     ) {
         let Some(db) = super::get_async_jobs_db() else {
             return;
@@ -316,13 +340,28 @@ impl JobManager {
             return;
         }
         let _ = db.mark_injected(job_id);
-        super::events::emit_completed(
-            job_id,
-            JobKind::Tool,
-            "knowledge_source_import",
-            status.as_str(),
-            None,
-        );
+        // `emit_completed`'s generic payload (shared by ~6 other Tool/Group/
+        // Subagent call sites) has no room for structured counts, so this one
+        // call site builds its own payload directly instead of widening that
+        // shared signature. Without these counts `useDesktopAlerts` has
+        // nothing to build a real "imported N, failed M" notification from —
+        // only the raw tool name.
+        if let Some(bus) = crate::get_event_bus() {
+            let mut payload = serde_json::json!({
+                "job_id": job_id,
+                "kind": JobKind::Tool.as_str(),
+                "tool": "knowledge_source_import",
+                "status": status.as_str(),
+                "session_id": serde_json::Value::Null,
+            });
+            if let (Some(obj), Some(c)) = (payload.as_object_mut(), counts) {
+                obj.insert("imported_count".into(), serde_json::json!(c.imported));
+                obj.insert("duplicate_count".into(), serde_json::json!(c.duplicate));
+                obj.insert("failed_count".into(), serde_json::json!(c.failed));
+                obj.insert("total_count".into(), serde_json::json!(c.total));
+            }
+            bus.emit("job:completed", payload);
+        }
     }
 
     // ── Owner-plane scanned-PDF OCR projection ────────────────────────────

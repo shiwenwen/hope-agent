@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "Tugas latar belakang gagal",
     "backgroundJobFallback": "Satu tugas latar belakang telah selesai",
     "backgroundJobToggle": "Beritahu apabila tugas latar belakang selesai",
-    "backgroundJobDesc": "Tunjukkan pemberitahuan desktop apabila tugas latar belakang selesai semasa tetingkap berada di latar belakang"
+    "backgroundJobDesc": "Tunjukkan pemberitahuan desktop apabila tugas latar belakang selesai semasa tetingkap berada di latar belakang",
+    "knowledgeScanComplete": "Imbasan ruang pengetahuan selesai",
+    "knowledgeScanFailed": "Imbasan ruang pengetahuan gagal",
+    "knowledgeImportComplete": "Import ruang pengetahuan selesai",
+    "knowledgeImportFailed": "Import ruang pengetahuan sebahagiannya gagal"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "Mengindeks semula…",
     "reindexDone": "Indeks dibina semula",
     "jobs": {
-      "tooltip": "Tugas bina semula",
-      "title": "Tugas bina semula",
-      "empty": "Belum ada tugas bina semula.",
+      "tooltip": "Aktiviti ruang pengetahuan",
+      "title": "Aktiviti ruang pengetahuan",
+      "empty": "Belum ada aktiviti.",
       "kindReindex": "Bina semula indeks",
       "kindReembed": "Benam semula vektor",
       "fts": "Indeks teks penuh",
-      "result": "{{notes}} nota · {{kbs}} ruang dibina semula",
-      "emptyHint": "Indeks semula sesuatu ruang, atau tukar model benaman, dan kemajuan akan muncul di sini.",
-      "model": "Model: {{name}}"
+      "emptyHint": "Ikat atau indeks semula sesuatu ruang, atau import fail, dan kemajuan akan muncul di sini.",
+      "model": "Model: {{name}}",
+      "kindImport": "Import sumber",
+      "space": "Ruang: {{name}}",
+      "progressFiles": "{{done}} / {{total}} fail",
+      "progressItems": "{{done}} / {{total}} sumber",
+      "resultOk": "{{notes}} nota diindeks semula",
+      "resultPartial": "{{notes}} nota diindeks semula · {{failed}} dilangkau",
+      "importResultOk": "{{imported}} sumber diimport",
+      "importResultPartial": "{{imported}} diimport · {{failed}} gagal",
+      "importStatus": {
+        "running": "Sedang berjalan",
+        "completed": "Selesai",
+        "failed": "Gagal",
+        "cancelled": "Dibatalkan",
+        "timed_out": "Tamat masa"
+      }
     },
     "maintenance": {
       "tooltip": "Penyelenggaraan",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "Nota dengan Soalan Terbuka",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Mengimbas ruang ini…",
+      "scanFailed": "Imbasan gagal",
+      "emptyExternal": "Belum ada nota markdown ditemui dalam folder ini.",
+      "emptyInternal": "Ruang ini kosong.",
+      "importFiles": "Import fail"
     }
   },
   "backgroundJobs": {

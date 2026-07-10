@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "后台任务失败",
     "backgroundJobFallback": "一个后台任务已结束",
     "backgroundJobToggle": "后台任务完成提醒",
-    "backgroundJobDesc": "后台任务跑完且窗口处于后台时弹桌面通知"
+    "backgroundJobDesc": "后台任务跑完且窗口处于后台时弹桌面通知",
+    "knowledgeScanComplete": "知识空间扫描完成",
+    "knowledgeScanFailed": "知识空间扫描失败",
+    "knowledgeImportComplete": "知识空间导入完成",
+    "knowledgeImportFailed": "知识空间导入部分失败"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "重新索引中…",
     "reindexDone": "索引已重建",
     "jobs": {
-      "tooltip": "重建任务",
-      "title": "重建任务",
-      "empty": "暂无重建任务",
+      "tooltip": "知识空间活动",
+      "title": "知识空间活动",
+      "empty": "暂无活动",
       "kindReindex": "重建索引（全文）",
       "kindReembed": "重新向量化",
       "fts": "全文索引",
-      "result": "已重建 {{notes}} 篇笔记 · {{kbs}} 个知识空间",
-      "emptyHint": "重建某个空间，或切换向量模型，进度会显示在这里。",
-      "model": "模型：{{name}}"
+      "emptyHint": "绑定或重建某个空间，或导入文件，进度会显示在这里。",
+      "model": "模型：{{name}}",
+      "kindImport": "导入资料",
+      "space": "空间：{{name}}",
+      "progressFiles": "{{done}} / {{total}} 个文件",
+      "progressItems": "{{done}} / {{total}} 个来源",
+      "resultOk": "已重建 {{notes}} 篇笔记",
+      "resultPartial": "已重建 {{notes}} 篇笔记 · {{failed}} 篇跳过",
+      "importResultOk": "已导入 {{imported}} 个来源",
+      "importResultPartial": "已导入 {{imported}} 个 · {{failed}} 个失败",
+      "importStatus": {
+        "running": "进行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "timed_out": "已超时"
+      }
     },
     "maintenance": {
       "tooltip": "维护",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "带开放问题的笔记",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "正在扫描这个空间…",
+      "scanFailed": "扫描失败",
+      "emptyExternal": "这个文件夹里还没有 Markdown 笔记。",
+      "emptyInternal": "这个空间还是空的。",
+      "importFiles": "导入文件"
     }
   },
   "backgroundJobs": {

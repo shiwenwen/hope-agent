@@ -940,7 +940,7 @@ fn clear_embedding_model_if_matches(model_id: &str) -> Result<bool> {
         // Cancel any in-flight reembed before clearing the embedder, so an orphan
         // job can't keep running with a captured signature for the just-deleted
         // model and stamp it back into the now-default selection.
-        crate::knowledge::cancel_active_knowledge_reembed_jobs();
+        crate::knowledge::cancel_active_knowledge_reembed_jobs(None);
         if let Some(db) = crate::knowledge::index::get_index_db() {
             db.clear_embedder();
         }

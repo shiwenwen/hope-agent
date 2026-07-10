@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "背景任務失敗",
     "backgroundJobFallback": "一項背景任務已完成",
     "backgroundJobToggle": "背景任務完成時通知",
-    "backgroundJobDesc": "當視窗位於背景時，背景任務完成後顯示桌面通知"
+    "backgroundJobDesc": "當視窗位於背景時，背景任務完成後顯示桌面通知",
+    "knowledgeScanComplete": "知識空間掃描完成",
+    "knowledgeScanFailed": "知識空間掃描失敗",
+    "knowledgeImportComplete": "知識空間匯入完成",
+    "knowledgeImportFailed": "知識空間匯入部分失敗"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "重新索引中…",
     "reindexDone": "索引已重建",
     "jobs": {
-      "tooltip": "重建任務",
-      "title": "重建任務",
-      "empty": "尚無重建任務",
+      "tooltip": "知識空間活動",
+      "title": "知識空間活動",
+      "empty": "尚無活動",
       "kindReindex": "重建索引（全文）",
       "kindReembed": "重新向量化",
       "fts": "全文索引",
-      "result": "已重建 {{notes}} 篇筆記 · {{kbs}} 個知識空間",
-      "emptyHint": "重建某個空間，或切換向量模型，進度會顯示在這裡。",
-      "model": "模型：{{name}}"
+      "emptyHint": "綁定或重建某個空間，或匯入檔案，進度會顯示在這裡。",
+      "model": "模型：{{name}}",
+      "kindImport": "匯入資料",
+      "space": "空間：{{name}}",
+      "progressFiles": "{{done}} / {{total}} 個檔案",
+      "progressItems": "{{done}} / {{total}} 個來源",
+      "resultOk": "已重建 {{notes}} 篇筆記",
+      "resultPartial": "已重建 {{notes}} 篇筆記 · {{failed}} 篇略過",
+      "importResultOk": "已匯入 {{imported}} 個來源",
+      "importResultPartial": "已匯入 {{imported}} 個 · {{failed}} 個失敗",
+      "importStatus": {
+        "running": "進行中",
+        "completed": "已完成",
+        "failed": "失敗",
+        "cancelled": "已取消",
+        "timed_out": "已逾時"
+      }
     },
     "maintenance": {
       "tooltip": "維護",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "帶開放問題的筆記",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "正在掃描這個空間…",
+      "scanFailed": "掃描失敗",
+      "emptyExternal": "這個資料夾裡還沒有 Markdown 筆記。",
+      "emptyInternal": "這個空間還是空的。",
+      "importFiles": "匯入檔案"
     }
   },
   "backgroundJobs": {

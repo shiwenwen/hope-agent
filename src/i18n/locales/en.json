@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "Background task failed",
     "backgroundJobFallback": "A background task has finished",
     "backgroundJobToggle": "Notify when background tasks finish",
-    "backgroundJobDesc": "Show a desktop notification when a background task finishes while the window is in the background"
+    "backgroundJobDesc": "Show a desktop notification when a background task finishes while the window is in the background",
+    "knowledgeScanComplete": "Knowledge scan complete",
+    "knowledgeScanFailed": "Knowledge scan failed",
+    "knowledgeImportComplete": "Knowledge import complete",
+    "knowledgeImportFailed": "Knowledge import partially failed"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "Reindexing…",
     "reindexDone": "Index rebuilt",
     "jobs": {
-      "tooltip": "Rebuild tasks",
-      "title": "Rebuild tasks",
-      "empty": "No rebuild tasks yet.",
+      "tooltip": "Knowledge activity",
+      "title": "Knowledge activity",
+      "empty": "No activity yet.",
       "kindReindex": "Rebuild index",
       "kindReembed": "Re-embed vectors",
       "fts": "Full-text index",
-      "result": "Rebuilt {{notes}} notes · {{kbs}} spaces",
-      "emptyHint": "Reindex a space, or switch the embedding model, and progress shows up here.",
-      "model": "Model: {{name}}"
+      "emptyHint": "Bind or reindex a space, or import files, and progress shows up here.",
+      "model": "Model: {{name}}",
+      "kindImport": "Import sources",
+      "space": "Space: {{name}}",
+      "progressFiles": "{{done}} / {{total}} files",
+      "progressItems": "{{done}} / {{total}} sources",
+      "resultOk": "Reindexed {{notes}} notes",
+      "resultPartial": "Reindexed {{notes}} notes · {{failed}} skipped",
+      "importResultOk": "Imported {{imported}} sources",
+      "importResultPartial": "Imported {{imported}} · {{failed}} failed",
+      "importStatus": {
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "timed_out": "Timed out"
+      }
     },
     "maintenance": {
       "tooltip": "Maintenance",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "Note with Open Questions",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Scanning this space…",
+      "scanFailed": "Scan failed",
+      "emptyExternal": "No markdown notes found in this folder yet.",
+      "emptyInternal": "This space is empty.",
+      "importFiles": "Import files"
     }
   },
   "backgroundJobs": {

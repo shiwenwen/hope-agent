@@ -196,6 +196,11 @@ pub struct LocalModelJobSnapshot {
     /// 的本字段值为发起它的 pull 任务的 `job_id`。前端 dialog 据此把 currentJob
     /// 自动接力到 reembed 任务上，免去用户感知的「卡在 99%」假象。
     pub successor_for_job_id: Option<String>,
+    /// 本任务的目标 KB 范围（目前仅 `KnowledgeReembed` 使用）。`None` = 面向
+    /// 全部 KB（设置页「重建全部」/ 模型切换全量重嵌入）；`Some(ids)` = 只针对
+    /// 这些 KB（绑定新空间 / 单空间 Reindex）。前端据此把任务与「我正在看的
+    /// 这个空间」关联；取消/重试也按这个范围做，而不是无脑面向全部同 kind job。
+    pub target_kb_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,6 +268,10 @@ impl LocalModelJobsDB {
             "ALTER TABLE local_model_jobs ADD COLUMN successor_for_job_id TEXT",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE local_model_jobs ADD COLUMN target_kb_ids TEXT",
+            [],
+        );
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -274,8 +283,8 @@ impl LocalModelJobsDB {
             "INSERT INTO local_model_jobs (
                 job_id, kind, model_id, display_name, status, phase, percent,
                 bytes_completed, bytes_total, error, result_json, created_at, updated_at, completed_at,
-                successor_for_job_id
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+                successor_for_job_id, target_kb_ids
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
             params![
                 job.job_id,
                 job.kind.as_str(),
@@ -292,6 +301,9 @@ impl LocalModelJobsDB {
                 job.updated_at,
                 job.completed_at,
                 job.successor_for_job_id,
+                job.target_kb_ids
+                    .as_ref()
+                    .and_then(|ids| serde_json::to_string(ids).ok()),
             ],
         )?;
         Ok(())
@@ -421,7 +433,7 @@ impl LocalModelJobsDB {
             .prepare(
                 "SELECT job_id, kind, model_id, display_name, status, phase, percent,
                     bytes_completed, bytes_total, error, result_json, created_at, updated_at,
-                    completed_at, successor_for_job_id
+                    completed_at, successor_for_job_id, target_kb_ids
                FROM local_model_jobs
               WHERE job_id=?1",
             )?
@@ -436,7 +448,7 @@ impl LocalModelJobsDB {
         let mut stmt = conn.prepare(
             "SELECT job_id, kind, model_id, display_name, status, phase, percent,
                     bytes_completed, bytes_total, error, result_json, created_at, updated_at,
-                    completed_at, successor_for_job_id
+                    completed_at, successor_for_job_id, target_kb_ids
                FROM local_model_jobs
               ORDER BY created_at DESC
               LIMIT 100",
@@ -552,6 +564,7 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelJobSnapshot
     let percent_raw: Option<i64> = row.get(6)?;
     let bytes_completed_raw: Option<i64> = row.get(7)?;
     let bytes_total_raw: Option<i64> = row.get(8)?;
+    let target_kb_ids_raw: Option<String> = row.get(15)?;
     let kind = LocalModelJobKind::parse(&kind_raw).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
             1,
@@ -582,6 +595,7 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelJobSnapshot
         updated_at: row.get(12)?,
         completed_at: row.get(13)?,
         successor_for_job_id: row.get(14)?,
+        target_kb_ids: target_kb_ids_raw.and_then(|raw| serde_json::from_str(&raw).ok()),
     })
 }
 
@@ -822,10 +836,15 @@ pub fn retry_job(
             )
         }
         LocalModelJobKind::KnowledgeReembed => {
-            // Retry re-runs a full reindex of every KB under the active
-            // knowledge embedding model; the chat-completion hook is irrelevant.
+            // Retry re-runs the same scope the failed job had (`None` = every
+            // KB, `Some(ids)` = the specific KB(s) it targeted) — a single-KB
+            // bind-scan failure must retry just that KB, not escalate into a
+            // full-app rebuild. The chat-completion hook is irrelevant here.
             let _ = on_chat_complete;
-            crate::knowledge::reembed::start_knowledge_reembed_job(None, "retry")
+            crate::knowledge::reembed::start_knowledge_reembed_job(
+                job.target_kb_ids.clone(),
+                "retry",
+            )
         }
     }?;
 
@@ -861,7 +880,7 @@ where
     F: FnOnce(String, CancellationToken) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
-    spawn_job_with_successor(kind, model_id, display_name, None, runner)
+    spawn_job_inner(kind, model_id, display_name, None, None, runner)
 }
 
 /// `spawn_job` 的扩展版：允许把新任务声明为另一个任务的「续作」，前端 dialog
@@ -872,6 +891,46 @@ pub(crate) fn spawn_job_with_successor<F, Fut>(
     model_id: String,
     display_name: String,
     successor_for_job_id: Option<String>,
+    runner: F,
+) -> Result<LocalModelJobSnapshot>
+where
+    F: FnOnce(String, CancellationToken) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    spawn_job_inner(
+        kind,
+        model_id,
+        display_name,
+        successor_for_job_id,
+        None,
+        runner,
+    )
+}
+
+/// `spawn_job` 的扩展版：把任务范围显式关联到一组 KB id（`None` = 面向全部
+/// KB）。目前仅 `KnowledgeReembed` 使用——绑定新空间 / 单空间 Reindex 传
+/// `Some(vec![kb_id])`，设置页「重建全部」传 `None`。见
+/// [`LocalModelJobSnapshot::target_kb_ids`] 的用途说明。
+pub(crate) fn spawn_job_with_target_kb_ids<F, Fut>(
+    kind: LocalModelJobKind,
+    model_id: String,
+    display_name: String,
+    target_kb_ids: Option<Vec<String>>,
+    runner: F,
+) -> Result<LocalModelJobSnapshot>
+where
+    F: FnOnce(String, CancellationToken) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    spawn_job_inner(kind, model_id, display_name, None, target_kb_ids, runner)
+}
+
+fn spawn_job_inner<F, Fut>(
+    kind: LocalModelJobKind,
+    model_id: String,
+    display_name: String,
+    successor_for_job_id: Option<String>,
+    target_kb_ids: Option<Vec<String>>,
     runner: F,
 ) -> Result<LocalModelJobSnapshot>
 where
@@ -897,6 +956,7 @@ where
         updated_at: now,
         completed_at: None,
         successor_for_job_id,
+        target_kb_ids,
     };
     db.insert_job(&snapshot)?;
     crate::app_info!(
@@ -1598,6 +1658,7 @@ mod tests {
             updated_at: now_secs(),
             completed_at: None,
             successor_for_job_id: None,
+            target_kb_ids: None,
         }
     }
 

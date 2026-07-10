@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "Фоновая задача не выполнена",
     "backgroundJobFallback": "Фоновая задача завершилась",
     "backgroundJobToggle": "Уведомлять о завершении фоновых задач",
-    "backgroundJobDesc": "Показывать уведомление на рабочем столе, когда фоновая задача завершается, пока окно находится в фоне"
+    "backgroundJobDesc": "Показывать уведомление на рабочем столе, когда фоновая задача завершается, пока окно находится в фоне",
+    "knowledgeScanComplete": "Сканирование пространства знаний завершено",
+    "knowledgeScanFailed": "Ошибка сканирования пространства знаний",
+    "knowledgeImportComplete": "Импорт в пространство знаний завершён",
+    "knowledgeImportFailed": "Импорт в пространство знаний частично не удался"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "Переиндексация…",
     "reindexDone": "Индекс перестроен",
     "jobs": {
-      "tooltip": "Задачи перестроения",
-      "title": "Задачи перестроения",
-      "empty": "Пока нет задач перестроения.",
+      "tooltip": "Активность пространства знаний",
+      "title": "Активность пространства знаний",
+      "empty": "Пока нет активности.",
       "kindReindex": "Перестроить индекс",
       "kindReembed": "Перевекторизация",
       "fts": "Полнотекстовый индекс",
-      "result": "Перестроено: {{notes}} заметок · {{kbs}} пространств",
-      "emptyHint": "Переиндексируйте пространство или смените модель эмбеддингов — прогресс появится здесь.",
-      "model": "Модель: {{name}}"
+      "emptyHint": "Привяжите или переиндексируйте пространство, либо импортируйте файлы — прогресс появится здесь.",
+      "model": "Модель: {{name}}",
+      "kindImport": "Импорт источников",
+      "space": "Пространство: {{name}}",
+      "progressFiles": "{{done}} / {{total}} файлов",
+      "progressItems": "{{done}} / {{total}} источников",
+      "resultOk": "Переиндексировано заметок: {{notes}}",
+      "resultPartial": "Переиндексировано заметок: {{notes}} · пропущено: {{failed}}",
+      "importResultOk": "Импортировано источников: {{imported}}",
+      "importResultPartial": "Импортировано: {{imported}} · ошибок: {{failed}}",
+      "importStatus": {
+        "running": "Выполняется",
+        "completed": "Завершено",
+        "failed": "Ошибка",
+        "cancelled": "Отменено",
+        "timed_out": "Истекло время ожидания"
+      }
     },
     "maintenance": {
       "tooltip": "Обслуживание",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "Примечание с открытыми вопросами",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Сканирование этого пространства…",
+      "scanFailed": "Ошибка сканирования",
+      "emptyExternal": "В этой папке пока нет заметок в формате markdown.",
+      "emptyInternal": "Это пространство пусто.",
+      "importFiles": "Импортировать файлы"
     }
   },
   "backgroundJobs": {

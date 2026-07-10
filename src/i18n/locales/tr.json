@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "Arka plan görevi başarısız oldu",
     "backgroundJobFallback": "Bir arka plan görevi tamamlandı",
     "backgroundJobToggle": "Arka plan görevleri tamamlandığında bildir",
-    "backgroundJobDesc": "Pencere arka plandayken bir arka plan görevi tamamlandığında masaüstü bildirimi göster"
+    "backgroundJobDesc": "Pencere arka plandayken bir arka plan görevi tamamlandığında masaüstü bildirimi göster",
+    "knowledgeScanComplete": "Bilgi alanı taraması tamamlandı",
+    "knowledgeScanFailed": "Bilgi alanı taraması başarısız oldu",
+    "knowledgeImportComplete": "Bilgi alanı içe aktarımı tamamlandı",
+    "knowledgeImportFailed": "Bilgi alanı içe aktarımı kısmen başarısız oldu"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "Yeniden dizinleniyor…",
     "reindexDone": "Dizin yeniden oluşturuldu",
     "jobs": {
-      "tooltip": "Yeniden oluşturma görevleri",
-      "title": "Yeniden oluşturma görevleri",
-      "empty": "Henüz yeniden oluşturma görevi yok.",
+      "tooltip": "Bilgi alanı etkinliği",
+      "title": "Bilgi alanı etkinliği",
+      "empty": "Henüz etkinlik yok.",
       "kindReindex": "Dizini yeniden oluştur",
       "kindReembed": "Vektörleri yeniden gömme",
       "fts": "Tam metin dizini",
-      "result": "{{notes}} not · {{kbs}} alan yeniden oluşturuldu",
-      "emptyHint": "Bir alanı yeniden dizinleyin veya gömme modelini değiştirin; ilerleme burada görünür.",
-      "model": "Model: {{name}}"
+      "emptyHint": "Bir alanı bağlayın veya yeniden dizinleyin, ya da dosya içe aktarın; ilerleme burada görünür.",
+      "model": "Model: {{name}}",
+      "kindImport": "Kaynakları içe aktar",
+      "space": "Alan: {{name}}",
+      "progressFiles": "{{done}} / {{total}} dosya",
+      "progressItems": "{{done}} / {{total}} kaynak",
+      "resultOk": "{{notes}} not yeniden dizinlendi",
+      "resultPartial": "{{notes}} not yeniden dizinlendi · {{failed}} atlandı",
+      "importResultOk": "{{imported}} kaynak içe aktarıldı",
+      "importResultPartial": "{{imported}} içe aktarıldı · {{failed}} başarısız",
+      "importStatus": {
+        "running": "Çalışıyor",
+        "completed": "Tamamlandı",
+        "failed": "Başarısız",
+        "cancelled": "İptal edildi",
+        "timed_out": "Zaman aşımına uğradı"
+      }
     },
     "maintenance": {
       "tooltip": "Bakım",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "Açık Sorularla Not",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Bu alan taranıyor…",
+      "scanFailed": "Tarama başarısız oldu",
+      "emptyExternal": "Bu klasörde henüz markdown notu bulunamadı.",
+      "emptyInternal": "Bu alan boş.",
+      "importFiles": "Dosyaları içe aktar"
     }
   },
   "backgroundJobs": {

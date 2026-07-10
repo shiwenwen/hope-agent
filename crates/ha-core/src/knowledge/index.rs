@@ -75,6 +75,7 @@ pub struct ReindexReport {
     pub changed: usize,
     pub removed: usize,
     pub total: usize,
+    pub failed: usize,
 }
 
 /// (Re)index a single note file and re-resolve KB links. Used by write tools
@@ -157,8 +158,23 @@ pub fn reindex_dir(kb_id: &str, rel_dir: &str) -> Result<ReindexReport> {
 
 /// Reconcile a whole KB against disk: upsert changed files (by mtime unless
 /// `full`), prune deleted, re-resolve links once. The expensive full scan +
-/// embedding path; run off the request thread.
+/// embedding path; run off the request thread. Thin wrapper over
+/// [`reindex_kb_with_progress`] for the (large majority of) callers that don't
+/// need live progress reporting.
 pub fn reindex_kb(kb_id: &str, full: bool) -> Result<ReindexReport> {
+    reindex_kb_with_progress(kb_id, full, &mut |_, _| true)
+}
+
+/// Like [`reindex_kb`], but invokes `on_progress(done, total)` once per disk
+/// file as the upsert loop processes it (`total` is known upfront from the
+/// initial scan). Returning `false` stops the loop early — the callback
+/// doubles as a cooperative-cancellation hook so callers don't need a second
+/// parameter for it.
+pub fn reindex_kb_with_progress(
+    kb_id: &str,
+    full: bool,
+    on_progress: &mut dyn FnMut(usize, usize) -> bool,
+) -> Result<ReindexReport> {
     let db = get_index_db().ok_or_else(|| anyhow::anyhow!("knowledge index not initialized"))?;
     let root = super::resolve_kb_dir(kb_id)?.dir;
     let root = root.canonicalize().unwrap_or(root);
@@ -196,24 +212,28 @@ pub fn reindex_kb(kb_id: &str, full: bool) -> Result<ReindexReport> {
     }
 
     // Upsert changed / new files.
-    for rel in &disk {
+    let total = disk.len();
+    for (idx, rel) in disk.iter().enumerate() {
         let abs = root.join(rel);
         let mtime = std::fs::metadata(&abs)
             .ok()
             .map(file_mtime_millis)
             .unwrap_or(0);
-        if !full {
-            if let Some(prev) = existing_map.get(rel) {
-                if *prev == mtime && mtime != 0 {
-                    continue;
-                }
+        let skip = !full
+            && existing_map
+                .get(rel)
+                .is_some_and(|prev| *prev == mtime && mtime != 0);
+        if !skip {
+            if let Err(e) = reindex_one(&db, kb_id, &root, rel) {
+                crate::app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
+                report.failed += 1;
+            } else {
+                report.changed += 1;
             }
         }
-        if let Err(e) = reindex_one(&db, kb_id, &root, rel) {
-            crate::app_warn!("knowledge", "index", "reindex {} failed: {}", rel, e);
-            continue;
+        if !on_progress(idx + 1, total) {
+            break;
         }
-        report.changed += 1;
     }
 
     db.reresolve_kb_links(kb_id)?;

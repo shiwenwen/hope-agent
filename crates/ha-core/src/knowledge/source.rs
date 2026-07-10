@@ -18,7 +18,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use crate::agent::Attachment;
-use crate::async_jobs::{JobManager, JobStatus};
+use crate::async_jobs::{JobManager, JobStatus, KnowledgeImportCounts};
 use crate::stt::{AudioPayload, Transcript};
 
 use super::types::{
@@ -437,6 +437,7 @@ async fn start_import_batch(
                 JobStatus::Failed,
                 None,
                 Some(&error),
+                None,
             );
             job_id = None;
         }
@@ -454,7 +455,8 @@ fn spawn_source_import_run(
     job_id: Option<String>,
 ) {
     tokio::spawn(async move {
-        let result = process_import_run(kb_id.clone(), run_id.clone(), queued).await;
+        let result =
+            process_import_run(kb_id.clone(), run_id.clone(), queued, job_id.clone()).await;
         match result {
             Ok(detail) => finish_source_import_job(job_id.as_deref(), Some(&detail), None),
             Err(e) => {
@@ -479,12 +481,18 @@ async fn process_import_run(
     kb_id: String,
     run_id: String,
     queued: Vec<QueuedSourceImport>,
+    job_id: Option<String>,
 ) -> Result<KnowledgeSourceImportRunDetail> {
+    let total = queued.len();
+    let mut done = 0usize;
     let mut imported = 0usize;
     let mut duplicate = 0usize;
     let mut failed = 0usize;
     for (item, input) in queued {
         registry()?.set_source_import_item_running(item.id)?;
+        if let Some(id) = job_id.as_deref() {
+            JobManager::progress_knowledge_import(id, done, total);
+        }
         match import_source_with_outcome(&kb_id, input).await {
             Ok(outcome) => {
                 let status = if outcome.duplicate_of_id.is_some() {
@@ -513,6 +521,10 @@ async fn process_import_run(
                     Some(&error),
                 )?;
             }
+        }
+        done += 1;
+        if let Some(id) = job_id.as_deref() {
+            JobManager::progress_knowledge_import(id, done, total);
         }
     }
 
@@ -558,9 +570,23 @@ fn finish_source_import_job(
         } else {
             None
         };
-        JobManager::finish_knowledge_import(job_id, status, Some(&preview), job_error);
+        let counts = KnowledgeImportCounts {
+            imported: detail.run.imported_count,
+            duplicate: detail.run.duplicate_count,
+            failed: detail.run.failed_count,
+            total: detail.run.total_count,
+        };
+        JobManager::finish_knowledge_import(
+            job_id,
+            status,
+            Some(&preview),
+            job_error,
+            Some(counts),
+        );
     } else {
-        JobManager::finish_knowledge_import(job_id, JobStatus::Failed, None, error);
+        // Pre-processing failure (run never started) — no per-item breakdown
+        // to report.
+        JobManager::finish_knowledge_import(job_id, JobStatus::Failed, None, error, None);
     }
 }
 

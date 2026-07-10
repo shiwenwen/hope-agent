@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "Tác vụ nền thất bại",
     "backgroundJobFallback": "Một tác vụ nền đã hoàn tất",
     "backgroundJobToggle": "Thông báo khi tác vụ nền hoàn tất",
-    "backgroundJobDesc": "Hiển thị thông báo trên màn hình khi một tác vụ nền hoàn tất trong lúc cửa sổ ở chế độ nền"
+    "backgroundJobDesc": "Hiển thị thông báo trên màn hình khi một tác vụ nền hoàn tất trong lúc cửa sổ ở chế độ nền",
+    "knowledgeScanComplete": "Đã quét xong không gian tri thức",
+    "knowledgeScanFailed": "Quét không gian tri thức thất bại",
+    "knowledgeImportComplete": "Đã nhập xong không gian tri thức",
+    "knowledgeImportFailed": "Nhập không gian tri thức thất bại một phần"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "Đang lập chỉ mục lại…",
     "reindexDone": "Đã xây dựng lại chỉ mục",
     "jobs": {
-      "tooltip": "Tác vụ xây dựng lại",
-      "title": "Tác vụ xây dựng lại",
-      "empty": "Chưa có tác vụ xây dựng lại.",
+      "tooltip": "Hoạt động không gian tri thức",
+      "title": "Hoạt động không gian tri thức",
+      "empty": "Chưa có hoạt động nào.",
       "kindReindex": "Dựng lại chỉ mục",
       "kindReembed": "Nhúng lại vector",
       "fts": "Chỉ mục toàn văn",
-      "result": "Đã dựng lại {{notes}} ghi chú · {{kbs}} không gian",
-      "emptyHint": "Lập chỉ mục lại một không gian hoặc đổi mô hình nhúng, tiến trình sẽ hiện ở đây.",
-      "model": "Mô hình: {{name}}"
+      "emptyHint": "Liên kết hoặc lập chỉ mục lại một không gian, hoặc nhập tệp, tiến trình sẽ hiện ở đây.",
+      "model": "Mô hình: {{name}}",
+      "kindImport": "Nhập nguồn",
+      "space": "Không gian: {{name}}",
+      "progressFiles": "{{done}} / {{total}} tệp",
+      "progressItems": "{{done}} / {{total}} nguồn",
+      "resultOk": "Đã lập chỉ mục lại {{notes}} ghi chú",
+      "resultPartial": "Đã lập chỉ mục lại {{notes}} ghi chú · bỏ qua {{failed}}",
+      "importResultOk": "Đã nhập {{imported}} nguồn",
+      "importResultPartial": "Đã nhập {{imported}} · {{failed}} thất bại",
+      "importStatus": {
+        "running": "Đang chạy",
+        "completed": "Đã hoàn tất",
+        "failed": "Thất bại",
+        "cancelled": "Đã hủy",
+        "timed_out": "Hết thời gian"
+      }
     },
     "maintenance": {
       "tooltip": "Bảo trì",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "Lưu ý với câu hỏi mở",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Đang quét không gian này…",
+      "scanFailed": "Quét thất bại",
+      "emptyExternal": "Chưa tìm thấy ghi chú markdown nào trong thư mục này.",
+      "emptyInternal": "Không gian này đang trống.",
+      "importFiles": "Nhập tệp"
     }
   },
   "backgroundJobs": {

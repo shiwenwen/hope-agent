@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "バックグラウンドタスクが失敗しました",
     "backgroundJobFallback": "バックグラウンドタスクが終了しました",
     "backgroundJobToggle": "バックグラウンドタスク完了時に通知",
-    "backgroundJobDesc": "ウィンドウがバックグラウンドにある間にバックグラウンドタスクが完了したら、デスクトップ通知を表示します"
+    "backgroundJobDesc": "ウィンドウがバックグラウンドにある間にバックグラウンドタスクが完了したら、デスクトップ通知を表示します",
+    "knowledgeScanComplete": "ナレッジ空間のスキャンが完了しました",
+    "knowledgeScanFailed": "ナレッジ空間のスキャンに失敗しました",
+    "knowledgeImportComplete": "ナレッジ空間のインポートが完了しました",
+    "knowledgeImportFailed": "ナレッジ空間のインポートが一部失敗しました"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "再インデックス中…",
     "reindexDone": "インデックスを再構築しました",
     "jobs": {
-      "tooltip": "再構築タスク",
-      "title": "再構築タスク",
-      "empty": "再構築タスクはありません",
+      "tooltip": "ナレッジ空間のアクティビティ",
+      "title": "ナレッジ空間のアクティビティ",
+      "empty": "アクティビティはまだありません",
       "kindReindex": "インデックス再構築",
       "kindReembed": "ベクトル再生成",
       "fts": "全文インデックス",
-      "result": "{{notes}} 件のノート · {{kbs}} 個の空間を再構築",
-      "emptyHint": "空間を再インデックス、または埋め込みモデルを切り替えると、ここに進捗が表示されます。",
-      "model": "モデル：{{name}}"
+      "emptyHint": "空間をバインドまたは再インデックスする、あるいはファイルをインポートすると、ここに進捗が表示されます。",
+      "model": "モデル：{{name}}",
+      "kindImport": "ソースをインポート",
+      "space": "空間：{{name}}",
+      "progressFiles": "{{done}} / {{total}} ファイル",
+      "progressItems": "{{done}} / {{total}} 件のソース",
+      "resultOk": "{{notes}} 件のノートを再構築しました",
+      "resultPartial": "{{notes}} 件のノートを再構築 · {{failed}} 件をスキップ",
+      "importResultOk": "{{imported}} 件のソースをインポートしました",
+      "importResultPartial": "{{imported}} 件をインポート · {{failed}} 件失敗",
+      "importStatus": {
+        "running": "実行中",
+        "completed": "完了",
+        "failed": "失敗",
+        "cancelled": "キャンセル済み",
+        "timed_out": "タイムアウト"
+      }
     },
     "maintenance": {
       "tooltip": "メンテナンス",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "未解決の質問を含むメモ",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "この空間をスキャン中…",
+      "scanFailed": "スキャンに失敗しました",
+      "emptyExternal": "このフォルダにはまだ Markdown ノートがありません。",
+      "emptyInternal": "この空間は空です。",
+      "importFiles": "ファイルをインポート"
     }
   },
   "backgroundJobs": {

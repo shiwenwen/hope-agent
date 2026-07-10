@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "Tarea en segundo plano fallida",
     "backgroundJobFallback": "Ha finalizado una tarea en segundo plano",
     "backgroundJobToggle": "Notificar cuando finalicen las tareas en segundo plano",
-    "backgroundJobDesc": "Mostrar una notificación de escritorio cuando finalice una tarea en segundo plano mientras la ventana está en segundo plano"
+    "backgroundJobDesc": "Mostrar una notificación de escritorio cuando finalice una tarea en segundo plano mientras la ventana está en segundo plano",
+    "knowledgeScanComplete": "Escaneo del espacio de conocimiento completado",
+    "knowledgeScanFailed": "Error al escanear el espacio de conocimiento",
+    "knowledgeImportComplete": "Importación al espacio de conocimiento completada",
+    "knowledgeImportFailed": "La importación al espacio de conocimiento falló parcialmente"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "Reindexando…",
     "reindexDone": "Índice reconstruido",
     "jobs": {
-      "tooltip": "Tareas de reindexación",
-      "title": "Tareas de reindexación",
-      "empty": "Aún no hay tareas de reindexación.",
+      "tooltip": "Actividad del espacio de conocimiento",
+      "title": "Actividad del espacio de conocimiento",
+      "empty": "Aún no hay actividad.",
       "kindReindex": "Reconstruir índice",
       "kindReembed": "Reincrustar vectores",
       "fts": "Índice de texto completo",
-      "result": "{{notes}} notas · {{kbs}} espacios reconstruidos",
-      "emptyHint": "Reindexa un espacio o cambia el modelo de incrustación y el progreso aparecerá aquí.",
-      "model": "Modelo: {{name}}"
+      "emptyHint": "Vincula o reindexa un espacio, o importa archivos, y el progreso aparecerá aquí.",
+      "model": "Modelo: {{name}}",
+      "kindImport": "Importar fuentes",
+      "space": "Espacio: {{name}}",
+      "progressFiles": "{{done}} / {{total}} archivos",
+      "progressItems": "{{done}} / {{total}} fuentes",
+      "resultOk": "{{notes}} notas reindexadas",
+      "resultPartial": "{{notes}} notas reindexadas · {{failed}} omitidas",
+      "importResultOk": "{{imported}} fuentes importadas",
+      "importResultPartial": "{{imported}} importadas · {{failed}} fallidas",
+      "importStatus": {
+        "running": "En curso",
+        "completed": "Completado",
+        "failed": "Fallido",
+        "cancelled": "Cancelado",
+        "timed_out": "Tiempo agotado"
+      }
     },
     "maintenance": {
       "tooltip": "Mantenimiento",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "Nota con preguntas abiertas",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "Escaneando este espacio…",
+      "scanFailed": "Error al escanear",
+      "emptyExternal": "Aún no se encontraron notas markdown en esta carpeta.",
+      "emptyInternal": "Este espacio está vacío.",
+      "importFiles": "Importar archivos"
     }
   },
   "backgroundJobs": {

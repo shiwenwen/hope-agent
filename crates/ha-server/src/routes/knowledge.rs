@@ -312,7 +312,27 @@ pub async fn create_kb(
         let reg = registry()?;
         run_blocking(move || reg.create(body.input)).await?
     };
-    knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
+    // Index + watch the new KB. External vaults may already hold a large
+    // number of files worth tracking with real progress — route them through
+    // the job-tracked reembed/reindex path (the same one the settings-page
+    // rebuild uses) so the bind shows live file-level progress instead of a
+    // silent scan. Internal KBs are guaranteed empty at creation, so the
+    // cheap fire-and-forget path is enough and skips job overhead.
+    if kb.root_dir.is_some() {
+        if let Err(e) =
+            knowledge::start_knowledge_reembed_job(Some(vec![kb.id.clone()]), "kb-create")
+        {
+            ha_core::app_warn!(
+                "knowledge",
+                "create_kb",
+                "job-tracked scan failed, falling back to untracked reindex: {}",
+                e
+            );
+            knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
+        }
+    } else {
+        knowledge::index::spawn_reindex_kb(kb.id.clone(), true);
+    }
     let _ = knowledge::watcher::start_watcher(&kb.id);
     emit(&ctx, "knowledge:created", json!({ "kbId": kb.id }));
     Ok(Json(kb))

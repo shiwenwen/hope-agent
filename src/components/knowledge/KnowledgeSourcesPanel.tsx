@@ -1,5 +1,8 @@
 import {
+  AlertCircle,
   Check,
+  CheckCircle2,
+  Circle,
   Download,
   EyeOff,
   ExternalLink,
@@ -53,6 +56,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { IconTip } from "@/components/ui/tooltip"
 import { formatBytes } from "@/lib/format"
 import { logger } from "@/lib/logger"
+import { parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import type {
@@ -150,6 +154,22 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
         { kbId, limit: 8 },
       )
       setImportRuns(runs)
+      // Resume tracking a run that was already `running` before this panel
+      // instance mounted (switched away and back, reopened the app mid-import,
+      // etc.) — otherwise nothing ever sets `runDetail`, so the poll /
+      // event-driven refresh below never starts and progress stays invisible
+      // until the user happens to reopen the import-history dialog.
+      if (runs[0]?.status === "running") {
+        try {
+          const detail = await getTransport().call<KnowledgeSourceImportRunDetail>(
+            "kb_source_import_run_detail_cmd",
+            { kbId, runId: runs[0].id },
+          )
+          setRunDetail(detail)
+        } catch (e) {
+          logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "resume run detail failed", e)
+        }
+      }
     } catch (e) {
       logger.warn("knowledge", "KnowledgeSourcesPanel::reload", "source import runs failed", e)
     }
@@ -233,17 +253,18 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
 
   const activeRunId = runDetail?.status === "running" ? runDetail.id : null
 
-  useEffect(() => {
-    if (!kbId || !activeRunId) return
-    let cancelled = false
-    const refreshRun = async () => {
+  const refreshRun = useCallback(
+    async (runId: string) => {
+      if (!kbId) return
       try {
         const detail = await getTransport().call<KnowledgeSourceImportRunDetail>(
           "kb_source_import_run_detail_cmd",
-          { kbId, runId: activeRunId },
+          { kbId, runId },
         )
-        if (cancelled) return
-        setRunDetail(detail)
+        // Only apply if we're still tracking this run — guards against a
+        // stale response landing after the user switched to a different run
+        // / space in the meantime.
+        setRunDetail((prev) => (prev == null || prev.id === runId ? detail : prev))
         setImportRuns((prev) =>
           prev.map((run) =>
             run.id === detail.id
@@ -266,16 +287,40 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           await reload()
         }
       } catch (e) {
-        logger.warn("knowledge", "KnowledgeSourcesPanel::pollRun", "source run poll failed", e)
+        logger.warn("knowledge", "KnowledgeSourcesPanel::refreshRun", "source run refresh failed", e)
       }
-    }
-    void refreshRun()
-    const timer = window.setInterval(() => void refreshRun(), 1500)
+    },
+    [kbId, reload],
+  )
+
+  // Poll as a fallback (covers the rare case a run has no `backgroundJobId` —
+  // job DB uninitialized — so the event-driven effect below has nothing to
+  // match on) rather than the primary update path.
+  useEffect(() => {
+    if (!kbId || !activeRunId) return
+    const timer = window.setInterval(() => void refreshRun(activeRunId), 1500)
+    return () => window.clearInterval(timer)
+  }, [activeRunId, kbId, refreshRun])
+
+  // Primary update path: react to the batch's background-job progress ticks
+  // (one per item settled, see `process_import_run`) and its completion,
+  // instead of waiting up to 1.5s for the poll above.
+  useEffect(() => {
+    if (!kbId || !activeRunId) return
+    const jobId = runDetail?.backgroundJobId
+    if (!jobId) return
+    const matchesJob = (raw: unknown) => parsePayload<{ job_id?: string }>(raw)?.job_id === jobId
+    const off1 = getTransport().listen("job:progress", (raw) => {
+      if (matchesJob(raw)) void refreshRun(activeRunId)
+    })
+    const off2 = getTransport().listen("job:completed", (raw) => {
+      if (matchesJob(raw)) void refreshRun(activeRunId)
+    })
     return () => {
-      cancelled = true
-      window.clearInterval(timer)
+      off1()
+      off2()
     }
-  }, [activeRunId, kbId, reload])
+  }, [kbId, activeRunId, runDetail?.backgroundJobId, refreshRun])
 
   const canImport = useMemo(() => {
     if (!kbId || importing) return false
@@ -317,6 +362,12 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
           duplicate,
           failed,
         }),
+        {
+          action: {
+            label: t("knowledge.sources.retryFailedAction", "Retry failed"),
+            onClick: () => void retryFailed(detail),
+          },
+        },
       )
     } else if (duplicate > 0) {
       toast.success(
@@ -787,13 +838,29 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
       {latestRun || similarGroups.length > 0 ? (
         <div className="border-b border-border-soft/50 px-2 py-1 text-[10px] text-muted-foreground">
           {latestRun ? (
-            <button
-              type="button"
-              className="mr-2 rounded-sm px-1 py-0.5 hover:bg-muted/60"
-              onClick={() => void openRunDetail(latestRun)}
-            >
-              {formatDate(latestRun.createdAt)} · +{latestRun.importedCount} · ={latestRun.duplicateCount} · !{latestRun.failedCount}
-            </button>
+            <>
+              <button
+                type="button"
+                className="mr-2 rounded-sm px-1 py-0.5 hover:bg-muted/60"
+                onClick={() => void openRunDetail(latestRun)}
+              >
+                {formatDate(latestRun.createdAt)} · +{latestRun.importedCount} · ={latestRun.duplicateCount} · !{latestRun.failedCount}
+              </button>
+              {latestRun.status !== "running" && latestRun.failedCount > 0 ? (
+                <button
+                  type="button"
+                  className="mr-2 rounded-sm px-1 py-0.5 text-destructive hover:bg-muted/60"
+                  disabled={!!retryingRunId}
+                  onClick={() => void retryFailed(latestRun)}
+                >
+                  {retryingRunId === latestRun.id ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    t("knowledge.sources.retryFailedAction", "Retry failed")
+                  )}
+                </button>
+              ) : null}
+            </>
           ) : null}
           {similarGroups.length > 0 ? (
             <button
@@ -1383,8 +1450,11 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                   {runDetail.items.map((item) => (
                     <div key={item.id} className="p-2 text-xs">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <span className="truncate font-medium">
-                          {item.label || item.sourceId || `#${item.position + 1}`}
+                        <span className="flex min-w-0 items-center gap-1 truncate font-medium">
+                          <ItemStatusIcon status={item.status} />
+                          <span className="truncate">
+                            {item.label || item.sourceId || `#${item.position + 1}`}
+                          </span>
                         </span>
                         <span className={cn("shrink-0 text-[10px]", item.status === "failed" && "text-destructive")}>
                           {itemStatusLabel(item.status, t)}
@@ -1956,6 +2026,29 @@ function itemStatusLabel(status: KnowledgeSourceImportRunDetail["items"][number]
     case "pending":
     default:
       return t("knowledge.sources.itemStatus.pending", "Pending")
+  }
+}
+
+// Same icon vocabulary as `KnowledgeActivityButton`'s `StatusIcon` — the
+// import history dialog previously distinguished statuses by text alone
+// (plus a red tint on "failed"), unlike every other job-progress surface.
+function ItemStatusIcon({
+  status,
+}: {
+  status: KnowledgeSourceImportRunDetail["items"][number]["status"]
+}) {
+  switch (status) {
+    case "running":
+      return <Loader2 className="h-3 w-3 shrink-0 animate-spin text-primary" />
+    case "imported":
+      return <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
+    case "duplicate":
+      return <CheckCircle2 className="h-3 w-3 shrink-0 text-muted-foreground" />
+    case "failed":
+      return <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />
+    case "pending":
+    default:
+      return <Circle className="h-3 w-3 shrink-0 text-muted-foreground" />
   }
 }
 

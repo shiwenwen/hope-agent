@@ -62,7 +62,7 @@ export default function KnowledgeMaintenanceButton({ kbId, onOpenNote }: Props) 
   const rootRef = useRef<HTMLDivElement>(null)
 
   // Async load — setState lands only after the `await`, so the effect that calls
-  // it stays cascade-free (mirrors KnowledgeJobsButton's loader). The badge/panel
+  // it stays cascade-free (mirrors KnowledgeActivityButton's loader). The badge/panel
   // gate display on `kbId`, so a null space shows nothing until the next load.
   const refresh = useCallback(async () => {
     if (!kbId) return

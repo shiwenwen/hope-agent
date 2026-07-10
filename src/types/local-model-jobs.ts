@@ -37,6 +37,13 @@ export interface LocalModelJobSnapshot {
    * 任务在此字段记录原 pull 任务 id，让 dialog 能自动接力到 reembed 进度。
    */
   successorForJobId?: string | null
+  /**
+   * 本任务的目标 KB 范围（目前仅 `knowledge_reembed` 使用）。`null`/`undefined` =
+   * 面向全部 KB（设置页「重建全部」/ 模型切换全量重嵌入）；非空数组 = 只针对
+   * 这些 KB（绑定新空间 / 单空间 Reindex）。据此把任务与「我正在看的这个空间」
+   * 关联，渲染进度/徽标。
+   */
+  targetKbIds?: string[] | null
 }
 
 export interface LocalModelJobLogEntry {
@@ -172,6 +179,10 @@ const PHASE_KEY: Record<string, string> = {
   "reembed-keep": "settings.embedding.reembedJob.phaseKeep",
   "reembed-fresh": "settings.embedding.reembedJob.phaseFresh",
   "knowledge-reembed": "settings.knowledgeEmbedding.reembed.phase",
+  // Source of truth: `crates/ha-core/src/knowledge/reembed.rs::PHASE_KNOWLEDGE_INDEX_FILES`.
+  // Single-KB scope (bind a new space / per-KB Reindex) — file-granular
+  // progress, as opposed to the KB-granular "knowledge-reembed" above.
+  "knowledge-index-files": "knowledge.jobs.phaseIndex",
   done: "settings.localLlm.phases.done",
 }
 

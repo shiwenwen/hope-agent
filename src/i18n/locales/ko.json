@@ -1911,7 +1911,11 @@
     "backgroundJobFailed": "백그라운드 작업 실패",
     "backgroundJobFallback": "백그라운드 작업이 완료되었습니다",
     "backgroundJobToggle": "백그라운드 작업 완료 시 알림",
-    "backgroundJobDesc": "창이 백그라운드에 있는 동안 백그라운드 작업이 완료되면 데스크톱 알림을 표시합니다"
+    "backgroundJobDesc": "창이 백그라운드에 있는 동안 백그라운드 작업이 완료되면 데스크톱 알림을 표시합니다",
+    "knowledgeScanComplete": "지식 공간 스캔 완료",
+    "knowledgeScanFailed": "지식 공간 스캔 실패",
+    "knowledgeImportComplete": "지식 공간 가져오기 완료",
+    "knowledgeImportFailed": "지식 공간 가져오기 일부 실패"
   },
   "onboarding": {
     "channels": {
@@ -5781,15 +5785,29 @@
     "reindexing": "재색인 중…",
     "reindexDone": "색인을 재구축했습니다",
     "jobs": {
-      "tooltip": "재색인 작업",
-      "title": "재색인 작업",
-      "empty": "재색인 작업이 없습니다",
+      "tooltip": "지식 공간 활동",
+      "title": "지식 공간 활동",
+      "empty": "아직 활동이 없습니다",
       "kindReindex": "색인 재구축",
       "kindReembed": "벡터 재생성",
       "fts": "전문 색인",
-      "result": "노트 {{notes}}개 · 공간 {{kbs}}개 재구축",
-      "emptyHint": "공간을 재색인하거나 임베딩 모델을 전환하면 여기에 진행 상황이 표시됩니다.",
-      "model": "모델: {{name}}"
+      "emptyHint": "공간을 바인딩하거나 재색인하거나 파일을 가져오면 여기에 진행 상황이 표시됩니다.",
+      "model": "모델: {{name}}",
+      "kindImport": "소스 가져오기",
+      "space": "공간: {{name}}",
+      "progressFiles": "파일 {{done}} / {{total}}개",
+      "progressItems": "소스 {{done}} / {{total}}개",
+      "resultOk": "노트 {{notes}}개 재색인 완료",
+      "resultPartial": "노트 {{notes}}개 재색인 · {{failed}}개 건너뜀",
+      "importResultOk": "소스 {{imported}}개 가져오기 완료",
+      "importResultPartial": "{{imported}}개 가져옴 · {{failed}}개 실패",
+      "importStatus": {
+        "running": "진행 중",
+        "completed": "완료됨",
+        "failed": "실패",
+        "cancelled": "취소됨",
+        "timed_out": "시간 초과"
+      }
     },
     "maintenance": {
       "tooltip": "유지 관리",
@@ -6050,6 +6068,13 @@
       "openQuestionsPlaceholder": "공개 질문이 있는 메모",
       "mocPlaceholder": "MOCs/Conversation Filings.md",
       "createNotePlaceholder": "Filed Conversations/example.md"
+    },
+    "emptyState": {
+      "scanning": "이 공간을 스캔하는 중…",
+      "scanFailed": "스캔 실패",
+      "emptyExternal": "이 폴더에 아직 마크다운 노트가 없습니다.",
+      "emptyInternal": "이 공간은 비어 있습니다.",
+      "importFiles": "파일 가져오기"
     }
   },
   "backgroundJobs": {
