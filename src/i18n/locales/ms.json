@@ -6670,6 +6670,16 @@
       "show": "Tunjukkan nota pembentang",
       "slide": "Slaid {{n}}/{{total}}",
       "notePlaceholder": "Nota pembentang untuk slaid ini (simpan automatik)"
+    },
+    "starter": {
+      "webTitle": "Halaman pendaratan produk",
+      "webPrompt": "Cipta halaman pendaratan moden untuk apl nota AI: tajuk hero, tiga titik jualan utama, kad harga dan seruan bertindak.",
+      "mobileTitle": "Skrin apl mudah alih",
+      "mobilePrompt": "Reka skrin utama apl daftar masuk kecergasan: cincin kemajuan hari ini, kalendar minggu ini dan butang mula latihan.",
+      "deckTitle": "Persembahan slaid",
+      "deckPrompt": "Bina persembahan 6 slaid pengumpulan dana permulaan: muka depan, masalah, penyelesaian, pasaran, model perniagaan, pasukan.",
+      "posterTitle": "Poster acara",
+      "posterPrompt": "Reka poster acara teknologi: tema, masa dan tempat, penceramah dan kod QR pendaftaran sebagai pemegang tempat."
     }
   }
 }

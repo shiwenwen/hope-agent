@@ -6670,6 +6670,16 @@
       "show": "Sunucu notlarını göster",
       "slide": "Slayt {{n}}/{{total}}",
       "notePlaceholder": "Bu slayt için sunucu notları (otomatik kaydedilir)"
+    },
+    "starter": {
+      "webTitle": "Ürün açılış sayfası",
+      "webPrompt": "Bir yapay zekâ not uygulaması için modern bir açılış sayfası oluştur: kahraman başlığı, üç temel satış noktası, fiyat kartı ve eylem çağrısı.",
+      "mobileTitle": "Mobil uygulama ekranı",
+      "mobilePrompt": "Bir fitness takip uygulamasının ana ekranını tasarla: bugünün ilerleme halkası, haftanın takvimi ve antrenmana başla düğmesi.",
+      "deckTitle": "Sunum",
+      "deckPrompt": "Girişim yatırım turu için 6 slaytlık bir sunum hazırla: kapak, sorun, çözüm, pazar, iş modeli, ekip.",
+      "posterTitle": "Etkinlik afişi",
+      "posterPrompt": "Bir teknoloji buluşması afişi tasarla: tema, zaman ve yer, konuşmacılar ve yer tutucu kayıt QR kodu."
     }
   }
 }

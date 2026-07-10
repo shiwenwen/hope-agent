@@ -6670,6 +6670,16 @@
       "show": "Show presenter notes",
       "slide": "Slide {{n}}/{{total}}",
       "notePlaceholder": "Presenter notes for this slide (auto-saved)"
+    },
+    "starter": {
+      "webTitle": "Product landing page",
+      "webPrompt": "Create a modern landing page for an AI note-taking app: hero headline, three key selling points, a pricing card, and a call to action.",
+      "mobileTitle": "Mobile app screen",
+      "mobilePrompt": "Design the home screen of a fitness check-in app: today's progress ring, this week's calendar, and a start-workout button.",
+      "deckTitle": "Presentation deck",
+      "deckPrompt": "Build a 6-slide startup fundraising deck: cover, problem, solution, market, business model, team.",
+      "posterTitle": "Event poster",
+      "posterPrompt": "Design a tech meetup event poster: theme, time and place, speakers, and a placeholder sign-up QR code."
     }
   }
 }

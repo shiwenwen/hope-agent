@@ -4764,6 +4764,44 @@ const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
   )
 })
 
+/** 首次运行场景起步卡（零项目时展示，点选预填形态 + 场景 brief，缓解「不知从何开始」）。 */
+const SCENARIO_STARTERS: {
+  kind: ArtifactKind
+  titleKey: string
+  titleFallback: string
+  promptKey: string
+  promptFallback: string
+}[] = [
+  {
+    kind: "web",
+    titleKey: "design.starter.webTitle",
+    titleFallback: "产品落地页",
+    promptKey: "design.starter.webPrompt",
+    promptFallback: "为一款 AI 笔记应用做一个现代落地页：英雄区标题、三个核心卖点、定价卡、行动号召。",
+  },
+  {
+    kind: "mobile",
+    titleKey: "design.starter.mobileTitle",
+    titleFallback: "移动 App 界面",
+    promptKey: "design.starter.mobilePrompt",
+    promptFallback: "设计一个健身打卡 App 的首页：今日进度环、本周日历、开始训练按钮。",
+  },
+  {
+    kind: "deck",
+    titleKey: "design.starter.deckTitle",
+    titleFallback: "演示文稿",
+    promptKey: "design.starter.deckPrompt",
+    promptFallback: "做一份 6 页的创业融资演示：封面、问题、方案、市场、商业模式、团队。",
+  },
+  {
+    kind: "poster",
+    titleKey: "design.starter.posterTitle",
+    titleFallback: "活动海报",
+    promptKey: "design.starter.posterPrompt",
+    promptFallback: "设计一张科技沙龙活动海报：主题、时间地点、嘉宾、报名二维码占位。",
+  },
+]
+
 function LaunchHome({
   projects,
   loading,
@@ -5066,8 +5104,29 @@ function LaunchHome({
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
           ) : projects.length === 0 ? (
-            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
-              {t("design.emptyProjectsHint", "还没有项目——在上面描述一个设计，直接开始。")}
+            <div className="space-y-4 py-6">
+              <p className="text-center text-sm text-muted-foreground">
+                {t("design.emptyProjectsHint", "还没有项目——在上面描述一个设计，直接开始。")}
+              </p>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {SCENARIO_STARTERS.map((s) => (
+                  <button
+                    key={s.kind + s.titleKey}
+                    type="button"
+                    disabled={generating}
+                    onClick={() => {
+                      setKind(s.kind)
+                      setPrompt(t(s.promptKey, s.promptFallback))
+                    }}
+                    className="group flex flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/50 hover:bg-accent/40 disabled:opacity-50"
+                  >
+                    <span className="text-sm font-medium">{t(s.titleKey, s.titleFallback)}</span>
+                    <span className="line-clamp-2 text-xs text-muted-foreground">
+                      {t(s.promptKey, s.promptFallback)}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           ) : filteredProjects.length === 0 ? (
             <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">

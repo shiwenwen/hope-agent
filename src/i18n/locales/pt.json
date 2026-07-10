@@ -6670,6 +6670,16 @@
       "show": "Mostrar notas do apresentador",
       "slide": "Slide {{n}}/{{total}}",
       "notePlaceholder": "Notas do apresentador para este slide (salvo automaticamente)"
+    },
+    "starter": {
+      "webTitle": "Página de destino",
+      "webPrompt": "Crie uma página de destino moderna para um app de notas com IA: título principal, três pontos-chave de venda, um cartão de preços e uma chamada para ação.",
+      "mobileTitle": "Tela de app móvel",
+      "mobilePrompt": "Projete a tela inicial de um app de fitness: anel de progresso de hoje, calendário da semana e botão de iniciar treino.",
+      "deckTitle": "Apresentação",
+      "deckPrompt": "Monte uma apresentação de 6 slides para captação de recursos: capa, problema, solução, mercado, modelo de negócio, equipe.",
+      "posterTitle": "Cartaz de evento",
+      "posterPrompt": "Projete um cartaz para um evento de tecnologia: tema, hora e local, palestrantes e um QR code de inscrição como espaço reservado."
     }
   }
 }

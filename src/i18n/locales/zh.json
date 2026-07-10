@@ -6670,6 +6670,16 @@
       "show": "显示演讲者备注",
       "slide": "第 {{n}}/{{total}} 页",
       "notePlaceholder": "本页演讲者备注（自动保存）"
+    },
+    "starter": {
+      "webTitle": "产品落地页",
+      "webPrompt": "为一款 AI 笔记应用做一个现代落地页：英雄区标题、三个核心卖点、定价卡、行动号召。",
+      "mobileTitle": "移动 App 界面",
+      "mobilePrompt": "设计一个健身打卡 App 的首页：今日进度环、本周日历、开始训练按钮。",
+      "deckTitle": "演示文稿",
+      "deckPrompt": "做一份 6 页的创业融资演示：封面、问题、方案、市场、商业模式、团队。",
+      "posterTitle": "活动海报",
+      "posterPrompt": "设计一张科技沙龙活动海报：主题、时间地点、嘉宾、报名二维码占位。"
     }
   }
 }

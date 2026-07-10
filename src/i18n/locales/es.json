@@ -6670,6 +6670,16 @@
       "show": "Mostrar notas del presentador",
       "slide": "Diapositiva {{n}}/{{total}}",
       "notePlaceholder": "Notas del presentador para esta diapositiva (guardado automático)"
+    },
+    "starter": {
+      "webTitle": "Página de aterrizaje",
+      "webPrompt": "Crea una página de aterrizaje moderna para una app de notas con IA: titular principal, tres puntos clave de venta, una tarjeta de precios y una llamada a la acción.",
+      "mobileTitle": "Pantalla de app móvil",
+      "mobilePrompt": "Diseña la pantalla de inicio de una app de fitness: anillo de progreso de hoy, calendario de la semana y botón de iniciar entrenamiento.",
+      "deckTitle": "Presentación",
+      "deckPrompt": "Crea una presentación de 6 diapositivas para captación de fondos: portada, problema, solución, mercado, modelo de negocio, equipo.",
+      "posterTitle": "Cartel de evento",
+      "posterPrompt": "Diseña un cartel para un evento tecnológico: tema, hora y lugar, ponentes y un código QR de inscripción de marcador de posición."
     }
   }
 }

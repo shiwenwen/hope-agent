@@ -6670,6 +6670,16 @@
       "show": "Hiện ghi chú người trình bày",
       "slide": "Trang {{n}}/{{total}}",
       "notePlaceholder": "Ghi chú người trình bày cho trang này (tự động lưu)"
+    },
+    "starter": {
+      "webTitle": "Trang đích sản phẩm",
+      "webPrompt": "Tạo một trang đích hiện đại cho ứng dụng ghi chú AI: tiêu đề chính, ba điểm bán hàng cốt lõi, thẻ giá và lời kêu gọi hành động.",
+      "mobileTitle": "Màn hình ứng dụng di động",
+      "mobilePrompt": "Thiết kế màn hình chính của ứng dụng theo dõi tập luyện: vòng tiến độ hôm nay, lịch tuần này và nút bắt đầu tập.",
+      "deckTitle": "Bản trình bày",
+      "deckPrompt": "Dựng bản trình bày 6 trang gọi vốn khởi nghiệp: trang bìa, vấn đề, giải pháp, thị trường, mô hình kinh doanh, đội ngũ.",
+      "posterTitle": "Áp phích sự kiện",
+      "posterPrompt": "Thiết kế áp phích sự kiện công nghệ: chủ đề, thời gian và địa điểm, diễn giả và mã QR đăng ký giữ chỗ."
     }
   }
 }
