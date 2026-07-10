@@ -710,17 +710,25 @@ mod tests {
         let (sources, truncated) = aggregate_sources(&messages);
         assert!(!truncated);
         assert_eq!(sources.len(), 2);
-        assert_eq!(sources[0].kind, "attachment");
-        assert_eq!(sources[0].origin, "user_attachment");
-        assert_eq!(sources[0].name.as_deref(), Some("brief.pdf"));
-        assert_eq!(sources[0].mime_type.as_deref(), Some("application/pdf"));
-        assert_eq!(sources[0].size_bytes, Some(1234));
-        assert_eq!(sources[0].attachment_kind.as_deref(), Some("file"));
-        assert_eq!(sources[0].local_path.as_deref(), Some("/tmp/brief.pdf"));
-        assert_eq!(sources[1].kind, "attachment");
-        assert_eq!(sources[1].attachment_kind.as_deref(), Some("quote"));
-        assert_eq!(sources[1].quote_path.as_deref(), Some("/repo/quoted.ts"));
-        assert_eq!(sources[1].quote_lines.as_deref(), Some("10-12"));
+        let upload = sources
+            .iter()
+            .find(|source| source.name.as_deref() == Some("brief.pdf"))
+            .expect("upload attachment source");
+        assert_eq!(upload.kind, "attachment");
+        assert_eq!(upload.origin, "user_attachment");
+        assert_eq!(upload.mime_type.as_deref(), Some("application/pdf"));
+        assert_eq!(upload.size_bytes, Some(1234));
+        assert_eq!(upload.attachment_kind.as_deref(), Some("file"));
+        assert_eq!(upload.local_path.as_deref(), Some("/tmp/brief.pdf"));
+
+        let quote = sources
+            .iter()
+            .find(|source| source.name.as_deref() == Some("quoted.ts"))
+            .expect("quote attachment source");
+        assert_eq!(quote.kind, "attachment");
+        assert_eq!(quote.attachment_kind.as_deref(), Some("quote"));
+        assert_eq!(quote.quote_path.as_deref(), Some("/repo/quoted.ts"));
+        assert_eq!(quote.quote_lines.as_deref(), Some("10-12"));
     }
 
     #[test]
