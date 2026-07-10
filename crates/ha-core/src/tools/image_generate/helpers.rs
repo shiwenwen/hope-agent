@@ -177,6 +177,39 @@ pub(super) async fn load_input_image(path_or_url: &str) -> Result<InputImage> {
     })
 }
 
+/// Load a batch of reference images (paths / URLs / data URLs) for image-to-image
+/// generation. Caps at `MAX_INPUT_IMAGES`; a single bad entry is logged and skipped
+/// rather than failing the whole generation — matches the owner-plane single-reference
+/// degrade behaviour (a bad reference must never sink an otherwise valid generate).
+pub async fn load_input_images(paths: &[String]) -> Result<Vec<InputImage>> {
+    let mut out = Vec::new();
+    for p in paths {
+        if p.trim().is_empty() {
+            continue;
+        }
+        if out.len() >= MAX_INPUT_IMAGES {
+            crate::app_warn!(
+                "image_generate",
+                "load_input_images",
+                "more than {} reference images provided; extra ignored",
+                MAX_INPUT_IMAGES
+            );
+            break;
+        }
+        match load_input_image(p).await {
+            Ok(img) => out.push(img),
+            Err(e) => crate::app_warn!(
+                "image_generate",
+                "load_input_images",
+                "reference image '{}' failed to load, skipping: {}",
+                p,
+                e
+            ),
+        }
+    }
+    Ok(out)
+}
+
 /// Decode a data URL into InputImage.
 pub(super) fn decode_data_url(url: &str) -> Result<InputImage> {
     // data:image/png;base64,xxxx
@@ -406,6 +439,32 @@ mod tests {
     fn find_provider_by_model_missing_returns_none() {
         let config = cfg(vec![entry("openai", true, Some("sk"), Some("foo"))]);
         assert!(find_provider_by_model("not-a-model", &config).is_none());
+    }
+
+    #[tokio::test]
+    async fn load_input_images_skips_empty_and_caps() {
+        // Valid data URLs load; empty entries are skipped (not fatal).
+        let ok = "data:image/png;base64,aGVsbG8=".to_string();
+        let out = load_input_images(&[ok.clone(), "".to_string(), "   ".to_string(), ok.clone()])
+            .await
+            .unwrap();
+        assert_eq!(out.len(), 2, "two valid + two empty → two loaded");
+        // More than MAX_INPUT_IMAGES is capped, not errored.
+        let many: Vec<String> = std::iter::repeat(ok).take(MAX_INPUT_IMAGES + 3).collect();
+        let capped = load_input_images(&many).await.unwrap();
+        assert_eq!(capped.len(), MAX_INPUT_IMAGES);
+    }
+
+    #[tokio::test]
+    async fn load_input_images_bad_entry_skipped_not_fatal() {
+        // A malformed data URL is skipped; the whole batch still succeeds.
+        let out = load_input_images(&[
+            "data:image/png;base64,aGVsbG8=".to_string(),
+            "data:garbage-no-comma".to_string(),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(out.len(), 1, "bad entry skipped, good one kept");
     }
 
     #[test]

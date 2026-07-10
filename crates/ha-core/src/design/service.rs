@@ -725,6 +725,11 @@ pub struct CreateArtifactInput {
     pub reference_image_b64: Option<String>,
     #[serde(default)]
     pub reference_image_mime: Option<String>,
+    /// image 形态：参考图路径 / URL（agent 面图生图入口）。每项经 `image_generate::load_input_images`
+    /// 加载（本地路径 / data: / http(s) 走 SSRF），≤5 张，坏项跳过不阻断。与 `reference_image_b64`
+    /// 叠加（owner 面用 b64、agent 面用 paths）。
+    #[serde(default)]
+    pub reference_image_paths: Option<Vec<String>>,
     /// 选定的 recipe（模板）id：非媒体形态生成时，用该 recipe 的 guidance/scenario 作 KIND
     /// GUIDANCE（选不同模板产出结构可辨差异）。缺省 / 不匹配 kind → 回退该 kind 首个内置 recipe。
     #[serde(default)]
@@ -770,6 +775,26 @@ pub async fn create_artifact_generating(mut input: CreateArtifactInput) -> Resul
                     "design",
                     "image",
                     "reference image base64 decode failed, ignoring: {e}"
+                ),
+            }
+        }
+        // agent 面：参考图路径 / URL → 加载（SSRF-gated、坏项跳过），叠加到 input_images（总量由
+        // load_input_images 钳 ≤ MAX_INPUT_IMAGES；此处再钳一次防 b64 + paths 叠加超限）。
+        if let Some(paths) = input
+            .reference_image_paths
+            .as_deref()
+            .filter(|p| !p.is_empty())
+        {
+            match crate::tools::image_generate::load_input_images(paths).await {
+                Ok(mut loaded) => {
+                    let room = 5usize.saturating_sub(input_images.len());
+                    loaded.truncate(room);
+                    input_images.append(&mut loaded);
+                }
+                Err(e) => crate::app_warn!(
+                    "design",
+                    "image",
+                    "reference image paths load failed, ignoring: {e}"
                 ),
             }
         }
@@ -3206,6 +3231,7 @@ pub async fn refine_artifact_with_comment(
         prompt: None,
         reference_image_b64: None,
         reference_image_mime: None,
+        reference_image_paths: None,
         recipe_id: None,
         aspect_ratio: None,
         audio_duration_secs: None,

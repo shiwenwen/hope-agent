@@ -268,6 +268,13 @@ async fn action_create_artifact(
             .map(str::to_string),
         reference_image_b64: None,
         reference_image_mime: None,
+        reference_image_paths: args.get("reference_image_paths").and_then(|v| {
+            v.as_array().map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+        }),
         recipe_id: str_arg(args, "recipe_id").map(str::to_string),
         aspect_ratio: str_arg(args, "aspect_ratio").map(str::to_string),
         audio_duration_secs: args.get("audio_duration_secs").and_then(|v| v.as_f64()),

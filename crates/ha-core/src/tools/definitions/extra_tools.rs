@@ -192,6 +192,7 @@ pub fn get_design_tool() -> ToolDefinition {
                 },
                 "recipe_id": { "type": "string", "description": "Recipe id — for get_recipe, and optionally for create_artifact (non-media kinds): its structure guidance + scenario drive that generation, so picking a specific recipe measurably shapes the output. Omit to use the kind's default recipe." },
                 "aspect_ratio": { "type": "string", "description": "For create_artifact with kind=image: aspect-ratio hint passed to the image provider (e.g. \"1:1\", \"16:9\", \"9:16\"). Ignored for other kinds." },
+                "reference_image_paths": { "type": "array", "items": { "type": "string" }, "description": "For create_artifact with kind=image: up to 5 reference images (local file paths, http(s) URLs, or data: URIs) for image-to-image generation — the model uses them as visual reference. URLs are SSRF-checked; a bad entry is skipped, not fatal. Ignored for other kinds." },
                 "audio_duration_secs": { "type": "number", "description": "For create_artifact with kind=audio: target length in seconds for music/SFX (e.g. 5, 15, 30). SFX is clamped to 0.5–30s; music to 10–300s. Ignored for speech and non-audio kinds." },
                 "project_id": { "type": "string", "description": "Design project id (optional; defaults to the session's draft project)" },
                 "artifact_id": { "type": "string", "description": "Artifact id (for get/update/delete/versions/restore/show)" },
