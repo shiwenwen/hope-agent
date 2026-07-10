@@ -947,12 +947,7 @@ mod tests {
             ..AppConfig::default()
         };
 
-        apply_codex_active_model_update(
-            &mut cfg,
-            &provider_id,
-            ActiveModelUpdate::Never,
-        )
-        .unwrap();
+        apply_codex_active_model_update(&mut cfg, &provider_id, ActiveModelUpdate::Never).unwrap();
 
         assert!(!cfg.providers[0].enabled);
         assert!(cfg.active_model.is_none());

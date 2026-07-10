@@ -634,23 +634,22 @@ pub async fn chat(
     // Session-scoped model pin trumps both agent.primary and config.active_model
     // when neither Plan Mode nor an explicit per-turn override won. This is how
     // set_session_model surfaces its effect on subsequent turns.
-    let session_pinned_model: Option<String> = if plan_model_preference.is_none()
-        && model_override.is_none()
-    {
-        let sid2 = sid.clone();
-        db.run(move |db| db.get_session(&sid2))
-            .await
-            .ok()
-            .flatten()
-            .and_then(|meta| match (meta.provider_id, meta.model_id) {
-                (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
-                    Some(format!("{}::{}", p, m))
-                }
-                _ => None,
-            })
-    } else {
-        None
-    };
+    let session_pinned_model: Option<String> =
+        if plan_model_preference.is_none() && model_override.is_none() {
+            let sid2 = sid.clone();
+            db.run(move |db| db.get_session(&sid2))
+                .await
+                .ok()
+                .flatten()
+                .and_then(|meta| match (meta.provider_id, meta.model_id) {
+                    (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
+                        Some(format!("{}::{}", p, m))
+                    }
+                    _ => None,
+                })
+        } else {
+            None
+        };
 
     // Explicit current-turn overrides are strict: if the requested model was
     // removed or its Provider is disabled, surface the error instead of
@@ -694,11 +693,8 @@ pub async fn chat(
     let preferred_model = plan_model_preference
         .or(model_override.as_deref())
         .or(session_pinned_model.as_deref());
-    let (primary, fallbacks) = provider::resolve_model_chain_with_preferred(
-        preferred_model,
-        &agent_model_config,
-        &cfg,
-    );
+    let (primary, fallbacks) =
+        provider::resolve_model_chain_with_preferred(preferred_model, &agent_model_config, &cfg);
 
     // Build ordered model chain: [primary, ...fallbacks]
     let model_chain: Vec<ActiveModel> = primary.into_iter().chain(fallbacks).collect();

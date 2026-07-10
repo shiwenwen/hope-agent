@@ -133,11 +133,7 @@ pub fn resolve_model_chain_with_preferred(
 
     if agent_model.fallbacks.is_empty() {
         for fallback in &config.fallback_models {
-            push_model_if_available(
-                &mut chain,
-                Some(fallback.clone()),
-                &config.providers,
-            );
+            push_model_if_available(&mut chain, Some(fallback.clone()), &config.providers);
         }
     } else {
         for fallback in &agent_model.fallbacks {
@@ -346,31 +342,19 @@ mod tests {
                 provider("global-fallback", true, &["m"]),
             ],
             active_model: Some(active("global", "m")),
-            fallback_models: vec![
-                active("global", "m"),
-                active("global-fallback", "m"),
-            ],
+            fallback_models: vec![active("global", "m"), active("global-fallback", "m")],
             ..Default::default()
         };
         let agent_model = agent_model(
             Some("preferred::m"),
-            &[
-                "global::m",
-                "agent-fallback::m",
-                "preferred::m",
-            ],
+            &["global::m", "agent-fallback::m", "preferred::m"],
         );
 
-        let chain =
-            resolve_model_chain_with_preferred(Some("preferred::m"), &agent_model, &config);
+        let chain = resolve_model_chain_with_preferred(Some("preferred::m"), &agent_model, &config);
 
         assert_eq!(
             resolved_refs(chain.0, chain.1),
-            [
-                "preferred::m",
-                "global::m",
-                "agent-fallback::m",
-            ]
+            ["preferred::m", "global::m", "agent-fallback::m",]
         );
     }
 
@@ -388,13 +372,9 @@ mod tests {
         let agent_model = agent_model(Some("agent::primary"), &[]);
 
         for preferred in ["disabled::session-model", "missing::session-model"] {
-            let chain =
-                resolve_model_chain_with_preferred(Some(preferred), &agent_model, &config);
+            let chain = resolve_model_chain_with_preferred(Some(preferred), &agent_model, &config);
 
-            assert_eq!(
-                resolved_refs(chain.0, chain.1),
-                ["agent::primary"]
-            );
+            assert_eq!(resolved_refs(chain.0, chain.1), ["agent::primary"]);
         }
     }
 
@@ -412,11 +392,8 @@ mod tests {
         };
         let agent_model = agent_model(Some("agent::primary"), &["fallback::configured"]);
 
-        let chain = resolve_model_chain_with_preferred(
-            Some("session::preferred"),
-            &agent_model,
-            &config,
-        );
+        let chain =
+            resolve_model_chain_with_preferred(Some("session::preferred"), &agent_model, &config);
 
         assert_eq!(
             resolved_refs(chain.0, chain.1),

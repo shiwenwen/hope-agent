@@ -408,8 +408,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
+        let result = remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
 
         let local = cfg
             .providers
@@ -437,12 +436,7 @@ mod tests {
         let backend = known_local_backend("ollama").unwrap();
         let mut cfg = AppConfig {
             providers: vec![
-                configured_provider(
-                    "local",
-                    "http://127.0.0.1:11434",
-                    true,
-                    &["remove-me"],
-                ),
+                configured_provider("local", "http://127.0.0.1:11434", true, &["remove-me"]),
                 configured_provider(
                     "disabled",
                     "https://disabled.example.com",
@@ -455,25 +449,16 @@ mod tests {
                     true,
                     &["first-model", "second-model"],
                 ),
-                configured_provider(
-                    "later",
-                    "https://later.example.com",
-                    true,
-                    &["later-model"],
-                ),
+                configured_provider("later", "https://later.example.com", true, &["later-model"]),
             ],
             active_model: Some(active("local", "remove-me")),
             fallback_models: vec![active("disabled", "disabled-model")],
             ..Default::default()
         };
 
-        let result =
-            remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
+        let result = remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
 
-        assert!(!cfg
-            .providers
-            .iter()
-            .any(|provider| provider.id == "local"));
+        assert!(!cfg.providers.iter().any(|provider| provider.id == "local"));
         assert_active_model(&cfg, "successor", "first-model");
         assert_fallback_models(&cfg, &[("disabled", "disabled-model")]);
         assert!(result.removed_provider_model);
@@ -497,8 +482,7 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
+        let result = remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
 
         let local = cfg
             .providers
@@ -526,12 +510,7 @@ mod tests {
         let backend = known_local_backend("ollama").unwrap();
         let mut cfg = AppConfig {
             providers: vec![
-                configured_provider(
-                    "local",
-                    "http://localhost:11434",
-                    true,
-                    &["remove-me"],
-                ),
+                configured_provider("local", "http://localhost:11434", true, &["remove-me"]),
                 configured_provider(
                     "successor",
                     "https://successor.example.com",
@@ -544,13 +523,9 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
+        let result = remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
 
-        assert!(!cfg
-            .providers
-            .iter()
-            .any(|provider| provider.id == "local"));
+        assert!(!cfg.providers.iter().any(|provider| provider.id == "local"));
         assert_active_model(&cfg, "successor", "successor-model");
         assert_fallback_models(&cfg, &[]);
         assert!(result.removed_provider_model);
@@ -564,12 +539,7 @@ mod tests {
         let backend = known_local_backend("ollama").unwrap();
         let mut cfg = AppConfig {
             providers: vec![
-                configured_provider(
-                    "local",
-                    "http://localhost:11434",
-                    true,
-                    &["remove-me"],
-                ),
+                configured_provider("local", "http://localhost:11434", true, &["remove-me"]),
                 configured_provider(
                     "successor",
                     "https://successor.example.com",
@@ -582,13 +552,9 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
+        let result = remove_known_local_provider_model_in_config(&mut cfg, &backend, "remove-me");
 
-        assert!(!cfg
-            .providers
-            .iter()
-            .any(|provider| provider.id == "local"));
+        assert!(!cfg.providers.iter().any(|provider| provider.id == "local"));
         assert_active_model(&cfg, "successor", "successor-model");
         assert_fallback_models(&cfg, &[]);
         assert!(result.removed_provider_model);
