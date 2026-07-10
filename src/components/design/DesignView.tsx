@@ -1610,12 +1610,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         ? `${t("design.comment.title", "批注")} · ${c.snippet.trim().slice(0, 40)}`
         : t("design.comment.title", "批注")
       const context = c.snippet?.trim() ? `元素「${c.snippet.trim()}」` : "选中的元素"
+      // 锚定元素时把 oid + 硬范围提示一并给 AI：让它用 design 的 edit_element(oid) 就地精改这一个
+      // 元素、保留其它一切，而不是整段重造（内容被抹空的根因）。脱锚（oid 空）则只带反馈文字。
+      const anchored = c.oid != null
+      const content = anchored
+        ? `针对${context}（oid=${c.oid}）的反馈：${c.body}\n` +
+          `请只改这一个元素：用 design 工具 edit_element(oid=${c.oid}, style/text/...) 就地精改，` +
+          `保留其它一切；不确定当前样式先 get_artifact 读 source。别为这点改动重造整个产物。`
+        : `针对${context}的反馈：${c.body}`
       enqueueChatQuote({
         path: `design-comment:${id}`,
         name: label,
         startLine: 0,
         endLine: 0,
-        content: `针对${context}的反馈：${c.body}`,
+        content,
       })
     },
     [comments, t, enqueueChatQuote],
@@ -1636,13 +1644,17 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             : c.tag
               ? `<${c.tag}>`
               : t("design.comment.title", "批注")
-          return `${i + 1}. ${el}：${c.body}`
+          // 锚定元素带上 oid，供 AI 对每条用 edit_element(oid) 就地精改。
+          const oidTag = c.oid != null ? `（oid=${c.oid}）` : ""
+          return `${i + 1}. ${el}${oidTag}：${c.body}`
         })
         .join("\n")
-      const content = `${t(
-        "design.comment.batchScopeHint",
-        "请仅修改下列被标注的元素，其它保持不变：",
-      )}\n${lines}`
+      const content =
+        `${t(
+          "design.comment.batchScopeHint",
+          "请仅修改下列被标注的元素，其它保持不变：",
+        )}\n${lines}\n` +
+        `逐条用 design 工具 edit_element(oid, style/text/...) 就地精改，不确定当前样式先 get_artifact 读 source；别重造整个产物。`
       enqueueChatQuote({
         path: `design-comments:${ids.slice().sort((a, b) => a - b).join("-")}`,
         name: t("design.comment.batchLabel", "{{count}} 条批注", { count: chosen.length }),

@@ -61,6 +61,13 @@ impl ArtifactKind {
         }
     }
 
+    /// 是否支持 oid 元素级微调（`data-ds-oid` + `patch_element`）。纯静态 HTML kind 支持；
+    /// Image/Audio 是媒体（data-uri），Component 是编译产物（源≠输出）——都无 oid。与前端
+    /// `isEditableKind` 及 `render` 的 `editable` 判定同口径（单一真相源）。
+    pub fn supports_oid_edit(self) -> bool {
+        !matches!(self, Self::Image | Self::Audio | Self::Component)
+    }
+
     /// 默认视口（宽, 高）。高为 0 表示自适应内容高。
     pub fn default_viewport(self) -> (i64, i64) {
         match self {

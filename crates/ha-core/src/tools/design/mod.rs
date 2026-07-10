@@ -44,6 +44,7 @@ pub(crate) async fn tool_design(
         "get_artifact" => action_get_artifact(args),
         "create_artifact" => action_create_artifact(args, session_id, agent_id).await,
         "update_artifact" => action_update_artifact(args),
+        "edit_element" => action_edit_element(args),
         "restyle" => action_restyle(args),
         "delete_artifact" => action_delete_artifact(args),
         "versions" => action_versions(args),
@@ -222,10 +223,16 @@ fn action_list_artifacts(args: &Value, session_id: Option<&str>) -> Result<Strin
 
 fn action_get_artifact(args: &Value) -> Result<String> {
     let id = require_str(args, "artifact_id")?;
-    match service::get_artifact_view(id)? {
-        Some(v) => ok(serde_json::to_value(v)?),
-        None => Err(anyhow::anyhow!("artifact not found: {id}")),
+    let Some(view) = service::get_artifact_view(id)? else {
+        return Err(anyhow::anyhow!("artifact not found: {id}"));
+    };
+    // 附上 oid-标注的当前源码：agent 据此**看得到**元素结构 + 当前样式 + 每个元素的
+    // `data-ds-oid`，从而 `edit_element` 就地精改，而不必凭记忆整段重造（内容被抹空的根因）。
+    let mut out = serde_json::to_value(&view)?;
+    if let Some(src) = service::get_artifact_source_for_agent(id)? {
+        out["source"] = serde_json::to_value(src)?;
     }
+    ok(out)
 }
 
 async fn action_create_artifact(
@@ -293,6 +300,61 @@ fn action_update_artifact(args: &Value) -> Result<String> {
         "status": "updated",
         "artifactId": artifact.id,
         "version": artifact.current_version,
+    }))
+}
+
+/// `{prop: "val", ...}` → `Vec<(prop, val)>`（值 `to_string`：字符串取原文、数字/布尔转文本）。
+/// 用于 `edit_element` 的 `style` / `attrs`。空对象 / 非对象 → None。
+fn parse_kv_object(args: &Value, key: &str) -> Option<Vec<(String, String)>> {
+    let obj = args.get(key)?.as_object()?;
+    if obj.is_empty() {
+        return None;
+    }
+    Some(
+        obj.iter()
+            .map(|(k, v)| {
+                let val = match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                (k.clone(), val)
+            })
+            .collect(),
+    )
+}
+
+/// 就地精改一个元素（`edit_element`）：按 `oid` 定位、只改 style / text / attrs 或删除该元素，
+/// **保留其它一切**。复用确定性 `patch_element`（oidmap 定位 + stale-write 守卫 + 落新版本）。
+/// 这是「改个颜色/文案」的正道——比整段重写 `update_artifact` 快且**绝不会误伤 / 抹空整页**。
+fn action_edit_element(args: &Value) -> Result<String> {
+    let id = require_str(args, "artifact_id")?;
+    let oid = args
+        .get("oid")
+        .and_then(|v| v.as_u64())
+        .context("Missing 'oid' (number). Read it from get_artifact's data-ds-oid attributes or a pinned comment.")?
+        as u32;
+    let text = str_arg(args, "text").map(str::to_string);
+    let styles = parse_kv_object(args, "style");
+    let attrs = parse_kv_object(args, "attrs");
+    let remove = args.get("remove").and_then(|v| v.as_bool());
+    if text.is_none() && styles.is_none() && attrs.is_none() && remove != Some(true) {
+        anyhow::bail!("edit_element needs at least one of: style, text, attrs, or remove");
+    }
+    let expected_hash = str_arg(args, "expected_body_hash").map(str::to_string);
+    let artifact = service::patch_element(service::ElementPatch {
+        artifact_id: id.to_string(),
+        oid,
+        text,
+        styles,
+        attrs,
+        remove,
+        expected_hash,
+    })?;
+    ok(json!({
+        "status": "patched",
+        "artifactId": artifact.id,
+        "version": artifact.current_version,
+        "oid": oid,
     }))
 }
 
@@ -369,4 +431,32 @@ fn action_show(args: &Value, session_id: Option<&str>) -> Result<String> {
         );
     }
     ok(json!({ "status": "shown", "artifactId": id }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parse_kv_object_maps_and_stringifies() {
+        let args = json!({ "style": { "color": "#111", "font-weight": 700, "opacity": 0.5 } });
+        let mut kv = parse_kv_object(&args, "style").expect("some");
+        kv.sort();
+        assert_eq!(
+            kv,
+            vec![
+                ("color".to_string(), "#111".to_string()),
+                ("font-weight".to_string(), "700".to_string()),
+                ("opacity".to_string(), "0.5".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_kv_object_empty_or_missing_is_none() {
+        assert!(parse_kv_object(&json!({ "style": {} }), "style").is_none());
+        assert!(parse_kv_object(&json!({}), "style").is_none());
+        assert!(parse_kv_object(&json!({ "style": "notobj" }), "style").is_none());
+    }
 }

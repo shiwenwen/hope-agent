@@ -1702,6 +1702,46 @@ pub fn get_artifact_view(id: &str) -> Result<Option<ArtifactView>> {
     }))
 }
 
+/// 设计 agent 侧「看当前产物源码」的载荷：body **注 `data-ds-oid`**（agent 据此定位元素 +
+/// 用 `edit_element` 就地精改）+ css / js 原样 + body_hash（可作 `edit_element` 的
+/// stale-write 守卫）。让 agent 像 open-design 那样「读源码→精确改一处」而非凭记忆整段重造。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentArtifactSource {
+    /// body.html：oid-可编辑 kind 注入 `data-ds-oid`（agent 定位用），否则原样。
+    pub body: String,
+    pub css: String,
+    pub js: String,
+    /// 当前 body BLAKE3（传给 `edit_element` 的 `expected_body_hash` 守 stale-write）。
+    pub body_hash: String,
+    /// 该 kind 是否支持 `edit_element` 就地微调（image/audio/component 为 false）。
+    pub oid_editable: bool,
+}
+
+/// 读取产物源码给 agent（body 注 oid）。见 [`AgentArtifactSource`]。
+pub fn get_artifact_source_for_agent(id: &str) -> Result<Option<AgentArtifactSource>> {
+    let Some(a) = open_db()?.get_artifact(id)? else {
+        return Ok(None);
+    };
+    let dir = paths::design_artifact_dir(&a.project_id, &a.id)?;
+    let parts = read_source(&dir)?;
+    let body_hash = patch::body_hash(&parts.body_html);
+    let oid_editable = ArtifactKind::from_str(&a.kind).is_some_and(ArtifactKind::supports_oid_edit);
+    // 仅可编辑 kind 注 oid——component 源是 JSX、image/audio 是媒体，注 data-ds-oid 无意义/有害。
+    let body = if oid_editable {
+        patch::annotate(&parts.body_html).0
+    } else {
+        parts.body_html
+    };
+    Ok(Some(AgentArtifactSource {
+        body,
+        css: parts.css,
+        js: parts.js,
+        body_hash,
+        oid_editable,
+    }))
+}
+
 /// 渲染版本标记是否已在 head（`<body>` 之前）出现——只扫 head 区，避免用户 body HTML 里恰好
 /// 出现同串导致 stale 文件被误判为 fresh 而永不自愈。
 fn head_contains_marker(html: &str, marker: &str) -> bool {
