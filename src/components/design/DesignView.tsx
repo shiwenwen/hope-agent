@@ -690,6 +690,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             )
           }
         }
+        // 截图降级告知（此前失败只 log，用户不知截图没成）：仅在**尝试过**捕获（可截 kind）却
+        // 失败时提示；deck/motion 本就刻意不截图（多帧误导），不提示。
+        if (captureable && hasMarks && vp && !file) {
+          toast.info(t("design.draw.captureFailed", "截图未生成，已仅发送区域文字说明"))
+        }
         enqueueChatQuote({
           path: `design-draw:${art.id}:${viewportReqIdRef.current}`,
           name: t("design.draw.quoteName", "画框批注"),

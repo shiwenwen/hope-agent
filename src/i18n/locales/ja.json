@@ -6599,7 +6599,8 @@
       "scopeNote": "ユーザーの説明：{{note}}",
       "scopeInstruction": "マークした領域のみを変更し、それ以外はそのままにしてください。",
       "scopeElements": "注釈が当たった要素：{{list}}。",
-      "scopeEdit": "それぞれ design ツールの edit_element(oid, style/text/...) でその場で修正してください。現在のスタイルが不明な場合はまず get_artifact でソースを確認し、成果物全体を作り直さないでください。"
+      "scopeEdit": "それぞれ design ツールの edit_element(oid, style/text/...) でその場で修正してください。現在のスタイルが不明な場合はまず get_artifact でソースを確認し、成果物全体を作り直さないでください。",
+      "captureFailed": "スクリーンショットを生成できなかったため、対象範囲をテキストのみで送信しました"
     },
     "dblClickRename": "ダブルクリックで名前変更",
     "duplicatePage": "ページを複製",

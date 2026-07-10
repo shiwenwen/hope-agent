@@ -6599,7 +6599,8 @@
       "scopeNote": "User note: {{note}}",
       "scopeInstruction": "Only change the marked regions; leave everything else unchanged.",
       "scopeElements": "Annotated elements hit: {{list}}.",
-      "scopeEdit": "Edit each in place via the design tool edit_element(oid, style/text/...); if unsure of the current style, read the source with get_artifact first — do not rebuild the whole artifact."
+      "scopeEdit": "Edit each in place via the design tool edit_element(oid, style/text/...); if unsure of the current style, read the source with get_artifact first — do not rebuild the whole artifact.",
+      "captureFailed": "Screenshot unavailable — sent the marked region as text only"
     },
     "dblClickRename": "Double-click to rename",
     "duplicatePage": "Duplicate page",

@@ -6599,7 +6599,8 @@
       "scopeNote": "Kullanıcı notu: {{note}}",
       "scopeInstruction": "Yalnızca işaretli bölgeleri değiştir; gerisini aynı bırak.",
       "scopeElements": "İşaretlenen öğeler: {{list}}.",
-      "scopeEdit": "Her birini design aracının edit_element(oid, style/text/...) ile yerinde düzenleyin; mevcut stilden emin değilseniz önce get_artifact ile kaynağı okuyun; tüm çıktıyı yeniden oluşturmayın."
+      "scopeEdit": "Her birini design aracının edit_element(oid, style/text/...) ile yerinde düzenleyin; mevcut stilden emin değilseniz önce get_artifact ile kaynağı okuyun; tüm çıktıyı yeniden oluşturmayın.",
+      "captureFailed": "Ekran görüntüsü oluşturulamadı; işaretli bölge yalnızca metin olarak gönderildi"
     },
     "dblClickRename": "Yeniden adlandırmak için çift tıkla",
     "duplicatePage": "Sayfayı çoğalt",

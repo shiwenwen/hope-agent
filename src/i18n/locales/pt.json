@@ -6599,7 +6599,8 @@
       "scopeNote": "Nota do usuário: {{note}}",
       "scopeInstruction": "Altere apenas as regiões marcadas; mantenha o restante inalterado.",
       "scopeElements": "Elementos anotados atingidos: {{list}}.",
-      "scopeEdit": "Edite cada um no local com a ferramenta design edit_element(oid, style/text/...); se não souber o estilo atual, leia a fonte com get_artifact primeiro; não reconstrua todo o artefato."
+      "scopeEdit": "Edite cada um no local com a ferramenta design edit_element(oid, style/text/...); se não souber o estilo atual, leia a fonte com get_artifact primeiro; não reconstrua todo o artefato.",
+      "captureFailed": "Captura não gerada; a região marcada foi enviada apenas como texto"
     },
     "dblClickRename": "Clique duplo para renomear",
     "duplicatePage": "Duplicar página",

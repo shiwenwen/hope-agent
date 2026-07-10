@@ -6599,7 +6599,8 @@
       "scopeNote": "Ghi chú của người dùng: {{note}}",
       "scopeInstruction": "Chỉ thay đổi các vùng được đánh dấu; giữ nguyên phần còn lại.",
       "scopeElements": "Các phần tử được đánh dấu: {{list}}.",
-      "scopeEdit": "Chỉnh sửa từng phần tử tại chỗ bằng công cụ design edit_element(oid, style/text/...); nếu chưa rõ kiểu hiện tại, hãy đọc nguồn bằng get_artifact trước; đừng dựng lại toàn bộ sản phẩm."
+      "scopeEdit": "Chỉnh sửa từng phần tử tại chỗ bằng công cụ design edit_element(oid, style/text/...); nếu chưa rõ kiểu hiện tại, hãy đọc nguồn bằng get_artifact trước; đừng dựng lại toàn bộ sản phẩm.",
+      "captureFailed": "Không tạo được ảnh chụp; đã gửi vùng đánh dấu chỉ dưới dạng văn bản"
     },
     "dblClickRename": "Nhấp đúp để đổi tên",
     "duplicatePage": "Nhân bản trang",
