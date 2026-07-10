@@ -155,6 +155,15 @@ pub struct DesignCodeBinding {
     pub last_synced_at: Option<String>,
 }
 
+/// 部署历史一条（provider + 公开 URL + 时间）。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeploymentRecord {
+    pub provider: String,
+    pub url: String,
+    pub created_at: String,
+}
+
 // ── Column lists / row mappers ─────────────────────────────────────
 
 fn row_to_code_binding(row: &rusqlite::Row) -> rusqlite::Result<DesignCodeBinding> {
@@ -419,6 +428,22 @@ impl DesignDb {
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (project_id, path)
             )",
+            [],
+        )?;
+        // 部署历史（每次成功部署一行：provider + 公开 URL + 时间）。审计 + GUI 展示历史链接。
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS design_deployments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_id TEXT NOT NULL REFERENCES design_artifacts(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL,
+                url TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_design_deployments_artifact
+                ON design_deployments(artifact_id, id DESC)",
             [],
         )?;
 
@@ -941,6 +966,42 @@ impl DesignDb {
             rusqlite::params![token],
         )?;
         Ok(n > 0)
+    }
+
+    /// 记一条成功部署（provider + 公开 URL + 时间）。
+    pub fn record_deployment(
+        &self,
+        artifact_id: &str,
+        provider: &str,
+        url: &str,
+        created_at: &str,
+    ) -> Result<()> {
+        let conn = self.lock()?;
+        conn.execute(
+            "INSERT INTO design_deployments (artifact_id, provider, url, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![artifact_id, provider, url, created_at],
+        )?;
+        Ok(())
+    }
+
+    /// 产物部署历史（最新在前，最多 `limit` 条）。
+    pub fn list_deployments(&self, artifact_id: &str, limit: u32) -> Result<Vec<DeploymentRecord>> {
+        let conn = self.lock()?;
+        let mut stmt = conn.prepare(
+            "SELECT provider, url, created_at FROM design_deployments
+             WHERE artifact_id = ?1 ORDER BY id DESC LIMIT ?2",
+        )?;
+        let rows = stmt
+            .query_map(rusqlite::params![artifact_id, limit], |r| {
+                Ok(DeploymentRecord {
+                    provider: r.get(0)?,
+                    url: r.get(1)?,
+                    created_at: r.get(2)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
     }
 
     // ── Systems (registry over SYSTEM.md) ──────────────────────────

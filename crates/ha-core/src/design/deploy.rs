@@ -302,6 +302,15 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
         "deploy",
         "deployed artifact {artifact_id} -> {url}"
     );
+    // 记部署历史（失败不阻断部署结果）。
+    if let Err(e) = db.record_deployment(
+        artifact_id,
+        "cloudflare",
+        &url,
+        &chrono::Utc::now().to_rfc3339(),
+    ) {
+        crate::app_warn!("design", "deploy", "record deployment history failed: {e}");
+    }
     Ok(url)
 }
 

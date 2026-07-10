@@ -6598,7 +6598,8 @@
       "teamId": "Team ID (optional, for team accounts)",
       "teamIdPh": "Leave blank for personal account",
       "preflightBlocked": "Can't deploy",
-      "preflightReady": "Artifact is ready to deploy"
+      "preflightReady": "Artifact is ready to deploy",
+      "history": "Deploy history"
     },
     "draw": {
       "mode": "Markup: box/pen the region to change, sent as a screenshot to chat",

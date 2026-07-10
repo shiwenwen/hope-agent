@@ -301,6 +301,16 @@ pub async fn list_design_domains_cmd(
         .map_err(Into::into)
 }
 
+/// 产物部署历史（最新在前，最多 20 条）。
+#[tauri::command]
+pub async fn list_design_deployments_cmd(
+    artifact_id: String,
+) -> Result<Vec<ha_core::design::db::DeploymentRecord>, CmdError> {
+    ha_core::blocking::run_blocking(move || service::list_deployments(&artifact_id))
+        .await
+        .map_err(Into::into)
+}
+
 /// 部署预检（CF / Vercel 共用）：渲染干净 HTML → 报告（空/超限阻断，外部引用告警）。
 #[tauri::command]
 pub async fn preflight_design_deploy_cmd(

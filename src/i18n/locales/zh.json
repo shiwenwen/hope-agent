@@ -6598,7 +6598,8 @@
       "teamId": "Team ID（团队账号可选）",
       "teamIdPh": "个人账号留空",
       "preflightBlocked": "无法部署",
-      "preflightReady": "产物已就绪，可部署"
+      "preflightReady": "产物已就绪，可部署",
+      "history": "部署历史"
     },
     "draw": {
       "mode": "画框批注：框选/画笔标注要改的区域，带截图到对话",

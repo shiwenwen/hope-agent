@@ -1661,6 +1661,11 @@ pub fn share_token_for_artifact(artifact_id: &str) -> Result<Option<String>> {
     open_db()?.share_token_for_artifact(artifact_id)
 }
 
+/// 产物部署历史（最新在前，最多 20 条）。
+pub fn list_deployments(artifact_id: &str) -> Result<Vec<super::db::DeploymentRecord>> {
+    open_db()?.list_deployments(artifact_id, 20)
+}
+
 /// 撤销某产物的分享（按产物 id，与 owner 路由 `/artifacts/{id}/share` 对齐，避开公开
 /// `/share/{token}` 路径）。无分享返回 false。
 pub fn revoke_share_for_artifact(artifact_id: &str) -> Result<bool> {

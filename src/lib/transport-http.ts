@@ -299,6 +299,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   bind_design_domain_cmd:            { method: "POST",   path: "/api/design/artifacts/{artifactId}/domains" },
   list_design_domains_cmd:           { method: "GET",    path: "/api/design/artifacts/{artifactId}/domains" },
   preflight_design_deploy_cmd:       { method: "GET",    path: "/api/design/artifacts/{artifactId}/deploy/preflight" },
+  list_design_deployments_cmd:       { method: "GET",    path: "/api/design/artifacts/{artifactId}/deployments" },
   save_vercel_deploy_config_cmd:     { method: "PUT",    path: "/api/design/deploy/vercel/config" },
   get_vercel_deploy_config_cmd:      { method: "GET",    path: "/api/design/deploy/vercel/config" },
   deploy_design_artifact_vercel_cmd: { method: "POST",   path: "/api/design/artifacts/{artifactId}/deploy/vercel" },

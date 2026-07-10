@@ -732,6 +732,17 @@ pub async fn list_domains(Path(id): Path<String>) -> Result<Json<Value>, AppErro
         .collect::<Vec<_>>())))
 }
 
+/// `GET /api/design/artifacts/{id}/deployments` — 部署历史（最新在前）。
+pub async fn list_deployments(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let list = ha_core::blocking::run_blocking(move || {
+        ha_core::design::service::list_deployments(&id)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(list).unwrap_or(Value::Null)))
+}
+
 /// `GET /api/design/artifacts/{id}/deploy/preflight` — 部署预检（CF/Vercel 共用）。
 pub async fn preflight_deploy(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     validate_id(&id)?;

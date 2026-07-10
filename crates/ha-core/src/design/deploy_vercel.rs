@@ -181,6 +181,12 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     }
     let out = pick_url(&body, &name);
     crate::app_info!("design", "deploy", "deployed artifact {artifact_id} -> {out}");
+    // 记部署历史（失败不阻断）。
+    if let Err(e) =
+        db.record_deployment(artifact_id, "vercel", &out, &chrono::Utc::now().to_rfc3339())
+    {
+        crate::app_warn!("design", "deploy", "record deployment history failed: {e}");
+    }
     Ok(out)
 }
 

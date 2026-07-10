@@ -6598,7 +6598,8 @@
       "teamId": "Team ID（チームアカウントの場合は任意）",
       "teamIdPh": "個人アカウントは空欄のまま",
       "preflightBlocked": "デプロイできません",
-      "preflightReady": "成果物はデプロイ可能です"
+      "preflightReady": "成果物はデプロイ可能です",
+      "history": "デプロイ履歴"
     },
     "draw": {
       "mode": "マークアップ：変更する領域を枠/ペンで指定し、スクリーンショットとしてチャットに送信",

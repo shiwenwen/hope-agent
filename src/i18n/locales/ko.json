@@ -6598,7 +6598,8 @@
       "teamId": "Team ID (팀 계정은 선택 사항)",
       "teamIdPh": "개인 계정은 비워 두세요",
       "preflightBlocked": "배포할 수 없음",
-      "preflightReady": "배포 준비 완료"
+      "preflightReady": "배포 준비 완료",
+      "history": "배포 기록"
     },
     "draw": {
       "mode": "마크업: 변경할 영역을 상자/펜으로 표시해 스크린샷으로 대화에 전송",

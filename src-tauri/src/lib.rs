@@ -840,6 +840,7 @@ pub fn run() {
             commands::design::bind_design_domain_cmd,
             commands::design::list_design_domains_cmd,
             commands::design::preflight_design_deploy_cmd,
+            commands::design::list_design_deployments_cmd,
             commands::design::save_vercel_deploy_config_cmd,
             commands::design::get_vercel_deploy_config_cmd,
             commands::design::deploy_design_artifact_vercel_cmd,

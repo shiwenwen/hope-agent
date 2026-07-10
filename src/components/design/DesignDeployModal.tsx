@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Cloud, Loader2, ExternalLink, Copy, Check, Globe, AlertTriangle, CheckCircle2 } from "lucide-react"
 
@@ -59,6 +59,22 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
     warnings: string[]
     errors: string[]
   } | null>(null)
+  // 部署历史（跨 provider，最新在前）。
+  const [deployments, setDeployments] = useState<
+    { provider: string; url: string; createdAt: string }[]
+  >([])
+
+  const loadDeployments = useCallback(() => {
+    if (!artifactId) return
+    void getTransport()
+      .call<{ provider: string; url: string; createdAt: string }[]>("list_design_deployments_cmd", {
+        artifactId,
+      })
+      .then((list) => setDeployments(Array.isArray(list) ? list : []))
+      .catch(() => {
+        /* 无历史 / 无网 → 忽略 */
+      })
+  }, [artifactId])
 
   // 渲染期重置：打开时清结果（避免 effect 内同步 setState）。
   const [prevOpen, setPrevOpen] = useState(false)
@@ -83,6 +99,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
         .catch(() => {
           if (!cancelled) setPreflight(null)
         })
+      loadDeployments()
     }
     if (provider === "cloudflare") {
       void getTransport()
@@ -121,7 +138,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
     return () => {
       cancelled = true
     }
-  }, [open, provider, artifactId])
+  }, [open, provider, artifactId, loadDeployments])
 
   const deploy = async () => {
     if (!artifactId || deploying) return
@@ -144,6 +161,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
         })
       }
       setUrl(res.url)
+      loadDeployments()
       try {
         await navigator.clipboard.writeText(res.url)
       } catch {
@@ -458,6 +476,37 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
                   )}
                 </Button>
               </div>
+            </div>
+          )}
+
+          {deployments.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium text-muted-foreground">
+                {t("design.deploy.history", "部署历史")}
+              </div>
+              <ul className="max-h-32 space-y-1 overflow-y-auto">
+                {deployments.map((d, i) => (
+                  <li
+                    key={`${d.url}-${i}`}
+                    className="flex items-center gap-2 rounded-md bg-muted/40 px-2 py-1 text-[11px]"
+                  >
+                    <span className="shrink-0 rounded bg-background/70 px-1 py-0.5 font-medium text-muted-foreground">
+                      {d.provider === "vercel" ? "Vercel" : "CF"}
+                    </span>
+                    <a
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-w-0 flex-1 truncate text-primary hover:underline"
+                    >
+                      {d.url}
+                    </a>
+                    <span className="shrink-0 text-muted-foreground">
+                      {new Date(d.createdAt).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

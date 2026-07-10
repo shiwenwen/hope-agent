@@ -6598,7 +6598,8 @@
       "teamId": "Team ID (pilihan, untuk akaun pasukan)",
       "teamIdPh": "Biarkan kosong untuk akaun peribadi",
       "preflightBlocked": "Tidak boleh atur guna",
-      "preflightReady": "Artifak sedia untuk diatur guna"
+      "preflightReady": "Artifak sedia untuk diatur guna",
+      "history": "Sejarah atur guna"
     },
     "draw": {
       "mode": "Tanda: kotak/pen kawasan untuk diubah dan hantar sebagai tangkapan skrin ke sembang",

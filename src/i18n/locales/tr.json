@@ -6598,7 +6598,8 @@
       "teamId": "Team ID (isteğe bağlı, ekip hesapları için)",
       "teamIdPh": "Kişisel hesap için boş bırakın",
       "preflightBlocked": "Dağıtılamıyor",
-      "preflightReady": "Çıktı dağıtıma hazır"
+      "preflightReady": "Çıktı dağıtıma hazır",
+      "history": "Dağıtım geçmişi"
     },
     "draw": {
       "mode": "İşaretleme: değişecek bölgeyi kutu/kalemle işaretleyip ekran görüntüsü olarak sohbete gönder",

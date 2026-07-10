@@ -6598,7 +6598,8 @@
       "teamId": "Team ID (opcional, para contas de equipe)",
       "teamIdPh": "Deixe em branco para conta pessoal",
       "preflightBlocked": "Não é possível implantar",
-      "preflightReady": "O artefato está pronto para implantar"
+      "preflightReady": "O artefato está pronto para implantar",
+      "history": "Histórico de implantações"
     },
     "draw": {
       "mode": "Marcação: enquadre/desenhe a região a alterar e envie como captura ao chat",

@@ -1986,6 +1986,10 @@ fn build_router_with_cors(
             get(routes::design::preflight_deploy),
         )
         .route(
+            "/design/artifacts/{id}/deployments",
+            get(routes::design::list_deployments),
+        )
+        .route(
             "/design/deploy/vercel/config",
             get(routes::design::get_vercel_config).put(routes::design::save_vercel_config),
         )
