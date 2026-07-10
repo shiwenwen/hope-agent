@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Copy, Hand, History, Loader2, Monitor, RotateCcw, Search, Smartphone, Sparkles, Tablet, TriangleAlert, Undo2 } from "lucide-react"
+import { Check, Copy, Download, Hand, History, Loader2, Monitor, RotateCcw, Search, Smartphone, Sparkles, Tablet, TriangleAlert, Undo2 } from "lucide-react"
 
 import {
   AlertDialog,
@@ -388,6 +388,26 @@ export function DesignVersionHistoryModal({
                         onClick={() => setPromptOpen((o) => !o)}
                       >
                         {t("design.ver.prompt", "Prompt")}
+                      </Button>
+                    )}
+                    {html != null && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1.5 text-xs"
+                        onClick={() => {
+                          // 逐版本下载：把选中版本的 srcDoc 存成 html 文件（取出历史版本，无需恢复）。
+                          const blob = new Blob([html], { type: "text/html" })
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement("a")
+                          a.href = url
+                          a.download = `v${selected}.html`
+                          a.click()
+                          URL.revokeObjectURL(url)
+                        }}
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        {t("common.download", "下载")}
                       </Button>
                     )}
                     {canRestore && (
