@@ -6592,7 +6592,11 @@
       "domainActive": "Aktif",
       "domainPending": "Menunggu",
       "domainPlaceholder": "cth. design.example.com",
-      "bindDomain": "Ikat"
+      "bindDomain": "Ikat",
+      "titleVercel": "Atur guna ke Vercel",
+      "hintVercel": "Terbitkan reka bentuk ini sebagai halaman awam (*.vercel.app). Memerlukan token API Vercel, disimpan secara setempat dan disulitkan.",
+      "teamId": "Team ID (pilihan, untuk akaun pasukan)",
+      "teamIdPh": "Biarkan kosong untuk akaun peribadi"
     },
     "draw": {
       "mode": "Tanda: kotak/pen kawasan untuk diubah dan hantar sebagai tangkapan skrin ke sembang",

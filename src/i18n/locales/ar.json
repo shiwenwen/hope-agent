@@ -6592,7 +6592,11 @@
       "domainActive": "مُفعّل",
       "domainPending": "قيد التحقق",
       "domainPlaceholder": "مثال: design.example.com",
-      "bindDomain": "ربط"
+      "bindDomain": "ربط",
+      "titleVercel": "النشر إلى Vercel",
+      "hintVercel": "انشر هذا التصميم كصفحة عامة (‎*.vercel.app). يتطلب رمز Vercel API، ويُخزَّن محليًا ومشفّرًا.",
+      "teamId": "Team ID (اختياري، لحسابات الفرق)",
+      "teamIdPh": "اتركه فارغًا للحساب الشخصي"
     },
     "draw": {
       "mode": "التوصيف: أطر/ارسم المنطقة المراد تغييرها وأرسلها كلقطة شاشة إلى المحادثة",

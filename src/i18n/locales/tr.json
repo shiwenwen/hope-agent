@@ -6592,7 +6592,11 @@
       "domainActive": "Etkin",
       "domainPending": "Beklemede",
       "domainPlaceholder": "örn. design.example.com",
-      "bindDomain": "Bağla"
+      "bindDomain": "Bağla",
+      "titleVercel": "Vercel'e dağıt",
+      "hintVercel": "Bu tasarımı herkese açık bir sayfa (*.vercel.app) olarak yayımlayın. Bir Vercel API belirteci gerekir; yerel olarak ve şifreli saklanır.",
+      "teamId": "Team ID (isteğe bağlı, ekip hesapları için)",
+      "teamIdPh": "Kişisel hesap için boş bırakın"
     },
     "draw": {
       "mode": "İşaretleme: değişecek bölgeyi kutu/kalemle işaretleyip ekran görüntüsü olarak sohbete gönder",

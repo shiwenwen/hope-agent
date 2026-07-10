@@ -6592,7 +6592,11 @@
       "domainActive": "Ativo",
       "domainPending": "Pendente",
       "domainPlaceholder": "ex.: design.example.com",
-      "bindDomain": "Vincular"
+      "bindDomain": "Vincular",
+      "titleVercel": "Implantar no Vercel",
+      "hintVercel": "Publique este design como uma página pública (*.vercel.app). Requer um token de API do Vercel, armazenado localmente e criptografado.",
+      "teamId": "Team ID (opcional, para contas de equipe)",
+      "teamIdPh": "Deixe em branco para conta pessoal"
     },
     "draw": {
       "mode": "Marcação: enquadre/desenhe a região a alterar e envie como captura ao chat",

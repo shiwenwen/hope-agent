@@ -6592,7 +6592,11 @@
       "domainActive": "Active",
       "domainPending": "Pending",
       "domainPlaceholder": "e.g. design.example.com",
-      "bindDomain": "Bind"
+      "bindDomain": "Bind",
+      "titleVercel": "Deploy to Vercel",
+      "hintVercel": "Publish this design as a public page (*.vercel.app). Requires a Vercel API token, stored locally and encrypted.",
+      "teamId": "Team ID (optional, for team accounts)",
+      "teamIdPh": "Leave blank for personal account"
     },
     "draw": {
       "mode": "Markup: box/pen the region to change, sent as a screenshot to chat",

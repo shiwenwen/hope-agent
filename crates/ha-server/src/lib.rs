@@ -1982,6 +1982,14 @@ fn build_router_with_cors(
             post(routes::design::bind_domain).get(routes::design::list_domains),
         )
         .route(
+            "/design/deploy/vercel/config",
+            get(routes::design::get_vercel_config).put(routes::design::save_vercel_config),
+        )
+        .route(
+            "/design/artifacts/{id}/deploy/vercel",
+            post(routes::design::deploy_artifact_vercel),
+        )
+        .route(
             "/design/artifacts/{id}/export",
             get(routes::design::export_artifact),
         )

@@ -301,6 +301,39 @@ pub async fn list_design_domains_cmd(
         .map_err(Into::into)
 }
 
+// ── Vercel 部署（多提供商第二 provider，owner 平面 opt-in）─────────────────
+
+/// 保存 Vercel 部署配置（token 0600 落 credentials；token=mask 保留原值）。
+#[tauri::command]
+pub async fn save_vercel_deploy_config_cmd(
+    api_token: String,
+    team_id: String,
+) -> Result<(), CmdError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::design::deploy_vercel::save_vercel_config(&api_token, &team_id)
+    })
+    .await
+    .map_err(Into::into)
+}
+
+/// 读 Vercel 部署配置（**token 脱敏**：只回 hasToken + mask 哨兵）。
+#[tauri::command]
+pub async fn get_vercel_deploy_config_cmd(
+) -> Result<ha_core::design::deploy_vercel::VercelConfigPublic, CmdError> {
+    ha_core::blocking::run_blocking(ha_core::design::deploy_vercel::public_vercel_config)
+        .await
+        .map_err(Into::into)
+}
+
+/// 部署产物到 Vercel，返回 `{ url }`（与 CF 同形，前端统一读 `res.url`）。
+#[tauri::command]
+pub async fn deploy_design_artifact_vercel_cmd(
+    artifact_id: String,
+) -> Result<DeployUrl, CmdError> {
+    let url = ha_core::design::deploy_vercel::deploy_artifact(&artifact_id).await?;
+    Ok(DeployUrl { url })
+}
+
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {
     ha_core::blocking::run_blocking(move || service::patch_element(input))

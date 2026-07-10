@@ -46,6 +46,12 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   const [domains, setDomains] = useState<{ name: string; status: string }[]>([])
   const [bindingDomain, setBindingDomain] = useState(false)
   const domainValid = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domainInput.trim())
+  // 多提供商部署：Cloudflare Pages（默认）/ Vercel，各自独立凭据 + 部署路径。
+  const [provider, setProvider] = useState<"cloudflare" | "vercel">("cloudflare")
+  const [vercelToken, setVercelToken] = useState("")
+  const [vercelMask, setVercelMask] = useState("")
+  const [vercelHasToken, setVercelHasToken] = useState(false)
+  const [teamId, setTeamId] = useState("")
 
   // 渲染期重置：打开时清结果（避免 effect 内同步 setState）。
   const [prevOpen, setPrevOpen] = useState(false)
@@ -57,31 +63,44 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    void getTransport()
-      .call<{ accountId: string; hasToken: boolean; tokenMask: string }>("get_cf_deploy_config_cmd")
-      .then((c) => {
-        if (cancelled) return
-        setAccountId(c.accountId || "")
-        setHasToken(!!c.hasToken)
-        setMask(c.tokenMask || "")
-        setToken(c.hasToken ? c.tokenMask || "" : "")
-      })
-      .catch((e) => logger.error("design", "DesignDeployModal", "load config failed", e))
-    // 已绑定的自定义域名 + 验证状态（项目未部署过 → 空）。
-    if (artifactId) {
+    if (provider === "cloudflare") {
       void getTransport()
-        .call<{ name: string; status: string }[]>("list_design_domains_cmd", { artifactId })
-        .then((list) => {
-          if (!cancelled) setDomains(Array.isArray(list) ? list : [])
+        .call<{ accountId: string; hasToken: boolean; tokenMask: string }>("get_cf_deploy_config_cmd")
+        .then((c) => {
+          if (cancelled) return
+          setAccountId(c.accountId || "")
+          setHasToken(!!c.hasToken)
+          setMask(c.tokenMask || "")
+          setToken(c.hasToken ? c.tokenMask || "" : "")
         })
-        .catch(() => {
-          /* 未部署 / 无网 → 忽略 */
+        .catch((e) => logger.error("design", "DesignDeployModal", "load cf config failed", e))
+      // 已绑定的自定义域名 + 验证状态（项目未部署过 → 空）。
+      if (artifactId) {
+        void getTransport()
+          .call<{ name: string; status: string }[]>("list_design_domains_cmd", { artifactId })
+          .then((list) => {
+            if (!cancelled) setDomains(Array.isArray(list) ? list : [])
+          })
+          .catch(() => {
+            /* 未部署 / 无网 → 忽略 */
+          })
+      }
+    } else {
+      void getTransport()
+        .call<{ teamId: string; hasToken: boolean; tokenMask: string }>("get_vercel_deploy_config_cmd")
+        .then((c) => {
+          if (cancelled) return
+          setTeamId(c.teamId || "")
+          setVercelHasToken(!!c.hasToken)
+          setVercelMask(c.tokenMask || "")
+          setVercelToken(c.hasToken ? c.tokenMask || "" : "")
         })
+        .catch((e) => logger.error("design", "DesignDeployModal", "load vercel config failed", e))
     }
     return () => {
       cancelled = true
     }
-  }, [open])
+  }, [open, provider, artifactId])
 
   const deploy = async () => {
     if (!artifactId || deploying) return
@@ -89,11 +108,20 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
     try {
       // 只在填了**真正的新 token**（非空、非 mask）时才覆写；否则一律送 mask 让后端保留原
       // token——否则清空预填的 mask 字段会把已存凭据写成空、抹掉（review 修复）。
-      const tokenToSave = token.trim() && token !== mask ? token : mask
-      await getTransport().call("save_cf_deploy_config_cmd", { apiToken: tokenToSave, accountId })
-      const res = await getTransport().call<{ url: string }>("deploy_design_artifact_cmd", {
-        artifactId,
-      })
+      let res: { url: string }
+      if (provider === "vercel") {
+        const tokenToSave = vercelToken.trim() && vercelToken !== vercelMask ? vercelToken : vercelMask
+        await getTransport().call("save_vercel_deploy_config_cmd", { apiToken: tokenToSave, teamId })
+        res = await getTransport().call<{ url: string }>("deploy_design_artifact_vercel_cmd", {
+          artifactId,
+        })
+      } else {
+        const tokenToSave = token.trim() && token !== mask ? token : mask
+        await getTransport().call("save_cf_deploy_config_cmd", { apiToken: tokenToSave, accountId })
+        res = await getTransport().call<{ url: string }>("deploy_design_artifact_cmd", {
+          artifactId,
+        })
+      }
       setUrl(res.url)
       try {
         await navigator.clipboard.writeText(res.url)
@@ -131,10 +159,20 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
     }
   }
 
-  // 可部署 = 有 account 且（已存 token 或填了真正的新 token）。清空字段但已有 token 仍可部署
-  // （送 mask 保留）；无 token 且字段空/仅 mask 则禁用（须先输入 token）。
+  // 可部署 = 凭据齐（已存 token 或填了真正的新 token）。清空字段但已有 token 仍可部署
+  // （送 mask 保留）；无 token 且字段空/仅 mask 则禁用（须先输入 token）。CF 另需 account。
   const canDeploy =
-    !!accountId.trim() && (hasToken || (!!token.trim() && token !== mask)) && !deploying
+    !deploying &&
+    (provider === "vercel"
+      ? vercelHasToken || (!!vercelToken.trim() && vercelToken !== vercelMask)
+      : !!accountId.trim() && (hasToken || (!!token.trim() && token !== mask)))
+
+  // 切 provider 清上一次结果，避免展示错平台的 URL。
+  const switchProvider = (p: "cloudflare" | "vercel") => {
+    if (p === provider) return
+    setProvider(p)
+    setUrl(null)
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -142,41 +180,70 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Cloud className="h-4 w-4 text-primary" />
-            {t("design.deploy.title", "部署到 Cloudflare Pages")}
+            {provider === "vercel"
+              ? t("design.deploy.titleVercel", "部署到 Vercel")
+              : t("design.deploy.title", "部署到 Cloudflare Pages")}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">
-          <p className="text-xs text-muted-foreground">
-            {t(
-              "design.deploy.hint",
-              "把这个设计发布成公开网页（*.pages.dev）。需要一个 Cloudflare API Token（Pages 编辑权限）和 Account ID，只保存在本机、加密存放。",
-            )}
-          </p>
-          <div className="space-y-1">
-            <label htmlFor="design-deploy-account" className="text-xs font-medium">
-              {t("design.deploy.accountId", "Account ID")}
-            </label>
-            <Input
-              id="design-deploy-account"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
-              onBlur={() => setAccountTouched(true)}
-              placeholder="e.g. 0a1b2c3d…"
-              aria-invalid={accountInvalid}
-              aria-describedby={accountInvalid ? "design-deploy-account-err" : undefined}
-              className={cn(
-                "h-8 text-xs",
-                accountInvalid && "border-destructive focus-visible:ring-destructive",
-              )}
-            />
-            {accountInvalid && (
-              <p id="design-deploy-account-err" role="alert" className="text-[11px] text-destructive">
-                {t("design.deploy.accountFormat", "Account ID 应为 32 位十六进制字符")}
-              </p>
-            )}
+          {/* 提供商切换：CF Pages / Vercel */}
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1">
+            {(["cloudflare", "vercel"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => switchProvider(p)}
+                className={cn(
+                  "rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
+                  provider === p
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {p === "vercel" ? "Vercel" : "Cloudflare Pages"}
+              </button>
+            ))}
           </div>
-          <div className="space-y-1">
+
+          <p className="text-xs text-muted-foreground">
+            {provider === "vercel"
+              ? t(
+                  "design.deploy.hintVercel",
+                  "把这个设计发布成公开网页（*.vercel.app）。需要一个 Vercel API Token，只保存在本机、加密存放。",
+                )
+              : t(
+                  "design.deploy.hint",
+                  "把这个设计发布成公开网页（*.pages.dev）。需要一个 Cloudflare API Token（Pages 编辑权限）和 Account ID，只保存在本机、加密存放。",
+                )}
+          </p>
+
+          {provider === "cloudflare" ? (
+            <>
+              <div className="space-y-1">
+                <label htmlFor="design-deploy-account" className="text-xs font-medium">
+                  {t("design.deploy.accountId", "Account ID")}
+                </label>
+                <Input
+                  id="design-deploy-account"
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  onBlur={() => setAccountTouched(true)}
+                  placeholder="e.g. 0a1b2c3d…"
+                  aria-invalid={accountInvalid}
+                  aria-describedby={accountInvalid ? "design-deploy-account-err" : undefined}
+                  className={cn(
+                    "h-8 text-xs",
+                    accountInvalid && "border-destructive focus-visible:ring-destructive",
+                  )}
+                />
+                {accountInvalid && (
+                  <p id="design-deploy-account-err" role="alert" className="text-[11px] text-destructive">
+                    {t("design.deploy.accountFormat", "Account ID 应为 32 位十六进制字符")}
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1">
             <label htmlFor="design-deploy-token" className="flex items-center justify-between text-xs font-medium">
               {t("design.deploy.token", "API Token")}
               <a
@@ -196,7 +263,51 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
               placeholder={hasToken ? mask : t("design.deploy.tokenPh", "粘贴 API Token")}
               className="h-8 text-xs"
             />
-          </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="space-y-1">
+                <label
+                  htmlFor="design-deploy-vercel-token"
+                  className="flex items-center justify-between text-xs font-medium"
+                >
+                  {t("design.deploy.token", "API Token")}
+                  <a
+                    href="https://vercel.com/account/tokens"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 text-[11px] font-normal text-primary hover:underline"
+                  >
+                    {t("design.deploy.getToken", "获取 Token")}
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                </label>
+                <SecretInput
+                  id="design-deploy-vercel-token"
+                  value={vercelToken}
+                  onChange={(v) => setVercelToken(v)}
+                  placeholder={vercelHasToken ? vercelMask : t("design.deploy.tokenPh", "粘贴 API Token")}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label htmlFor="design-deploy-team" className="text-xs font-medium">
+                  {t("design.deploy.teamId", "Team ID（团队账号可选）")}
+                </label>
+                <Input
+                  id="design-deploy-team"
+                  value={teamId}
+                  onChange={(e) => setTeamId(e.target.value)}
+                  placeholder={t("design.deploy.teamIdPh", "个人账号留空")}
+                  className="h-8 text-xs"
+                  spellCheck={false}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+              </div>
+            </>
+          )}
 
           {url && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-2">
@@ -231,7 +342,7 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
             </div>
           )}
 
-          {(url || domains.length > 0) && (
+          {provider === "cloudflare" && (url || domains.length > 0) && (
             <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
               <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
                 <Globe className="h-3.5 w-3.5 text-muted-foreground" />

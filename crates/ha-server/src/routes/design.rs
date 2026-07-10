@@ -732,6 +732,43 @@ pub async fn list_domains(Path(id): Path<String>) -> Result<Json<Value>, AppErro
         .collect::<Vec<_>>())))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VercelConfigBody {
+    pub api_token: String,
+    #[serde(default)]
+    pub team_id: String,
+}
+
+/// `PUT /api/design/deploy/vercel/config` — 保存 Vercel token（0600）+ team。
+pub async fn save_vercel_config(
+    Json(body): Json<VercelConfigBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::blocking::run_blocking(move || {
+        ha_core::design::deploy_vercel::save_vercel_config(&body.api_token, &body.team_id)
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+/// `GET /api/design/deploy/vercel/config` — 读配置（**token 脱敏**）。
+pub async fn get_vercel_config() -> Result<Json<Value>, AppError> {
+    let cfg = ha_core::blocking::run_blocking(ha_core::design::deploy_vercel::public_vercel_config)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(serde_json::to_value(cfg).unwrap_or(Value::Null)))
+}
+
+/// `POST /api/design/artifacts/{id}/deploy/vercel` — 部署到 Vercel，返回 `{ url }`。
+pub async fn deploy_artifact_vercel(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let url = ha_core::design::deploy_vercel::deploy_artifact(&id)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "url": url })))
+}
+
 /// `POST /api/design/artifacts/{id}/ensure-fresh` — 自愈渲染版本（工具层升级对老产物生效）。
 /// 返回 `bool`（是否重渲染），与 Tauri `ensure_design_artifact_fresh_cmd` 同形。
 pub async fn ensure_artifact_fresh(Path(id): Path<String>) -> Result<Json<bool>, AppError> {

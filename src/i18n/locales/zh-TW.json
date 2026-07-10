@@ -6592,7 +6592,11 @@
       "domainActive": "已生效",
       "domainPending": "待驗證",
       "domainPlaceholder": "例如 design.example.com",
-      "bindDomain": "綁定"
+      "bindDomain": "綁定",
+      "titleVercel": "部署到 Vercel",
+      "hintVercel": "把這個設計發布成公開網頁（*.vercel.app）。需要一個 Vercel API Token，只儲存在本機、加密存放。",
+      "teamId": "Team ID（團隊帳號可選）",
+      "teamIdPh": "個人帳號留空"
     },
     "draw": {
       "mode": "畫框批註：框選/畫筆標註要改的區域，帶截圖到對話",
