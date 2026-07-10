@@ -5,6 +5,7 @@ import {
   getPastedTextFileMeta,
   PASTED_TEXT_ATTACHMENT_SOURCE,
   shouldCreatePastedTextAttachment,
+  updatePastedTextAttachment,
 } from "./pastedTextAttachment"
 
 describe("pastedTextAttachment", () => {
@@ -26,5 +27,18 @@ describe("pastedTextAttachment", () => {
     expect(await file.text()).toBe(text)
     expect(meta?.source).toBe(PASTED_TEXT_ATTACHMENT_SOURCE)
     expect(meta?.lineCount).toBe(42)
+  })
+
+  test("keeps pasted text metadata when edited", async () => {
+    const file = createPastedTextAttachment("title\n" + "body\n".repeat(35))
+    const updated = updatePastedTextAttachment(file, "edited\nbody")
+    const meta = getPastedTextFileMeta(updated)
+
+    expect(updated.name).toBe(file.name)
+    expect(updated.type).toBe("text/plain")
+    expect(await updated.text()).toBe("edited\nbody")
+    expect(meta?.source).toBe(PASTED_TEXT_ATTACHMENT_SOURCE)
+    expect(meta?.lineCount).toBe(2)
+    expect(meta?.charCount).toBe("edited\nbody".length)
   })
 })
