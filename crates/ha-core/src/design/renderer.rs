@@ -341,6 +341,16 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
     'border-radius','border-width','border-style','border-color','box-shadow','opacity',
     'display','align-items','justify-content','z-index'];
   function elByOid(oid){return document.querySelector('[data-ds-oid="'+oid+'"]')}
+  // 可编辑元素可发现性：编辑态给所有 [data-ds-oid] 一层极淡虚线 outline（低透明、outline 不占布局），
+  // 让用户一眼看到「哪些能点」。hover/选中的 inline outline 天然更强、覆盖它；清除后回落到此淡框。
+  // 经 body.ds-edit-active class 门控 stylesheet，一次注入。（对齐参考实现的 manual-edit bridge style）
+  var editStyleEl=null;
+  function ensureEditStyle(){
+    if(editStyleEl)return;
+    editStyleEl=document.createElement('style');
+    editStyleEl.textContent='body.ds-edit-active [data-ds-oid]{outline:1px dashed rgba(37,99,235,.28);outline-offset:1px}';
+    document.head.appendChild(editStyleEl);
+  }
   function info(el){
     var cs=getComputedStyle(el), styles={};
     CSS_PROPS.forEach(function(p){styles[p]=cs.getPropertyValue(p)});
@@ -566,8 +576,8 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
   document.addEventListener('blur',function(e){if(editing&&e.target===editing)endEdit(true)},true);
   window.addEventListener('message',function(e){
     var d=e.data||{};
-    if(d.type==='ds_activate'){active=true}
-    else if(d.type==='ds_deactivate'){active=false;endEdit(false);clearSel();clearHover();clearCommentSel()}
+    if(d.type==='ds_activate'){active=true;ensureEditStyle();document.body.classList.add('ds-edit-active')}
+    else if(d.type==='ds_deactivate'){active=false;document.body.classList.remove('ds-edit-active');endEdit(false);clearSel();clearHover();clearCommentSel()}
     else if(d.type==='ds_preview_style'){
       var el=elByOid(d.oid);if(!el)return;
       (d.props||[]).forEach(function(kv){el.style.setProperty(kv[0],kv[1])});

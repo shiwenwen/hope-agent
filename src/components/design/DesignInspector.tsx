@@ -454,19 +454,30 @@ export default function DesignInspector({
   const fontFamilyKey =
     FONT_STACKS.find((f) => rawFF.includes(f.name.toLowerCase()))?.stack ?? FONT_STACKS[0].stack
   const opacity = parseFloat(s["opacity"] || "1")
+  // 人类可读元素名：优先可见文本片段（折叠空白），其次 img alt，再回落 tag。让面板顶部
+  // 一眼看出「选的是哪块内容」，而非只有 `<h1> #3` 这种技术标识（tag/oid 降为副标）。
+  const readableName = ((selected.text || "").replace(/\s+/g, " ").trim() ||
+    selected.attrs?.alt?.trim() ||
+    "").slice(0, 40)
 
   return (
     <div className="flex h-full w-72 shrink-0 flex-col overflow-y-auto border-l bg-background">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
-        <span className="font-mono text-xs font-semibold text-primary">
-          &lt;{selected.tag}&gt;
-        </span>
-        <span className="text-[11px] text-muted-foreground">#{selected.oid}</span>
+        <IconTip label={`${readableName || selected.tag} · <${selected.tag}> #${selected.oid}`} side="bottom">
+          <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+            <span className="truncate text-xs font-semibold">
+              {readableName || `<${selected.tag}>`}
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              &lt;{selected.tag}&gt;·{selected.oid}
+            </span>
+          </div>
+        </IconTip>
         <IconTip label={t("design.insp.addToChat", "添加到对话")} side="bottom">
           <Button
             variant="ghost"
             size="icon"
-            className="ml-auto h-6 w-6 text-primary hover:bg-primary/10 hover:text-primary"
+            className="h-6 w-6 text-primary hover:bg-primary/10 hover:text-primary"
             onClick={onAddToChat}
           >
             <MessagesSquare className="h-3.5 w-3.5" />
