@@ -309,6 +309,11 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
     build_system_prompt_with_session(agent_id, model, provider, None)
 }
 
+pub(crate) struct SystemPromptBuild {
+    pub prompt: String,
+    pub static_memory_refs: Vec<super::active_memory::UsedMemoryRef>,
+}
+
 /// Project-aware variant of [`build_system_prompt`]. When `session_id` is
 /// supplied and its session is attached to a project, the system prompt
 /// includes a "Current Project" section, the project's shared-file catalog,
@@ -319,6 +324,18 @@ pub fn build_system_prompt_with_session(
     provider: &str,
     session_id: Option<&str>,
 ) -> String {
+    build_system_prompt_bundle_with_session(agent_id, model, provider, session_id).prompt
+}
+
+/// Build the system prompt and the exact static-memory references represented
+/// in it from the same snapshot. Keeping these together avoids a second pass
+/// over agent files, session/project state, memory SQLite, profiles and claims.
+pub(crate) fn build_system_prompt_bundle_with_session(
+    agent_id: &str,
+    model: &str,
+    provider: &str,
+    session_id: Option<&str>,
+) -> SystemPromptBuild {
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
         let session_meta = crate::session::lookup_session_meta(session_id);
@@ -366,6 +383,7 @@ pub fn build_system_prompt_with_session(
         // synthesis — the default — never blanks the section). Global +
         // current-agent snapshots are concatenated here; the project profile is
         // shown in the read-only view but injected via the Context Pack later.
+        let mut profile_refs: Vec<super::active_memory::UsedMemoryRef> = Vec::new();
         let profile_snapshot: Option<String> = if long_term_memory_enabled
             && definition.config.memory.enabled
             && !incognito
@@ -378,6 +396,11 @@ pub fn build_system_prompt_with_session(
                 {
                     let body = body.trim();
                     if !body.is_empty() {
+                        if let Some(source_ref) =
+                            super::profile_snapshot_ref(scope_type, scope_id, body)
+                        {
+                            profile_refs.push(source_ref);
+                        }
                         parts.push(body.to_string());
                     }
                 }
@@ -437,7 +460,87 @@ pub fn build_system_prompt_with_session(
             .map(|m| m.permission_mode)
             .unwrap_or_default();
         let channel_info = session_meta.as_ref().and_then(|m| m.channel_info.as_ref());
-        return crate::system_prompt::build(
+        let mut static_memory_refs = context_pack
+            .as_ref()
+            .map(|pack| {
+                crate::system_prompt::rendered_pinned_memory_sources(
+                    definition.memory_md.as_deref(),
+                    definition.global_memory_md.as_deref(),
+                    &memory_budget,
+                    pack,
+                )
+                .into_iter()
+                .map(|source| super::active_memory::UsedMemoryRef {
+                    kind: "claim".to_string(),
+                    id: source.claim_id,
+                    source_type: source.claim_type,
+                    scope: super::static_memory_scope_label(
+                        &source.scope_type,
+                        source.scope_id.as_deref(),
+                    ),
+                    origin: match source.section.as_str() {
+                        "pinned" => "pinned_memory".to_string(),
+                        other => format!("context_pack:{other}"),
+                    },
+                    role: "injected".to_string(),
+                    preview: source.preview,
+                    path: None,
+                    line: None,
+                    col: None,
+                    heading_path: None,
+                    block_id: None,
+                    score: None,
+                    confidence: None,
+                    salience: None,
+                })
+                .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        let has_profile_snapshot = profile_snapshot
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|s| !s.is_empty());
+        let sqlite_cap = crate::system_prompt::sqlite_memory_budget_after_static_layers(
+            definition.memory_md.as_deref(),
+            definition.global_memory_md.as_deref(),
+            &memory_budget,
+            context_pack.as_ref(),
+        );
+        if (!memory_entries.is_empty() || has_profile_snapshot) && sqlite_cap > 0 {
+            let scaled = memory_budget.sqlite_sections.scaled_to(sqlite_cap);
+            let summary = crate::memory::sqlite::format_prompt_summary_v2_with_refs(
+                &memory_entries,
+                &scaled,
+                sqlite_cap,
+                memory_budget.sqlite_entry_max_chars,
+                profile_snapshot.as_deref(),
+            );
+            if !profile_refs.is_empty() && summary.text.contains("## User Profile") {
+                static_memory_refs.extend(profile_refs);
+            }
+            static_memory_refs.extend(summary.refs.into_iter().map(|source| {
+                super::active_memory::UsedMemoryRef {
+                    kind: "memory".to_string(),
+                    id: source.id.to_string(),
+                    source_type: source.memory_type,
+                    scope: source.scope,
+                    origin: "static_memory".to_string(),
+                    role: "injected".to_string(),
+                    preview: source.preview,
+                    path: None,
+                    line: None,
+                    col: None,
+                    heading_path: None,
+                    block_id: None,
+                    score: None,
+                    confidence: None,
+                    salience: None,
+                }
+            }));
+        }
+
+        let prompt = crate::system_prompt::build(
             &definition,
             Some(model),
             Some(provider),
@@ -453,13 +556,20 @@ pub fn build_system_prompt_with_session(
             channel_info,
             permission_mode,
         );
+        return SystemPromptBuild {
+            prompt,
+            static_memory_refs,
+        };
     }
     // Fallback: legacy prompt
-    crate::system_prompt::build_legacy(
-        Some(model),
-        Some(provider),
-        crate::session::is_session_incognito(session_id),
-    )
+    SystemPromptBuild {
+        prompt: crate::system_prompt::build_legacy(
+            Some(model),
+            Some(provider),
+            crate::session::is_session_incognito(session_id),
+        ),
+        static_memory_refs: Vec::new(),
+    }
 }
 
 #[cfg(test)]

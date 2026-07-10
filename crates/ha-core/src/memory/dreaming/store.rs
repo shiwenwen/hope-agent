@@ -296,17 +296,55 @@ impl Drop for LeaseGuard {
         if !self.active {
             return;
         }
-        if let Some(store) = store() {
-            if let Err(e) = store.release_lease(&self.lock_key, &self.run_id) {
-                app_warn!(
-                    "memory",
-                    "dreaming::locks",
-                    "failed to release lease {}: {}",
-                    self.lock_key,
-                    e
-                );
+        self.active = false;
+        let lock_key = std::mem::take(&mut self.lock_key);
+        let run_id = std::mem::take(&mut self.run_id);
+        let release = move || {
+            if let Some(store) = store() {
+                if let Err(e) = store.release_lease(&lock_key, &run_id) {
+                    app_warn!(
+                        "memory",
+                        "dreaming::locks",
+                        "failed to release lease {}: {}",
+                        lock_key,
+                        e
+                    );
+                }
             }
+        };
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn_blocking(release);
+        } else {
+            release();
         }
+    }
+}
+
+impl LeaseGuard {
+    /// Release the durable lease without blocking a Tokio worker. Normal cycle
+    /// exits must await this before their in-process `RunningGuard` is dropped;
+    /// `Drop` remains a best-effort fallback for panic/cancellation paths.
+    pub(super) async fn release(mut self) {
+        if !self.active {
+            return;
+        }
+        self.active = false;
+        let lock_key = std::mem::take(&mut self.lock_key);
+        let run_id = std::mem::take(&mut self.run_id);
+        crate::blocking::run_blocking(move || {
+            if let Some(store) = store() {
+                if let Err(e) = store.release_lease(&lock_key, &run_id) {
+                    app_warn!(
+                        "memory",
+                        "dreaming::locks",
+                        "failed to release lease {}: {}",
+                        lock_key,
+                        e
+                    );
+                }
+            }
+        })
+        .await;
     }
 }
 

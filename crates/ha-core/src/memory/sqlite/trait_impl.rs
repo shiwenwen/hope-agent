@@ -1025,7 +1025,6 @@ fn record_memory_history_best_effort(
 
 impl MemoryBackend for SqliteMemoryBackend {
     fn add(&self, entry: NewMemory) -> Result<i64> {
-        let conn = self.write_conn()?;
         let now = chrono::Utc::now().to_rfc3339();
         let tags_json = serde_json::to_string(&entry.tags)?;
 
@@ -1049,6 +1048,11 @@ impl MemoryBackend for SqliteMemoryBackend {
         let embedding_signature = embedding_bytes
             .as_ref()
             .and_then(|_| crate::memory::helpers::active_embedding_signature());
+
+        // `generate_embedding` uses the same backend connections for its cache.
+        // Never hold the writer while calling it: the cache-miss path writes to
+        // `embedding_cache` and would otherwise re-enter this non-reentrant mutex.
+        let conn = self.write_conn()?;
 
         conn.execute(
             "INSERT INTO memories (memory_type, scope_type, scope_agent_id, scope_project_id, content, tags, source, source_session_id, embedding, embedding_signature, pinned, created_at, updated_at, attachment_path, attachment_mime)
@@ -1101,7 +1105,6 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn update(&self, id: i64, content: &str, tags: &[String]) -> Result<()> {
-        let conn = self.write_conn()?;
         let now = chrono::Utc::now().to_rfc3339();
         let tags_json = serde_json::to_string(tags)?;
 
@@ -1113,6 +1116,9 @@ impl MemoryBackend for SqliteMemoryBackend {
         let embedding_signature = embedding_bytes
             .as_ref()
             .and_then(|_| crate::memory::helpers::active_embedding_signature());
+
+        // Keep remote/local embedding and its cache IO outside the writer lock.
+        let conn = self.write_conn()?;
 
         let affected = conn.execute(
             "UPDATE memories SET content = ?1, tags = ?2, embedding = ?3, embedding_signature = ?4, updated_at = ?5 WHERE id = ?6",
@@ -1391,7 +1397,6 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn search(&self, query: &MemorySearchQuery) -> Result<Vec<MemoryEntry>> {
-        let conn = self.read_conn()?;
         let requested_limit = query.limit.unwrap_or(20);
         if requested_limit == 0 {
             return Ok(Vec::new());
@@ -1411,6 +1416,11 @@ impl MemoryBackend for SqliteMemoryBackend {
             None
         };
         let has_vec = query_embedding.is_some();
+
+        // `generate_embedding` performs cache reads/writes through this backend.
+        // Compute it before reserving a pooled reader so concurrent searches can
+        // never exhaust the pool while each waits for a nested cache reader.
+        let conn = self.read_conn()?;
 
         // ── Step 1: FTS5 keyword search (with query expansion) ──
         let mut fts_results: Vec<(i64, f64)> = Vec::new(); // (id, rank)
@@ -3225,10 +3235,61 @@ fn covered_by_active_claim_memory_ids(
 mod claim_injection_tests {
     use super::*;
 
+    struct FixedEmbedder;
+
+    impl EmbeddingProvider for FixedEmbedder {
+        fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            Ok(vec![0.25, 0.5, 0.75])
+        }
+
+        fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+            Ok(texts.iter().map(|_| vec![0.25, 0.5, 0.75]).collect())
+        }
+
+        fn dimensions(&self) -> u32 {
+            3
+        }
+    }
+
     fn temp_backend() -> SqliteMemoryBackend {
         let dir = std::env::temp_dir().join(format!("ha-inject-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         SqliteMemoryBackend::open(&dir.join("memory.db")).unwrap()
+    }
+
+    #[test]
+    fn embedding_cache_crud_does_not_reenter_writer_lock() {
+        let backend = Arc::new(temp_backend());
+        backend.set_embedder(Arc::new(FixedEmbedder));
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            let result = (|| -> Result<i64> {
+                let id = backend.add(NewMemory {
+                    memory_type: MemoryType::User,
+                    scope: MemoryScope::Global,
+                    content: "embedding cache lock-order fixture".to_string(),
+                    tags: vec!["lock-order".to_string()],
+                    source: "test".to_string(),
+                    source_session_id: None,
+                    pinned: false,
+                    attachment_path: None,
+                    attachment_mime: None,
+                })?;
+                backend.update(
+                    id,
+                    "embedding cache lock-order fixture updated",
+                    &["lock-order".to_string()],
+                )?;
+                Ok(id)
+            })();
+            let _ = tx.send(result);
+        });
+
+        let id = rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("embedding cache CRUD deadlocked on the writer")
+            .expect("embedding cache CRUD failed");
+        assert!(id > 0);
     }
 
     #[test]

@@ -330,7 +330,8 @@ pub async fn get_external_memory_providers_config(
 pub async fn get_external_memory_providers_preflight(
 ) -> Result<Json<ha_core::memory::ExternalMemoryProviderPreflightReport>, AppError> {
     Ok(Json(
-        ha_core::memory::get_external_memory_provider_preflight(),
+        ha_core::blocking::run_blocking(ha_core::memory::get_external_memory_provider_preflight)
+            .await,
     ))
 }
 
@@ -348,7 +349,10 @@ pub async fn get_external_memory_provider_credential_status(
     Path(provider_id): Path<String>,
 ) -> Result<Json<ha_core::memory::ExternalMemoryProviderCredentialStatus>, AppError> {
     Ok(Json(
-        ha_core::memory::get_external_memory_provider_credential_status(&provider_id)?,
+        ha_core::blocking::run_blocking(move || {
+            ha_core::memory::get_external_memory_provider_credential_status(&provider_id)
+        })
+        .await?,
     ))
 }
 
@@ -373,7 +377,10 @@ pub async fn save_external_memory_provider_credentials(
 pub async fn clear_external_memory_provider_credentials(
     Path(provider_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::memory::clear_external_memory_provider_credentials(&provider_id)?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::memory::clear_external_memory_provider_credentials(&provider_id)
+    })
+    .await?;
     Ok(Json(json!({ "cleared": true })))
 }
 
@@ -381,7 +388,10 @@ pub async fn clear_external_memory_provider_credentials(
 pub async fn save_external_memory_providers_config(
     Json(body): Json<ConfigBody<ha_core::memory::ExternalMemoryProvidersConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::memory::save_external_memory_providers_config(body.config, "http")?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::memory::save_external_memory_providers_config(body.config, "http")
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -830,7 +840,10 @@ pub async fn get_embedding_config() -> Result<Json<ha_core::memory::EmbeddingCon
 pub async fn save_embedding_config(
     Json(body): Json<ConfigBody<ha_core::memory::EmbeddingConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    let state = ha_core::memory::save_legacy_embedding_config(body.config, "http")?;
+    let state = ha_core::blocking::run_blocking(move || {
+        ha_core::memory::save_legacy_embedding_config(body.config, "http")
+    })
+    .await?;
     Ok(Json(json!({ "saved": true, "state": state })))
 }
 
@@ -853,10 +866,12 @@ pub async fn embedding_model_config_templates(
 pub async fn embedding_model_config_save(
     Json(body): Json<ConfigBody<ha_core::memory::EmbeddingModelConfig>>,
 ) -> Result<Json<ha_core::memory::EmbeddingModelConfig>, AppError> {
-    Ok(Json(ha_core::memory::save_embedding_model_config(
-        body.config,
-        "http",
-    )?))
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_core::memory::save_embedding_model_config(body.config, "http")
+        })
+        .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -868,7 +883,10 @@ pub struct EmbeddingModelConfigIdBody {
 pub async fn embedding_model_config_delete(
     Json(body): Json<EmbeddingModelConfigIdBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::memory::delete_embedding_model_config(&body.id, "http")?;
+    ha_core::blocking::run_blocking(move || {
+        ha_core::memory::delete_embedding_model_config(&body.id, "http")
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -900,17 +918,25 @@ pub struct MemoryEmbeddingSetDefaultBody {
 pub async fn memory_embedding_set_default(
     Json(body): Json<MemoryEmbeddingSetDefaultBody>,
 ) -> Result<Json<ha_core::memory::EmbeddingSetDefaultResult>, AppError> {
-    Ok(Json(ha_core::memory::set_memory_embedding_default(
-        &body.model_config_id,
-        body.mode,
-        "http",
-        None,
-    )?))
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || {
+            ha_core::memory::set_memory_embedding_default(
+                &body.model_config_id,
+                body.mode,
+                "http",
+                None,
+            )
+        })
+        .await?,
+    ))
 }
 
 pub async fn memory_embedding_disable(
 ) -> Result<Json<ha_core::memory::EmbeddingSelectionState>, AppError> {
-    Ok(Json(ha_core::memory::disable_memory_embedding("http")?))
+    Ok(Json(
+        ha_core::blocking::run_blocking(move || ha_core::memory::disable_memory_embedding("http"))
+            .await?,
+    ))
 }
 
 /// `GET /api/config/embedding-cache` -- get embedding cache config.

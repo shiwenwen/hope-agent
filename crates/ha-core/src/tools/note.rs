@@ -1643,8 +1643,7 @@ pub(crate) async fn tool_knowledge_recall(args: &Value, ctx: &ToolExecContext) -
     };
 
     // ── Memory store (skipped in incognito — close-on-exit) ──
-    let memory_hits: Vec<Value> = if crate::session::is_session_incognito(ctx.session_id.as_deref())
-    {
+    let memory_hits: Vec<Value> = if ctx.incognito {
         Vec::new()
     } else {
         let type_filter =

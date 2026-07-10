@@ -104,6 +104,28 @@ fn elapsed_ms_since(started: std::time::Instant) -> u64 {
     started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
 }
 
+const ACTIVE_MEMORY_RETRIEVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const EXPERIENCE_RETRIEVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const GRAPH_TRACE_RETRIEVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(750);
+const KNOWLEDGE_RETRIEVAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+static MEMORY_RETRIEVAL_SLOTS: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+    std::sync::OnceLock::new();
+
+async fn acquire_memory_retrieval_slot() -> Option<tokio::sync::OwnedSemaphorePermit> {
+    let slots = MEMORY_RETRIEVAL_SLOTS
+        .get_or_init(|| {
+            let parallelism = std::thread::available_parallelism()
+                .map(usize::from)
+                .unwrap_or(4);
+            std::sync::Arc::new(tokio::sync::Semaphore::new(parallelism.clamp(4, 8)))
+        })
+        .clone();
+    tokio::time::timeout(std::time::Duration::from_millis(100), slots.acquire_owned())
+        .await
+        .ok()?
+        .ok()
+}
+
 fn static_memory_scope_label(scope_type: &str, scope_id: Option<&str>) -> String {
     match scope_type {
         "global" => "global".to_string(),
@@ -730,11 +752,20 @@ impl AssistantAgent {
         self.active_memory_state.invalidate_config();
     }
 
-    /// Return cached per-session snapshot of the fields used from `agent.json`
-    /// on hot paths (`build_tool_schemas`, `tool_context_with_usage`,
-    /// `subagent_tool_enabled`). Each call stats `agent.json`; parsing only
-    /// happens when the fingerprint changes or `set_agent_id` invalidates.
+    /// Return the pre-warmed snapshot of fields used from `agent.json` on hot
+    /// paths (`build_tool_schemas`, `tool_context_with_usage`,
+    /// `subagent_tool_enabled`). Chat and tool execution refresh the snapshot
+    /// asynchronously before use; the synchronous fallback only serves callers
+    /// outside those paths.
     fn agent_caps(&self) -> std::sync::Arc<types::AgentCapsCache> {
+        if let Some(cached) = self
+            .agent_caps_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
+            return cached;
+        }
         let fingerprint = active_memory::agent_config_fingerprint(&self.agent_id);
         let mut guard = self
             .agent_caps_cache
@@ -782,14 +813,11 @@ impl AssistantAgent {
             .kb_access_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
-        self.init_awareness();
+        *self.awareness.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
-    /// (Re-)initialize behavior awareness based on the current session
-    /// id. Safe to call multiple times — the first call registers an
-    /// observer, subsequent calls replace the Arc and re-register.
-    fn init_awareness(&self) {
-        let Some(sid) = self.session_id.as_deref() else {
+    async fn init_awareness_async(&self) {
+        let Some(sid) = self.session_id.clone() else {
             return;
         };
         if self.session_is_incognito() {
@@ -800,9 +828,13 @@ impl AssistantAgent {
         let Some(db) = crate::get_session_db() else {
             return;
         };
-        let cfg = crate::awareness::resolve_for_session(sid, &db);
-        let aware =
-            crate::awareness::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
+        let db = db.clone();
+        let sid_for_config = sid.clone();
+        let cfg = crate::blocking::run_blocking(move || {
+            crate::awareness::resolve_for_session(&sid_for_config, &db)
+        })
+        .await;
+        let aware = crate::awareness::SessionAwareness::new(sid, self.agent_id.clone(), cfg);
         let mut slot = self.awareness.lock().unwrap_or_else(|e| e.into_inner());
         *slot = Some(aware);
     }
@@ -899,8 +931,10 @@ impl AssistantAgent {
     }
 
     pub(crate) fn configure_retrieval_planner_context(&self, query: &str) {
-        let config = crate::agent_loader::load_agent(&self.agent_id)
-            .map(|definition| definition.config.memory.retrieval_planner.clamped())
+        let config = self
+            .active_memory_state
+            .current_agent_config()
+            .map(|config| config.retrieval_planner.clamped())
             .unwrap_or_default();
         let context = retrieval_planner::RetrievalPlannerDecisionContext::for_query(
             query,
@@ -1008,164 +1042,6 @@ impl AssistantAgent {
             .clone()
     }
 
-    fn refresh_static_memory_refs(&self) {
-        let refs = self.resolve_static_memory_refs();
-        *self
-            .static_memory_refs
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = refs;
-    }
-
-    fn resolve_static_memory_refs(&self) -> Vec<active_memory::UsedMemoryRef> {
-        if self.session_is_incognito() {
-            return Vec::new();
-        }
-        let Ok(definition) = crate::agent_loader::load_agent(&self.agent_id) else {
-            return Vec::new();
-        };
-        if !definition.config.memory.enabled {
-            return Vec::new();
-        }
-
-        let session_meta = crate::session::lookup_session_meta(self.session_id.as_deref());
-        if session_meta.as_ref().is_some_and(|m| m.incognito) {
-            return Vec::new();
-        }
-        let project_id = session_meta.as_ref().and_then(|m| m.project_id.clone());
-        let app_cfg = crate::config::cached_config();
-        if !app_cfg.memory_extract.enabled {
-            return Vec::new();
-        }
-        let memory_budget = crate::agent_config::effective_memory_budget(
-            &definition.config.memory,
-            &app_cfg.memory_budget,
-        );
-
-        let mut scopes = vec![
-            crate::memory::MemoryScope::Global,
-            crate::memory::MemoryScope::Agent {
-                id: self.agent_id.clone(),
-            },
-        ];
-        if let Some(project_id) = project_id.as_ref() {
-            scopes.push(crate::memory::MemoryScope::Project {
-                id: project_id.clone(),
-            });
-        }
-        let pack = crate::memory::dreaming::build_context_pack(
-            &scopes,
-            &crate::memory::dreaming::ContextPackOptions::default(),
-        );
-        let rendered_pinned_sources = crate::system_prompt::rendered_pinned_memory_sources(
-            definition.memory_md.as_deref(),
-            definition.global_memory_md.as_deref(),
-            &memory_budget,
-            &pack,
-        );
-        let mut refs: Vec<active_memory::UsedMemoryRef> = rendered_pinned_sources
-            .iter()
-            .map(|source| active_memory::UsedMemoryRef {
-                kind: "claim".to_string(),
-                id: source.claim_id.clone(),
-                source_type: source.claim_type.clone(),
-                scope: static_memory_scope_label(&source.scope_type, source.scope_id.as_deref()),
-                origin: match source.section.as_str() {
-                    "pinned" => "pinned_memory".to_string(),
-                    other => format!("context_pack:{other}"),
-                },
-                role: "injected".to_string(),
-                preview: source.preview.clone(),
-                path: None,
-                line: None,
-                col: None,
-                heading_path: None,
-                block_id: None,
-                score: None,
-                confidence: None,
-                salience: None,
-            })
-            .collect();
-
-        let memory_entries: Vec<crate::memory::MemoryEntry> = crate::get_memory_backend()
-            .and_then(|b| {
-                b.load_prompt_candidates_with_project(
-                    &self.agent_id,
-                    project_id.as_deref(),
-                    definition.config.memory.shared,
-                )
-                .ok()
-            })
-            .unwrap_or_default();
-
-        let mut profile_refs: Vec<active_memory::UsedMemoryRef> = Vec::new();
-        let profile_snapshot: Option<String> = if app_cfg.dreaming.profile_synthesis.enabled {
-            let mut parts: Vec<String> = Vec::new();
-            for (scope_type, scope_id) in [("global", ""), ("agent", self.agent_id.as_str())] {
-                if let Some(body) =
-                    crate::memory::dreaming::latest_profile_body(scope_type, scope_id)
-                {
-                    let body = body.trim();
-                    if !body.is_empty() {
-                        if let Some(source_ref) = profile_snapshot_ref(scope_type, scope_id, body) {
-                            profile_refs.push(source_ref);
-                        }
-                        parts.push(body.to_string());
-                    }
-                }
-            }
-            (!parts.is_empty()).then(|| parts.join("\n"))
-        } else {
-            None
-        };
-        let has_profile_snapshot = profile_snapshot
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|s| !s.is_empty());
-        let sqlite_cap = crate::system_prompt::sqlite_memory_budget_after_static_layers(
-            definition.memory_md.as_deref(),
-            definition.global_memory_md.as_deref(),
-            &memory_budget,
-            Some(&pack),
-        );
-        if (!memory_entries.is_empty() || has_profile_snapshot) && sqlite_cap > 0 {
-            let scaled = memory_budget.sqlite_sections.scaled_to(sqlite_cap);
-            let summary = crate::memory::sqlite::format_prompt_summary_v2_with_refs(
-                &memory_entries,
-                &scaled,
-                sqlite_cap,
-                memory_budget.sqlite_entry_max_chars,
-                profile_snapshot.as_deref(),
-            );
-            if !profile_refs.is_empty() && summary.text.contains("## User Profile") {
-                refs.extend(profile_refs);
-            }
-            refs.extend(
-                summary
-                    .refs
-                    .into_iter()
-                    .map(|source| active_memory::UsedMemoryRef {
-                        kind: "memory".to_string(),
-                        id: source.id.to_string(),
-                        source_type: source.memory_type,
-                        scope: source.scope,
-                        origin: "static_memory".to_string(),
-                        role: "injected".to_string(),
-                        preview: source.preview,
-                        path: None,
-                        line: None,
-                        col: None,
-                        heading_path: None,
-                        block_id: None,
-                        score: None,
-                        confidence: None,
-                        salience: None,
-                    }),
-            );
-        }
-
-        refs
-    }
-
     fn emit_active_memory_recall(
         &self,
         session_id: &str,
@@ -1183,6 +1059,86 @@ impl AssistantAgent {
                 }),
             );
         }
+    }
+
+    async fn warm_memory_agent_config(&self) {
+        let agent_id = self.agent_id.clone();
+        let fingerprint = crate::blocking::run_blocking(move || {
+            active_memory::agent_config_fingerprint(&agent_id)
+        })
+        .await;
+        let memory_cached = self
+            .active_memory_state
+            .cached_agent_config(fingerprint)
+            .is_some();
+        let caps_cached = self
+            .agent_caps_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|caps| caps.fingerprint == fingerprint);
+        if memory_cached && caps_cached {
+            return;
+        }
+
+        let agent_id = self.agent_id.clone();
+        let (loaded, caps) = crate::blocking::run_blocking(move || {
+            match crate::agent_loader::load_agent(&agent_id) {
+                Ok(def) => {
+                    let caps = types::AgentCapsCache {
+                        fingerprint,
+                        agent_tool_filter: def.config.capabilities.tools.clone(),
+                        sandbox_mode: def.config.capabilities.effective_default_sandbox_mode(),
+                        async_tool_policy: def.config.capabilities.async_tool_policy,
+                        mcp_enabled: def.config.capabilities.mcp_enabled,
+                        memory_enabled: def.config.memory.enabled,
+                        enable_custom_tool_approval: def
+                            .config
+                            .capabilities
+                            .enable_custom_tool_approval,
+                        custom_approval_tools: def
+                            .config
+                            .capabilities
+                            .custom_approval_tools
+                            .clone(),
+                    };
+                    let memory = active_memory::CachedAgentConfig {
+                        fingerprint,
+                        memory_enabled: def.config.memory.enabled,
+                        active_memory: def.config.memory.active_memory,
+                        shared_global: def.config.memory.shared,
+                        procedure_memory: def.config.memory.procedure_memory,
+                        graph_memory: def.config.memory.graph_memory,
+                        retrieval_planner: def.config.memory.retrieval_planner,
+                        prompt_budget: def.config.memory.prompt_budget,
+                    };
+                    (memory, caps)
+                }
+                Err(_) => (
+                    active_memory::CachedAgentConfig {
+                        fingerprint,
+                        memory_enabled: false,
+                        active_memory: crate::agent_config::ActiveMemoryConfig::default(),
+                        shared_global: true,
+                        procedure_memory: crate::agent_config::ProcedureMemoryConfig::default(),
+                        graph_memory: crate::agent_config::GraphMemoryConfig::default(),
+                        retrieval_planner: crate::agent_config::RetrievalPlannerConfig::default(),
+                        prompt_budget: 5_000,
+                    },
+                    types::AgentCapsCache {
+                        fingerprint,
+                        ..types::AgentCapsCache::default()
+                    },
+                ),
+            }
+        })
+        .await;
+        self.active_memory_state
+            .agent_config_or_load(fingerprint, || loaded);
+        *self
+            .agent_caps_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(std::sync::Arc::new(caps));
     }
 
     /// Refresh the Active Memory suffix for this user turn (Phase B1).
@@ -1217,28 +1173,16 @@ impl AssistantAgent {
             return;
         }
 
-        // 1. Resolve per-agent memory config. Cached on ActiveMemoryState
-        //    so the per-turn hot path doesn't re-read agent.json from
-        //    disk; invalidated by `set_agent_id`.
-        let fingerprint = active_memory::agent_config_fingerprint(&self.agent_id);
-        let snapshot = self
-            .active_memory_state
-            .agent_config_or_load(fingerprint, || {
-                match crate::agent_loader::load_agent(&self.agent_id) {
-                    Ok(def) => active_memory::CachedAgentConfig {
-                        fingerprint,
-                        memory_enabled: def.config.memory.enabled,
-                        active_memory: def.config.memory.active_memory.clone(),
-                        shared_global: def.config.memory.shared,
-                    },
-                    Err(_) => active_memory::CachedAgentConfig {
-                        fingerprint,
-                        memory_enabled: false,
-                        active_memory: crate::agent_config::ActiveMemoryConfig::default(),
-                        shared_global: true,
-                    },
-                }
-            });
+        let Some(snapshot) = self.active_memory_state.current_agent_config() else {
+            self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                "active_memory",
+                "agent_config_unavailable",
+                0,
+                None,
+            ));
+            self.set_active_memory_recall(None);
+            return;
+        };
         if !snapshot.memory_enabled {
             self.set_retrieval_planner_layer(retrieval_planner::disabled_layer(
                 "active_memory",
@@ -1308,24 +1252,60 @@ impl AssistantAgent {
         let query = trimmed.to_string();
         let limit = cfg.candidate_limit.max(1);
         let include_claims = cfg.include_claims;
+        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+            self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                "active_memory",
+                "retrieval_busy",
+                0,
+                None,
+            ));
+            self.set_active_memory_recall(None);
+            return;
+        };
 
         // Active Memory v2 (§7.5): when claim recall is on, also shortlist
         // structured claims (effective-active, scope-filtered) and merge them
         // into the candidate set. Both shortlists run inside the one
         // spawn_blocking so SQLite / vector work stays off the runtime thread.
-        let (candidates, claim_candidates) = tokio::task::spawn_blocking(move || {
-            let scopes =
-                active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
-            let mems = active_memory::shortlist_candidates(&query, &scopes, limit);
-            let claims = if include_claims {
-                active_memory::shortlist_claim_candidates(&query, &scopes, limit)
-            } else {
-                Vec::new()
-            };
-            (mems, claims)
-        })
-        .await
-        .unwrap_or_default();
+        let shortlist = tokio::time::timeout(
+            ACTIVE_MEMORY_RETRIEVAL_TIMEOUT,
+            tokio::task::spawn_blocking(move || {
+                let _retrieval_slot = retrieval_slot;
+                let scopes =
+                    active_memory::scopes_for_session(&sid_for_search, &agent_id, shared_global);
+                let mems = active_memory::shortlist_candidates(&query, &scopes, limit);
+                let claims = if include_claims {
+                    active_memory::shortlist_claim_candidates(&query, &scopes, limit)
+                } else {
+                    Vec::new()
+                };
+                (mems, claims)
+            }),
+        )
+        .await;
+        let (candidates, claim_candidates) = match shortlist {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "active_memory",
+                    "retrieval_error",
+                    0,
+                    None,
+                ));
+                self.set_active_memory_recall(None);
+                return;
+            }
+            Err(_) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "active_memory",
+                    "retrieval_timeout",
+                    0,
+                    Some(ACTIVE_MEMORY_RETRIEVAL_TIMEOUT.as_millis() as u64),
+                ));
+                self.set_active_memory_recall(None);
+                return;
+            }
+        };
 
         if candidates.is_empty() && claim_candidates.is_empty() {
             // Cache the empty decision so we don't re-search for the same
@@ -1457,7 +1437,7 @@ impl AssistantAgent {
             return;
         }
 
-        let Ok(definition) = crate::agent_loader::load_agent(&self.agent_id) else {
+        let Some(memory_config) = self.active_memory_state.current_agent_config() else {
             self.set_experience_memory_refs(
                 Vec::new(),
                 None,
@@ -1465,7 +1445,7 @@ impl AssistantAgent {
             );
             return;
         };
-        if !definition.config.memory.enabled {
+        if !memory_config.memory_enabled {
             self.set_experience_memory_refs(
                 Vec::new(),
                 None,
@@ -1493,49 +1473,74 @@ impl AssistantAgent {
         }
 
         let agent_id = self.agent_id.clone();
-        let shared_global = definition.config.memory.shared;
-        let procedure_cfg = definition.config.memory.procedure_memory.clamped();
+        let shared_global = memory_config.shared_global;
+        let procedure_cfg = memory_config.procedure_memory.clamped();
         let query = trimmed.to_string();
         let started = std::time::Instant::now();
-        let result = tokio::task::spawn_blocking(move || {
-            let scopes = active_memory::scopes_for_session(&sid, &agent_id, shared_global);
-            let candidates = crate::memory::episodes::shortlist_experience_candidates(
-                &query,
-                &scopes,
-                EXPERIENCE_CANDIDATE_LIMIT,
+        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+            self.set_experience_memory_refs(
+                Vec::new(),
+                None,
+                retrieval_planner::skipped_layer("experience", "retrieval_busy", 0, None),
             );
-            let mut procedures = Vec::new();
-            if procedure_cfg.enabled {
-                for candidate in candidates.iter().filter(|c| c.kind == "procedure") {
-                    if procedures.len() >= procedure_cfg.max_procedures {
-                        break;
-                    }
-                    if candidate.confidence.unwrap_or_default() < procedure_cfg.min_confidence {
-                        continue;
-                    }
-                    if let Ok(Some(procedure)) =
-                        crate::memory::episodes::get_procedure(&candidate.id)
-                    {
-                        if procedure.status == "active" {
-                            procedures.push(procedure);
+            return;
+        };
+        let result = tokio::time::timeout(
+            EXPERIENCE_RETRIEVAL_TIMEOUT,
+            tokio::task::spawn_blocking(move || {
+                let _retrieval_slot = retrieval_slot;
+                let scopes = active_memory::scopes_for_session(&sid, &agent_id, shared_global);
+                let candidates = crate::memory::episodes::shortlist_experience_candidates(
+                    &query,
+                    &scopes,
+                    EXPERIENCE_CANDIDATE_LIMIT,
+                );
+                let mut procedures = Vec::new();
+                if procedure_cfg.enabled {
+                    for candidate in candidates.iter().filter(|c| c.kind == "procedure") {
+                        if procedures.len() >= procedure_cfg.max_procedures {
+                            break;
+                        }
+                        if candidate.confidence.unwrap_or_default() < procedure_cfg.min_confidence {
+                            continue;
+                        }
+                        if let Ok(Some(procedure)) =
+                            crate::memory::episodes::get_procedure(&candidate.id)
+                        {
+                            if procedure.status == "active" {
+                                procedures.push(procedure);
+                            }
                         }
                     }
                 }
-            }
-            let suffix = format_procedure_memory_suffix(&procedures, procedure_cfg.max_chars);
-            (candidates, suffix, procedures)
-        })
+                let suffix = format_procedure_memory_suffix(&procedures, procedure_cfg.max_chars);
+                (candidates, suffix, procedures)
+            }),
+        )
         .await;
         let latency_ms = Some(elapsed_ms_since(started));
         let (candidates, procedure_suffix, injected_procedures) = match result {
-            Ok(result) => result,
-            Err(_) => {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
                 self.set_experience_memory_refs(
                     Vec::new(),
                     None,
                     retrieval_planner::skipped_layer(
                         "experience",
                         "retrieval_error",
+                        0,
+                        latency_ms,
+                    ),
+                );
+                return;
+            }
+            Err(_) => {
+                self.set_experience_memory_refs(
+                    Vec::new(),
+                    None,
+                    retrieval_planner::skipped_layer(
+                        "experience",
+                        "retrieval_timeout",
                         0,
                         latency_ms,
                     ),
@@ -1612,15 +1617,15 @@ impl AssistantAgent {
             return;
         }
 
-        let Ok(definition) = crate::agent_loader::load_agent(&self.agent_id) else {
+        let Some(memory_config) = self.active_memory_state.current_agent_config() else {
             self.set_graph_memory_refs(
                 Vec::new(),
                 retrieval_planner::skipped_layer("graph", "agent_config_error", 0, None),
             );
             return;
         };
-        let graph_config = definition.config.memory.graph_memory.clamped();
-        if !definition.config.memory.enabled {
+        let graph_config = memory_config.graph_memory.clamped();
+        if !memory_config.memory_enabled {
             self.set_graph_memory_refs(
                 Vec::new(),
                 retrieval_planner::disabled_layer("graph", "disabled"),
@@ -1652,59 +1657,79 @@ impl AssistantAgent {
         }
 
         let agent_id = self.agent_id.clone();
-        let shared_global = definition.config.memory.shared;
+        let shared_global = memory_config.shared_global;
         let center_limit = graph_config.max_centers;
         let edge_limit = graph_config.max_edges;
         let query = trimmed.to_string();
         let started = std::time::Instant::now();
-        let result = tokio::task::spawn_blocking(move || {
-            let scopes = active_memory::scopes_for_session(&sid, &agent_id, shared_global);
-            let mut refs = Vec::new();
-            let mut seen_edges: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
-            let mut centers_seen: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
+        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+            self.set_graph_memory_refs(
+                Vec::new(),
+                retrieval_planner::skipped_layer("graph", "retrieval_busy", 0, None),
+            );
+            return;
+        };
+        let result = tokio::time::timeout(
+            GRAPH_TRACE_RETRIEVAL_TIMEOUT,
+            tokio::task::spawn_blocking(move || {
+                let _retrieval_slot = retrieval_slot;
+                let scopes = active_memory::scopes_for_session(&sid, &agent_id, shared_global);
+                let mut refs = Vec::new();
+                let mut seen_edges: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                let mut centers_seen: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
 
-            for scope in scopes {
-                let Ok(centers) =
-                    crate::memory::claims::search_claims(&query, Some(scope.clone()), center_limit)
-                else {
-                    continue;
-                };
-                for center in centers {
-                    if !centers_seen.insert(center.id.clone()) {
-                        continue;
-                    }
-                    let center_scope = claim_scope_from_record(&center);
-                    let Ok(graph) =
-                        crate::memory::claims::claim_graph(&center.id, Some(edge_limit + 1))
-                    else {
+                for scope in scopes {
+                    let Ok(centers) = crate::memory::claims::search_claims(
+                        &query,
+                        Some(scope.clone()),
+                        center_limit,
+                    ) else {
                         continue;
                     };
-                    let remaining = edge_limit.saturating_sub(refs.len());
-                    refs.extend(graph_edges_to_candidate_refs(
-                        graph.edges,
-                        &center_scope,
-                        &center.id,
-                        &mut seen_edges,
-                        remaining,
-                    ));
-                    if refs.len() >= edge_limit {
-                        return (refs, centers_seen.len());
+                    for center in centers {
+                        if !centers_seen.insert(center.id.clone()) {
+                            continue;
+                        }
+                        let center_scope = claim_scope_from_record(&center);
+                        let Ok(graph) =
+                            crate::memory::claims::claim_graph(&center.id, Some(edge_limit + 1))
+                        else {
+                            continue;
+                        };
+                        let remaining = edge_limit.saturating_sub(refs.len());
+                        refs.extend(graph_edges_to_candidate_refs(
+                            graph.edges,
+                            &center_scope,
+                            &center.id,
+                            &mut seen_edges,
+                            remaining,
+                        ));
+                        if refs.len() >= edge_limit {
+                            return (refs, centers_seen.len());
+                        }
                     }
                 }
-            }
 
-            (refs, centers_seen.len())
-        })
+                (refs, centers_seen.len())
+            }),
+        )
         .await;
         let latency_ms = Some(elapsed_ms_since(started));
         let (refs, center_count) = match result {
-            Ok(result) => result,
-            Err(_) => {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => {
                 self.set_graph_memory_refs(
                     Vec::new(),
                     retrieval_planner::skipped_layer("graph", "retrieval_error", 0, latency_ms),
+                );
+                return;
+            }
+            Err(_) => {
+                self.set_graph_memory_refs(
+                    Vec::new(),
+                    retrieval_planner::skipped_layer("graph", "retrieval_timeout", 0, latency_ms),
                 );
                 return;
             }
@@ -1774,18 +1799,30 @@ impl AssistantAgent {
                 .unwrap_or_else(|e| e.into_inner()) = Some(arc.clone());
             arc
         };
-        let Some(sid) = self.session_id.clone() else {
-            return store(std::collections::HashMap::new());
+        let map = Self::resolve_kb_access_uncached(
+            self.session_id.clone(),
+            self.chat_source,
+            self.origin_chat_source,
+            self.channel_kb_context.clone(),
+        );
+        store(map)
+    }
+
+    fn resolve_kb_access_uncached(
+        session_id: Option<String>,
+        chat_source: Option<crate::knowledge::KbAccessSource>,
+        origin_chat_source: Option<crate::knowledge::KbAccessSource>,
+        mut channel_info: Option<crate::knowledge::ChannelKbContext>,
+    ) -> std::collections::HashMap<String, crate::knowledge::KbAccess> {
+        let Some(sid) = session_id else {
+            return std::collections::HashMap::new();
         };
         // The KB set comes from `effective_kb_access` over the agent's threaded
         // source/origin/channel identity — exactly what the note_* tools see, so
         // nothing can reach a KB the agent isn't attached to (and an IM lineage
         // stays gated by the WS8 opt-in).
-        let mut source = self
-            .chat_source
-            .unwrap_or(crate::knowledge::KbAccessSource::Gui);
-        let mut origin = self.origin_chat_source.unwrap_or(source);
-        let mut channel_info = self.channel_kb_context.clone();
+        let mut source = chat_source.unwrap_or(crate::knowledge::KbAccessSource::Gui);
+        let mut origin = origin_chat_source.unwrap_or(source);
         // Defense-in-depth (WS8): if the source wasn't threaded (None) but the
         // session is IM-bound, treat this as an IM turn so nothing can surface
         // notes the IM origin hasn't opted into. A real chat turn always has
@@ -1793,7 +1830,7 @@ impl AssistantAgent {
         // edge — fail closed. Shares the exact ChannelKbContext derivation the
         // tool plane uses (`note.rs::im_kb_context_from_session`) so the gate
         // can't drift between planes.
-        if self.chat_source.is_none() {
+        if chat_source.is_none() {
             if let Some(ci) = crate::tools::note::im_kb_context_from_session(Some(&sid)) {
                 source = crate::knowledge::KbAccessSource::Im;
                 origin = crate::knowledge::KbAccessSource::Im;
@@ -1810,7 +1847,40 @@ impl AssistantAgent {
             origin,
             channel_info,
         );
-        store(crate::knowledge::effective_kb_access(&actx))
+        crate::knowledge::effective_kb_access(&actx)
+    }
+
+    /// Resolve the per-turn KB access snapshot without occupying a Tokio worker
+    /// while synchronous session/registry SQLite locks are acquired.
+    async fn warm_kb_access(&self) {
+        if self
+            .kb_access_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return;
+        }
+        let session_id = self.session_id.clone();
+        let chat_source = self.chat_source;
+        let origin_chat_source = self.origin_chat_source;
+        let channel_info = self.channel_kb_context.clone();
+        let map = crate::blocking::run_blocking(move || {
+            Self::resolve_kb_access_uncached(
+                session_id,
+                chat_source,
+                origin_chat_source,
+                channel_info,
+            )
+        })
+        .await;
+        let mut cache = self
+            .kb_access_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if cache.is_none() {
+            *cache = Some(std::sync::Arc::new(map));
+        }
     }
 
     /// Refresh the passive related-notes suffix for this user turn (read bridge ③,
@@ -1908,14 +1978,50 @@ impl AssistantAgent {
         let kbs: Vec<String> = access_entries.into_iter().map(|(kb_id, _)| kb_id).collect();
         let query = trimmed.to_string();
         let top_n = cfg.top_n;
-        let hits = tokio::task::spawn_blocking(move || -> Vec<crate::knowledge::NoteSearchHit> {
-            let Some(db) = crate::knowledge::index::get_index_db() else {
-                return Vec::new();
-            };
-            crate::knowledge::search::search_notes(&db, &kbs, &query, top_n).unwrap_or_default()
-        })
+        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+            self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                "knowledge",
+                "retrieval_busy",
+                0,
+                None,
+            ));
+            self.set_related_notes_recall(None);
+            return;
+        };
+        let hits = match tokio::time::timeout(
+            KNOWLEDGE_RETRIEVAL_TIMEOUT,
+            tokio::task::spawn_blocking(move || -> Vec<crate::knowledge::NoteSearchHit> {
+                let _retrieval_slot = retrieval_slot;
+                let Some(db) = crate::knowledge::index::get_index_db() else {
+                    return Vec::new();
+                };
+                crate::knowledge::search::search_notes(&db, &kbs, &query, top_n).unwrap_or_default()
+            }),
+        )
         .await
-        .unwrap_or_default();
+        {
+            Ok(Ok(hits)) => hits,
+            Ok(Err(_)) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "knowledge",
+                    "retrieval_error",
+                    0,
+                    None,
+                ));
+                self.set_related_notes_recall(None);
+                return;
+            }
+            Err(_) => {
+                self.set_retrieval_planner_layer(retrieval_planner::skipped_layer(
+                    "knowledge",
+                    "retrieval_timeout",
+                    0,
+                    Some(KNOWLEDGE_RETRIEVAL_TIMEOUT.as_millis() as u64),
+                ));
+                self.set_related_notes_recall(None);
+                return;
+            }
+        };
 
         let recall = related_notes::render_recall(&hits, cfg.show_snippet, cfg.max_chars);
         if recall.is_none() {
@@ -1965,7 +2071,7 @@ impl AssistantAgent {
             if slot.is_some() {
                 slot
             } else {
-                self.init_awareness();
+                self.init_awareness_async().await;
                 self.awareness_arc()
             }
         };
@@ -1978,10 +2084,15 @@ impl AssistantAgent {
             self.run_extraction_inline(&aware, user_text).await;
         }
         // 4. Build suffix.
-        let Some(db) = crate::get_session_db() else {
+        let Some(db) = crate::get_session_db().cloned() else {
             return;
         };
-        let suffix = aware.prepare_dynamic_suffix(user_text, &db);
+        let aware_for_suffix = aware.clone();
+        let user_text = user_text.to_string();
+        let suffix = crate::blocking::run_blocking(move || {
+            aware_for_suffix.prepare_dynamic_suffix(&user_text, &db)
+        })
+        .await;
         let mut slot = self
             .awareness_suffix
             .lock()
@@ -2015,18 +2126,25 @@ impl AssistantAgent {
             let guard = aware.cfg.lock().unwrap_or_else(|e| e.into_inner());
             guard.clone()
         };
-        let Some(db) = crate::get_session_db() else {
+        let Some(db) = crate::get_session_db().cloned() else {
             aware.record_digest_failure();
             return;
         };
         // Collect candidates & compute hash; skip if unchanged.
-        let my_agent = Some(self.agent_id.as_str());
-        let mut snap = match crate::awareness::collect::collect_entries(
-            &db,
-            &cfg,
-            &self.session_id.clone().unwrap_or_default(),
-            my_agent,
-        ) {
+        let agent_id = self.agent_id.clone();
+        let session_id = self.session_id.clone().unwrap_or_default();
+        let cfg_for_collect = cfg.clone();
+        let db_for_collect = db.clone();
+        let mut snap = match crate::blocking::run_blocking(move || {
+            crate::awareness::collect::collect_entries(
+                &db_for_collect,
+                &cfg_for_collect,
+                &session_id,
+                Some(&agent_id),
+            )
+        })
+        .await
+        {
             Ok(s) if !s.entries.is_empty() => s,
             _ => {
                 aware.record_digest_failure();
@@ -2041,14 +2159,19 @@ impl AssistantAgent {
             return;
         }
         // Build prompt.
-        let prompt =
-            match crate::awareness::llm_digest::build_extraction_prompt(&snap.entries, &cfg, &db) {
-                Ok(p) if !p.is_empty() => p,
-                _ => {
-                    aware.record_digest_failure();
-                    return;
-                }
-            };
+        let entries = snap.entries;
+        let cfg_for_prompt = cfg.clone();
+        let prompt = match crate::blocking::run_blocking(move || {
+            crate::awareness::llm_digest::build_extraction_prompt(&entries, &cfg_for_prompt, &db)
+        })
+        .await
+        {
+            Ok(p) if !p.is_empty() => p,
+            _ => {
+                aware.record_digest_failure();
+                return;
+            }
+        };
         // Append the current user message so the model can compare topics.
         let prompt = if !user_text.is_empty() {
             format!(
@@ -2556,12 +2679,48 @@ impl AssistantAgent {
 
     /// Build the full system prompt, including any extra context.
     pub(crate) fn build_full_system_prompt(&self, model: &str, provider: &str) -> String {
-        let mut prompt = config::build_system_prompt_with_session(
+        let prompt = config::build_system_prompt_with_session(
             &self.agent_id,
             model,
             provider,
             self.session_id.as_deref(),
         );
+        let attached_knowledge_section = self.build_attached_knowledge_section();
+        self.append_full_system_prompt_extras(prompt, attached_knowledge_section)
+    }
+
+    /// Async chat-path variant. Agent/config files, session/project SQLite,
+    /// memory rows, profiles and Context Pack claims are all prepared on the
+    /// blocking pool. The returned reference snapshot is guaranteed to match
+    /// the prompt built in that same pass.
+    pub(crate) async fn prepare_full_system_prompt(&self, model: &str, provider: &str) -> String {
+        let agent_id = self.agent_id.clone();
+        let model = model.to_string();
+        let provider = provider.to_string();
+        let session_id = self.session_id.clone();
+        let bundle = crate::blocking::run_blocking(move || {
+            config::build_system_prompt_bundle_with_session(
+                &agent_id,
+                &model,
+                &provider,
+                session_id.as_deref(),
+            )
+        })
+        .await;
+        *self
+            .static_memory_refs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = bundle.static_memory_refs;
+
+        let attached_knowledge_section = self.prepare_attached_knowledge_section().await;
+        self.append_full_system_prompt_extras(bundle.prompt, attached_knowledge_section)
+    }
+
+    fn append_full_system_prompt_extras(
+        &self,
+        mut prompt: String,
+        attached_knowledge_section: Option<String>,
+    ) -> String {
         // Single walk over the static catalog: classify every tool's fate
         // up front, then drive both the eager-capability guidance blocks
         // and the # Unconfigured Capabilities section from the same map.
@@ -2655,7 +2814,7 @@ impl AssistantAgent {
         // Attached knowledge spaces (D7). Appended last, like the MCP snippet:
         // present only when at least one KB is reachable, so non-KB sessions keep
         // the prompt shape stable. Changes only on attach/detach → cache-friendly.
-        if let Some(section) = self.build_attached_knowledge_section() {
+        if let Some(section) = attached_knowledge_section {
             prompt.push_str("\n\n");
             prompt.push_str(&section);
         }
@@ -2669,6 +2828,20 @@ impl AssistantAgent {
     /// note_* tools see, so it never advertises a KB the tools would deny.
     fn build_attached_knowledge_section(&self) -> Option<String> {
         let access = self.resolve_kb_access();
+        Self::build_attached_knowledge_section_for_access(&access)
+    }
+
+    async fn prepare_attached_knowledge_section(&self) -> Option<String> {
+        let access = (*self.resolve_kb_access()).clone();
+        crate::blocking::run_blocking(move || {
+            Self::build_attached_knowledge_section_for_access(&access)
+        })
+        .await
+    }
+
+    fn build_attached_knowledge_section_for_access(
+        access: &std::collections::HashMap<String, crate::knowledge::KbAccess>,
+    ) -> Option<String> {
         if access.is_empty() {
             return None;
         }
@@ -2729,7 +2902,10 @@ impl AssistantAgent {
     /// suffix). Used for compaction token budgets and any code path that
     /// needs a flat string.
     pub(crate) fn build_merged_system_prompt(&self, model: &str, provider: &str) -> String {
-        let mut prompt = self.build_full_system_prompt(model, provider);
+        self.merge_dynamic_system_prompt(self.build_full_system_prompt(model, provider))
+    }
+
+    fn merge_dynamic_system_prompt(&self, mut prompt: String) -> String {
         if let Some(suffix) = self.current_awareness_suffix() {
             if !suffix.is_empty() {
                 prompt.push_str("\n\n");
@@ -2898,18 +3074,33 @@ impl AssistantAgent {
         }
 
         let backend = match crate::get_memory_backend() {
-            Some(b) => b,
+            Some(b) => b.clone(),
             None => return,
         };
-        let agent_def = crate::agent_loader::load_agent(&self.agent_id).ok();
-        let shared = agent_def
+        let memory_config = self.active_memory_state.current_agent_config();
+        let shared = memory_config
             .as_ref()
-            .map(|d| d.config.memory.shared)
+            .map(|config| config.shared_global)
             .unwrap_or(true);
-
-        let candidates = match backend.load_prompt_candidates(&self.agent_id, shared) {
-            Ok(c) => c,
-            Err(_) => return,
+        let budget = memory_config
+            .as_ref()
+            .map(|config| config.prompt_budget)
+            .unwrap_or(5_000);
+        let agent_id = self.agent_id.clone();
+        let Some(retrieval_slot) = acquire_memory_retrieval_slot().await else {
+            return;
+        };
+        let candidates = match tokio::time::timeout(
+            ACTIVE_MEMORY_RETRIEVAL_TIMEOUT,
+            crate::blocking::run_blocking(move || {
+                let _retrieval_slot = retrieval_slot;
+                backend.load_prompt_candidates(&agent_id, shared)
+            }),
+        )
+        .await
+        {
+            Ok(Ok(candidates)) => candidates,
+            Ok(Err(_)) | Err(_) => return,
         };
 
         if candidates.len() <= config.threshold {
@@ -2932,9 +3123,14 @@ impl AssistantAgent {
             config.max_selected,
         );
 
-        let result = match self.side_query(&instruction, 1024).await {
-            Ok(r) => r,
-            Err(e) => {
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.side_query(&instruction, 1024),
+        )
+        .await
+        {
+            Ok(Ok(result)) => result,
+            Ok(Err(e)) => {
                 app_warn!(
                     "memory",
                     "selection",
@@ -2943,6 +3139,7 @@ impl AssistantAgent {
                 );
                 return;
             }
+            Err(_) => return,
         };
 
         let selected_ids = crate::memory::selection::parse_selection_response(&result.text);
@@ -2960,10 +3157,6 @@ impl AssistantAgent {
             return;
         }
 
-        let budget = agent_def
-            .as_ref()
-            .map(|d| d.config.memory.prompt_budget)
-            .unwrap_or(5000);
         let new_summary = crate::memory::sqlite::format_prompt_summary(&selected, budget);
 
         crate::memory::selection::replace_memory_section(system_prompt, &new_summary);

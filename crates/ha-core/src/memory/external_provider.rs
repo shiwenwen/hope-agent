@@ -42,6 +42,11 @@ const MAX_SUBJECT_ID_CHARS: usize = 256;
 const MAX_PROTOCOL_CHARS: usize = 48;
 const SYNC_STATE_SCHEMA_VERSION: u32 = 1;
 const MAX_IMPORTED_CONTENT_CHARS: usize = 16_000;
+const IMPORT_LEDGER_CHECKPOINT_EVERY: usize = 100;
+const PROVIDER_SYNC_TIMEOUT: Duration = Duration::from_secs(120);
+tokio::task_local! {
+    static PROVIDER_SYNC_DEADLINE: std::time::Instant;
+}
 static AUTO_SYNC_QUEUED: AtomicBool = AtomicBool::new(false);
 static AUTO_SYNC_DIRTY: AtomicBool = AtomicBool::new(false);
 static EXTERNAL_PROVIDER_SYNC_LOCK: Lazy<tokio::sync::Mutex<()>> =
@@ -146,7 +151,9 @@ pub async fn execute_external_memory_provider_sync(
     // provider runs avoids duplicate exports and lost ledger updates when a
     // manual run overlaps the debounce or periodic scheduler.
     let _sync_guard = EXTERNAL_PROVIDER_SYNC_LOCK.lock().await;
-    let config = hydrate_external_memory_provider_config(config);
+    let config =
+        crate::blocking::run_blocking(move || hydrate_external_memory_provider_config(config))
+            .await;
     let preflight = config.sync_preflight_with_stats_status(&stats, stats_error);
     let preflight_report = preflight.clone();
     let mut results = Vec::with_capacity(preflight.providers.len());
@@ -203,7 +210,8 @@ pub async fn execute_external_memory_provider_sync(
         results.push(result);
     }
 
-    persist_sync_health(&results);
+    let health_results = results.clone();
+    crate::blocking::run_blocking(move || persist_sync_health(&health_results)).await;
     summarize_sync_report(preflight_summary(results, preflight_report))
 }
 
@@ -269,7 +277,9 @@ async fn run_automatic_external_memory_provider_sync() {
     if !config.enabled || !config.providers.iter().any(|provider| provider.enabled) {
         return;
     }
-    let (stats, stats_error) = super::helpers::external_memory_provider_stats_for_planning();
+    let (stats, stats_error) =
+        crate::blocking::run_blocking(super::helpers::external_memory_provider_stats_for_planning)
+            .await;
     let report = execute_external_memory_provider_sync(config, stats, stats_error).await;
     if report.failed_provider_count > 0 {
         app_warn!(
@@ -378,7 +388,16 @@ async fn execute_provider_sync(
     let outcome = match adapter_for(provider.kind) {
         Some(adapter) => {
             debug_assert_eq!(adapter.kind(), provider.kind);
-            adapter.sync(provider).await
+            let deadline = std::time::Instant::now() + PROVIDER_SYNC_TIMEOUT;
+            // Do not cancel the adapter future at the aggregate deadline:
+            // claim imports and ledger checkpoints use spawn_blocking and can
+            // outlive a dropped future. HTTP request boundaries consult this
+            // task-local deadline and stop starting new remote operations,
+            // while the current request/checkpoint is allowed to finish under
+            // the per-request timeout before the global sync lock is released.
+            PROVIDER_SYNC_DEADLINE
+                .scope(deadline, adapter.sync(provider))
+                .await
         }
         None => Err(ExternalMemoryAdapterSyncFailure {
             outcome: ExternalMemoryAdapterSyncOutcome::default(),
@@ -417,6 +436,16 @@ async fn execute_provider_sync(
             error: Some(truncate_error(&failure.error.to_string())),
         },
     }
+}
+
+pub(super) fn ensure_provider_sync_request_budget() -> Result<()> {
+    let exceeded = PROVIDER_SYNC_DEADLINE
+        .try_with(|deadline| std::time::Instant::now() >= *deadline)
+        .unwrap_or(false);
+    if exceeded {
+        bail!("external memory provider sync reached its request budget");
+    }
+    Ok(())
 }
 
 fn adapter_for(
@@ -539,6 +568,32 @@ pub(crate) fn persist_sync_ledger(
     write_secure_file(&path, &bytes).map_err(|err| anyhow!("write {}: {err}", path.display()))
 }
 
+pub(crate) async fn resolve_external_memory_provider_credentials_async(
+    provider_id: &str,
+) -> Result<Option<(ExternalMemoryProviderCredentials, &'static str)>> {
+    let provider_id = provider_id.to_string();
+    crate::blocking::run_blocking(move || {
+        resolve_external_memory_provider_credentials(&provider_id)
+    })
+    .await
+}
+
+pub(crate) async fn load_sync_ledger_async(
+    provider_id: &str,
+) -> Result<ExternalMemoryProviderSyncLedger> {
+    let provider_id = provider_id.to_string();
+    crate::blocking::run_blocking(move || load_sync_ledger(&provider_id)).await
+}
+
+pub(crate) async fn persist_sync_ledger_async(
+    provider_id: &str,
+    ledger: &ExternalMemoryProviderSyncLedger,
+) -> Result<()> {
+    let provider_id = provider_id.to_string();
+    let ledger = ledger.clone();
+    crate::blocking::run_blocking(move || persist_sync_ledger(&provider_id, &ledger)).await
+}
+
 pub(crate) async fn load_local_memory_snapshot(
     scan_limit: usize,
 ) -> Result<(Vec<super::MemoryEntry>, usize)> {
@@ -566,7 +621,7 @@ pub(crate) async fn load_local_memory_snapshot(
     .context("join local memory export scan")?
 }
 
-pub(crate) fn import_external_memory_for_review(
+pub(crate) async fn import_external_memory_for_review(
     provider: &ExternalMemoryProviderConfig,
     provider_kind: &str,
     remote_id: &str,
@@ -608,20 +663,28 @@ pub(crate) fn import_external_memory_for_review(
             provider.id.clone(),
         ],
     };
-    crate::memory::claims::write_claim_candidate_with_status(
-        &candidate,
-        &super::MemoryScope::Global,
-        &format!("external-sync:{}", provider.id),
-        Some(remote_id),
-        Some("needs_review"),
-    )?;
+    let provider_id = provider.id.clone();
+    let remote_id_owned = remote_id.to_string();
+    crate::blocking::run_blocking(move || {
+        crate::memory::claims::write_claim_candidate_with_status(
+            &candidate,
+            &super::MemoryScope::Global,
+            &format!("external-sync:{provider_id}"),
+            Some(&remote_id_owned),
+            Some("needs_review"),
+        )
+    })
+    .await?;
 
     ledger.imported_hashes.insert(remote_id.to_string(), hash);
-    persist_sync_ledger(&provider.id, ledger)?;
     if old_hash.is_some() {
         outcome.updated_memory_count += 1;
     } else {
         outcome.imported_memory_count += 1;
+    }
+    let changed = outcome.imported_memory_count + outcome.updated_memory_count;
+    if changed % IMPORT_LEDGER_CHECKPOINT_EVERY == 0 {
+        persist_sync_ledger_async(&provider.id, ledger).await?;
     }
     Ok(true)
 }
@@ -662,7 +725,9 @@ pub async fn save_external_memory_provider_credentials(
     validate_provider_id(&input.provider_id)?;
     ensure_provider_exists(&input.provider_id)?;
 
-    let existing = load_credentials_file(&input.provider_id)?;
+    let provider_id_for_load = input.provider_id.clone();
+    let existing =
+        crate::blocking::run_blocking(move || load_credentials_file(&provider_id_for_load)).await?;
     let endpoint = if input.endpoint.trim().is_empty() {
         existing
             .as_ref()
@@ -710,45 +775,45 @@ pub async fn save_external_memory_provider_credentials(
         subject_id,
         protocol,
     };
-    let credential_path = external_memory_credential_path(&input.provider_id)?;
-    let ledger_path = external_memory_sync_state_path(&input.provider_id)?;
-    let previous_credential_bytes = read_optional_file(&credential_path)?;
-    let previous_ledger_bytes = if reset_sync_ledger {
-        read_optional_file(&ledger_path)?
-    } else {
-        None
-    };
-    persist_credentials(&input.provider_id, &credentials)?;
-    if reset_sync_ledger {
-        remove_sync_ledger(&input.provider_id)?;
-    }
-
-    let provider_id = input.provider_id.clone();
-    if let Err(err) =
-        crate::config::mutate_config(("memory_providers.credentials", "owner"), move |store| {
-            let provider = store
-                .memory_providers
-                .providers
-                .iter_mut()
-                .find(|provider| provider.id == provider_id)
-                .ok_or_else(|| anyhow!("external memory provider not found"))?;
-            provider.endpoint_configured = true;
-            provider.last_error = None;
-            Ok(())
-        })
-    {
-        restore_optional_secure_file(&credential_path, previous_credential_bytes.as_deref())?;
+    let provider_id = input.provider_id;
+    crate::blocking::run_blocking(move || {
+        let credential_path = external_memory_credential_path(&provider_id)?;
+        let ledger_path = external_memory_sync_state_path(&provider_id)?;
+        let previous_credential_bytes = read_optional_file(&credential_path)?;
+        let previous_ledger_bytes = if reset_sync_ledger {
+            read_optional_file(&ledger_path)?
+        } else {
+            None
+        };
+        persist_credentials(&provider_id, &credentials)?;
         if reset_sync_ledger {
-            restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+            remove_sync_ledger(&provider_id)?;
         }
-        return Err(err).context("persist external memory provider readiness");
-    }
 
-    Ok(status_from_credentials(
-        input.provider_id,
-        credentials,
-        "file",
-    ))
+        let provider_id_for_config = provider_id.clone();
+        if let Err(err) =
+            crate::config::mutate_config(("memory_providers.credentials", "owner"), move |store| {
+                let provider = store
+                    .memory_providers
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == provider_id_for_config)
+                    .ok_or_else(|| anyhow!("external memory provider not found"))?;
+                provider.endpoint_configured = true;
+                provider.last_error = None;
+                Ok(())
+            })
+        {
+            restore_optional_secure_file(&credential_path, previous_credential_bytes.as_deref())?;
+            if reset_sync_ledger {
+                restore_optional_secure_file(&ledger_path, previous_ledger_bytes.as_deref())?;
+            }
+            return Err(err).context("persist external memory provider readiness");
+        }
+
+        Ok(status_from_credentials(provider_id, credentials, "file"))
+    })
+    .await
 }
 
 pub fn get_external_memory_provider_credential_status(

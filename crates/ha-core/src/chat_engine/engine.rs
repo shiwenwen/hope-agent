@@ -1379,7 +1379,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &session_id,
                             model_ref,
                             &agent,
-                        );
+                        )
+                        .await;
 
                         // Skill auto-review trigger (gate 1 of the five-gate
                         // waterfall). Feed tool_use_count from this round's

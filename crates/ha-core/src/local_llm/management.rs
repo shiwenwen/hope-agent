@@ -794,7 +794,10 @@ pub async fn add_ollama_model_as_embedding_config(model_id: &str) -> Result<Embe
         api_dimensions: embedding_dimensions_from_show(&show),
         source: Some("ollama".to_string()),
     };
-    let config = crate::memory::save_embedding_model_config(config, PROVIDER_SOURCE)?;
+    let config = crate::blocking::run_blocking(move || {
+        crate::memory::save_embedding_model_config(config, PROVIDER_SOURCE)
+    })
+    .await?;
     crate::app_info!(
         "local_llm",
         "add_embedding_config",

@@ -23,7 +23,7 @@ pub async fn dreaming_run_resolver() -> Result<dreaming::ResolverReport, CmdErro
 /// `GET /api/dreaming/resolver/preflight` on the HTTP side.
 #[tauri::command]
 pub async fn dreaming_resolver_preflight() -> Result<dreaming::ResolverPreflightReport, CmdError> {
-    Ok(dreaming::resolver_preflight())
+    Ok(ha_core::blocking::run_blocking(dreaming::resolver_preflight).await)
 }
 
 /// Run one Memory Profile synthesis cycle (manual = LLM rewrite) and return
@@ -38,7 +38,9 @@ pub async fn dreaming_run_profile() -> Result<dreaming::ProfileReport, CmdError>
 #[tauri::command]
 pub async fn dreaming_list_profile_snapshots(
 ) -> Result<Vec<dreaming::ProfileSnapshotRecord>, CmdError> {
-    dreaming::list_profile_snapshots().map_err(Into::into)
+    ha_core::blocking::run_blocking(dreaming::list_profile_snapshots)
+        .await
+        .map_err(Into::into)
 }
 
 /// List Dream Diary markdown files (newest first). `limit` caps the
@@ -48,13 +50,17 @@ pub async fn dreaming_list_profile_snapshots(
 pub async fn dreaming_list_diaries(
     limit: Option<usize>,
 ) -> Result<Vec<dreaming::DiaryEntry>, CmdError> {
-    dreaming::list_diaries(limit).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || dreaming::list_diaries(limit))
+        .await
+        .map_err(Into::into)
 }
 
 /// Read the markdown for a single diary file.
 #[tauri::command]
 pub async fn dreaming_read_diary(filename: String) -> Result<String, CmdError> {
-    dreaming::read_diary(&filename).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || dreaming::read_diary(&filename))
+        .await
+        .map_err(Into::into)
 }
 
 /// Lightweight status probe so the Dashboard can grey out the "Run now"
@@ -99,14 +105,18 @@ pub async fn dreaming_list_runs(
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<Vec<dreaming::DreamingRunRecord>, CmdError> {
-    dreaming::list_runs(limit, offset).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || dreaming::list_runs(limit, offset))
+        .await
+        .map_err(Into::into)
 }
 
 /// Fetch a single run plus its decision log. Returns `null` if the id is
 /// unknown. Maps to `GET /api/dreaming/runs/{id}`.
 #[tauri::command]
 pub async fn dreaming_get_run(id: String) -> Result<Option<dreaming::DreamingRunDetail>, CmdError> {
-    dreaming::get_run(&id).map_err(Into::into)
+    ha_core::blocking::run_blocking(move || dreaming::get_run(&id))
+        .await
+        .map_err(Into::into)
 }
 
 /// Query durable decision rows directly. Owner-plane Review History helper;
@@ -122,7 +132,7 @@ pub async fn dreaming_list_decisions(
     since: Option<String>,
     target_type: Option<String>,
 ) -> Result<Vec<dreaming::DreamingDecisionListItem>, CmdError> {
-    dreaming::list_decisions(dreaming::DreamingDecisionListFilter {
+    let filter = dreaming::DreamingDecisionListFilter {
         limit,
         offset,
         query,
@@ -131,8 +141,10 @@ pub async fn dreaming_list_decisions(
         scope_id,
         since,
         target_type,
-    })
-    .map_err(Into::into)
+    };
+    ha_core::blocking::run_blocking(move || dreaming::list_decisions(filter))
+        .await
+        .map_err(Into::into)
 }
 
 /// Query durable decision rows with total-match metadata. Owner-plane Review
@@ -148,7 +160,7 @@ pub async fn dreaming_list_decisions_page(
     since: Option<String>,
     target_type: Option<String>,
 ) -> Result<dreaming::DreamingDecisionListResponse, CmdError> {
-    dreaming::list_decisions_page(dreaming::DreamingDecisionListFilter {
+    let filter = dreaming::DreamingDecisionListFilter {
         limit,
         offset,
         query,
@@ -157,8 +169,10 @@ pub async fn dreaming_list_decisions_page(
         scope_id,
         since,
         target_type,
-    })
-    .map_err(Into::into)
+    };
+    ha_core::blocking::run_blocking(move || dreaming::list_decisions_page(filter))
+        .await
+        .map_err(Into::into)
 }
 
 /// Resolve a redacted, length-capped excerpt for an evidence ref (Evidence
@@ -170,5 +184,8 @@ pub async fn dreaming_evidence_quote(
     session_id: String,
     message_id: Option<i64>,
 ) -> Result<dreaming::EvidenceQuote, CmdError> {
-    Ok(dreaming::evidence_quote(&session_id, message_id))
+    Ok(
+        ha_core::blocking::run_blocking(move || dreaming::evidence_quote(&session_id, message_id))
+            .await,
+    )
 }

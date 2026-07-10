@@ -9,8 +9,8 @@ use super::http::{
 };
 use super::{
     content_fingerprint, import_external_memory_for_review, load_local_memory_snapshot,
-    load_sync_ledger, local_memory_fingerprint, persist_sync_ledger,
-    resolve_external_memory_provider_credentials, ExternalMemoryAdapterSyncFailure,
+    load_sync_ledger_async, local_memory_fingerprint, persist_sync_ledger_async,
+    resolve_external_memory_provider_credentials_async, ExternalMemoryAdapterSyncFailure,
     ExternalMemoryAdapterSyncOutcome, ExternalMemoryProviderAdapter,
     ExternalMemoryProviderCredentials, ExternalMemoryProviderSyncLedger,
 };
@@ -55,7 +55,8 @@ async fn sync_open_viking(
     provider: &ExternalMemoryProviderConfig,
 ) -> std::result::Result<ExternalMemoryAdapterSyncOutcome, ExternalMemoryAdapterSyncFailure> {
     let mut outcome = ExternalMemoryAdapterSyncOutcome::default();
-    let (credentials, _) = resolve_external_memory_provider_credentials(&provider.id)
+    let (credentials, _) = resolve_external_memory_provider_credentials_async(&provider.id)
+        .await
         .map_err(|error| failure(outcome.clone(), error))?
         .ok_or_else(|| failure(outcome.clone(), anyhow!("provider credentials are missing")))?;
     let _protocol =
@@ -64,8 +65,9 @@ async fn sync_open_viking(
         .await
         .map_err(|error| failure(outcome.clone(), error))?;
     let client = external_http_client().map_err(|error| failure(outcome.clone(), error))?;
-    let mut ledger =
-        load_sync_ledger(&provider.id).map_err(|error| failure(outcome.clone(), error))?;
+    let mut ledger = load_sync_ledger_async(&provider.id)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
 
     if provider.sync_policy.imports_external_memory() {
         pull_memory_files(
@@ -89,6 +91,9 @@ async fn sync_open_viking(
         )
         .await?;
     }
+    persist_sync_ledger_async(&provider.id, &ledger)
+        .await
+        .map_err(|error| failure(outcome.clone(), error))?;
     Ok(outcome)
 }
 
@@ -155,9 +160,11 @@ async fn pull_memory_files(
             ledger,
             outcome,
         )
+        .await
         .map_err(|error| failure(outcome.clone(), error))?;
         ledger.remote_versions.insert(file.uri, file.version);
-        persist_sync_ledger(&provider.id, ledger)
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
     }
     emit_import_event(outcome);
@@ -260,7 +267,8 @@ async fn push_memory_sessions(
                 outcome.exported_memory_count += 1;
             }
         }
-        persist_sync_ledger(&provider.id, ledger)
+        persist_sync_ledger_async(&provider.id, ledger)
+            .await
             .map_err(|error| failure(outcome.clone(), error))?;
     }
     Ok(())

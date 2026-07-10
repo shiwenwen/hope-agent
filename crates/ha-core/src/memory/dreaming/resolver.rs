@@ -927,27 +927,39 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
         cfg.narrative_timeout_secs
             .saturating_mul(MAX_RESOLVER_GROUPS as u64),
     );
-    let Some(_lease) = store::acquire_lease(&lock_key, &run_id, lease_ttl) else {
+    let lock_key_for_acquire = lock_key.clone();
+    let run_id_for_acquire = run_id.clone();
+    let Some(lease) = crate::blocking::run_blocking(move || {
+        store::acquire_lease(&lock_key_for_acquire, &run_id_for_acquire, lease_ttl)
+    })
+    .await
+    else {
         return ResolverReport::skipped("another instance holds the dreaming lease", started);
     };
 
-    if let Some(s) = store::store() {
-        let scope_json = json!({ "phase": "deep", "resolver": true }).to_string();
-        if let Err(e) = s.create_run(
-            &run_id,
-            trigger.as_str(),
-            phase.as_str(),
-            &scope_json,
-            lease_ttl,
-        ) {
-            app_warn!(
-                "memory",
-                "dreaming::store",
-                "failed to persist run row: {}",
-                e
-            );
+    let run_id_for_create = run_id.clone();
+    let trigger_name = trigger.as_str().to_string();
+    let phase_name = phase.as_str().to_string();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            let scope_json = json!({ "phase": "deep", "resolver": true }).to_string();
+            if let Err(e) = s.create_run(
+                &run_id_for_create,
+                &trigger_name,
+                &phase_name,
+                &scope_json,
+                lease_ttl,
+            ) {
+                app_warn!(
+                    "memory",
+                    "dreaming::store",
+                    "failed to persist run row: {}",
+                    e
+                );
+            }
         }
-    }
+    })
+    .await;
     app_info!(
         "memory",
         "dreaming::resolver",
@@ -1009,18 +1021,25 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
             "processed {MAX_RESOLVER_GROUPS} of {total_groups} conflict groups; rerun to continue"
         )
     });
-    if let Some(s) = store::store() {
-        if let Err(e) = s.finish_resolver_run(
-            &run_id,
-            DreamRunStatus::Completed,
-            claims.len(),
-            applied.total(),
-            duration_ms,
-            note.as_deref(),
-        ) {
-            app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+    let run_id_for_finish = run_id.clone();
+    let note_for_finish = note.clone();
+    let scanned = claims.len();
+    let applied_total = applied.total();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.finish_resolver_run(
+                &run_id_for_finish,
+                DreamRunStatus::Completed,
+                scanned,
+                applied_total,
+                duration_ms,
+                note_for_finish.as_deref(),
+            ) {
+                app_warn!("memory", "dreaming::store", "failed to finalise run: {}", e);
+            }
         }
-    }
+    })
+    .await;
 
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
@@ -1050,7 +1069,7 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
         duration_ms
     );
 
-    ResolverReport {
+    let report = ResolverReport {
         run_id: Some(run_id),
         scanned: claims.len(),
         expired: applied.expired,
@@ -1058,7 +1077,9 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
         needs_review: applied.needs_review,
         duration_ms,
         note,
-    }
+    };
+    lease.release().await;
+    report
 }
 
 /// Run the conservative automatic Deep pass from inside an ordinary Light
@@ -1132,41 +1153,53 @@ pub(super) async fn run_auto_resolver_sweep(trigger: DreamTrigger) -> ResolverRe
         cfg.narrative_timeout_secs
             .saturating_mul(llm_budget_multiplier),
     );
-    let Some(_lease) = store::acquire_lease(&lock_key, &run_id, lease_ttl) else {
+    let lock_key_for_acquire = lock_key.clone();
+    let run_id_for_acquire = run_id.clone();
+    let Some(lease) = crate::blocking::run_blocking(move || {
+        store::acquire_lease(&lock_key_for_acquire, &run_id_for_acquire, lease_ttl)
+    })
+    .await
+    else {
         return ResolverReport::skipped("another instance holds the deep resolver lease", started);
     };
 
-    if let Some(s) = store::store() {
-        let scope_json = json!({
-            "phase": "deep",
-            "resolver": true,
-            "automatic": true,
-            "autoExpire": cfg.deep_resolver.auto_expire_on_light_cycle,
-            "graphInformed": true,
-            "graphNoopGroups": graph_noop_groups,
-            "llmGroups": groups.len(),
-            "llmGroupCap": group_cap,
-            "minConfidence": cfg.deep_resolver.auto_min_confidence(),
-            "autoMergeNearDuplicates": cfg.deep_resolver.auto_merge_near_duplicates,
-            "autoSupersede": false,
-            "triggeredBy": trigger.as_str(),
-        })
-        .to_string();
-        if let Err(e) = s.create_run(
-            &run_id,
-            trigger.as_str(),
-            phase.as_str(),
-            &scope_json,
-            lease_ttl,
-        ) {
-            app_warn!(
-                "memory",
-                "dreaming::resolver",
-                "failed to persist auto resolver run: {}",
-                e
-            );
+    let scope_json = json!({
+        "phase": "deep",
+        "resolver": true,
+        "automatic": true,
+        "autoExpire": cfg.deep_resolver.auto_expire_on_light_cycle,
+        "graphInformed": true,
+        "graphNoopGroups": graph_noop_groups,
+        "llmGroups": groups.len(),
+        "llmGroupCap": group_cap,
+        "minConfidence": cfg.deep_resolver.auto_min_confidence(),
+        "autoMergeNearDuplicates": cfg.deep_resolver.auto_merge_near_duplicates,
+        "autoSupersede": false,
+        "triggeredBy": trigger.as_str(),
+    })
+    .to_string();
+    let run_id_for_create = run_id.clone();
+    let trigger_name = trigger.as_str().to_string();
+    let phase_name = phase.as_str().to_string();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.create_run(
+                &run_id_for_create,
+                &trigger_name,
+                &phase_name,
+                &scope_json,
+                lease_ttl,
+            ) {
+                app_warn!(
+                    "memory",
+                    "dreaming::resolver",
+                    "failed to persist auto resolver run: {}",
+                    e
+                );
+            }
         }
-    }
+    })
+    .await;
 
     let mut group_decisions = Vec::new();
     let mut llm_noop_groups = 0usize;
@@ -1224,23 +1257,30 @@ pub(super) async fn run_auto_resolver_sweep(trigger: DreamTrigger) -> ResolverRe
     } else {
         DreamRunStatus::Completed
     };
-    if let Some(s) = store::store() {
-        if let Err(e) = s.finish_resolver_run(
-            &run_id,
-            status,
-            claims.len(),
-            applied.total(),
-            duration_ms,
-            note.as_deref(),
-        ) {
-            app_warn!(
-                "memory",
-                "dreaming::resolver",
-                "failed to finalise automatic resolver run: {}",
-                e
-            );
+    let run_id_for_finish = run_id.clone();
+    let note_for_finish = note.clone();
+    let scanned = claims.len();
+    let applied_total = applied.total();
+    crate::blocking::run_blocking(move || {
+        if let Some(s) = store::store() {
+            if let Err(e) = s.finish_resolver_run(
+                &run_id_for_finish,
+                status,
+                scanned,
+                applied_total,
+                duration_ms,
+                note_for_finish.as_deref(),
+            ) {
+                app_warn!(
+                    "memory",
+                    "dreaming::resolver",
+                    "failed to finalise automatic resolver run: {}",
+                    e
+                );
+            }
         }
-    }
+    })
+    .await;
 
     if let Some(bus) = crate::get_event_bus() {
         bus.emit(
@@ -1264,7 +1304,7 @@ pub(super) async fn run_auto_resolver_sweep(trigger: DreamTrigger) -> ResolverRe
         );
     }
 
-    ResolverReport {
+    let report = ResolverReport {
         run_id: Some(run_id),
         scanned: claims.len(),
         expired: applied.expired,
@@ -1272,7 +1312,9 @@ pub(super) async fn run_auto_resolver_sweep(trigger: DreamTrigger) -> ResolverRe
         needs_review: applied.needs_review,
         duration_ms,
         note,
-    }
+    };
+    lease.release().await;
+    report
 }
 
 #[cfg(test)]
