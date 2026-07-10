@@ -75,13 +75,21 @@ export function useKnowledgeReembedJobs() {
    * so a KB with a failed bind-scan keeps surfacing "failed, retry" (via the
    * empty state) until the user retries or the job is cleared, instead of
    * silently reverting to an unexplained "empty" state.
+   *
+   * The terminal fallback only matches jobs scoped *to this KB specifically*
+   * (`targetKbIds` includes it) — unlike the active branch, it does NOT fall
+   * back to a full-scope job (`targetKbIds == null`). A failed full-app
+   * rebuild isn't "this space's scan failed"; matching it here would hijack
+   * an unrelated, genuinely-empty space's empty-state with a misleading
+   * "Scan failed / Retry" UI whose retry button would actually re-trigger the
+   * full rebuild, not anything about that specific space.
    */
   const jobForKb = useCallback(
     (kbId: string | null | undefined): LocalModelJobSnapshot | null => {
       if (!kbId) return null
       const active = sorted.find((j) => isLocalModelJobActive(j) && matchesKb(j, kbId))
       if (active) return active
-      return sorted.find((j) => matchesKb(j, kbId)) ?? null
+      return sorted.find((j) => j.targetKbIds?.includes(kbId)) ?? null
     },
     [sorted],
   )
@@ -94,5 +102,14 @@ export function useKnowledgeReembedJobs() {
     [sorted],
   )
 
-  return { jobs: sorted, isKbBusy, jobForKb, activeCount }
+  // Explicit local removal after a successful `local_model_job_clear` call —
+  // that backend path deletes the DB row but emits no `local_model_job:*`
+  // event (there is nothing left to broadcast a snapshot of), so without this
+  // the cleared row would keep showing in the activity panel until the next
+  // full reseed (navigation / remount).
+  const dismiss = useCallback((jobId: string) => {
+    setJobs((prev) => prev.filter((j) => j.jobId !== jobId))
+  }, [])
+
+  return { jobs: sorted, isKbBusy, jobForKb, activeCount, dismiss }
 }

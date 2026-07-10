@@ -178,7 +178,11 @@ function isImportJobActive(job: ImportActivityJob): boolean {
  */
 export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMeta[] }) {
   const { t } = useTranslation()
-  const { jobs: reembedJobs, activeCount: reembedActiveCount } = useKnowledgeReembedJobs()
+  const {
+    jobs: reembedJobs,
+    activeCount: reembedActiveCount,
+    dismiss: dismissReembedJob,
+  } = useKnowledgeReembedJobs()
   const importJobs = useKnowledgeImportJobs()
   const [open, setOpen] = useState(false)
   const [actioning, setActioning] = useState<Record<string, boolean>>({})
@@ -215,6 +219,10 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
           await getTransport().call<LocalModelJobSnapshot>("local_model_job_retry", { jobId })
         } else {
           await getTransport().call("local_model_job_clear", { jobId })
+          // `local_model_job_clear` deletes the DB row but emits no event, so
+          // the hook's local state needs an explicit nudge or the cleared row
+          // keeps showing until the next full reseed.
+          dismissReembedJob(jobId)
         }
       } catch (e) {
         toast.error(String(e))
@@ -226,7 +234,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
         })
       }
     },
-    [],
+    [dismissReembedJob],
   )
 
   return (
