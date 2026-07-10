@@ -6597,7 +6597,9 @@
       "scopeImage": "Kotak / lakaran merah dalam tangkapan skrin yang dilampirkan ialah kawasan yang ditanda.",
       "scopeNoImage": "{{n}} kawasan ditanda (tangkapan skrin tiada; teks sahaja).",
       "scopeNote": "Nota pengguna: {{note}}",
-      "scopeInstruction": "Ubah kawasan yang ditanda sahaja; kekalkan yang lain."
+      "scopeInstruction": "Ubah kawasan yang ditanda sahaja; kekalkan yang lain.",
+      "scopeElements": "Elemen beranotasi yang dikena: {{list}}.",
+      "scopeEdit": "Sunting setiap satu di tempatnya dengan alat design edit_element(oid, style/text/...); jika tidak pasti gaya semasa, baca sumber dengan get_artifact dahulu; jangan bina semula keseluruhan artifak."
     },
     "dblClickRename": "Klik dua kali untuk namakan semula",
     "duplicatePage": "Salin halaman",

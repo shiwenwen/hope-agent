@@ -6597,7 +6597,9 @@
       "scopeImage": "随附截图中的红框 / 红线即标注区域。",
       "scopeNoImage": "共 {{n}} 处标注（截图未生成，仅文字说明）。",
       "scopeNote": "用户说明：{{note}}",
-      "scopeInstruction": "请只针对标注区域修改，其余部分保持不变。"
+      "scopeInstruction": "请只针对标注区域修改，其余部分保持不变。",
+      "scopeElements": "标注命中元素：{{list}}。",
+      "scopeEdit": "逐个用 design 工具 edit_element(oid, style/text/...) 就地精改，不确定当前样式先 get_artifact 读 source；别重造整个产物。"
     },
     "dblClickRename": "双击改名",
     "duplicatePage": "复制页面",

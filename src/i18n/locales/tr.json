@@ -6597,7 +6597,9 @@
       "scopeImage": "Ekli ekran görüntüsündeki kırmızı kutular / çizgiler işaretlenen bölgelerdir.",
       "scopeNoImage": "{{n}} işaretli bölge (ekran görüntüsü yok; yalnızca metin).",
       "scopeNote": "Kullanıcı notu: {{note}}",
-      "scopeInstruction": "Yalnızca işaretli bölgeleri değiştir; gerisini aynı bırak."
+      "scopeInstruction": "Yalnızca işaretli bölgeleri değiştir; gerisini aynı bırak.",
+      "scopeElements": "İşaretlenen öğeler: {{list}}.",
+      "scopeEdit": "Her birini design aracının edit_element(oid, style/text/...) ile yerinde düzenleyin; mevcut stilden emin değilseniz önce get_artifact ile kaynağı okuyun; tüm çıktıyı yeniden oluşturmayın."
     },
     "dblClickRename": "Yeniden adlandırmak için çift tıkla",
     "duplicatePage": "Sayfayı çoğalt",

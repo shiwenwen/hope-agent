@@ -609,6 +609,24 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
         clientHeight:de.clientHeight||window.innerHeight||0,
         scrollWidth:Math.max(de.scrollWidth||0,bo?bo.scrollWidth:0),
         scrollHeight:Math.max(de.scrollHeight||0,bo?bo.scrollHeight:0)},'*')}
+    else if(d.type==='ds_draw_hit'){
+      // 涂画+元素身份合一：父层传来**内容坐标系**的绘制区域（{x,y,w,h}，px = scrollX+n*clientWidth），
+      // 回传被覆盖的 [data-ds-oid] 成员（与任一区域重叠面积 > 元素面积 50% 即命中，复用 lasso 判据，
+      // 排除仅小部分被覆盖的大容器）。纯读取、与 active 无关（drawMode 期 bridge 已 deactivate）。
+      var regions=Array.isArray(d.regions)?d.regions:[];
+      var hsx=window.scrollX||de.scrollLeft||0, hsy=window.scrollY||de.scrollTop||0;
+      var members=[],seen={};
+      document.querySelectorAll('[data-ds-oid]').forEach(function(el){
+        var r=el.getBoundingClientRect();if(!r.width||!r.height)return;
+        var ex=r.left+hsx,ey=r.top+hsy,ew=r.width,eh=r.height,ea=ew*eh,covered=0;
+        for(var i=0;i<regions.length;i++){var g=regions[i];
+          var ix=Math.max(ex,g.x),iy=Math.max(ey,g.y),
+              rx=Math.min(ex+ew,g.x+g.w),ry=Math.min(ey+eh,g.y+g.h);
+          if(rx>ix&&ry>iy)covered+=(rx-ix)*(ry-iy);}
+        if(ea&&covered/ea>0.5){var oid=el.getAttribute('data-ds-oid');
+          if(!seen[oid]){seen[oid]=1;members.push({oid:Number(oid),tag:el.tagName.toLowerCase(),snippet:labelOf(el)})}}
+      });
+      parent.postMessage({type:'ds_draw_hit_result',id:d.id,members:members},'*');}
     else if(d.type==='ds_scroll_by'){window.scrollBy(d.dx||0,d.dy||0)}
     // 滚动保温（Wave 2-⑥）：内容刷新 / 换系统 / 定稿 swap 后父层重挂 src，onLoad 回写重载前
     // 的滚动位置，避免每轮改稿被打回顶部。opaque-origin 无法父层直接 scrollTo，故走 postMessage。

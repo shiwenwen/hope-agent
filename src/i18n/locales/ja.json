@@ -6597,7 +6597,9 @@
       "scopeImage": "添付スクリーンショットの赤枠／赤線がマークした領域です。",
       "scopeNoImage": "{{n}} 箇所のマーク（スクリーンショットは生成できず、テキストのみ）。",
       "scopeNote": "ユーザーの説明：{{note}}",
-      "scopeInstruction": "マークした領域のみを変更し、それ以外はそのままにしてください。"
+      "scopeInstruction": "マークした領域のみを変更し、それ以外はそのままにしてください。",
+      "scopeElements": "注釈が当たった要素：{{list}}。",
+      "scopeEdit": "それぞれ design ツールの edit_element(oid, style/text/...) でその場で修正してください。現在のスタイルが不明な場合はまず get_artifact でソースを確認し、成果物全体を作り直さないでください。"
     },
     "dblClickRename": "ダブルクリックで名前変更",
     "duplicatePage": "ページを複製",

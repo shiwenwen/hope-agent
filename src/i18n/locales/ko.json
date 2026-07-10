@@ -6597,7 +6597,9 @@
       "scopeImage": "첨부된 스크린샷의 빨간 상자 / 선이 표시된 영역입니다.",
       "scopeNoImage": "표시 {{n}}곳 (스크린샷을 생성하지 못해 텍스트만 제공).",
       "scopeNote": "사용자 설명: {{note}}",
-      "scopeInstruction": "표시된 영역만 변경하고 나머지는 그대로 두세요."
+      "scopeInstruction": "표시된 영역만 변경하고 나머지는 그대로 두세요.",
+      "scopeElements": "주석이 적중한 요소: {{list}}.",
+      "scopeEdit": "각 요소를 design 도구 edit_element(oid, style/text/...)로 제자리에서 수정하세요. 현재 스타일이 확실하지 않으면 먼저 get_artifact로 소스를 확인하고 전체 산출물을 다시 만들지 마세요."
     },
     "dblClickRename": "더블클릭하여 이름 변경",
     "duplicatePage": "페이지 복제",

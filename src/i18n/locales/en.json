@@ -6597,7 +6597,9 @@
       "scopeImage": "The red boxes / strokes in the attached screenshot are the marked regions.",
       "scopeNoImage": "{{n}} marked region(s) (screenshot unavailable; text only).",
       "scopeNote": "User note: {{note}}",
-      "scopeInstruction": "Only change the marked regions; leave everything else unchanged."
+      "scopeInstruction": "Only change the marked regions; leave everything else unchanged.",
+      "scopeElements": "Annotated elements hit: {{list}}.",
+      "scopeEdit": "Edit each in place via the design tool edit_element(oid, style/text/...); if unsure of the current style, read the source with get_artifact first — do not rebuild the whole artifact."
     },
     "dblClickRename": "Double-click to rename",
     "duplicatePage": "Duplicate page",

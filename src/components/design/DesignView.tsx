@@ -233,6 +233,13 @@ async function imageToDataUri(src: string): Promise<string | null> {
   return last // 尽力而为：仍超预算也返回最小的一版
 }
 
+/** 涂画命中的元素成员（`ds_draw_hit` 桥回传）：oid + tag + 文本片段，带给模型做 edit_element。 */
+interface DrawMember {
+  oid: number
+  tag: string
+  snippet: string
+}
+
 /** iframe 视口/滚动度量（B4-1，经 `ds_viewport` 桥回传；父层跨源无法直接读）。 */
 interface ViewportMetrics {
   scrollX: number
@@ -573,8 +580,48 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     (dx: number, dy: number) => postToIframe({ type: "ds_scroll_by", dx, dy }),
     [postToIframe],
   )
+  // 涂画+元素身份合一：把归一化绘制区域映射到 iframe **内容坐标系**（scrollX+n*clientWidth，与
+  // compositeAnnotation 同口径，不含 renderScale），请 bridge 回传被覆盖的 oid 成员 → 带给模型做
+  // edit_element 精改。跨源经 postMessage round-trip（镜像 requestViewportMetrics）。
+  const drawHitReqRef = useRef(new Map<number, (m: DrawMember[]) => void>())
+  const drawHitIdRef = useRef(0)
+  const requestDrawHits = useCallback(
+    (vp: ViewportMetrics, payload: DesignDrawSubmit): Promise<DrawMember[]> => {
+      const win = iframeRef.current?.contentWindow
+      const cw = vp.clientWidth
+      const ch = vp.clientHeight
+      if (!win || cw <= 0 || ch <= 0) return Promise.resolve([])
+      const regions: { x: number; y: number; w: number; h: number }[] = []
+      for (const b of payload.boxes)
+        regions.push({ x: vp.scrollX + b.x * cw, y: vp.scrollY + b.y * ch, w: b.width * cw, h: b.height * ch })
+      for (const pts of payload.strokes) {
+        if (pts.length < 1) continue
+        let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+        for (const p of pts) {
+          minx = Math.min(minx, p.x); miny = Math.min(miny, p.y)
+          maxx = Math.max(maxx, p.x); maxy = Math.max(maxy, p.y)
+        }
+        regions.push({ x: vp.scrollX + minx * cw, y: vp.scrollY + miny * ch, w: (maxx - minx) * cw, h: (maxy - miny) * ch })
+      }
+      if (regions.length === 0) return Promise.resolve([])
+      const id = ++drawHitIdRef.current
+      return new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          drawHitReqRef.current.delete(id)
+          resolve([])
+        }, 1500)
+        drawHitReqRef.current.set(id, (m) => {
+          window.clearTimeout(timer)
+          drawHitReqRef.current.delete(id)
+          resolve(m)
+        })
+        win.postMessage({ type: "ds_draw_hit", id, regions }, "*")
+      })
+    },
+    [],
+  )
   const describeMarks = useCallback(
-    (payload: DesignDrawSubmit, hasImage: boolean, title: string): string => {
+    (payload: DesignDrawSubmit, hasImage: boolean, title: string, members: DrawMember[]): string => {
       const lines: string[] = [
         t("design.draw.scopeHeader", "【画框批注】用户在产物「{{title}}」的预览上标注了要修改的区域。", {
           title,
@@ -586,6 +633,20 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         lines.push(t("design.draw.scopeNoImage", "共 {{n}} 处标注（截图未生成，仅文字说明）。", { n }))
       }
       if (payload.note) lines.push(t("design.draw.scopeNote", "用户说明：{{note}}", { note: payload.note }))
+      // 涂画+元素身份合一：命中元素带上 oid，让模型对每个用 edit_element(oid) 就地精改（保留其它一切），
+      // 而非靠位图/区域描述猜元素、改错相邻元素。
+      if (members.length) {
+        const list = members
+          .map((m) => `<${m.tag}>（oid=${m.oid}）${m.snippet ? "：" + m.snippet.slice(0, 30) : ""}`)
+          .join("、")
+        lines.push(t("design.draw.scopeElements", "标注命中元素：{{list}}。", { list }))
+        lines.push(
+          t(
+            "design.draw.scopeEdit",
+            "逐个用 design 工具 edit_element(oid, style/text/...) 就地精改，不确定当前样式先 get_artifact 读 source；别重造整个产物。",
+          ),
+        )
+      }
       lines.push(t("design.draw.scopeInstruction", "请只针对标注区域修改，其余部分保持不变。"))
       return lines.join("\n")
     },
@@ -602,6 +663,8 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         let file: File | null = null
         const vp = await requestViewportMetrics()
         const hasMarks = payload.boxes.length > 0 || payload.strokes.length > 0
+        // 涂画命中的 oid 成员（跨源 round-trip；bridge 对非 oid 内容回空、安全降级为纯区域描述）。
+        const members = vp && hasMarks ? await requestDrawHits(vp, payload) : []
         // deck / motion 是**多帧/多态**产物：离屏 fresh render 只会渲默认态（deck slide 1 /
         // motion 首帧），与用户所看的当前帧不符 → 底图会误导（review MED）。这类只发文字标注、
         // 不烧底图（describeMarks 的 !file 分支给「仅文字说明」），宁缺勿错。
@@ -632,7 +695,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           name: t("design.draw.quoteName", "画框批注"),
           startLine: 0,
           endLine: 0,
-          content: describeMarks(payload, !!file, art.title),
+          content: describeMarks(payload, !!file, art.title, members),
         })
         if (file) enqueueChatImage(file)
         setDrawMode(false)
@@ -640,7 +703,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setDrawBusy(false)
       }
     },
-    [tx, t, requestViewportMetrics, describeMarks, enqueueChatQuote, enqueueChatImage],
+    [tx, t, requestViewportMetrics, requestDrawHits, describeMarks, enqueueChatQuote, enqueueChatImage],
   )
 
   // 流式生成态：streamRef 追当前流（streamId 变化=新流重置、seq 丢乱序帧）；
@@ -1804,6 +1867,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
         viewportReqRef.current.get(d.id)?.(e.data as ViewportMetrics)
+        return
+      }
+      // 涂画命中的 oid 成员回传（resolve 对应 requestDrawHits 的 promise）。
+      if (d?.type === "ds_draw_hit_result" && typeof d.id === "number") {
+        drawHitReqRef.current.get(d.id)?.(Array.isArray(d.members) ? (d.members as DrawMember[]) : [])
         return
       }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)

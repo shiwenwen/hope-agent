@@ -6597,7 +6597,9 @@
       "scopeImage": "Los recuadros / trazos rojos de la captura adjunta son las regiones marcadas.",
       "scopeNoImage": "{{n}} región(es) marcada(s) (captura no disponible; solo texto).",
       "scopeNote": "Nota del usuario: {{note}}",
-      "scopeInstruction": "Cambia solo las regiones marcadas; deja el resto sin cambios."
+      "scopeInstruction": "Cambia solo las regiones marcadas; deja el resto sin cambios.",
+      "scopeElements": "Elementos anotados alcanzados: {{list}}.",
+      "scopeEdit": "Edita cada uno en el sitio con la herramienta design edit_element(oid, style/text/...); si no conoces el estilo actual, lee la fuente con get_artifact primero; no reconstruyas todo el artefacto."
     },
     "dblClickRename": "Doble clic para renombrar",
     "duplicatePage": "Duplicar página",
