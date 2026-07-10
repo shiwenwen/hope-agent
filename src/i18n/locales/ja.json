@@ -6584,7 +6584,15 @@
       "tokenPh": "API Token を貼り付け",
       "deploy": "デプロイ",
       "done": "デプロイ完了、リンクをコピーしました",
-      "failed": "デプロイに失敗しました：{{msg}}"
+      "failed": "デプロイに失敗しました：{{msg}}",
+      "customDomain": "カスタムドメイン",
+      "domainHint": "独自ドメインを紐付けて *.pages.dev に CNAME を設定します。検証が完了すると状態が有効になります。",
+      "domainBound": "ドメインを紐付けました。*.pages.dev に CNAME を設定して検証を完了してください",
+      "domainFailed": "紐付けに失敗しました：{{msg}}",
+      "domainActive": "有効",
+      "domainPending": "検証待ち",
+      "domainPlaceholder": "例：design.example.com",
+      "bindDomain": "紐付け"
     },
     "draw": {
       "mode": "マークアップ：変更する領域を枠/ペンで指定し、スクリーンショットとしてチャットに送信",

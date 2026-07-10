@@ -6584,7 +6584,15 @@
       "tokenPh": "貼上 API Token",
       "deploy": "部署",
       "done": "已部署，連結已複製",
-      "failed": "部署失敗：{{msg}}"
+      "failed": "部署失敗：{{msg}}",
+      "customDomain": "自訂網域",
+      "domainHint": "綁定你自己的網域，然後把它 CNAME 到 *.pages.dev；驗證通過後狀態轉為已生效。",
+      "domainBound": "已綁定網域，請把它 CNAME 到 *.pages.dev 以完成驗證",
+      "domainFailed": "綁定失敗：{{msg}}",
+      "domainActive": "已生效",
+      "domainPending": "待驗證",
+      "domainPlaceholder": "例如 design.example.com",
+      "bindDomain": "綁定"
     },
     "draw": {
       "mode": "畫框批註：框選/畫筆標註要改的區域，帶截圖到對話",

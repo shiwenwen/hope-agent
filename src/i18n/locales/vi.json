@@ -6584,7 +6584,15 @@
       "tokenPh": "Dán API Token",
       "deploy": "Triển khai",
       "done": "Đã triển khai — đã sao chép liên kết",
-      "failed": "Triển khai thất bại: {{msg}}"
+      "failed": "Triển khai thất bại: {{msg}}",
+      "customDomain": "Tên miền tùy chỉnh",
+      "domainHint": "Liên kết tên miền của riêng bạn rồi trỏ CNAME về *.pages.dev; trạng thái chuyển sang hoạt động sau khi xác minh.",
+      "domainBound": "Đã liên kết tên miền — trỏ CNAME về *.pages.dev để hoàn tất xác minh",
+      "domainFailed": "Liên kết thất bại: {{msg}}",
+      "domainActive": "Đang hoạt động",
+      "domainPending": "Chờ xác minh",
+      "domainPlaceholder": "ví dụ design.example.com",
+      "bindDomain": "Liên kết"
     },
     "draw": {
       "mode": "Đánh dấu: khoanh/vẽ vùng cần đổi rồi gửi ảnh chụp vào trò chuyện",

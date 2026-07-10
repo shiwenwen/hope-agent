@@ -283,6 +283,23 @@ pub async fn deploy_design_artifact_cmd(artifact_id: String) -> Result<DeployUrl
     let url = ha_core::design::deploy::deploy_artifact(&artifact_id).await?;
     Ok(DeployUrl { url })
 }
+#[tauri::command]
+pub async fn bind_design_domain_cmd(
+    artifact_id: String,
+    domain: String,
+) -> Result<ha_core::design::deploy::CustomDomain, CmdError> {
+    ha_core::design::deploy::bind_custom_domain(&artifact_id, &domain)
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+pub async fn list_design_domains_cmd(
+    artifact_id: String,
+) -> Result<Vec<ha_core::design::deploy::CustomDomain>, CmdError> {
+    ha_core::design::deploy::list_custom_domains(&artifact_id)
+        .await
+        .map_err(Into::into)
+}
 
 #[tauri::command]
 pub async fn patch_design_element_cmd(input: ElementPatch) -> Result<DesignArtifact, CmdError> {

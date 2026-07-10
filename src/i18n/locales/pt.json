@@ -6584,7 +6584,15 @@
       "tokenPh": "Cole o API Token",
       "deploy": "Implantar",
       "done": "Implantado — link copiado",
-      "failed": "Falha na implantação: {{msg}}"
+      "failed": "Falha na implantação: {{msg}}",
+      "customDomain": "Domínio personalizado",
+      "domainHint": "Vincule seu próprio domínio e depois aponte um CNAME para *.pages.dev; o status fica ativo após a verificação.",
+      "domainBound": "Domínio vinculado — aponte um CNAME para *.pages.dev para concluir a verificação",
+      "domainFailed": "Falha ao vincular: {{msg}}",
+      "domainActive": "Ativo",
+      "domainPending": "Pendente",
+      "domainPlaceholder": "ex.: design.example.com",
+      "bindDomain": "Vincular"
     },
     "draw": {
       "mode": "Marcação: enquadre/desenhe a região a alterar e envie como captura ao chat",

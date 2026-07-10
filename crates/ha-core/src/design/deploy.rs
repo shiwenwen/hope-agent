@@ -300,9 +300,112 @@ pub async fn deploy_artifact(artifact_id: &str) -> Result<String> {
     Ok(url)
 }
 
+/// 自定义域名基本格式校验（防注入 CF API 垃圾 / 路径穿越）。宽松但拒明显非法。
+pub(crate) fn valid_domain(d: &str) -> bool {
+    let d = d.trim();
+    !d.is_empty()
+        && d.len() <= 253
+        && d.contains('.')
+        && !d.starts_with('.')
+        && !d.ends_with('.')
+        && d.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+}
+
+/// CF Pages 自定义域名 + 验证状态（`pending` / `active` / `error` …）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomDomain {
+    pub name: String,
+    pub status: String,
+}
+
+fn parse_domain(v: &serde_json::Value, fallback: &str) -> CustomDomain {
+    CustomDomain {
+        name: v
+            .get("name")
+            .and_then(|x| x.as_str())
+            .unwrap_or(fallback)
+            .to_string(),
+        status: v
+            .get("status")
+            .and_then(|x| x.as_str())
+            .unwrap_or("pending")
+            .to_string(),
+    }
+}
+
+/// 给产物的 CF Pages 项目绑定自定义域名（owner 平面）。返回域名 + 初始验证状态
+/// （用户须自行把该域名 CNAME 到 `<name>.pages.dev` 才会转 `active`）。
+pub async fn bind_custom_domain(artifact_id: &str, domain: &str) -> Result<CustomDomain> {
+    let domain = domain.trim();
+    if !valid_domain(domain) {
+        bail!("非法域名：{domain}");
+    }
+    let cfg = load_cf_config()?
+        .filter(|c| !c.api_token.is_empty() && !c.account_id.is_empty())
+        .context("Cloudflare 未配置：需 API token + Account ID")?;
+    let a = super::service::open_db()?
+        .get_artifact(artifact_id)?
+        .context("artifact not found")?;
+    let name = project_name_for(&a.title, &a.id);
+    let url = format!("{CF_API}/accounts/{}/pages/projects/{name}/domains", cfg.account_id);
+    guard(&url).await?;
+    let resp = client()?
+        .post(&url)
+        .bearer_auth(&cfg.api_token)
+        .json(&serde_json::json!({ "name": domain }))
+        .send()
+        .await
+        .context("bind custom domain")?;
+    let result = cf_json(resp, "bind custom domain").await?;
+    crate::app_info!("design", "deploy", "bound custom domain {domain} to {name}");
+    Ok(parse_domain(&result, domain))
+}
+
+/// 列出产物 CF Pages 项目已绑定的自定义域名及验证状态（owner 平面）。
+pub async fn list_custom_domains(artifact_id: &str) -> Result<Vec<CustomDomain>> {
+    let cfg = match load_cf_config()? {
+        Some(c) if !c.api_token.is_empty() && !c.account_id.is_empty() => c,
+        _ => return Ok(Vec::new()),
+    };
+    let a = super::service::open_db()?
+        .get_artifact(artifact_id)?
+        .context("artifact not found")?;
+    let name = project_name_for(&a.title, &a.id);
+    let url = format!("{CF_API}/accounts/{}/pages/projects/{name}/domains", cfg.account_id);
+    guard(&url).await?;
+    let resp = client()?
+        .get(&url)
+        .bearer_auth(&cfg.api_token)
+        .send()
+        .await
+        .context("list custom domains")?;
+    // 项目尚未创建（从未部署）→ 404，视为无域名而非错误。
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Vec::new());
+    }
+    let result = cf_json(resp, "list custom domains").await?;
+    Ok(result
+        .as_array()
+        .map(|arr| arr.iter().map(|v| parse_domain(v, "")).collect())
+        .unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn valid_domain_accepts_real_rejects_garbage() {
+        assert!(valid_domain("example.com"));
+        assert!(valid_domain("deck.my-brand.io"));
+        assert!(!valid_domain("nodot"));
+        assert!(!valid_domain("bad domain.com"));
+        assert!(!valid_domain("a.com/../etc"));
+        assert!(!valid_domain(".leading.com"));
+        assert!(!valid_domain(""));
+    }
 
     #[test]
     fn project_name_is_dns_safe_and_bounded() {

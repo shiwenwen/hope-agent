@@ -1978,6 +1978,10 @@ fn build_router_with_cors(
             post(routes::design::deploy_artifact),
         )
         .route(
+            "/design/artifacts/{id}/domains",
+            post(routes::design::bind_domain).get(routes::design::list_domains),
+        )
+        .route(
             "/design/artifacts/{id}/export",
             get(routes::design::export_artifact),
         )

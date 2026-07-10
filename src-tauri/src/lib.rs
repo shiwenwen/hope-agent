@@ -837,6 +837,8 @@ pub fn run() {
             commands::design::save_cf_deploy_config_cmd,
             commands::design::get_cf_deploy_config_cmd,
             commands::design::deploy_design_artifact_cmd,
+            commands::design::bind_design_domain_cmd,
+            commands::design::list_design_domains_cmd,
             commands::design::patch_design_element_cmd,
             commands::design::export_design_artifact_cmd,
             commands::design::export_design_handoff_cmd,

@@ -6584,7 +6584,15 @@
       "tokenPh": "Paste API Token",
       "deploy": "Deploy",
       "done": "Deployed — link copied",
-      "failed": "Deploy failed: {{msg}}"
+      "failed": "Deploy failed: {{msg}}",
+      "customDomain": "Custom domain",
+      "domainHint": "Bind your own domain, then CNAME it to *.pages.dev; the status turns active once verified.",
+      "domainBound": "Domain bound — CNAME it to *.pages.dev to finish verification",
+      "domainFailed": "Bind failed: {{msg}}",
+      "domainActive": "Active",
+      "domainPending": "Pending",
+      "domainPlaceholder": "e.g. design.example.com",
+      "bindDomain": "Bind"
     },
     "draw": {
       "mode": "Markup: box/pen the region to change, sent as a screenshot to chat",

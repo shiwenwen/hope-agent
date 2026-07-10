@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Cloud, Loader2, ExternalLink, Copy, Check } from "lucide-react"
+import { Cloud, Loader2, ExternalLink, Copy, Check, Globe } from "lucide-react"
 
 import {
   Dialog,
@@ -41,6 +41,11 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   const [accountTouched, setAccountTouched] = useState(false)
   const accountInvalid =
     accountTouched && accountId.trim().length > 0 && !/^[0-9a-fA-F]{32}$/.test(accountId.trim())
+  // 自定义域名（决策增量）：绑定后须自行 CNAME 到 *.pages.dev，status 反映验证态（pending→active）。
+  const [domainInput, setDomainInput] = useState("")
+  const [domains, setDomains] = useState<{ name: string; status: string }[]>([])
+  const [bindingDomain, setBindingDomain] = useState(false)
+  const domainValid = /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domainInput.trim())
 
   // 渲染期重置：打开时清结果（避免 effect 内同步 setState）。
   const [prevOpen, setPrevOpen] = useState(false)
@@ -62,6 +67,17 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
         setToken(c.hasToken ? c.tokenMask || "" : "")
       })
       .catch((e) => logger.error("design", "DesignDeployModal", "load config failed", e))
+    // 已绑定的自定义域名 + 验证状态（项目未部署过 → 空）。
+    if (artifactId) {
+      void getTransport()
+        .call<{ name: string; status: string }[]>("list_design_domains_cmd", { artifactId })
+        .then((list) => {
+          if (!cancelled) setDomains(Array.isArray(list) ? list : [])
+        })
+        .catch(() => {
+          /* 未部署 / 无网 → 忽略 */
+        })
+    }
     return () => {
       cancelled = true
     }
@@ -91,6 +107,27 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
       toast.error(t("design.deploy.failed", "部署失败：{{msg}}", { msg }))
     } finally {
       setDeploying(false)
+    }
+  }
+
+  const bindDomain = async () => {
+    const domain = domainInput.trim()
+    if (!artifactId || !domainValid || bindingDomain) return
+    setBindingDomain(true)
+    try {
+      const d = await getTransport().call<{ name: string; status: string }>("bind_design_domain_cmd", {
+        artifactId,
+        domain,
+      })
+      setDomains((prev) => [...prev.filter((x) => x.name !== d.name), d])
+      setDomainInput("")
+      toast.success(t("design.deploy.domainBound", "已绑定域名，请把它 CNAME 到 *.pages.dev 以完成验证"))
+    } catch (e) {
+      logger.error("design", "DesignDeployModal", "bind domain failed", e)
+      const msg = String((e as Error)?.message || e).slice(0, 160)
+      toast.error(t("design.deploy.domainFailed", "绑定失败：{{msg}}", { msg }))
+    } finally {
+      setBindingDomain(false)
     }
   }
 
@@ -191,6 +228,72 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
                   <Copy className="h-3.5 w-3.5" />
                 )}
               </Button>
+            </div>
+          )}
+
+          {(url || domains.length > 0) && (
+            <div className="space-y-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                {t("design.deploy.customDomain", "自定义域名")}
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t(
+                  "design.deploy.domainHint",
+                  "绑定你自己的域名，然后把它 CNAME 到 *.pages.dev；验证通过后状态转为 active。",
+                )}
+              </p>
+              {domains.length > 0 && (
+                <ul className="space-y-1">
+                  {domains.map((d) => (
+                    <li
+                      key={d.name}
+                      className="flex items-center justify-between gap-2 rounded-md bg-background/60 px-2 py-1"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-xs">{d.name}</span>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
+                          d.status === "active"
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+                        )}
+                      >
+                        {d.status === "active"
+                          ? t("design.deploy.domainActive", "已生效")
+                          : t("design.deploy.domainPending", "待验证")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  value={domainInput}
+                  onChange={(e) => setDomainInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && domainValid && !bindingDomain) void bindDomain()
+                  }}
+                  placeholder={t("design.deploy.domainPlaceholder", "例如 design.example.com")}
+                  className="h-8 flex-1 text-xs"
+                  spellCheck={false}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 shrink-0"
+                  disabled={!domainValid || bindingDomain}
+                  onClick={() => void bindDomain()}
+                >
+                  {bindingDomain ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    t("design.deploy.bindDomain", "绑定")
+                  )}
+                </Button>
+              </div>
             </div>
           )}
         </div>

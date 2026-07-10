@@ -6584,7 +6584,15 @@
       "tokenPh": "API Token'ı yapıştır",
       "deploy": "Dağıt",
       "done": "Dağıtıldı — bağlantı kopyalandı",
-      "failed": "Dağıtım başarısız: {{msg}}"
+      "failed": "Dağıtım başarısız: {{msg}}",
+      "customDomain": "Özel alan adı",
+      "domainHint": "Kendi alan adınızı bağlayın ve ardından onu *.pages.dev adresine CNAME ile yönlendirin; doğrulandığında durum etkin olur.",
+      "domainBound": "Alan adı bağlandı — doğrulamayı tamamlamak için onu *.pages.dev adresine CNAME ile yönlendirin",
+      "domainFailed": "Bağlama başarısız: {{msg}}",
+      "domainActive": "Etkin",
+      "domainPending": "Beklemede",
+      "domainPlaceholder": "örn. design.example.com",
+      "bindDomain": "Bağla"
     },
     "draw": {
       "mode": "İşaretleme: değişecek bölgeyi kutu/kalemle işaretleyip ekran görüntüsü olarak sohbete gönder",

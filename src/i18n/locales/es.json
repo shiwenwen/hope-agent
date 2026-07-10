@@ -6584,7 +6584,15 @@
       "tokenPh": "Pega el API Token",
       "deploy": "Desplegar",
       "done": "Desplegado: enlace copiado",
-      "failed": "Error al desplegar: {{msg}}"
+      "failed": "Error al desplegar: {{msg}}",
+      "customDomain": "Dominio personalizado",
+      "domainHint": "Vincula tu propio dominio y luego apúntalo con un CNAME a *.pages.dev; el estado pasa a activo una vez verificado.",
+      "domainBound": "Dominio vinculado: apúntalo con un CNAME a *.pages.dev para completar la verificación",
+      "domainFailed": "Error al vincular: {{msg}}",
+      "domainActive": "Activo",
+      "domainPending": "Pendiente",
+      "domainPlaceholder": "p. ej. design.example.com",
+      "bindDomain": "Vincular"
     },
     "draw": {
       "mode": "Marcado: encuadra/dibuja la región a cambiar y envíala como captura al chat",

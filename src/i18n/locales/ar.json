@@ -6584,7 +6584,15 @@
       "tokenPh": "الصق API Token",
       "deploy": "نشر",
       "done": "تم النشر — تم نسخ الرابط",
-      "failed": "فشل النشر: {{msg}}"
+      "failed": "فشل النشر: {{msg}}",
+      "customDomain": "نطاق مخصّص",
+      "domainHint": "اربط نطاقك الخاص ثم وجّه سجل CNAME إلى ‎*.pages.dev؛ تتحوّل الحالة إلى مُفعّل بعد التحقق.",
+      "domainBound": "تم ربط النطاق — وجّه سجل CNAME إلى ‎*.pages.dev لإتمام التحقق",
+      "domainFailed": "فشل الربط: {{msg}}",
+      "domainActive": "مُفعّل",
+      "domainPending": "قيد التحقق",
+      "domainPlaceholder": "مثال: design.example.com",
+      "bindDomain": "ربط"
     },
     "draw": {
       "mode": "التوصيف: أطر/ارسم المنطقة المراد تغييرها وأرسلها كلقطة شاشة إلى المحادثة",

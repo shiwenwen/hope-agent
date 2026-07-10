@@ -704,6 +704,34 @@ pub async fn deploy_artifact(Path(id): Path<String>) -> Result<Json<Value>, AppE
     Ok(Json(json!({ "url": url })))
 }
 
+/// `POST /api/design/artifacts/{id}/domains` — 绑定自定义域名（body `{ domain }`），返回 `{ name, status }`。
+pub async fn bind_domain(
+    Path(id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let domain = body
+        .get("domain")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::bad_request("missing domain"))?;
+    let d = ha_core::design::deploy::bind_custom_domain(&id, domain)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "name": d.name, "status": d.status })))
+}
+
+/// `GET /api/design/artifacts/{id}/domains` — 列出已绑定的自定义域名及验证状态。
+pub async fn list_domains(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
+    validate_id(&id)?;
+    let list = ha_core::design::deploy::list_custom_domains(&id)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!(list
+        .into_iter()
+        .map(|d| json!({ "name": d.name, "status": d.status }))
+        .collect::<Vec<_>>())))
+}
+
 /// `POST /api/design/artifacts/{id}/ensure-fresh` — 自愈渲染版本（工具层升级对老产物生效）。
 /// 返回 `bool`（是否重渲染），与 Tauri `ensure_design_artifact_fresh_cmd` 同形。
 pub async fn ensure_artifact_fresh(Path(id): Path<String>) -> Result<Json<bool>, AppError> {

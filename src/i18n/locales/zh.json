@@ -6584,7 +6584,15 @@
       "tokenPh": "粘贴 API Token",
       "deploy": "部署",
       "done": "已部署，链接已复制",
-      "failed": "部署失败：{{msg}}"
+      "failed": "部署失败：{{msg}}",
+      "customDomain": "自定义域名",
+      "domainHint": "绑定你自己的域名，然后把它 CNAME 到 *.pages.dev；验证通过后状态转为已生效。",
+      "domainBound": "已绑定域名，请把它 CNAME 到 *.pages.dev 以完成验证",
+      "domainFailed": "绑定失败：{{msg}}",
+      "domainActive": "已生效",
+      "domainPending": "待验证",
+      "domainPlaceholder": "例如 design.example.com",
+      "bindDomain": "绑定"
     },
     "draw": {
       "mode": "画框批注：框选/画笔标注要改的区域，带截图到对话",

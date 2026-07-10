@@ -6584,7 +6584,15 @@
       "tokenPh": "API Token 붙여넣기",
       "deploy": "배포",
       "done": "배포 완료 — 링크를 복사했습니다",
-      "failed": "배포 실패: {{msg}}"
+      "failed": "배포 실패: {{msg}}",
+      "customDomain": "사용자 지정 도메인",
+      "domainHint": "직접 소유한 도메인을 연결한 뒤 *.pages.dev 로 CNAME 을 설정하세요. 검증이 완료되면 상태가 활성으로 바뀝니다.",
+      "domainBound": "도메인이 연결되었습니다. *.pages.dev 로 CNAME 을 설정해 검증을 완료하세요",
+      "domainFailed": "연결 실패: {{msg}}",
+      "domainActive": "활성",
+      "domainPending": "검증 대기",
+      "domainPlaceholder": "예: design.example.com",
+      "bindDomain": "연결"
     },
     "draw": {
       "mode": "마크업: 변경할 영역을 상자/펜으로 표시해 스크린샷으로 대화에 전송",

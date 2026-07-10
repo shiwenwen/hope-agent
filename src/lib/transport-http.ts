@@ -296,6 +296,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   save_cf_deploy_config_cmd:         { method: "PUT",    path: "/api/design/deploy/config" },
   get_cf_deploy_config_cmd:          { method: "GET",    path: "/api/design/deploy/config" },
   deploy_design_artifact_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/deploy" },
+  bind_design_domain_cmd:            { method: "POST",   path: "/api/design/artifacts/{artifactId}/domains" },
+  list_design_domains_cmd:           { method: "GET",    path: "/api/design/artifacts/{artifactId}/domains" },
   restore_design_version_cmd:        { method: "POST",   path: "/api/design/artifacts/{artifactId}/restore" },
   patch_design_element_cmd:          { method: "POST",   path: "/api/design/patch" },
   export_design_artifact_cmd:        { method: "GET",    path: "/api/design/artifacts/{id}/export" },

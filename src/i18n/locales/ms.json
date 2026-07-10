@@ -6584,7 +6584,15 @@
       "tokenPh": "Tampal API Token",
       "deploy": "Deploy",
       "done": "Telah deploy — pautan disalin",
-      "failed": "Deploy gagal: {{msg}}"
+      "failed": "Deploy gagal: {{msg}}",
+      "customDomain": "Domain tersuai",
+      "domainHint": "Ikat domain anda sendiri, kemudian tuding CNAME ke *.pages.dev; status bertukar aktif setelah disahkan.",
+      "domainBound": "Domain telah diikat — tuding CNAME ke *.pages.dev untuk melengkapkan pengesahan",
+      "domainFailed": "Gagal mengikat: {{msg}}",
+      "domainActive": "Aktif",
+      "domainPending": "Menunggu",
+      "domainPlaceholder": "cth. design.example.com",
+      "bindDomain": "Ikat"
     },
     "draw": {
       "mode": "Tanda: kotak/pen kawasan untuk diubah dan hantar sebagai tangkapan skrin ke sembang",
