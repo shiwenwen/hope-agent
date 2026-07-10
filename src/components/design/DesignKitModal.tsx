@@ -64,8 +64,13 @@ export function DesignKitModal({ systemId, systemName, onClose }: Props) {
         </DialogHeader>
         <div className="relative flex-1 bg-muted/30">
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div
+              role="status"
+              aria-live="polite"
+              className="absolute inset-0 flex items-center justify-center"
+            >
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <span className="sr-only">{t("common.loading", "加载中...")}</span>
             </div>
           )}
           {html != null && (

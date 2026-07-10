@@ -3842,10 +3842,15 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     />
                     {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
                     {previewLoading && (
-                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"
+                      >
                         <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
                           <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
                         </div>
+                        <span className="sr-only">{t("common.loading", "加载中...")}</span>
                       </div>
                     )}
                     {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的

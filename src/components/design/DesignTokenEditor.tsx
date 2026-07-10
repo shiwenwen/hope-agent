@@ -295,8 +295,13 @@ export function DesignTokenEditor({ system, open, onOpenChange, onSaved }: Props
         {/* 左：token 编辑 */}
         <div className="w-[400px] shrink-0 overflow-y-auto border-r p-3">
           {loading ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center justify-center py-12 text-muted-foreground"
+            >
               <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="sr-only">{t("common.loading", "加载中...")}</span>
             </div>
           ) : mode === "source" ? (
             <Textarea

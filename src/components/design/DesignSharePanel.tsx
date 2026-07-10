@@ -100,8 +100,9 @@ export function DesignSharePanel({ artifactId, origin }: Props) {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-4">
+        <div role="status" aria-live="polite" className="flex items-center justify-center py-4">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <span className="sr-only">{t("common.loading", "加载中...")}</span>
         </div>
       ) : token ? (
         <>
