@@ -66,6 +66,7 @@ function defaultFilter(): DashboardFilterState {
     providerId: null,
     modelId: null,
     usageKind: null,
+    operation: null,
   }
 }
 
@@ -585,6 +586,7 @@ export default function DashboardView({
               data={tokenData}
               loading={loading}
               onDrillDown={(modelId) => setFilter((f) => ({ ...f, modelId: modelId }))}
+              onDrillDownOperation={(operation) => setFilter((f) => ({ ...f, operation }))}
             />
           </TabsContent>
           <TabsContent value="tools">

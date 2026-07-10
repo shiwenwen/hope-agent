@@ -8,8 +8,8 @@ use serde::Deserialize;
 
 use super::types::{
     CompileProposal, CompileProposalAction, CompileProposalKind, CompileProposalStatus, CompileRun,
-    CompileRunStatus, CompileStartInput, KnowledgeSource, NewCompileProposal, QueryFileInput,
-    QueryFileMode, DEFAULT_SCHEMA_SECTIONS,
+    CompileRunStatus, CompileStartInput, KnowledgeSource, KnowledgeSourceStatus,
+    NewCompileProposal, QueryFileInput, QueryFileMode, DEFAULT_SCHEMA_SECTIONS,
 };
 use super::{service, source};
 use crate::session::{MessageRole, SessionKind, SessionMessage};
@@ -338,6 +338,13 @@ fn load_sources(kb_id: &str, source_ids: &[String]) -> Result<Vec<(KnowledgeSour
     let mut out = Vec::new();
     for source_id in source_ids {
         let read = source::read_source(kb_id, source_id)?;
+        if read.source.status != KnowledgeSourceStatus::Ready {
+            bail!(
+                "source '{}' is not ready to compile (status: {}) — wait for OCR/extraction to finish, or retry failed pages, before organizing it into a note",
+                read.source.title,
+                read.source.status.as_str()
+            );
+        }
         out.push((read.source, read.content));
     }
     Ok(out)
@@ -771,16 +778,27 @@ async fn generate_summary(
 ) -> Result<(String, Option<String>)> {
     let config = crate::config::cached_config();
     let compile_cfg = config.knowledge_compile.clone().normalized();
-    let (agent, model) = crate::recap::report::build_analysis_agent_with_explicit_agent(
-        &config,
-        compile_cfg.agent_id.as_deref(),
-    )
-    .await?;
+    let override_chain = compile_cfg.model_override.clone().or_else(|| {
+        compile_cfg
+            .agent_id
+            .as_deref()
+            .and_then(|id| crate::automation::resolve_legacy_agent_chain(&config, id))
+    });
+    let chain = crate::automation::effective_chain(&config, override_chain);
     let prompt = summary_prompt(kb_id, source_meta, content, related);
-    let fut = agent.side_query(&prompt, LLM_MAX_TOKENS);
+    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+        purpose: "knowledge.compile",
+        chain,
+        session_key: "automation:knowledge_compile",
+        instruction: &prompt,
+        max_tokens: LLM_MAX_TOKENS,
+    });
     let res = tokio::time::timeout(std::time::Duration::from_secs(LLM_TIMEOUT_SECS), fut)
         .await
         .map_err(|_| anyhow!("compile LLM call timed out"))??;
+    // Label the candidate that actually produced `res.text` — not
+    // necessarily `chain[0]` if a fallback fired mid-call.
+    let model = crate::automation::model_label(&config, &res.model);
     let parsed = parse_llm_summary(&res.text)?;
     let title = parsed
         .title

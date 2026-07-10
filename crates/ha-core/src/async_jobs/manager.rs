@@ -325,6 +325,96 @@ impl JobManager {
         );
     }
 
+    // ── Owner-plane scanned-PDF OCR projection ────────────────────────────
+    //
+    // Same shape as the knowledge-import projection above: per-page OCR
+    // state has its own durable fact layer (`knowledge_source_ocr_pages` in
+    // sessions.db). This row is only the unified background-job lifecycle
+    // projection, covering both the initial import round and later
+    // per-page retries.
+
+    pub fn spawn_knowledge_ocr(kb_id: &str, source_id: &str, page_count: u32) -> Option<String> {
+        let db = super::get_async_jobs_db()?;
+        let job_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp();
+        let job = BackgroundJob {
+            job_id: job_id.clone(),
+            kind: JobKind::Tool,
+            subagent_run_id: None,
+            group_id: None,
+            session_id: None,
+            agent_id: None,
+            tool_name: "knowledge_source_ocr".to_string(),
+            tool_call_id: None,
+            args_json: serde_json::json!({
+                "kbId": kb_id,
+                "sourceId": source_id,
+                "pageCount": page_count,
+            })
+            .to_string(),
+            status: JobStatus::Running,
+            result_preview: None,
+            result_path: None,
+            error: None,
+            created_at: now,
+            completed_at: None,
+            injected: true,
+            origin: "owner".to_string(),
+            approval_origin: None,
+            incognito: false,
+            pid: None,
+            cancel_requested: false,
+        };
+        if let Err(e) = db.insert(&job) {
+            crate::app_warn!(
+                "async_jobs",
+                "knowledge_ocr",
+                "Failed to insert knowledge OCR job for source {}: {}",
+                source_id,
+                e
+            );
+            return None;
+        }
+        super::events::emit_created(
+            &job_id,
+            JobKind::Tool,
+            "knowledge_source_ocr",
+            JobStatus::Running.as_str(),
+            None,
+        );
+        Some(job_id)
+    }
+
+    pub fn finish_knowledge_ocr(
+        job_id: &str,
+        status: JobStatus,
+        result_preview: Option<&str>,
+        error: Option<&str>,
+    ) {
+        let Some(db) = super::get_async_jobs_db() else {
+            return;
+        };
+        let now = chrono::Utc::now().timestamp();
+        if let Err(e) = db.update_terminal(job_id, status, result_preview, None, error, now) {
+            crate::app_warn!(
+                "async_jobs",
+                "knowledge_ocr",
+                "Failed to finish knowledge OCR job {}: {}",
+                job_id,
+                e
+            );
+            return;
+        }
+        let _ = db.mark_injected(job_id);
+        super::events::emit_completed(
+            job_id,
+            JobKind::Tool,
+            "knowledge_source_ocr",
+            status.as_str(),
+            None,
+        );
+    }
+
     // ── Subagent projection (R6) ───────────────────────────────────────────
     //
     // A background subagent run gets a one-way scheduling projection here so it

@@ -23,8 +23,6 @@ use super::store;
 use super::triggers::{try_claim, DreamTrigger};
 use super::types::{DreamPhase, DreamReport, DreamRunStatus};
 
-use crate::agent::AssistantAgent;
-
 /// Process-local snapshot of the most recent `DreamReport`. Reset on
 /// restart (the diary markdown on disk is the durable record); GUI uses
 /// it to populate the status row before the first `cycle_complete`
@@ -154,25 +152,11 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
     //    the same recent window).
     drain_pending(scope_key);
 
-    // 6. Build an agent capable of side_query. Cheap — reuses cached
-    //    prompt prefix when possible via the existing recap helper.
-    let agent = match build_dreaming_agent(&cfg).await {
-        Ok(a) => a,
-        Err(e) => {
-            let report = DreamReport {
-                run_id: Some(run_id.clone()),
-                trigger,
-                candidates_scanned: 0,
-                candidates_nominated: 0,
-                promoted: Vec::new(),
-                diary_path: None,
-                duration_ms: started.elapsed().as_millis() as u64,
-                note: Some(format!("could not build analysis agent: {}", e)),
-            };
-            finalize_failed(&run_id, &report);
-            return report;
-        }
-    };
+    // 6. Resolve the model chain for the narrative side_query. Resolution
+    //    itself can't fail — an empty chain surfaces as a clear "no model
+    //    configured" error from `automation::run` inside `run_side_query`
+    //    below, handled by that call's own error branch.
+    let chain = resolve_dreaming_chain(&cfg);
 
     // 7. Scan candidates off the async runtime.
     let scan_cfg = cfg.clone();
@@ -206,7 +190,7 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
     }
 
     // 8. Run the narrative side_query.
-    let narrative_out = match narrative::run_side_query(&agent, &candidates, &cfg).await {
+    let narrative_out = match narrative::run_side_query(chain, &candidates, &cfg).await {
         Ok(out) => out,
         Err(e) => {
             app_warn!(
@@ -393,28 +377,13 @@ fn skipped(trigger: DreamTrigger, started: Instant, note: &str) -> DreamReport {
 /// Honours `DreamingConfig.narrative_model` when set (format:
 /// `providerId:modelId`), falls back to the same heuristic as /recap.
 /// `pub(super)` so the Deep resolver reuses the same model resolution.
-pub(super) async fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> {
+pub(super) fn resolve_dreaming_chain(cfg: &DreamingConfig) -> Vec<crate::provider::ActiveModel> {
     let app_cfg = crate::config::cached_config();
-
-    // Explicit dedicated model.
-    if let Some(ref target) = cfg.narrative_model {
-        if let Some((prov_id, model_id)) = target.split_once(':') {
-            if let Some(prov) = app_cfg
-                .providers
-                .iter()
-                .find(|p| p.id == prov_id && p.enabled)
-            {
-                return Ok(AssistantAgent::try_new_from_provider(prov, model_id)
-                    .await?
-                    .with_failover_context(prov));
-            }
-        }
-    }
-
-    // Fall back to the existing recap builder, which already has the
-    // active-model / first-enabled-provider fallbacks wired up.
-    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&app_cfg).await?;
-    Ok(agent)
+    let override_chain = cfg
+        .model_override
+        .clone()
+        .or_else(|| crate::automation::parse_legacy_model_string(cfg.narrative_model.as_deref()?));
+    crate::automation::effective_chain(&app_cfg, override_chain)
 }
 
 /// Emit `dreaming:cycle_started` once a run has claimed its lease and a

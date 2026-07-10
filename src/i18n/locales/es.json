@@ -502,6 +502,7 @@
         "desc": "Las herramientas de edición y comandos peligrosos requieren aprobación; el resto se ejecuta.",
         "label": "Predeterminado"
       },
+      "menuLabel": "Modo de permisos",
       "smart": {
         "desc": "Delega la decisión a un modelo juez o a la autoetiqueta de confianza del modelo.",
         "label": "Aprobación inteligente"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "Todas las herramientas se ejecutan sin aprobación (las rutas protegidas se auditan).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "Modo de permisos"
+      "menuLabel": "Sandbox",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "Elegir una sesión",
     "profileRotationTitle": "Rotación de perfil",
@@ -651,30 +675,6 @@
       "reloadBody": "La extensión instalada no coincide con el host. Vuelve a cargarla para recuperar el control de tu Chrome real.",
       "openSettings": "Abrir ajustes",
       "dismiss": "No volver a mostrar"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "Sandbox"
     },
     "browserExtensionRequired": {
       "nextAction": "Siguiente acción: {{nextAction}}",
@@ -1231,7 +1231,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Tiempo hasta el primer token (TTFT)",
       "inputTokens": "Fichas de entrada",
-      "outputTokens": "Fichas de salida"
+      "outputTokens": "Fichas de salida",
+      "byDomain": "Distribución por dominio",
+      "byOperation": "Por operación",
+      "operation": "Operación",
+      "domain": "Dominio"
     },
     "tool": {
       "avgDuration": "Duración media",
@@ -2768,9 +2772,8 @@
       },
       "intro": "Interruptor global YOLO, listas de patrones de rutas protegidas / comandos de edición / comandos peligrosos y configuración del modo de aprobación inteligente.",
       "judgeExtraPromptPlaceholder": "Opcional: instrucciones extra para el juez (rutas permitidas, comandos confiables...)",
-      "judgeModelPlaceholder": "Modelo (p. ej. claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Seleccionar modelo juez",
       "judgeModelTitle": "Configuración del modelo juez",
-      "judgeProviderPlaceholder": "ID de proveedor (p. ej. anthropic-1)",
       "protectedPathsDesc": "Las llamadas de herramientas que toquen estas rutas fuerzan aprobación y no pueden marcarse como Siempre permitir. Admite expansión ~/, prefijo de directorio (barra final) y globs *.pattern.",
       "protectedPathsPlaceholder": "p. ej. ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Rutas protegidas",
@@ -2852,8 +2855,6 @@
       "digestMaxChars": "Presupuesto de salida del resumen (caracteres)",
       "dynamicEnabled": "Refrescar sufijo cada turno",
       "enabledForSession": "Activado para esta sesión",
-      "extractionAgent": "ID de Agent de extracción (opcional)",
-      "extractionAgentPlaceholder": "Déjalo vacío para heredar recap.analysisAgent",
       "includeChannel": "Incluir sesiones de canales IM",
       "includeCron": "Incluir sesiones cron",
       "includeSubagents": "Incluir sesiones de sub-agents",
@@ -2877,7 +2878,9 @@
       "resetOverride": "Restablecer al global",
       "sameAgentOnly": "Solo mismo Agent",
       "sessionOverride": "Override de sesión",
-      "title": "Conciencia de comportamiento"
+      "title": "Conciencia de comportamiento",
+      "extractionModel": "Modelo de extracción (opcional)",
+      "extractionModelInherit": "Reutilizar el agente de chat actual (favorable a la caché)"
     },
     "browser": {
       "activeBadge": "activo",
@@ -3255,7 +3258,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Usar el predeterminado de automatización",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3374,7 +3377,8 @@
       "matcherPlaceholder": "nombre de herramienta / origen (regex ok), vacío = todos",
       "addHandler": "Añadir handler",
       "advanced": "Avanzado",
-      "slowHandlerWarning": "Este handler ejecuta un LLM / subagente en línea y ralentizará cada vez que se dispare este evento de bloqueo. Prefiere command / http aquí, o muévelo a un evento de observación (p. ej., PostToolUse)."
+      "slowHandlerWarning": "Este handler ejecuta un LLM / subagente en línea y ralentizará cada vez que se dispare este evento de bloqueo. Prefiere command / http aquí, o muévelo a un evento de observación (p. ej., PostToolUse).",
+      "modelInheritDefault": "Usar el predeterminado de automatización"
     },
     "hours": "h",
     "imageGenApiKey": "API Key",
@@ -3427,6 +3431,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "Conocimiento"
+    },
+    "knowledgeCompile": {
+      "agent": "Modelo de compilación",
+      "agentDefault": "Usar el predeterminado de automatización",
+      "agentDesc": "Cadena de modelo usada para convertir fuentes en sugerencias de notas revisables. Si está vacío, sigue el predeterminado de automatización."
     },
     "knowledgeChunk": {
       "title": "Avanzado · fragmentación",
@@ -3484,7 +3493,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Modelo",
+      "modelDesc": "Compartido por los 4 generadores basados en LLM (auto-etiquetado, mantenimiento de MOC, memoria→nota, conflicto de fuentes).",
+      "modelDefault": "Usar el predeterminado de automatización"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Guardado",
+      "title": "Conservación de medios originales",
+      "description": "Conserva opcionalmente los originales de audio, video e imagen importados para revisar la evidencia de las fuentes.",
+      "maxTotal": "Cuota total (MiB)",
+      "maxSource": "Por fuente (MiB)",
+      "thumbnail": "Borde máximo de miniatura (px)",
+      "prune": "Eliminar los medios más antiguos al superar la cuota",
+      "pruneDesc": "Cuando un archivo retenido nuevo superaría la cuota, elimina los originales retenidos más antiguos antes de omitir el nuevo archivo."
     },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas pasivas",
@@ -4273,9 +4295,9 @@
     "proxyUrl": "URL del proxy",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agente de análisis",
-    "recapAnalysisAgentDefault": "Usar agente predeterminado global",
-    "recapAnalysisAgentDesc": "Agente usado para extraer facets y escribir secciones del informe. Si no se define, hereda el agente predeterminado global.",
+    "recapAnalysisAgent": "Modelo de análisis",
+    "recapAnalysisAgentDefault": "Usar el predeterminado de automatización",
+    "recapAnalysisAgentDesc": "Cadena de modelo usada para extraer facetas y redactar las secciones del informe. Si está vacío, sigue el predeterminado de automatización.",
     "recapCacheRetentionDays": "Retención de caché de facets (días)",
     "recapCacheRetentionDaysDesc": "Tiempo que se conservan los facets en caché antes de la limpieza diaria. 0 = conservar siempre. Predeterminado 180.",
     "recapDefaultRangeDays": "Rango predeterminado (días)",
@@ -4341,6 +4363,9 @@
     "serverEmbeddedBind": "Dirección de escucha",
     "serverEmbeddedBindDesc": "Por defecto 127.0.0.1 solo localhost. Pon 0.0.0.0 para exponerlo a la red",
     "serverGenerateApiKey": "Generar",
+    "serverKnowledgeAgentReadToken": "Token de lectura de Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Déjalo vacío para desactivar el acceso de agent de solo lectura",
+    "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo funciona cuando también hay una API key owner configurada; entonces solo puede llamar endpoints de solo lectura del knowledge agent y nunca concede acceso owner API.",
     "serverMode": "Modo servidor",
     "serverModeDesc": "Elige modo embebido o conectar a un servidor remoto",
     "serverModeEmbedded": "Embebido",
@@ -4548,7 +4573,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Cadena de modelo usada para revisar habilidades candidatas. Si está vacío, reutiliza la caché del chat que lo activó (y recurre al predeterminado de automatización).",
+          "inheritDefault": "Reutilizar el chat que lo activó (favorable a la caché)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4649,7 +4675,10 @@
         "conversation": "Conversación",
         "memory": "Recuerdo de memoria",
         "awareness": "Conciencia entre sesiones"
-      }
+      },
+      "model": "Modelo",
+      "modelDesc": "La llamada de sugerencia de Sprite es de disparar y olvidar — una cadena de respaldo completa funciona bien, no solo un modelo único.",
+      "modelDefault": "Usar el predeterminado de automatización"
     },
     "ssrfBrowserPolicyDesc": "Aplica a la URL objetivo de page.goto / new_page. Nota: el fetch() de JS dentro de browser.evaluate está fuera de alcance.",
     "ssrfDefaultPolicy": "Política por defecto",
@@ -5006,24 +5035,6 @@
     "webSearchSaved": "Guardado",
     "webSearchTimeout": "Timeout (segundos)",
     "webSearchTimeoutDesc": "Timeout HTTP de las solicitudes de búsqueda (5-120 s)",
-    "knowledgeCompile": {
-      "agent": "Agente de organización de fuentes",
-      "agentDefault": "Usar agente predeterminado global",
-      "agentDesc": "Agente usado para convertir fuentes en sugerencias de notas revisables. Si no se configura, hereda el agente predeterminado global."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Guardado",
-      "title": "Conservación de medios originales",
-      "description": "Conserva opcionalmente los originales de audio, video e imagen importados para revisar la evidencia de las fuentes.",
-      "maxTotal": "Cuota total (MiB)",
-      "maxSource": "Por fuente (MiB)",
-      "thumbnail": "Borde máximo de miniatura (px)",
-      "prune": "Eliminar los medios más antiguos al superar la cuota",
-      "pruneDesc": "Cuando un archivo retenido nuevo superaría la cuota, elimina los originales retenidos más antiguos antes de omitir el nuevo archivo."
-    },
-    "serverKnowledgeAgentReadToken": "Token de lectura de Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Déjalo vacío para desactivar el acceso de agent de solo lectura",
-    "serverKnowledgeAgentReadTokenDesc": "Token con alcance limitado para agents externos. Solo funciona cuando también hay una API key owner configurada; entonces solo puede llamar endpoints de solo lectura del knowledge agent y nunca concede acceso owner API.",
     "devVisualTest": "Pruebas de animación de UI",
     "permLoading": "Comprobando permisos...",
     "uiEffects": "Animación de fondo",
@@ -5032,7 +5043,35 @@
     "visionBridgeModel": "Modelo de puente de visión",
     "visionBridgeModelDesc": "Solo se usa cuando el modelo principal no puede ver imágenes. Un modelo aparte convierte las imágenes en descripciones de texto para que la conversación continúe.",
     "visionBridgeModelClear": "Desactivar el puente de visión",
-    "selectVisionBridgeModel": "Seleccionar modelo de visión"
+    "selectVisionBridgeModel": "Seleccionar modelo de visión",
+    "modelChainRestoreInherit": "Restablecer al valor predeterminado heredado",
+    "automationModelChain": "Modelo predeterminado de automatización",
+    "automationModelChainDesc": "Cadena de modelo predeterminada (con reserva) para tareas de IA en segundo plano de una sola vez, como Recap, Dreaming y Compilación de conocimiento; independiente del modelo de chat predeterminado de arriba. Déjalo vacío para usar el modelo de chat predeterminado.",
+    "automationModelChainInherit": "Usar el modelo de chat predeterminado",
+    "knowledgeVision": {
+      "model": "Modelo de visión",
+      "modelDesc": "Cadena de modelo usada para hacer OCR de imágenes al importarlas a un espacio de conocimiento. Si está vacío, sigue el predeterminado de automatización.",
+      "modelDefault": "Usar el predeterminado de automatización",
+      "ocrConcurrency": "Concurrencia de OCR para PDF escaneado",
+      "maxOcrPages": "Límite de páginas de OCR para PDF escaneado"
+    },
+    "noteTools": {
+      "title": "Modelo de herramientas de notas",
+      "desc": "Modelo compartido por las herramientas de destilación de notas, generación de MOC y sesión a nota.",
+      "modelDefault": "Usar el predeterminado de automatización"
+    },
+    "recallSummary": {
+      "title": "Resumen de recuperación",
+      "desc": "Cuando recall_memory / session_search devuelven muchos resultados, se comprimen en un párrafo conciso mediante una llamada extra al LLM en lugar de devolver fragmentos sin procesar. Desactivado por defecto — cuesta una llamada extra por cada búsqueda elegible.",
+      "enabled": "Activar resumen",
+      "minHits": "Mínimo de resultados para activarse",
+      "contextCharBudget": "Presupuesto de contexto (caracteres)",
+      "timeoutSecs": "Tiempo de espera (s)",
+      "maxTokens": "Máximo de tokens de salida",
+      "includeHistory": "También resumir resultados del historial de conversación",
+      "model": "Modelo",
+      "modelDefault": "Usar el predeterminado de automatización"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir ajustes",
@@ -5978,7 +6017,13 @@
       "similarScope": {
         "crossKb": "Espacio cruzado",
         "sameKb": "este espacio"
-      }
+      },
+      "ocrRunning": "OCR en curso…",
+      "ocrPartial": "OCR: algunas páginas fallaron",
+      "ocrFailed": "Error de OCR",
+      "ocrRetry": "Reintentar páginas fallidas",
+      "ocrRetryStarted": "Reintentando páginas fallidas…",
+      "ocrRetryFailed": "No se pudieron reintentar las páginas de OCR"
     },
     "queryFile": {
       "action": "Archivo",

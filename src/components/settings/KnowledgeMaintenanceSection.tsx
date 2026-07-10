@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -46,6 +48,7 @@ export default function KnowledgeMaintenanceSection() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [running, setRunning] = useState(false)
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
 
   useEffect(() => {
     getTransport()
@@ -56,6 +59,15 @@ export default function KnowledgeMaintenanceSection() {
       })
       .catch((e) =>
         logger.warn("knowledge", "KnowledgeMaintenanceSection::load", "load failed", e),
+      )
+  }, [])
+
+  useEffect(() => {
+    getTransport()
+      .call<AvailableModel[]>("get_available_models")
+      .then(setAvailableModels)
+      .catch((e) =>
+        logger.warn("knowledge", "KnowledgeMaintenanceSection::loadModels", "load failed", e),
       )
   }, [])
 
@@ -255,6 +267,27 @@ export default function KnowledgeMaintenanceSection() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs font-medium">
+                  {t("settings.knowledgeMaintenance.model", "Model")}
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {t(
+                    "settings.knowledgeMaintenance.modelDesc",
+                    "Shared by all 4 LLM-backed generators (auto-tag, MOC upkeep, memory-to-note, source conflict).",
+                  )}
+                </div>
+                <ModelChainEditor
+                  value={cfg.modelOverride ?? null}
+                  onChange={(next: ModelChainRef | null) => patch({ modelOverride: next })}
+                  availableModels={availableModels}
+                  inheritLabel={t(
+                    "settings.knowledgeMaintenance.modelDefault",
+                    "Follow automation default",
+                  )}
+                />
               </div>
 
               <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-3">

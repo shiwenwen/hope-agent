@@ -313,12 +313,16 @@ pub struct KnowledgeBrowserSourceImportInput {
 
 /// Lifecycle status for a raw source. Phase 1 creates only `Ready` rows on
 /// successful import; the explicit enum keeps later extraction/retry states
-/// forward-compatible without changing the wire shape.
+/// forward-compatible without changing the wire shape. `PartiallyExtracted`
+/// (scanned-PDF OCR fallback) means a per-page ledger (`knowledge_source_
+/// ocr_pages`) governs whether the source is retryable — see
+/// docs/architecture/knowledge-base.md.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KnowledgeSourceStatus {
     Ready,
     Failed,
+    PartiallyExtracted,
 }
 
 impl KnowledgeSourceStatus {
@@ -326,12 +330,14 @@ impl KnowledgeSourceStatus {
         match self {
             KnowledgeSourceStatus::Ready => "ready",
             KnowledgeSourceStatus::Failed => "failed",
+            KnowledgeSourceStatus::PartiallyExtracted => "partially_extracted",
         }
     }
 
     pub fn from_str_lenient(s: &str) -> KnowledgeSourceStatus {
         match s {
             "failed" => KnowledgeSourceStatus::Failed,
+            "partially_extracted" => KnowledgeSourceStatus::PartiallyExtracted,
             _ => KnowledgeSourceStatus::Ready,
         }
     }
@@ -580,6 +586,95 @@ pub struct KnowledgeSourceReadResult {
     #[serde(flatten)]
     pub source: KnowledgeSource,
     pub content: String,
+}
+
+/// Per-page tracking for the scanned-PDF OCR fallback (`knowledge_source_
+/// ocr_pages` table). One row per (source, page) — a finer grain than
+/// `KnowledgeSourceImportItem` (file-level), which this deliberately does
+/// not reuse: forcing N pages of one file into a table whose invariant is
+/// "one item produces at most one source" would break its own dedup/count
+/// accounting. Never stores OCR text itself (that stays in the `.md`
+/// snapshot, the single text truth-source) — only status/error/pointer, same
+/// as `KnowledgeSourceImportItem`'s own non-duplication of content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceOcrPageStatus {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+}
+
+impl KnowledgeSourceOcrPageStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceOcrPageStatus::Pending => "pending",
+            KnowledgeSourceOcrPageStatus::Running => "running",
+            KnowledgeSourceOcrPageStatus::Succeeded => "succeeded",
+            KnowledgeSourceOcrPageStatus::Failed => "failed",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> KnowledgeSourceOcrPageStatus {
+        match s {
+            "running" => KnowledgeSourceOcrPageStatus::Running,
+            "succeeded" => KnowledgeSourceOcrPageStatus::Succeeded,
+            "failed" => KnowledgeSourceOcrPageStatus::Failed,
+            _ => KnowledgeSourceOcrPageStatus::Pending,
+        }
+    }
+}
+
+/// Which stage a failed OCR page failed at — render (page-level, corrupt
+/// individual page) vs. vision (the `run_vision` call itself errored/timed
+/// out). Distinct failure classes, surfaced separately so a retry can tell
+/// "this page's image never even rendered" from "the model call failed."
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KnowledgeSourceOcrPageStage {
+    Render,
+    Vision,
+    Timeout,
+}
+
+impl KnowledgeSourceOcrPageStage {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            KnowledgeSourceOcrPageStage::Render => "render",
+            KnowledgeSourceOcrPageStage::Vision => "vision",
+            KnowledgeSourceOcrPageStage::Timeout => "timeout",
+        }
+    }
+
+    pub fn from_str_lenient(s: &str) -> Option<KnowledgeSourceOcrPageStage> {
+        match s {
+            "render" => Some(KnowledgeSourceOcrPageStage::Render),
+            "vision" => Some(KnowledgeSourceOcrPageStage::Vision),
+            "timeout" => Some(KnowledgeSourceOcrPageStage::Timeout),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSourceOcrPage {
+    pub id: i64,
+    pub source_id: String,
+    pub kb_id: String,
+    pub page_number: u32,
+    pub status: KnowledgeSourceOcrPageStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<KnowledgeSourceOcrPageStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The candidate that actually answered post-fallback (`automation::
+    /// model_label`), not necessarily the configured first choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_label: Option<String>,
+    pub attempt_count: u32,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 fn default_source_version_index() -> u32 {
@@ -1342,14 +1437,21 @@ pub enum CompileProposalAction {
     },
 }
 
-/// Agent selection for source-to-note organization. `None` inherits the global
-/// default agent so first-run behavior stays smooth, while power users can pin
-/// a stronger/cheaper agent for this knowledge workflow only.
+/// Model selection for source-to-note compile summaries.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KnowledgeCompileConfig {
+    /// Deprecated — superseded by `model_override`. Agent id whose model
+    /// config was borrowed for compile summaries. Kept for backward
+    /// compatibility: still resolved to an equivalent `ModelChain` when
+    /// `model_override` is unset, but the GUI no longer writes this field.
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// Model chain override for compile summaries. `None` = fall through to
+    /// `function_models.automation` (or the deprecated `agent_id`, if still
+    /// set) → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
 }
 
 impl KnowledgeCompileConfig {
@@ -1364,6 +1466,98 @@ impl KnowledgeCompileConfig {
         });
         self
     }
+}
+
+fn default_knowledge_vision_timeout_secs() -> u64 {
+    90
+}
+fn default_knowledge_vision_max_tokens() -> u32 {
+    4096
+}
+fn default_knowledge_ocr_concurrency() -> u8 {
+    3
+}
+fn default_knowledge_ocr_max_pages() -> usize {
+    40
+}
+
+/// Model selection for Knowledge's vision-capable ingestion paths — image OCR
+/// import today. Named `Vision`, not `Ocr`: a future scanned-PDF-page OCR
+/// fallback would share this same config rather than growing its own, since
+/// both are "vision-transcribe an image for KB ingestion," just with a
+/// different image source. No deprecated legacy field — OCR never had
+/// dedicated config before this; it silently inherited whatever
+/// `recap.analysis_agent`/the default agent resolved to, an orphaned-config
+/// bug this field fixes rather than perpetuates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeVisionConfig {
+    /// `None` = fall through to `function_models.automation` → chat default,
+    /// filtered to vision-capable candidates only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
+    /// Total budget across every candidate `automation::run_vision` tries.
+    /// OCR had no timeout at all before this — a hung first candidate would
+    /// block trying the rest.
+    #[serde(default = "default_knowledge_vision_timeout_secs")]
+    pub timeout_secs: u64,
+    #[serde(default = "default_knowledge_vision_max_tokens")]
+    pub max_tokens: u32,
+    /// Bounded concurrency for the scanned-PDF OCR fallback's per-page
+    /// `run_vision` calls (`futures::stream::buffer_unordered`, mirrors the
+    /// pattern already used by `recap/facets.rs`). Not used by the
+    /// single-image OCR path (`ocr_image_bytes`), which is one call.
+    #[serde(default = "default_knowledge_ocr_concurrency")]
+    pub ocr_concurrency: u8,
+    /// Page cap for the scanned-PDF OCR fallback. Higher than the chat
+    /// attachment/vision-bridge defaults (8-10) on purpose: a knowledge-base
+    /// import is a deliberate one-time archiving action, not inline
+    /// conversation context, so it can afford a materially larger budget.
+    #[serde(default = "default_knowledge_ocr_max_pages")]
+    pub max_ocr_pages: usize,
+}
+
+impl Default for KnowledgeVisionConfig {
+    fn default() -> Self {
+        Self {
+            model_override: None,
+            timeout_secs: default_knowledge_vision_timeout_secs(),
+            max_tokens: default_knowledge_vision_max_tokens(),
+            ocr_concurrency: default_knowledge_ocr_concurrency(),
+            max_ocr_pages: default_knowledge_ocr_max_pages(),
+        }
+    }
+}
+
+impl KnowledgeVisionConfig {
+    /// Clamp hand-edited values to safe ranges (mirrors `MaintenanceConfig`/
+    /// `SpriteConfig`'s `clamped()` — a skill/HTTP write shouldn't be able to
+    /// persist a zero/absurd timeout or an unbounded token budget).
+    pub fn clamped(&self) -> Self {
+        let mut c = self.clone();
+        c.timeout_secs = c.timeout_secs.clamp(10, 600);
+        c.max_tokens = c.max_tokens.clamp(256, 8192);
+        c.ocr_concurrency = c.ocr_concurrency.clamp(1, 8);
+        c.max_ocr_pages = c.max_ocr_pages.clamp(1, 120);
+        c
+    }
+}
+
+/// Model selection for the standalone note-authoring tools (`note_distill`,
+/// `note_moc`, `session_to_note`) — one shared field, not three independent
+/// ones: all three already funnel through the same code chokepoint
+/// (`tools::note::run_kb_side_query`) and had zero dedicated config before
+/// this (implicitly rode on `recap.analysis_agent`), so there's no existing
+/// per-tool precedent to preserve or diverge from. Homed in `knowledge::types`
+/// (not `tools::note`, which is `pub(crate)` and unreachable from
+/// `src-tauri`/`ha-server`'s Tauri/HTTP command signatures) alongside its
+/// domain siblings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteToolsConfig {
+    /// `None` = fall through to `function_models.automation` → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

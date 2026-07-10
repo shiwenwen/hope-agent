@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { Loader2, Save } from "lucide-react"
+import { Loader2, Save, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { RadioPills } from "@/components/ui/radio-pills"
+import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
+import { IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
@@ -31,6 +32,7 @@ export default function SmartModeSection() {
   const [loading, setLoading] = useState(true)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [saving, setSaving] = useState(false)
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -51,6 +53,13 @@ export default function SmartModeSection() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  useEffect(() => {
+    getTransport()
+      .call<AvailableModel[]>("get_available_models")
+      .then(setAvailableModels)
+      .catch((e) => logger.error("settings", "smartMode", "get_available_models failed", e))
   }, [])
 
   const save = async () => {
@@ -134,19 +143,28 @@ export default function SmartModeSection() {
             <div className="text-[11px] font-medium text-muted-foreground/80 uppercase tracking-wide">
               {t("settings.approvalPanel.judgeModelTitle")}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={judge.providerId}
-                onChange={(e) => updateJudge({ providerId: e.target.value })}
-                placeholder={t("settings.approvalPanel.judgeProviderPlaceholder")}
-                className="text-xs h-8"
-              />
-              <Input
-                value={judge.model}
-                onChange={(e) => updateJudge({ model: e.target.value })}
-                placeholder={t("settings.approvalPanel.judgeModelPlaceholder")}
-                className="text-xs h-8"
-              />
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <ModelSelector
+                  value={judge.providerId && judge.model ? `${judge.providerId}::${judge.model}` : ""}
+                  onChange={(providerId, modelId) => updateJudge({ providerId, model: modelId })}
+                  availableModels={availableModels}
+                  placeholder={t("settings.approvalPanel.judgeModelPlaceholder")}
+                  className="h-8 text-xs"
+                />
+              </div>
+              {(judge.providerId || judge.model) && (
+                <IconTip label={t("settings.modelChainRestoreInherit")}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-muted-foreground/50 hover:text-foreground"
+                    onClick={() => updateJudge({ providerId: "", model: "" })}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </IconTip>
+              )}
             </div>
             <Textarea
               value={judge.extraPrompt ?? ""}

@@ -137,7 +137,7 @@ Dreaming 以三个独立可运行的 cycle 落地（均写 durable run + decisio
 
 1. **Light 固化**（`pipeline.rs`）：
    - **Scanner**（`scanner.rs`，`spawn_blocking`）：取近 `scopeDays` 天未 pin 的 `memories`（超取后客户端过滤到 `candidateLimit`）；为每条挂证据指针，**incognito 会话 fail-closed 剔除**。
-   - **Narrative**（`narrative.rs`，LLM `side_query`）：渲染候选 → 要求 JSON 信封 `{promotions:[{id,score,title,rationale}], diary}`；超时 `narrativeTimeoutSecs`；按 `promotion.minScore`（0.75）/ `maxPromote`（5）过滤排序。模型默认复用当前聊天 Agent，可由 `narrativeModel`（`provider:model`）覆盖。
+   - **Narrative**（`narrative.rs`，经 `crate::automation::run` 一次性 LLM 调用）：渲染候选 → 要求 JSON 信封 `{promotions:[{id,score,title,rationale}], diary}`；超时 `narrativeTimeoutSecs`；按 `promotion.minScore`（0.75）/ `maxPromote`（5）过滤排序。模型链解析（`resolve_dreaming_chain`，Deep Resolver 复用同一函数）：`modelOverride`（`ModelChain`）→ deprecated `narrativeModel`（`provider:model`，惰性解析）→ `function_models.automation` 全局默认链 → 聊天全局模型；真跨模型降级，详见 [模型 vs Agent 统一配置](automation-model.md)。
    - **Promotion**（`promotion.rs`，`spawn_blocking`）：对存活且未 pin 的记忆 `toggle_pin(true)`。
    - **Diary + Finalize**：写 `~/.hope-agent/memory/dreams/*.md`；`finish_run` + 每条 promotion 写 `promote` 决策。
 2. **Deep Resolver**（`resolver.rs`，`dreaming_run_resolver`）：
@@ -252,7 +252,7 @@ claim 与 profile 经三条路径进入系统提示，与 legacy 记忆共存于
 | `candidateLimit` | `50` | 单轮候选上限 |
 | `narrativeMaxTokens` | `2048` | narrative side_query token 预算 |
 | `narrativeTimeoutSecs` | `60` | narrative 超时 |
-| `narrativeModel` | `null` | 专用模型 `provider:model`；null = 当前聊天 Agent |
+| `modelOverride` | `null` | 专用模型链 `ModelChain`；null = 落 `function_models.automation` → 聊天全局模型。deprecated `narrativeModel`（`provider:model`）仍惰性兼容 |
 | `profileSynthesis.{enabled, maxLinesPerScope}` | `true` / `12` | Profile 合成 / 每 scope 行数上限 |
 
 GUI 在「设置 → 记忆 → Dreaming」（`DreamingPanel`，含 idle 倒计时与 cron 可视化编辑器）；`ha-settings` 技能可读写同一字段集（风险等级 MEDIUM，登记于 [`skills/ha-settings/SKILL.md`](../../skills/ha-settings/SKILL.md)），二者零偏差。`ActiveMemoryConfig.include_claims`（per-agent，默认关）是 Active Memory v2 的独立开关。

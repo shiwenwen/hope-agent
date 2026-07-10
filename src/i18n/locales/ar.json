@@ -502,6 +502,7 @@
         "desc": "أدوات التحرير والأوامر عالية الخطورة تتطلب الموافقة، والباقي يُنفّذ.",
         "label": "افتراضي"
       },
+      "menuLabel": "وضع الأذونات",
       "smart": {
         "desc": "نموذج حكم أو علامة ثقة النموذج الذاتية تتخذ قرار الموافقة.",
         "label": "موافقة ذكية"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "جميع الأدوات في هذه الجلسة تعمل بدون موافقة (المسارات المحمية لا تزال تُسجّل).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "وضع الأذونات"
+      "menuLabel": "صندوق العزل",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "اختر جلسة",
     "profileRotationTitle": "تغيير الملف الشخصي",
@@ -651,30 +675,6 @@
       "reloadBody": "الإضافة المثبّتة لا تطابق المضيف. أعد تحميلها لاستعادة التحكم في متصفح Chrome الحقيقي.",
       "openSettings": "فتح الإعدادات",
       "dismiss": "عدم الإظهار مرة أخرى"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "صندوق العزل"
     },
     "browserExtensionRequired": {
       "nextAction": "الإجراء التالي: {{nextAction}}",
@@ -1231,7 +1231,11 @@
       "ttft": "TTFT",
       "ttftTrend": "الوقت حتى أول رمز (TTFT)",
       "inputTokens": "رموز الإدخال",
-      "outputTokens": "رموز الإخراج"
+      "outputTokens": "رموز الإخراج",
+      "byDomain": "التوزيع حسب النطاق",
+      "byOperation": "حسب العملية",
+      "operation": "العملية",
+      "domain": "النطاق"
     },
     "tool": {
       "avgDuration": "متوسط المدة",
@@ -2768,9 +2772,8 @@
       },
       "intro": "مفتاح YOLO العام، وقوائم أنماط المسارات المحمية / أوامر التحرير / الأوامر الخطرة، وإعداد وضع الموافقة الذكية.",
       "judgeExtraPromptPlaceholder": "اختياري: تعليمات إضافية للحكم (قوائم مسارات موثوقة، أوامر موثوقة...)",
-      "judgeModelPlaceholder": "النموذج (مثلاً: claude-haiku-4-5)",
+      "judgeModelPlaceholder": "اختر نموذج الحَكَم",
       "judgeModelTitle": "إعداد نموذج الحكم",
-      "judgeProviderPlaceholder": "معرّف المزوّد (مثلاً: anthropic-1)",
       "protectedPathsDesc": "استدعاءات الأدوات التي تمس هذه المسارات تفرض الموافقة ولا يمكن جعلها مسموحة دائمًا. يدعم توسيع ~/، وبادئة المجلد (شرطة مائلة في النهاية)، وأنماط glob مثل *.pattern.",
       "protectedPathsPlaceholder": "مثلاً: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "مسارات محمية",
@@ -2852,8 +2855,6 @@
       "digestMaxChars": "ميزانية إخراج الملخص (أحرف)",
       "dynamicEnabled": "تحديث اللاحقة في كل دور",
       "enabledForSession": "مُفعَّل لهذه الجلسة",
-      "extractionAgent": "معرف Agent الاستخراج (اختياري)",
-      "extractionAgentPlaceholder": "اتركه فارغًا لوراثة recap.analysisAgent",
       "includeChannel": "شمل جلسات قنوات IM",
       "includeCron": "شمل جلسات cron",
       "includeSubagents": "شمل جلسات sub-agent",
@@ -2877,7 +2878,9 @@
       "resetOverride": "إعادة التعيين إلى الإعداد العام",
       "sameAgentOnly": "نفس Agent فقط",
       "sessionOverride": "تجاوز الجلسة",
-      "title": "وعي السلوك"
+      "title": "وعي السلوك",
+      "extractionModel": "نموذج الاستخراج (اختياري)",
+      "extractionModelInherit": "إعادة استخدام وكيل المحادثة الحالي (مناسب لذاكرة التخزين المؤقت)"
     },
     "browser": {
       "activeBadge": "نشط",
@@ -3255,7 +3258,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "اتباع افتراضي الأتمتة",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3374,7 +3377,8 @@
       "matcherPlaceholder": "اسم الأداة / المصدر (regex مقبول)، فارغ = الكل",
       "addHandler": "إضافة معالج",
       "advanced": "متقدم",
-      "slowHandlerWarning": "يشغّل هذا المعالج نموذج LLM / وكيلًا فرعيًا بشكل مضمّن وسيبطئ في كل مرة يُطلق فيها هذا الحدث الحاجب. يُفضّل استخدام command / http هنا، أو نقله إلى حدث مراقبة (مثل PostToolUse)."
+      "slowHandlerWarning": "يشغّل هذا المعالج نموذج LLM / وكيلًا فرعيًا بشكل مضمّن وسيبطئ في كل مرة يُطلق فيها هذا الحدث الحاجب. يُفضّل استخدام command / http هنا، أو نقله إلى حدث مراقبة (مثل PostToolUse).",
+      "modelInheritDefault": "اتباع افتراضي الأتمتة"
     },
     "hours": "ساعة",
     "imageGenApiKey": "مفتاح API",
@@ -3427,6 +3431,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "المعرفة"
+    },
+    "knowledgeCompile": {
+      "agent": "نموذج التجميع",
+      "agentDefault": "اتباع افتراضي الأتمتة",
+      "agentDesc": "سلسلة النموذج المستخدمة لتحويل المصادر إلى اقتراحات ملاحظات قابلة للمراجعة. الفراغ يتبع افتراضي الأتمتة."
     },
     "knowledgeChunk": {
       "title": "متقدّم · التقطيع",
@@ -3484,7 +3493,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "النموذج",
+      "modelDesc": "مشترك بين المولدات الأربعة المعتمدة على LLM (الوسم التلقائي، صيانة MOC، الذاكرة إلى ملاحظة، تعارض المصادر).",
+      "modelDefault": "اتباع افتراضي الأتمتة"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "تم الحفظ",
+      "title": "الاحتفاظ بالوسائط الأصلية",
+      "description": "احتفِظ اختياريًا بأصول الصوت والفيديو والصور المستوردة لمراجعة أدلة المصادر.",
+      "maxTotal": "الحصة الإجمالية (MiB)",
+      "maxSource": "لكل مصدر (MiB)",
+      "thumbnail": "أطول ضلع للصورة المصغرة (px)",
+      "prune": "تنظيف أقدم الوسائط عند تجاوز الحصة",
+      "pruneDesc": "عندما يتسبب ملف جديد محتفَظ به في تجاوز الحصة، تُزال أقدم الأصول المحتفَظ بها قبل تخطي الملف الجديد."
     },
     "knowledgePassiveRecall": {
       "title": "الملاحظات ذات الصلة السلبية",
@@ -4273,9 +4295,9 @@
     "proxyUrl": "URL الوكيل",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "تقرير الملخص",
-    "recapAnalysisAgent": "عميل التحليل",
-    "recapAnalysisAgentDefault": "استخدم العميل الافتراضي العام",
-    "recapAnalysisAgentDesc": "العميل المستخدم لاستخراج الـ facet وكتابة أقسام التقرير. عند عدم التحديد يرث العميل الافتراضي العام.",
+    "recapAnalysisAgent": "نموذج التحليل",
+    "recapAnalysisAgentDefault": "اتباع افتراضي الأتمتة",
+    "recapAnalysisAgentDesc": "سلسلة النموذج المستخدمة لاستخراج السمات وكتابة أقسام التقرير. الفراغ يتبع افتراضي الأتمتة.",
     "recapCacheRetentionDays": "مدة الاحتفاظ بذاكرة Facet (أيام)",
     "recapCacheRetentionDaysDesc": "مدة الاحتفاظ بذاكرة Facet قبل التنظيف اليومي. 0 = إلى الأبد. الافتراضي 180.",
     "recapDefaultRangeDays": "النطاق الافتراضي (أيام)",
@@ -4341,6 +4363,9 @@
     "serverEmbeddedBind": "عنوان الربط",
     "serverEmbeddedBindDesc": "الافتراضي 127.0.0.1 للوصول من المضيف المحلي فقط. اضبط على 0.0.0.0 للكشف للشبكة",
     "serverGenerateApiKey": "توليد",
+    "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
+    "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
     "serverMode": "وضع الخادم",
     "serverModeDesc": "اختر الوضع المضمن أو الاتصال بخادم بعيد",
     "serverModeEmbedded": "مضمن",
@@ -4548,7 +4573,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "سلسلة النموذج المستخدمة لمراجعة المهارات المرشحة. الفراغ يعيد استخدام ذاكرة التخزين المؤقت للمحادثة المُطلقة (ثم يرجع إلى افتراضي الأتمتة).",
+          "inheritDefault": "إعادة استخدام المحادثة المُطلقة (مناسب لذاكرة التخزين المؤقت)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4649,7 +4675,10 @@
         "conversation": "المحادثة",
         "memory": "استرجاع الذاكرة",
         "awareness": "الإدراك عبر الجلسات"
-      }
+      },
+      "model": "النموذج",
+      "modelDesc": "استدعاء اقتراح السبرايت هو من نوع الإرسال دون انتظار — لذا تصلح سلسلة احتياطية كاملة وليس نموذجًا واحدًا فقط.",
+      "modelDefault": "اتباع افتراضي الأتمتة"
     },
     "ssrfBrowserPolicyDesc": "يُطبَّق على عنوان URL الهدف لـ page.goto / new_page. ملاحظة: fetch() داخل browser.evaluate خارج النطاق.",
     "ssrfDefaultPolicy": "السياسة الافتراضية",
@@ -5006,24 +5035,6 @@
     "webSearchSaved": "تم الحفظ",
     "webSearchTimeout": "المهلة (ثوانٍ)",
     "webSearchTimeoutDesc": "مهلة HTTP لطلبات البحث (5-120 ثانية)",
-    "knowledgeCompile": {
-      "agent": "وكيل تنظيم المصادر",
-      "agentDefault": "استخدام الوكيل الافتراضي العام",
-      "agentDesc": "الوكيل المستخدم لتحويل المصادر إلى اقتراحات ملاحظات قابلة للمراجعة. عند عدم ضبطه، يرث الوكيل الافتراضي العام."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "تم الحفظ",
-      "title": "الاحتفاظ بالوسائط الأصلية",
-      "description": "احتفِظ اختياريًا بأصول الصوت والفيديو والصور المستوردة لمراجعة أدلة المصادر.",
-      "maxTotal": "الحصة الإجمالية (MiB)",
-      "maxSource": "لكل مصدر (MiB)",
-      "thumbnail": "أطول ضلع للصورة المصغرة (px)",
-      "prune": "تنظيف أقدم الوسائط عند تجاوز الحصة",
-      "pruneDesc": "عندما يتسبب ملف جديد محتفَظ به في تجاوز الحصة، تُزال أقدم الأصول المحتفَظ بها قبل تخطي الملف الجديد."
-    },
-    "serverKnowledgeAgentReadToken": "رمز قراءة Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "اتركه فارغًا لتعطيل وصول agent للقراءة فقط",
-    "serverKnowledgeAgentReadTokenDesc": "رمز محدود النطاق للوكلاء الخارجيين. يعمل فقط عند تعيين مفتاح owner API أيضًا؛ عندها يمكنه استدعاء نقاط نهاية Knowledge Agent للقراءة فقط ولا يمنح صلاحية owner API.",
     "devVisualTest": "اختبار الرسوم المتحركة لواجهة المستخدم",
     "permLoading": "جارٍ التحقق من الأذونات...",
     "uiEffects": "الرسوم المتحركة الخلفية",
@@ -5032,7 +5043,35 @@
     "visionBridgeModel": "نموذج جسر الرؤية",
     "visionBridgeModelDesc": "يُستخدم فقط عندما لا يستطيع النموذج الأساسي رؤية الصور. يقوم نموذج منفصل بتحويل الصور إلى أوصاف نصية حتى تستمر المحادثة.",
     "visionBridgeModelClear": "إيقاف جسر الرؤية",
-    "selectVisionBridgeModel": "اختر نموذج الرؤية"
+    "selectVisionBridgeModel": "اختر نموذج الرؤية",
+    "modelChainRestoreInherit": "إعادة التعيين إلى الافتراضي الموروث",
+    "automationModelChain": "النموذج الافتراضي للأتمتة",
+    "automationModelChainDesc": "سلسلة النموذج الافتراضية (مع نموذج احتياطي) لمهام الذكاء الاصطناعي الخلفية لمرة واحدة مثل Recap وDreaming وتجميع المعرفة، وهي مستقلة عن نموذج المحادثة الافتراضي أعلاه. اتركها فارغة للرجوع إلى نموذج المحادثة الافتراضي.",
+    "automationModelChainInherit": "اتباع نموذج المحادثة الافتراضي",
+    "knowledgeVision": {
+      "model": "نموذج الرؤية",
+      "modelDesc": "سلسلة النموذج المستخدمة للتعرف الضوئي على الصور عند استيرادها إلى مساحة معرفة. الفراغ يتبع افتراضي الأتمتة.",
+      "modelDefault": "اتباع افتراضي الأتمتة",
+      "ocrConcurrency": "تزامن OCR للملفات الممسوحة ضوئيًا",
+      "maxOcrPages": "حد صفحات OCR للملفات الممسوحة ضوئيًا"
+    },
+    "noteTools": {
+      "title": "نموذج أدوات الملاحظات",
+      "desc": "النموذج المشترك بين أدوات تلخيص الملاحظات وإنشاء MOC وتحويل الجلسة إلى ملاحظة.",
+      "modelDefault": "اتباع افتراضي الأتمتة"
+    },
+    "recallSummary": {
+      "title": "تلخيص الاسترجاع",
+      "desc": "عندما تُرجع recall_memory / session_search عددًا كبيرًا من النتائج، يتم ضغطها إلى فقرة موجزة واحدة عبر استدعاء LLM إضافي بدلاً من إرجاع المقتطفات الخام. معطّل افتراضيًا — يكلّف استدعاءً إضافيًا واحدًا لكل بحث مؤهل.",
+      "enabled": "تفعيل التلخيص",
+      "minHits": "الحد الأدنى من النتائج للتفعيل",
+      "contextCharBudget": "ميزانية السياق (حروف)",
+      "timeoutSecs": "المهلة (ث)",
+      "maxTokens": "الحد الأقصى لرموز الإخراج",
+      "includeHistory": "تلخيص نتائج سجل المحادثة أيضًا",
+      "model": "النموذج",
+      "modelDefault": "اتباع افتراضي الأتمتة"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "فتح الإعدادات",
@@ -5978,7 +6017,13 @@
       "similarScope": {
         "crossKb": "عبر الفضاء",
         "sameKb": "هذه المساحة"
-      }
+      },
+      "ocrRunning": "جارٍ التعرف الضوئي…",
+      "ocrPartial": "OCR: فشلت بعض الصفحات",
+      "ocrFailed": "فشل التعرف الضوئي",
+      "ocrRetry": "إعادة محاولة الصفحات الفاشلة",
+      "ocrRetryStarted": "جارٍ إعادة محاولة الصفحات الفاشلة…",
+      "ocrRetryFailed": "تعذّرت إعادة محاولة صفحات OCR"
     },
     "queryFile": {
       "action": "ملف",

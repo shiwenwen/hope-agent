@@ -66,6 +66,7 @@ import type {
   KnowledgeSourceImportRunDetail,
   KnowledgeSourceImportInput,
   KnowledgeSourceKind,
+  KnowledgeSourceOcrPage,
   KnowledgeSourceReadResult,
   KnowledgeSourceRefreshResult,
   KnowledgeSourceSimilarityGroup,
@@ -125,6 +126,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   const [compileOpen, setCompileOpen] = useState(false)
   const [compileSourceIds, setCompileSourceIds] = useState<string[]>([])
   const [compileRequestToken, setCompileRequestToken] = useState(0)
+  const [ocrRoundActive, setOcrRoundActive] = useState<Record<string, boolean>>({})
 
   const reload = useCallback(async () => {
     if (!kbId) {
@@ -186,6 +188,48 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
   useEffect(() => {
     return getTransport().listen("knowledge:changed", () => void reload())
   }, [reload])
+
+  // `partially_extracted` is set the instant a scanned-PDF OCR placeholder is
+  // created (0 pages attempted yet), not just once a round genuinely leaves
+  // some pages failed — so the status alone can't tell "still running" from
+  // "finished with real failures" apart. Cross-check against the per-page
+  // ledger for any source in that state to decide which badge to show.
+  // Re-runs whenever `sources` refreshes (including the `knowledge:changed`
+  // reload fired when an OCR round finishes), so it naturally stays current.
+  useEffect(() => {
+    const pdfPartial = sources.filter(
+      (s) => s.kind === "pdf" && s.status === "partially_extracted",
+    )
+    if (!kbId || pdfPartial.length === 0) return
+    let cancelled = false
+    void (async () => {
+      const entries = await Promise.all(
+        pdfPartial.map(async (s) => {
+          try {
+            const pages = await getTransport().call<KnowledgeSourceOcrPage[]>(
+              "kb_source_ocr_pages_cmd",
+              { kbId, sourceId: s.id },
+            )
+            const active = pages.some((p) => p.status === "pending" || p.status === "running")
+            return [s.id, active] as const
+          } catch (e) {
+            logger.warn(
+              "knowledge",
+              "KnowledgeSourcesPanel::ocrRoundActive",
+              "OCR page status fetch failed",
+              e,
+            )
+            return [s.id, false] as const
+          }
+        }),
+      )
+      if (cancelled) return
+      setOcrRoundActive(Object.fromEntries(entries))
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [sources, kbId])
 
   const activeRunId = runDetail?.status === "running" ? runDetail.id : null
 
@@ -537,6 +581,21 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     }
   }
 
+  async function retryOcrPages(source: KnowledgeSource) {
+    if (!kbId) return
+    try {
+      const updated = await getTransport().call<KnowledgeSource>("kb_source_ocr_retry_cmd", {
+        kbId,
+        sourceId: source.id,
+      })
+      setSources((items) => items.map((item) => (item.id === updated.id ? updated : item)))
+      toast.success(t("knowledge.sources.ocrRetryStarted", "Retrying failed pages…"))
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeSourcesPanel::retryOcr", "OCR page retry failed", e)
+      toast.error(t("knowledge.sources.ocrRetryFailed", "Couldn't retry OCR pages"))
+    }
+  }
+
   async function refreshSource(source: KnowledgeSource) {
     if (!kbId || !isRefreshableSourceKind(source.kind) || refreshingSourceId) return
     setRefreshingSourceId(source.id)
@@ -634,10 +693,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
     setTitle((v) => (picked.length === 1 ? v || stripExt(picked[0].name) : v))
   }
 
-  const selectedIdsInOrder = sources
-    .filter((source) => selectedSourceIds.has(source.id))
-    .map((source) => source.id)
+  const selectedSources = sources.filter((source) => selectedSourceIds.has(source.id))
+  const selectedIdsInOrder = selectedSources.map((source) => source.id)
   const selectedCount = selectedIdsInOrder.length
+  const hasUnreadySelected = selectedSources.some((source) => source.status !== "ready")
   const latestRun = importRuns[0]
 
   if (!kbId) {
@@ -691,7 +750,7 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
               size="icon"
               className="relative h-6 w-6"
               onClick={() => openCompile(selectedIdsInOrder)}
-              disabled={selectedCount === 0}
+              disabled={selectedCount === 0 || hasUnreadySelected}
             >
               <Sparkles className="h-3 w-3" />
               {selectedCount > 0 ? (
@@ -820,6 +879,29 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                           <span>{t("knowledge.sources.mediaRetained", "Media retained")}</span>
                         </>
                       ) : null}
+                      {source.status === "partially_extracted" ? (
+                        <>
+                          <span>·</span>
+                          {ocrRoundActive[source.id] ? (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground">
+                              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                              {t("knowledge.sources.ocrRunning", "OCR running…")}
+                            </span>
+                          ) : (
+                            <span className="text-amber-600 dark:text-amber-500">
+                              {t("knowledge.sources.ocrPartial", "OCR: some pages failed")}
+                            </span>
+                          )}
+                        </>
+                      ) : null}
+                      {source.status === "failed" && source.kind === "pdf" ? (
+                        <>
+                          <span>·</span>
+                          <span className="text-destructive">
+                            {t("knowledge.sources.ocrFailed", "OCR failed")}
+                          </span>
+                        </>
+                      ) : null}
                       {source.externalRawPath ? (
                         <>
                           <span>·</span>
@@ -836,7 +918,10 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 <FileText className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.open", "Open")}
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => openCompile([source.id])}>
+              <ContextMenuItem
+                disabled={source.status !== "ready"}
+                onClick={() => openCompile([source.id])}
+              >
                 <Sparkles className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.compileOne", "Organize into note")}
               </ContextMenuItem>
@@ -859,6 +944,13 @@ export default function KnowledgeSourcesPanel({ kbId }: KnowledgeSourcesPanelPro
                 <RefreshCw className="mr-2 h-3.5 w-3.5" />
                 {t("knowledge.sources.reextract", "Re-extract")}
               </ContextMenuItem>
+              {source.kind === "pdf" &&
+              (source.status === "partially_extracted" || source.status === "failed") ? (
+                <ContextMenuItem onClick={() => void retryOcrPages(source)}>
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  {t("knowledge.sources.ocrRetry", "Retry failed OCR pages")}
+                </ContextMenuItem>
+              ) : null}
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={() => setDeleteTarget(source)}

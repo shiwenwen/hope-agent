@@ -123,10 +123,19 @@ pub struct CompactConfig {
     pub hard_clear_placeholder: String,
 
     // ── Tier 3: LLM Summarization ──
-    /// Optional override model for summarization.
-    /// Format: "providerId:modelId". When None, uses conversation model (with cache sharing).
+    /// Deprecated — superseded by `modelOverride`. Format: "providerId:modelId".
+    /// Kept for backward compatibility: still parsed when `modelOverride` is
+    /// unset, but the GUI no longer writes this field.
     #[serde(default)]
     pub summarization_model: Option<String>,
+    /// Optional override model for summarization. `None` = use the
+    /// conversation's own model (with cache sharing) — this dedicated
+    /// provider deliberately fails fast with no cross-model degradation
+    /// (`FailoverPolicy::summarize_default`), so it does NOT fall through to
+    /// `function_models.automation` the way the other Phase 1 consumers do;
+    /// an unset override just means "don't use a dedicated Tier 3 model".
+    #[serde(default)]
+    pub model_override: Option<crate::provider::ActiveModel>,
     /// Summarization trigger ratio (default: 0.85)
     #[serde(default = "default_summarization_threshold")]
     pub summarization_threshold: f64,
@@ -216,6 +225,19 @@ fn default_tool_policies() -> HashMap<String, String> {
 }
 
 impl CompactConfig {
+    /// Effective Tier 3 dedicated-model reference as a `"providerId:modelId"`
+    /// string, for [`crate::agent::build_compaction_provider`]: `modelOverride`
+    /// (new) → the deprecated `summarizationModel` string → `None` (use the
+    /// conversation's own model). Kept as a string at this boundary since
+    /// `build_compaction_provider` and its tests already parse that shape;
+    /// reshaping that as well isn't warranted for a single call-site format.
+    pub fn effective_summarization_model_ref(&self) -> Option<String> {
+        self.model_override
+            .as_ref()
+            .map(|m| format!("{}:{}", m.provider_id, m.model_id))
+            .or_else(|| self.summarization_model.clone())
+    }
+
     /// Check if a tool is marked as "eager" (microcompact).
     pub fn is_eager(&self, tool_name: &str) -> bool {
         self.tool_policies
@@ -290,6 +312,7 @@ impl Default for CompactConfig {
             hard_clear_enabled: crate::default_true(),
             hard_clear_placeholder: default_hard_clear_placeholder(),
             summarization_model: None,
+            model_override: None,
             summarization_threshold: default_summarization_threshold(),
             identifier_policy: default_identifier_policy(),
             identifier_instructions: None,

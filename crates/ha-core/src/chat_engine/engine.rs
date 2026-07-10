@@ -1328,7 +1328,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             session_id.clone(),
                             agent_id.clone(),
                             model_ref.clone(),
-                            providers.clone(),
                         );
 
                         {

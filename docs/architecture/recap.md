@@ -9,7 +9,7 @@ Recap 模块基于 `side_query` 对每个会话做 LLM 语义 facet 提取（目
 - **语义 + 量化双线融合**：LLM 逐会话提取定性 facet，Dashboard 提供定量 KPI，两者汇聚形成完整报告
 - **缓存优先**：按 (session_id, last_message_ts, analysis_model, schema_version) 缓存 facet，会话未更新不重复提取
 - **并行生成**：10 个 AI 章节并行调用 LLM，at_a_glance 依赖其余章节最后执行
-- **Agent 解耦**：分析用 Agent 通过 `config.recap.analysisAgent` 与主对话 Agent 独立配置
+- **模型解耦**：分析模型经 `config.recap.modelOverride`（`ModelChain`，deprecated `analysisAgent` 惰性兼容）→ `function_models.automation` 全局默认链解析，与主对话 Agent 独立配置，详见 [模型 vs Agent 统一配置](automation-model.md)
 
 ## 模块结构
 
@@ -327,7 +327,8 @@ flowchart TD
 
 ```rust
 pub struct RecapConfig {
-    pub analysis_agent: Option<String>,  // 分析 Agent ID（None = 回退全局默认 Agent）
+    pub analysis_agent: Option<String>,  // deprecated——见下方解析优先级
+    pub model_override: Option<ModelChain>,  // 分析模型链覆盖（新）
     pub language: Option<String>,        // 输出语言（None/"auto" = 跟随界面语言）
     pub default_range_days: u32,         // 无历史报告时的默认范围（默认 30）
     pub max_sessions_per_report: u32,    // 单次报告最大会话数（默认 500）
@@ -336,7 +337,7 @@ pub struct RecapConfig {
 }
 ```
 
-Analysis Agent 选择优先级：`config.recap.analysisAgent` > `AppConfig.default_agent_id` > `"ha-main"`（硬编码 `agent_loader::DEFAULT_AGENT_ID`）。选定 Agent 后，Recap 按普通聊天同款规则解析模型链：Agent `model.primary`/`fallbacks` 优先，否则回退全局 `active_model`/`fallback_models`。
+分析模型解析优先级（`resolve_recap_chain`，报告开始时解析一次）：`config.recap.modelOverride`（`ModelChain`）> deprecated `config.recap.analysisAgent`（惰性解析成等价 `ModelChain`——读该 Agent 的 `model.primary`/`fallbacks`，逻辑不变）> `function_models.automation` 全局默认链 > 聊天全局 `active_model`/`fallback_models`。解析结果是 `Arc<Vec<ActiveModel>>`，贯穿本次报告的每个独立 LLM 调用（facet 提取 + 章节生成），每个调用各自经 `crate::automation::run` 走真跨模型降级（构造失败/调用失败均 continue 下一候选），不再共享单个 Agent 的失败状态。详见 [模型 vs Agent 统一配置](automation-model.md)。
 
 ### 输出语言（i18n）
 

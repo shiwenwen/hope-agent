@@ -17,8 +17,9 @@ use super::types::{
     KnowledgeBaseMeta, KnowledgeExternalRawSyncMode, KnowledgeSource, KnowledgeSourceAsset,
     KnowledgeSourceAssetKind, KnowledgeSourceAssets, KnowledgeSourceChunk,
     KnowledgeSourceImportItem, KnowledgeSourceImportItemStatus, KnowledgeSourceImportRun,
-    KnowledgeSourceImportRunStatus, KnowledgeSourceKind, KnowledgeSourceStatus, NewCompileProposal,
-    SchemaProfile, UpdateKnowledgeBaseInput,
+    KnowledgeSourceImportRunStatus, KnowledgeSourceKind, KnowledgeSourceOcrPage,
+    KnowledgeSourceOcrPageStage, KnowledgeSourceOcrPageStatus, KnowledgeSourceStatus,
+    NewCompileProposal, SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use crate::session::SessionDB;
 
@@ -347,6 +348,35 @@ impl KnowledgeRegistry {
             CREATE INDEX IF NOT EXISTS idx_knowledge_source_import_items_kb_status
                 ON knowledge_source_import_items(kb_id, status, updated_at DESC);
 
+            -- Scanned-PDF OCR fallback: per-page tracking, one row per
+            -- (source, page). A finer grain than knowledge_source_import_items
+            -- (file-level) — deliberately not reused, since forcing N pages of
+            -- one file into that table would break its one-item-to-at-most-
+            -- one-source dedup/count invariants. Never stores OCR text
+            -- itself (that stays in the .md snapshot); only status/error/
+            -- pointer, same non-duplication principle as import_items.
+            CREATE TABLE IF NOT EXISTS knowledge_source_ocr_pages (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id      TEXT NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+                kb_id          TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+                page_number    INTEGER NOT NULL,
+                status         TEXT NOT NULL,
+                stage          TEXT,
+                error          TEXT,
+                model_label    TEXT,
+                attempt_count  INTEGER NOT NULL DEFAULT 0,
+                ocr_text_chars INTEGER,
+                created_at     INTEGER NOT NULL,
+                started_at     INTEGER,
+                finished_at    INTEGER,
+                updated_at     INTEGER NOT NULL,
+                UNIQUE(source_id, page_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_knowledge_source_ocr_pages_source
+                ON knowledge_source_ocr_pages(source_id, page_number);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_source_ocr_pages_kb_status
+                ON knowledge_source_ocr_pages(kb_id, status, updated_at DESC);
+
             -- User governance memory for source similarity suggestions. Source
             -- groups are computed, but dismiss decisions are owner truth.
             CREATE TABLE IF NOT EXISTS knowledge_source_similarity_dismissals (
@@ -466,6 +496,7 @@ impl KnowledgeRegistry {
         }
         drop(conn);
         self.interrupt_running_source_import_runs("interrupted by application restart")?;
+        self.interrupt_running_source_ocr_pages("interrupted by application restart")?;
 
         Ok(())
     }
@@ -2058,6 +2089,191 @@ impl KnowledgeRegistry {
         Ok(())
     }
 
+    // ── CRUD: knowledge_source_ocr_pages (scanned-PDF OCR fallback) ──
+
+    pub fn insert_source_ocr_pages(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+        total_pages: u32,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        for page_number in 1..=total_pages {
+            conn.execute(
+                "INSERT INTO knowledge_source_ocr_pages
+                    (source_id, kb_id, page_number, status, attempt_count, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)
+                 ON CONFLICT(source_id, page_number) DO NOTHING",
+                params![
+                    source_id,
+                    kb_id,
+                    page_number,
+                    KnowledgeSourceOcrPageStatus::Pending.as_str(),
+                    now,
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn set_ocr_page_running(&self, id: i64) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_source_ocr_pages
+             SET status = ?2,
+                 attempt_count = attempt_count + 1,
+                 started_at = ?3,
+                 updated_at = ?3
+             WHERE id = ?1",
+            params![id, KnowledgeSourceOcrPageStatus::Running.as_str(), now],
+        )?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn finish_ocr_page(
+        &self,
+        id: i64,
+        status: KnowledgeSourceOcrPageStatus,
+        stage: Option<KnowledgeSourceOcrPageStage>,
+        error: Option<&str>,
+        model_label: Option<&str>,
+        text_chars: Option<u32>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_source_ocr_pages
+             SET status = ?2,
+                 stage = ?3,
+                 error = ?4,
+                 model_label = ?5,
+                 ocr_text_chars = ?6,
+                 finished_at = ?7,
+                 updated_at = ?7
+             WHERE id = ?1",
+            params![
+                id,
+                status.as_str(),
+                stage.map(|s| s.as_str()),
+                error,
+                model_label,
+                text_chars,
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_source_ocr_pages(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<KnowledgeSourceOcrPage>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, source_id, kb_id, page_number, status, stage, error, model_label,
+                    attempt_count, created_at, updated_at
+             FROM knowledge_source_ocr_pages
+             WHERE kb_id = ?1 AND source_id = ?2
+             ORDER BY page_number ASC",
+        )?;
+        let rows = stmt.query_map(params![kb_id, source_id], row_to_source_ocr_page)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn failed_source_ocr_pages(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+    ) -> Result<Vec<KnowledgeSourceOcrPage>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, source_id, kb_id, page_number, status, stage, error, model_label,
+                    attempt_count, created_at, updated_at
+             FROM knowledge_source_ocr_pages
+             WHERE kb_id = ?1 AND source_id = ?2 AND status = ?3
+             ORDER BY page_number ASC",
+        )?;
+        let rows = stmt.query_map(
+            params![
+                kb_id,
+                source_id,
+                KnowledgeSourceOcrPageStatus::Failed.as_str()
+            ],
+            row_to_source_ocr_page,
+        )?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
+    }
+
+    pub fn set_source_status(
+        &self,
+        kb_id: &str,
+        source_id: &str,
+        status: KnowledgeSourceStatus,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_sources SET status = ?3, updated_at = ?4 WHERE kb_id = ?1 AND id = ?2",
+            params![kb_id, source_id, status.as_str(), now],
+        )?;
+        Ok(())
+    }
+
+    /// Orphaned `pending`/`running` OCR pages left over from a process that
+    /// died mid-run (the owning `tokio::spawn` task is gone) are, by
+    /// definition, unrecoverable in place — mark them `failed` so their
+    /// source's status can be re-derived and the pages can be retried.
+    /// Mirrors `interrupt_running_source_import_runs`.
+    pub fn interrupt_running_source_ocr_pages(&self, reason: &str) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE knowledge_source_ocr_pages
+             SET status = ?1,
+                 error = COALESCE(error, ?2),
+                 started_at = COALESCE(started_at, ?3),
+                 finished_at = COALESCE(finished_at, ?3),
+                 updated_at = ?3
+             WHERE status IN ('pending', 'running')",
+            params![KnowledgeSourceOcrPageStatus::Failed.as_str(), reason, now],
+        )?;
+        Ok(())
+    }
+
     pub fn fail_active_source_import_items(
         &self,
         kb_id: &str,
@@ -3058,6 +3274,26 @@ fn row_to_source_import_item_with_offset(
         started_at: row.get::<_, Option<i64>>(shifted(12)).unwrap_or(None),
         finished_at: row.get::<_, Option<i64>>(shifted(13)).unwrap_or(None),
         updated_at: row.get(shifted(14))?,
+    })
+}
+
+fn row_to_source_ocr_page(row: &rusqlite::Row) -> rusqlite::Result<KnowledgeSourceOcrPage> {
+    let status_s: String = row.get(4)?;
+    let stage_s: Option<String> = row.get(5)?;
+    let page_number: i64 = row.get(3)?;
+    let attempt_count: i64 = row.get(8)?;
+    Ok(KnowledgeSourceOcrPage {
+        id: row.get(0)?,
+        source_id: row.get(1)?,
+        kb_id: row.get(2)?,
+        page_number: page_number.max(0) as u32,
+        status: KnowledgeSourceOcrPageStatus::from_str_lenient(&status_s),
+        stage: stage_s.and_then(|s| KnowledgeSourceOcrPageStage::from_str_lenient(&s)),
+        error: row.get(6)?,
+        model_label: row.get(7)?,
+        attempt_count: attempt_count.max(0) as u32,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 

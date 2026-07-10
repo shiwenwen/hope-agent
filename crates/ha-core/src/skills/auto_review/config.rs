@@ -72,9 +72,18 @@ pub struct SkillsAutoReviewConfig {
     /// fed into the dedup prompt.
     #[serde(default = "default_top_k_for_dedup")]
     pub top_k_for_dedup: usize,
-    /// Optional `provider:model` override for the review side_query.
+    /// Deprecated — superseded by `model_override`. Optional `provider:model`
+    /// override for the review side_query. Kept for backward compatibility:
+    /// still parsed when `model_override` is unset, but the GUI no longer
+    /// writes this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_model: Option<String>,
+    /// Model chain override for the review side_query. `None` = fall through
+    /// to the deprecated `review_model` (if still set) → the current
+    /// conversation's cached agent (if this fired mid-turn) →
+    /// `function_models.automation` → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
     /// Max recent messages passed into the review prompt.
     #[serde(default = "default_candidate_limit")]
     pub candidate_limit: usize,
@@ -138,6 +147,7 @@ impl Default for SkillsAutoReviewConfig {
             discard_blacklist_days: default_discard_blacklist_days(),
             top_k_for_dedup: default_top_k_for_dedup(),
             review_model: None,
+            model_override: None,
             candidate_limit: default_candidate_limit(),
             timeout_secs: default_timeout_secs(),
             review_system_override: None,
@@ -265,6 +275,9 @@ impl SkillsAutoReviewConfig {
         }
         if want("review_model") {
             self.review_model = d.review_model;
+        }
+        if want("model_override") {
+            self.model_override = d.model_override;
         }
         if want("candidate_limit") {
             self.candidate_limit = d.candidate_limit;

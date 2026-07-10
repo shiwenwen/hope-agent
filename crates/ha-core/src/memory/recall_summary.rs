@@ -42,6 +42,10 @@ pub struct RecallSummaryConfig {
     /// you only want persistent memories summarized.
     #[serde(default = "default_true")]
     pub include_history: bool,
+    /// Model chain override for the summarization call. `None` = fall
+    /// through to `function_models.automation` → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
 }
 
 impl Default for RecallSummaryConfig {
@@ -53,6 +57,7 @@ impl Default for RecallSummaryConfig {
             timeout_secs: default_timeout_secs(),
             max_tokens: default_max_tokens(),
             include_history: true,
+            model_override: None,
         }
     }
 }
@@ -118,8 +123,14 @@ async fn run_summary(query: &str, context: &str, cfg: &RecallSummaryConfig) -> R
         context = context,
     );
     let config = crate::config::cached_config();
-    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&config).await?;
-    let fut = agent.side_query(&prompt, cfg.max_tokens);
+    let chain = crate::automation::effective_chain(&config, cfg.model_override.clone());
+    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+        purpose: "recall_summary",
+        chain,
+        session_key: "automation:recall_summary",
+        instruction: &prompt,
+        max_tokens: cfg.max_tokens,
+    });
     let result = tokio::time::timeout(Duration::from_secs(cfg.timeout_secs), fut)
         .await
         .map_err(|_| anyhow::anyhow!("recall_summary side_query timed out"))??;

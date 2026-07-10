@@ -335,8 +335,16 @@ pub struct McpToolHookConfig {
 #[serde(rename_all = "camelCase")]
 pub struct PromptHookConfig {
     pub prompt: String,
+    /// Deprecated — superseded by `modelOverride`. `provider:model` string.
+    /// Kept for backward compatibility: still parsed when `modelOverride` is
+    /// unset, but the GUI no longer writes this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Model chain override for this hook's side-query. `None` = fall through
+    /// to the deprecated `model` (if still set) → `function_models.automation`
+    /// → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
     /// Static message shown to the user while this handler runs (`statusMessage`).

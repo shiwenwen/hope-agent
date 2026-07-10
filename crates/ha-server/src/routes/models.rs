@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-use ha_core::provider::{self, ActiveModel, AvailableModel, ProviderWriteError};
+use ha_core::provider::{self, ActiveModel, AvailableModel, ModelChain, ProviderWriteError};
 
 use crate::error::AppError;
 use crate::AppContext;
@@ -44,6 +44,13 @@ pub struct SetVisionModelBody {
     /// `None` / omitted disables the vision bridge.
     #[serde(default)]
     pub model: Option<ActiveModel>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetAutomationModelChainBody {
+    /// `None` / omitted reverts to the chat `active_model`/`fallback_models` chain.
+    #[serde(default)]
+    pub chain: Option<ModelChain>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,6 +126,26 @@ pub async fn set_vision_model(
 ) -> Result<Json<Value>, AppError> {
     ha_core::config::mutate_config_async(("function_models", "http"), move |store| {
         store.function_models.vision = body.model;
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "updated": true })))
+}
+
+/// `GET /api/models/automation` — the configured automation default model
+/// chain, or `null` (falls through to the chat active/fallback chain).
+pub async fn get_automation_model_chain() -> Result<Json<Option<ModelChain>>, AppError> {
+    let store = ha_core::config::cached_config();
+    Ok(Json(store.function_models.automation.clone()))
+}
+
+/// `PUT /api/models/automation` — set (or clear, with `chain: null`) the
+/// automation default model chain.
+pub async fn set_automation_model_chain(
+    Json(body): Json<SetAutomationModelChainBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config_async(("function_models", "http"), move |store| {
+        store.function_models.automation = body.chain;
         Ok(())
     })
     .await?;

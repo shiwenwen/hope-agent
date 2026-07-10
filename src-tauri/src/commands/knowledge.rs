@@ -19,13 +19,13 @@ use ha_core::knowledge::{
     KnowledgeSourceAssetKind, KnowledgeSourceAssetLink, KnowledgeSourceDiff,
     KnowledgeSourceExternalRawSyncResult, KnowledgeSourceImportBatchInput,
     KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
+    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceOcrPage, KnowledgeSourceReadResult,
     KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
     KnowledgeSourceSimilarityDismissInput, KnowledgeSourceSimilarityGroup,
     KnowledgeSourceSimilarityResolveInput, KnowledgeSourceSimilarityResolveResult,
-    KnowledgeSourceVersionHistory, Note, NoteReadResult, NoteSearchHit, NoteSourceRef,
-    QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue, SchemaProfile,
-    UpdateKnowledgeBaseInput,
+    KnowledgeSourceVersionHistory, KnowledgeVisionConfig, Note, NoteReadResult, NoteSearchHit,
+    NoteSourceRef, NoteToolsConfig, QueryFileInput, ReferenceableNote, RenameOutcome, SchemaIssue,
+    SchemaProfile, UpdateKnowledgeBaseInput,
 };
 use ha_core::session::SessionMeta;
 
@@ -190,6 +190,24 @@ pub async fn kb_source_import_retry_failed_cmd(
 }
 
 #[tauri::command]
+pub fn kb_source_ocr_pages_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<Vec<KnowledgeSourceOcrPage>, CmdError> {
+    service::source_ocr_pages(&kb_id, &source_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn kb_source_ocr_retry_cmd(
+    kb_id: String,
+    source_id: String,
+) -> Result<KnowledgeSource, CmdError> {
+    service::source_ocr_retry(&kb_id, &source_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub fn kb_source_similarity_groups_cmd(
     kb_id: String,
 ) -> Result<Vec<KnowledgeSourceSimilarityGroup>, CmdError> {
@@ -343,6 +361,34 @@ pub async fn knowledge_compile_config_set_cmd(
     config: KnowledgeCompileConfig,
 ) -> Result<KnowledgeCompileConfig, CmdError> {
     service::set_compile_config(config, "desktop").map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn knowledge_vision_config_get_cmd() -> Result<KnowledgeVisionConfig, CmdError> {
+    Ok(service::get_vision_config())
+}
+
+#[tauri::command]
+pub async fn knowledge_vision_config_set_cmd(
+    config: KnowledgeVisionConfig,
+) -> Result<KnowledgeVisionConfig, CmdError> {
+    service::set_vision_config(config, "desktop")
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn note_tools_config_get_cmd() -> Result<NoteToolsConfig, CmdError> {
+    Ok(service::get_note_tools_config())
+}
+
+#[tauri::command]
+pub async fn note_tools_config_set_cmd(
+    config: NoteToolsConfig,
+) -> Result<NoteToolsConfig, CmdError> {
+    service::set_note_tools_config(config, "desktop")
+        .await
+        .map_err(Into::into)
 }
 
 // ── Schema profile + evidence refs (Phase 3) ─────────────────────

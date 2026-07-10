@@ -502,6 +502,7 @@
         "desc": "Alat suntingan dan arahan berbahaya perlu kelulusan; selainnya dijalankan.",
         "label": "Lalai"
       },
+      "menuLabel": "Mod kebenaran",
       "smart": {
         "desc": "Model hakim atau penanda keyakinan model membuat keputusan kelulusan.",
         "label": "Kelulusan pintar"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "Semua alat dalam sesi ini berjalan tanpa kelulusan (laluan dilindungi tetap diaudit).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "Mod kebenaran"
+      "menuLabel": "Kotak pasir",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "Pilih sesi",
     "profileRotationTitle": "Tukar profil",
@@ -651,30 +675,6 @@
       "reloadBody": "Sambungan yang dipasang tidak sepadan dengan hos. Muat semula untuk memulihkan kawalan Chrome sebenar anda.",
       "openSettings": "Buka tetapan",
       "dismiss": "Jangan tunjuk lagi"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "Kotak pasir"
     },
     "browserExtensionRequired": {
       "nextAction": "Tindakan seterusnya: {{nextAction}}",
@@ -1231,7 +1231,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Masa ke Token Pertama (TTFT)",
       "inputTokens": "Token input",
-      "outputTokens": "Token keluaran"
+      "outputTokens": "Token keluaran",
+      "byDomain": "Taburan mengikut domain",
+      "byOperation": "Mengikut operasi",
+      "operation": "Operasi",
+      "domain": "Domain"
     },
     "tool": {
       "avgDuration": "Tempoh purata",
@@ -2768,9 +2772,8 @@
       },
       "intro": "Togol YOLO global, senarai corak laluan dilindungi / arahan suntingan / arahan berbahaya, dan konfigurasi mod kelulusan pintar.",
       "judgeExtraPromptPlaceholder": "Pilihan: arahan tambahan untuk hakim (senarai putih laluan, arahan dipercayai...)",
-      "judgeModelPlaceholder": "Model (cth. claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Pilih model hakim",
       "judgeModelTitle": "Konfigurasi Model Hakim",
-      "judgeProviderPlaceholder": "ID Provider (cth. anthropic-1)",
       "protectedPathsDesc": "Panggilan alat yang mengenai laluan ini memaksa kelulusan dan tidak boleh dijadikan Sentiasa Benarkan. Menyokong pengembangan ~/, awalan direktori (diakhiri /), dan glob *.pattern.",
       "protectedPathsPlaceholder": "cth. ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Laluan Dilindungi",
@@ -2852,8 +2855,6 @@
       "digestMaxChars": "Bajet output digest (aksara)",
       "dynamicEnabled": "Segarkan suffix setiap giliran",
       "enabledForSession": "Aktif untuk sesi ini",
-      "extractionAgent": "ID Agent ekstraksi (pilihan)",
-      "extractionAgentPlaceholder": "Biar kosong untuk warisi recap.analysisAgent",
       "includeChannel": "Sertakan sesi saluran IM",
       "includeCron": "Sertakan sesi cron",
       "includeSubagents": "Sertakan sesi sub-agent",
@@ -2877,7 +2878,9 @@
       "resetOverride": "Set semula ke global",
       "sameAgentOnly": "Agent sama sahaja",
       "sessionOverride": "Tulis ganti sesi",
-      "title": "Behavior Awareness"
+      "title": "Behavior Awareness",
+      "extractionModel": "Model pengekstrakan (pilihan)",
+      "extractionModelInherit": "Guna semula ejen sembang semasa (mesra cache)"
     },
     "browser": {
       "activeBadge": "aktif",
@@ -3255,7 +3258,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Ikut lalai automasi",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3374,7 +3377,8 @@
       "matcherPlaceholder": "nama alat / sumber (regex ok), kosong = semua",
       "addHandler": "Tambah pengendali",
       "advanced": "Lanjutan",
-      "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse)."
+      "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse).",
+      "modelInheritDefault": "Ikut lalai automasi"
     },
     "hours": "jam",
     "imageGenApiKey": "API Key",
@@ -3427,6 +3431,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "Pengetahuan"
+    },
+    "knowledgeCompile": {
+      "agent": "Model penyusunan",
+      "agentDefault": "Ikut lalai automasi",
+      "agentDesc": "Rantaian model yang digunakan untuk menukar sumber kepada cadangan nota yang boleh disemak. Kosong akan ikut lalai automasi."
     },
     "knowledgeChunk": {
       "title": "Lanjutan · pemotongan",
@@ -3484,7 +3493,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Dikongsi oleh keempat-empat penjana berasaskan LLM (auto-tag, penyelenggaraan MOC, memori→nota, konflik sumber).",
+      "modelDefault": "Ikut lalai automasi"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Disimpan",
+      "title": "Simpan media asal",
+      "description": "Secara pilihan simpan audio, video dan imej asal yang diimport untuk semakan bukti sumber.",
+      "maxTotal": "Kuota keseluruhan (MiB)",
+      "maxSource": "Setiap sumber (MiB)",
+      "thumbnail": "Sisi terpanjang lakaran kecil (px)",
+      "prune": "Bersihkan media paling lama apabila melebihi kuota",
+      "pruneDesc": "Apabila fail baharu yang disimpan akan melebihi kuota, buang asal tersimpan paling lama sebelum melangkau fail baharu."
     },
     "knowledgePassiveRecall": {
       "title": "Nota berkaitan pasif",
@@ -4273,9 +4295,9 @@
     "proxyUrl": "URL proksi",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agen analisis",
-    "recapAnalysisAgentDefault": "Guna agen lalai global",
-    "recapAnalysisAgentDesc": "Agen yang digunakan untuk mengekstrak facet dan menulis bahagian laporan. Jika tidak ditetapkan, mewarisi agen lalai global.",
+    "recapAnalysisAgent": "Model analisis",
+    "recapAnalysisAgentDefault": "Ikut lalai automasi",
+    "recapAnalysisAgentDesc": "Rantaian model yang digunakan untuk mengekstrak facet dan menulis bahagian laporan. Kosong akan ikut lalai automasi.",
     "recapCacheRetentionDays": "Pengekalan cache facet (hari)",
     "recapCacheRetentionDaysDesc": "Tempoh facet yang dicache disimpan sebelum dipadam oleh penyapuan harian. 0 = kekal selamanya. Lalai 180.",
     "recapDefaultRangeDays": "Julat lalai (hari)",
@@ -4341,6 +4363,9 @@
     "serverEmbeddedBind": "Alamat bind",
     "serverEmbeddedBindDesc": "Lalai 127.0.0.1 untuk localhost sahaja. Tetapkan kepada 0.0.0.0 untuk didedahkan ke rangkaian",
     "serverGenerateApiKey": "Jana",
+    "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
+    "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
     "serverMode": "Mod pelayan",
     "serverModeDesc": "Pilih mod terbenam atau sambung ke pelayan jauh",
     "serverModeEmbedded": "Terbenam",
@@ -4548,7 +4573,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Rantaian model yang digunakan untuk menyemak kemahiran calon. Kosong akan guna semula cache sembang pencetus (kembali kepada lalai automasi).",
+          "inheritDefault": "Guna semula sembang pencetus (mesra cache)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4649,7 +4675,10 @@
         "conversation": "Perbualan",
         "memory": "Imbasan memori",
         "awareness": "Kesedaran merentas sesi"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Panggilan cadangan Sprite adalah hantar-dan-lupa — rantaian sandaran penuh tidak menjadi masalah, bukan hanya satu model sahaja.",
+      "modelDefault": "Ikut lalai automasi"
     },
     "ssrfBrowserPolicyDesc": "Terpakai pada URL sasaran page.goto / new_page. Nota: fetch() JS di dalam browser.evaluate tidak dicakupi.",
     "ssrfDefaultPolicy": "Dasar lalai",
@@ -5006,24 +5035,6 @@
     "webSearchSaved": "Disimpan",
     "webSearchTimeout": "Tamat masa (saat)",
     "webSearchTimeoutDesc": "Tamat masa HTTP untuk permintaan carian (5-120 saat)",
-    "knowledgeCompile": {
-      "agent": "Ejen penyusunan sumber",
-      "agentDefault": "Gunakan ejen lalai global",
-      "agentDesc": "Ejen yang menukar sumber kepada cadangan nota yang boleh disemak. Jika tidak ditetapkan, ia mewarisi ejen lalai global."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Disimpan",
-      "title": "Simpan media asal",
-      "description": "Secara pilihan simpan audio, video dan imej asal yang diimport untuk semakan bukti sumber.",
-      "maxTotal": "Kuota keseluruhan (MiB)",
-      "maxSource": "Setiap sumber (MiB)",
-      "thumbnail": "Sisi terpanjang lakaran kecil (px)",
-      "prune": "Bersihkan media paling lama apabila melebihi kuota",
-      "pruneDesc": "Apabila fail baharu yang disimpan akan melebihi kuota, buang asal tersimpan paling lama sebelum melangkau fail baharu."
-    },
-    "serverKnowledgeAgentReadToken": "Token baca Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Biarkan kosong untuk mematikan akses agent baca sahaja",
-    "serverKnowledgeAgentReadTokenDesc": "Token berskop untuk agent luaran. Ia hanya berfungsi apabila API key owner juga ditetapkan; ketika itu ia hanya boleh memanggil endpoint knowledge agent baca sahaja dan tidak memberi akses owner API.",
     "devVisualTest": "Ujian animasi UI",
     "permLoading": "Menyemak kebenaran...",
     "uiEffects": "Animasi latar belakang",
@@ -5032,7 +5043,35 @@
     "visionBridgeModel": "Model jambatan penglihatan",
     "visionBridgeModelDesc": "Hanya digunakan apabila model utama tidak dapat melihat imej. Model berasingan menukar imej menjadi penerangan teks supaya perbualan boleh diteruskan.",
     "visionBridgeModelClear": "Matikan jambatan penglihatan",
-    "selectVisionBridgeModel": "Pilih model penglihatan"
+    "selectVisionBridgeModel": "Pilih model penglihatan",
+    "modelChainRestoreInherit": "Tetapkan semula ke lalai yang diwarisi",
+    "automationModelChain": "Model lalai automasi",
+    "automationModelChainDesc": "Rantaian model lalai (dengan model sandaran) untuk tugas AI latar belakang sekali sahaja seperti Recap, Dreaming dan Penyusunan Pengetahuan — bebas daripada model sembang lalai di atas. Biarkan kosong untuk kembali kepada model sembang lalai.",
+    "automationModelChainInherit": "Ikut model sembang lalai",
+    "knowledgeVision": {
+      "model": "Model penglihatan",
+      "modelDesc": "Rantaian model yang digunakan untuk OCR imej semasa mengimportnya ke ruang pengetahuan. Kosong akan ikut lalai automasi.",
+      "modelDefault": "Ikut lalai automasi",
+      "ocrConcurrency": "Kesegerakan OCR PDF imbasan",
+      "maxOcrPages": "Had halaman OCR PDF imbasan"
+    },
+    "noteTools": {
+      "title": "Model alatan nota",
+      "desc": "Model yang dikongsi oleh alatan penyulingan nota, penjanaan MOC, dan sesi-ke-nota.",
+      "modelDefault": "Ikut lalai automasi"
+    },
+    "recallSummary": {
+      "title": "Ringkasan panggilan semula",
+      "desc": "Apabila recall_memory / session_search memulangkan banyak padanan, ia dimampatkan menjadi satu perenggan ringkas melalui panggilan LLM tambahan dan bukannya memulangkan cebisan mentah. Dimatikan secara lalai — mengenakan satu panggilan tambahan bagi setiap carian yang layak.",
+      "enabled": "Dayakan ringkasan",
+      "minHits": "Padanan minimum untuk mencetuskan",
+      "contextCharBudget": "Bajet konteks (aksara)",
+      "timeoutSecs": "Had masa (saat)",
+      "maxTokens": "Token output maksimum",
+      "includeHistory": "Ringkaskan padanan sejarah perbualan juga",
+      "model": "Model",
+      "modelDefault": "Ikut lalai automasi"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -5978,7 +6017,13 @@
       "similarScope": {
         "crossKb": "Ruang silang",
         "sameKb": "Ruang ini"
-      }
+      },
+      "ocrRunning": "OCR sedang berjalan…",
+      "ocrPartial": "OCR: sebahagian halaman gagal",
+      "ocrFailed": "OCR gagal",
+      "ocrRetry": "Cuba semula halaman yang gagal",
+      "ocrRetryStarted": "Mencuba semula halaman yang gagal…",
+      "ocrRetryFailed": "Tidak dapat mencuba semula halaman OCR"
     },
     "queryFile": {
       "action": "Fail",
