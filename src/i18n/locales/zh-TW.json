@@ -6280,7 +6280,8 @@
       "save": "儲存失敗",
       "duplicate": "複製失敗",
       "batchDeletePartial": "{{n}} 個專案刪除失敗",
-      "reveal": "開啟失敗"
+      "reveal": "開啟失敗",
+      "loadLibrary": "產物庫載入失敗"
     },
     "ok": {
       "adopted": "已套用設計方向",
@@ -6463,7 +6464,8 @@
       "selectHint": "選擇一個版本以預覽",
       "prompt": "提示詞",
       "restoreTitle": "還原到此版本？",
-      "restoreHelp": "會以該版本內容產生一個新版本，目前內容仍保留在歷史中，可再切回。"
+      "restoreHelp": "會以該版本內容產生一個新版本，目前內容仍保留在歷史中，可再切回。",
+      "loadFailed": "版本清單載入失敗"
     },
     "deviceAuto": "自動",
     "deviceDesktop": "桌面",
@@ -6560,6 +6562,13 @@
       "clearSelection": "取消選擇",
       "select": "選擇"
     },
-    "deleteBatchDesc": "將永久刪除選中的這些頁面及其全部版本，無法復原。"
+    "deleteBatchDesc": "將永久刪除選中的這些頁面及其全部版本，無法復原。",
+    "deckPrev": "上一頁",
+    "deckNext": "下一頁",
+    "scene1": "一個 SaaS 產品的定價頁，三檔方案，突出中間檔",
+    "scene2": "一份募資路演簡報，8 頁，深色科技風",
+    "scene3": "一個行動 App 的登入 / 註冊頁，圓角友善風",
+    "scene4": "一張產品發表海報，大標題 + 關鍵賣點",
+    "scene5": "一個資料儀表板，KPI 卡片 + 折線趨勢"
   }
 }

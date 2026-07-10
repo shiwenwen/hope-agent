@@ -6280,7 +6280,8 @@
       "save": "Save failed",
       "duplicate": "Duplicate failed",
       "batchDeletePartial": "Failed to delete {{n}} projects",
-      "reveal": "Failed to open"
+      "reveal": "Failed to open",
+      "loadLibrary": "Failed to load library"
     },
     "ok": {
       "adopted": "Design direction applied",
@@ -6463,7 +6464,8 @@
       "selectHint": "Select a version to preview",
       "prompt": "Prompt",
       "restoreTitle": "Restore this version?",
-      "restoreHelp": "Creates a new version from this snapshot. Your current content stays in history and can be restored again."
+      "restoreHelp": "Creates a new version from this snapshot. Your current content stays in history and can be restored again.",
+      "loadFailed": "Failed to load version list"
     },
     "deviceAuto": "Auto",
     "deviceDesktop": "Desktop",
@@ -6560,6 +6562,13 @@
       "clearSelection": "Clear selection",
       "select": "Select"
     },
-    "deleteBatchDesc": "This permanently deletes the selected pages and all their versions. Cannot be undone."
+    "deleteBatchDesc": "This permanently deletes the selected pages and all their versions. Cannot be undone.",
+    "deckPrev": "Previous slide",
+    "deckNext": "Next slide",
+    "scene1": "A SaaS pricing page, three tiers, highlight the middle one",
+    "scene2": "An 8-slide investor pitch deck, dark tech style",
+    "scene3": "A mobile app sign-in / sign-up screen, rounded friendly style",
+    "scene4": "A product launch poster, big headline + key selling points",
+    "scene5": "A data dashboard, KPI cards + line trends"
   }
 }

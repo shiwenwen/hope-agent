@@ -6280,7 +6280,8 @@
       "save": "Lưu thất bại",
       "duplicate": "Nhân bản thất bại",
       "batchDeletePartial": "Không xóa được {{n}} dự án",
-      "reveal": "Không mở được"
+      "reveal": "Không mở được",
+      "loadLibrary": "Không tải được thư viện"
     },
     "ok": {
       "adopted": "Đã áp dụng hướng thiết kế",
@@ -6463,7 +6464,8 @@
       "selectHint": "Chọn phiên bản để xem trước",
       "prompt": "Câu lệnh",
       "restoreTitle": "Khôi phục phiên bản này?",
-      "restoreHelp": "Tạo một phiên bản mới từ ảnh chụp này. Nội dung hiện tại vẫn nằm trong lịch sử và có thể khôi phục lại."
+      "restoreHelp": "Tạo một phiên bản mới từ ảnh chụp này. Nội dung hiện tại vẫn nằm trong lịch sử và có thể khôi phục lại.",
+      "loadFailed": "Không tải được danh sách phiên bản"
     },
     "deviceAuto": "Tự động",
     "deviceDesktop": "Máy tính",
@@ -6560,6 +6562,13 @@
       "clearSelection": "Bỏ chọn",
       "select": "Chọn"
     },
-    "deleteBatchDesc": "Xóa vĩnh viễn các trang đã chọn và tất cả phiên bản của chúng. Không thể hoàn tác."
+    "deleteBatchDesc": "Xóa vĩnh viễn các trang đã chọn và tất cả phiên bản của chúng. Không thể hoàn tác.",
+    "deckPrev": "Trang trước",
+    "deckNext": "Trang sau",
+    "scene1": "Trang bảng giá SaaS, ba gói, nổi bật gói giữa",
+    "scene2": "Bài thuyết trình gọi vốn 8 trang, phong cách tech tối",
+    "scene3": "Màn hình đăng nhập / đăng ký ứng dụng di động",
+    "scene4": "Áp phích ra mắt sản phẩm, tiêu đề lớn + điểm bán chính",
+    "scene5": "Bảng điều khiển dữ liệu, thẻ KPI + xu hướng đường"
   }
 }

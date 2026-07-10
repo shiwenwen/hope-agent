@@ -6280,7 +6280,8 @@
       "save": "Gagal menyimpan",
       "duplicate": "Gagal menyalin",
       "batchDeletePartial": "Gagal memadam {{n}} projek",
-      "reveal": "Gagal buka"
+      "reveal": "Gagal buka",
+      "loadLibrary": "Gagal memuat pustaka"
     },
     "ok": {
       "adopted": "Arah reka bentuk diterapkan",
@@ -6463,7 +6464,8 @@
       "selectHint": "Pilih versi untuk pratonton",
       "prompt": "Gesaan",
       "restoreTitle": "Pulihkan versi ini?",
-      "restoreHelp": "Mencipta versi baharu daripada syot kilat ini. Kandungan semasa anda kekal dalam sejarah dan boleh dipulihkan semula."
+      "restoreHelp": "Mencipta versi baharu daripada syot kilat ini. Kandungan semasa anda kekal dalam sejarah dan boleh dipulihkan semula.",
+      "loadFailed": "Gagal memuat senarai versi"
     },
     "deviceAuto": "Auto",
     "deviceDesktop": "Desktop",
@@ -6560,6 +6562,13 @@
       "clearSelection": "Kosongkan pilihan",
       "select": "Pilih"
     },
-    "deleteBatchDesc": "Memadam kekal halaman terpilih dan semua versinya. Tidak boleh dibuat asal."
+    "deleteBatchDesc": "Memadam kekal halaman terpilih dan semua versinya. Tidak boleh dibuat asal.",
+    "deckPrev": "Slaid sebelum",
+    "deckNext": "Slaid seterusnya",
+    "scene1": "Halaman harga SaaS, tiga pelan, serlahkan yang tengah",
+    "scene2": "Pitch pelabur 8 slaid, gaya teknologi gelap",
+    "scene3": "Skrin log masuk / daftar apl mudah alih",
+    "scene4": "Poster pelancaran produk, tajuk besar + mata jualan utama",
+    "scene5": "Papan pemuka data, kad KPI + trend garisan"
   }
 }

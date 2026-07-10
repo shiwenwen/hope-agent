@@ -6,7 +6,7 @@
  * 稳定 iframe + CSS 缩放，从架构上规避旧版画布卡顿。见 docs/architecture/design-space.md。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { CSSProperties } from "react"
 import { useTranslation } from "react-i18next"
 import {
@@ -22,6 +22,10 @@ import {
   ShieldAlert,
   Loader2,
   Monitor,
+  ChevronLeft,
+  ChevronRight,
+  TriangleAlert,
+  RotateCcw,
   Smartphone,
   Presentation,
   LayoutDashboard,
@@ -149,6 +153,7 @@ import DesignDrawOverlay, { type DesignDrawSubmit } from "@/components/design/De
 import { ArtifactThumb } from "@/components/design/ArtifactThumb"
 import DesignFilesPanel from "@/components/design/DesignFilesPanel"
 import DesignSharePanel from "@/components/design/DesignSharePanel"
+import { useTypewriterPlaceholder } from "./useTypewriterPlaceholder"
 import { useClickOutside } from "@/hooks/useClickOutside"
 
 interface DesignViewProps {
@@ -357,6 +362,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [activeArtifact, setActiveArtifact] = useState<DesignArtifactView | null>(null)
   const [loadingProjects, setLoadingProjects] = useState(false)
   const [loadingArtifacts, setLoadingArtifacts] = useState(false)
+  const [artifactsError, setArtifactsError] = useState(false) // Wave 2-⑨：库加载失败显式态
 
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [newProjectTitle, setNewProjectTitle] = useState("")
@@ -386,6 +392,18 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const [zoom, setZoom] = useState<ZoomMode>("fit")
   const [previewKey, setPreviewKey] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  // 预览重载中（Wave 2-⑥）：src 变→true，onLoad→false；驱动叠层 spinner，让改稿读作「更新中」
+  // 而非白屏/坏页。旧帧因 iframe 不再按 key 重挂而垫在下面直到新帧就绪。
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const previewLoadingRef = useRef(false)
+  previewLoadingRef.current = previewLoading
+  // 各产物最近滚动位置（桥经 ds_scroll 上报），重载 onLoad 后回写实现滚动保温。
+  const previewScrollRef = useRef<Map<string, { x: number; y: number }>>(new Map())
+  // Deck 演示导航（Wave 2-⑧）：当前 slide 状态（桥 ds_slide_state 上报）+ 演示态独立 iframe ref。
+  const presentIframeRef = useRef<HTMLIFrameElement>(null)
+  const [deckState, setDeckState] = useState<{ active: number; count: number } | null>(null)
+  const deckStateRef = useRef(deckState)
+  deckStateRef.current = deckState
   // 预览设备视口（B4-3）+ 演示态（B4-4）。
   const [previewDevice, setPreviewDevice] = useState<PreviewDevice>("auto")
   const [presentMode, setPresentMode] = useState(false) // 本标签无 chrome 演示
@@ -485,6 +503,64 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   const postToIframe = useCallback((msg: Record<string, unknown>) => {
     iframeRef.current?.contentWindow?.postMessage(msg, "*")
   }, [])
+
+  // Deck 翻页指令 → 当前有效 iframe（演示态发演示 iframe，否则预览 iframe）（Wave 2-⑧）。
+  const presentModeRef = useRef(false)
+  presentModeRef.current = presentMode
+  const deckNav = useCallback((type: string, index?: number) => {
+    const win = (presentModeRef.current ? presentIframeRef.current : iframeRef.current)?.contentWindow
+    win?.postMessage(index != null ? { type, index } : { type }, "*")
+  }, [])
+  // Deck 宿主级键盘翻页（Wave 2-⑧）：无需先点 iframe 拿焦点。编辑/批注/画框态不劫持方向键；
+  // 跳过 input/textarea/contenteditable 焦点；带修饰键放行（避免抢 Cmd+Z 等）。演示态也生效。
+  useEffect(() => {
+    if (activeArtifact?.kind !== "deck") return
+    if (!presentMode && (editMode || commentMode || drawMode)) return
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      // 收窄劫持范围（review LOW）：演示态全局生效；预览态仅当焦点在预览区内或无特定焦点时，
+      // 避免抢走侧栏 / 对话面板等无关 UI 的方向键。
+      if (!presentMode) {
+        const a = document.activeElement
+        if (a && a !== document.body && !previewPaneRef.current?.contains(a)) return
+      }
+      if (e.key === "ArrowRight" || e.key === "PageDown") {
+        e.preventDefault()
+        deckNav("ds_slide_next")
+      } else if (e.key === "ArrowLeft" || e.key === "PageUp") {
+        e.preventDefault()
+        deckNav("ds_slide_prev")
+      } else if (e.key === "Home") {
+        e.preventDefault()
+        deckNav("ds_slide_go", 0)
+      } else if (e.key === "End" && deckStateRef.current) {
+        e.preventDefault()
+        deckNav("ds_slide_go", deckStateRef.current.count - 1)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [activeArtifact?.kind, presentMode, editMode, commentMode, drawMode, deckNav])
+
+  // 退出演示 → 预览 iframe 同步到演示时停留的那页（Wave 2-⑧ review MED）：否则宿主页码/翻页
+  // 边界与实际预览页脱节（演示里翻到第 7 页，退出后预览仍停在进入前那页）。
+  const wasPresentRef = useRef(false)
+  useEffect(() => {
+    if (wasPresentRef.current && !presentMode) {
+      const s = deckStateRef.current
+      if (activeArtifactRef.current?.kind === "deck" && s) {
+        requestAnimationFrame(() =>
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: "ds_slide_go", index: s.active },
+            "*",
+          ),
+        )
+      }
+    }
+    wasPresentRef.current = presentMode
+  }, [presentMode])
 
   // ── 画框批注 orchestration（B4-1）──
   // ds_viewport round-trip：跨源无法直接读 iframe 滚动/视口，postMessage 请求 → 回传 resolve。
@@ -779,6 +855,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     // 其余调用方（新建 / 刷新后重载）不传，保留当前选中不被顶掉。
     async (projectId: string, selectFirst = false) => {
       setLoadingArtifacts(true)
+      setArtifactsError(false)
       try {
         const list = await tx.call<DesignArtifact[]>("list_design_artifacts_cmd", {
           projectId,
@@ -786,7 +863,9 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setArtifacts(list ?? [])
         if (selectFirst && list && list.length > 0) void openArtifact(list[0])
       } catch (e) {
+        // Wave 2-⑨：置显式 error 态，让产物墙显示「加载失败 + 重试」而非误当空库。
         logger.error("design", "DesignView::loadArtifacts", "list artifacts failed", e)
+        setArtifactsError(true)
         toast.error(t("design.err.load", "加载失败"))
       } finally {
         setLoadingArtifacts(false)
@@ -1663,7 +1742,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     const onMsg = (e: MessageEvent) => {
       // 只信任来自预览 iframe 自身的消息——沙盒（allow-scripts）里 AI 生成/可能被注入的脚本能向
       // parent postMessage，而 host 会据此回写产物源（ds_text_commit 等）。校验 e.source 收窄面。
-      if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return
+      // 收窄来源：预览 iframe 或演示态 iframe（deck 演示导航需接收演示 iframe 的 slide 状态）。
+      if (
+        e.source !== iframeRef.current?.contentWindow &&
+        e.source !== presentIframeRef.current?.contentWindow
+      )
+        return
       const d = e.data as {
         type?: string
         payload?: DesignSelectedElement
@@ -1674,6 +1758,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         relY?: number
         tag?: string
         snippet?: string
+        x?: number
+        y?: number
+        active?: number
+        count?: number
       }
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
@@ -1710,6 +1798,19 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         setCommentMode(true)
         setFocusCommentId(Number(d.id))
       }
+      // Deck slide 状态上报（Wave 2-⑧）：宿主据此渲染页码/翻页按钮、演示保温。
+      else if (d?.type === "ds_slide_state" && typeof d.active === "number") {
+        setDeckState({ active: d.active, count: Number(d.count ?? 1) })
+      }
+      // 滚动保温（Wave 2-⑥）：桥持续上报滚动位置，按当前产物存最新值；重载 onLoad 后回写，
+      // 使每轮改稿 / 换系统 / 定稿 swap 不再被打回顶部。返回产物也恢复上次滚动位置。
+      else if (d?.type === "ds_scroll") {
+        // 重载在途（previewLoading）时丢弃上报：换产物瞬间旧文档的晚到滚动（iframe 复用同一
+        // contentWindow，源守卫拦不住）可能被记到新产物名下（review LOW）。载完再记正常滚动。
+        const aid = activeArtifactRef.current?.id
+        if (aid && !previewLoadingRef.current)
+          previewScrollRef.current.set(aid, { x: Number(d.x ?? 0), y: Number(d.y ?? 0) })
+      }
       // 流式占位页加载完毕 → 补投最新快照（deltas 可能早于 iframe onload 到达）。
       else if (d?.type === "ds_stream_ready") {
         const snap = streamSnapshotRef.current
@@ -1736,10 +1837,12 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     setSelected(null)
     setCommentMode(false)
     setDrawMode(false)
+    setDeckState(null) // Wave 2-⑧：切产物先清 deck 页码，等新 deck 桥上报（避免残留旧计数）
   }, [activeArtifact?.id])
 
   // Re-arm bridge + restore selection after an iframe (re)mount.
   const handleIframeLoad = useCallback(() => {
+    setPreviewLoading(false) // 新帧就绪 → 撤 spinner 叠层（Wave 2-⑥）
     if (editModeRef.current) postToIframe({ type: "ds_activate" })
     const oid = selectedRef.current?.oid
     if (oid != null) postToIframe({ type: "ds_reselect", oid })
@@ -1747,6 +1850,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (commentModeRef.current) {
       postToIframe({ type: "ds_comment_mode", on: true })
       postToIframe({ type: "ds_comments_set", comments: commentsRef.current })
+    }
+    // 滚动保温（Wave 2-⑥）：回写该产物重载前 / 上次的滚动位置（无记录=保持顶部）。
+    // 延一帧确保桥已就绪接收；新产物首开无记录故天然停在顶部。
+    const aid = activeArtifactRef.current?.id
+    const saved = aid ? previewScrollRef.current.get(aid) : undefined
+    if (saved && (saved.x || saved.y)) {
+      requestAnimationFrame(() => postToIframe({ type: "ds_scroll_to", x: saved.x, y: saved.y }))
     }
   }, [postToIframe])
 
@@ -2576,6 +2686,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
     if (!base) return ""
     return `${base}${base.includes("?") ? "&" : "?"}v=${previewKey}`
   })()
+  // src 变（换产物 / 内容刷新 / 定稿 swap）→ 进重载态，onLoad 撤（Wave 2-⑥）。字符串相等比较，
+  // 流式期不变 src 故不触发（流式走 postMessage，无 spinner 打扰）。
+  useEffect(() => {
+    if (iframeSrc) setPreviewLoading(true)
+  }, [iframeSrc])
 
   // Preview scaling. "fit" stretches the iframe to fill the pane. A numeric zoom
   // renders at the artifact's natural viewport size and visually scales it, with the
@@ -3113,7 +3228,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
 
             {/* Single-artifact preview */}
             <main className="relative flex flex-1 min-w-0 flex-col bg-muted/30">
-            {showGrid ? (
+            {showGrid && artifactsError && artifacts.length === 0 ? (
+              // Wave 2-⑨：库加载失败显式态（区别于空库），带重试。
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+                <TriangleAlert className="h-6 w-6 text-amber-500" />
+                <p className="text-sm text-muted-foreground">
+                  {t("design.err.loadLibrary", "产物库加载失败")}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1"
+                  onClick={() => activeProject && void loadArtifacts(activeProject.id)}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  {t("common.retry", "重试")}
+                </Button>
+              </div>
+            ) : showGrid ? (
               /* 页面文件管理面（本轮·源码级复刻 OD DesignFilesPanel）：面包屑 + 文件夹 + 类型分组。 */
               <DesignFilesPanel
                 artifacts={artifacts}
@@ -3273,6 +3405,34 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                           <SelectItem value="0.5">50%</SelectItem>
                         </SelectContent>
                       </Select>
+                    )}
+                    {/* Deck 页码 + 翻页（Wave 2-⑧）：宿主级，缩放/设备模式下也不被一起缩小。 */}
+                    {activeArtifact.kind === "deck" && deckState && deckState.count > 1 && (
+                      <div className="flex items-center rounded-md border border-border/60 p-0.5">
+                        <IconTip label={t("design.deckPrev", "上一页")} side="bottom">
+                          <button
+                            type="button"
+                            onClick={() => deckNav("ds_slide_prev")}
+                            disabled={deckState.active <= 0}
+                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                          >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                        <span className="px-1 text-[11px] tabular-nums text-muted-foreground">
+                          {deckState.active + 1} / {deckState.count}
+                        </span>
+                        <IconTip label={t("design.deckNext", "下一页")} side="bottom">
+                          <button
+                            type="button"
+                            onClick={() => deckNav("ds_slide_next")}
+                            disabled={deckState.active >= deckState.count - 1}
+                            className="flex h-5 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+                          >
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </button>
+                        </IconTip>
+                      </div>
                     )}
                     {/* Present 演示（B4-4） */}
                     <DropdownMenu>
@@ -3493,9 +3653,11 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     )}
                     style={frameWrapStyle}
                   >
+                    {/* 常驻 iframe（Wave 2-⑥）：**不再按 key 重挂**——内容刷新只改 src 就地导航，
+                        旧帧垫底直到新帧首绘，消除 React 卸载重建的白闪。key 仅保留在下方 DrawOverlay
+                        （其坐标须随内容重排复位）。滚动保温 + spinner 见 handleIframeLoad / previewLoading。 */}
                     <iframe
                       ref={iframeRef}
-                      key={`${activeArtifact.id}-${previewKey}`}
                       src={iframeSrc}
                       sandbox="allow-scripts"
                       title={activeArtifact.title}
@@ -3503,6 +3665,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                       className="border-0"
                       style={scaleStyle}
                     />
+                    {/* 重载中 spinner 叠层（Wave 2-⑥）：src 变→显示，onLoad→撤。让改稿读作「更新中」。 */}
+                    {previewLoading && (
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                        <div className="rounded-full bg-background/70 p-2 shadow-sm backdrop-blur-sm">
+                          <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+                        </div>
+                      </div>
+                    )}
                     {/* B4-1 画框批注：父层 canvas 叠层（inset-0 = iframe 可视框），工具坞 portal 到未裁剪的
                         pane。仅 drawMode 期条件挂载 —— 卸载即天然复位全部 marks/note，无需 setState 复位。 */}
                     {drawMode && (
@@ -3889,11 +4059,24 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             </Button>
           </IconTip>
           <iframe
+            ref={presentIframeRef}
             key={`present-${activeArtifact.id}-${previewKey}`}
             src={iframeSrc}
             sandbox="allow-scripts"
             title={activeArtifact.title}
             className="h-full w-full border-0 bg-white"
+            onLoad={() => {
+              // 进演示保温（Wave 2-⑧）：deck 从预览的当前页启动，而非被打回第 1 页。
+              const s = deckStateRef.current
+              if (activeArtifactRef.current?.kind === "deck" && s && s.active > 0) {
+                requestAnimationFrame(() =>
+                  presentIframeRef.current?.contentWindow?.postMessage(
+                    { type: "ds_slide_go", index: s.active },
+                    "*",
+                  ),
+                )
+              }
+            }}
           />
         </div>
       )}
@@ -4145,6 +4328,47 @@ function ProjectThumb({ projectId }: { projectId: string }) {
 
 // ── Prompt-first launch home ────────────────────────────────────
 
+/** 首屏 composer 输入框（memo 隔离打字机轮播的高频重渲染，Wave 2-⑩）。 */
+const LaunchComposerTextarea = memo(function LaunchComposerTextarea({
+  prompt,
+  setPrompt,
+  onGenerate,
+}: {
+  prompt: string
+  setPrompt: (v: string) => void
+  onGenerate: () => void
+}) {
+  const { t } = useTranslation()
+  const scenes = useMemo(
+    () => [
+      t("design.scene1", "一个 SaaS 产品的定价页，三档套餐，突出中间档"),
+      t("design.scene2", "一份融资路演演示，8 页，深色科技风"),
+      t("design.scene3", "一个移动 App 的登录 / 注册页，圆角友好风"),
+      t("design.scene4", "一张产品发布海报，大标题 + 关键卖点"),
+      t("design.scene5", "一个数据看板，KPI 卡片 + 折线趋势"),
+    ],
+    [t],
+  )
+  const typed = useTypewriterPlaceholder(scenes, !prompt.trim())
+  return (
+    <Textarea
+      value={prompt}
+      onChange={(e) => setPrompt(e.target.value)}
+      onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault()
+          onGenerate()
+        }
+      }}
+      placeholder={
+        typed ||
+        t("design.launchPlaceholder", "描述你想要的设计，例如「一个 SaaS 产品的定价页，三档套餐」…")
+      }
+      className="min-h-[72px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
+    />
+  )
+})
+
 function LaunchHome({
   projects,
   loading,
@@ -4273,21 +4497,9 @@ function LaunchHome({
 
         {/* Prompt card */}
         <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm ring-1 ring-transparent transition-all duration-200 focus-within:border-primary/40 focus-within:shadow-lg focus-within:ring-primary/15">
-          <Textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault()
-                onGenerate()
-              }
-            }}
-            placeholder={t(
-              "design.launchPlaceholder",
-              "描述你想要的设计，例如「一个 SaaS 产品的定价页，三档套餐」…",
-            )}
-            className="min-h-[72px] resize-none border-0 bg-transparent px-2.5 py-1.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/60 focus-visible:ring-0"
-          />
+          {/* 打字机轮播占位隔离在 memo 子组件里（Wave 2-⑩ review LOW）：其 ~20fps 状态更新只
+              重渲染这一小块，不再拖动整个 LaunchHome 项目网格。 */}
+          <LaunchComposerTextarea prompt={prompt} setPrompt={setPrompt} onGenerate={onGenerate} />
           <div className="mt-1 flex items-center justify-between gap-2 border-t border-border/50 px-1 pt-2">
             <Button
               variant="ghost"

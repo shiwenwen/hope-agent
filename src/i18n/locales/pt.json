@@ -6280,7 +6280,8 @@
       "save": "Falha ao salvar",
       "duplicate": "Falha ao duplicar",
       "batchDeletePartial": "Falha ao excluir {{n}} projetos",
-      "reveal": "Falha ao abrir"
+      "reveal": "Falha ao abrir",
+      "loadLibrary": "Falha ao carregar a biblioteca"
     },
     "ok": {
       "adopted": "Direção de design aplicada",
@@ -6463,7 +6464,8 @@
       "selectHint": "Selecione uma versão para pré-visualizar",
       "prompt": "Prompt",
       "restoreTitle": "Restaurar esta versão?",
-      "restoreHelp": "Cria uma nova versão a partir deste instantâneo. Seu conteúdo atual permanece no histórico e pode ser restaurado novamente."
+      "restoreHelp": "Cria uma nova versão a partir deste instantâneo. Seu conteúdo atual permanece no histórico e pode ser restaurado novamente.",
+      "loadFailed": "Falha ao carregar a lista de versões"
     },
     "deviceAuto": "Auto",
     "deviceDesktop": "Desktop",
@@ -6560,6 +6562,13 @@
       "clearSelection": "Limpar seleção",
       "select": "Selecionar"
     },
-    "deleteBatchDesc": "Exclui permanentemente as páginas selecionadas e todas as suas versões. Não pode ser desfeito."
+    "deleteBatchDesc": "Exclui permanentemente as páginas selecionadas e todas as suas versões. Não pode ser desfeito.",
+    "deckPrev": "Slide anterior",
+    "deckNext": "Próximo slide",
+    "scene1": "Uma página de preços SaaS, três planos, destaque o do meio",
+    "scene2": "Um pitch para investidores de 8 slides, estilo tech escuro",
+    "scene3": "Uma tela de login / cadastro de app, estilo arredondado",
+    "scene4": "Um pôster de lançamento, título grande + pontos de venda",
+    "scene5": "Um painel de dados, cartões KPI + tendências de linha"
   }
 }

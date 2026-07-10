@@ -6280,7 +6280,8 @@
       "save": "Kaydetme başarısız",
       "duplicate": "Çoğaltma başarısız",
       "batchDeletePartial": "{{n}} proje silinemedi",
-      "reveal": "Açılamadı"
+      "reveal": "Açılamadı",
+      "loadLibrary": "Kütüphane yüklenemedi"
     },
     "ok": {
       "adopted": "Tasarım yönü uygulandı",
@@ -6463,7 +6464,8 @@
       "selectHint": "Önizlemek için bir sürüm seçin",
       "prompt": "İstem",
       "restoreTitle": "Bu sürüm geri yüklensin mi?",
-      "restoreHelp": "Bu anlık görüntüden yeni bir sürüm oluşturur. Mevcut içeriğiniz geçmişte kalır ve tekrar geri yüklenebilir."
+      "restoreHelp": "Bu anlık görüntüden yeni bir sürüm oluşturur. Mevcut içeriğiniz geçmişte kalır ve tekrar geri yüklenebilir.",
+      "loadFailed": "Sürüm listesi yüklenemedi"
     },
     "deviceAuto": "Otomatik",
     "deviceDesktop": "Masaüstü",
@@ -6560,6 +6562,13 @@
       "clearSelection": "Seçimi temizle",
       "select": "Seç"
     },
-    "deleteBatchDesc": "Seçili sayfaları ve tüm sürümlerini kalıcı olarak siler. Geri alınamaz."
+    "deleteBatchDesc": "Seçili sayfaları ve tüm sürümlerini kalıcı olarak siler. Geri alınamaz.",
+    "deckPrev": "Önceki slayt",
+    "deckNext": "Sonraki slayt",
+    "scene1": "Bir SaaS fiyatlandırma sayfası, üç paket, ortadakini öne çıkar",
+    "scene2": "8 slaytlık yatırımcı sunumu, koyu teknoloji stili",
+    "scene3": "Mobil uygulama giriş / kayıt ekranı, yuvarlak dostça stil",
+    "scene4": "Bir ürün lansman afişi, büyük başlık + anahtar mesajlar",
+    "scene5": "Bir veri panosu, KPI kartları + çizgi trendleri"
   }
 }

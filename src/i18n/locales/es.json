@@ -6280,7 +6280,8 @@
       "save": "Error al guardar",
       "duplicate": "Error al duplicar",
       "batchDeletePartial": "No se pudieron eliminar {{n}} proyectos",
-      "reveal": "No se pudo abrir"
+      "reveal": "No se pudo abrir",
+      "loadLibrary": "Error al cargar la biblioteca"
     },
     "ok": {
       "adopted": "Dirección de diseño aplicada",
@@ -6463,7 +6464,8 @@
       "selectHint": "Selecciona una versión para previsualizar",
       "prompt": "Prompt",
       "restoreTitle": "¿Restaurar esta versión?",
-      "restoreHelp": "Crea una nueva versión a partir de esta instantánea. Tu contenido actual permanece en el historial y puede restaurarse de nuevo."
+      "restoreHelp": "Crea una nueva versión a partir de esta instantánea. Tu contenido actual permanece en el historial y puede restaurarse de nuevo.",
+      "loadFailed": "Error al cargar la lista de versiones"
     },
     "deviceAuto": "Auto",
     "deviceDesktop": "Escritorio",
@@ -6560,6 +6562,13 @@
       "clearSelection": "Quitar selección",
       "select": "Seleccionar"
     },
-    "deleteBatchDesc": "Elimina permanentemente las páginas seleccionadas y todas sus versiones. No se puede deshacer."
+    "deleteBatchDesc": "Elimina permanentemente las páginas seleccionadas y todas sus versiones. No se puede deshacer.",
+    "deckPrev": "Diapositiva anterior",
+    "deckNext": "Diapositiva siguiente",
+    "scene1": "Una página de precios SaaS, tres planes, destaca el central",
+    "scene2": "Un pitch para inversores de 8 diapositivas, estilo tech oscuro",
+    "scene3": "Una pantalla de acceso / registro de app móvil, estilo redondeado",
+    "scene4": "Un póster de lanzamiento, gran titular + puntos clave",
+    "scene5": "Un panel de datos, tarjetas KPI + tendencias de línea"
   }
 }

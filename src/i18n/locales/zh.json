@@ -6280,7 +6280,8 @@
       "save": "保存失败",
       "duplicate": "复制失败",
       "batchDeletePartial": "{{n}} 个项目删除失败",
-      "reveal": "打开失败"
+      "reveal": "打开失败",
+      "loadLibrary": "产物库加载失败"
     },
     "ok": {
       "adopted": "已应用设计方向",
@@ -6463,7 +6464,8 @@
       "selectHint": "选择一个版本以预览",
       "prompt": "提示词",
       "restoreTitle": "恢复到该版本？",
-      "restoreHelp": "会以该版本内容生成一个新版本，当前内容仍保留在历史中，可再切回。"
+      "restoreHelp": "会以该版本内容生成一个新版本，当前内容仍保留在历史中，可再切回。",
+      "loadFailed": "版本列表加载失败"
     },
     "deviceAuto": "自动",
     "deviceDesktop": "桌面",
@@ -6560,6 +6562,13 @@
       "clearSelection": "取消选择",
       "select": "选择"
     },
-    "deleteBatchDesc": "将永久删除选中的这些页面及其全部版本，无法恢复。"
+    "deleteBatchDesc": "将永久删除选中的这些页面及其全部版本，无法恢复。",
+    "deckPrev": "上一页",
+    "deckNext": "下一页",
+    "scene1": "一个 SaaS 产品的定价页，三档套餐，突出中间档",
+    "scene2": "一份融资路演演示，8 页，深色科技风",
+    "scene3": "一个移动 App 的登录 / 注册页，圆角友好风",
+    "scene4": "一张产品发布海报，大标题 + 关键卖点",
+    "scene5": "一个数据看板，KPI 卡片 + 折线趋势"
   }
 }

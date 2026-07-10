@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Copy, Hand, History, Loader2, RotateCcw, Search, Sparkles, Undo2 } from "lucide-react"
+import { Check, Copy, Hand, History, Loader2, RotateCcw, Search, Sparkles, TriangleAlert, Undo2 } from "lucide-react"
 
 import {
   AlertDialog,
@@ -90,6 +90,8 @@ export function DesignVersionHistoryModal({
 
   // 渲染期重置：打开 / 换产物立即清空（避免 effect 内同步 setState，仓库 eslint 拦）。
   const [prevKey, setPrevKey] = useState<string | null>(null)
+  const [listError, setListError] = useState(false) // Wave 2-⑨：加载失败显式态（区别于「暂无版本」）
+  const [reloadTick, setReloadTick] = useState(0) // 重试触发
   const openKey = open && artifactId ? artifactId : null
   if (openKey !== prevKey) {
     setPrevKey(openKey)
@@ -98,14 +100,17 @@ export function DesignVersionHistoryModal({
     setHtml(null)
     setQuery("")
     setPromptOpen(false)
+    setListError(false)
     cacheRef.current = new Map()
     setLoadingList(openKey != null)
   }
 
-  // 拉版本列表 + 默认选中最新版本。
+  // 拉版本列表 + 默认选中最新版本。reloadTick 变化 = 重试。
   useEffect(() => {
     if (!open || !artifactId) return
     let cancelled = false
+    setLoadingList(true)
+    setListError(false)
     void getTransport()
       .call<DesignArtifactVersion[]>("list_design_artifact_versions_cmd", { id: artifactId })
       .then((list) => {
@@ -117,7 +122,11 @@ export function DesignVersionHistoryModal({
         setSelected(pick ? pick.versionNumber : null)
       })
       .catch((e) => {
-        if (!cancelled) logger.error("design", "VersionHistory", "list versions failed", e)
+        // Wave 2-⑨：失败置显式 error 态（+ 重试），不再静默记日志伪装成「暂无版本」。
+        if (!cancelled) {
+          logger.error("design", "VersionHistory", "list versions failed", e)
+          setListError(true)
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingList(false)
@@ -125,7 +134,7 @@ export function DesignVersionHistoryModal({
     return () => {
       cancelled = true
     }
-  }, [open, artifactId, currentVersion])
+  }, [open, artifactId, currentVersion, reloadTick])
 
   // 取某版本快照 HTML（带缓存）。
   const fetchHtml = useCallback(
@@ -266,6 +275,23 @@ export function DesignVersionHistoryModal({
               {loadingList ? (
                 <div className="flex justify-center py-10">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : listError ? (
+                // Wave 2-⑨：加载失败显式态（区别于「暂无版本」），带重试。
+                <div className="flex flex-col items-center gap-2 py-10 text-center">
+                  <TriangleAlert className="h-5 w-5 text-amber-500" />
+                  <p className="text-xs text-muted-foreground">
+                    {t("design.ver.loadFailed", "版本列表加载失败")}
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs"
+                    onClick={() => setReloadTick((k) => k + 1)}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    {t("common.retry", "重试")}
+                  </Button>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="py-10 text-center text-xs text-muted-foreground">

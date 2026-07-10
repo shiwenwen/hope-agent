@@ -199,7 +199,7 @@ const STORAGE_POLYFILL: &str = "<script>(function(){function mk(){var s={};retur
 /// 编辑态渲染版本：**inspector bridge / oid 注入等编辑工具层**变更时 +1。烧进可编辑 `index.html`
 /// 的 `data-ds-r` 属性；`service::ensure_artifact_render_fresh` 据此自愈老产物——工具层升级无需
 /// 用户重新编辑即对既有产物生效（bridge 烧死在 index.html，否则老产物永远用旧工具）。
-pub const RENDER_VERSION: u32 = 3;
+pub const RENDER_VERSION: u32 = 5;
 
 pub fn build_artifact_html(
     kind: ArtifactKind,
@@ -225,7 +225,9 @@ pub fn build_artifact_html(
     // 设计系统 token → :root CSS 变量（单一来源 helper，与流式占位页共用）。
     let root_css = tokens_root_css(tokens);
 
-    // deck 翻页器：一份文件多页，←/→/Space 切换，右下角页码。
+    // deck 翻页器：一份文件多页，←/→/Space 切换，右下角页码。**宿主桥（Wave 2-⑧）**：每次翻页
+    // 上报 {active,count} 给父窗（宿主渲染页码/翻页按钮、演示保温），并接收 next/prev/go 指令
+    // （宿主键盘/按钮无需先点 iframe 拿焦点）。
     let deck_js = if kind == ArtifactKind::Deck {
         r#"<script>
 (function(){
@@ -235,15 +237,23 @@ pub fn build_artifact_html(
   pager.className='ds-deck-pager';
   pager.style.cssText='position:fixed;right:16px;bottom:12px;font:12px system-ui;color:#888;z-index:9';
   document.body.appendChild(pager);
+  function report(){try{parent.postMessage({type:'ds_slide_state',active:i,count:slides.length},'*')}catch(e){}}
   function show(n){i=Math.max(0,Math.min(slides.length-1,n));
     slides.forEach(function(s,k){s.classList.toggle('active',k===i)});
-    pager.textContent=(i+1)+' / '+slides.length;}
+    pager.textContent=(i+1)+' / '+slides.length;report();}
   document.addEventListener('keydown',function(e){
-    if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();show(i+1)}
-    else if(e.key==='ArrowLeft'){e.preventDefault();show(i-1)}});
+    if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();show(i+1)}
+    else if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();show(i-1)}
+    else if(e.key==='Home'){e.preventDefault();show(0)}
+    else if(e.key==='End'){e.preventDefault();show(slides.length-1)}});
   document.addEventListener('click',function(e){
     show(e.clientX>window.innerWidth/2?i+1:i-1)});
-  show(0);
+  window.addEventListener('message',function(e){var d=e.data||{};
+    if(d.type==='ds_slide_next')show(i+1);
+    else if(d.type==='ds_slide_prev')show(i-1);
+    else if(d.type==='ds_slide_go'&&typeof d.index==='number')show(d.index);
+    else if(d.type==='ds_slide_query')report();});
+  show(0);report();
 })();
 </script>"#
     } else {
@@ -538,7 +548,19 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
         scrollWidth:Math.max(de.scrollWidth||0,bo?bo.scrollWidth:0),
         scrollHeight:Math.max(de.scrollHeight||0,bo?bo.scrollHeight:0)},'*')}
     else if(d.type==='ds_scroll_by'){window.scrollBy(d.dx||0,d.dy||0)}
+    // 滚动保温（Wave 2-⑥）：内容刷新 / 换系统 / 定稿 swap 后父层重挂 src，onLoad 回写重载前
+    // 的滚动位置，避免每轮改稿被打回顶部。opaque-origin 无法父层直接 scrollTo，故走 postMessage。
+    else if(d.type==='ds_scroll_to'){window.scrollTo(d.x||0,d.y||0)}
   });
+  // 持续上报滚动位置（rAF 节流），父层按产物存最新值，重载 onLoad 后回写（保温）。
+  var _scrollTick=false;
+  window.addEventListener('scroll',function(){
+    if(_scrollTick)return;_scrollTick=true;
+    requestAnimationFrame(function(){_scrollTick=false;
+      parent.postMessage({type:'ds_scroll',
+        x:window.scrollX||document.documentElement.scrollLeft||0,
+        y:window.scrollY||document.documentElement.scrollTop||0},'*')})
+  },true);
 })();
 </script>"#;
 
