@@ -6,7 +6,7 @@
  * API 设计）：新建文件夹、把页面移到文件夹（拖拽到文件夹/面包屑 或 ⋯ 菜单）、文件夹改名/删除；
  * 行上带真实缩略图（比 OD 纯图标列表更强，不弱化）；文件夹内拖动排序（沿用 position）。
  */
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Folder,
@@ -86,6 +86,23 @@ export default function DesignFilesPanel({
   onBatchExport,
 }: Props) {
   const { t } = useTranslation()
+  // 卡片相对时间角标（按最近改动扫读）：复用主对话 chat.* 时间 i18n 键（已 12 语齐全）。
+  const fmtRelative = useCallback(
+    (dateStr: string) => {
+      const date = new Date(dateStr)
+      if (isNaN(date.getTime())) return ""
+      const minutes = Math.floor((Date.now() - date.getTime()) / 60000)
+      if (minutes < 1) return t("chat.justNow")
+      if (minutes < 60) return t("chat.minutesAgo", { count: minutes })
+      const hours = Math.floor(minutes / 60)
+      if (hours < 24) return t("chat.hoursAgo", { count: hours })
+      const days = Math.floor(hours / 24)
+      if (days < 7) return t("chat.daysAgo", { count: days })
+      if (days < 30) return t("chat.weeksAgo", { count: Math.floor(days / 7) })
+      return date.toLocaleDateString()
+    },
+    [t],
+  )
   const [currentDir, setCurrentDir] = useState("")
   // 多选（Wave 1-③，OD 式悬停即勾轻量多选，非重模式）。artifacts 变化时剔除失效 id。
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -498,13 +515,17 @@ export default function DesignFilesPanel({
                           className="min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 py-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         />
                       ) : (
-                        <span
-                          className="min-w-0 flex-1 cursor-text truncate text-xs"
-                          title={t("design.dblClickRename", "双击改名")}
+                        <div
+                          className="flex min-w-0 flex-1 cursor-text flex-col"
                           onDoubleClick={() => startRename(a)}
                         >
-                          {a.title}
-                        </span>
+                          <span className="truncate text-xs leading-tight">{a.title}</span>
+                          {a.updatedAt && (
+                            <span className="truncate text-[10px] leading-tight text-muted-foreground">
+                              {fmtRelative(a.updatedAt)}
+                            </span>
+                          )}
+                        </div>
                       )}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
