@@ -172,6 +172,7 @@ function renderChatInput(overrides: Partial<Parameters<typeof ChatInput>[0]> = {
     attachedFiles: [],
     onAttachFiles: vi.fn(),
     onRemoveFile: vi.fn(),
+    onUpdateFile: vi.fn(),
     permissionMode: "default",
     onPermissionModeChange: vi.fn(),
     sandboxMode: "off",
