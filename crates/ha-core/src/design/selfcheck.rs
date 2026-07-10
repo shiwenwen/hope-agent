@@ -169,7 +169,36 @@ pub fn find_slop_signals(body: &str, css: &str) -> Vec<&'static str> {
     if body.chars().filter(|&c| is_emoji_char(c)).count() >= 3 {
         out.push("emoji-icons");
     }
+    // ③ accent 失控：**CSS 里**硬写的不同 hex 色 > 阈值（无视设计 token 撒一堆颜色）。只数 CSS
+    //    （不数 body，避开内联 SVG 插画的正常多色），阈值取高（>16）只抓失控、谨慎防误标。
+    if count_distinct_css_hex(css) > 16 {
+        out.push("color-sprawl");
+    }
     out
+}
+
+/// CSS 里不同的 `#rgb` / `#rrggbb` 硬写色数量（小写归一、去重）。仅用于「accent 失控」检测。
+fn count_distinct_css_hex(css: &str) -> usize {
+    let b = css.as_bytes();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut i = 0usize;
+    while i < b.len() {
+        if b[i] == b'#' {
+            let start = i + 1;
+            let mut j = start;
+            while j < b.len() && (b[j] as char).is_ascii_hexdigit() {
+                j += 1;
+            }
+            let len = j - start;
+            if len == 3 || len == 6 {
+                seen.insert(css[start..j].to_ascii_lowercase());
+            }
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    seen.len()
 }
 
 fn slop_detail(signals: &[&str]) -> String {
@@ -178,6 +207,7 @@ fn slop_detail(signals: &[&str]) -> String {
         .map(|s| match *s {
             "indigo-accent" => "indigo/violet 硬写作 accent（未走设计 token）",
             "emoji-icons" => "emoji 当图标 / 段落标记",
+            "color-sprawl" => "CSS 硬写过多不同色（未克制 accent / 无视 token）",
             other => other,
         })
         .collect();
@@ -331,6 +361,19 @@ mod tests {
             .contains(&"emoji-icons"));
         // 偶发单个 emoji 不算。
         assert!(!find_slop_signals("<p>Nice 🚀</p>", "").contains(&"emoji-icons"));
+    }
+
+    #[test]
+    fn slop_flags_color_sprawl_css_only() {
+        // 17 个不同 hex 硬写在 CSS → color-sprawl（小值保证都是 6 位）。
+        let css: String = (0..17u32).map(|n| format!(".c{n}{{color:#{:06x}}}", n * 0x100 + 0x10)).collect();
+        assert!(find_slop_signals("<div>x</div>", &css).contains(&"color-sprawl"));
+        // body 里的内联 SVG 多色不计入（只数 CSS）→ 不误标。
+        let svg_body: String = format!(
+            "<svg>{}</svg>",
+            (0..30u32).map(|n| format!("<rect fill=\"#{:06x}\"/>", n * 0x100 + 0x20)).collect::<String>()
+        );
+        assert!(!find_slop_signals(&svg_body, ".a{color:#111}.b{color:#222}").contains(&"color-sprawl"));
     }
 
     #[test]
