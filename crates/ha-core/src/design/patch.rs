@@ -182,6 +182,137 @@ fn find_tag_end(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+/// Deck 缩略图轨：给每个 `class` 含 `ds-slide` 词、且尚无 `id` 的 start tag 注入 `id="ds-slide-N"`
+/// （文档序）。无 JS 的缩略图 iframe 借 `#ds-slide-N` + `.ds-slide:target{display:block}` 纯 CSS 点亮
+/// 该页（主预览走 JS `.active`、URL 无 hash，故 `:target` 不匹配、零副作用）。仅用于 deck kind。
+/// 复用 `annotate` 同款字节 tokenizer——注释 / doctype / 结束标签 / script·style raw-text 都安全跳过。
+pub fn inject_deck_slide_ids(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let n = bytes.len();
+    let mut out = String::with_capacity(n + 32);
+    let mut i = 0usize;
+    let mut slide: u32 = 0;
+    while i < n {
+        if bytes[i] != b'<' {
+            let start = i;
+            i += 1;
+            while i < n && bytes[i] != b'<' {
+                i += 1;
+            }
+            out.push_str(&source[start..i]);
+            continue;
+        }
+        if source[i..].starts_with("<!--") {
+            let end = source[i..].find("-->").map(|p| i + p + 3).unwrap_or(n);
+            out.push_str(&source[i..end]);
+            i = end;
+            continue;
+        }
+        if bytes.get(i + 1) == Some(&b'!') || bytes.get(i + 1) == Some(&b'/') {
+            let end = find_tag_end(bytes, i).unwrap_or(n);
+            out.push_str(&source[i..end]);
+            i = end;
+            continue;
+        }
+        let is_start = matches!(bytes.get(i + 1).copied(), Some(c) if c.is_ascii_alphabetic());
+        if !is_start {
+            out.push('<');
+            i += 1;
+            continue;
+        }
+        let Some(open_end) = find_tag_end(bytes, i) else {
+            out.push_str(&source[i..]);
+            break;
+        };
+        let tag_str = &source[i..open_end];
+        let name_end = tag_str[1..]
+            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            .map(|p| p + 1)
+            .unwrap_or(tag_str.len() - 1);
+        let tag = tag_str[1..name_end].to_string();
+        let void = is_void(&tag) || tag_str.trim_end().ends_with("/>");
+        if tag_has_ds_slide_class(tag_str) && !tag_has_attr(tag_str, "id") {
+            out.push_str(&tag_str[..name_end]);
+            out.push_str(&format!(" id=\"ds-slide-{slide}\""));
+            out.push_str(&tag_str[name_end..]);
+            slide += 1;
+        } else {
+            out.push_str(tag_str);
+        }
+        // raw-text 元素：内容 CDATA，原样拷贝到闭合标签前（不扫描其中的 `<`）。
+        if !void && RAW_TEXT_TAGS.contains(&tag.to_ascii_lowercase().as_str()) {
+            let content_end = find_close_ci(bytes, open_end, &tag).unwrap_or(n);
+            out.push_str(&source[open_end..content_end]);
+            i = content_end;
+            continue;
+        }
+        i = open_end;
+    }
+    out
+}
+
+/// start tag（含 `<`/`>` 的切片）是否有名为 `name` 的属性（前有属性边界空白、后接 `=`）。
+fn tag_has_attr(tag_str: &str, name: &str) -> bool {
+    let lower = tag_str.to_ascii_lowercase();
+    let b = lower.as_bytes();
+    let mut from = 0usize;
+    while let Some(p) = lower[from..].find(name) {
+        let pos = from + p;
+        let prev_ok = pos > 0 && matches!(b[pos - 1], b' ' | b'\t' | b'\n' | b'\r' | b'/');
+        let after = &lower[pos + name.len()..];
+        let eq_ok = after.trim_start().starts_with('=');
+        if prev_ok && eq_ok {
+            return true;
+        }
+        from = pos + name.len();
+    }
+    false
+}
+
+/// start tag 的 `class` 属性值是否含 `ds-slide` 词（空白分词、精确匹配）。
+fn tag_has_ds_slide_class(tag_str: &str) -> bool {
+    let lower = tag_str.to_ascii_lowercase();
+    let lb = lower.as_bytes();
+    let mut from = 0usize;
+    while let Some(p) = lower[from..].find("class") {
+        let pos = from + p;
+        let prev_ok = pos > 0 && matches!(lb[pos - 1], b' ' | b'\t' | b'\n' | b'\r' | b'/' | b'<');
+        // `class` 后（跳空白）须紧接 `=`
+        let mut j = pos + 5;
+        while j < tag_str.len() && tag_str.as_bytes()[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if prev_ok && j < tag_str.len() && tag_str.as_bytes()[j] == b'=' {
+            j += 1;
+            while j < tag_str.len() && tag_str.as_bytes()[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            let (val_start, terminator): (usize, Option<u8>) = match tag_str.as_bytes().get(j) {
+                Some(&q @ (b'"' | b'\'')) => (j + 1, Some(q)),
+                _ => (j, None),
+            };
+            let val_end = match terminator {
+                Some(q) => tag_str[val_start..]
+                    .find(q as char)
+                    .map(|k| val_start + k)
+                    .unwrap_or(tag_str.len()),
+                None => tag_str[val_start..]
+                    .find(|c: char| c.is_whitespace() || c == '>')
+                    .map(|k| val_start + k)
+                    .unwrap_or(tag_str.len()),
+            };
+            if tag_str[val_start..val_end]
+                .split_whitespace()
+                .any(|t| t == "ds-slide")
+            {
+                return true;
+            }
+        }
+        from = pos + 5;
+    }
+    false
+}
+
 /// BLAKE3 hex（stale-write 守卫用）。
 pub fn body_hash(source: &str) -> String {
     blake3::hash(source.as_bytes()).to_hex().to_string()
@@ -883,6 +1014,49 @@ mod tests {
         assert_eq!(map.len(), 1);
         assert_eq!(map[0].tag, "span");
         assert!(out.contains("<!-- <div> -->"));
+    }
+
+    #[test]
+    fn inject_deck_slide_ids_numbers_in_doc_order() {
+        let src = "<section class=\"ds-slide\"><h1>A</h1></section>\
+                   <section class=\"ds-slide active\"><h1>B</h1></section>";
+        let out = inject_deck_slide_ids(src);
+        assert!(out.contains("id=\"ds-slide-0\""));
+        assert!(out.contains("id=\"ds-slide-1\""));
+        // 非 .ds-slide 元素不注入。
+        assert_eq!(out.matches("ds-slide-").count(), 2);
+        // active class 保留。
+        assert!(out.contains("class=\"ds-slide active\""));
+    }
+
+    #[test]
+    fn inject_deck_slide_ids_skips_existing_id_and_non_slide() {
+        let src = "<section id=\"keep\" class=\"ds-slide\">x</section>\
+                   <div class=\"card\">y</div>";
+        let out = inject_deck_slide_ids(src);
+        // 已有 id 的 .ds-slide 不重复注入；非 slide 不注入。
+        assert!(!out.contains("ds-slide-0"));
+        assert!(out.contains("id=\"keep\""));
+    }
+
+    #[test]
+    fn inject_deck_slide_ids_safe_in_script_rawtext() {
+        // script 里的伪 `<section class="ds-slide">` 是字符串、不是真元素，不得注入。
+        let src = "<script>var s='<section class=\"ds-slide\">'</script>\
+                   <section class=\"ds-slide\">real</section>";
+        let out = inject_deck_slide_ids(src);
+        assert_eq!(out.matches("ds-slide-").count(), 1, "only the real slide gets an id");
+        assert!(out.contains("id=\"ds-slide-0\""));
+        // script 内容原样保留。
+        assert!(out.contains("var s='<section class=\"ds-slide\">'"));
+    }
+
+    #[test]
+    fn inject_deck_slide_ids_not_fooled_by_substring_class() {
+        // class 值含 `ds-slide` 子串但非独立词（`ds-slide-wrap`）不匹配。
+        let src = "<div class=\"ds-slide-wrap\">x</div>";
+        let out = inject_deck_slide_ids(src);
+        assert!(!out.contains("ds-slide-0"));
     }
 
     #[test]

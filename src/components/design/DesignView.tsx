@@ -149,6 +149,7 @@ import {
 import { presentSaveResult } from "./exportSave"
 import { exportVideo } from "@/lib/designVideo"
 import DesignDrawOverlay, { type DesignDrawSubmit } from "@/components/design/DesignDrawOverlay"
+import { DeckSlideThumb } from "@/components/design/DeckSlideThumb"
 import { ArtifactThumb } from "@/components/design/ArtifactThumb"
 import DesignFilesPanel from "@/components/design/DesignFilesPanel"
 import DesignSharePanel from "@/components/design/DesignSharePanel"
@@ -3865,6 +3866,30 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
                     )}
                   </div>
                 </div>
+                {/* Deck 缩略图轨（P0）：整套幻灯片缩略图并排、点选跳页、active 高亮，长 deck 一眼总览 +
+                    秒跳任意页。无 JS 的 `#ds-slide-N` + `:target` 纯 CSS 点亮（DeckSlideThumb），复用
+                    keep-alive 池。仅纯预览态显示（演示/编辑/批注/画框态让位）。 */}
+                {activeArtifact.kind === "deck" &&
+                  deckState &&
+                  deckState.count > 1 &&
+                  iframeSrc &&
+                  !presentMode &&
+                  !editMode &&
+                  !commentMode &&
+                  !drawMode && (
+                    <div className="flex shrink-0 items-center gap-2 overflow-x-auto border-t bg-muted/30 px-3 py-2">
+                      {Array.from({ length: deckState.count }, (_, n) => (
+                        <DeckSlideThumb
+                          key={n}
+                          poolKey={`deck-thumb:${activeArtifact.id}:${n}`}
+                          src={`${iframeSrc}#ds-slide-${n}`}
+                          index={n}
+                          active={n === deckState.active}
+                          onSelect={(i) => deckNav("ds_slide_go", i)}
+                        />
+                      ))}
+                    </div>
+                  )}
               </>
             ) : (
               <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">

@@ -148,7 +148,8 @@ fn kind_frame_css(kind: ArtifactKind) -> &'static str {
             // 隐藏 pager chrome。配合 render_native 的 landscape + preferCSSPageSize（B7-3）。
             "body{background:#0b0b0c}\n\
              .ds-slide{width:1280px;min-height:720px;margin:0 auto;background:var(--ds-color-bg,#fff);\
-             display:none}\n.ds-slide.active{display:block}\n\
+             display:none}\n.ds-slide.active{display:block}\n.ds-slide:target{display:block}\n\
+             html:not(.ds-js):not(:has(.ds-slide:target)) .ds-slide:first-child{display:block}\n\
              @media print{\
              @page{size:1280px 720px;margin:0}\
              html,body{width:1280px!important;height:auto!important;background:#fff!important;margin:0!important}\
@@ -224,6 +225,13 @@ pub fn build_artifact_html(
     } else {
         (parts.body_html.clone(), Vec::new())
     };
+    // deck：给每张 .ds-slide 注入稳定 id（缩略图轨用 `#ds-slide-N` + `:target` 纯 CSS 点亮该页，
+    // 无 JS 依赖）。编辑/导出态一致注入（id 对导出无害、且缩略图轨读的是 working 预览产物）。
+    let annotated_body = if kind == ArtifactKind::Deck {
+        super::patch::inject_deck_slide_ids(&annotated_body)
+    } else {
+        annotated_body
+    };
 
     // inspector bridge（仅可编辑 kind）：dormant，收到父窗 ds_activate 才启用；
     // 选中元素回传、样式/文本 live preview。沙箱零网络。导出态不注入（干净产物）。
@@ -238,6 +246,8 @@ pub fn build_artifact_html(
     let deck_js = if kind == ArtifactKind::Deck {
         r#"<script>
 (function(){
+  // 标记 JS 已跑：CSS 用它关掉「无 JS 显示首帧」兜底，交给 .active 控制（无 JS 缩略图才靠 :target/首帧）。
+  try{document.documentElement.classList.add('ds-js')}catch(e){}
   var slides=[].slice.call(document.querySelectorAll('.ds-slide'));
   if(!slides.length)return;var i=0;
   var pager=document.createElement('div');
