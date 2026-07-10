@@ -1231,7 +1231,11 @@
       "ttft": "首Token耗时",
       "ttftTrend": "首 Token 耗时趋势 (TTFT)",
       "inputTokens": "输入令牌",
-      "outputTokens": "输出代币"
+      "outputTokens": "输出代币",
+      "byDomain": "按用途分布",
+      "byOperation": "按操作细分",
+      "operation": "操作",
+      "domain": "用途"
     },
     "tool": {
       "avgDuration": "平均耗时",
@@ -2768,9 +2772,8 @@
       },
       "intro": "审批弹窗与「永远跳过审批」的全局开关、保护路径 / 编辑命令 / 危险命令模式列表，以及智能审批模式配置。",
       "judgeExtraPromptPlaceholder": "可选：附加给判官的提示词（白名单路径、信任命令等）",
-      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeModelPlaceholder": "选择裁判模型",
       "judgeModelTitle": "判官模型配置",
-      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路径模式时强制审批，不可 AllowAlways 跳过。支持 ~/ 展开、目录前缀（结尾 /）、通配（*.pem）。",
       "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
       "protectedPathsTitle": "保护路径",
@@ -2852,8 +2855,6 @@
       "digestMaxChars": "摘要输出预算（字符）",
       "dynamicEnabled": "每轮刷新后缀",
       "enabledForSession": "本会话启用",
-      "extractionAgent": "抽取 Agent ID（可选）",
-      "extractionAgentPlaceholder": "留空则继承 recap.analysisAgent",
       "includeChannel": "包含 IM 渠道会话",
       "includeCron": "包含定时任务会话",
       "includeSubagents": "包含子 Agent 会话",
@@ -2877,7 +2878,9 @@
       "resetOverride": "恢复为全局配置",
       "sameAgentOnly": "仅同一 Agent",
       "sessionOverride": "会话级覆盖",
-      "title": "行为感知"
+      "title": "行为感知",
+      "extractionModel": "提取模型（可选）",
+      "extractionModelInherit": "复用当前对话 Agent（缓存友好）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3255,7 +3258,7 @@
       "narrativeMaxTokensDesc": "叙事 side query 的输出预算。",
       "narrativeModel": "叙事模型",
       "narrativeModelClear": "清空",
-      "narrativeModelDefault": "跟随主对话 Agent",
+      "narrativeModelDefault": "跟随自动化默认链",
       "narrativeModelDesc": "覆盖打分用的模型。留空则跟随主对话 / recap 模型链。",
       "narrativeTimeoutSecs": "超时（秒）",
       "narrativeTimeoutSecsDesc": "side query 超过该秒数将被中止。",
@@ -3374,7 +3377,8 @@
       "matcherPlaceholder": "工具名 / 来源（支持正则），留空 = 全部",
       "addHandler": "添加处理器",
       "advanced": "高级",
-      "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。"
+      "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。",
+      "modelInheritDefault": "跟随自动化默认链"
     },
     "hours": "小时",
     "imageGenApiKey": "API Key",
@@ -3429,9 +3433,9 @@
       "tab": "知识空间"
     },
     "knowledgeCompile": {
-      "agent": "资料整理 Agent",
-      "agentDefault": "使用全局默认 Agent",
-      "agentDesc": "用于把来源资料整理成可审阅的笔记建议，未设置时继承全局默认 Agent。"
+      "agent": "整理模型",
+      "agentDefault": "跟随自动化默认链",
+      "agentDesc": "用于把来源资料整理成可审阅笔记建议的模型链。留空则跟随自动化默认链。"
     },
     "knowledgeChunk": {
       "title": "高级 · 分块",
@@ -3489,7 +3493,10 @@
         "sourceConflict": "资料冲突",
         "openQuestionsMoc": "开放问题 MOC",
         "forAgentSummary": "For Agent 摘要"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "4 个基于 LLM 的生成器（自动标签、MOC 维护、记忆转笔记、资料冲突）共用此配置。",
+      "modelDefault": "跟随自动化默认链"
     },
     "knowledgeMediaRetention": {
       "saved": "已保存",
@@ -4288,9 +4295,9 @@
     "proxyUrl": "代理地址",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "复盘报告",
-    "recapAnalysisAgent": "分析 Agent",
-    "recapAnalysisAgentDefault": "使用全局默认 Agent",
-    "recapAnalysisAgentDesc": "用于提取 facet 和生成报告章节的 Agent，未设置时继承全局默认 Agent",
+    "recapAnalysisAgent": "分析模型",
+    "recapAnalysisAgentDefault": "跟随自动化默认链",
+    "recapAnalysisAgentDesc": "用于提取 facet 和撰写报告章节的模型链。留空则跟随自动化默认链。",
     "recapCacheRetentionDays": "Facet 缓存保留天数",
     "recapCacheRetentionDaysDesc": "已缓存的会话 facet 保留时长，每 24h 后台扫描清理。设为 0 则永久保留。默认 180 天",
     "recapDefaultRangeDays": "默认时间范围（天）",
@@ -4566,7 +4573,8 @@
         },
         "reviewModel": {
           "label": "专用审核模型",
-          "help": "格式 provider:model。留空则复用主对话的缓存前缀。"
+          "help": "用于审核候选技能的模型链。留空则复用触发对话的缓存前缀（再退到自动化默认链）。",
+          "inheritDefault": "复用触发对话（缓存友好）"
         },
         "extraRejectCategories": {
           "label": "追加禁拍主题",
@@ -4667,7 +4675,10 @@
         "conversation": "对话上下文",
         "memory": "记忆召回",
         "awareness": "跨会话感知"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "精灵的建议调用是即发即弃——用完整的降级链没问题，不必只给单个模型。",
+      "modelDefault": "跟随自动化默认链"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page 的目标 URL 检查。注意：browser.evaluate 中 JS fetch 不在本拦截范围。",
     "ssrfDefaultPolicy": "默认策略",
@@ -5032,7 +5043,35 @@
     "visionBridgeModel": "视觉桥模型",
     "visionBridgeModelDesc": "仅当主模型不支持看图时生效。用一个单独的模型把图片转成文字描述，让对话继续。",
     "visionBridgeModelClear": "关闭视觉桥",
-    "selectVisionBridgeModel": "选择视觉模型"
+    "selectVisionBridgeModel": "选择视觉模型",
+    "modelChainRestoreInherit": "恢复为继承的默认值",
+    "automationModelChain": "自动化默认模型",
+    "automationModelChainDesc": "用于 Recap、Dreaming、资料整理等后台一次性 AI 任务的默认模型链（含降级），与上方的聊天默认模型相互独立；未设置时跟随聊天默认模型。",
+    "automationModelChainInherit": "跟随聊天默认模型",
+    "knowledgeVision": {
+      "model": "视觉模型",
+      "modelDesc": "导入知识空间时用于给图片做 OCR 的模型链。留空则跟随自动化默认链。",
+      "modelDefault": "跟随自动化默认链",
+      "ocrConcurrency": "扫描版 PDF OCR 并发数",
+      "maxOcrPages": "扫描版 PDF OCR 页数上限"
+    },
+    "noteTools": {
+      "title": "笔记工具模型",
+      "desc": "笔记提炼、MOC 生成、会话转笔记三个工具共用的模型。",
+      "modelDefault": "跟随自动化默认链"
+    },
+    "recallSummary": {
+      "title": "召回摘要",
+      "desc": "当 recall_memory / session_search 返回较多命中时，额外走一次 LLM 调用把它们压缩成一段简洁摘要，而不是返回原始片段。默认关闭——每次符合条件的检索会多花一次调用。",
+      "enabled": "启用摘要",
+      "minHits": "触发所需最小命中数",
+      "contextCharBudget": "上下文预算（字符）",
+      "timeoutSecs": "超时时间（秒）",
+      "maxTokens": "最大输出 token 数",
+      "includeHistory": "同时摘要对话历史命中",
+      "model": "模型",
+      "modelDefault": "跟随自动化默认链"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -5978,7 +6017,13 @@
       "similarScope": {
         "crossKb": "跨空间",
         "sameKb": "此空间"
-      }
+      },
+      "ocrRunning": "OCR 进行中…",
+      "ocrPartial": "OCR：部分页面失败",
+      "ocrFailed": "OCR 失败",
+      "ocrRetry": "重试失败页面",
+      "ocrRetryStarted": "正在重试失败页面…",
+      "ocrRetryFailed": "无法重试 OCR 页面"
     },
     "queryFile": {
       "action": "文件",

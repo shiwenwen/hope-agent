@@ -6,6 +6,8 @@ import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -55,6 +57,14 @@ export default function SpriteSection() {
   const [toggling, setToggling] = useState(false)
   const togglingRef = useRef(false)
   const toggleReqRef = useRef(0)
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+
+  useEffect(() => {
+    getTransport()
+      .call<AvailableModel[]>("get_available_models")
+      .then(setAvailableModels)
+      .catch((e) => logger.warn("knowledge", "SpriteSection::loadModels", "load failed", e))
+  }, [])
 
   useEffect(() => {
     getTransport()
@@ -366,6 +376,22 @@ export default function SpriteSection() {
                     </label>
                   ))}
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <div className="text-xs font-medium">{t("settings.sprite.model", "Model")}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {t(
+                    "settings.sprite.modelDesc",
+                    "Sprite's suggestion call is fire-and-forget — a full fallback chain is fine, not just a single model.",
+                  )}
+                </div>
+                <ModelChainEditor
+                  value={cfg.modelOverride ?? null}
+                  onChange={(next: ModelChainRef | null) => patch({ modelOverride: next })}
+                  availableModels={availableModels}
+                  inheritLabel={t("settings.sprite.modelDefault", "Follow automation default")}
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-3">

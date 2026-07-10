@@ -966,6 +966,26 @@ pub async fn save_recap_config(config: ha_core::config::RecapConfig) -> Result<(
     .map_err(Into::into)
 }
 
+// ── Recall Summary Config ───────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_recall_summary_config() -> Result<ha_core::memory::RecallSummaryConfig, CmdError> {
+    Ok(ha_core::config::cached_config().recall_summary.clone())
+}
+
+#[tauri::command]
+pub async fn save_recall_summary_config(
+    config: ha_core::memory::RecallSummaryConfig,
+) -> Result<ha_core::memory::RecallSummaryConfig, CmdError> {
+    let to_save = config.clone();
+    ha_core::config::mutate_config_async(("recall_summary", "settings-ui"), move |store| {
+        store.recall_summary = to_save.clone();
+        Ok(())
+    })
+    .await?;
+    Ok(config)
+}
+
 // ── Dreaming Config ─────────────────────────────────────────────
 
 #[tauri::command]

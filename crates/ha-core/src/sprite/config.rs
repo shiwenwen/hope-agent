@@ -133,6 +133,14 @@ pub struct SpriteConfig {
     pub max_tokens: u32,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    /// Model chain override for the observation side-query. `None` = fall
+    /// through to `function_models.automation` → chat default. Sprite's call
+    /// is fire-and-forget (the frontend doesn't await it), so a full chain —
+    /// not a single-model restriction like Smart Judge's — is appropriate:
+    /// there's no hard latency budget blocking other work, only the
+    /// "casting" glow's perceived duration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
 }
 
 impl Default for SpriteConfig {
@@ -150,6 +158,7 @@ impl Default for SpriteConfig {
             senses: SpriteSenses::default(),
             max_tokens: default_max_tokens(),
             timeout_secs: default_timeout_secs(),
+            model_override: None,
         }
     }
 }

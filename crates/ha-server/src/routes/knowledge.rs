@@ -32,7 +32,7 @@ use ha_core::knowledge::{
     KnowledgeSourceAssetKind, KnowledgeSourceAssetLink, KnowledgeSourceDiff,
     KnowledgeSourceExternalRawSyncResult, KnowledgeSourceImportBatchInput,
     KnowledgeSourceImportInput, KnowledgeSourceImportRun, KnowledgeSourceImportRunDetail,
-    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceReadResult,
+    KnowledgeSourceImportSessionAttachmentInput, KnowledgeSourceOcrPage, KnowledgeSourceReadResult,
     KnowledgeSourceRefreshInput, KnowledgeSourceRefreshResult,
     KnowledgeSourceSimilarityDismissInput, KnowledgeSourceSimilarityGroup,
     KnowledgeSourceSimilarityResolveInput, KnowledgeSourceSimilarityResolveResult,
@@ -457,6 +457,22 @@ pub async fn kb_source_import_retry_failed(
     Ok(Json(
         service::source_import_retry_failed(&kb_id, &run_id).await?,
     ))
+}
+
+/// `GET /api/knowledge/{kb_id}/sources/{source_id}/ocr-pages`
+pub async fn kb_source_ocr_pages(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<Vec<KnowledgeSourceOcrPage>>, AppError> {
+    Ok(Json(
+        run_blocking(move || service::source_ocr_pages(&kb_id, &source_id)).await?,
+    ))
+}
+
+/// `POST /api/knowledge/{kb_id}/sources/{source_id}/ocr-retry`
+pub async fn kb_source_ocr_retry(
+    Path((kb_id, source_id)): Path<(String, String)>,
+) -> Result<Json<KnowledgeSource>, AppError> {
+    Ok(Json(service::source_ocr_retry(&kb_id, &source_id).await?))
 }
 
 /// `GET /api/knowledge/{kb_id}/sources/similar`
@@ -1415,6 +1431,33 @@ pub async fn knowledge_compile_config_set(
     Json(body): Json<crate::routes::config::ConfigBody<KnowledgeCompileConfig>>,
 ) -> Result<Json<KnowledgeCompileConfig>, AppError> {
     Ok(Json(service::set_compile_config(body.config, "http")?))
+}
+
+/// `GET /api/knowledge/vision/config`
+pub async fn knowledge_vision_config_get(
+) -> Result<Json<knowledge::KnowledgeVisionConfig>, AppError> {
+    Ok(Json(service::get_vision_config()))
+}
+
+/// `POST /api/knowledge/vision/config` — body `{ config: KnowledgeVisionConfig }`.
+pub async fn knowledge_vision_config_set(
+    Json(body): Json<crate::routes::config::ConfigBody<knowledge::KnowledgeVisionConfig>>,
+) -> Result<Json<knowledge::KnowledgeVisionConfig>, AppError> {
+    Ok(Json(service::set_vision_config(body.config, "http").await?))
+}
+
+/// `GET /api/knowledge/note-tools/config`
+pub async fn note_tools_config_get() -> Result<Json<knowledge::NoteToolsConfig>, AppError> {
+    Ok(Json(service::get_note_tools_config()))
+}
+
+/// `POST /api/knowledge/note-tools/config` — body `{ config: NoteToolsConfig }`.
+pub async fn note_tools_config_set(
+    Json(body): Json<crate::routes::config::ConfigBody<knowledge::NoteToolsConfig>>,
+) -> Result<Json<knowledge::NoteToolsConfig>, AppError> {
+    Ok(Json(
+        service::set_note_tools_config(body.config, "http").await?,
+    ))
 }
 
 // ── Sprite / inspiration mode ───────────────────────────────────

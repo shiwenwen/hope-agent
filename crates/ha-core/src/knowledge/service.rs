@@ -94,6 +94,22 @@ pub async fn source_import_retry_failed(
     super::source::retry_failed_source_imports(kb_id, run_id).await
 }
 
+/// Owner list: per-page OCR ledger for a scanned-PDF source (empty for any
+/// other source kind).
+pub fn source_ocr_pages(
+    kb_id: &str,
+    source_id: &str,
+) -> Result<Vec<super::types::KnowledgeSourceOcrPage>> {
+    registry()?.list_source_ocr_pages(kb_id, source_id)
+}
+
+/// Owner retry: re-run OCR for a scanned-PDF source's currently-failed
+/// pages in the background. Returns the source row immediately; the
+/// frontend picks up completion via `knowledge:changed`.
+pub async fn source_ocr_retry(kb_id: &str, source_id: &str) -> Result<KnowledgeSource> {
+    super::source::retry_source_ocr_pages(kb_id, source_id).await
+}
+
 /// Owner list: raw sources in newest-first order.
 pub fn source_list(kb_id: &str) -> Result<Vec<KnowledgeSource>> {
     super::source::list_sources(kb_id)
@@ -920,6 +936,55 @@ pub fn set_compile_config(
     Ok(normalized)
 }
 
+// ── Vision (image OCR) model config (owner plane GUI) ───────────────────
+
+/// Current model selection for Knowledge's vision-capable ingestion (image
+/// OCR import). `model_override = None` falls through to
+/// `function_models.automation` → chat default.
+pub fn get_vision_config() -> super::KnowledgeVisionConfig {
+    crate::config::cached_config().knowledge_vision.clone()
+}
+
+/// Persist Knowledge vision model selection. Uses `mutate_config_async` (not
+/// the sync `mutate_config` `knowledge_compile`'s pair still uses) — this is
+/// new code, written after the async-config-write rule was established, not
+/// grandfathered legacy.
+pub async fn set_vision_config(
+    cfg: super::KnowledgeVisionConfig,
+    source: &str,
+) -> Result<super::KnowledgeVisionConfig> {
+    let clamped = cfg.clamped();
+    let to_save = clamped.clone();
+    crate::config::mutate_config_async(("knowledge_vision", source), move |store| {
+        store.knowledge_vision = to_save.clone();
+        Ok(())
+    })
+    .await?;
+    Ok(clamped)
+}
+
+// ── Note-authoring tools model config (owner plane GUI) ──────────────────
+
+/// Current model selection for the standalone note-authoring tools
+/// (`note_distill` / `note_moc` / `session_to_note`).
+pub fn get_note_tools_config() -> super::NoteToolsConfig {
+    crate::config::cached_config().note_tools.clone()
+}
+
+/// Persist note-tools model selection.
+pub async fn set_note_tools_config(
+    cfg: super::NoteToolsConfig,
+    source: &str,
+) -> Result<super::NoteToolsConfig> {
+    let to_save = cfg.clone();
+    crate::config::mutate_config_async(("note_tools", source), move |store| {
+        store.note_tools = to_save.clone();
+        Ok(())
+    })
+    .await?;
+    Ok(cfg)
+}
+
 // ── Maintenance config (WS6, owner plane GUI) ───────────────────
 
 /// Current (clamped) maintenance config for the GUI panel.
@@ -1021,7 +1086,6 @@ fn strip_md_fence(text: &str) -> String {
 /// following `instruction` and return the rewritten Markdown. The GUI shows a diff
 /// and the user confirms before saving — **this never touches disk**, so it needs
 /// no `WorkspaceScope` / write gate (the eventual save goes through `note_save`).
-/// Decoupled background call via the analysis agent (like recap / distill).
 pub async fn ai_rewrite(
     text: &str,
     instruction: &str,
@@ -1051,34 +1115,36 @@ pub async fn ai_rewrite(
         .saturating_add(512)
         .clamp(512, 8192);
     let config = crate::config::cached_config();
-    let agent = build_rewrite_agent(&config, model_override).await?;
-    let res = agent.side_query(&prompt, max_tokens).await?;
-    let out = strip_md_fence(res.text.trim());
+    let chain = resolve_rewrite_chain(&config, model_override);
+    let output = crate::automation::run(crate::automation::ModelTaskSpec {
+        purpose: "knowledge.ai_rewrite",
+        chain,
+        session_key: "automation:knowledge_ai_rewrite",
+        instruction: &prompt,
+        max_tokens,
+    })
+    .await?;
+    let out = strip_md_fence(output.text.trim());
     if out.is_empty() {
         bail!("the model returned empty content");
     }
     Ok(out)
 }
 
-/// Build the one-shot agent for a quick rewrite. `model_override`
+/// Resolve the model chain for a quick rewrite. `model_override`
 /// (`"providerId::modelId"`, e.g. the current conversation's model or a
-/// user-picked one) pins that model; an empty / unresolvable override falls back
-/// to the default analysis agent so the rewrite still runs.
-async fn build_rewrite_agent(
+/// user-picked one from `QuickRewriteBar`'s own picker) pins exactly that one
+/// model — an explicit user pick is never silently swapped for a fallback,
+/// even if it later fails. An empty/unresolvable override falls through to
+/// `automation::effective_chain` (the real degradation chain), which is the
+/// "no explicit pick" default path.
+fn resolve_rewrite_chain(
     config: &crate::config::AppConfig,
     model_override: Option<&str>,
-) -> Result<crate::agent::AssistantAgent> {
+) -> Vec<crate::provider::ActiveModel> {
     if let Some(m) = model_override.map(str::trim).filter(|s| !s.is_empty()) {
         if let Some(active) = crate::provider::parse_model_ref(m) {
-            if let Some(prov) =
-                crate::provider::find_provider(&config.providers, &active.provider_id)
-            {
-                let agent =
-                    crate::agent::AssistantAgent::try_new_from_provider(prov, &active.model_id)
-                        .await?
-                        .with_failover_context(prov);
-                return Ok(agent);
-            }
+            return vec![active];
         }
         crate::app_warn!(
             "knowledge",
@@ -1087,8 +1153,7 @@ async fn build_rewrite_agent(
             m
         );
     }
-    let (agent, _model) = crate::recap::report::build_analysis_agent(config).await?;
-    Ok(agent)
+    crate::automation::effective_chain(config, None)
 }
 
 /// Record a quick-rewrite outcome into the Learning Tracker (`learning_events`)

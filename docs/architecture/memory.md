@@ -393,11 +393,11 @@ Settings → "embedding quick card"（commit f64cab52）作为快速入口，首
 
 - 命中数 ≥ `min_hits`（默认 3）
 - 总字符量 > 预算（避免短结果做无意义压缩）
-- opt-in：`memorySelection.recall_summary.enabled` 为 true（默认关）
+- opt-in：`AppConfig.recall_summary.enabled` 为 true（默认关，顶层字段，不在 `memorySelection` 下）。设置页 [`memory-panel/RecallSummarySection.tsx`](../../src/components/settings/memory-panel/RecallSummarySection.tsx) 是这个开关的第一个 GUI 入口
 
-### 失败回退
+### 模型解析与失败回退
 
-side_query 失败 / 超时 / 输出无效 → 回退为原始命中列表的拼接（不丢记忆）。
+经 [`crate::automation::run`](automation-model.md)（purpose `recall_summary`）执行——`recall_summary.model_override`（`ModelChain`）非空则用它，否则落 `function_models.automation` → 聊天全局默认模型，带真正的跨模型降级重试。调用失败 / 超时 / 输出无效 → 回退为原始命中列表的拼接（不丢记忆）。
 
 ### 与 LLM 语义选择的区别
 

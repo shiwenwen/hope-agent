@@ -110,7 +110,32 @@ impl AssistantAgent {
     /// [`FailoverPolicy::side_query_default`]. Otherwise we issue a single
     /// direct one-shot call (legacy fast path).
     pub async fn side_query(&self, instruction: &str, max_tokens: u32) -> Result<SideQueryResult> {
-        let operation = "agent.side_query".to_string();
+        self.side_query_tagged("agent.side_query", instruction, max_tokens)
+            .await
+    }
+
+    /// Same dispatch as [`Self::side_query`], but records the usage ledger's
+    /// `operation` under a caller-supplied tag instead of the generic
+    /// `"agent.side_query"`. Used by [`crate::automation::run`] so Recap /
+    /// Dreaming / Knowledge Compile / etc. show up as distinct rows in
+    /// `model_usage_events` instead of an undifferentiated pile.
+    pub(crate) async fn side_query_with_purpose(
+        &self,
+        purpose: &str,
+        instruction: &str,
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        self.side_query_tagged(purpose, instruction, max_tokens)
+            .await
+    }
+
+    async fn side_query_tagged(
+        &self,
+        operation: &str,
+        instruction: &str,
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        let operation = operation.to_string();
         let started = std::time::Instant::now();
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -471,18 +496,23 @@ impl AssistantAgent {
 
     /// Independent one-shot call that can carry image attachments.
     ///
-    /// Used by owner-plane workflows such as Knowledge Source OCR: no chat
-    /// history, no tools, no cached user prefix, and no execution loop. The
-    /// caller supplies a scoped system prompt so text inside the image is read
-    /// as untrusted source material rather than as instructions.
+    /// Used by [`crate::automation::run_vision`] (Knowledge Source OCR today):
+    /// no chat history, no tools, no cached user prefix, and no execution
+    /// loop. The caller supplies a scoped system prompt so text inside the
+    /// image is read as untrusted source material rather than as
+    /// instructions. `purpose` tags the usage ledger's `operation` column
+    /// (mirrors `side_query_with_purpose`) — this function has exactly one
+    /// caller today, so there's no separate untagged sibling to keep
+    /// source-compatible, unlike `side_query`/`side_query_with_purpose`.
     pub(crate) async fn independent_query_with_attachments(
         &self,
+        purpose: &str,
         system: &str,
         instruction: &str,
         attachments: &[Attachment],
         max_tokens: u32,
     ) -> Result<SideQueryResult> {
-        let operation = "agent.independent_query_with_attachments".to_string();
+        let operation = purpose.to_string();
         let started = std::time::Instant::now();
         match self
             .run_one_shot_with_attachments(system, instruction, attachments, max_tokens)

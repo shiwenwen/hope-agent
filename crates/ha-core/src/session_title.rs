@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::agent::AssistantAgent;
-use crate::provider::{ActiveModel, ProviderConfig};
+use crate::automation::{self, ModelTaskSpec};
+use crate::provider::{ActiveModel, ModelChain};
 use crate::session::SessionDB;
 
 pub const TITLE_SOURCE_FIRST_MESSAGE: &str = "first_message";
@@ -15,10 +15,21 @@ pub const TITLE_SOURCE_MANUAL: &str = "manual";
 pub struct SessionTitleConfig {
     #[serde(default = "default_session_title_enabled")]
     pub enabled: bool,
+    /// Deprecated — superseded by `modelOverride`. Kept for backward
+    /// compatibility: still read when `modelOverride` is unset, but the GUI
+    /// no longer writes these two fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// Model chain override for title generation. `None` = fall through to
+    /// the deprecated `provider_id`/`model_id` pair (if both set) →
+    /// `function_models.automation` (title generation is exactly the kind
+    /// of cheap, low-stakes background call that default is meant for) →
+    /// the current chat's own model (a guaranteed final fallback, so title
+    /// generation never fails outright even with zero config).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<ModelChain>,
 }
 
 fn default_session_title_enabled() -> bool {
@@ -31,6 +42,7 @@ impl Default for SessionTitleConfig {
             enabled: default_session_title_enabled(),
             provider_id: None,
             model_id: None,
+            model_override: None,
         }
     }
 }
@@ -40,9 +52,9 @@ pub fn maybe_schedule_after_success(
     session_id: String,
     agent_id: String,
     chat_model: ActiveModel,
-    providers: Vec<ProviderConfig>,
 ) {
-    let cfg = crate::config::cached_config().session_title.clone();
+    let app_cfg = crate::config::cached_config();
+    let cfg = app_cfg.session_title.clone();
     if !cfg.enabled {
         return;
     }
@@ -66,28 +78,32 @@ pub fn maybe_schedule_after_success(
         return;
     }
 
-    let configured_model = cfg
+    // Candidate chain, in try-order: `model_override` (new) → deprecated
+    // `provider_id`/`model_id` pair → `function_models.automation` (title
+    // generation is a cheap, low-stakes background call — exactly what that
+    // default is meant for) → the current chat's own model (a guaranteed
+    // final fallback, so title generation never fails outright even with
+    // zero config).
+    let legacy_chain = cfg
         .provider_id
         .as_deref()
         .filter(|s| !s.trim().is_empty())
-        .zip(cfg.model_id.as_deref().filter(|s| !s.trim().is_empty()));
-    let (provider_id, model_id) = configured_model
-        .map(|(provider_id, model_id)| (provider_id.to_string(), model_id.to_string()))
-        .unwrap_or_else(|| (chat_model.provider_id.clone(), chat_model.model_id.clone()));
-
-    let provider = match providers.iter().find(|p| p.id == provider_id).cloned() {
-        Some(provider) => provider,
-        None => {
-            app_warn!(
-                "session",
-                "title_generate",
-                "Skipping title generation for session {}: provider '{}' not found",
-                session_id,
-                provider_id
-            );
-            return;
-        }
-    };
+        .zip(cfg.model_id.as_deref().filter(|s| !s.trim().is_empty()))
+        .map(|(provider_id, model_id)| ModelChain {
+            primary: ActiveModel {
+                provider_id: provider_id.to_string(),
+                model_id: model_id.to_string(),
+            },
+            fallbacks: Vec::new(),
+        });
+    let mut chain = cfg
+        .model_override
+        .clone()
+        .or(legacy_chain)
+        .or_else(|| app_cfg.function_models.automation.clone())
+        .map(ModelChain::into_vec)
+        .unwrap_or_default();
+    chain.push(chat_model);
 
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
@@ -106,9 +122,7 @@ pub fn maybe_schedule_after_success(
             }
         };
 
-        if let Err(e) = rt.block_on(generate_and_update_title(
-            db, session_id, agent_id, provider, model_id,
-        )) {
+        if let Err(e) = rt.block_on(generate_and_update_title(db, session_id, agent_id, chain)) {
             app_warn!(
                 "session",
                 "title_generate",
@@ -122,9 +136,8 @@ pub fn maybe_schedule_after_success(
 async fn generate_and_update_title(
     db: Arc<SessionDB>,
     session_id: String,
-    agent_id: String,
-    provider: ProviderConfig,
-    model_id: String,
+    _agent_id: String,
+    chain: Vec<ActiveModel>,
 ) -> Result<()> {
     let messages = collect_title_messages(&db, &session_id)?;
     let user_count = messages
@@ -137,25 +150,22 @@ async fn generate_and_update_title(
     }
 
     let prompt = build_title_prompt(&messages);
-    let mut agent = AssistantAgent::try_new_from_provider(&provider, &model_id)
-        .await?
-        .with_failover_context(&provider);
-    agent.set_agent_id(&agent_id);
-    agent.set_session_id(&session_id);
-
-    let response = agent
-        .side_query(&prompt, 64)
-        .await
-        .map_err(|e| {
-            anyhow!(
-                "session title side_query failed (provider_id={}, model={}, session={}): {}",
-                provider.id,
-                model_id,
-                session_id,
-                e
-            )
-        })?
-        .text;
+    let response = automation::run(ModelTaskSpec {
+        purpose: "session_title",
+        chain,
+        session_key: &session_id,
+        instruction: &prompt,
+        max_tokens: 64,
+    })
+    .await
+    .map_err(|e| {
+        anyhow!(
+            "session title generation failed (session={}): {}",
+            session_id,
+            e
+        )
+    })?
+    .text;
 
     let title = sanitize_generated_title(&response)
         .ok_or_else(|| anyhow!("session title model returned an empty title"))?;
@@ -170,10 +180,8 @@ async fn generate_and_update_title(
         app_info!(
             "session",
             "title_generate",
-            "Generated LLM title for session {} using {}::{}",
-            session_id,
-            provider.id,
-            model_id
+            "Generated LLM title for session {}",
+            session_id
         );
         if let Some(bus) = crate::get_event_bus() {
             bus.emit(

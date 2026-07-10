@@ -986,6 +986,8 @@ flowchart TD
 
 主模型不支持视觉（`ProviderConfig::model_supports_vision(model_id)==false`，即 `ModelConfig.input_types` 显式不含 `"image"`，如 DeepSeek 系列）却收到图片时，用一个**单独配置**的视觉模型把图片转成文字描述注入主模型，替代旧行为「丢图 + `[image omitted]` 占位符」。核心实现 [`agent/vision_bridge.rs`](../../crates/ha-core/src/agent/vision_bridge.rs)。
 
+> `function_models.vision`（本节）与 `function_models.automation`（后台一次性 LLM 调用的默认模型链）是同一个 `FunctionModelsConfig` 容器下平级的两个功能，互不影响。后者的执行原语、15 个消费者清单见 [模型 vs Agent 统一配置](automation-model.md)。
+
 ### 12.1 配置与解析
 
 - `AppConfig.function_models.vision: Option<ActiveModel>`（`FunctionModelsConfig` 容器，camelCase `functionModels.vision`）。**opt-in**：`None` = 视觉桥关闭（维持占位符行为），不做自动挑选。

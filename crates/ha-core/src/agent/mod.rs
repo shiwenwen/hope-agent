@@ -1010,21 +1010,6 @@ impl AssistantAgent {
             let guard = aware.cfg.lock().unwrap_or_else(|e| e.into_inner());
             guard.clone()
         };
-        // If a custom extraction_agent is configured that differs from the
-        // current agent, we cannot switch providers inline. Fall back to
-        // structured mode with a one-time warning.
-        if let Some(ref ea) = cfg.llm_extraction.extraction_agent {
-            if ea != &self.agent_id {
-                app_info!(
-                    "awareness",
-                    "run_extraction_inline",
-                    "extraction_agent '{}' differs from current agent '{}'; \
-                     using current agent for extraction (override not yet supported)",
-                    ea,
-                    self.agent_id
-                );
-            }
-        }
         let Some(db) = crate::get_session_db() else {
             aware.record_digest_failure();
             return;
@@ -1071,10 +1056,68 @@ impl AssistantAgent {
         };
         // Fire side_query with a hard timeout.
         let max_tokens = ((cfg.llm_extraction.digest_max_chars / 3) as u32).clamp(256, 2048);
-        let fut = self.side_query(&prompt, max_tokens);
-        match tokio::time::timeout(EXTRACTION_TIMEOUT, fut).await {
-            Ok(Ok(res)) => {
-                let trimmed = res.text.trim();
+
+        // Default (no override): reuse the current agent's cache prefix via
+        // `self.side_query` — cheap, and what every existing config gets
+        // since this override is new. Only when a `model_override` is
+        // explicitly set do we build a dedicated one-shot call via
+        // `automation::run`, trading away cache-sharing for a specific model
+        // — an explicit choice, not the default.
+        let extraction_result: anyhow::Result<String> =
+            match cfg.llm_extraction.model_override.clone() {
+                None => {
+                    // Tagged so the default (common) path shows up as its own
+                    // Dashboard purpose bucket instead of folding into the
+                    // generic `agent.side_query` pile shared by every other
+                    // untagged side_query caller in the codebase.
+                    tokio::time::timeout(
+                        EXTRACTION_TIMEOUT,
+                        self.side_query_with_purpose("awareness.extraction", &prompt, max_tokens),
+                    )
+                    .await
+                    .map_err(|_| anyhow::anyhow!("extraction timed out after 5s"))
+                    .and_then(|r| {
+                        r.map(|o| o.text)
+                            .map_err(|e| anyhow::anyhow!("extraction side_query failed: {e}"))
+                    })
+                }
+                Some(chain) => {
+                    let session_key = self
+                        .session_id
+                        .clone()
+                        .unwrap_or_else(|| "automation:awareness".to_string());
+                    // `EXTRACTION_TIMEOUT` is a per-candidate budget —
+                    // `automation::run` tries every candidate in the chain
+                    // sequentially, so the outer timeout must scale with
+                    // chain length or a configured fallback chain gets cut
+                    // short before a second candidate is even attempted,
+                    // defeating the point of configuring one.
+                    let candidate_count = (chain.fallbacks.len() + 1) as u32;
+                    let timeout = EXTRACTION_TIMEOUT.saturating_mul(candidate_count);
+                    tokio::time::timeout(
+                        timeout,
+                        crate::automation::run(crate::automation::ModelTaskSpec {
+                            purpose: "awareness.extraction",
+                            chain: chain.into_vec(),
+                            session_key: &session_key,
+                            instruction: &prompt,
+                            max_tokens,
+                        }),
+                    )
+                    .await
+                    .map_err(|_| {
+                        anyhow::anyhow!("extraction timed out after {}s", timeout.as_secs())
+                    })
+                    .and_then(|r| {
+                        r.map(|o| o.text)
+                            .map_err(|e| anyhow::anyhow!("extraction side_query failed: {e}"))
+                    })
+                }
+            };
+
+        match extraction_result {
+            Ok(text) => {
+                let trimmed = text.trim();
                 if trimmed.is_empty() {
                     aware.record_digest_failure();
                     return;
@@ -1083,21 +1126,8 @@ impl AssistantAgent {
                     crate::truncate_utf8(trimmed, cfg.llm_extraction.digest_max_chars).to_string();
                 aware.set_last_digest(std::sync::Arc::new(truncated));
             }
-            Ok(Err(e)) => {
-                app_warn!(
-                    "awareness",
-                    "refresh_awareness_suffix",
-                    "extraction side_query failed: {}",
-                    e
-                );
-                aware.record_digest_failure();
-            }
-            Err(_) => {
-                app_warn!(
-                    "awareness",
-                    "refresh_awareness_suffix",
-                    "extraction timed out after 5s"
-                );
+            Err(e) => {
+                app_warn!("awareness", "refresh_awareness_suffix", "{}", e);
                 aware.record_digest_failure();
             }
         }

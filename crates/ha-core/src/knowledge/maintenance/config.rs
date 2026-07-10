@@ -176,6 +176,16 @@ pub struct MaintenanceConfig {
 
     #[serde(default = "default_llm_max_tokens")]
     pub llm_max_tokens: u32,
+
+    /// Model chain override for the 4 LLM-backed generators (auto_tag,
+    /// moc_upkeep, memory_to_note, source_conflict). Shared across all 4 —
+    /// they run as part of the same background maintenance cycle under one
+    /// enable/schedule/"Run now" lifecycle, consistent with
+    /// `llm_timeout_secs`/`llm_max_tokens` already being cycle-wide rather
+    /// than per-task. `None` = fall through to `function_models.automation`
+    /// → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
 }
 
 impl Default for MaintenanceConfig {
@@ -191,6 +201,7 @@ impl Default for MaintenanceConfig {
             dedup_similarity: default_dedup_similarity(),
             llm_timeout_secs: default_llm_timeout_secs(),
             llm_max_tokens: default_llm_max_tokens(),
+            model_override: None,
         }
     }
 }

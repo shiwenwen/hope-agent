@@ -502,6 +502,7 @@
         "desc": "Ferramentas de edição e comandos perigosos exigem aprovação; o resto é executado.",
         "label": "Padrão"
       },
+      "menuLabel": "Modo de permissão",
       "smart": {
         "desc": "Delega a decisão a um modelo juiz ou à autoavaliação de confiança do modelo.",
         "label": "Aprovação inteligente"
@@ -509,8 +510,31 @@
       "yolo": {
         "desc": "Todas as ferramentas são executadas sem aprovação (caminhos protegidos são auditados).",
         "label": "YOLO"
+      }
+    },
+    "sandboxMode": {
+      "isolated": {
+        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
+        "label": "Isolated Sandbox"
       },
-      "menuLabel": "Modo de permissão"
+      "menuLabel": "Sandbox",
+      "off": {
+        "desc": "Run on the host; approval behavior is unchanged.",
+        "label": "Sandbox Off"
+      },
+      "setupTitle": "Configure Docker to enable sandbox",
+      "standard": {
+        "desc": "Run in Docker; approval behavior is unchanged.",
+        "label": "Standard Sandbox"
+      },
+      "trusted": {
+        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
+        "label": "Trusted Sandbox"
+      },
+      "workspace": {
+        "desc": "Mount this workspace and reduce edit-command approvals.",
+        "label": "Workspace Sandbox"
+      }
     },
     "pickSession": "Escolher uma sessão",
     "profileRotationTitle": "Rotação de perfil",
@@ -651,30 +675,6 @@
       "reloadBody": "A extensão instalada não corresponde ao host. Recarregue-a para restaurar o controle do seu Chrome real.",
       "openSettings": "Abrir configurações",
       "dismiss": "Não mostrar novamente"
-    },
-    "sandboxMode": {
-      "isolated": {
-        "desc": "Run in an isolated copy; edit approvals are unchanged until apply-back is supported.",
-        "label": "Isolated Sandbox"
-      },
-      "off": {
-        "desc": "Run on the host; approval behavior is unchanged.",
-        "label": "Sandbox Off"
-      },
-      "setupTitle": "Configure Docker to enable sandbox",
-      "standard": {
-        "desc": "Run in Docker; approval behavior is unchanged.",
-        "label": "Standard Sandbox"
-      },
-      "trusted": {
-        "desc": "Max autonomy for sandboxed exec; strict risks still ask.",
-        "label": "Trusted Sandbox"
-      },
-      "workspace": {
-        "desc": "Mount this workspace and reduce edit-command approvals.",
-        "label": "Workspace Sandbox"
-      },
-      "menuLabel": "Sandbox"
     },
     "browserExtensionRequired": {
       "nextAction": "Próxima ação: {{nextAction}}",
@@ -1231,7 +1231,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Tempo até o primeiro token (TTFT)",
       "inputTokens": "Tokens de entrada",
-      "outputTokens": "Tokens de saída"
+      "outputTokens": "Tokens de saída",
+      "byDomain": "Distribuição por domínio",
+      "byOperation": "Por operação",
+      "operation": "Operação",
+      "domain": "Domínio"
     },
     "tool": {
       "avgDuration": "Duração média",
@@ -2768,9 +2772,8 @@
       },
       "intro": "Alternância global YOLO, listas de padrões de caminhos protegidos / comandos de edição / comandos perigosos e configuração do modo de aprovação inteligente.",
       "judgeExtraPromptPlaceholder": "Opcional: instruções extras para o juiz (listas de caminhos permitidos, comandos confiáveis...)",
-      "judgeModelPlaceholder": "Modelo (ex.: claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Selecionar modelo juiz",
       "judgeModelTitle": "Configuração do modelo juiz",
-      "judgeProviderPlaceholder": "ID do provedor (ex.: anthropic-1)",
       "protectedPathsDesc": "Chamadas de ferramentas que atingem estes caminhos forçam aprovação e não podem ser Permitir sempre. Suporta expansão ~/, prefixo de diretório (barra final) e globs *.pattern.",
       "protectedPathsPlaceholder": "ex.: ~/.ssh/, .env, *.pem",
       "protectedPathsTitle": "Caminhos protegidos",
@@ -2852,8 +2855,6 @@
       "digestMaxChars": "Orçamento de saída do resumo (caracteres)",
       "dynamicEnabled": "Atualizar sufixo a cada turno",
       "enabledForSession": "Ativado para esta sessão",
-      "extractionAgent": "ID do Agent de extração (opcional)",
-      "extractionAgentPlaceholder": "Deixe vazio para herdar recap.analysisAgent",
       "includeChannel": "Incluir sessões de canais IM",
       "includeCron": "Incluir sessões cron",
       "includeSubagents": "Incluir sessões de sub-agents",
@@ -2877,7 +2878,9 @@
       "resetOverride": "Redefinir para global",
       "sameAgentOnly": "Apenas mesmo Agent",
       "sessionOverride": "Override da sessão",
-      "title": "Consciência de comportamento"
+      "title": "Consciência de comportamento",
+      "extractionModel": "Modelo de extração (opcional)",
+      "extractionModelInherit": "Reutilizar o agente da conversa atual (favorável ao cache)"
     },
     "browser": {
       "activeBadge": "ativo",
@@ -3255,7 +3258,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Usar o padrão de automação",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3374,7 +3377,8 @@
       "matcherPlaceholder": "nome da ferramenta / origem (regex ok), vazio = todos",
       "addHandler": "Adicionar handler",
       "advanced": "Avançado",
-      "slowHandlerWarning": "Este handler executa um LLM / subagente em linha e atrasará cada vez que este evento de bloqueio disparar. Prefira command / http aqui, ou mova-o para um evento de observação (ex.: PostToolUse)."
+      "slowHandlerWarning": "Este handler executa um LLM / subagente em linha e atrasará cada vez que este evento de bloqueio disparar. Prefira command / http aqui, ou mova-o para um evento de observação (ex.: PostToolUse).",
+      "modelInheritDefault": "Usar o padrão de automação"
     },
     "hours": "h",
     "imageGenApiKey": "API Key",
@@ -3427,6 +3431,11 @@
     "kb": "KB",
     "knowledge": {
       "tab": "Conhecimento"
+    },
+    "knowledgeCompile": {
+      "agent": "Modelo de compilação",
+      "agentDefault": "Usar o padrão de automação",
+      "agentDesc": "Cadeia de modelo usada para transformar fontes em sugestões de notas revisáveis. Vazio segue o padrão de automação."
     },
     "knowledgeChunk": {
       "title": "Avançado · fragmentação",
@@ -3484,7 +3493,20 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Modelo",
+      "modelDesc": "Compartilhado pelos 4 geradores baseados em LLM (auto-tag, manutenção de MOC, memória→nota, conflito de fontes).",
+      "modelDefault": "Usar o padrão de automação"
+    },
+    "knowledgeMediaRetention": {
+      "saved": "Salvo",
+      "title": "Retenção da mídia original",
+      "description": "Opcionalmente mantenha os originais importados de áudio, vídeo e imagem para revisar evidências das fontes.",
+      "maxTotal": "Cota total (MiB)",
+      "maxSource": "Por fonte (MiB)",
+      "thumbnail": "Maior lado da miniatura (px)",
+      "prune": "Remover mídias mais antigas ao exceder a cota",
+      "pruneDesc": "Quando um novo arquivo retido excederia a cota, remova os originais retidos mais antigos antes de ignorar o novo arquivo."
     },
     "knowledgePassiveRecall": {
       "title": "Notas relacionadas passivas",
@@ -4273,9 +4295,9 @@
     "proxyUrl": "URL do proxy",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agente de análise",
-    "recapAnalysisAgentDefault": "Usar agente padrão global",
-    "recapAnalysisAgentDesc": "Agente usado para extrair facets e escrever seções do relatório. Se não definido, herda o agente padrão global.",
+    "recapAnalysisAgent": "Modelo de análise",
+    "recapAnalysisAgentDefault": "Usar o padrão de automação",
+    "recapAnalysisAgentDesc": "Cadeia de modelo usada para extrair facetas e redigir as seções do relatório. Vazio segue o padrão de automação.",
     "recapCacheRetentionDays": "Retenção de cache de facets (dias)",
     "recapCacheRetentionDaysDesc": "Tempo de retenção dos facets em cache antes da limpeza diária. 0 = manter sempre. Padrão 180.",
     "recapDefaultRangeDays": "Intervalo padrão (dias)",
@@ -4341,6 +4363,9 @@
     "serverEmbeddedBind": "Endereço de bind",
     "serverEmbeddedBindDesc": "Padrão 127.0.0.1 apenas localhost. Defina como 0.0.0.0 para expor à rede",
     "serverGenerateApiKey": "Gerar",
+    "serverKnowledgeAgentReadToken": "Token de leitura do Knowledge Agent",
+    "serverKnowledgeAgentReadTokenPlaceholder": "Deixe vazio para desativar o acesso de agent somente leitura",
+    "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner.",
     "serverMode": "Modo servidor",
     "serverModeDesc": "Escolha modo embutido ou conecte a um servidor remoto",
     "serverModeEmbedded": "Embutido",
@@ -4548,7 +4573,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Cadeia de modelo usada para revisar habilidades candidatas. Vazio reutiliza o cache da conversa que acionou (recorrendo ao padrão de automação).",
+          "inheritDefault": "Reutilizar a conversa que acionou (favorável ao cache)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -4649,7 +4675,10 @@
         "conversation": "Conversa",
         "memory": "Recordação de memória",
         "awareness": "Percepção entre sessões"
-      }
+      },
+      "model": "Modelo",
+      "modelDesc": "A chamada de sugestão do Sprite é disparar-e-esquecer — uma cadeia de fallback completa funciona bem, não só um único modelo.",
+      "modelDefault": "Usar o padrão de automação"
     },
     "ssrfBrowserPolicyDesc": "Aplicado à URL alvo de page.goto / new_page. Nota: fetch() JS dentro de browser.evaluate está fora do escopo.",
     "ssrfDefaultPolicy": "Política padrão",
@@ -5006,24 +5035,6 @@
     "webSearchSaved": "Salvo",
     "webSearchTimeout": "Timeout (segundos)",
     "webSearchTimeoutDesc": "Timeout HTTP para requisições de pesquisa (5-120 s)",
-    "knowledgeCompile": {
-      "agent": "Agente de organização de fontes",
-      "agentDefault": "Usar agente padrão global",
-      "agentDesc": "Agente usado para transformar fontes em sugestões de notas revisáveis. Quando não definido, herda o agente padrão global."
-    },
-    "knowledgeMediaRetention": {
-      "saved": "Salvo",
-      "title": "Retenção da mídia original",
-      "description": "Opcionalmente mantenha os originais importados de áudio, vídeo e imagem para revisar evidências das fontes.",
-      "maxTotal": "Cota total (MiB)",
-      "maxSource": "Por fonte (MiB)",
-      "thumbnail": "Maior lado da miniatura (px)",
-      "prune": "Remover mídias mais antigas ao exceder a cota",
-      "pruneDesc": "Quando um novo arquivo retido excederia a cota, remova os originais retidos mais antigos antes de ignorar o novo arquivo."
-    },
-    "serverKnowledgeAgentReadToken": "Token de leitura do Knowledge Agent",
-    "serverKnowledgeAgentReadTokenPlaceholder": "Deixe vazio para desativar o acesso de agent somente leitura",
-    "serverKnowledgeAgentReadTokenDesc": "Token com escopo para agents externos. Ele só funciona quando uma API key owner também está configurada; então só pode chamar endpoints somente leitura do knowledge agent e nunca concede acesso à API owner.",
     "devVisualTest": "Teste de animação de UI",
     "permLoading": "Verificando permissões...",
     "uiEffects": "Animação de fundo",
@@ -5032,7 +5043,35 @@
     "visionBridgeModel": "Modelo de ponte de visão",
     "visionBridgeModelDesc": "Usado apenas quando o modelo principal não consegue ver imagens. Um modelo separado converte imagens em descrições de texto para que a conversa continue.",
     "visionBridgeModelClear": "Desativar a ponte de visão",
-    "selectVisionBridgeModel": "Selecionar modelo de visão"
+    "selectVisionBridgeModel": "Selecionar modelo de visão",
+    "modelChainRestoreInherit": "Repor para o padrão herdado",
+    "automationModelChain": "Modelo padrão de automação",
+    "automationModelChainDesc": "Cadeia de modelo padrão (com substituto) para tarefas de IA de segundo plano únicas, como Recap, Dreaming e Compilação de conhecimento — independente do modelo padrão de chat acima. Deixe em branco para usar o modelo padrão de chat.",
+    "automationModelChainInherit": "Usar o modelo padrão de chat",
+    "knowledgeVision": {
+      "model": "Modelo de visão",
+      "modelDesc": "Cadeia de modelo usada para fazer OCR em imagens ao importá-las para um espaço de conhecimento. Vazio segue o padrão de automação.",
+      "modelDefault": "Usar o padrão de automação",
+      "ocrConcurrency": "Concorrência de OCR de PDF digitalizado",
+      "maxOcrPages": "Limite de páginas de OCR de PDF digitalizado"
+    },
+    "noteTools": {
+      "title": "Modelo das ferramentas de notas",
+      "desc": "Modelo compartilhado pelas ferramentas de destilação de notas, geração de MOC e sessão-para-nota.",
+      "modelDefault": "Usar o padrão de automação"
+    },
+    "recallSummary": {
+      "title": "Resumo de recall",
+      "desc": "Quando recall_memory / session_search retornam muitos resultados, comprime-os em um parágrafo conciso com uma chamada extra de LLM, em vez de retornar trechos brutos. Desativado por padrão — custa uma chamada extra por busca elegível.",
+      "enabled": "Ativar resumo",
+      "minHits": "Mínimo de resultados para acionar",
+      "contextCharBudget": "Orçamento de contexto (caracteres)",
+      "timeoutSecs": "Tempo limite (s)",
+      "maxTokens": "Máximo de tokens de saída",
+      "includeHistory": "Também resumir resultados do histórico da conversa",
+      "model": "Modelo",
+      "modelDefault": "Usar o padrão de automação"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -5978,7 +6017,13 @@
       "similarScope": {
         "crossKb": "Espaço cruzado",
         "sameKb": "Este espaço"
-      }
+      },
+      "ocrRunning": "OCR em andamento…",
+      "ocrPartial": "OCR: algumas páginas falharam",
+      "ocrFailed": "Falha no OCR",
+      "ocrRetry": "Repetir páginas com falha",
+      "ocrRetryStarted": "Repetindo páginas com falha…",
+      "ocrRetryFailed": "Não foi possível repetir as páginas de OCR"
     },
     "queryFile": {
       "action": "Arquivo",

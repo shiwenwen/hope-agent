@@ -9,6 +9,11 @@ pub struct DashboardFilter {
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub usage_kind: Option<String>,
+    /// Exact-match on `model_usage_events.operation` (the purpose tag). No
+    /// dropdown surfaces this — it's populated purely by clicking a row in
+    /// the `TokenByOperation` breakdown table, mirroring `model_id`'s
+    /// drill-down-only treatment.
+    pub operation: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -73,12 +78,55 @@ pub struct TokenByKind {
     pub avg_ttft_ms: Option<f64>,
 }
 
+/// Fine-grained purpose-tag breakdown of the same ledger `TokenByKind` groups
+/// by `kind`. `operation` is the free-form purpose tag threaded through
+/// `ModelUsageEvent.operation` (see docs/architecture/automation-model.md
+/// §2.5); `domain` is derived from it (see `operation_domain` in
+/// queries.rs) purely by string-splitting, not a lookup table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenByOperation {
+    pub operation: String,
+    pub domain: String,
+    pub call_count: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub estimated_cost_usd: f64,
+    pub avg_duration_ms: Option<f64>,
+    pub avg_ttft_ms: Option<f64>,
+}
+
+/// Coarse rollup of `TokenByOperation` rows by `domain`, used as the primary
+/// chart (operation cardinality is too high for a readable bar chart; domain
+/// isn't). Computed in-memory from the already-merged `by_operation` rows —
+/// no second SQL query. Kept as its own type (not a reuse of `TokenByKind`)
+/// so `domain`-shaped and `kind`-shaped values can never collide under one
+/// field name, mirroring how `LocalModelUsageRow` stays distinct from
+/// `TokenByModel` despite near-identical shape.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenByDomain {
+    pub domain: String,
+    pub call_count: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_input_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub estimated_cost_usd: f64,
+    pub avg_duration_ms: Option<f64>,
+    pub avg_ttft_ms: Option<f64>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DashboardTokenData {
     pub trend: Vec<TokenUsageTrend>,
     pub by_model: Vec<TokenByModel>,
     pub by_kind: Vec<TokenByKind>,
+    pub by_operation: Vec<TokenByOperation>,
+    pub by_domain: Vec<TokenByDomain>,
     pub total_cost_usd: f64,
 }
 

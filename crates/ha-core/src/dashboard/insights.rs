@@ -41,6 +41,7 @@ fn shift_filter_backward(filter: &DashboardFilter) -> Option<DashboardFilter> {
         provider_id: filter.provider_id.clone(),
         model_id: filter.model_id.clone(),
         usage_kind: filter.usage_kind.clone(),
+        operation: filter.operation.clone(),
     })
 }
 

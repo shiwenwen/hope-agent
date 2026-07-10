@@ -34,8 +34,8 @@ pub(super) async fn build_agent_from_snapshot(
     let mut agent = agent.with_failover_context(prov);
     agent.set_compact_config(compact_config.clone());
 
-    if let Some(ref model_ref) = compact_config.summarization_model {
-        if let Some(cp) = crate::agent::build_compaction_provider(model_ref, providers, session_id)
+    if let Some(model_ref) = compact_config.effective_summarization_model_ref() {
+        if let Some(cp) = crate::agent::build_compaction_provider(&model_ref, providers, session_id)
         {
             agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
         }
@@ -238,13 +238,27 @@ pub(super) fn schedule_memory_extraction_after_turn(
         session_id
     );
 
-    // Resolve provider/model for extraction
+    // Resolve provider/model for extraction: per-agent override (unchanged)
+    // → global `modelOverride` (new) → deprecated global pair → this turn's
+    // own model.
     let extract_provider_id = agent_mem
         .and_then(|m| m.extract_provider_id.clone())
+        .or_else(|| {
+            global_extract
+                .model_override
+                .as_ref()
+                .map(|m| m.provider_id.clone())
+        })
         .or_else(|| global_extract.extract_provider_id.clone())
         .unwrap_or_else(|| model_ref.provider_id.clone());
     let extract_model_id = agent_mem
         .and_then(|m| m.extract_model_id.clone())
+        .or_else(|| {
+            global_extract
+                .model_override
+                .as_ref()
+                .map(|m| m.model_id.clone())
+        })
         .or_else(|| global_extract.extract_model_id.clone())
         .unwrap_or_else(|| model_ref.model_id.clone());
 

@@ -17,7 +17,7 @@ pub mod types;
 
 pub use db::RecapDb;
 pub use renderer::render_html;
-pub use report::{build_analysis_agent, generate_report, RecapContext};
+pub use report::{generate_report, RecapContext};
 pub use types::{
     AiSection, FacetSummary, FrictionCounts, GenerateMode, Outcome, QuantitativeStats,
     RecapFilters, RecapProgress, RecapReport, RecapReportSummary, ReportMeta, SessionFacet,
