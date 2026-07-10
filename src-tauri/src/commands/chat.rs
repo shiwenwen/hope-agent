@@ -467,7 +467,7 @@ pub async fn chat(
                     let new_sid = new_sid.clone();
                     let prompt = raw_prompt.to_string();
                     db.run(move |db| {
-                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt)
+                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt, None)
                     })
                     .await
                 };
@@ -551,6 +551,7 @@ pub async fn chat(
         goal_trigger.unwrap_or(false),
         attachments_meta,
     );
+    let title_attachments_meta = user_msg.attachments_meta.clone();
     let _user_message_id = {
         let sid = sid.clone();
         let turn_id = turn_id.clone();
@@ -589,8 +590,15 @@ pub async fn chat(
     let _ = {
         let sid = sid.clone();
         let prompt = effective_prompt.clone();
-        db.run(move |db| session::ensure_first_message_title(db, &sid, &prompt))
-            .await
+        db.run(move |db| {
+            session::ensure_first_message_title(
+                db,
+                &sid,
+                &prompt,
+                title_attachments_meta.as_deref(),
+            )
+        })
+        .await
     };
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title

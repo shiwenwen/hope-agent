@@ -4919,6 +4919,10 @@ describe("WorkspacePanel workflow section", () => {
       completedAgents: 1,
       runningAgents: 0,
       failedAgents: 1,
+      terminalAgents: 2,
+      consumedResults: 2,
+      pendingResults: 0,
+      suppressedResults: 0,
       attributedAgents: 1,
       inputTokens: 100,
       outputTokens: 25,
@@ -4942,6 +4946,38 @@ describe("WorkspacePanel workflow section", () => {
     expect(
       screen.getByText("仅统计本工作流关联子代理用量；完整成本仍等待运行归因。"),
     ).toBeTruthy()
+  })
+
+  it("does not present a completed run as complete while owned agents are still running", async () => {
+    const run = workflowRun({ state: "completed" })
+    const snapshot = workflowSnapshot(run)
+    snapshot.agentUsage = {
+      spawnedAgents: 3,
+      completedAgents: 1,
+      runningAgents: 2,
+      failedAgents: 0,
+      terminalAgents: 1,
+      consumedResults: 1,
+      pendingResults: 0,
+      suppressedResults: 0,
+      attributedAgents: 1,
+      inputTokens: 10,
+      outputTokens: 5,
+      totalTokens: 15,
+      attribution: "workflow_ops.child_handle=subagent_runs.run_id",
+    }
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "list_workflow_runs") return Promise.resolve([run])
+      if (name === "get_workflow_run") return Promise.resolve(snapshot)
+      if (name === "get_execution_mode") return Promise.resolve({ mode: "guarded" })
+      if (name === "get_background_job") return Promise.resolve(null)
+      return Promise.resolve([])
+    })
+
+    renderPanel(null)
+
+    expect((await screen.findAllByText("等待子 Agent 1/3")).length).toBeGreaterThan(0)
+    expect(screen.queryByText("当前焦点：已完成")).toBeNull()
   })
 
   it("shows workflow window token usage without claiming provider-level cost", async () => {

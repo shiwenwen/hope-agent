@@ -228,7 +228,13 @@ fn preview_raw_call(
         | "workflow.evidence.record"
         | "workflow.block"
         | "workflow.now"
-        | "workflow.random" => calls.push(allow_call(
+        | "workflow.random"
+        | "workflow.agentStatus"
+        | "workflow.agentResult"
+        | "workflow.waitAny"
+        | "workflow.waitAll"
+        | "workflow.agentSteer"
+        | "workflow.cancelAgent" => calls.push(allow_call(
             raw.api,
             raw.line,
             None,
@@ -385,6 +391,12 @@ fn is_permission_neutral_api(api: &str) -> bool {
             | "workflow.block"
             | "workflow.now"
             | "workflow.random"
+            | "workflow.agentStatus"
+            | "workflow.agentResult"
+            | "workflow.waitAny"
+            | "workflow.waitAll"
+            | "workflow.agentSteer"
+            | "workflow.cancelAgent"
     )
 }
 
@@ -644,6 +656,12 @@ fn collect_raw_calls(script: &str) -> Vec<RawWorkflowCall> {
         ("workflow.now", "workflow.now("),
         ("workflow.random", "workflow.random("),
         ("workflow.spawnAgent", "workflow.spawnAgent("),
+        ("workflow.agentStatus", "workflow.agentStatus("),
+        ("workflow.agentResult", "workflow.agentResult("),
+        ("workflow.waitAny", "workflow.waitAny("),
+        ("workflow.waitAll", "workflow.waitAll("),
+        ("workflow.agentSteer", "workflow.agentSteer("),
+        ("workflow.cancelAgent", "workflow.cancelAgent("),
         ("workflow.askUser", "workflow.askUser("),
         ("workflow.diff", "workflow.diff("),
         ("workflow.trace", "workflow.trace("),

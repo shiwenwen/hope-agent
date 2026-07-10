@@ -102,9 +102,15 @@ static INJECTING_SESSIONS: std::sync::LazyLock<Mutex<HashSet<String>>> =
 pub static ACTIVE_CHAT_SESSIONS: std::sync::LazyLock<Mutex<HashMap<String, usize>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Per-session cancel flags for active injections.
-/// When the user starts a new chat() on a session, the injection cancel flag is set.
-pub static INJECTION_CANCELS: std::sync::LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> =
+/// Per-session active injection. Tracking the source run as well as its cancel
+/// flag lets an explicit result read suppress a queued or already-started
+/// duplicate injection without cancelling an unrelated source for the session.
+pub(crate) struct ActiveInjection {
+    pub(crate) run_id: String,
+    pub(crate) cancel: Arc<AtomicBool>,
+}
+
+pub(crate) static INJECTION_CANCELS: std::sync::LazyLock<Mutex<HashMap<String, ActiveInjection>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Run IDs whose results have been read by the parent agent via check/result tool actions.

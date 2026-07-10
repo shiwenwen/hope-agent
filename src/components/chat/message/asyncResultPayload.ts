@@ -36,6 +36,13 @@ function hasWorkflowResultEnvelope(content: string): boolean {
   return /^<workflow-result(?:\s|>)/.test(trimmed) && trimmed.includes("</workflow-result>")
 }
 
+function hasWorkflowCheckpointEnvelope(content: string): boolean {
+  const trimmed = content.trimStart()
+  return (
+    /^<workflow-checkpoint(?:\s|>)/.test(trimmed) && trimmed.includes("</workflow-checkpoint>")
+  )
+}
+
 export function parseToolJobPayload(
   content: string,
 ): { toolName?: string; status?: string; detail?: string } | null {
@@ -103,16 +110,19 @@ export function parseSubagentResultStatus(content: string): string {
 }
 
 export function parseWorkflowResultDetail(content: string): string | undefined {
+  if (hasWorkflowCheckpointEnvelope(content)) {
+    return decodeXmlishText(getXmlishElement(content, "summary"))
+  }
   if (!hasWorkflowResultEnvelope(content)) return undefined
   return (
     decodeXmlishText(getXmlishElement(content, "output-json")) ||
     decodeXmlishText(getXmlishElement(content, "error")) ||
-    decodeXmlishText(getXmlishElement(content, "blocked-reason")) ||
-    decodeXmlishText(getXmlishElement(content, "summary"))
+    decodeXmlishText(getXmlishElement(content, "blocked-reason"))
   )
 }
 
 export function parseWorkflowResultStatus(content: string): string {
+  if (hasWorkflowCheckpointEnvelope(content)) return "checkpoint"
   const status = hasWorkflowResultEnvelope(content)
     ? decodeXmlishText(getXmlishElement(content, "state"))
     : undefined

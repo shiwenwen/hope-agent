@@ -339,6 +339,13 @@ channel worker 有各自的取消、投递和后台恢复机制，不参与 GUI/
 stop 与 active-turn registry。后续如果要把这些入口纳入 turn 生命周期，必须先设计
 独立的取消隔离和前端呈现契约。
 
+### 后台结果回注与前台让行
+
+- Desktop / HTTP / IM / Cron 的前台回合在 `run_chat_engine` 入口持有 `ChatSessionGuard`。subagent、异步工具和 Workflow 阶段结果调用 `inject_and_run_parent` 时先等待该计数归零，因此不会把后台结果插进正在流式输出的用户回合。
+- 同一 session 只允许一个 parent injection；其他 source 进入 `PENDING_INJECTIONS` 串行队列。等待超时不会丢结果，而是继续排队，由前台 guard drop 后唤醒。
+- 用户新发消息会取消当前 injection model turn并重新排队；若 source 已被模型通过结果查询显式消费，`mark_run_fetched` 按 source run id 取消并抑制重试。Workflow checkpoint 另有 durable delivered/suppressed 事件，重启只补尚未 settled 的阶段结果。
+- 后台工具与 Workflow 脚本有各自 worker/队列，子 Agent 也运行在独立 child session；它们等待终态不会持有前台 `ChatSessionGuard`。因此“后台任务仍在运行”与“用户能否继续聊天”正交，唯一共享的是 provider/机器资源与有界并发配额。
+
 ## 统一 Turn Finalize（`chat_engine::finalize`）
 
 所有「非自然完成」的 turn 路径（用户停止 / 模型链失败 / 压缩失败 / 应用关闭 /

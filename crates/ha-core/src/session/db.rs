@@ -5382,9 +5382,13 @@ mod tests {
             crate::session_title::TITLE_SOURCE_MANUAL
         );
 
-        let fallback =
-            crate::session::ensure_first_message_title(&db, &created.id, "帮我分析这个 Rust 报错")
-                .expect("set first message title");
+        let fallback = crate::session::ensure_first_message_title(
+            &db,
+            &created.id,
+            "帮我分析这个 Rust 报错",
+            None,
+        )
+        .expect("set first message title");
         assert_eq!(fallback.as_deref(), Some("帮我分析这个 Rust 报错"));
 
         let first = db

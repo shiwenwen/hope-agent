@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -8,6 +8,7 @@ use crate::agent_loader::DEFAULT_AGENT_ID;
 use crate::subagent::{self, SpawnParams, SubagentStatus};
 
 pub(crate) const WORKFLOW_PREALLOCATED_RUN_ID_ARG: &str = "__hope_workflow_preallocated_run_id";
+pub(crate) const WORKFLOW_SKIP_PARENT_INJECTION_ARG: &str = "__hope_workflow_skip_parent_injection";
 
 /// Look up the dispatcher's verdict on the `subagent` Tier 3 tool for the
 /// given agent. Used by the runtime spawn gate (`tools::subagent`) and the
@@ -177,6 +178,76 @@ async fn resolve_subagent_timeout_secs(
     Some(effective_secs)
 }
 
+fn parse_subagent_files(args: &Value) -> Result<Vec<crate::agent::Attachment>> {
+    let Some(files) = args.get("files") else {
+        return Ok(Vec::new());
+    };
+    let files = files
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("'files' must be an array"))?;
+    let mut attachments = Vec::with_capacity(files.len());
+    for (index, file) in files.iter().enumerate() {
+        let name = file
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| anyhow::anyhow!("files[{index}].name is required"))?;
+        let content = file
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("files[{index}].content is required"))?;
+        let mime_type = file
+            .get("mime_type")
+            .or_else(|| file.get("mimeType"))
+            .and_then(Value::as_str)
+            .unwrap_or("text/plain");
+        let encoding = file
+            .get("encoding")
+            .and_then(Value::as_str)
+            .unwrap_or("utf8");
+
+        let attachment = match encoding {
+            "base64" => crate::agent::Attachment {
+                name: name.to_string(),
+                mime_type: mime_type.to_string(),
+                source: None,
+                data: Some(content.to_string()),
+                file_path: None,
+                quote_lines: None,
+            },
+            "utf8" => {
+                let tmp_dir = std::env::temp_dir().join("hope-agent_subagent_files");
+                std::fs::create_dir_all(&tmp_dir).with_context(|| {
+                    format!(
+                        "create sub-agent attachment directory {}",
+                        tmp_dir.display()
+                    )
+                })?;
+                let safe_name = name.replace(['/', '\\', ':'], "_");
+                let tmp_path = tmp_dir.join(format!("{}_{}", uuid::Uuid::new_v4(), safe_name));
+                std::fs::write(&tmp_path, content).with_context(|| {
+                    format!("write sub-agent attachment {}", tmp_path.display())
+                })?;
+                crate::agent::Attachment {
+                    name: name.to_string(),
+                    mime_type: mime_type.to_string(),
+                    source: None,
+                    data: None,
+                    file_path: Some(tmp_path.to_string_lossy().to_string()),
+                    quote_lines: None,
+                }
+            }
+            other => {
+                return Err(anyhow::anyhow!(
+                    "files[{index}].encoding must be 'utf8' or 'base64', got '{other}'"
+                ));
+            }
+        };
+        attachments.push(attachment);
+    }
+    Ok(attachments)
+}
+
 /// Core spawn logic shared by action_spawn and action_spawn_and_wait.
 /// Returns the run_id on success.
 async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -226,52 +297,12 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
                 .map_err(|_| anyhow::anyhow!("workflow preallocated run id must be a UUID"))
         })
         .transpose()?;
+    let skip_parent_injection = args
+        .get(WORKFLOW_SKIP_PARENT_INJECTION_ARG)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
-    // Parse file attachments
-    let attachments = if let Some(files) = args.get("files").and_then(|v| v.as_array()) {
-        files
-            .iter()
-            .filter_map(|f| {
-                let name = f.get("name").and_then(|v| v.as_str())?;
-                let content = f.get("content").and_then(|v| v.as_str())?;
-                let mime_type = f
-                    .get("mime_type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("text/plain");
-                let encoding = f.get("encoding").and_then(|v| v.as_str()).unwrap_or("utf8");
-
-                if encoding == "base64" {
-                    Some(crate::agent::Attachment {
-                        name: name.to_string(),
-                        mime_type: mime_type.to_string(),
-                        source: None,
-                        data: Some(content.to_string()),
-                        file_path: None,
-                        quote_lines: None,
-                    })
-                } else {
-                    // UTF-8 text: write to temp file so agent can read it
-                    let tmp_dir = std::env::temp_dir().join("hope-agent_subagent_files");
-                    let _ = std::fs::create_dir_all(&tmp_dir);
-                    let tmp_path = tmp_dir.join(format!("{}_{}", uuid::Uuid::new_v4(), name));
-                    if std::fs::write(&tmp_path, content).is_ok() {
-                        Some(crate::agent::Attachment {
-                            name: name.to_string(),
-                            mime_type: mime_type.to_string(),
-                            source: None,
-                            data: None,
-                            file_path: Some(tmp_path.to_string_lossy().to_string()),
-                            quote_lines: None,
-                        })
-                    } else {
-                        None
-                    }
-                }
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let attachments = parse_subagent_files(args)?;
 
     let session_db = get_session_db()?;
     let cancel_registry = get_cancel_registry()?;
@@ -290,7 +321,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         plan_agent_mode: None,
         plan_mode_allow_paths: Vec::new(),
         lock_plan_agent_mode: false,
-        skip_parent_injection: false,
+        skip_parent_injection,
         extra_system_context: None,
         skill_allowed_tools: Vec::new(),
         reasoning_effort: None,
@@ -322,6 +353,11 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 }
 
 async fn action_check(args: &Value) -> Result<String> {
+    if args.get("run_id").and_then(Value::as_str).is_none() && args.get("run_ids").is_some() {
+        return Err(anyhow::anyhow!(
+            "check accepts one 'run_id'; use action='wait_all' for 'run_ids'"
+        ));
+    }
     let run_id = args
         .get("run_id")
         .and_then(|v| v.as_str())
@@ -564,7 +600,9 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         label: Option<String>,
         timeout_secs: Option<u64>,
         model_override: Option<String>,
+        attachments: Vec<crate::agent::Attachment>,
     }
+    let shared_attachments = parse_subagent_files(args)?;
     let mut parsed: Vec<BatchTask> = Vec::with_capacity(tasks.len());
     for task_def in tasks {
         let task = task_def
@@ -589,6 +627,8 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             "tasks[].timeout_secs",
         )
         .await;
+        let mut attachments = shared_attachments.clone();
+        attachments.extend(parse_subagent_files(task_def)?);
         parsed.push(BatchTask {
             task: task.to_string(),
             agent_id: child_agent_id,
@@ -601,6 +641,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
                 .get("model")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
+            attachments,
         });
     }
 
@@ -629,7 +670,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
             model_override: bt.model_override,
             label: bt.label,
             isolate_worktree: true,
-            attachments: Vec::new(),
+            attachments: bt.attachments,
             plan_agent_mode: None,
             plan_mode_allow_paths: Vec::new(),
             lock_plan_agent_mode: false,
@@ -691,6 +732,20 @@ async fn action_wait_all(args: &Value) -> Result<String> {
         .and_then(|v| v.as_u64())
         .unwrap_or(120)
         .min(600);
+    let partial = args
+        .get("partial")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let result_mode = args
+        .get("result_mode")
+        .or_else(|| args.get("resultMode"))
+        .and_then(Value::as_str)
+        .unwrap_or("preview");
+    if !matches!(result_mode, "status" | "preview" | "summary" | "full") {
+        return Err(anyhow::anyhow!(
+            "'result_mode' must be status, preview, summary, or full"
+        ));
+    }
 
     let session_db = get_session_db()?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait_timeout);
@@ -699,6 +754,11 @@ async fn action_wait_all(args: &Value) -> Result<String> {
         .iter()
         .filter_map(|v| v.as_str().map(|s| s.to_string()))
         .collect();
+    if ids.len() != run_ids.len() || ids.is_empty() {
+        return Err(anyhow::anyhow!(
+            "'run_ids' must contain at least one non-empty string run id"
+        ));
+    }
 
     // Poll until all terminal or timeout
     loop {
@@ -715,7 +775,24 @@ async fn action_wait_all(args: &Value) -> Result<String> {
                 });
                 if run.status.is_terminal() {
                     if let Some(ref result) = run.result {
-                        item["result_preview"] = serde_json::Value::String(truncate(result, 200));
+                        match result_mode {
+                            "full" => {
+                                item["result"] = serde_json::Value::String(result.clone());
+                                item["result_preview"] =
+                                    serde_json::Value::String(truncate(result, 200));
+                            }
+                            "summary" => {
+                                item["result_summary"] =
+                                    serde_json::Value::String(truncate(result, 2000));
+                                item["result_preview"] =
+                                    serde_json::Value::String(truncate(result, 200));
+                            }
+                            "preview" => {
+                                item["result_preview"] =
+                                    serde_json::Value::String(truncate(result, 200));
+                            }
+                            _ => {}
+                        }
                     }
                     if let Some(ref error) = run.error {
                         item["error"] = serde_json::Value::String(error.clone());
@@ -723,8 +800,9 @@ async fn action_wait_all(args: &Value) -> Result<String> {
                     if let Some(ms) = run.duration_ms {
                         item["duration_ms"] = serde_json::Value::Number(ms.into());
                     }
-                    // Mark as fetched
-                    crate::subagent::mark_run_fetched(id);
+                    if result_mode != "status" {
+                        crate::subagent::mark_run_fetched(id);
+                    }
                 }
                 results.push(item);
             } else {
@@ -732,9 +810,30 @@ async fn action_wait_all(args: &Value) -> Result<String> {
             }
         }
 
-        if all_terminal || std::time::Instant::now() >= deadline {
+        let timed_out = !all_terminal && std::time::Instant::now() >= deadline;
+        if all_terminal || timed_out {
+            let completed = results
+                .iter()
+                .filter(|run| run.get("status").and_then(Value::as_str) == Some("completed"))
+                .count();
+            let failed = results
+                .iter()
+                .filter(|run| {
+                    matches!(
+                        run.get("status").and_then(Value::as_str),
+                        Some("error" | "timeout" | "killed" | "not_found")
+                    )
+                })
+                .count();
             return Ok(serde_json::to_string_pretty(&serde_json::json!({
                 "all_completed": all_terminal,
+                "timed_out": timed_out,
+                "partial": partial,
+                "accepted_partial": partial && timed_out,
+                "completed": completed,
+                "failed": failed,
+                "total": results.len(),
+                "result_mode": result_mode,
                 "runs": results,
             }))?);
         }
@@ -892,6 +991,41 @@ fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
 #[cfg(test)]
 mod delegation_gate_tests {
     use super::*;
+
+    #[test]
+    fn subagent_file_parser_supports_shared_and_task_specific_payloads() {
+        let shared = parse_subagent_files(&serde_json::json!({
+            "files": [{
+                "name": "shared.txt",
+                "content": "c2hhcmVk",
+                "encoding": "base64"
+            }]
+        }))
+        .expect("parse shared files");
+        let private = parse_subagent_files(&serde_json::json!({
+            "files": [{
+                "name": "private.txt",
+                "content": "cHJpdmF0ZQ==",
+                "encoding": "base64"
+            }]
+        }))
+        .expect("parse task files");
+        let mut combined = shared;
+        combined.extend(private);
+
+        assert_eq!(combined.len(), 2);
+        assert_eq!(combined[0].name, "shared.txt");
+        assert_eq!(combined[1].name, "private.txt");
+    }
+
+    #[test]
+    fn subagent_file_parser_rejects_malformed_entries() {
+        let err = parse_subagent_files(&serde_json::json!({
+            "files": [{"name": "missing-content.txt"}]
+        }))
+        .expect_err("missing content must fail");
+        assert!(err.to_string().contains("files[0].content"));
+    }
 
     #[test]
     fn delegation_fails_closed_when_parent_agent_cant_load() {

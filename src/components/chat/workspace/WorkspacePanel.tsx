@@ -49,6 +49,7 @@ import {
   MessageCircle,
   MessageSquare,
   Monitor,
+  Network,
   Pause,
   Pencil,
   Play,
@@ -11611,6 +11612,42 @@ function workflowRunTone(state: WorkflowRunState): StatusTone {
   }
 }
 
+function workflowRunDisplayState(
+  t: ReturnType<typeof useTranslation>["t"],
+  run: WorkflowRun,
+  snapshot: WorkflowRunSnapshot | null,
+): { label: string; tone: StatusTone; loading: boolean; kind: "run" | "children" | "results" } {
+  const usage = snapshot?.agentUsage
+  if (usage && usage.runningAgents > 0) {
+    return {
+      label: t("workspace.workflow.stateWaitingAgents", "等待子 Agent {{done}}/{{total}}", {
+        done: usage.terminalAgents,
+        total: usage.spawnedAgents,
+      }),
+      tone: "info",
+      loading: true,
+      kind: "children",
+    }
+  }
+  if (usage && usage.pendingResults > 0) {
+    return {
+      label: t("workspace.workflow.statePartialResults", "阶段结果 {{done}}/{{total}}", {
+        done: usage.terminalAgents,
+        total: usage.spawnedAgents,
+      }),
+      tone: "warn",
+      loading: false,
+      kind: "results",
+    }
+  }
+  return {
+    label: workflowRunStateLabel(t, run.state),
+    tone: workflowRunTone(run.state),
+    loading: run.state === "running" || run.state === "recovering",
+    kind: "run",
+  }
+}
+
 function workflowRunIsLive(state: WorkflowRunState): boolean {
   return (
     state === "running" || state === "awaiting_user" || state === "paused" || state === "recovering"
@@ -19851,6 +19888,7 @@ function WorkflowRunOverview({
     (event) => event.eventType === "run_derived_child_created",
   )
   const budget = workflowOutputBudget(run, snapshot?.events ?? [])
+  const displayState = workflowRunDisplayState(t, run, snapshot)
   const total = ops.length
   const progress =
     total > 0 ? Math.round((completed / total) * 100) : run.state === "completed" ? 100 : 0
@@ -19870,9 +19908,9 @@ function WorkflowRunOverview({
               {run.kind}
             </span>
             <StatusPill
-              label={workflowRunStateLabel(t, run.state)}
-              tone={workflowRunTone(run.state)}
-              loading={run.state === "running" || run.state === "recovering"}
+              label={displayState.label}
+              tone={displayState.tone}
+              loading={displayState.loading}
             />
           </div>
           <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
@@ -20319,6 +20357,8 @@ function WorkflowRunFocusCard({
   const failedOp = [...ops].reverse().find((op) => op.state === "failed") ?? validationFailureOp
   const focusOp = activeOp ?? pendingOp
   const permissionPreview = workflowPermissionPreview(snapshot)
+  const displayState = workflowRunDisplayState(t, run, snapshot)
+  const agentUsage = snapshot?.agentUsage
   const waitEvent = [...events]
     .reverse()
     .find((event) => event.eventType.includes("user") || event.eventType.includes("ask"))
@@ -20337,7 +20377,30 @@ function WorkflowRunFocusCard({
   let Icon: LucideIcon = Radio
   let targetTab: WorkflowDetailTab | null = null
 
-  if (run.state === "draft") {
+  if (displayState.kind === "children" && agentUsage) {
+    title = t("workspace.workflow.focusWaitingAgentsTitle", "当前焦点：等待子 Agent")
+    body = t(
+      "workspace.workflow.focusWaitingAgentsBody",
+      "已有 {{done}}/{{total}} 个子 Agent 结束，后台运行不会阻塞当前对话。",
+      {
+        done: agentUsage.terminalAgents,
+        total: agentUsage.spawnedAgents,
+      },
+    )
+    tone = "info"
+    Icon = Bot
+    targetTab = "agents"
+  } else if (displayState.kind === "results" && agentUsage) {
+    title = t("workspace.workflow.focusPartialResultsTitle", "当前焦点：处理阶段结果")
+    body = t(
+      "workspace.workflow.focusPartialResultsBody",
+      "{{pending}} 个子 Agent 结果等待模型读取或汇总。",
+      { pending: agentUsage.pendingResults },
+    )
+    tone = "warn"
+    Icon = Network
+    targetTab = "agents"
+  } else if (run.state === "draft") {
     title = t("workspace.workflow.focusDraftTitle", "当前焦点：草稿待启动")
     body = t("workspace.workflow.focusDraftBody", "脚本已保存，运行前仍会保留轨迹与审批记录。")
     Icon = Play
@@ -21429,7 +21492,13 @@ function workflowAgentStatusInfo(op: WorkflowOp): { status: string; tone: Status
   const tone: StatusTone =
     status === "completed" || status === "success"
       ? "good"
-      : status === "failed" || status === "cancelled" || op.state === "failed"
+      : status === "failed" ||
+          status === "error" ||
+          status === "timeout" ||
+          status === "killed" ||
+          status === "cancelled" ||
+          status === "not_found" ||
+          op.state === "failed"
         ? "danger"
         : status === "queued" ||
             status === "running" ||
@@ -21438,6 +21507,34 @@ function workflowAgentStatusInfo(op: WorkflowOp): { status: string; tone: Status
           ? "info"
           : "muted"
   return { status, tone }
+}
+
+function workflowAgentStatusLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  status: string,
+): string {
+  switch (status) {
+    case "queued":
+      return String(t("workspace.workflow.agentStateQueued", "排队中"))
+    case "spawning":
+    case "spawned":
+      return String(t("workspace.workflow.agentStateSpawning", "启动中"))
+    case "running":
+      return String(t("workspace.workflow.agentStateRunning", "运行中"))
+    case "completed":
+    case "success":
+      return String(t("workspace.workflow.agentStateCompleted", "已完成"))
+    case "timeout":
+      return String(t("workspace.workflow.agentStateTimeout", "已超时"))
+    case "killed":
+    case "cancelled":
+      return String(t("workspace.workflow.agentStateCancelled", "已取消"))
+    case "error":
+    case "failed":
+      return String(t("workspace.workflow.agentStateFailed", "失败"))
+    default:
+      return status
+  }
 }
 
 function WorkflowAgentsTab({
@@ -21497,7 +21594,7 @@ function WorkflowAgentsTab({
                     {label ?? runId ?? op.opKey}
                   </span>
                   <StatusPill
-                    label={status}
+                    label={workflowAgentStatusLabel(t, status)}
                     tone={tone}
                     loading={status === "running" || op.state === "started"}
                   />

@@ -1,5 +1,8 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use rusqlite::OptionalExtension;
+use serde_json::Value;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
 
 use super::types::SessionMeta;
 
@@ -27,23 +30,187 @@ pub fn auto_title(content: &str) -> String {
     }
 }
 
+fn user_attachment_entries(value: &Value) -> Vec<&Value> {
+    match value {
+        Value::Array(items) => items.iter().collect(),
+        Value::Object(map) => map
+            .get("user_attachments")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().collect())
+            .unwrap_or_else(|| vec![value]),
+        _ => Vec::new(),
+    }
+}
+
+fn safe_pasted_text_first_line(session_id: &str, attachment: &Value) -> Option<String> {
+    if attachment.get("source").and_then(Value::as_str)
+        != Some(crate::attachments::PASTED_TEXT_SOURCE)
+    {
+        return None;
+    }
+    let raw_path = attachment.get("path").and_then(Value::as_str)?;
+    let allowed_dir = crate::paths::attachments_dir(session_id)
+        .ok()?
+        .canonicalize()
+        .ok()?;
+    let path = Path::new(raw_path).canonicalize().ok()?;
+    if !path.starts_with(&allowed_dir) {
+        return None;
+    }
+
+    let reader = std::io::BufReader::new(std::fs::File::open(path).ok()?);
+    for line in reader.lines().take(16) {
+        let line = line.ok()?;
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+    None
+}
+
+/// Build a non-empty fallback title from the first user-visible input.
+///
+/// Large pasted text is persisted as an attachment and leaves the message body
+/// empty. In that case, prefer the first readable line from the persisted file,
+/// then fall back to the attachment name. The persisted path is only read after
+/// canonicalizing it beneath this session's attachment directory.
+pub fn first_message_title_candidate(
+    session_id: &str,
+    content: &str,
+    attachments_meta: Option<&str>,
+) -> Option<String> {
+    if !content.trim().is_empty() {
+        return Some(auto_title(content));
+    }
+
+    let parsed = attachments_meta.and_then(|raw| serde_json::from_str::<Value>(raw).ok())?;
+    let attachments = user_attachment_entries(&parsed);
+    for attachment in &attachments {
+        if let Some(first_line) = safe_pasted_text_first_line(session_id, attachment) {
+            return Some(auto_title(&first_line));
+        }
+    }
+    for attachment in attachments {
+        let Some(name) = attachment.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let stem = Path::new(name)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(name);
+        return Some(auto_title(stem));
+    }
+    None
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::first_message_title_candidate;
+
+    #[test]
+    fn title_candidate_uses_pasted_text_first_line_before_file_name() {
+        let session_id = format!("title-candidate-{}", uuid::Uuid::new_v4());
+        let dir = crate::paths::attachments_dir(&session_id).expect("attachment dir");
+        std::fs::create_dir_all(&dir).expect("create attachment dir");
+        let path = dir.join("long-paste.txt");
+        std::fs::write(&path, "\n这是粘贴内容的第一行\n第二行").expect("write pasted text");
+        let meta = serde_json::json!([{
+            "name": "long-paste.txt",
+            "path": path,
+            "source": crate::attachments::PASTED_TEXT_SOURCE,
+        }])
+        .to_string();
+
+        assert_eq!(
+            first_message_title_candidate(&session_id, "", Some(&meta)).as_deref(),
+            Some("这是粘贴内容的第一行")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn title_candidate_falls_back_to_nested_attachment_name() {
+        let meta = serde_json::json!({
+            "goal_trigger": true,
+            "user_attachments": [{
+                "name": "产品调研记录.txt",
+                "source": crate::attachments::PASTED_TEXT_SOURCE,
+            }]
+        })
+        .to_string();
+
+        assert_eq!(
+            first_message_title_candidate("missing-session", "", Some(&meta)).as_deref(),
+            Some("产品调研记录")
+        );
+        assert_eq!(
+            first_message_title_candidate("missing-session", "", None),
+            None
+        );
+    }
+}
+
 /// Set the immediate fallback title from the first user-visible message.
 /// Returns the title when a write happened.
 pub fn ensure_first_message_title(
     db: &super::SessionDB,
     session_id: &str,
     content: &str,
+    attachments_meta: Option<&str>,
 ) -> Result<Option<String>> {
-    if let Some(meta) = db.get_session(session_id)? {
-        if meta.title.is_none() && meta.message_count <= 1 {
-            let title = auto_title(content);
-            db.update_session_title_with_source(
-                session_id,
-                &title,
-                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
-            )?;
-            return Ok(Some(title));
+    let should_update = {
+        let conn = db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let Some((title, incognito, message_count)) = conn
+            .query_row(
+                "SELECT s.title, s.incognito,
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS message_count
+                   FROM sessions s
+                  WHERE s.id = ?1",
+                rusqlite::params![session_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, bool>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        !incognito && title.is_none() && message_count <= 1
+    };
+
+    if should_update {
+        let Some(title) = first_message_title_candidate(session_id, content, attachments_meta)
+        else {
+            return Ok(None);
+        };
+        db.update_session_title_with_source(
+            session_id,
+            &title,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+        )?;
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "session:title_updated",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "title": title,
+                }),
+            );
         }
+        return Ok(Some(title));
     }
     Ok(None)
 }

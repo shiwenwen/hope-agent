@@ -66,6 +66,7 @@ export function isCenteredSystemMessage(msg: Message): boolean {
     !!msg.isSubagentResult ||
     !!msg.isCronTrigger ||
     !!msg.isWakeupTrigger ||
+    !!msg.isLoopTrigger ||
     !!msg.isProcessNotification ||
     !!msg.isWorkflowResult ||
     !!msg.isPlanTrigger
@@ -74,6 +75,7 @@ export function isCenteredSystemMessage(msg: Message): boolean {
 
 /** True when a message should align and style like a human user bubble. */
 export function isUserAlignedMessage(msg: Message): boolean {
+  if (isCenteredSystemMessage(msg)) return false
   return msg.role === "user" || msg.slashEvent?.displayAs === "user"
 }
 
@@ -453,6 +455,7 @@ export function parseSessionMessages(
       let isCronTrigger = false
       let cronJobName: string | undefined
       let isWakeupTrigger = false
+      let isLoopTrigger = false
       let isProcessNotification = false
       let isWorkflowResult = false
       let isPlanTrigger = false
@@ -475,6 +478,9 @@ export function parseSessionMessages(
           }
           if (meta?.wakeup_trigger) {
             isWakeupTrigger = true
+          }
+          if (meta?.loop_trigger) {
+            isLoopTrigger = true
           }
           if (meta?.process_notification) {
             isProcessNotification = true
@@ -532,6 +538,7 @@ export function parseSessionMessages(
         isCronTrigger,
         cronJobName,
         isWakeupTrigger,
+        isLoopTrigger,
         isProcessNotification,
         isWorkflowResult,
         isPlanTrigger,
@@ -903,6 +910,7 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.slashEvent?.command === b.slashEvent?.command &&
     a.slashEvent?.mode === b.slashEvent?.mode &&
     a.isGoalTrigger === b.isGoalTrigger &&
+    a.isLoopTrigger === b.isLoopTrigger &&
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&

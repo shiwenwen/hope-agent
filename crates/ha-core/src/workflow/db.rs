@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 use crate::session::{MessageRole, SessionDB};
 
@@ -106,6 +107,8 @@ pub(crate) fn ensure_tables(conn: &Connection) -> Result<()> {
             ON workflow_ops(state);
         CREATE INDEX IF NOT EXISTS idx_workflow_events_run_seq
             ON workflow_events(run_id, seq);
+        CREATE INDEX IF NOT EXISTS idx_workflow_events_type_id
+            ON workflow_events(type, id);
 
         CREATE TABLE IF NOT EXISTS saved_workflow_templates (
             id TEXT PRIMARY KEY,
@@ -628,7 +631,8 @@ impl SessionDB {
         let Some(run) = self.get_workflow_run(run_id)? else {
             return Ok(None);
         };
-        let ops = self.list_workflow_ops(run_id)?;
+        let mut ops = self.list_workflow_ops(run_id)?;
+        self.hydrate_workflow_agent_ops(&mut ops)?;
         let events = self.list_workflow_events(run_id, event_limit)?;
         let agent_usage = self.workflow_agent_usage_snapshot(run_id)?;
         let usage = self.workflow_run_usage_snapshot(&run, &agent_usage)?;
@@ -641,6 +645,37 @@ impl SessionDB {
         }))
     }
 
+    fn hydrate_workflow_agent_ops(&self, ops: &mut [WorkflowOp]) -> Result<()> {
+        for op in ops {
+            if op.op_type != "spawnAgent" {
+                continue;
+            }
+            let Some(run_id) = op.child_handle.as_deref() else {
+                continue;
+            };
+            let Some(child) = self.get_subagent_run(run_id)? else {
+                continue;
+            };
+            let mut output = op.output.take().unwrap_or_else(|| json!({}));
+            if let Value::Object(ref mut map) = output {
+                map.insert("runId".to_string(), json!(child.run_id));
+                map.insert("run_id".to_string(), json!(child.run_id));
+                map.insert("sessionId".to_string(), json!(child.child_session_id));
+                map.insert("session_id".to_string(), json!(child.child_session_id));
+                map.insert("status".to_string(), json!(child.status.as_str()));
+                map.insert("resultAvailable".to_string(), json!(child.result.is_some()));
+                map.insert("durationMs".to_string(), json!(child.duration_ms));
+                map.insert("inputTokens".to_string(), json!(child.input_tokens));
+                map.insert("outputTokens".to_string(), json!(child.output_tokens));
+                if let Some(error) = child.error.as_deref() {
+                    map.insert("error".to_string(), json!(error));
+                }
+            }
+            op.output = Some(output);
+        }
+        Ok(())
+    }
+
     pub fn workflow_agent_usage_snapshot(
         &self,
         run_id: &str,
@@ -651,7 +686,11 @@ impl SessionDB {
                 COUNT(DISTINCT wo.child_handle),
                 COALESCE(SUM(CASE WHEN sr.status = 'completed' THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE WHEN sr.status IN ('queued','spawning','running') THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN sr.status IN ('error','timeout','killed') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE
+                    WHEN sr.run_id IS NULL THEN 1
+                    WHEN sr.status IN ('error','timeout','killed') THEN 1
+                    ELSE 0
+                END), 0),
                 COALESCE(SUM(CASE WHEN sr.input_tokens IS NOT NULL OR sr.output_tokens IS NOT NULL THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(sr.input_tokens), 0),
                 COALESCE(SUM(sr.output_tokens), 0)
@@ -670,6 +709,10 @@ impl SessionDB {
                     completed_agents: row.get(1)?,
                     running_agents: row.get(2)?,
                     failed_agents: row.get(3)?,
+                    terminal_agents: 0,
+                    consumed_results: 0,
+                    pending_results: 0,
+                    suppressed_results: 0,
                     attributed_agents: row.get(4)?,
                     input_tokens,
                     output_tokens,
@@ -678,6 +721,69 @@ impl SessionDB {
                 })
             },
         )?;
+        snapshot.terminal_agents = snapshot
+            .completed_agents
+            .saturating_add(snapshot.failed_agents);
+
+        let mut consumed = HashSet::new();
+        let mut suppressed = HashSet::new();
+        let mut stmt = conn.prepare(
+            "SELECT type, payload_json
+             FROM workflow_events
+             WHERE run_id = ?1
+               AND type IN ('workflow_agent_result_consumed','workflow_agent_result_suppressed')",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (event_type, payload_json) = row?;
+            let Ok(payload) = serde_json::from_str::<Value>(&payload_json) else {
+                continue;
+            };
+            let Some(ids) = payload.get("childRunIds").and_then(Value::as_array) else {
+                continue;
+            };
+            let target = if event_type == "workflow_agent_result_suppressed" {
+                &mut suppressed
+            } else {
+                &mut consumed
+            };
+            for id in ids.iter().filter_map(Value::as_str) {
+                target.insert(id.to_string());
+            }
+        }
+        let mut stmt = conn.prepare(
+            "SELECT op_type, output_json
+             FROM workflow_ops
+             WHERE run_id = ?1
+               AND state = 'completed'
+               AND op_type IN ('waitAll','agentResult','finish')
+               AND output_json IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (op_type, output_json) = row?;
+            let Ok(output) = serde_json::from_str::<Value>(&output_json) else {
+                continue;
+            };
+            if op_type == "waitAll"
+                && output
+                    .get("resultMode")
+                    .or_else(|| output.get("result_mode"))
+                    .and_then(Value::as_str)
+                    == Some("status")
+            {
+                continue;
+            }
+            collect_handled_workflow_agent_ids(&output, &mut consumed);
+        }
+        snapshot.consumed_results = consumed.len() as i64;
+        snapshot.suppressed_results = suppressed.len() as i64;
+        let handled_results = consumed.union(&suppressed).count() as i64;
+        snapshot.pending_results = snapshot.terminal_agents.saturating_sub(handled_results);
         if snapshot.spawned_agents == 0 {
             snapshot.attribution = "no_spawn_agent_ops".to_string();
         }
@@ -1294,6 +1400,155 @@ impl SessionDB {
         collect_rows(rows)
     }
 
+    pub fn list_workflow_ops_for_child(&self, child_handle: &str) -> Result<Vec<WorkflowOp>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, op_key, op_type, effect_class, input_hash, input_json,
+                    state, output_json, error_json, child_handle, started_at, completed_at
+             FROM workflow_ops
+             WHERE child_handle = ?1 AND op_type = 'spawnAgent'
+             ORDER BY started_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map(params![child_handle], row_to_op)?;
+        collect_rows(rows)
+    }
+
+    pub fn list_terminal_children_for_active_workflows(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<(String, crate::subagent::SubagentStatus)>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT wo.child_handle, sr.status
+             FROM workflow_ops wo
+             JOIN workflow_runs wr ON wr.id = wo.run_id
+             JOIN subagent_runs sr ON sr.run_id = wo.child_handle
+             WHERE wo.op_type = 'spawnAgent'
+               AND wo.child_handle IS NOT NULL
+               AND wo.child_handle != ''
+               AND wr.state IN ('running','recovering')
+               AND sr.status IN ('completed','error','timeout','killed')
+             ORDER BY wo.started_at ASC
+             LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit.clamp(1, 1000) as i64], |row| {
+            let run_id = row.get::<_, String>(0)?;
+            let status = crate::subagent::SubagentStatus::from_str(&row.get::<_, String>(1)?);
+            Ok((run_id, status))
+        })?;
+        collect_rows(rows)
+    }
+
+    pub fn workflow_agent_result_handled(&self, run_id: &str, child_run_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT payload_json
+             FROM workflow_events
+             WHERE run_id = ?1
+               AND type IN (
+                 'workflow_agent_result_consumed',
+                 'workflow_agent_result_suppressed'
+               )",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let Ok(payload) = serde_json::from_str::<Value>(&row?) else {
+                continue;
+            };
+            if payload
+                .get("childRunIds")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(child_run_id)))
+            {
+                return Ok(true);
+            }
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT op_type, output_json
+             FROM workflow_ops
+             WHERE run_id = ?1
+               AND state = 'completed'
+               AND op_type IN ('waitAll','agentResult','finish')
+               AND output_json IS NOT NULL",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (op_type, output_json) = row?;
+            let Ok(output) = serde_json::from_str::<Value>(&output_json) else {
+                continue;
+            };
+            if op_type == "waitAll"
+                && output
+                    .get("resultMode")
+                    .or_else(|| output.get("result_mode"))
+                    .and_then(Value::as_str)
+                    == Some("status")
+            {
+                continue;
+            }
+            let mut consumed = HashSet::new();
+            collect_handled_workflow_agent_ids(&output, &mut consumed);
+            if consumed.contains(child_run_id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    pub fn workflow_agent_checkpoint_injection_run_ids(
+        &self,
+        run_id: &str,
+        child_run_id: &str,
+    ) -> Result<Vec<String>> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT seq, payload_json
+             FROM workflow_events
+             WHERE run_id = ?1 AND type = 'workflow_checkpoint'
+             ORDER BY seq ASC",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut injection_run_ids = Vec::new();
+        for row in rows {
+            let (seq, payload_json) = row?;
+            let Ok(payload) = serde_json::from_str::<Value>(&payload_json) else {
+                continue;
+            };
+            if payload.get("childRunId").and_then(Value::as_str) == Some(child_run_id) {
+                injection_run_ids.push(format!("{run_id}:workflow-event:{seq}"));
+            }
+        }
+        Ok(injection_run_ids)
+    }
+
+    pub fn workflow_agent_terminal_event_exists(
+        &self,
+        run_id: &str,
+        child_run_id: &str,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT payload_json
+             FROM workflow_events
+             WHERE run_id = ?1 AND type = 'workflow_agent_terminal'",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
+        for row in rows {
+            let Ok(payload) = serde_json::from_str::<Value>(&row?) else {
+                continue;
+            };
+            if payload.get("childRunId").and_then(Value::as_str) == Some(child_run_id) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn started_op_recovery_action(
         &self,
         run_id: &str,
@@ -1402,7 +1657,7 @@ impl SessionDB {
         .map_err(Into::into)
     }
 
-    pub fn workflow_milestone_injection_delivered(
+    pub fn workflow_milestone_injection_settled(
         &self,
         run_id: &str,
         source_event_type: &str,
@@ -1413,7 +1668,11 @@ impl SessionDB {
             let mut stmt = conn.prepare(
                 "SELECT payload_json
                  FROM workflow_events
-                 WHERE run_id = ?1 AND type = 'workflow_milestone_injection_delivered'",
+                 WHERE run_id = ?1
+                   AND type IN (
+                     'workflow_milestone_injection_delivered',
+                     'workflow_milestone_injection_suppressed'
+                   )",
             )?;
             let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
             collect_rows(rows)?
@@ -1434,17 +1693,29 @@ impl SessionDB {
         limit: usize,
     ) -> Result<Vec<PendingWorkflowMilestoneInjection>> {
         let pending_limit = limit.clamp(1, 200);
-        let scan_limit = pending_limit.saturating_mul(20).clamp(20, 5000) as i64;
         let requested_events = {
             let conn = self.conn.lock().map_err(|e| anyhow!("Lock error: {}", e))?;
             let mut stmt = conn.prepare(
-                "SELECT id, run_id, seq, type, payload_json, created_at
-                 FROM workflow_events
-                 WHERE type = 'workflow_milestone_injection_requested'
-                 ORDER BY id ASC
+                "SELECT req.id, req.run_id, req.seq, req.type, req.payload_json, req.created_at
+                 FROM workflow_events req
+                 WHERE req.type = 'workflow_milestone_injection_requested'
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM workflow_events settled
+                     WHERE settled.run_id = req.run_id
+                       AND settled.type IN (
+                         'workflow_milestone_injection_delivered',
+                         'workflow_milestone_injection_suppressed'
+                       )
+                       AND json_extract(settled.payload_json, '$.sourceEventType') =
+                           json_extract(req.payload_json, '$.sourceEventType')
+                       AND json_extract(settled.payload_json, '$.sourceEventSeq') =
+                           json_extract(req.payload_json, '$.sourceEventSeq')
+                   )
+                 ORDER BY req.id ASC
                  LIMIT ?1",
             )?;
-            let rows = stmt.query_map(params![scan_limit], row_to_event)?;
+            let rows = stmt.query_map(params![pending_limit as i64], row_to_event)?;
             collect_rows(rows)?
         };
 
@@ -1465,7 +1736,7 @@ impl SessionDB {
             else {
                 continue;
             };
-            if self.workflow_milestone_injection_delivered(
+            if self.workflow_milestone_injection_settled(
                 &requested.run_id,
                 &source_event_type,
                 source_event_seq,
@@ -1600,6 +1871,42 @@ impl SessionDB {
             ));
         }
         Ok(())
+    }
+}
+
+fn collect_handled_workflow_agent_ids(value: &Value, target: &mut HashSet<String>) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                collect_handled_workflow_agent_ids(item, target);
+            }
+        }
+        Value::Object(map) => {
+            let terminal = map
+                .get("terminal")
+                .and_then(Value::as_bool)
+                .unwrap_or_else(|| {
+                    matches!(
+                        map.get("status").and_then(Value::as_str),
+                        Some("completed" | "error" | "timeout" | "killed" | "not_found")
+                    )
+                });
+            if terminal {
+                if let Some(run_id) = map
+                    .get("runId")
+                    .or_else(|| map.get("run_id"))
+                    .and_then(Value::as_str)
+                {
+                    target.insert(run_id.to_string());
+                }
+            }
+            for key in ["runs", "agentResults"] {
+                if let Some(nested) = map.get(key) {
+                    collect_handled_workflow_agent_ids(nested, target);
+                }
+            }
+        }
+        _ => {}
     }
 }
 

@@ -17,7 +17,9 @@ use super::{
     preview_workflow_script_for_session, recover_pending_workflow_runs, run_workflow_script,
     run_workflow_script_async,
     runtime::{
-        ask_user_tool_args, spawn_agent_tool_args, validation_exit_code, wait_all_tool_args,
+        ask_user_tool_args, ensure_workflow_owned_agent_run_ids,
+        recover_terminal_workflow_agent_checkpoints, spawn_agent_tool_args, validation_exit_code,
+        wait_all_output_consumes_results, wait_all_tool_args,
     },
     spawn_workflow_run_if_primary, CreateWorkflowRunFromTemplateInput, CreateWorkflowRunInput,
     ListSavedWorkflowTemplatesInput, SaveWorkflowTemplateInput, SavedWorkflowTemplateScope,
@@ -1040,6 +1042,42 @@ export default async function main(workflow) {
     assert!(preview.can_create);
     assert!(preview.requires_approval);
     assert!(!preview.has_denials);
+}
+
+#[test]
+fn workflow_preview_lists_agent_control_apis_as_permission_neutral() {
+    let (_dir, db) = temp_db();
+    let session = db.create_session("ha-main").expect("create session");
+    let script = r#"
+export default async function main(workflow) {
+  const child = { runId: "child-1" };
+  await workflow.agentStatus(child);
+  await workflow.agentResult(child, { mode: "summary" });
+  await workflow.waitAny([child], { min: 1, timeout: 0 });
+  await workflow.waitAll([child], { timeout: 0, partial: true });
+  await workflow.agentSteer(child, { message: "Focus on the evidence." });
+  await workflow.cancelAgent([child], { reason: "No longer needed." });
+  await workflow.finish({ ok: true });
+}
+"#;
+
+    let preview = preview_workflow_script_for_session(&db, &session.id, script, Some("guarded"));
+    for api in [
+        "workflow.agentStatus",
+        "workflow.agentResult",
+        "workflow.waitAny",
+        "workflow.waitAll",
+        "workflow.agentSteer",
+        "workflow.cancelAgent",
+    ] {
+        let call = preview
+            .permission
+            .calls
+            .iter()
+            .find(|call| call.api == api)
+            .unwrap_or_else(|| panic!("missing preview call for {api}"));
+        assert_eq!(call.decision, "allow");
+    }
 }
 
 #[test]
@@ -3301,7 +3339,9 @@ fn workflow_subagent_host_args_normalize_agent_and_handles() {
             { "runId": "sar_1" },
             { "run_id": "sar_2" }
         ],
-        "waitTimeout": 5
+        "waitTimeout": 5,
+        "partial": true,
+        "resultMode": "summary"
     }))
     .expect("normalize wait args");
     assert_eq!(
@@ -3309,7 +3349,9 @@ fn workflow_subagent_host_args_normalize_agent_and_handles() {
         json!({
             "action": "wait_all",
             "run_ids": ["sar_1", "sar_2"],
-            "wait_timeout": 5
+            "wait_timeout": 5,
+            "partial": true,
+            "result_mode": "summary"
         })
     );
 }
@@ -3656,15 +3698,38 @@ export default async function main(workflow) {
     })
     .expect("insert subagent run");
 
+    let completing_db = db.clone();
+    let completing_child = child_handle.clone();
+    let completion = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        completing_db
+            .update_subagent_status(
+                &completing_child,
+                SubagentStatus::Completed,
+                Some("review complete"),
+                None,
+                Some("mock"),
+                Some(50),
+            )
+            .expect("complete child");
+    });
+
     let result = run_workflow_script(db.clone(), &run_id).expect("recover workflow script");
+    completion.join().expect("completion thread");
     assert_eq!(result.snapshot.run.state, WorkflowRunState::Completed);
+    let output = result.output.as_ref().expect("workflow output");
+    assert_eq!(output.get("runId"), Some(&json!(child_handle)));
+    assert_eq!(output.get("status"), Some(&json!("running")));
+    assert_eq!(output.get("label"), Some(&json!("review")));
+    let agent_results = output
+        .get("agentResults")
+        .and_then(Value::as_array)
+        .expect("finish fallback agent results");
+    assert_eq!(agent_results.len(), 1);
+    assert_eq!(agent_results[0].get("status"), Some(&json!("completed")));
     assert_eq!(
-        result.output,
-        Some(json!({
-            "runId": child_handle,
-            "status": "running",
-            "label": "review"
-        }))
+        agent_results[0].get("result"),
+        Some(&json!("review complete"))
     );
 
     let spawn_op = result
@@ -3674,6 +3739,526 @@ export default async function main(workflow) {
         .find(|op| op.op_key == "main/op#1(spawnAgent)")
         .expect("spawn op");
     assert_eq!(spawn_op.state, WorkflowOpState::Completed);
+    assert_eq!(result.snapshot.agent_usage.running_agents, 0);
+    assert_eq!(result.snapshot.agent_usage.pending_results, 0);
+}
+
+#[test]
+fn runtime_queries_and_consumes_workflow_owned_agent_results() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const task = await workflow.task.create({ title: "Inspect with a child agent" });
+  const child = await workflow.spawnAgent({ task: "Inspect", agent: "ha-review", label: "inspect" });
+  const status = await workflow.agentStatus(child);
+  const ready = await workflow.waitAny([child], { min: 1, timeout: 0 });
+  const result = await workflow.agentResult(child, { mode: "full" });
+  await workflow.task.update({ task, status: "completed" });
+  await workflow.finish({
+    status: status.runs[0].status,
+    ready: ready.terminal,
+    result: result.result
+  });
+}
+"#;
+    let (session_id, run_id) = create_run_with_script(&db, script);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+    let child_handle = uuid::Uuid::new_v4().to_string();
+    let handle = json!({
+        "kind": "subagent",
+        "runId": child_handle.clone(),
+        "run_id": child_handle.clone(),
+        "status": "completed",
+        "label": "inspect",
+        "task": "Inspect"
+    });
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Inspect",
+                "agent_id": "ha-review",
+                "label": "inspect"
+            },
+            "label": "inspect"
+        }),
+        child_handle: Some(child_handle.clone()),
+    })
+    .expect("start spawn");
+    db.complete_workflow_op(&run_id, "main/op#1(spawnAgent)", handle)
+        .expect("complete spawn");
+    db.insert_subagent_run(&SubagentRun {
+        run_id: child_handle.clone(),
+        parent_session_id: session_id,
+        parent_agent_id: "ha-main".to_string(),
+        child_agent_id: "ha-review".to_string(),
+        child_session_id: "child-query".to_string(),
+        task: "Inspect".to_string(),
+        status: SubagentStatus::Completed,
+        result: Some("structured result".to_string()),
+        error: None,
+        depth: 1,
+        model_used: Some("mock".to_string()),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: Some(chrono::Utc::now().to_rfc3339()),
+        duration_ms: Some(10),
+        label: Some("inspect".to_string()),
+        attachment_count: 0,
+        input_tokens: Some(5),
+        output_tokens: Some(3),
+    })
+    .expect("insert child");
+    let checkpoint = db
+        .append_workflow_event(
+            &run_id,
+            "workflow_checkpoint",
+            json!({
+                "childRunId": child_handle.clone(),
+                "summary": "structured result",
+                "importance": "high",
+                "injectPolicy": "now"
+            }),
+        )
+        .expect("checkpoint");
+    db.append_workflow_event(
+        &run_id,
+        "workflow_milestone_injection_requested",
+        json!({
+            "sourceEventType": "workflow_checkpoint",
+            "sourceEventSeq": checkpoint.seq,
+            "injectionRunId": format!("{run_id}:workflow-event:{}", checkpoint.seq)
+        }),
+    )
+    .expect("request checkpoint injection");
+
+    let result = run_workflow_script(db.clone(), &run_id).expect("run workflow");
+    let output = result.output.as_ref().expect("output");
+    assert_eq!(output.get("status"), Some(&json!("completed")));
+    assert_eq!(output.get("ready"), Some(&json!(1)));
+    assert_eq!(output.get("result"), Some(&json!("structured result")));
+    assert_eq!(result.snapshot.agent_usage.consumed_results, 1);
+    assert_eq!(result.snapshot.agent_usage.pending_results, 0);
+    assert!(result.snapshot.events.iter().any(|event| {
+        event.event_type == "workflow_agent_result_consumed"
+            && event.payload["childRunIds"] == json!([child_handle])
+    }));
+    assert!(result.snapshot.events.iter().any(|event| {
+        event.event_type == "workflow_milestone_injection_suppressed"
+            && event.payload["sourceEventSeq"] == json!(checkpoint.seq)
+    }));
+    assert!(db
+        .list_pending_workflow_milestone_injections(10)
+        .expect("pending milestone injections")
+        .is_empty());
+}
+
+#[test]
+fn workflow_child_checkpoint_injection_is_suppressed_after_explicit_consumption() {
+    let (_dir, db_raw) = temp_db();
+    let db = Arc::new(db_raw);
+    let script = r#"
+export default async function main(workflow) {
+  const child = await workflow.spawnAgent({
+    task: "Inspect",
+    agent: "ha-review",
+    label: "inspect",
+    injectPolicy: "checkpoint"
+  });
+  const result = await workflow.agentResult(child, { mode: "summary" });
+  await workflow.finish({ result: result.result });
+}
+"#;
+    let (session_id, run_id) = create_run_with_script(&db, script);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+    let child_run_id = uuid::Uuid::new_v4().to_string();
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#0(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Inspect",
+                "agent_id": "ha-review",
+                "label": "inspect"
+            },
+            "label": "inspect",
+            "injectPolicy": "checkpoint"
+        }),
+        child_handle: Some(child_run_id.clone()),
+    })
+    .expect("start spawn");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#0(spawnAgent)",
+        json!({
+            "kind": "subagent",
+            "runId": child_run_id.clone(),
+            "status": "running",
+            "label": "inspect"
+        }),
+    )
+    .expect("complete spawn");
+    db.insert_subagent_run(&SubagentRun {
+        run_id: child_run_id.clone(),
+        parent_session_id: session_id,
+        parent_agent_id: "ha-main".to_string(),
+        child_agent_id: "ha-review".to_string(),
+        child_session_id: "child-checkpoint".to_string(),
+        task: "Inspect".to_string(),
+        status: SubagentStatus::Running,
+        result: None,
+        error: None,
+        depth: 1,
+        model_used: None,
+        started_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: None,
+        duration_ms: None,
+        label: Some("inspect".to_string()),
+        attachment_count: 0,
+        input_tokens: None,
+        output_tokens: None,
+    })
+    .expect("insert child");
+    db.append_workflow_event(
+        &run_id,
+        "workflow_agent_result_consumed",
+        json!({
+            "api": "agentResult",
+            "childRunIds": [child_run_id.clone()]
+        }),
+    )
+    .expect("record explicit consumption");
+
+    db.update_subagent_status(
+        &child_run_id,
+        SubagentStatus::Completed,
+        Some("already read"),
+        None,
+        Some("mock"),
+        Some(5),
+    )
+    .expect("complete child");
+
+    let events = db
+        .list_workflow_events(&run_id, 100)
+        .expect("workflow events");
+    assert!(events
+        .iter()
+        .any(|event| event.event_type == "workflow_agent_terminal"));
+    assert!(
+        events
+            .iter()
+            .any(|event| event.event_type == "workflow_agent_result_suppressed"),
+        "event types: {:?}",
+        events
+            .iter()
+            .map(|event| event.event_type.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(!events
+        .iter()
+        .any(|event| event.event_type == "workflow_checkpoint"));
+}
+
+#[test]
+fn startup_reconciliation_restores_a_missing_terminal_child_checkpoint_once() {
+    let (_dir, db) = temp_db();
+    let (session_id, run_id) = create_run(&db);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run");
+    let child_run_id = uuid::Uuid::new_v4().to_string();
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#0(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({
+            "args": {
+                "action": "spawn",
+                "task": "Inspect",
+                "agent_id": "ha-review",
+                "label": "inspect"
+            },
+            "label": "inspect",
+            "injectPolicy": "checkpoint"
+        }),
+        child_handle: Some(child_run_id.clone()),
+    })
+    .expect("start spawn");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#0(spawnAgent)",
+        json!({ "runId": child_run_id.clone(), "status": "completed" }),
+    )
+    .expect("complete spawn");
+    db.insert_subagent_run(&SubagentRun {
+        run_id: child_run_id.clone(),
+        parent_session_id: session_id,
+        parent_agent_id: "ha-main".to_string(),
+        child_agent_id: "ha-review".to_string(),
+        child_session_id: "child-recovery".to_string(),
+        task: "Inspect".to_string(),
+        status: SubagentStatus::Completed,
+        result: Some("recovered result".to_string()),
+        error: None,
+        depth: 1,
+        model_used: Some("mock".to_string()),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: Some(chrono::Utc::now().to_rfc3339()),
+        duration_ms: Some(10),
+        label: Some("inspect".to_string()),
+        attachment_count: 0,
+        input_tokens: Some(2),
+        output_tokens: Some(3),
+    })
+    .expect("insert child");
+    db.append_workflow_event(
+        &run_id,
+        "workflow_agent_terminal",
+        json!({
+            "childRunId": child_run_id,
+            "status": "completed",
+            "injectPolicy": "checkpoint"
+        }),
+    )
+    .expect("simulate terminal event before crash");
+
+    assert_eq!(
+        recover_terminal_workflow_agent_checkpoints(&db).expect("first reconciliation"),
+        1
+    );
+    assert_eq!(
+        recover_terminal_workflow_agent_checkpoints(&db).expect("second reconciliation"),
+        1
+    );
+    let events = db
+        .list_workflow_events(&run_id, 100)
+        .expect("workflow events");
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| event.event_type == "workflow_checkpoint")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn workflow_agent_control_rejects_handles_owned_by_another_workflow() {
+    let (_dir, db) = temp_db();
+    let (_session_id, owner_run_id) = create_run(&db);
+    let (_other_session_id, other_run_id) = create_run(&db);
+    db.transition_workflow_run(&owner_run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run owner workflow");
+    let child_run_id = uuid::Uuid::new_v4().to_string();
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: owner_run_id.clone(),
+        op_key: "main/op#0(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({ "args": { "task": "Inspect" } }),
+        child_handle: Some(child_run_id.clone()),
+    })
+    .expect("start owner spawn op");
+
+    ensure_workflow_owned_agent_run_ids(
+        &db,
+        &owner_run_id,
+        std::slice::from_ref(&child_run_id),
+        "workflow.agentStatus",
+    )
+    .expect("owner may inspect its child");
+    let error = ensure_workflow_owned_agent_run_ids(
+        &db,
+        &other_run_id,
+        std::slice::from_ref(&child_run_id),
+        "workflow.cancelAgent",
+    )
+    .expect_err("foreign workflow must not control the child");
+    assert!(error
+        .to_string()
+        .contains("only accepts child agents owned by workflow"));
+}
+
+#[test]
+fn wait_all_status_mode_does_not_consume_agent_results() {
+    assert!(!wait_all_output_consumes_results(&json!({
+        "resultMode": "status",
+        "runs": [{ "runId": "child-1", "status": "completed" }]
+    })));
+    assert!(wait_all_output_consumes_results(&json!({
+        "result_mode": "summary",
+        "runs": [{ "run_id": "child-1", "result_summary": "done" }]
+    })));
+}
+
+#[test]
+fn workflow_snapshot_keeps_status_only_wait_all_results_pending() {
+    let (_dir, db) = temp_db();
+    let (session_id, run_id) = create_run(&db);
+    db.transition_workflow_run(&run_id, WorkflowRunState::Running, Some("test"))
+        .expect("run workflow");
+    let child_run_id = uuid::Uuid::new_v4().to_string();
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#0(spawnAgent)".to_string(),
+        op_type: "spawnAgent".to_string(),
+        effect_class: WorkflowEffectClass::NonIdempotent,
+        input: json!({ "args": { "task": "Inspect" } }),
+        child_handle: Some(child_run_id.clone()),
+    })
+    .expect("start spawn op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#0(spawnAgent)",
+        json!({ "runId": child_run_id.clone(), "status": "running" }),
+    )
+    .expect("complete spawn op");
+    db.insert_subagent_run(&SubagentRun {
+        run_id: child_run_id.clone(),
+        parent_session_id: session_id,
+        parent_agent_id: "ha-main".to_string(),
+        child_agent_id: "ha-review".to_string(),
+        child_session_id: "child-status-only".to_string(),
+        task: "Inspect".to_string(),
+        status: SubagentStatus::Completed,
+        result: None,
+        error: None,
+        depth: 1,
+        model_used: Some("mock".to_string()),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        finished_at: Some(chrono::Utc::now().to_rfc3339()),
+        duration_ms: Some(10),
+        label: Some("inspect".to_string()),
+        attachment_count: 0,
+        input_tokens: Some(5),
+        output_tokens: Some(3),
+    })
+    .expect("insert failed child");
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#1(waitAll)".to_string(),
+        op_type: "waitAll".to_string(),
+        effect_class: WorkflowEffectClass::Pure,
+        input: json!({ "handles": [{ "runId": child_run_id.clone() }] }),
+        child_handle: None,
+    })
+    .expect("start waitAll op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#1(waitAll)",
+        json!({
+            "resultMode": "status",
+            "runs": [{
+                "runId": child_run_id,
+                "status": "completed"
+            }]
+        }),
+    )
+    .expect("complete status waitAll op");
+
+    let usage = db
+        .workflow_agent_usage_snapshot(&run_id)
+        .expect("workflow agent usage");
+    assert_eq!(usage.terminal_agents, 1);
+    assert_eq!(usage.consumed_results, 0);
+    assert_eq!(usage.pending_results, 1);
+    assert!(!db
+        .workflow_agent_result_handled(&run_id, &child_run_id)
+        .expect("status-only result remains unhandled"));
+
+    db.upsert_workflow_op_started(UpsertWorkflowOpInput {
+        run_id: run_id.clone(),
+        op_key: "main/op#2(agentResult)".to_string(),
+        op_type: "agentResult".to_string(),
+        effect_class: WorkflowEffectClass::Pure,
+        input: json!({ "handles": [{ "runId": child_run_id.clone() }] }),
+        child_handle: None,
+    })
+    .expect("start agentResult op");
+    db.complete_workflow_op(
+        &run_id,
+        "main/op#2(agentResult)",
+        json!({
+            "runId": child_run_id.clone(),
+            "status": "completed",
+            "terminal": true
+        }),
+    )
+    .expect("complete agentResult op");
+    assert!(db
+        .workflow_agent_result_handled(&run_id, &child_run_id)
+        .expect("durable agentResult output implies consumption"));
+    let usage = db
+        .workflow_agent_usage_snapshot(&run_id)
+        .expect("updated workflow agent usage");
+    assert_eq!(usage.consumed_results, 1);
+    assert_eq!(usage.pending_results, 0);
+}
+
+#[test]
+fn pending_milestone_recovery_is_not_hidden_by_settled_history() {
+    let (_dir, db) = temp_db();
+    let (_session_id, run_id) = create_run(&db);
+    for index in 0..20 {
+        let source = db
+            .append_workflow_event(
+                &run_id,
+                "workflow_checkpoint",
+                json!({ "summary": format!("settled {index}") }),
+            )
+            .expect("append settled source");
+        db.append_workflow_event(
+            &run_id,
+            "workflow_milestone_injection_requested",
+            json!({
+                "sourceEventType": "workflow_checkpoint",
+                "sourceEventSeq": source.seq
+            }),
+        )
+        .expect("request settled injection");
+        db.append_workflow_event(
+            &run_id,
+            "workflow_milestone_injection_delivered",
+            json!({
+                "sourceEventType": "workflow_checkpoint",
+                "sourceEventSeq": source.seq
+            }),
+        )
+        .expect("settle injection");
+    }
+
+    let pending_source = db
+        .append_workflow_event(
+            &run_id,
+            "workflow_checkpoint",
+            json!({ "summary": "still pending" }),
+        )
+        .expect("append pending source");
+    db.append_workflow_event(
+        &run_id,
+        "workflow_milestone_injection_requested",
+        json!({
+            "sourceEventType": "workflow_checkpoint",
+            "sourceEventSeq": pending_source.seq
+        }),
+    )
+    .expect("request pending injection");
+
+    let pending = db
+        .list_pending_workflow_milestone_injections(1)
+        .expect("list pending injections");
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].source_event_seq, pending_source.seq);
 }
 
 #[test]

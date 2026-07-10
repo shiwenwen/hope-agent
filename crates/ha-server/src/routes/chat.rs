@@ -686,6 +686,7 @@ pub async fn chat(
         body.goal_trigger.unwrap_or(false),
         attachments_meta,
     );
+    let title_attachments_meta = user_msg.attachments_meta.clone();
     let (_user_message_id, _turn) = {
         let sid = sid.clone();
         let turn_id = turn_id.clone();
@@ -701,7 +702,12 @@ pub async fn chat(
             )?;
 
             // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
-            let _ = session::ensure_first_message_title(db, &sid, &effective_prompt);
+            let _ = session::ensure_first_message_title(
+                db,
+                &sid,
+                &effective_prompt,
+                title_attachments_meta.as_deref(),
+            );
             Ok((user_message_id, turn))
         })
         .await?

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::helpers::{emit_parent_stream_event, truncate_str, CleanupGuard};
 use super::types::{ParentAgentStreamEvent, SubagentStatus};
 use super::{
-    ACTIVE_CHAT_SESSIONS, FETCHED_RUN_IDS, INJECTING_SESSIONS, INJECTION_CANCELS,
+    ActiveInjection, ACTIVE_CHAT_SESSIONS, FETCHED_RUN_IDS, INJECTING_SESSIONS, INJECTION_CANCELS,
     PENDING_INJECTIONS, SESSION_IDLE_NOTIFY,
 };
 
@@ -438,7 +438,13 @@ pub(crate) async fn inject_and_run_parent(
     // 2. Register cancel flag — user's chat() will set this to abort the injection
     let cancel = Arc::new(AtomicBool::new(false));
     if let Ok(mut map) = INJECTION_CANCELS.lock() {
-        map.insert(parent_session_id.clone(), cancel.clone());
+        map.insert(
+            parent_session_id.clone(),
+            ActiveInjection {
+                run_id: run_id.clone(),
+                cancel: cancel.clone(),
+            },
+        );
     }
     // Ensure cancel flag is cleaned up on all exit paths
     let cancel_cleanup_sid = parent_session_id.clone();
@@ -707,7 +713,24 @@ pub(crate) async fn inject_and_run_parent(
     // not re-queue (would duplicate the sub-agent completion in the parent
     // conversation).
     let was_cancelled = !succeeded && cancel.load(Ordering::SeqCst);
-    if was_cancelled {
+    let fetched_while_active = FETCHED_RUN_IDS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .contains(&run_id);
+    if was_cancelled && fetched_while_active {
+        if let Some(cb) = on_injected.as_ref() {
+            cb();
+        }
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "done".into(),
+            parent_session_id,
+            run_id,
+            push_message: None,
+            delta: None,
+            error: None,
+        });
+        InjectionOutcome::Injected
+    } else if was_cancelled {
         // Re-queue for retry after the user's chat completes, carrying
         // on_injected so the eventual landing still marks the source done.
         let requeued = match PENDING_INJECTIONS.lock() {

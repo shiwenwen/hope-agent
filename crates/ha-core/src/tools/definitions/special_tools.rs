@@ -53,6 +53,15 @@ pub fn get_subagent_tool() -> ToolDefinition {
                     "type": "integer",
                     "description": "For check with wait=true: max seconds to wait (default 60, max 300)"
                 },
+                "partial": {
+                    "type": "boolean",
+                    "description": "For wait_all: whether a timeout may return completed child results as an accepted partial result. Defaults to false."
+                },
+                "result_mode": {
+                    "type": "string",
+                    "enum": ["status", "preview", "summary", "full"],
+                    "description": "For wait_all: how much terminal child output to return. Defaults to preview for the generic subagent tool."
+                },
                 "model": {
                     "type": "string",
                     "description": "Model override: 'provider_id/model_id'"
@@ -67,7 +76,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "tasks": {
                     "type": "array",
-                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?}]",
+                    "description": "For batch_spawn: array of task objects [{task, agent_id?, label?, timeout_secs?, model?, files?}]. Top-level files are shared by every task; task-level files are private to that child.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -80,7 +89,21 @@ pub fn get_subagent_tool() -> ToolDefinition {
                                 "maximum": 1800,
                                 "description": "Optional timeout in seconds for this child task. Omit by default to use the parent Agent's configured default. 0 = no timeout. Use a positive value only for an explicitly bounded child task."
                             },
-                            "model": { "type": "string" }
+                            "model": { "type": "string" },
+                            "files": {
+                                "type": "array",
+                                "description": "Attachments only for this child task; merged after top-level shared files.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": { "type": "string" },
+                                        "content": { "type": "string" },
+                                        "mime_type": { "type": "string" },
+                                        "encoding": { "type": "string", "enum": ["utf8", "base64"] }
+                                    },
+                                    "required": ["name", "content"]
+                                }
+                            }
                         },
                         "required": ["task"]
                     }
@@ -92,7 +115,7 @@ pub fn get_subagent_tool() -> ToolDefinition {
                 },
                 "files": {
                     "type": "array",
-                    "description": "For spawn: file attachments to pass to the sub-agent",
+                    "description": "For spawn: attachments for the child. For batch_spawn: shared attachments passed to every child.",
                     "items": {
                         "type": "object",
                         "properties": {

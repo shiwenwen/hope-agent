@@ -55,6 +55,30 @@ describe("workflow result parsing", () => {
     expect(parseWorkflowResultDetail(content)).toContain("<ok> & done")
   })
 
+  test("does not expose internal workflow summary prompts as user detail", () => {
+    const content = [
+      "<workflow-result>",
+      "<state>completed</state>",
+      "<summary>Workflow run completed. Use the output to answer the user.</summary>",
+      "</workflow-result>",
+    ].join("\n")
+
+    expect(parseWorkflowResultStatus(content)).toBe("completed")
+    expect(parseWorkflowResultDetail(content)).toBeUndefined()
+  })
+
+  test("recognizes workflow checkpoints as stage results with expandable summaries", () => {
+    const content = `<workflow-checkpoint>
+  <state>running</state>
+  <summary>Risk review completed; metrics review is still running.</summary>
+</workflow-checkpoint>`
+
+    expect(parseWorkflowResultStatus(content)).toBe("checkpoint")
+    expect(parseWorkflowResultDetail(content)).toBe(
+      "Risk review completed; metrics review is still running.",
+    )
+  })
+
   test("maps blocked workflow results to failed tone", () => {
     const content = [
       "<workflow-result>",

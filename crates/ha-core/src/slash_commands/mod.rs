@@ -258,6 +258,12 @@ pub fn append_slash_history_events(
         .to_string(),
     );
     ids.push(session_db.append_message(session_id, &command_msg)?);
+    let _ = crate::session::ensure_first_message_title(
+        session_db,
+        session_id,
+        &command_display.content,
+        None,
+    );
 
     if let Some(result_content) = result_content.filter(|s| !s.trim().is_empty()) {
         let mut result_msg = crate::session::NewMessage::event(result_content).with_source(source);
@@ -620,6 +626,19 @@ mod tests {
     use super::*;
     use crate::skills::{SkillDisplay, SkillEntry, SkillRequires, SkillStatus};
 
+    fn load_session_title(
+        db: &crate::session::SessionDB,
+        session_id: &str,
+    ) -> (Option<String>, String) {
+        let conn = db.conn.lock().expect("lock db");
+        conn.query_row(
+            "SELECT title, title_source FROM sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, String>(1)?)),
+        )
+        .expect("load session title")
+    }
+
     fn mk_skill(name: &str) -> SkillEntry {
         SkillEntry {
             name: name.to_string(),
@@ -718,6 +737,12 @@ mod tests {
             .as_deref()
             .expect("result meta")
             .contains("\"kind\":\"result\""));
+        let (title, title_source) = load_session_title(&db, &meta.id);
+        assert_eq!(title.as_deref(), Some("/status"));
+        assert_eq!(
+            title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
     }
 
     #[test]
@@ -785,12 +810,14 @@ mod tests {
         let messages = db.load_session_messages(&meta.id).expect("messages");
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].content, "every 10m: check release notes");
-        let meta = messages[0]
+        let command_meta = messages[0]
             .attachments_meta
             .as_deref()
             .expect("command meta");
-        assert!(meta.contains("\"displayAs\":\"user\""));
-        assert!(meta.contains("\"mode\":\"loop\""));
+        assert!(command_meta.contains("\"displayAs\":\"user\""));
+        assert!(command_meta.contains("\"mode\":\"loop\""));
+        let (title, _) = load_session_title(&db, &meta.id);
+        assert_eq!(title.as_deref(), Some("every 10m: check release notes"));
     }
 
     #[test]

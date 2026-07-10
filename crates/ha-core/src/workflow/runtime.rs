@@ -167,7 +167,30 @@ fn spawn_pending_workflow_milestone_injection_recovery(db: Arc<SessionDB>) {
                 "workflow milestone injection recovery failed: {err:#}"
             ),
         }
+        match recover_terminal_workflow_agent_checkpoints(&db) {
+            Ok(recovered) if recovered > 0 => crate::app_info!(
+                "workflow",
+                "agent_checkpoint_recovery",
+                "reconciled {} terminal workflow-owned child agent(s)",
+                recovered
+            ),
+            Ok(_) => {}
+            Err(err) => crate::app_warn!(
+                "workflow",
+                "agent_checkpoint_recovery",
+                "workflow child checkpoint recovery failed: {err:#}"
+            ),
+        }
     });
+}
+
+pub(crate) fn recover_terminal_workflow_agent_checkpoints(db: &SessionDB) -> Result<usize> {
+    let children = db.list_terminal_children_for_active_workflows(1000)?;
+    let recovered = children.len();
+    for (child_run_id, status) in children {
+        on_workflow_child_status_changed(db, &child_run_id, status);
+    }
+    Ok(recovered)
 }
 
 fn recover_pending_workflow_milestone_injections(db: Arc<SessionDB>) -> Result<usize> {
@@ -177,7 +200,7 @@ fn recover_pending_workflow_milestone_injections(db: Arc<SessionDB>) -> Result<u
     let mut recovered = 0;
     for item in pending {
         if db
-            .workflow_milestone_injection_delivered(
+            .workflow_milestone_injection_settled(
                 &item.run_id,
                 &item.source_event_type,
                 item.source_event_seq,
@@ -521,6 +544,130 @@ fn maybe_spawn_workflow_milestone_injection(
     spawn_workflow_milestone_injection(db, run_id, event_type, event_seq, payload, true);
 }
 
+pub(crate) fn on_workflow_child_status_changed(
+    db: &SessionDB,
+    child_run_id: &str,
+    status: crate::subagent::SubagentStatus,
+) {
+    let owners = match db.list_workflow_ops_for_child(child_run_id) {
+        Ok(owners) => owners,
+        Err(err) => {
+            crate::app_warn!(
+                "workflow",
+                "agent_status",
+                "failed to resolve workflow owner for child {}: {err:#}",
+                child_run_id
+            );
+            return;
+        }
+    };
+    if owners.is_empty() {
+        return;
+    }
+
+    for op in owners {
+        let child = db.get_subagent_run(child_run_id).ok().flatten();
+        let inject_policy = op
+            .input
+            .get("injectPolicy")
+            .and_then(Value::as_str)
+            .unwrap_or("none");
+        let result_mode = op
+            .input
+            .get("resultMode")
+            .and_then(Value::as_str)
+            .unwrap_or("summary");
+        let display_label = child
+            .as_ref()
+            .and_then(|run| run.label.as_deref())
+            .or_else(|| op.input.get("label").and_then(Value::as_str));
+        let terminal_event_exists = status.is_terminal()
+            && db
+                .workflow_agent_terminal_event_exists(&op.run_id, child_run_id)
+                .unwrap_or(false);
+        let result_handled = status.is_terminal()
+            && db
+                .workflow_agent_result_handled(&op.run_id, child_run_id)
+                .unwrap_or(false);
+        let checkpoint_exists = status.is_terminal()
+            && db
+                .workflow_agent_checkpoint_injection_run_ids(&op.run_id, child_run_id)
+                .is_ok_and(|ids| !ids.is_empty());
+        if terminal_event_exists
+            && (inject_policy != "checkpoint" || result_handled || checkpoint_exists)
+        {
+            continue;
+        }
+        let event_type = if status.is_terminal() {
+            "workflow_agent_terminal"
+        } else {
+            "workflow_agent_status_changed"
+        };
+        if !terminal_event_exists {
+            let _ = db.append_workflow_event(
+                &op.run_id,
+                event_type,
+                json!({
+                    "childRunId": child_run_id,
+                    "status": status.as_str(),
+                    "label": display_label,
+                    "injectPolicy": inject_policy,
+                    "resultMode": result_mode,
+                    "resultAvailable": child.as_ref().is_some_and(|run| run.result.is_some()),
+                }),
+            );
+        }
+
+        if !status.is_terminal() || inject_policy != "checkpoint" {
+            continue;
+        }
+        if result_handled {
+            let _ = db.append_workflow_event(
+                &op.run_id,
+                "workflow_agent_result_suppressed",
+                json!({
+                    "childRunIds": [child_run_id],
+                    "reason": "already_consumed_before_checkpoint_injection",
+                }),
+            );
+            continue;
+        }
+
+        let summary = child
+            .as_ref()
+            .and_then(|run| run.result.as_deref().or(run.error.as_deref()))
+            .map(|value| truncate_chars(value, 2000))
+            .unwrap_or_default();
+        let checkpoint_payload = json!({
+            "title": display_label,
+            "summary": summary,
+            "importance": "high",
+            "injectPolicy": "now",
+            "childRunId": child_run_id,
+            "agentLabel": display_label,
+            "agentStatus": status.as_str(),
+            "fullResultAvailable": child.as_ref().is_some_and(|run| run.result.is_some()),
+            "nextActionCode": "inspect_or_adjust_agents",
+        });
+        let Ok(event) = db.append_workflow_event(
+            &op.run_id,
+            "workflow_checkpoint",
+            checkpoint_payload.clone(),
+        ) else {
+            continue;
+        };
+        if let Some(global_db) = crate::get_session_db() {
+            maybe_spawn_workflow_milestone_injection(
+                global_db.clone(),
+                &op.run_id,
+                "workflow_checkpoint",
+                event.seq,
+                &checkpoint_payload,
+            );
+        }
+    }
+}
+
 fn spawn_workflow_milestone_injection(
     db: Arc<SessionDB>,
     run_id: &str,
@@ -542,6 +689,32 @@ fn spawn_workflow_milestone_injection(
             return;
         }
     };
+    let injection_run_id = format!("{}:workflow-event:{}", run.id, event_seq);
+    if let Some(child_run_id) = payload.get("childRunId").and_then(Value::as_str) {
+        if db
+            .workflow_agent_result_handled(&run.id, child_run_id)
+            .unwrap_or(false)
+        {
+            crate::subagent::mark_run_fetched(&injection_run_id);
+            if !db
+                .workflow_milestone_injection_settled(&run.id, event_type, event_seq)
+                .unwrap_or(false)
+            {
+                let _ = db.append_workflow_event(
+                    &run.id,
+                    "workflow_milestone_injection_suppressed",
+                    json!({
+                        "sourceEventType": event_type,
+                        "sourceEventSeq": event_seq,
+                        "injectionRunId": injection_run_id,
+                        "childRunId": child_run_id,
+                        "reason": "agent_result_already_consumed",
+                    }),
+                );
+            }
+            return;
+        }
+    }
 
     let agent_origin = run
         .origin
@@ -569,7 +742,6 @@ fn spawn_workflow_milestone_injection(
     }
 
     let push_message = build_workflow_milestone_push_message(&run, event_type, event_seq, payload);
-    let injection_run_id = format!("{}:workflow-event:{}", run.id, event_seq);
     if record_requested {
         let _ = db.append_workflow_event(
             &run.id,
@@ -590,7 +762,39 @@ fn spawn_workflow_milestone_injection(
     let delivered_run_id = run.id.clone();
     let delivered_event_type = event_type.to_string();
     let delivered_injection_run_id = injection_run_id.clone();
+    let delivered_child_run_id = payload
+        .get("childRunId")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
     let on_injected: crate::subagent::injection::OnInjected = Arc::new(move || {
+        if let Some(child_run_id) = delivered_child_run_id.as_deref() {
+            if delivered_db
+                .workflow_agent_result_handled(&delivered_run_id, child_run_id)
+                .unwrap_or(false)
+            {
+                if !delivered_db
+                    .workflow_milestone_injection_settled(
+                        &delivered_run_id,
+                        &delivered_event_type,
+                        event_seq,
+                    )
+                    .unwrap_or(false)
+                {
+                    let _ = delivered_db.append_workflow_event(
+                        &delivered_run_id,
+                        "workflow_milestone_injection_suppressed",
+                        json!({
+                            "sourceEventType": delivered_event_type,
+                            "sourceEventSeq": event_seq,
+                            "injectionRunId": delivered_injection_run_id,
+                            "childRunId": child_run_id,
+                            "reason": "agent_result_consumed_while_injection_pending",
+                        }),
+                    );
+                }
+                return;
+            }
+        }
         let _ = delivered_db.append_workflow_event(
             &delivered_run_id,
             "workflow_milestone_injection_delivered",
@@ -600,6 +804,17 @@ fn spawn_workflow_milestone_injection(
                 "injectionRunId": delivered_injection_run_id,
             }),
         );
+        if let Some(child_run_id) = delivered_child_run_id.as_deref() {
+            let _ = delivered_db.append_workflow_event(
+                &delivered_run_id,
+                "workflow_agent_result_consumed",
+                json!({
+                    "api": "checkpoint_injection",
+                    "childRunIds": [child_run_id],
+                }),
+            );
+            crate::subagent::mark_run_fetched(child_run_id);
+        }
     });
 
     std::thread::spawn(move || {
@@ -1187,6 +1402,106 @@ fn build_workflow_object<'js>(
                   options: Opt<JsValue<'js>>|
                   -> rquickjs::Result<JsValue<'js>> {
                 wait_all_host_call(&ctx, &wait_all_host, handles, options)
+            },
+        )),
+    )?;
+
+    let wait_any_host = host.clone();
+    workflow.set(
+        "waitAny",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>,
+                  handles: JsValue<'js>,
+                  options: Opt<JsValue<'js>>|
+                  -> rquickjs::Result<JsValue<'js>> {
+                agent_handles_host_call(
+                    &ctx,
+                    &wait_any_host,
+                    handles,
+                    options,
+                    "workflow.waitAny",
+                    WorkflowRuntimeHost::wait_any,
+                )
+            },
+        )),
+    )?;
+
+    let agent_status_host = host.clone();
+    workflow.set(
+        "agentStatus",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>,
+                  handles: JsValue<'js>,
+                  options: Opt<JsValue<'js>>|
+                  -> rquickjs::Result<JsValue<'js>> {
+                agent_handles_host_call(
+                    &ctx,
+                    &agent_status_host,
+                    handles,
+                    options,
+                    "workflow.agentStatus",
+                    WorkflowRuntimeHost::agent_status,
+                )
+            },
+        )),
+    )?;
+
+    let agent_result_host = host.clone();
+    workflow.set(
+        "agentResult",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>,
+                  handle: JsValue<'js>,
+                  options: Opt<JsValue<'js>>|
+                  -> rquickjs::Result<JsValue<'js>> {
+                agent_handles_host_call(
+                    &ctx,
+                    &agent_result_host,
+                    handle,
+                    options,
+                    "workflow.agentResult",
+                    WorkflowRuntimeHost::agent_result,
+                )
+            },
+        )),
+    )?;
+
+    let agent_steer_host = host.clone();
+    workflow.set(
+        "agentSteer",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>,
+                  handle: JsValue<'js>,
+                  options: Opt<JsValue<'js>>|
+                  -> rquickjs::Result<JsValue<'js>> {
+                agent_handles_host_call(
+                    &ctx,
+                    &agent_steer_host,
+                    handle,
+                    options,
+                    "workflow.agentSteer",
+                    WorkflowRuntimeHost::agent_steer,
+                )
+            },
+        )),
+    )?;
+
+    let cancel_agent_host = host.clone();
+    workflow.set(
+        "cancelAgent",
+        Func::from(MutFn::from(
+            move |ctx: Ctx<'js>,
+                  handles: JsValue<'js>,
+                  options: Opt<JsValue<'js>>|
+                  -> rquickjs::Result<JsValue<'js>> {
+                agent_handles_host_call(
+                    &ctx,
+                    &cancel_agent_host,
+                    handles,
+                    options,
+                    "workflow.cancelAgent",
+                    WorkflowRuntimeHost::cancel_agent,
+                )
             },
         )),
     )?;
@@ -1780,17 +2095,36 @@ fn wait_all_host_call<'js>(
     handles: JsValue<'js>,
     options: Opt<JsValue<'js>>,
 ) -> rquickjs::Result<JsValue<'js>> {
+    return agent_handles_host_call(
+        ctx,
+        host,
+        handles,
+        options,
+        "workflow.waitAll",
+        WorkflowRuntimeHost::wait_all,
+    );
+}
+
+fn agent_handles_host_call<'js>(
+    ctx: &Ctx<'js>,
+    host: &Rc<RefCell<WorkflowRuntimeHost>>,
+    handles: JsValue<'js>,
+    options: Opt<JsValue<'js>>,
+    api: &str,
+    f: fn(&mut WorkflowRuntimeHost, Value) -> Result<Value>,
+) -> rquickjs::Result<JsValue<'js>> {
     let handles = js_to_json(ctx, handles)?;
     let options = options
         .0
         .filter(|value| !value.is_undefined() && !value.is_null())
         .map(|value| js_to_json(ctx, value))
         .transpose()?;
-    let args = wait_all_args_from_values(handles, options).map_err(|err| js_error(ctx, err))?;
+    let args =
+        agent_handles_args_from_values(api, handles, options).map_err(|err| js_error(ctx, err))?;
     let output = host
         .try_borrow_mut()
         .map_err(|_| Exception::throw_message(ctx, "workflow host API called recursively"))?
-        .call(args, WorkflowRuntimeHost::wait_all)
+        .call(args, f)
         .map_err(|err| js_error(ctx, err))?;
     json_to_js(ctx.clone(), output)
 }
@@ -2158,10 +2492,38 @@ impl WorkflowRuntimeHost {
         let tool_args = spawn_agent_tool_args(&args)?;
         let label = optional_string(&args, "label");
         let task = optional_string(&args, "task");
-        let input = json!({
+        let requested_inject_policy = optional_string(&args, "injectPolicy")
+            .or_else(|| optional_string(&args, "inject_policy"));
+        let inject_policy = requested_inject_policy
+            .clone()
+            .unwrap_or_else(|| "none".to_string());
+        if !matches!(inject_policy.as_str(), "none" | "checkpoint" | "final") {
+            return Err(anyhow!(
+                "workflow.spawnAgent injectPolicy must be none, checkpoint, or final"
+            ));
+        }
+        let requested_result_mode =
+            optional_string(&args, "resultMode").or_else(|| optional_string(&args, "result_mode"));
+        let result_mode = requested_result_mode
+            .clone()
+            .unwrap_or_else(|| "summary".to_string());
+        if !matches!(result_mode.as_str(), "summary" | "full") {
+            return Err(anyhow!(
+                "workflow.spawnAgent resultMode must be summary or full"
+            ));
+        }
+        let mut input = json!({
             "args": tool_args.clone(),
             "label": label.clone(),
         });
+        if let Value::Object(ref mut map) = input {
+            if let Some(policy) = requested_inject_policy {
+                map.insert("injectPolicy".to_string(), Value::String(policy));
+            }
+            if let Some(mode) = requested_result_mode {
+                map.insert("resultMode".to_string(), Value::String(mode));
+            }
+        }
         let child_handle = uuid::Uuid::new_v4().to_string();
         self.execute_op_with_child_handle(
             "spawnAgent",
@@ -2169,7 +2531,13 @@ impl WorkflowRuntimeHost {
             input,
             child_handle,
             |host, child_handle| {
-                host.recover_spawn_agent_child(child_handle, label.as_deref(), task.as_deref())
+                host.recover_spawn_agent_child(
+                    child_handle,
+                    label.as_deref(),
+                    task.as_deref(),
+                    &inject_policy,
+                    &result_mode,
+                )
             },
             |host, child_handle| {
                 host.ensure_output_token_budget("spawnAgent")?;
@@ -2189,11 +2557,16 @@ impl WorkflowRuntimeHost {
                         child_handle
                     ));
                 }
-                Ok(subagent_handle(
-                    &run_id,
+                let run = host
+                    .db
+                    .get_subagent_run(&run_id)?
+                    .ok_or_else(|| anyhow!("workflow.spawnAgent run {run_id} was not persisted"))?;
+                Ok(subagent_run_handle(
+                    &run,
                     label.as_deref(),
                     task.as_deref(),
-                    &parsed,
+                    &inject_policy,
+                    &result_mode,
                 ))
             },
         )
@@ -2204,14 +2577,24 @@ impl WorkflowRuntimeHost {
         child_handle: &str,
         label: Option<&str>,
         task: Option<&str>,
+        inject_policy: &str,
+        result_mode: &str,
     ) -> Result<Option<Value>> {
         let Some(run) = self.db.get_subagent_run(child_handle)? else {
             return Ok(None);
         };
-        Ok(Some(subagent_run_handle(&run, label, task)))
+        Ok(Some(subagent_run_handle(
+            &run,
+            label,
+            task,
+            inject_policy,
+            result_mode,
+        )))
     }
 
     fn wait_all(&mut self, args: Value) -> Result<Value> {
+        let run_ids = workflow_agent_run_ids(&args, "workflow.waitAll")?;
+        ensure_workflow_owned_agent_run_ids(&self.db, &self.run_id, &run_ids, "workflow.waitAll")?;
         let tool_args = wait_all_tool_args(&args)?;
         let input = compact_input(args);
         let executed =
@@ -2224,7 +2607,273 @@ impl WorkflowRuntimeHost {
         if !executed.replayed {
             self.record_output_token_budget_usage("waitAll")?;
         }
+        self.record_consumed_agent_results("waitAll", &executed.output)?;
         Ok(executed.output)
+    }
+
+    fn wait_any(&mut self, args: Value) -> Result<Value> {
+        let run_ids = workflow_agent_run_ids(&args, "workflow.waitAny")?;
+        ensure_workflow_owned_agent_run_ids(&self.db, &self.run_id, &run_ids, "workflow.waitAny")?;
+        let min = optional_u64_any(&args, &["min"])
+            .unwrap_or(1)
+            .clamp(1, run_ids.len() as u64) as usize;
+        let timeout_secs = optional_u64_any(&args, &["timeout", "waitTimeout", "wait_timeout"])
+            .unwrap_or(120)
+            .min(600);
+        let input = compact_input(args);
+        self.execute_op("waitAny", WorkflowEffectClass::Pure, input, |host| {
+            let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+            loop {
+                let mut snapshot = workflow_agent_status_snapshot(&host.db, &run_ids)?;
+                let terminal = snapshot
+                    .get("terminal")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0) as usize;
+                if terminal >= min || timeout_secs == 0 || Instant::now() >= deadline {
+                    if let Value::Object(ref mut map) = snapshot {
+                        map.insert("min".to_string(), json!(min));
+                        map.insert("timedOut".to_string(), json!(terminal < min));
+                    }
+                    return Ok(snapshot);
+                }
+                let state = host
+                    .db
+                    .get_workflow_run(&host.run_id)?
+                    .map(|run| run.state)
+                    .unwrap_or(WorkflowRunState::Cancelled);
+                if matches!(
+                    state,
+                    WorkflowRunState::Cancelled
+                        | WorkflowRunState::Paused
+                        | WorkflowRunState::Blocked
+                ) {
+                    return Err(anyhow!(
+                        "workflow.waitAny stopped because run state is {}",
+                        state.as_str()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        })
+    }
+
+    fn agent_status(&mut self, args: Value) -> Result<Value> {
+        let run_ids = workflow_agent_run_ids(&args, "workflow.agentStatus")?;
+        ensure_workflow_owned_agent_run_ids(
+            &self.db,
+            &self.run_id,
+            &run_ids,
+            "workflow.agentStatus",
+        )?;
+        let input = compact_input(args);
+        self.execute_op("agentStatus", WorkflowEffectClass::Pure, input, |host| {
+            workflow_agent_status_snapshot(&host.db, &run_ids)
+        })
+    }
+
+    fn agent_result(&mut self, args: Value) -> Result<Value> {
+        let run_ids = workflow_agent_run_ids(&args, "workflow.agentResult")?;
+        if run_ids.len() != 1 {
+            return Err(anyhow!(
+                "workflow.agentResult requires exactly one child handle"
+            ));
+        }
+        let run_id = run_ids[0].clone();
+        ensure_workflow_owned_agent_run_ids(
+            &self.db,
+            &self.run_id,
+            &run_ids,
+            "workflow.agentResult",
+        )?;
+        let mode = optional_string(&args, "mode")
+            .or_else(|| optional_string(&args, "resultMode"))
+            .or_else(|| optional_string(&args, "result_mode"))
+            .unwrap_or_else(|| "summary".to_string());
+        if !matches!(mode.as_str(), "summary" | "full") {
+            return Err(anyhow!("workflow.agentResult mode must be summary or full"));
+        }
+        let input = compact_input(args);
+        let executed =
+            self.execute_op_tracked("agentResult", WorkflowEffectClass::Pure, input, |host| {
+                host.ensure_output_token_budget("agentResult")?;
+                let run = host
+                    .db
+                    .get_subagent_run(&run_id)?
+                    .ok_or_else(|| anyhow!("sub-agent run {run_id} not found"))?;
+                let mut output = workflow_agent_run_status(&run);
+                if let Value::Object(ref mut map) = output {
+                    map.insert("mode".to_string(), Value::String(mode.clone()));
+                    if let Some(result) = run.result.as_deref() {
+                        let result = if mode == "full" {
+                            result.to_string()
+                        } else {
+                            truncate_chars(result, 2000)
+                        };
+                        map.insert("result".to_string(), Value::String(result));
+                    }
+                }
+                Ok(output)
+            })?;
+        if !executed.replayed {
+            self.record_output_token_budget_usage("agentResult")?;
+        }
+        self.record_consumed_agent_results("agentResult", &executed.output)?;
+        Ok(executed.output)
+    }
+
+    fn agent_steer(&mut self, args: Value) -> Result<Value> {
+        let run_ids = workflow_agent_run_ids(&args, "workflow.agentSteer")?;
+        if run_ids.len() != 1 {
+            return Err(anyhow!(
+                "workflow.agentSteer requires exactly one child handle"
+            ));
+        }
+        let message = required_string(&args, "message")?;
+        let run_id = run_ids[0].clone();
+        ensure_workflow_owned_agent_run_ids(
+            &self.db,
+            &self.run_id,
+            &run_ids,
+            "workflow.agentSteer",
+        )?;
+        let input = compact_input(args);
+        self.execute_op(
+            "agentSteer",
+            WorkflowEffectClass::NonIdempotent,
+            input,
+            |host| {
+                let output = host.dispatch_tool(
+                    tools::TOOL_SUBAGENT,
+                    &json!({
+                        "action": "steer",
+                        "run_id": run_id,
+                        "message": message,
+                    }),
+                )?;
+                parse_tool_json_output(&output, "workflow.agentSteer")
+            },
+        )
+    }
+
+    fn cancel_agent(&mut self, args: Value) -> Result<Value> {
+        let run_ids = workflow_agent_run_ids(&args, "workflow.cancelAgent")?;
+        ensure_workflow_owned_agent_run_ids(
+            &self.db,
+            &self.run_id,
+            &run_ids,
+            "workflow.cancelAgent",
+        )?;
+        let reason = optional_string(&args, "reason");
+        let input = compact_input(args);
+        self.execute_op(
+            "cancelAgent",
+            WorkflowEffectClass::Idempotent,
+            input,
+            |host| {
+                let mut results = Vec::with_capacity(run_ids.len());
+                for run_id in &run_ids {
+                    let output = host.dispatch_tool(
+                        tools::TOOL_SUBAGENT,
+                        &json!({
+                            "action": "kill",
+                            "run_id": run_id,
+                        }),
+                    );
+                    match output {
+                        Ok(output) => results.push(
+                            parse_tool_json_output(&output, "workflow.cancelAgent").unwrap_or_else(
+                                |_| json!({ "runId": run_id, "status": "cancelled" }),
+                            ),
+                        ),
+                        Err(err) => results.push(json!({
+                            "runId": run_id,
+                            "status": "error",
+                            "error": err.to_string(),
+                        })),
+                    }
+                }
+                let _ = host.db.append_workflow_event(
+                    &host.run_id,
+                    "workflow_agent_cancel_requested",
+                    json!({
+                        "childRunIds": run_ids,
+                        "reason": reason,
+                        "results": results,
+                    }),
+                )?;
+                Ok(json!({ "results": results }))
+            },
+        )
+    }
+
+    fn record_consumed_agent_results(&self, api: &str, output: &Value) -> Result<()> {
+        if api == "waitAll" && !wait_all_output_consumes_results(output) {
+            return Ok(());
+        }
+        let mut run_ids = consumed_agent_result_ids(output);
+        if matches!(api, "waitAll" | "agentResult" | "finish") {
+            for run_id in terminal_agent_result_ids(output) {
+                if !run_ids.iter().any(|existing| existing == &run_id) {
+                    run_ids.push(run_id);
+                }
+            }
+        }
+        let mut fresh_run_ids = Vec::with_capacity(run_ids.len());
+        for run_id in run_ids {
+            if !self
+                .db
+                .workflow_agent_result_handled(&self.run_id, &run_id)?
+            {
+                fresh_run_ids.push(run_id);
+            }
+        }
+        let run_ids = fresh_run_ids;
+        if run_ids.is_empty() {
+            return Ok(());
+        }
+        let _ = self.db.append_workflow_event(
+            &self.run_id,
+            "workflow_agent_result_consumed",
+            json!({
+                "api": api,
+                "childRunIds": run_ids,
+            }),
+        )?;
+        for run_id in &run_ids {
+            crate::subagent::mark_run_fetched(run_id);
+            for injection_run_id in self
+                .db
+                .workflow_agent_checkpoint_injection_run_ids(&self.run_id, run_id)?
+            {
+                crate::subagent::mark_run_fetched(&injection_run_id);
+                let source_event_seq = injection_run_id
+                    .rsplit(':')
+                    .next()
+                    .and_then(|value| value.parse::<i64>().ok());
+                let Some(source_event_seq) = source_event_seq else {
+                    continue;
+                };
+                if self.db.workflow_milestone_injection_settled(
+                    &self.run_id,
+                    "workflow_checkpoint",
+                    source_event_seq,
+                )? {
+                    continue;
+                }
+                let _ = self.db.append_workflow_event(
+                    &self.run_id,
+                    "workflow_milestone_injection_suppressed",
+                    json!({
+                        "sourceEventType": "workflow_checkpoint",
+                        "sourceEventSeq": source_event_seq,
+                        "injectionRunId": injection_run_id,
+                        "childRunId": run_id,
+                        "reason": "explicit_agent_result_consumption",
+                    }),
+                )?;
+            }
+        }
+        Ok(())
     }
 
     fn ensure_output_token_budget(&self, api: &str) -> Result<()> {
@@ -2978,11 +3627,92 @@ impl WorkflowRuntimeHost {
     }
 
     fn finish(&mut self, args: Value) -> Result<Value> {
-        let output_arg = args.clone();
-        let input = compact_input(args);
-        let output = self.execute_op("finish", WorkflowEffectClass::Pure, input, |_host| {
-            Ok(output_arg)
-        })?;
+        let mut agent_usage = self.db.workflow_agent_usage_snapshot(&self.run_id)?;
+        if agent_usage.running_agents > 0 {
+            let _ = self.db.append_workflow_event(
+                &self.run_id,
+                "workflow_finish_waiting_children",
+                json!({
+                    "spawnedAgents": agent_usage.spawned_agents,
+                    "runningAgents": agent_usage.running_agents,
+                }),
+            )?;
+            let run = self
+                .db
+                .get_workflow_run(&self.run_id)?
+                .ok_or_else(|| anyhow!("workflow run {} not found", self.run_id))?;
+            let wait_secs = optional_u64_any(
+                &run.budget,
+                &[
+                    "maxRuntimeSecs",
+                    "max_runtime_secs",
+                    "maxScriptSecs",
+                    "max_script_secs",
+                ],
+            )
+            .unwrap_or(600)
+            .clamp(1, 1800);
+            let deadline = Instant::now() + Duration::from_secs(wait_secs);
+            while agent_usage.running_agents > 0 && Instant::now() < deadline {
+                let current = self
+                    .db
+                    .get_workflow_run(&self.run_id)?
+                    .map(|run| run.state)
+                    .unwrap_or(WorkflowRunState::Cancelled);
+                if matches!(
+                    current,
+                    WorkflowRunState::Cancelled
+                        | WorkflowRunState::Paused
+                        | WorkflowRunState::Blocked
+                ) {
+                    return Err(anyhow!(
+                        "workflow.finish stopped while waiting for children because run state is {}",
+                        current.as_str()
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(250));
+                agent_usage = self.db.workflow_agent_usage_snapshot(&self.run_id)?;
+            }
+            if agent_usage.running_agents > 0 {
+                let reason = "workflow_children_wait_timeout";
+                self.db.transition_workflow_run(
+                    &self.run_id,
+                    WorkflowRunState::Blocked,
+                    Some(reason),
+                )?;
+                return Err(anyhow!(
+                    "workflow.finish timed out after {wait_secs}s with {} child agent(s) still running",
+                    agent_usage.running_agents
+                ));
+            }
+        }
+
+        let mut output_arg = args;
+        agent_usage = self.db.workflow_agent_usage_snapshot(&self.run_id)?;
+        let agent_results = if agent_usage.spawned_agents > 0 {
+            let agent_results = workflow_agent_results_for_finish(&self.db, &self.run_id)?;
+            if let Value::Object(ref mut map) = output_arg {
+                map.entry("agentResults".to_string())
+                    .or_insert_with(|| agent_results.clone());
+            } else {
+                output_arg = json!({
+                    "result": output_arg,
+                    "agentResults": agent_results.clone(),
+                });
+            }
+            Some(agent_results)
+        } else {
+            None
+        };
+        let input = compact_input(output_arg.clone());
+        let executed =
+            self.execute_op_tracked("finish", WorkflowEffectClass::Pure, input, |_host| {
+                Ok(output_arg.clone())
+            })?;
+        if let Some(agent_results) = agent_results.as_ref() {
+            self.record_consumed_agent_results("finish", agent_results)?;
+        }
+        let output = executed.output;
         self.finished_output = Some(output.clone());
         self.db.transition_workflow_run(
             &self.run_id,
@@ -3412,33 +4142,32 @@ fn inject_workflow_preallocated_run_id(args: &mut Value, run_id: &str) -> Result
         tools::subagent::WORKFLOW_PREALLOCATED_RUN_ID_ARG.to_string(),
         Value::String(run_id.to_string()),
     );
+    map.insert(
+        tools::subagent::WORKFLOW_SKIP_PARENT_INJECTION_ARG.to_string(),
+        Value::Bool(true),
+    );
     Ok(())
-}
-
-fn subagent_handle(run_id: &str, label: Option<&str>, task: Option<&str>, raw: &Value) -> Value {
-    json!({
-        "kind": "subagent",
-        "runId": run_id,
-        "run_id": run_id,
-        "status": raw.get("status").and_then(Value::as_str).unwrap_or("spawned"),
-        "label": label,
-        "task": task,
-        "message": raw.get("message").cloned().unwrap_or(Value::Null),
-    })
 }
 
 fn subagent_run_handle(
     run: &crate::subagent::SubagentRun,
     label: Option<&str>,
     task: Option<&str>,
+    inject_policy: &str,
+    result_mode: &str,
 ) -> Value {
     json!({
         "kind": "subagent",
         "runId": run.run_id,
         "run_id": run.run_id,
+        "sessionId": run.child_session_id,
+        "session_id": run.child_session_id,
         "status": run.status.as_str(),
         "label": label.map(ToOwned::to_owned).or_else(|| run.label.clone()),
         "task": task.map(ToOwned::to_owned).unwrap_or_else(|| run.task.clone()),
+        "injectPolicy": inject_policy,
+        "resultMode": result_mode,
+        "resultAvailable": run.result.is_some(),
         "message": "attached to existing sub-agent run",
     })
 }
@@ -3447,7 +4176,11 @@ fn parse_tool_json_output(output: &str, context: &str) -> Result<Value> {
     serde_json::from_str(output).with_context(|| format!("{context} returned non-JSON output"))
 }
 
-fn wait_all_args_from_values(handles: Value, options: Option<Value>) -> Result<Value> {
+fn agent_handles_args_from_values(
+    api: &str,
+    handles: Value,
+    options: Option<Value>,
+) -> Result<Value> {
     let mut map = match handles {
         Value::Object(map)
             if map.contains_key("handles")
@@ -3465,7 +4198,7 @@ fn wait_all_args_from_values(handles: Value, options: Option<Value>) -> Result<V
 
     if let Some(options) = options {
         let Value::Object(options) = options else {
-            return Err(anyhow!("workflow.waitAll options must be an object"));
+            return Err(anyhow!("{api} options must be an object"));
         };
         for (key, value) in options {
             map.insert(key, value);
@@ -3481,7 +4214,7 @@ pub(crate) fn wait_all_tool_args(args: &Value) -> Result<Value> {
         .or_else(|| args.get("runIds"))
         .or_else(|| args.get("run_ids"))
         .ok_or_else(|| anyhow!("workflow.waitAll requires handles or runIds"))?;
-    let run_ids = extract_subagent_run_ids(handles)?;
+    let run_ids = extract_subagent_run_ids(handles, "workflow.waitAll")?;
     if run_ids.is_empty() {
         return Err(anyhow!("workflow.waitAll requires at least one handle"));
     }
@@ -3496,16 +4229,278 @@ pub(crate) fn wait_all_tool_args(args: &Value) -> Result<Value> {
             Value::Number(wait_timeout.into()),
         );
     }
+    if let Some(partial) = args.get("partial").and_then(Value::as_bool) {
+        map.insert("partial".to_string(), Value::Bool(partial));
+    }
+    let result_mode = optional_string(args, "resultMode")
+        .or_else(|| optional_string(args, "result_mode"))
+        .unwrap_or_else(|| "full".to_string());
+    if !matches!(
+        result_mode.as_str(),
+        "status" | "preview" | "summary" | "full"
+    ) {
+        return Err(anyhow!(
+            "workflow.waitAll resultMode must be status, preview, summary, or full"
+        ));
+    }
+    map.insert("result_mode".to_string(), Value::String(result_mode));
     Ok(Value::Object(map))
 }
 
-fn extract_subagent_run_ids(value: &Value) -> Result<Vec<String>> {
+fn workflow_agent_run_ids(args: &Value, api: &str) -> Result<Vec<String>> {
+    let handles = args
+        .get("handles")
+        .or_else(|| args.get("runIds"))
+        .or_else(|| args.get("run_ids"))
+        .ok_or_else(|| anyhow!("{api} requires one or more child handles"))?;
+    let run_ids = extract_subagent_run_ids(handles, api)?;
+    if run_ids.is_empty() {
+        return Err(anyhow!("{api} requires at least one child handle"));
+    }
+    Ok(run_ids)
+}
+
+pub(crate) fn ensure_workflow_owned_agent_run_ids(
+    db: &SessionDB,
+    workflow_run_id: &str,
+    run_ids: &[String],
+    api: &str,
+) -> Result<()> {
+    let owned = db
+        .list_workflow_child_handles(workflow_run_id)?
+        .into_iter()
+        .filter_map(|(op_type, child_handle)| (op_type == "spawnAgent").then_some(child_handle))
+        .collect::<Vec<_>>();
+    let foreign = run_ids
+        .iter()
+        .filter(|run_id| !owned.iter().any(|owned_id| owned_id == *run_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !foreign.is_empty() {
+        return Err(anyhow!(
+            "{api} only accepts child agents owned by workflow {workflow_run_id}; unknown handles: {}",
+            foreign.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+fn workflow_agent_run_status(run: &crate::subagent::SubagentRun) -> Value {
+    json!({
+        "runId": run.run_id,
+        "run_id": run.run_id,
+        "sessionId": run.child_session_id,
+        "status": run.status.as_str(),
+        "terminal": run.status.is_terminal(),
+        "resultAvailable": run.result.is_some(),
+        "label": run.label,
+        "task": run.task,
+        "error": run.error,
+        "durationMs": run.duration_ms,
+        "inputTokens": run.input_tokens,
+        "outputTokens": run.output_tokens,
+    })
+}
+
+fn workflow_agent_status_snapshot(db: &SessionDB, run_ids: &[String]) -> Result<Value> {
+    let mut runs = Vec::with_capacity(run_ids.len());
+    let mut completed = 0usize;
+    let mut running = 0usize;
+    let mut failed = 0usize;
+    let mut terminal = 0usize;
+    for run_id in run_ids {
+        match db.get_subagent_run(run_id)? {
+            Some(run) => {
+                if run.status.is_terminal() {
+                    terminal += 1;
+                    if run.status == crate::subagent::SubagentStatus::Completed {
+                        completed += 1;
+                    } else {
+                        failed += 1;
+                    }
+                } else {
+                    running += 1;
+                }
+                runs.push(workflow_agent_run_status(&run));
+            }
+            None => {
+                terminal += 1;
+                failed += 1;
+                runs.push(json!({
+                    "runId": run_id,
+                    "run_id": run_id,
+                    "status": "not_found",
+                    "terminal": true,
+                    "resultAvailable": false,
+                }));
+            }
+        }
+    }
+    Ok(json!({
+        "total": run_ids.len(),
+        "terminal": terminal,
+        "completed": completed,
+        "running": running,
+        "failed": failed,
+        "allTerminal": terminal == run_ids.len(),
+        "runs": runs,
+    }))
+}
+
+fn workflow_agent_results_for_finish(db: &SessionDB, run_id: &str) -> Result<Value> {
+    let ops = db.list_workflow_ops(run_id)?;
+    let mut results = Vec::new();
+    for op in ops.into_iter().filter(|op| op.op_type == "spawnAgent") {
+        let Some(child_run_id) = op.child_handle.as_deref() else {
+            continue;
+        };
+        let result_mode = op
+            .input
+            .get("resultMode")
+            .and_then(Value::as_str)
+            .unwrap_or("summary");
+        let Some(child) = db.get_subagent_run(child_run_id)? else {
+            results.push(json!({
+                "runId": child_run_id,
+                "run_id": child_run_id,
+                "status": "not_found",
+                "terminal": true,
+                "resultAvailable": false,
+                "mode": result_mode,
+                "error": "workflow-owned child run not found",
+            }));
+            continue;
+        };
+        let mut value = workflow_agent_run_status(&child);
+        if let Value::Object(ref mut map) = value {
+            map.insert("mode".to_string(), json!(result_mode));
+            if let Some(result) = child.result.as_deref() {
+                map.insert(
+                    "result".to_string(),
+                    Value::String(if result_mode == "full" {
+                        result.to_string()
+                    } else {
+                        truncate_chars(result, 2000)
+                    }),
+                );
+            }
+        }
+        results.push(value);
+    }
+    Ok(Value::Array(results))
+}
+
+fn consumed_agent_result_ids(output: &Value) -> Vec<String> {
+    fn collect(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    collect(item, out);
+                }
+            }
+            Value::Object(map) => {
+                let has_result = [
+                    "result",
+                    "result_summary",
+                    "resultSummary",
+                    "result_preview",
+                    "resultPreview",
+                    "error",
+                ]
+                .iter()
+                .any(|key| map.get(*key).is_some_and(|value| !value.is_null()));
+                if has_result {
+                    if let Some(run_id) = map
+                        .get("runId")
+                        .or_else(|| map.get("run_id"))
+                        .and_then(Value::as_str)
+                    {
+                        if !out.iter().any(|existing| existing == run_id) {
+                            out.push(run_id.to_string());
+                        }
+                    }
+                }
+                if let Some(runs) = map.get("runs") {
+                    collect(runs, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut run_ids = Vec::new();
+    collect(output, &mut run_ids);
+    run_ids
+}
+
+pub(crate) fn wait_all_output_consumes_results(output: &Value) -> bool {
+    output
+        .get("resultMode")
+        .or_else(|| output.get("result_mode"))
+        .and_then(Value::as_str)
+        != Some("status")
+}
+
+fn terminal_agent_result_ids(output: &Value) -> Vec<String> {
+    fn collect(value: &Value, out: &mut Vec<String>) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    collect(item, out);
+                }
+            }
+            Value::Object(map) => {
+                let terminal = map
+                    .get("terminal")
+                    .and_then(Value::as_bool)
+                    .unwrap_or_else(|| {
+                        matches!(
+                            map.get("status").and_then(Value::as_str),
+                            Some("completed" | "error" | "timeout" | "killed" | "not_found")
+                        )
+                    });
+                if terminal {
+                    if let Some(run_id) = map
+                        .get("runId")
+                        .or_else(|| map.get("run_id"))
+                        .and_then(Value::as_str)
+                    {
+                        if !out.iter().any(|existing| existing == run_id) {
+                            out.push(run_id.to_string());
+                        }
+                    }
+                }
+                if let Some(runs) = map.get("runs") {
+                    collect(runs, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut run_ids = Vec::new();
+    collect(output, &mut run_ids);
+    run_ids
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+    let prefix = value
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    format!("{prefix}...")
+}
+
+fn extract_subagent_run_ids(value: &Value, api: &str) -> Result<Vec<String>> {
     match value {
         Value::String(run_id) => Ok(vec![run_id.clone()]),
         Value::Array(items) => {
             let mut run_ids = Vec::with_capacity(items.len());
             for item in items {
-                run_ids.extend(extract_subagent_run_ids(item)?);
+                run_ids.extend(extract_subagent_run_ids(item, api)?);
             }
             Ok(run_ids)
         }
@@ -3522,13 +4517,11 @@ fn extract_subagent_run_ids(value: &Value) -> Result<Vec<String>> {
                 .or_else(|| map.get("runIds"))
                 .or_else(|| map.get("run_ids"))
             {
-                return extract_subagent_run_ids(nested);
+                return extract_subagent_run_ids(nested, api);
             }
-            Err(anyhow!("workflow.waitAll handle object must include runId"))
+            Err(anyhow!("{api} handle object must include runId"))
         }
-        _ => Err(anyhow!(
-            "workflow.waitAll handles must be run IDs or subagent handles"
-        )),
+        _ => Err(anyhow!("{api} handles must be run IDs or subagent handles")),
     }
 }
 
@@ -3538,11 +4531,26 @@ fn normalize_wait_all_response(value: &mut Value) {
             map.entry("allCompleted".to_string())
                 .or_insert(all_completed);
         }
+        for (snake, camel) in [
+            ("timed_out", "timedOut"),
+            ("accepted_partial", "acceptedPartial"),
+            ("result_mode", "resultMode"),
+        ] {
+            if let Some(value) = map.get(snake).cloned() {
+                map.entry(camel.to_string()).or_insert(value);
+            }
+        }
         if let Some(Value::Array(runs)) = map.get_mut("runs") {
             for run in runs {
                 if let Value::Object(run) = run {
                     if let Some(run_id) = run.get("run_id").cloned() {
                         run.entry("runId".to_string()).or_insert(run_id);
+                    }
+                    if let Some(summary) = run.get("result_summary").cloned() {
+                        run.entry("resultSummary".to_string()).or_insert(summary);
+                    }
+                    if let Some(preview) = run.get("result_preview").cloned() {
+                        run.entry("resultPreview".to_string()).or_insert(preview);
                     }
                 }
             }

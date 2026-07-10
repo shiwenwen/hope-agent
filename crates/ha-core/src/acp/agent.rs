@@ -441,9 +441,12 @@ impl AcpAgent {
         );
 
         // Auto-generate fallback title
-        if let Ok(Some(title)) =
-            session::ensure_first_message_title(&self.session_db, &session_id, &effective_prompt)
-        {
+        if let Ok(Some(title)) = session::ensure_first_message_title(
+            &self.session_db,
+            &session_id,
+            &effective_prompt,
+            None,
+        ) {
             // Emit session_info_update
             let notif = serde_json::json!({
                 "sessionId": session_id,

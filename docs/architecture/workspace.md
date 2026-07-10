@@ -83,6 +83,13 @@ Workspace 必须保持四个概念清晰：
 
 Goal / Workflow 执行过程中可以创建和完成很多 Task。Task 的增长不应让 Workspace 自动展开所有专家区，也不应把 Goal 或 Workflow 误判为失败；只有 Task failure 被对应控制面写成 blocking evidence、failed run 或 needs-user 状态时，才进入异常展示。
 
+Workflow 顶层状态采用 durable snapshot 派生，不直接照搬 `workflow_runs.state`：
+
+1. `agentUsage.runningAgents > 0`：显示“等待子 Agent completed/total”，即使脚本登记阶段已经结束也不能显示整体完成。
+2. `agentUsage.pendingResults > 0`：显示“有阶段结果 terminal/total”，引导模型或用户消费结果。
+3. 无运行 child、无待消费结果：才回退到 run state 的编排中/等待审批/阻塞/完成等文案。
+4. Agent 明细状态必须走 i18n 映射；内部 `Workflow run completed. Use the output...` 等模型协议不得作为用户详情 fallback。
+
 ## 4. 展开与告警策略
 
 默认策略：

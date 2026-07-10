@@ -341,8 +341,13 @@ Primary-only 启动：
 | `workflow.tool({ name, args, label? })` | 取决于工具 | 走 `tools::execute_tool_with_context`，继承权限、hooks、working dir；`lsp` 的 `diagnostics` / `sync_file` 结果会写入 `diagnostic_result` Goal evidence。 |
 | `workflow.read(args)` | pure | `read` 工具快捷入口。 |
 | `workflow.grep(args)` | pure | `grep` 工具快捷入口。 |
-| `workflow.spawnAgent(args)` | non-idempotent | 走 `subagent` 工具，预分配 child run id。 |
-| `workflow.waitAll(handles, { timeout?, label? })` | pure | 走 `subagent` 工具等待子 Agent，汇总结果。 |
+| `workflow.spawnAgent({ task, label?, agent?, model?, timeout?, files?, injectPolicy?, resultMode? })` | non-idempotent | 创建 workflow-owned 子 Agent，预分配 child run id；`injectPolicy=none|checkpoint|final`，`resultMode=summary|full`。 |
+| `workflow.agentStatus(handles, { label? })` | pure | 非阻塞读取一个或多个 workflow-owned 子 Agent 的实时状态与结果可用性。 |
+| `workflow.agentResult(handle, { mode?, label? })` | pure | 读取单个子 Agent 的摘要或完整结果，并把该结果标记为已消费。 |
+| `workflow.waitAny(handles, { min?, timeout?, label? })` | pure | 等待至少 `min` 个子 Agent 进入终态；超时返回已完成与仍在运行的当前快照。 |
+| `workflow.waitAll(handles, { timeout?, partial?, resultMode?, label? })` | pure | 等待全部子 Agent；`partial=true` 时可接受超时后的已完成部分，结果模式支持 status/preview/summary/full。`status` 只观察、不消费结果。 |
+| `workflow.agentSteer(handle, { message, label? })` | non-idempotent | 向仍在运行的子 Agent 发送新约束或调整方向。 |
+| `workflow.cancelAgent(handles, { reason?, label? })` | idempotent | 取消一个或多个 workflow-owned 子 Agent，并写审计事件。 |
 | `workflow.validate({ commands, reason?, label? })` | non-idempotent | 预分配 async exec job，等待终态，返回结构化 validation 结果。 |
 | `workflow.review({ scope?, baseRef?, focusPaths?, profiles?, ideContext?, label? })` | idempotent | 运行 durable Review run，默认 `scope=local`，继承当前 workflow 的 `goal_id`，返回摘要、finding 数和 blocking finding 数。 |
 | `workflow.verify({ scope?, focusPaths?, maxCommands?, label? })` | idempotent | 创建 Smart Verification 计划，默认 `scope=local`，继承当前 workflow 的 `goal_id`；只规划不执行命令。 |
@@ -356,6 +361,16 @@ Primary-only 启动：
 | `workflow.random(seed)` | pure | 按 run id、当前执行位置和 seed 派生 `[0,1)` 稳定随机数，替代 `Math.random()`。 |
 | `workflow.finish(result)` | pure | 设置 runtime 输出并把 run 转 `completed`；`result.artifact` / `result.artifacts[]` 会写入 `artifact_created` Goal evidence。 |
 | `workflow.map(label, list, fn)` | pure/materialized | 先物化 fan-out 列表，再给每个 item 建嵌套 op scope。 |
+
+### 10.1 Workflow-owned 子 Agent 生命周期
+
+- Workflow Mode / Ultracode 的多 Agent 工作优先使用 `workflow.spawnAgent`。它把 child run id 写入 `workflow_ops.child_handle`，使状态、token、结果、取消和恢复都能强关联到当前 run；禁止创建“登记型 workflow”后在外部另起 `subagent batch_spawn` 冒充同一工作流。
+- Workflow-owned 子 Agent 一律设置内部 `skip_parent_injection=true`，不再触发普通 subagent 的自动结果回注。结果只由 Workflow 的 `agentResult` / `waitAny` / `waitAll` / checkpoint / finish 路径交付，避免双注入。
+- 所有 Agent 查询与控制 API 在执行前核对 `workflow_ops.spawnAgent.child_handle`；只接受当前 run 拥有的 child handle，跨 Workflow 查询、steer 或 cancel 一律拒绝。
+- `SessionDB::update_subagent_status` / guarded transition 是生命周期 choke point：状态变化会刷新 `spawnAgent` op 的 snapshot 视图；终态写 `workflow_agent_terminal`，checkpoint 策略再生成阶段事件。
+- `WorkflowRunSnapshot.agentUsage` 除数量和 token 外，还提供 `terminalAgents`、`consumedResults`、`pendingResults`、`suppressedResults`。UI 只从这些 durable 事实派生“等待子 Agent”或“有阶段结果”，不根据模型文案猜测。
+- `workflow.finish()` 不是提前登记完成：仍有子 Agent 运行时，runtime 在自己的 blocking worker 内等待，不占用主聊天 turn；到预算上限仍未终态则 run 进入 blocked，而不是伪装 completed。全部终态后，finish 会附带 bounded `agentResults` 作为最终兜底，并记录消费状态。
+- Workflow launcher 自身用 `tokio::spawn`，QuickJS 运行放入 `spawn_blocking`；异步工具走 `JobManager`，子 Agent 走独立 queue/`tokio::spawn`。因此 waitAny/waitAll/finish 的等待只占 Workflow worker，用户仍可继续主会话。并发任务仍共享 provider 限流、CPU、内存与 DB，达到有界队列上限时显式背压或拒绝，这属于容量治理而非聊天同步阻塞。
 
 身份规则：
 
@@ -389,8 +404,13 @@ Repair Loop 语义：
 - `workflow_checkpoint` / `workflow_report` 可触发阶段注入，注入消息为短结构化 `<workflow-checkpoint>`，包含 `run-id`、`event-seq`、`state`、`title`、`summary`、`next-action` 和 bounded payload。模型后续可用 `workflow(action=status|trace)` 主动读取更多细节。
 - 阶段注入复用 `subagent::injection::inject_and_run_parent`，因此继承 foreground idle guard、同 session 注入排队、父会话删除/无痕保护和 parent turn 运行机制。
 - 阶段注入只对 `origin` 以 `agent:workflow` 开头的模型创建 run 自动触发；用户手动 owner 创建的 run 仍只在 GUI/trace 展示，避免意外唤醒主模型。
-- 阶段注入会写两条审计事件：`workflow_milestone_injection_requested` 表示某个 checkpoint/report 已触发注入请求；`workflow_milestone_injection_delivered` 由 parent injection `on_injected` 回调写入，表示主模型已收到并运行过这一阶段通知，或该注入被 parent injection 机制判定为已消费。
-- 启动恢复会扫描 `workflow_milestone_injection_requested` 中尚无匹配 `workflow_milestone_injection_delivered` 的阶段结果，并按原 `sourceEventSeq` 重发 `<workflow-checkpoint>`；恢复路径不重复写 requested，只在 parent injection 消费后补 delivered。这样进程在“阶段结果已出、主模型尚未收到”之间崩溃时，阶段结果不会静默丢失。
+- Workflow-owned 子 Agent 的 `injectPolicy=checkpoint` 在每个子 Agent 终态时生成 bounded checkpoint；`none` 只供主动查询；`final` 由 finish/completion 一次性统一交付。模型可用 `agentStatus` / `waitAny` 观察进展，用 `agentResult` 读取部分结果，再 `agentSteer`、`cancelAgent` 或追加 `spawnAgent` 动态调整，不被迫只走 waitAll。
+- `waitAll(resultMode: "status")` 只观察终态与计数，不把 child result 标记为已消费；`preview` / `summary` / `full`、`agentResult` 或 `finish` 看到 child 终态后进入消费闭环。终态 child 即使没有 result/error 正文，显式查询确认“无输出”后也不再永久悬挂。
+- 消费状态是 durable 事实：显式 `agentResult` / `waitAll` / `finish` 或成功 checkpoint 回注写 `workflow_agent_result_consumed`；已被显式读取而不应再回注的结果写 `workflow_agent_result_suppressed`。如果进程在 op completed 与消费事件之间崩溃，恢复会从 completed op 输出推导已消费，replay 再幂等补写事件，避免 checkpoint 重复回注。同一 child id 在 snapshot 聚合时去重。
+- 启动恢复先处理历史 `workflow_milestone_injection_requested` 未结算项，再根据终态 child 补建崩溃窗口中缺失的 checkpoint。待恢复查询在 SQL 中排除 delivered/suppressed 历史，不会因为长期累积的已结算事件遮住新待办。
+- 阶段注入写 `workflow_milestone_injection_requested`；真正运行过主模型回合写 `workflow_milestone_injection_delivered`；若显式查询先消费了结果，则写 `workflow_milestone_injection_suppressed`。主动读取会同时标记 child run id 与派生的 checkpoint injection id 为 fetched；即使注入已排队或刚启动，也会取消该重复回合。
+- 启动恢复只扫描既无 delivered、也无 suppressed 的 requested 事件，并按原 `sourceEventSeq` 重发 `<workflow-checkpoint>`。这样进程在“阶段结果已出、主模型尚未收到”之间崩溃时不会静默丢失，也不会把已主动读取的结果在重启后再次注入。
+- 启动时还会对账 active/recovering workflow 的终态 child：若 `workflow_agent_terminal` 已存在但 checkpoint 尚未落盘（进程恰在两次写之间退出），按 spawn op 的 `injectPolicy` 补写一次 checkpoint；已有 checkpoint、consumed 或 suppressed 的 child 保持幂等不重发。
 
 ## 11. Durable Replay
 

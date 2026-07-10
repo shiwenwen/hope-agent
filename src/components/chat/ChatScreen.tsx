@@ -311,6 +311,30 @@ function makeClientEventMessage(message: ClientEventMessage): Message {
   }
 }
 
+function isSameSlashHistoryMessage(a: Message, b: Message): boolean {
+  return (
+    a.slashEvent?.kind === b.slashEvent?.kind &&
+    a.slashEvent?.command === b.slashEvent?.command &&
+    a.slashEvent?.displayAs === b.slashEvent?.displayAs &&
+    a.slashEvent?.mode === b.slashEvent?.mode &&
+    a.content === b.content
+  )
+}
+
+function appendUniqueSlashHistoryMessages(prev: Message[], additions: Message[]): Message[] {
+  if (additions.length === 0) return prev
+  const next = [...prev]
+  for (const message of additions) {
+    if (
+      !message.slashEvent ||
+      !next.some((existing) => isSameSlashHistoryMessage(existing, message))
+    ) {
+      next.push(message)
+    }
+  }
+  return next
+}
+
 function goalTurnPrompt(visibleGoalText: string): string {
   return [
     "[SYSTEM: The user has just created or updated the durable Goal for this session.",
@@ -1934,12 +1958,13 @@ export default function ChatScreen({
       }
       if (slashHistoryMessages.length > 0) {
         if (commandSessionId) {
-          session.updateSessionMessages(commandSessionId, (prev) => [
-            ...prev,
-            ...slashHistoryMessages,
-          ])
+          session.updateSessionMessages(commandSessionId, (prev) =>
+            appendUniqueSlashHistoryMessages(prev, slashHistoryMessages),
+          )
         } else {
-          session.setMessages((prev) => [...prev, ...slashHistoryMessages])
+          session.setMessages((prev) =>
+            appendUniqueSlashHistoryMessages(prev, slashHistoryMessages),
+          )
         }
       }
 
@@ -2368,6 +2393,20 @@ export default function ChatScreen({
       const sid = await ensureWorkflowSession()
       if (!sid) return false
       const commandText = `/loop ${trimmed}`
+      const commandDisplay = slashCommandDisplay(commandText)
+      const optimisticLoopMessage = makeClientEventMessage({
+        content: commandDisplay.content,
+        timestamp: new Date().toISOString(),
+        slashEvent: {
+          kind: "command",
+          command: commandText,
+          displayAs: "user",
+          mode: commandDisplay.mode,
+        },
+      })
+      session.updateSessionMessages(sid, (prev) =>
+        appendUniqueSlashHistoryMessages(prev, [optimisticLoopMessage]),
+      )
       try {
         const result = await getTransport().call<CommandResult>("execute_slash_command", {
           sessionId: sid,
@@ -2379,6 +2418,9 @@ export default function ChatScreen({
         await handleCommandAction(result)
         return true
       } catch (e) {
+        session.updateSessionMessages(sid, (prev) =>
+          prev.filter((message) => message._clientId !== optimisticLoopMessage._clientId),
+        )
         logger.error("ui", "ChatScreen::loopModeSubmit", "Failed to create loop from composer", e)
         toast.error(e instanceof Error ? e.message : String(e))
         return false

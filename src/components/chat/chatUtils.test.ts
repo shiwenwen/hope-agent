@@ -218,6 +218,22 @@ describe("parseSessionMessages user attachments", () => {
     expect(isUserAlignedMessage(msg)).toBe(true)
   })
 
+  test("parses loop_trigger meta as a centered loop chip instead of a user bubble", () => {
+    const parsed = parseSessionMessages([
+      sessionMessage({
+        id: 84,
+        role: "user",
+        content: "<loop_trigger><loop_id>loop_1</loop_id></loop_trigger>",
+        attachmentsMeta: JSON.stringify({ loop_trigger: { run_id: "loop_run_1" } }),
+      }),
+    ])
+
+    expect(parsed[0]).toMatchObject({ isLoopTrigger: true })
+    expect(parsed[0]?.isSubagentResult).toBeFalsy()
+    expect(isCenteredSystemMessage(parsed[0]!)).toBe(true)
+    expect(isUserAlignedMessage(parsed[0]!)).toBe(false)
+  })
+
   test("restores channel user attachments from object-shaped metadata", () => {
     const parsed = parseSessionMessages([
       sessionMessage({

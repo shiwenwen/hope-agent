@@ -64,12 +64,13 @@ impl SessionDB {
           // Best-effort + no-op when the run was never projected (foreground /
           // internal / incognito) — and it NEVER writes run content back.
         let became_terminal = status.is_terminal();
-        crate::async_jobs::JobManager::sync_subagent_projection(run_id, status);
+        crate::async_jobs::JobManager::sync_subagent_projection(run_id, status.clone());
         // R7.2: a terminal status may have freed a per-session concurrency slot —
         // wake the subagent scheduler to promote any parked (`Queued`) spawn.
         if became_terminal {
             crate::subagent::queue::wake_subagent_scheduler();
         }
+        crate::workflow::on_workflow_child_status_changed(self, run_id, status);
         Ok(())
     }
 
@@ -125,10 +126,11 @@ impl SessionDB {
         }; // drop the SessionDB lock before the cross-DB projection sync below.
         if changed > 0 {
             let became_terminal = to.is_terminal();
-            crate::async_jobs::JobManager::sync_subagent_projection(run_id, to);
+            crate::async_jobs::JobManager::sync_subagent_projection(run_id, to.clone());
             if became_terminal {
                 crate::subagent::queue::wake_subagent_scheduler();
             }
+            crate::workflow::on_workflow_child_status_changed(self, run_id, to);
         }
         Ok(changed > 0)
     }

@@ -275,13 +275,15 @@ function getWorkflowResultDisplay(
 ): { name: string; status: string; statusText: string; detail?: string } {
   const status = parseWorkflowResultStatus(msg.content)
   const statusText =
-    status === "completed"
-      ? String(t("chat.workflowResultCompleted", { defaultValue: "已完成" }))
-      : status === "cancelled"
-        ? String(t("chat.workflowResultCancelled", { defaultValue: "已取消" }))
-        : status === "running"
-          ? String(t("chat.workflowResultWaiting", { defaultValue: "等待继续" }))
-          : String(t("chat.workflowResultFailed", { defaultValue: "需处理" }))
+    status === "checkpoint"
+      ? String(t("chat.workflowResultCheckpoint", { defaultValue: "已收到阶段结果" }))
+      : status === "completed"
+        ? String(t("chat.workflowResultCompleted", { defaultValue: "已完成" }))
+        : status === "cancelled"
+          ? String(t("chat.workflowResultCancelled", { defaultValue: "已取消" }))
+          : status === "running"
+            ? String(t("chat.workflowResultWaiting", { defaultValue: "等待继续" }))
+            : String(t("chat.workflowResultFailed", { defaultValue: "需处理" }))
   return {
     name: String(t("chat.workflowResultName", { defaultValue: "工作流" })),
     status,
@@ -384,6 +386,34 @@ function WakeupTriggerBubble({ t }: { t: (key: string) => string }) {
       <span className="font-medium text-violet-500">{t("chat.wakeupTrigger")}</span>
       <span className="text-violet-400/50">·</span>
       <span>{t("chat.wakeupResumed")}</span>
+    </div>
+  )
+}
+
+function LoopTriggerBubble({ msg, t }: { msg: Message; t: TFunction }) {
+  const [expanded, setExpanded] = useState(false)
+  const detail = useMemo(() => decodeXmlText(msg.content.trim()), [msg.content])
+  return (
+    <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="flex max-w-full items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/8 border border-blue-500/20 text-xs text-blue-700 hover:bg-blue-500/15 transition-colors cursor-pointer dark:text-blue-400"
+      >
+        <Radio className="w-3 h-3 shrink-0 text-blue-600 dark:text-blue-400" />
+        <span className="font-medium">{t("chat.loopTrigger", "持续推进")}</span>
+        <span className="opacity-50">·</span>
+        <span>{t("chat.loopTriggered", "已触发一次推进")}</span>
+        <ChevronDown
+          className={cn("h-3 w-3 shrink-0 transition-transform", expanded && "rotate-180")}
+        />
+      </button>
+      <AnimatedCollapse open={expanded}>
+        <pre className="max-h-[360px] w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-blue-500/15 bg-blue-500/5 px-3 py-2 font-mono text-[11px] leading-5 text-foreground/85">
+          {detail || msg.content}
+        </pre>
+      </AnimatedCollapse>
     </div>
   )
 }
@@ -941,6 +971,10 @@ function MessageBubbleInner({
 
   if (msg.isWakeupTrigger) {
     return <WakeupTriggerBubble t={t} />
+  }
+
+  if (msg.isLoopTrigger) {
+    return <LoopTriggerBubble msg={msg} t={t} />
   }
 
   if (msg.isProcessNotification) {

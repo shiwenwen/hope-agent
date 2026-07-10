@@ -78,8 +78,8 @@ impl ChatSessionGuard {
         }
         // Cancel any running injection for this session
         if let Ok(map) = INJECTION_CANCELS.lock() {
-            if let Some(cancel) = map.get(session_id) {
-                cancel.store(true, Ordering::SeqCst);
+            if let Some(injection) = map.get(session_id) {
+                injection.cancel.store(true, Ordering::SeqCst);
             }
         }
         Self {

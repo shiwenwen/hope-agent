@@ -80,6 +80,10 @@ export interface WorkflowAgentUsageSnapshot {
   completedAgents: number
   runningAgents: number
   failedAgents: number
+  terminalAgents: number
+  consumedResults: number
+  pendingResults: number
+  suppressedResults: number
   attributedAgents: number
   inputTokens: number
   outputTokens: number

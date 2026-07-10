@@ -201,6 +201,10 @@ export interface Message {
    *  (R10 `schedule_wakeup`) — sent to the LLM as a normal user turn but
    *  rendered as a system chip, like a cron trigger. */
   isWakeupTrigger?: boolean
+  /** If true, this is a Loop scheduled trigger injected into the model as a
+   *  user turn. The raw trigger prompt is internal protocol and should render
+   *  as a compact system chip rather than a user bubble. */
+  isLoopTrigger?: boolean
   /** If true, this is an exec process completion notification injected by
    *  the backend after a legacy process session exits. */
   isProcessNotification?: boolean
