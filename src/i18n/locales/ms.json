@@ -450,6 +450,25 @@
     },
     "hoursAgo": "{{count}} jam lalu",
     "howCanIHelp": "Kod, cari, cipta, automasi — beritahu sahaja",
+    "projectWelcomeTitle": "Apa yang patut kita bina dalam <project>{{project}}</project>? Ceritakan idea anda",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "Kenali projek",
+        "prompt": "Bantu saya kenali {{project}} dengan cepat: modul utama, titik masuk dan perkara yang perlu dijaga semasa membangun."
+      },
+      "build": {
+        "title": "Bentuk idea",
+        "prompt": "Saya ada idea untuk {{project}}. Pecahkan dahulu kepada langkah pelaksanaan yang praktikal."
+      },
+      "review": {
+        "title": "Lihat kod",
+        "prompt": "Lihat {{project}} untuk mencari bahagian yang boleh dipertingkat atau berisiko, kemudian beri cadangan khusus."
+      },
+      "fix": {
+        "title": "Jejak masalah",
+        "prompt": "Bantu saya menyiasat isu atau kegagalan dalam {{project}}. Cari puncanya dahulu, kemudian cadangkan pembaikan."
+      }
+    },
     "incognito": "Inkognito",
     "incognitoDisable": "Matikan sembang inkognito",
     "incognitoAwarenessDisabled": "Kesedaran tingkah laku tidak tersedia semasa inkognito dihidupkan",

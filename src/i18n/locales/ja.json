@@ -450,6 +450,25 @@
     },
     "hoursAgo": "{{count}}時間前",
     "howCanIHelp": "コーディング、検索、作成、自動化——何でもどうぞ",
+    "projectWelcomeTitle": "<project>{{project}}</project> で何を作りましょうか？考えを聞かせてください",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "全体をつかむ",
+        "prompt": "まず {{project}} の主要モジュール、入口、開発時の注意点をざっと把握させてください。"
+      },
+      "build": {
+        "title": "案を整理する",
+        "prompt": "{{project}} に入れたいアイデアがあります。まず実装できる手順に分解してください。"
+      },
+      "review": {
+        "title": "コードを見る",
+        "prompt": "{{project}} で改善できそうな箇所やリスクのある箇所を見て、具体的に提案してください。"
+      },
+      "fix": {
+        "title": "問題を追う",
+        "prompt": "{{project}} の不具合や失敗を調べてください。まず原因を絞り込み、修正案を出してください。"
+      }
+    },
     "incognito": "シークレット",
     "incognitoDisable": "シークレットチャットをオフ",
     "incognitoAwarenessDisabled": "シークレット中は行動認識を使えません",

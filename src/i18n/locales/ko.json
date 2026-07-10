@@ -450,6 +450,25 @@
     },
     "hoursAgo": "{{count}}시간 전",
     "howCanIHelp": "코딩, 검색, 창작, 자동화 — 말만 하세요",
+    "projectWelcomeTitle": "<project>{{project}}</project> 에서 무엇을 만들까요? 생각을 들려주세요",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "프로젝트 파악",
+        "prompt": "먼저 {{project}} 의 주요 모듈, 진입점, 개발할 때 주의할 부분을 빠르게 파악해 주세요."
+      },
+      "build": {
+        "title": "아이디어 정리",
+        "prompt": "{{project}} 에 넣고 싶은 아이디어가 있습니다. 먼저 실행 가능한 구현 단계로 나눠 주세요."
+      },
+      "review": {
+        "title": "코드 살펴보기",
+        "prompt": "{{project}} 에서 개선할 만한 곳이나 위험한 지점을 살펴보고 구체적인 제안을 주세요."
+      },
+      "fix": {
+        "title": "문제 추적",
+        "prompt": "{{project}} 의 오류나 실패를 조사해 주세요. 먼저 원인을 좁히고 수정 방안을 제안해 주세요."
+      }
+    },
     "incognito": "시크릿",
     "incognitoDisable": "시크릿 대화 끄기",
     "incognitoAwarenessDisabled": "시크릿이 켜져 있으면 행동 인식을 사용할 수 없습니다",

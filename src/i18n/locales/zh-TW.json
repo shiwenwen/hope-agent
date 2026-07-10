@@ -450,6 +450,25 @@
     },
     "hoursAgo": "{{count}}小時前",
     "howCanIHelp": "編碼、搜尋、創作、自動化——說出你的想法",
+    "projectWelcomeTitle": "我們應該在 <project>{{project}}</project> 中建構什麼？說出你的想法",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "熟悉專案",
+        "prompt": "先幫我快速熟悉 {{project}}，說說主要模組、入口和開發時最該注意的地方。"
+      },
+      "build": {
+        "title": "梳理方案",
+        "prompt": "我有個想法想放進 {{project}}，請先幫我拆成可執行的實作步驟。"
+      },
+      "review": {
+        "title": "看看程式碼",
+        "prompt": "幫我看看 {{project}} 裡最近值得優化或有風險的地方，給出具體建議。"
+      },
+      "fix": {
+        "title": "排查問題",
+        "prompt": "幫我排查 {{project}} 裡的異常或失敗，先定位原因，再給出修復方案。"
+      }
+    },
     "incognito": "無痕",
     "incognitoDisable": "關閉無痕對話",
     "incognitoAwarenessDisabled": "開啟無痕時不可用行為感知",

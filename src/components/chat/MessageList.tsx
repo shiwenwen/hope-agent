@@ -61,6 +61,8 @@ interface MessageListProps {
    * render its own empty greeting (the two would overlap). See {@link ChatWelcomeHero}.
    */
   heroComposer?: boolean
+  projectName?: string | null
+  onProjectSuggestion?: (prompt: string) => void
   /** Search-jump target + literal substrings to inline-highlight inside
    *  the matched bubble. `null` between jumps. The terms are painted via
    *  the CSS Custom Highlight API in `lib/inlineHighlight.ts`. */
@@ -631,6 +633,8 @@ export default function MessageList({
   sessionId,
   incognito = false,
   heroComposer = false,
+  projectName,
+  onProjectSuggestion,
   pendingScrollIntent,
   onScrollTargetHandled,
   pendingQuestionGroup,
@@ -1620,7 +1624,11 @@ export default function MessageList({
               )}
               {showEmpty && !historyLoading && !heroComposer && (
                 <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
-                  <ChatWelcomeHero incognito={incognito} />
+                  <ChatWelcomeHero
+                    incognito={incognito}
+                    projectName={projectName}
+                    onProjectSuggestion={onProjectSuggestion}
+                  />
                 </div>
               )}
             </div>

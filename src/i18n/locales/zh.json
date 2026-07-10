@@ -450,6 +450,25 @@
     },
     "hoursAgo": "{{count}}小时前",
     "howCanIHelp": "编码、搜索、创作、自动化——说出你的想法",
+    "projectWelcomeTitle": "我们应该在 <project>{{project}}</project> 中构建什么？说出你的想法",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "熟悉项目",
+        "prompt": "先帮我快速熟悉 {{project}}，说说主要模块、入口和开发时最该注意的地方。"
+      },
+      "build": {
+        "title": "梳理方案",
+        "prompt": "我有个想法想放进 {{project}}，请先帮我拆成可执行的实现步骤。"
+      },
+      "review": {
+        "title": "看看代码",
+        "prompt": "帮我看看 {{project}} 里最近值得优化或有风险的地方，给出具体建议。"
+      },
+      "fix": {
+        "title": "排查问题",
+        "prompt": "帮我排查 {{project}} 里的异常或失败，先定位原因，再给出修复方案。"
+      }
+    },
     "incognito": "无痕",
     "incognitoDisable": "关闭无痕对话",
     "incognitoAwarenessDisabled": "开启无痕时不可用行为感知",
