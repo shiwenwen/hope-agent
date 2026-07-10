@@ -304,6 +304,13 @@
       "completedWithDuration": "Objetivo alcanzado en {{time}}",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "Continuar en una nueva sesión",
+      "continuedFrom": "Continuado desde",
+      "created": "Se continuó en una nueva sesión",
+      "failed": "No se pudo continuar en una nueva sesión",
+      "sourceFallback": "sesión original"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend del navegador: {{backend}}",
       "captureFailed": "Fallo al capturar el fotograma, esperando el siguiente",
@@ -1248,7 +1255,9 @@
       "timeline": "Eventos de ciclo de vida del skill",
       "title": "Tracker de aprendizaje",
       "topSkills": "Top skills por uso",
-      "userSkillsHint": "{{n}} creados por el usuario"
+      "userSkillsHint": "{{n}} creados por el usuario",
+      "toggleReleaseEvidenceAdd": "Marcar como evidencia de release",
+      "toggleReleaseEvidenceRemove": "Quitar evidencia de release"
     },
     "loading": "Cargando...",
     "noData": "Sin datos",

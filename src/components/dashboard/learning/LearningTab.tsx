@@ -1824,11 +1824,15 @@ function BenchmarkReportPanel({
                     className="h-6 px-1.5"
                     onClick={() => onMarkReleaseEvidence(report, !report.releaseEvidence)}
                     disabled={Boolean(actionId)}
-                    title={t("dashboard.learning.toggleReleaseEvidence", {
-                      defaultValue: report.releaseEvidence
-                        ? "Remove release evidence"
-                        : "Mark as release evidence",
-                    })}
+                    title={
+                      report.releaseEvidence
+                        ? t("dashboard.learning.toggleReleaseEvidenceRemove", {
+                            defaultValue: "Remove release evidence",
+                          })
+                        : t("dashboard.learning.toggleReleaseEvidenceAdd", {
+                            defaultValue: "Mark as release evidence",
+                          })
+                    }
                   >
                     {actionId === `mark:${report.id}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                   </Button>

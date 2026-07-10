@@ -22,6 +22,7 @@
   - [Subagent 运行记录](#subagent-运行记录)
   - [ACP 运行记录](#acp-运行记录)
 - [会话生命周期](#会话生命周期)
+- [会话 Fork / 在新会话中继续](#会话-fork--在新会话中继续)
 - [无痕会话（Incognito）](#无痕会话incognito)
 - [会话级工作目录](#会话级工作目录)
 - [会话级 Awareness 与 Agent 切换](#会话级-awareness-与-agent-切换)
@@ -71,6 +72,9 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `pending_interaction_count` | `i64` | 待用户交互数（pending 工具审批 + ask_user 组数）；由 command/route 层填充，`list_sessions_paged` 不计算 |
 | `is_cron` | `bool` | 是否为定时任务创建的会话 |
 | `parent_session_id` | `Option<String>` | 父会话 ID（子 Agent 会话） |
+| `forked_from_session_id` | `Option<String>` | Fork 来源会话 ID；用于“在新会话中继续”的用户可见 lineage，**不得**复用 `parent_session_id` |
+| `forked_from_message_id` | `Option<i64>` | Fork 来源消息边界；复制到该消息（含）为止，`None` 表示复制完整 transcript |
+| `forked_from_session_title` | `Option<String>` | 来源会话当前标题的只读 JOIN 投影；来源删除或无标题时为空 |
 | `plan_mode` | `PlanModeState` | Plan Mode 状态（snake_case 序列化）：`off` / `planning` / `review` / `executing` / `completed`（默认 off） |
 | `permission_mode` | `SessionMode` | 会话级权限模式（snake_case 序列化）：`default` / `smart` / `yolo`（默认 default） |
 | `sandbox_mode` | `SandboxMode` | 会话级沙箱模式（snake_case 序列化）：`off` / `standard` / `isolated` / `workspace` / `trusted`（默认 off） |
@@ -161,6 +165,8 @@ CREATE TABLE sessions (
     last_read_message_id     INTEGER DEFAULT 0,
     is_cron                  INTEGER NOT NULL DEFAULT 0,
     parent_session_id        TEXT,
+    forked_from_session_id   TEXT,                            -- 普通会话 fork 来源
+    forked_from_message_id   INTEGER,                         -- fork 消息边界（源消息 id）
     plan_mode                TEXT DEFAULT 'off',
     plan_steps               TEXT,                            -- Plan 步骤进度 JSON（崩溃恢复）
     permission_mode          TEXT NOT NULL DEFAULT 'default', -- 会话级权限模式（default/smart/yolo）
@@ -301,6 +307,7 @@ CREATE TABLE acp_runs (
 | `create_session(agent_id)` | 创建新会话，返回 `SessionMeta` |
 | `create_session_with_parent(agent_id, parent_id)` | 创建子 Agent 会话 |
 | `create_session_with_project(agent_id, project_id)` | 创建项目作用域会话；`project_id` 非空时强制 `incognito=false`（互斥防御） |
+| `fork_session(source_session_id, source_message_id)` | 将普通顶层会话复制派生为新的普通会话；复制 transcript + 稳定会话配置，不复制 goal/loop/workflow/task/job 运行态 |
 | `get_session(session_id)` | 获取单个会话元信息（含 Channel LEFT JOIN） |
 | `list_sessions(agent_id)` | 列出所有会话（按 updated_at DESC） |
 | `list_sessions_paged(agent_id, project_filter, limit, offset, active_session_id)` | 分页列表，返回 `(Vec<SessionMeta>, total_count)`。**5 参签名**：见下方 `ProjectFilter` 与 incognito 例外 |
@@ -462,6 +469,33 @@ stateDiagram-v2
         5. save context
     end note
 ```
+
+## 会话 Fork / 在新会话中继续
+
+Fork 用于把当前会话派生为一个新的、可独立继续的普通会话。它对齐 Codex `/fork` 的用户心智：新会话有自己的 ID，原 transcript 不被改动，用户可以在两条路线里并行探索。
+
+### 数据语义
+
+- `forked_from_session_id` / `forked_from_message_id` 是普通会话 lineage，只用于“接续自”提示和跳转原会话。
+- `parent_session_id` 仍只表示子 Agent 会话。Fork 出来的会话必须保留 `parent_session_id = NULL`，否则会被 sidebar、未读和子会话 UI 当成隐藏子会话处理。
+- `SESSION_META_SELECT` 追加 `forked_from_session_title` 作为只读来源标题投影；来源会话删除后，fork 会话仍保留来源 ID，但标题为空。
+
+### 复制范围
+
+`SessionDB::fork_session(source_session_id, source_message_id)` 以数据库事务和失败清理共同保证一致性：
+
+1. 校验来源是普通顶层会话：非 incognito、非 cron、非 subagent、`kind = regular`。
+2. 校验 `source_message_id` 属于来源会话；为空时复制完整 transcript，非空时复制到该消息 ID（含）为止。
+3. 拒绝复制 `stream_status = 'streaming'` 的未完成行，避免派生出半条 assistant/tool 输出。
+4. 创建新 `sessions` 行，复制 agent/model/project/workdir、permission/sandbox/execution/workflow mode 等稳定配置。
+5. 复制 `messages` 行，保留原消息时间戳、tool metadata、token 和 source 字段。普通上传与 `tool_media_items` 引用的会话私有文件会复制到新会话附件目录，并将 `path` / `localPath` / `/api/attachments/{session}/...` URL 改写为新会话；工作区 quote 等外部引用保持原样。这样删除来源会话后，派生会话的附件仍可独立读取。
+6. 将新会话 `last_read_message_id` 设为复制后的末尾消息，避免复制历史立刻变成未读。
+
+附件复制或写库任一步失败时，数据库事务回滚并删除已创建的新附件目录；提交后先释放 writer mutex，再通过读连接加载新 `SessionMeta`，避免同线程重复获取写锁。
+
+### 不复制的内容
+
+Fork 不复制 active Goal、Loop schedule、Workflow run、Task progress、pending approval、background job、subagent/acp run 等运行态。这些对象代表当前执行路线的 live state；复制它们会导致原会话和派生会话共享或竞争同一批异步任务。新会话只带历史上下文和稳定配置，后续 goal/loop/workflow 由新会话重新创建。
 
 ## 无痕会话（Incognito）
 

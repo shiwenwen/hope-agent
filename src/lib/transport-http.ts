@@ -183,6 +183,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Sessions --
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
   create_session_cmd:              { method: "POST",   path: "/api/sessions" },
+  fork_session_cmd:                { method: "POST",   path: "/api/sessions/{sessionId}/fork" },
   get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
   set_session_pinned_cmd:          { method: "PATCH",  path: "/api/sessions/{sessionId}/pinned" },
   set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },

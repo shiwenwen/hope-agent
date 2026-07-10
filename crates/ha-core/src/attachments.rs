@@ -295,6 +295,196 @@ pub fn persist_chat_user_attachments_meta(
     }
 }
 
+/// Copy durable attachment files referenced by a message into a forked
+/// session and rewrite the known attachment metadata shapes to point at the
+/// new session. Workspace quote references and unknown metadata are left
+/// untouched because they are references, not session-owned bytes.
+pub(crate) fn fork_attachments_meta(
+    source_session_id: &str,
+    forked_session_id: &str,
+    raw_meta: &str,
+) -> Result<String> {
+    let Ok(mut meta) = serde_json::from_str::<Value>(raw_meta) else {
+        return Ok(raw_meta.to_string());
+    };
+    let mut changed = false;
+
+    match &mut meta {
+        Value::Array(items) => {
+            changed |= rewrite_user_attachment_items(items, source_session_id, forked_session_id)?;
+        }
+        Value::Object(object) => {
+            if let Some(items) = object
+                .get_mut("user_attachments")
+                .and_then(Value::as_array_mut)
+            {
+                changed |=
+                    rewrite_user_attachment_items(items, source_session_id, forked_session_id)?;
+            }
+            if let Some(items) = object
+                .get_mut(crate::session::ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS)
+                .and_then(Value::as_array_mut)
+            {
+                changed |= rewrite_tool_media_items(items, source_session_id, forked_session_id)?;
+            }
+        }
+        _ => {}
+    }
+
+    if changed {
+        Ok(serde_json::to_string(&meta)?)
+    } else {
+        Ok(raw_meta.to_string())
+    }
+}
+
+fn rewrite_user_attachment_items(
+    items: &mut [Value],
+    source_session_id: &str,
+    forked_session_id: &str,
+) -> Result<bool> {
+    let mut changed = false;
+    for item in items {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        if object.get("kind").and_then(Value::as_str) == Some("quote") {
+            continue;
+        }
+        let Some(source_path) = object.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        if let Some(copied_path) =
+            copy_session_attachment(source_path, source_session_id, forked_session_id)?
+        {
+            object.insert(
+                "path".to_string(),
+                Value::String(copied_path.to_string_lossy().to_string()),
+            );
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
+fn rewrite_tool_media_items(
+    items: &mut [Value],
+    source_session_id: &str,
+    forked_session_id: &str,
+) -> Result<bool> {
+    let source_url_prefix = format!("/api/attachments/{source_session_id}/");
+    let mut changed = false;
+
+    for item in items {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+
+        let mut copied_path = None;
+        if let Some(local_path) = object.get("localPath").and_then(Value::as_str) {
+            copied_path =
+                copy_session_attachment(local_path, source_session_id, forked_session_id)?;
+        }
+
+        if copied_path.is_none() {
+            if let Some(encoded_name) = object
+                .get("url")
+                .and_then(Value::as_str)
+                .and_then(|url| url.strip_prefix(&source_url_prefix))
+            {
+                let decoded_name = urlencoding::decode(encoded_name)
+                    .with_context(|| format!("decode attachment URL {encoded_name}"))?;
+                if decoded_name.contains(['/', '\\']) {
+                    anyhow::bail!("invalid attachment URL filename: {encoded_name}");
+                }
+                let source_path = paths::attachments_dir(source_session_id)?.join(&*decoded_name);
+                copied_path = copy_session_attachment(
+                    &source_path.to_string_lossy(),
+                    source_session_id,
+                    forked_session_id,
+                )?;
+            }
+        }
+
+        let Some(copied_path) = copied_path else {
+            continue;
+        };
+        let file_name = copied_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .context("forked attachment filename is not valid UTF-8")?;
+        object.insert(
+            "localPath".to_string(),
+            Value::String(copied_path.to_string_lossy().to_string()),
+        );
+        object.insert(
+            "url".to_string(),
+            Value::String(format!(
+                "/api/attachments/{}/{}",
+                forked_session_id,
+                urlencoding::encode(file_name)
+            )),
+        );
+        changed = true;
+    }
+
+    Ok(changed)
+}
+
+fn copy_session_attachment(
+    raw_path: &str,
+    source_session_id: &str,
+    forked_session_id: &str,
+) -> Result<Option<PathBuf>> {
+    let source_dir = paths::attachments_dir(source_session_id)?;
+    let source_path = PathBuf::from(raw_path);
+    let lexically_owned = source_path.starts_with(&source_dir);
+    let canonical_source_dir = match source_dir.canonicalize() {
+        Ok(path) => path,
+        Err(_) if !lexically_owned => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("canonicalize attachments dir {}", source_dir.display()));
+        }
+    };
+    let canonical_source_path = match source_path.canonicalize() {
+        Ok(path) => path,
+        Err(_) if !lexically_owned => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("canonicalize attachment {}", source_path.display()));
+        }
+    };
+    if !canonical_source_path.starts_with(&canonical_source_dir) {
+        if lexically_owned {
+            anyhow::bail!(
+                "attachment escapes source session directory: {}",
+                source_path.display()
+            );
+        }
+        return Ok(None);
+    }
+    if !canonical_source_path.is_file() {
+        anyhow::bail!("attachment path is not a file: {}", source_path.display());
+    }
+
+    let file_name = canonical_source_path
+        .file_name()
+        .context("source attachment has no filename")?;
+    let forked_dir = paths::attachments_dir(forked_session_id)?;
+    std::fs::create_dir_all(&forked_dir)
+        .with_context(|| format!("create attachments dir {}", forked_dir.display()))?;
+    let forked_path = forked_dir.join(file_name);
+    std::fs::copy(&canonical_source_path, &forked_path).with_context(|| {
+        format!(
+            "copy attachment {} to {}",
+            canonical_source_path.display(),
+            forked_path.display()
+        )
+    })?;
+    Ok(Some(forked_path))
+}
+
 fn is_user_upload_source(source: Option<&str>) -> bool {
     matches!(source, None | Some("upload") | Some(PASTED_TEXT_SOURCE))
 }

@@ -94,6 +94,14 @@ pub struct CreateSessionBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkSessionBody {
+    /// Optional source message boundary. When omitted, the full transcript is
+    /// copied. When set, messages are copied through this ID inclusive.
+    pub message_id: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct RenameSessionBody {
     pub title: String,
 }
@@ -530,6 +538,19 @@ pub async fn create_session(
             })
             .await?
     };
+    Ok(Json(meta))
+}
+
+/// `POST /api/sessions/:id/fork` — copy a regular session into a new first-class session.
+pub async fn fork_session(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<ForkSessionBody>,
+) -> Result<Json<ha_core::session::SessionMeta>, AppError> {
+    let meta = ctx
+        .session_db
+        .run(move |db| db.fork_session(&id, body.message_id))
+        .await?;
     Ok(Json(meta))
 }
 

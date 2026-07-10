@@ -20,6 +20,7 @@ import {
   Hash,
   Target,
   Radio,
+  GitFork,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import {
@@ -197,6 +198,7 @@ export interface MessageBubbleProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onForkFromMessage?: (messageId: number) => void
   displayMode?: ChatDisplayMode
   footerFiles?: MessageFileAttachment[]
   hideOwnFooterFiles?: boolean
@@ -520,6 +522,7 @@ function MessageBubbleInner({
   onOpenDashboardTab,
   onOpenDiff,
   onResume,
+  onForkFromMessage,
   displayMode = "bubble",
   footerFiles,
   hideOwnFooterFiles = false,
@@ -564,7 +567,13 @@ function MessageBubbleInner({
   const hasTextContent = hasRenderableTextContent(msg)
   const hasDetails = msg.role === "assistant" && !!(msg.usage || msg.model)
   const canAddQuickPrompt = !!onAddQuickPrompt && isQuickPromptEligibleUserMessage(msg)
-  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt
+  const canForkFromMessage =
+    !!onForkFromMessage &&
+    !!sessionId &&
+    !loading &&
+    typeof msg.dbId === "number" &&
+    (msg.role === "user" || msg.role === "assistant")
+  const hasToolbarActions = hasTextContent || hasDetails || canAddQuickPrompt || canForkFromMessage
   // Always-visible total turn duration, shown at the message bottom once the
   // assistant turn has finished (the per-step / per-group times live above).
   const totalDurationText =
@@ -648,6 +657,17 @@ function MessageBubbleInner({
         className={toolbarButtonClass}
       >
         <Hash className="h-3.5 w-3.5" />
+      </button>
+    </IconTip>
+  ) : null
+  const forkButton = canForkFromMessage ? (
+    <IconTip label={t("chat.fork.continueInNewSession", "Continue in new session")}>
+      <button
+        type="button"
+        onClick={() => onForkFromMessage?.(msg.dbId!)}
+        className={toolbarButtonClass}
+      >
+        <GitFork className="h-3.5 w-3.5" />
       </button>
     </IconTip>
   ) : null
@@ -1101,6 +1121,7 @@ function MessageBubbleInner({
               </IconTip>
             )}
             {addQuickPromptButton}
+            {forkButton}
             {renderToggleButton}
             {detailsButton}
           </div>
@@ -1267,6 +1288,7 @@ function MessageBubbleInner({
             </IconTip>
           )}
           {addQuickPromptButton}
+          {forkButton}
           {renderToggleButton}
           {detailsButton}
         </div>

@@ -304,6 +304,13 @@
       "completedWithDuration": "تم تحقيق الهدف خلال {{time}}",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "المتابعة في جلسة جديدة",
+      "continuedFrom": "متابعة من",
+      "created": "تمت المتابعة في جلسة جديدة",
+      "failed": "تعذرت المتابعة في جلسة جديدة",
+      "sourceFallback": "الجلسة الأصلية"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "خلفية المتصفح: {{backend}}",
       "captureFailed": "فشل التقاط الإطار، بانتظار التالي",
@@ -1248,7 +1255,9 @@
       "timeline": "أحداث دورة حياة المهارة",
       "title": "متتبع التعلّم",
       "topSkills": "أعلى المهارات استخدامًا",
-      "userSkillsHint": "{{n}} أنشأها المستخدم"
+      "userSkillsHint": "{{n}} أنشأها المستخدم",
+      "toggleReleaseEvidenceAdd": "وضع علامة كدليل إصدار",
+      "toggleReleaseEvidenceRemove": "إزالة دليل الإصدار"
     },
     "loading": "جاري التحميل...",
     "noData": "لا توجد بيانات",

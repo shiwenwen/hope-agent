@@ -304,6 +304,13 @@
       "completedWithDuration": "Goal reached in {{time}}",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "Continue in new session",
+      "continuedFrom": "Continued from",
+      "created": "Continued in a new session",
+      "failed": "Couldn't continue in a new session",
+      "sourceFallback": "source session"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Browser backend: {{backend}}",
       "captureFailed": "Frame capture failed, waiting for next one",
@@ -1248,7 +1255,9 @@
       "timeline": "Skill lifecycle events",
       "title": "Learning Tracker",
       "topSkills": "Top skills by usage",
-      "userSkillsHint": "{{n}} user-created"
+      "userSkillsHint": "{{n}} user-created",
+      "toggleReleaseEvidenceAdd": "Mark as release evidence",
+      "toggleReleaseEvidenceRemove": "Remove release evidence"
     },
     "loading": "Loading...",
     "noData": "No data available",

@@ -304,6 +304,13 @@
       "completedWithDuration": "Meta alcançada em {{time}}",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "Continuar em uma nova sessão",
+      "continuedFrom": "Continuação de",
+      "created": "Continuado em uma nova sessão",
+      "failed": "Não foi possível continuar em uma nova sessão",
+      "sourceFallback": "sessão original"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Backend do navegador: {{backend}}",
       "captureFailed": "Falha ao capturar quadro, aguardando o próximo",
@@ -1248,7 +1255,9 @@
       "timeline": "Eventos do ciclo de vida do skill",
       "title": "Rastreador de Aprendizado",
       "topSkills": "Top skills por uso",
-      "userSkillsHint": "{{n}} criados pelo usuário"
+      "userSkillsHint": "{{n}} criados pelo usuário",
+      "toggleReleaseEvidenceAdd": "Marcar como evidência de release",
+      "toggleReleaseEvidenceRemove": "Remover evidência de release"
     },
     "loading": "Carregando...",
     "noData": "Sem dados",

@@ -77,7 +77,9 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort, s.pinned_at, s.kind,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND s.is_cron = 0 AND s.parent_session_id IS NULL AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') = 'channel') as channel_unread_count,
-           s.sandbox_mode, s.execution_mode, s.workflow_mode
+           s.sandbox_mode, s.execution_mode, s.workflow_mode,
+           s.forked_from_session_id, s.forked_from_message_id,
+           (SELECT p.title FROM sessions p WHERE p.id = s.forked_from_session_id) as forked_from_session_title
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -121,7 +123,9 @@ impl SessionDB {
                 pinned_at TEXT,
                 kind TEXT NOT NULL DEFAULT 'regular',
                 execution_mode TEXT NOT NULL DEFAULT 'off',
-                workflow_mode TEXT NOT NULL DEFAULT 'off'
+                workflow_mode TEXT NOT NULL DEFAULT 'off',
+                forked_from_session_id TEXT,
+                forked_from_message_id INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -156,6 +160,7 @@ impl SessionDB {
             CREATE INDEX IF NOT EXISTS idx_messages_session_role ON messages(session_id, role);
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sessions_forked_from ON sessions(forked_from_session_id);
 
             -- Sub-agent runs
             CREATE TABLE IF NOT EXISTS subagent_runs (
@@ -388,6 +393,24 @@ impl SessionDB {
         if !has_source {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
         }
+
+        // Migration: user-facing session forks. Deliberately separate from
+        // `parent_session_id`, which marks hidden sub-agent child sessions.
+        let has_forked_from_session_id = conn
+            .prepare("SELECT forked_from_session_id FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_forked_from_session_id {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN forked_from_session_id TEXT;")?;
+        }
+        let has_forked_from_message_id = conn
+            .prepare("SELECT forked_from_message_id FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_forked_from_message_id {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN forked_from_message_id INTEGER;")?;
+        }
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_forked_from ON sessions(forked_from_session_id);",
+        )?;
 
         Self::ensure_model_usage_table(&conn)?;
         const SCHEMA_FLAG_MODEL_USAGE_BACKFILLED: i64 = 0x4;
@@ -1374,6 +1397,9 @@ impl SessionDB {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
+            forked_from_session_id: None,
+            forked_from_message_id: None,
+            forked_from_session_title: None,
             plan_mode: crate::plan::PlanModeState::Off,
             execution_mode: crate::execution_mode::ExecutionMode::Off,
             workflow_mode: crate::workflow_mode::WorkflowMode::Off,
@@ -1385,6 +1411,286 @@ impl SessionDB {
             working_dir: None,
             kind: SessionKind::Regular,
         })
+    }
+
+    /// Fork a regular user-facing session into a new first-class session.
+    ///
+    /// The fork copies the persisted transcript up to `source_message_id`
+    /// (inclusive) or the full transcript when it is `None`. It also copies the
+    /// stable conversation configuration (agent/model/project/workdir,
+    /// permission/sandbox/execution/workflow modes) while intentionally not
+    /// copying active control-plane state such as goals, loops, workflow runs,
+    /// tasks, approvals, or background jobs. Those records are live run state,
+    /// not transcript history, and sharing them would couple the original and
+    /// forked sessions.
+    pub fn fork_session(
+        &self,
+        source_session_id: &str,
+        source_message_id: Option<i64>,
+    ) -> Result<SessionMeta> {
+        let new_session_id = uuid::Uuid::new_v4().to_string();
+        let fork_result = (|| -> Result<()> {
+            let mut conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let tx = conn.transaction()?;
+
+            let (
+                source_title,
+                source_title_source,
+                agent_id,
+                provider_id,
+                provider_name,
+                model_id,
+                reasoning_effort,
+                project_id,
+                permission_mode,
+                sandbox_mode,
+                execution_mode,
+                workflow_mode,
+                working_dir,
+                kind,
+                incognito,
+                is_cron,
+                parent_session_id,
+            ): (
+                Option<String>,
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                Option<String>,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                String,
+                i64,
+                i64,
+                Option<String>,
+            ) = tx
+                .query_row(
+                    "SELECT title, title_source, agent_id, provider_id, provider_name, model_id,
+                        reasoning_effort, project_id, permission_mode, sandbox_mode,
+                        execution_mode, workflow_mode, working_dir, kind, incognito,
+                        is_cron, parent_session_id
+                 FROM sessions WHERE id = ?1",
+                    params![source_session_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                            row.get(8)?,
+                            row.get(9)?,
+                            row.get(10)?,
+                            row.get(11)?,
+                            row.get(12)?,
+                            row.get(13)?,
+                            row.get(14)?,
+                            row.get(15)?,
+                            row.get(16)?,
+                        ))
+                    },
+                )
+                .optional()?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("source session not found: {}", source_session_id)
+                })?;
+
+            if incognito != 0 {
+                anyhow::bail!("incognito sessions cannot be forked");
+            }
+            if is_cron != 0 || parent_session_id.is_some() || kind != SessionKind::Regular.as_str()
+            {
+                anyhow::bail!("only regular top-level sessions can be forked");
+            }
+
+            if let Some(message_id) = source_message_id {
+                let exists: i64 = tx.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id = ?2)",
+                    params![source_session_id, message_id],
+                    |row| row.get(0),
+                )?;
+                if exists == 0 {
+                    anyhow::bail!("source message not found in session: {}", message_id);
+                }
+            }
+
+            let active_streaming_rows: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM messages
+             WHERE session_id = ?1
+               AND (?2 IS NULL OR id <= ?2)
+               AND stream_status = 'streaming'",
+                params![source_session_id, source_message_id],
+                |row| row.get(0),
+            )?;
+            if active_streaming_rows > 0 {
+                anyhow::bail!(
+                    "session has an active response; wait for it to finish before forking"
+                );
+            }
+
+            let copied_count: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM messages
+             WHERE session_id = ?1
+               AND (?2 IS NULL OR id <= ?2)",
+                params![source_session_id, source_message_id],
+                |row| row.get(0),
+            )?;
+            if copied_count == 0 {
+                anyhow::bail!("cannot fork an empty session");
+            }
+
+            let has_source_title = source_title
+                .as_deref()
+                .is_some_and(|title| !title.trim().is_empty());
+            let inferred_title: Option<String> = if has_source_title {
+                source_title.clone()
+            } else {
+                tx.query_row(
+                    "SELECT content FROM messages
+                 WHERE session_id = ?1
+                   AND (?2 IS NULL OR id <= ?2)
+                   AND role = 'user'
+                   AND length(trim(content)) > 0
+                 ORDER BY id ASC LIMIT 1",
+                    params![source_session_id, source_message_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|content| crate::truncate_utf8(content.trim(), 80).to_string())
+                .filter(|title| !title.is_empty())
+            };
+            let title_source = if has_source_title {
+                source_title_source
+            } else if inferred_title.is_some() {
+                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE.to_string()
+            } else {
+                crate::session_title::TITLE_SOURCE_MANUAL.to_string()
+            };
+
+            let now = chrono::Utc::now().to_rfc3339();
+            tx.execute(
+            "INSERT INTO sessions (
+                id, title, title_source, agent_id, provider_id, provider_name, model_id,
+                reasoning_effort, created_at, updated_at, parent_session_id, project_id,
+                permission_mode, sandbox_mode, execution_mode, workflow_mode, working_dir,
+                kind, forked_from_session_id, forked_from_message_id
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)",
+            params![
+                new_session_id,
+                inferred_title,
+                title_source,
+                agent_id,
+                provider_id,
+                provider_name,
+                model_id,
+                reasoning_effort,
+                now,
+                now,
+                project_id,
+                permission_mode,
+                sandbox_mode,
+                execution_mode,
+                workflow_mode,
+                working_dir,
+                kind,
+                source_session_id,
+                source_message_id,
+            ],
+        )?;
+
+            tx.execute(
+                "INSERT INTO messages (
+                session_id, role, content, timestamp, attachments_meta, model,
+                tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
+                tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
+                ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
+                tool_metadata, stream_status, source
+             )
+             SELECT ?1, role, content, timestamp, attachments_meta, model,
+                tokens_in, tokens_out, reasoning_effort, tool_call_id, tool_name,
+                tool_arguments, tool_result, tool_duration_ms, is_error, thinking,
+                ttft_ms, tokens_in_last, tokens_cache_creation, tokens_cache_read,
+                tool_metadata, stream_status, source
+             FROM messages
+             WHERE session_id = ?2
+               AND (?3 IS NULL OR id <= ?3)
+             ORDER BY id ASC",
+                params![new_session_id, source_session_id, source_message_id],
+            )?;
+
+            let attachment_meta_rewrites = {
+                let mut stmt = tx.prepare(
+                    "SELECT DISTINCT attachments_meta FROM messages
+                 WHERE session_id = ?1
+                   AND (?2 IS NULL OR id <= ?2)
+                   AND attachments_meta IS NOT NULL",
+                )?;
+                let raw_values = stmt
+                    .query_map(params![source_session_id, source_message_id], |row| {
+                        row.get::<_, String>(0)
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                raw_values
+                    .into_iter()
+                    .map(|raw| {
+                        let rewritten = crate::attachments::fork_attachments_meta(
+                            source_session_id,
+                            &new_session_id,
+                            &raw,
+                        )?;
+                        Ok((raw, rewritten))
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            };
+
+            for (raw, rewritten) in attachment_meta_rewrites {
+                if raw != rewritten {
+                    tx.execute(
+                        "UPDATE messages SET attachments_meta = ?1
+                     WHERE session_id = ?2 AND attachments_meta = ?3",
+                        params![rewritten, new_session_id, raw],
+                    )?;
+                }
+            }
+
+            let last_message_id: Option<i64> = tx.query_row(
+                "SELECT MAX(id) FROM messages WHERE session_id = ?1",
+                params![new_session_id],
+                |row| row.get(0),
+            )?;
+            if let Some(last_message_id) = last_message_id {
+                tx.execute(
+                    "UPDATE sessions SET last_read_message_id = ?1 WHERE id = ?2",
+                    params![last_message_id, new_session_id],
+                )?;
+            }
+
+            tx.commit()?;
+            Ok(())
+        })();
+
+        if let Err(error) = fork_result {
+            if let Ok(attachments_dir) = crate::paths::attachments_dir(&new_session_id) {
+                let _ = std::fs::remove_dir_all(attachments_dir);
+            }
+            return Err(error);
+        }
+
+        self.get_session(&new_session_id)?
+            .ok_or_else(|| anyhow::anyhow!("forked session disappeared: {}", new_session_id))
     }
 
     /// Set a session's classification (see [`SessionKind`]). Used by the
@@ -2048,6 +2354,9 @@ impl SessionDB {
             has_error: row.get::<_, i64>(10).unwrap_or(0) != 0,
             is_cron: row.get::<_, i64>(11).unwrap_or(0) != 0,
             parent_session_id: row.get(12)?,
+            forked_from_session_id: row.get(31).ok().flatten(),
+            forked_from_message_id: row.get(32).ok().flatten(),
+            forked_from_session_title: row.get(33).ok().flatten(),
             plan_mode: row
                 .get::<_, String>(13)
                 .map(|s| crate::plan::PlanModeState::from_str(&s))
@@ -5140,6 +5449,206 @@ mod tests {
             "sub-agent session is excluded from IM unread too"
         );
 
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_copies_transcript_to_message_boundary_as_regular_read_session() {
+        let db_path = temp_db_path("session-fork-boundary");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        db.update_session_title_with_source(
+            &source.id,
+            "Original task",
+            crate::session_title::TITLE_SOURCE_LLM,
+        )
+        .expect("title");
+        db.append_message(&source.id, &NewMessage::user("first prompt"))
+            .expect("append user");
+        let boundary = db
+            .append_message(&source.id, &NewMessage::assistant("first answer"))
+            .expect("append assistant");
+        db.append_message(&source.id, &NewMessage::user("second prompt"))
+            .expect("append later user");
+
+        let forked = db
+            .fork_session(&source.id, Some(boundary))
+            .expect("fork session");
+
+        assert_ne!(forked.id, source.id);
+        assert_eq!(forked.title.as_deref(), Some("Original task"));
+        assert_eq!(
+            forked.forked_from_session_id.as_deref(),
+            Some(source.id.as_str())
+        );
+        assert_eq!(forked.forked_from_message_id, Some(boundary));
+        assert_eq!(
+            forked.forked_from_session_title.as_deref(),
+            Some("Original task")
+        );
+        assert!(forked.parent_session_id.is_none());
+        assert_eq!(forked.message_count, 2);
+        assert_eq!(forked.unread_count, 0, "copied history starts as read");
+
+        let forked_messages = db
+            .load_session_messages(&forked.id)
+            .expect("load forked messages");
+        assert_eq!(forked_messages.len(), 2);
+        assert_eq!(forked_messages[0].content, "first prompt");
+        assert_eq!(forked_messages[1].content, "first answer");
+
+        let original_messages = db
+            .load_session_messages(&source.id)
+            .expect("load original messages");
+        assert_eq!(
+            original_messages.len(),
+            3,
+            "source transcript stays untouched"
+        );
+
+        let (visible, _) = db
+            .list_sessions_paged_for_sidebar(None, super::ProjectFilter::All, None, None, None)
+            .expect("list sessions");
+        assert!(
+            visible.iter().any(|session| session.id == forked.id),
+            "forked session must remain a first-class sidebar session"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_rejects_incognito_source() {
+        let db_path = temp_db_path("session-fork-incognito");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db
+            .create_session_with_project("ha-main", None, Some(true))
+            .expect("incognito session");
+        db.append_message(&source.id, &NewMessage::user("private prompt"))
+            .expect("append user");
+
+        let err = db
+            .fork_session(&source.id, None)
+            .expect_err("incognito fork should fail");
+        assert!(
+            err.to_string().contains("incognito"),
+            "unexpected error: {err}"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn fork_session_copies_owned_attachments_and_survives_source_deletion() {
+        let db_path = temp_db_path("session-fork-attachments");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let source = db.create_session("ha-main").expect("source session");
+        let source_dir = crate::paths::attachments_dir(&source.id).expect("source attachments dir");
+        std::fs::create_dir_all(&source_dir).expect("create source attachments dir");
+        let upload_path = source_dir.join("uploaded-note.txt");
+        let tool_path = source_dir.join("generated-report.txt");
+        std::fs::write(&upload_path, b"uploaded content").expect("write upload");
+        std::fs::write(&tool_path, b"generated content").expect("write tool output");
+
+        let mut user = NewMessage::user("review these files");
+        user.attachments_meta = Some(
+            serde_json::json!({
+                "goal_trigger": true,
+                "user_attachments": [{
+                    "name": "uploaded-note.txt",
+                    "mime_type": "text/plain",
+                    "size": 16,
+                    "path": upload_path,
+                    "source": "upload"
+                }]
+            })
+            .to_string(),
+        );
+        db.append_message(&source.id, &user)
+            .expect("append user attachment");
+
+        let mut tool = NewMessage::tool(
+            "call-fork-media",
+            "send_attachment",
+            r#"{"path":"generated-report.txt"}"#,
+            "",
+            None,
+            false,
+        );
+        tool.attachments_meta =
+            crate::session::build_tool_media_items_attachments_meta(&serde_json::json!([{
+                "url": format!(
+                    "/api/attachments/{}/generated-report.txt",
+                    source.id
+                ),
+                "localPath": tool_path,
+                "name": "generated-report.txt",
+                "mimeType": "text/plain",
+                "sizeBytes": 17,
+                "kind": "file"
+            }]));
+        db.append_message(&source.id, &tool)
+            .expect("append tool attachment");
+
+        let forked = db
+            .fork_session(&source.id, None)
+            .expect("fork session with attachments");
+        let forked_dir = crate::paths::attachments_dir(&forked.id).expect("forked attachments dir");
+        let messages = db
+            .load_session_messages(&forked.id)
+            .expect("load forked messages");
+
+        let user_meta: serde_json::Value = serde_json::from_str(
+            messages[0]
+                .attachments_meta
+                .as_deref()
+                .expect("forked user metadata"),
+        )
+        .expect("parse user metadata");
+        let forked_upload_path = std::path::PathBuf::from(
+            user_meta["user_attachments"][0]["path"]
+                .as_str()
+                .expect("forked upload path"),
+        );
+        assert!(forked_upload_path.starts_with(&forked_dir));
+
+        let tool_meta: serde_json::Value = serde_json::from_str(
+            messages[1]
+                .attachments_meta
+                .as_deref()
+                .expect("forked tool metadata"),
+        )
+        .expect("parse tool metadata");
+        let forked_tool_path = std::path::PathBuf::from(
+            tool_meta["tool_media_items"][0]["localPath"]
+                .as_str()
+                .expect("forked tool path"),
+        );
+        assert!(forked_tool_path.starts_with(&forked_dir));
+        assert_eq!(
+            tool_meta["tool_media_items"][0]["url"].as_str(),
+            Some(format!("/api/attachments/{}/generated-report.txt", forked.id).as_str())
+        );
+
+        db.delete_session(&source.id)
+            .expect("delete source session");
+        assert_eq!(
+            std::fs::read(&forked_upload_path).expect("read copied upload"),
+            b"uploaded content"
+        );
+        assert_eq!(
+            std::fs::read(&forked_tool_path).expect("read copied tool output"),
+            b"generated content"
+        );
+
+        db.delete_session(&forked.id)
+            .expect("delete forked session");
         let _ = std::fs::remove_file(&db_path);
     }
 

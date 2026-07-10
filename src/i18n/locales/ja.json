@@ -304,6 +304,13 @@
       "completedWithDuration": "{{time}} で目標を達成しました",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "新しいセッションで続ける",
+      "continuedFrom": "続き元",
+      "created": "新しいセッションで続けます",
+      "failed": "新しいセッションで続けられませんでした",
+      "sourceFallback": "元のセッション"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "ブラウザバックエンド：{{backend}}",
       "captureFailed": "フレーム取得に失敗、次のフレームを待っています",
@@ -1248,7 +1255,9 @@
       "timeline": "スキルのライフサイクルイベント",
       "title": "学習トラッカー",
       "topSkills": "使用頻度トップスキル",
-      "userSkillsHint": "ユーザー作成 {{n}} 件"
+      "userSkillsHint": "ユーザー作成 {{n}} 件",
+      "toggleReleaseEvidenceAdd": "リリース証拠としてマーク",
+      "toggleReleaseEvidenceRemove": "リリース証拠を解除"
     },
     "loading": "読み込み中...",
     "noData": "データがありません",

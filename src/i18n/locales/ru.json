@@ -304,6 +304,13 @@
       "completedWithDuration": "Цель достигнута за {{time}}",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "Продолжить в новой сессии",
+      "continuedFrom": "Продолжено из",
+      "created": "Продолжено в новой сессии",
+      "failed": "Не удалось продолжить в новой сессии",
+      "sourceFallback": "исходная сессия"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Бэкенд браузера: {{backend}}",
       "captureFailed": "Не удалось получить кадр, ожидание следующего",
@@ -1248,7 +1255,9 @@
       "timeline": "События жизненного цикла skill",
       "title": "Трекер обучения",
       "topSkills": "Топ skills по использованию",
-      "userSkillsHint": "{{n}} созданных пользователем"
+      "userSkillsHint": "{{n}} созданных пользователем",
+      "toggleReleaseEvidenceAdd": "Отметить как доказательство релиза",
+      "toggleReleaseEvidenceRemove": "Удалить доказательство релиза"
     },
     "loading": "Загрузка...",
     "noData": "Данных нет",

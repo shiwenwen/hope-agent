@@ -304,6 +304,13 @@
       "completedWithDuration": "{{time}} 만에 목표 달성",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "새 세션에서 계속",
+      "continuedFrom": "이어받음",
+      "created": "새 세션에서 계속합니다",
+      "failed": "새 세션에서 계속할 수 없습니다",
+      "sourceFallback": "원본 세션"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "브라우저 백엔드: {{backend}}",
       "captureFailed": "프레임 캡처 실패, 다음 프레임 대기 중",
@@ -1248,7 +1255,9 @@
       "timeline": "skill 수명 주기 이벤트",
       "title": "학습 트래커",
       "topSkills": "사용 빈도 상위 skills",
-      "userSkillsHint": "사용자 생성 {{n}}개"
+      "userSkillsHint": "사용자 생성 {{n}}개",
+      "toggleReleaseEvidenceAdd": "릴리스 증거로 표시",
+      "toggleReleaseEvidenceRemove": "릴리스 증거 제거"
     },
     "loading": "로드 중...",
     "noData": "데이터가 없습니다",

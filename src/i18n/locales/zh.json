@@ -304,6 +304,13 @@
       "completedWithDuration": "已在 {{time}} 内达成目标",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "在新会话中继续",
+      "continuedFrom": "接续自",
+      "created": "已在新会话中继续",
+      "failed": "无法在新会话中继续",
+      "sourceFallback": "原会话"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "浏览器后端：{{backend}}",
       "captureFailed": "截图失败，等待下一帧",
@@ -1248,7 +1255,9 @@
       "timeline": "技能生命周期事件",
       "title": "学习追踪",
       "topSkills": "使用频率 Top",
-      "userSkillsHint": "用户创建 {{n}} 项"
+      "userSkillsHint": "用户创建 {{n}} 项",
+      "toggleReleaseEvidenceAdd": "标记为发布证据",
+      "toggleReleaseEvidenceRemove": "移除发布证据"
     },
     "loading": "加载中...",
     "noData": "暂无数据",

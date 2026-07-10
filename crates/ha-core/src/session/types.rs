@@ -157,6 +157,20 @@ pub struct SessionMeta {
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,
+    /// If this session was forked from another user-facing session, stores the
+    /// source session ID. This is intentionally separate from
+    /// `parent_session_id`: forked sessions stay first-class sidebar sessions,
+    /// while `parent_session_id` marks hidden sub-agent children.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_id: Option<String>,
+    /// Optional source message boundary used when the fork copied only part of
+    /// the source transcript.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_message_id: Option<i64>,
+    /// Best-effort live title of the source session for UI breadcrumbs. Null
+    /// when the source session was deleted or had no title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_from_session_title: Option<String>,
     /// Plan mode state for this session. Serialized as a snake_case string
     /// (`off` / `planning` / `review` / `executing` / `paused` / `completed`)
     /// matching the frontend's loose `string` type.
@@ -613,6 +627,9 @@ mod tests {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: None,
+            forked_from_session_id: None,
+            forked_from_message_id: None,
+            forked_from_session_title: None,
             plan_mode: Default::default(),
             execution_mode: Default::default(),
             workflow_mode: Default::default(),

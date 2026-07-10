@@ -304,6 +304,13 @@
       "completedWithDuration": "已在 {{time}} 內達成目標",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "在新會話中繼續",
+      "continuedFrom": "接續自",
+      "created": "已在新會話中繼續",
+      "failed": "無法在新會話中繼續",
+      "sourceFallback": "原會話"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "瀏覽器後端：{{backend}}",
       "captureFailed": "截圖失敗，等待下一幀",
@@ -1248,7 +1255,9 @@
       "timeline": "技能生命週期事件",
       "title": "學習追蹤",
       "topSkills": "使用頻率 Top",
-      "userSkillsHint": "使用者建立 {{n}} 項"
+      "userSkillsHint": "使用者建立 {{n}} 項",
+      "toggleReleaseEvidenceAdd": "標記為發布證據",
+      "toggleReleaseEvidenceRemove": "移除發布證據"
     },
     "loading": "加載中...",
     "noData": "暫無數據",
@@ -6435,7 +6444,7 @@
       "createRepairTask": "建立修復任務",
       "collapseValidationOutput": "摺疊驗證輸出",
       "expandValidationOutput": "展開驗證輸出",
-      "validationOutput": "驗證輸出\n《HA48》重點審核完成\n《HA49》重點驗證開始"
+      "validationOutput": "驗證輸出"
     },
     "codingEntry": "工作流",
     "openCodingPanel": "開啟工作流工作台",

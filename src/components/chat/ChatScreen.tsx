@@ -15,6 +15,7 @@ import {
   Eye,
   FolderOpen,
   GitCompare,
+  GitFork,
   Globe,
   Layers,
   LayoutDashboard,
@@ -763,6 +764,23 @@ export default function ChatScreen({
         : null,
     [session.sessions, session.currentSessionId],
   )
+  const forkSourceSession = useMemo(() => {
+    const sourceId = currentSessionMeta?.forkedFromSessionId
+    if (!sourceId) return null
+    const live = session.sessions.find((s) => s.id === sourceId)
+    return {
+      id: sourceId,
+      title:
+        live?.title ||
+        currentSessionMeta?.forkedFromSessionTitle ||
+        t("chat.fork.sourceFallback", "原会话"),
+    }
+  }, [
+    currentSessionMeta?.forkedFromSessionId,
+    currentSessionMeta?.forkedFromSessionTitle,
+    session.sessions,
+    t,
+  ])
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
@@ -2511,6 +2529,34 @@ export default function ChatScreen({
     [handleManualModelChange],
   )
 
+  const handleForkFromMessage = useCallback(
+    async (messageId: number) => {
+      const sourceSessionId = session.currentSessionId
+      if (!sourceSessionId) return
+      try {
+        const forked = await getTransport().call<SessionMeta>("fork_session_cmd", {
+          sessionId: sourceSessionId,
+          messageId,
+        })
+        await reloadSessions()
+        await rawHandleSwitchSession(forked.id)
+        toast.success(
+          t("chat.fork.created", {
+            defaultValue: "已在新会话中继续",
+          }),
+        )
+      } catch (e) {
+        logger.error("ui", "ChatScreen::forkSession", "Failed to fork session", e)
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : t("chat.fork.failed", { defaultValue: "无法在新会话中继续" }),
+        )
+      }
+    },
+    [rawHandleSwitchSession, reloadSessions, session.currentSessionId, t],
+  )
+
   // ── Plan Request Changes Handler ──────────────────────────────
   // See `planCommentMessage.ts` for the prompt vs displayText vs payload split.
   const handleRequestChanges = useCallback(
@@ -3315,6 +3361,26 @@ export default function ChatScreen({
 
             <CrashRecoveryBanner />
 
+            {forkSourceSession && (
+              <div className="border-b border-border/60 px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => void rawHandleSwitchSession(forkSourceSession.id)}
+                  className="mx-auto flex max-w-[880px] items-center gap-2 rounded-lg px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                >
+                  <GitFork className="h-3.5 w-3.5 shrink-0" />
+                  <span className="shrink-0">
+                    {t("chat.fork.continuedFrom", {
+                      defaultValue: "接续自",
+                    })}
+                  </span>
+                  <span className="min-w-0 truncate font-medium text-foreground/80">
+                    {forkSourceSession.title}
+                  </span>
+                </button>
+              </div>
+            )}
+
             <FileActionsContext.Provider value={fileActionsValue}>
               <MessageList
                 messages={session.messages}
@@ -3358,6 +3424,7 @@ export default function ChatScreen({
                 onResume={(message) => {
                   void stream.handleSend(message)
                 }}
+                onForkFromMessage={handleForkFromMessage}
                 onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                 displayMode={displayMode}
                 autoCollapseCompletedTurns={autoCollapseCompletedTurns}

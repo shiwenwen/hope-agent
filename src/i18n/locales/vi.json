@@ -304,6 +304,13 @@
       "completedWithDuration": "Đã đạt mục tiêu trong {{time}}",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "Tiếp tục trong phiên mới",
+      "continuedFrom": "Tiếp nối từ",
+      "created": "Đã tiếp tục trong phiên mới",
+      "failed": "Không thể tiếp tục trong phiên mới",
+      "sourceFallback": "phiên gốc"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Phụ trợ trình duyệt: {{backend}}",
       "captureFailed": "Chụp khung hình thất bại, đang chờ khung tiếp theo",
@@ -542,7 +549,7 @@
       "criteriaAdded": "��ã thêm tiêu chí hoàn thành",
       "followUpAdded": "Mục tiếp theo được thêm vào mục tiêu",
       "supersededReason": "Người dùng đã thay thế mục tiêu từ chế độ Mục tiêu",
-      "updated": "Đã cập nhật mục tiêu\nVòng lặp",
+      "updated": "Đã cập nhật mục tiêu",
       "messageBadge": "Mục tiêu"
     },
     "activity": {
@@ -1248,7 +1255,9 @@
       "timeline": "Sự kiện vòng đời skill",
       "title": "Theo dõi Học tập",
       "topSkills": "Skills được dùng nhiều nhất",
-      "userSkillsHint": "{{n}} do người dùng tạo"
+      "userSkillsHint": "{{n}} do người dùng tạo",
+      "toggleReleaseEvidenceAdd": "Đánh dấu là bằng chứng phát hành",
+      "toggleReleaseEvidenceRemove": "Gỡ bằng chứng phát hành"
     },
     "loading": "Đang tải...",
     "noData": "Không có dữ liệu",
@@ -5750,7 +5759,7 @@
       "created": "Đã tạo mục tiêu",
       "cleared": "Đã hoàn thành mục tiêu",
       "evaluated": "Đã bắt đầu đánh giá mục tiêu",
-      "updated": "Đã cập nhật mục tiêu\nVòng lặp",
+      "updated": "Đã cập nhật mục tiêu",
       "closedAccepted": "Chấp nhận hoàn thành mục tiêu",
       "strictEvidenceRequested": "Yêu cầu bằng chứng chặt chẽ hơn",
       "followUpAdded": "Đã thêm phần tiếp theo",
@@ -5830,7 +5839,7 @@
       "domainAccess": "Truy cập",
       "domainWorkflow": "Quy trình làm việc trên miền",
       "detailCriteria": "Tiêu chí",
-      "criterionWorkflowCount": "{{count}} quy trình làm việc\nVòng lặp",
+      "criterionWorkflowCount": "{{count}} quy trình làm việc",
       "criterionLoopCount": "{{count}}",
       "criterionEvidenceCount": "{{count}} vật chứng",
       "detailNoCriteria": "Chưa có tiêu chí",
@@ -6011,7 +6020,7 @@
       "historyEmpty": "Chưa có vòng lặp nào chạy",
       "historyTitle": "Lịch sử vòng lặp",
       "viewWorkflow": "Xem quy trình làm việc",
-      "workflowRun": "Chạy quy trình công việc\nMẫu",
+      "workflowRun": "Chạy quy trình công việc",
       "template": "Mẫu",
       "decision": "Quyết định",
       "decisionReason": "Lý do quyết định",
@@ -6456,7 +6465,7 @@
       "emptyMeta": "Đang chờ truy xuất",
       "title": "Bối cảnh được đề xuất",
       "searchPlaceholder": "Tài liệu, nguồn, hồ sơ, nhiệm vụ",
-      "refresh": "Làm mới ngữ cảnh được đề xuất\nTệp",
+      "refresh": "Làm mới ngữ cảnh được đề xuất",
       "statDiff": "Diff",
       "statFiles": "Tệp",
       "statSignals": "Tín hiệu",
@@ -6467,7 +6476,7 @@
       "incognito": "Phiên ẩn danh không đọc bối cảnh lịch sử",
       "more": "{{count}} thêm",
       "empty": "Chưa có ngữ cảnh được đề xuất",
-      "emptyNoWorkspace": "Chưa có bối cảnh được đề xuất; tìm kiếm tập tin bị bỏ qua mà không có thư mục làm việc\nTệp",
+      "emptyNoWorkspace": "Chưa có bối cảnh được đề xuất; tìm kiếm tập tin bị bỏ qua mà không có thư mục làm việc",
       "kindFile": "Tệp",
       "kindSymbol": "Biểu tượng",
       "kindDiagnostic": "Chẩn đoán",
@@ -7075,7 +7084,7 @@
       "approvalWait": "Chờ phê duyệt",
       "recovery": "Phục hồi",
       "interventions": "Can thiệp",
-      "connectorVerified": "Đã xác minh trình kết nối\nMã thông báo",
+      "connectorVerified": "Đã xác minh trình kết nối",
       "outputTokens": "Token đầu ra",
       "timeline": "Dòng thời gian",
       "createRecommendationTask": "Tạo nhiệm vụ đề xuất",
@@ -7201,7 +7210,7 @@
       "sensitiveUnreviewed": "Nhạy cảm chưa được xem xét"
     },
     "domainAccessScope": {
-      "public": "Công khai\nPhiên",
+      "public": "Công khai",
       "session": "Phiên",
       "private": "Riêng tư",
       "connector": "Đầu nối",

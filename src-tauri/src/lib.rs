@@ -554,6 +554,7 @@ pub fn run() {
             tauri_wrappers::mac_control_capture_frame,
             // Session management
             commands::session::create_session_cmd,
+            commands::session::fork_session_cmd,
             commands::session::list_sessions_cmd,
             commands::session::load_session_messages_latest_cmd,
             commands::session::load_session_messages_before_cmd,

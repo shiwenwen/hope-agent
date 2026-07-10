@@ -39,6 +39,19 @@ pub async fn create_session_cmd(
 }
 
 #[tauri::command]
+pub async fn fork_session_cmd(
+    session_id: String,
+    message_id: Option<i64>,
+    state: State<'_, AppState>,
+) -> Result<session::SessionMeta, CmdError> {
+    state
+        .session_db
+        .run(move |db| db.fork_session(&session_id, message_id))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn list_sessions_cmd(
     agent_id: Option<String>,
     project_id: Option<String>,

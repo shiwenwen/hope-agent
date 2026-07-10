@@ -304,6 +304,13 @@
       "completedWithDuration": "Hedefe {{time}} içinde ulaşıldı",
       "tokens": "{{tokens}} tokens"
     },
+    "fork": {
+      "continueInNewSession": "Yeni oturumda devam et",
+      "continuedFrom": "Devam edilen kaynak",
+      "created": "Yeni oturumda devam ediliyor",
+      "failed": "Yeni oturumda devam edilemedi",
+      "sourceFallback": "kaynak oturum"
+    },
     "browserPanel": {
       "backendBadgeTooltip": "Tarayıcı arka ucu: {{backend}}",
       "captureFailed": "Kare yakalanamadı, sonraki kare bekleniyor",
@@ -1248,7 +1255,9 @@
       "timeline": "Skill yaşam döngüsü olayları",
       "title": "Öğrenme Takibi",
       "topSkills": "Kullanıma göre en çok skills",
-      "userSkillsHint": "{{n}} kullanıcı tarafından oluşturuldu"
+      "userSkillsHint": "{{n}} kullanıcı tarafından oluşturuldu",
+      "toggleReleaseEvidenceAdd": "Sürüm kanıtı olarak işaretle",
+      "toggleReleaseEvidenceRemove": "Sürüm kanıtını kaldır"
     },
     "loading": "Yükleniyor...",
     "noData": "Veri yok",

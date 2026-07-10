@@ -408,6 +408,15 @@ export interface SessionMeta {
   isCron: boolean
   parentSessionId?: string | null
   /**
+   * Source session for a user-facing fork. Separate from `parentSessionId`,
+   * which is reserved for hidden sub-agent child sessions.
+   */
+  forkedFromSessionId?: string | null
+  /** Source message boundary when the fork was created from a specific turn. */
+  forkedFromMessageId?: number | null
+  /** Best-effort current title of the source session, if it still exists. */
+  forkedFromSessionTitle?: string | null
+  /**
    * Per-session permission mode. Persisted so the chat title bar's mode
    * switcher is restored when switching back to a historical session.
    */
