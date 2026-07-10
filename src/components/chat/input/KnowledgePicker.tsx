@@ -3,9 +3,10 @@ import { useTranslation } from "react-i18next"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { Library, Loader2, Lock } from "lucide-react"
+import { CircleAlert, Library, Loader2, Lock } from "lucide-react"
 import { KbAccessControl } from "@/components/knowledge/KbAccessControl"
 import { useSessionAttachments } from "@/components/chat/workspace/useSessionAttachments"
+import { workspaceKnowledgeErrorDetail } from "@/components/chat/workspace/workspaceKnowledgeFeedback"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { KnowledgeBaseMeta, KbAccess, KbDraftAttachment } from "@/types/knowledge"
@@ -56,8 +57,13 @@ export default function KnowledgePicker({
   // Workspace knowledge section). `reload` is called after attach/detach and on
   // popover open. Draft mode never has a sessionId, so the hook stays empty and
   // the draft branches below own that path.
-  const { attachments, reload: reloadAttachments } = useSessionAttachments(sessionId, projectId)
+  const {
+    attachments,
+    reload: reloadAttachments,
+    loadErrorDetail: attachmentLoadErrorDetail,
+  } = useSessionAttachments(sessionId, projectId)
   const [loading, setLoading] = useState(false)
+  const [listLoadErrorDetail, setListLoadErrorDetail] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -74,10 +80,18 @@ export default function KnowledgePicker({
   useEffect(() => {
     if (!open) return
     setLoading(true)
+    setListLoadErrorDetail(null)
     getTransport()
       .call<KnowledgeBaseMeta[]>("list_kbs_cmd", { includeArchived: false })
-      .then(setKbs)
-      .catch(() => setKbs([]))
+      .then((spaces) => {
+        setKbs(spaces)
+        setListLoadErrorDetail(null)
+      })
+      .catch((e) => {
+        logger.error("chat", "KnowledgePicker::loadSpaces", "load failed", e)
+        setKbs([])
+        setListLoadErrorDetail(workspaceKnowledgeErrorDetail(e))
+      })
       .finally(() => setLoading(false))
     reloadAttachments()
   }, [open, reloadAttachments])
@@ -145,7 +159,24 @@ export default function KnowledgePicker({
         {loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
       </div>
 
-      {kbs.length === 0 && !loading ? (
+      {listLoadErrorDetail && (
+        <KnowledgePickerWarning
+          title={t("knowledge.picker.loadFailed", "无法加载知识空间")}
+          detail={t("knowledge.picker.errorDetail", "详细信息：{{error}}", {
+            error: listLoadErrorDetail,
+          })}
+        />
+      )}
+      {attachmentLoadErrorDetail && (
+        <KnowledgePickerWarning
+          title={t("knowledge.picker.attachmentsLoadFailed", "无法读取本会话挂载状态")}
+          detail={t("knowledge.picker.errorDetail", "详细信息：{{error}}", {
+            error: attachmentLoadErrorDetail,
+          })}
+        />
+      )}
+
+      {kbs.length === 0 && !loading && !listLoadErrorDetail ? (
         <p className="text-xs text-muted-foreground py-3 text-center">
           {t("knowledge.picker.empty")}
         </p>
@@ -241,6 +272,18 @@ export default function KnowledgePicker({
             {pickerBody}
           </div>
         ))}
+    </div>
+  )
+}
+
+function KnowledgePickerWarning({ title, detail }: { title: string; detail?: string | null }) {
+  return (
+    <div className="mb-2 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+      <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0">
+        <div className="font-medium">{title}</div>
+        {detail && <div className="mt-0.5 break-words opacity-85">{detail}</div>}
+      </div>
     </div>
   )
 }

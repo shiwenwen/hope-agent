@@ -236,6 +236,7 @@ pub fn init_runtime(role: &'static str) {
     ));
     crate::memory::dreaming::init_store(sqlite_backend.clone());
     crate::memory::claims::init_claim_store(sqlite_backend.clone());
+    crate::memory::episodes::init_episode_store(sqlite_backend.clone());
     let memory_backend: Arc<dyn memory::MemoryBackend> = sqlite_backend;
     let _ = MEMORY_BACKEND.set(memory_backend);
 
@@ -1129,6 +1130,11 @@ pub async fn start_background_tasks() {
         // fires `manual_run(Cron)` on the configured schedule. Re-evaluates
         // on every `config:changed { category: "dreaming" }`.
         crate::memory::dreaming::spawn_dreaming_cron_loop();
+
+        // Additive external memory providers reconcile off the chat hot path.
+        // The loop filters out manual policies and every adapter remains
+        // fail-closed when credentials, endpoint or capability checks fail.
+        crate::memory::spawn_external_memory_provider_sync_loop();
 
         // Knowledge maintenance cron-trigger loop (WS6). Reads
         // `knowledge_maintenance.cron_trigger`; off unless the user enables it.

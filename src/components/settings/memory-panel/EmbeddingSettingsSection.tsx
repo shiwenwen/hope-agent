@@ -10,6 +10,7 @@ import HybridSearchConfigSection from "./HybridSearchConfig"
 import EmbeddingActivationDialog from "./EmbeddingActivationDialog"
 import ReembedJobCard from "./ReembedJobCard"
 import type { MemoryEmbeddingSetDefaultResult } from "./types"
+import { memoryEmbeddingOperationErrorToast } from "./memoryEmbeddingFeedback"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -25,6 +26,7 @@ export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSect
     embeddingModels,
     memoryEmbeddingState,
     setMemoryEmbeddingState,
+    embeddingConfigError,
     reloadEmbeddingConfig,
   } = data
 
@@ -44,7 +46,8 @@ export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSect
       return true
     } catch (e) {
       logger.error("settings", "EmbeddingSettingsSection::activate", "Failed to set default", e)
-      toast.error(String(e))
+      const failure = memoryEmbeddingOperationErrorToast("setDefault", t, e)
+      toast.error(failure.title, failure.description ? { description: failure.description } : undefined)
       return false
     }
   }
@@ -59,7 +62,11 @@ export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSect
         })
         .catch((e) => {
           logger.error("settings", "EmbeddingSettingsSection::disable", "Failed to disable", e)
-          toast.error(String(e))
+          const failure = memoryEmbeddingOperationErrorToast("disable", t, e)
+          toast.error(
+            failure.title,
+            failure.description ? { description: failure.description } : undefined,
+          )
         })
       return
     }
@@ -88,6 +95,17 @@ export default function EmbeddingSettingsSection({ data }: EmbeddingSettingsSect
           onCheckedChange={handleToggle}
         />
       </div>
+
+      {embeddingConfigError && (
+        <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+          <div className="font-medium text-foreground">{embeddingConfigError.title}</div>
+          {embeddingConfigError.description && (
+            <div className="mt-1 break-all text-muted-foreground">
+              {embeddingConfigError.description}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-4">
         <EmbeddingModelSection data={data} />

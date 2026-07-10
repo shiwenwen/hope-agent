@@ -5,6 +5,11 @@ import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { KbChatThread } from "@/types/knowledge"
+import {
+  knowledgeChatIssueDescription,
+  knowledgeChatIssueTitle,
+  type KnowledgeChatLoadIssue,
+} from "./knowledgeChatFeedback"
 
 interface Props {
   threads: KbChatThread[]
@@ -15,6 +20,8 @@ interface Props {
   hasMore: boolean
   /** Append the next page (triggered on scroll near the bottom). */
   onLoadMore: () => void
+  /** History list/page read failure; shown instead of silently empty history. */
+  loadIssue?: KnowledgeChatLoadIssue | null
 }
 
 /**
@@ -29,9 +36,13 @@ export function KnowledgeConversationHistory({
   onPick,
   hasMore,
   onLoadMore,
+  loadIssue,
 }: Props) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
+  const issueDescription = loadIssue
+    ? knowledgeChatIssueDescription(loadIssue, t)
+    : null
 
   return (
     <div className="absolute right-0 top-full z-30 mt-1 w-[300px] rounded-xl border border-border/60 bg-popover/95 p-2 shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl">
@@ -49,7 +60,18 @@ export function KnowledgeConversationHistory({
         />
       </div>
 
-      {threads.length === 0 ? (
+      {loadIssue ? (
+        <div className="mb-2 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+          <div>{knowledgeChatIssueTitle(loadIssue, t)}</div>
+          {issueDescription ? (
+            <div className="mt-1 break-words text-[11px] leading-relaxed text-muted-foreground">
+              {issueDescription}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {threads.length === 0 && !loadIssue ? (
         <p className="py-4 text-center text-xs text-muted-foreground">
           {t("knowledge.chatPanel.noHistory")}
         </p>

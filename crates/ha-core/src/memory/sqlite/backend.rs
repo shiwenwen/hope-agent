@@ -85,8 +85,33 @@ impl SqliteMemoryBackend {
                 ON memories(scope_type, scope_agent_id);
             CREATE INDEX IF NOT EXISTS idx_memories_type
                 ON memories(memory_type);
+            CREATE INDEX IF NOT EXISTS idx_memories_source
+                ON memories(source);
             CREATE INDEX IF NOT EXISTS idx_memories_updated
                 ON memories(updated_at DESC);
+
+            -- Append-only owner audit stream for ordinary legacy memory rows.
+            -- This is not a second source of truth: it carries a bounded preview
+            -- and metadata so Settings/API users can see adds, edits, pins and
+            -- deletes after the live row is gone.
+            CREATE TABLE IF NOT EXISTS memory_history (
+                id TEXT PRIMARY KEY,
+                memory_id INTEGER NOT NULL,
+                action TEXT NOT NULL,
+                memory_type TEXT NOT NULL,
+                scope_type TEXT NOT NULL DEFAULT 'global',
+                scope_agent_id TEXT,
+                scope_project_id TEXT,
+                source TEXT NOT NULL DEFAULT 'user',
+                source_session_id TEXT,
+                content_preview TEXT NOT NULL DEFAULT '',
+                pinned INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_history_created
+                ON memory_history(created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_history_memory
+                ON memory_history(memory_id, created_at DESC);
 
             -- FTS5 full-text search
             CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -183,6 +208,55 @@ impl SqliteMemoryBackend {
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     PRIMARY KEY (hash, provider, model, signature)
                  );",
+            );
+        }
+
+        // Rebuildable substring shadow index. FTS5's trigram tokenizer keeps
+        // CJK fragments and identifier infixes off the O(n) LIKE fallback for
+        // normal (>=3 character) queries while unicode61 remains the primary
+        // word/token ranker.
+        let literal_fts_existed = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='memories_literal_fts'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memories_literal_fts USING fts5(
+                content, tags, source, source_session_id,
+                content='memories',
+                content_rowid='id',
+                tokenize='trigram'
+            );
+
+            CREATE TRIGGER IF NOT EXISTS memories_literal_ai AFTER INSERT ON memories BEGIN
+                INSERT INTO memories_literal_fts(rowid, content, tags, source, source_session_id)
+                VALUES (new.id, new.content, new.tags, new.source, new.source_session_id);
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS memories_literal_ad AFTER DELETE ON memories BEGIN
+                INSERT INTO memories_literal_fts(
+                    memories_literal_fts, rowid, content, tags, source, source_session_id
+                ) VALUES (
+                    'delete', old.id, old.content, old.tags, old.source, old.source_session_id
+                );
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS memories_literal_au AFTER UPDATE ON memories BEGIN
+                INSERT INTO memories_literal_fts(
+                    memories_literal_fts, rowid, content, tags, source, source_session_id
+                ) VALUES (
+                    'delete', old.id, old.content, old.tags, old.source, old.source_session_id
+                );
+                INSERT INTO memories_literal_fts(rowid, content, tags, source, source_session_id)
+                VALUES (new.id, new.content, new.tags, new.source, new.source_session_id);
+            END;",
+        )?;
+        if !literal_fts_existed {
+            let _ = conn.execute_batch(
+                "INSERT INTO memories_literal_fts(memories_literal_fts) VALUES('rebuild');",
             );
         }
 
@@ -416,6 +490,128 @@ impl SqliteMemoryBackend {
             CREATE INDEX IF NOT EXISTS idx_memory_profile_snapshots_scope
                 ON memory_profile_snapshots(scope_type, scope_id, version DESC);",
         )?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_profile_snapshot_sources (
+                id TEXT PRIMARY KEY,
+                snapshot_id TEXT NOT NULL,
+                line_index INTEGER,
+                claim_id TEXT NOT NULL,
+                claim_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                salience REAL NOT NULL,
+                evidence_id TEXT,
+                evidence_class TEXT,
+                evidence_source_type TEXT,
+                evidence_quote TEXT,
+                evidence_session_id TEXT,
+                evidence_message_id TEXT,
+                evidence_file_path TEXT,
+                evidence_url TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(snapshot_id, line_index, claim_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_profile_snapshot_sources_snapshot
+                ON memory_profile_snapshot_sources(snapshot_id, line_index);
+            CREATE INDEX IF NOT EXISTS idx_memory_profile_snapshot_sources_claim
+                ON memory_profile_snapshot_sources(claim_id);",
+        )?;
+        // Additive migrations for dev/user DBs that created the profile source
+        // sidecar before it carried evidence-level provenance.
+        if conn
+            .prepare("SELECT evidence_id FROM memory_profile_snapshot_sources LIMIT 0")
+            .is_err()
+        {
+            let _ = conn.execute_batch(
+                "ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_id TEXT;
+                 ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_class TEXT;
+                 ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_source_type TEXT;
+                 ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_quote TEXT;",
+            );
+        }
+        if conn
+            .prepare("SELECT evidence_session_id FROM memory_profile_snapshot_sources LIMIT 0")
+            .is_err()
+        {
+            let _ = conn.execute_batch(
+                "ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_session_id TEXT;
+                 ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_message_id TEXT;
+                 ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_file_path TEXT;
+                 ALTER TABLE memory_profile_snapshot_sources ADD COLUMN evidence_url TEXT;",
+            );
+        }
+
+        // ── Episodic / procedural memory (P5 foundation) ───────────────
+        //
+        // Owner-plane memory of "what happened / what worked" and soft
+        // workflow procedures. Procedures can be used as bounded soft prompt
+        // guidance when the user/agent config allows it; episodes remain
+        // trace-only. Agent tools do not write these tables.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_episodes (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL DEFAULT 'global',
+                scope_id TEXT,
+                title TEXT NOT NULL,
+                situation TEXT NOT NULL,
+                actions_json TEXT NOT NULL DEFAULT '[]',
+                outcome TEXT NOT NULL DEFAULT '',
+                lesson TEXT NOT NULL DEFAULT '',
+                source_session_id TEXT,
+                source_message_ids_json TEXT NOT NULL DEFAULT '[]',
+                success_score REAL NOT NULL DEFAULT 0.5,
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_episodes_scope
+                ON memory_episodes(scope_type, scope_id, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_episodes_status
+                ON memory_episodes(status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_episodes_session
+                ON memory_episodes(source_session_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS memory_procedures (
+                id TEXT PRIMARY KEY,
+                scope_type TEXT NOT NULL DEFAULT 'global',
+                scope_id TEXT,
+                title TEXT NOT NULL,
+                trigger TEXT NOT NULL,
+                steps_markdown TEXT NOT NULL,
+                constraints_markdown TEXT NOT NULL DEFAULT '',
+                confidence REAL NOT NULL DEFAULT 0.5,
+                status TEXT NOT NULL DEFAULT 'active',
+                source_episode_ids_json TEXT NOT NULL DEFAULT '[]',
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_procedures_scope
+                ON memory_procedures(scope_type, scope_id, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_procedures_status
+                ON memory_procedures(status, updated_at DESC);
+
+            -- Append-only owner audit stream for episodic / procedural memory.
+            -- This is not a second source of truth and never participates in
+            -- prompt injection or retrieval; it lets users inspect how a soft
+            -- workflow that can affect replies changed over time.
+            CREATE TABLE IF NOT EXISTS memory_experience_history (
+                id TEXT PRIMARY KEY,
+                target_kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                scope_type TEXT NOT NULL DEFAULT 'global',
+                scope_id TEXT,
+                title_preview TEXT NOT NULL DEFAULT '',
+                content_preview TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_memory_experience_history_target
+                ON memory_experience_history(target_kind, target_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_memory_experience_history_created
+                ON memory_experience_history(created_at DESC);",
+        )?;
 
         // ── Claim relevance search: FTS5 over memory_claims (PR #8 Context
         // Pack — "Relevant Claims" this turn). External-content FTS keyed on
@@ -456,6 +652,100 @@ impl SqliteMemoryBackend {
             // Backfill claims written before this index existed (PR #3-7).
             let _ = conn.execute_batch(
                 "INSERT INTO memory_claims_fts(memory_claims_fts) VALUES('rebuild');",
+            );
+        }
+
+        let claims_literal_fts_existed = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='memory_claims_literal_fts'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_claims_literal_fts USING fts5(
+                content, claim_type, subject, predicate, object, tags_json,
+                content='memory_claims',
+                content_rowid='rowid',
+                tokenize='trigram'
+            );
+            CREATE TRIGGER IF NOT EXISTS memory_claims_literal_ai AFTER INSERT ON memory_claims BEGIN
+                INSERT INTO memory_claims_literal_fts(
+                    rowid, content, claim_type, subject, predicate, object, tags_json
+                ) VALUES (
+                    new.rowid, new.content, new.claim_type, new.subject,
+                    new.predicate, new.object, new.tags_json
+                );
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_claims_literal_ad AFTER DELETE ON memory_claims BEGIN
+                INSERT INTO memory_claims_literal_fts(
+                    memory_claims_literal_fts, rowid, content, claim_type,
+                    subject, predicate, object, tags_json
+                ) VALUES (
+                    'delete', old.rowid, old.content, old.claim_type,
+                    old.subject, old.predicate, old.object, old.tags_json
+                );
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_claims_literal_au AFTER UPDATE ON memory_claims BEGIN
+                INSERT INTO memory_claims_literal_fts(
+                    memory_claims_literal_fts, rowid, content, claim_type,
+                    subject, predicate, object, tags_json
+                ) VALUES (
+                    'delete', old.rowid, old.content, old.claim_type,
+                    old.subject, old.predicate, old.object, old.tags_json
+                );
+                INSERT INTO memory_claims_literal_fts(
+                    rowid, content, claim_type, subject, predicate, object, tags_json
+                ) VALUES (
+                    new.rowid, new.content, new.claim_type, new.subject,
+                    new.predicate, new.object, new.tags_json
+                );
+            END;",
+        )?;
+        if !claims_literal_fts_existed {
+            let _ = conn.execute_batch(
+                "INSERT INTO memory_claims_literal_fts(memory_claims_literal_fts) VALUES('rebuild');",
+            );
+        }
+
+        // Owner-plane claim search can match evidence metadata/quotes. Keep a
+        // dedicated FTS index for those fields so large review queues do not
+        // rely solely on bounded LIKE scans; the query path still keeps LIKE as
+        // a literal fallback for CJK fragments and missing/corrupt FTS rows.
+        let evidence_fts_existed = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='memory_evidence_fts'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_evidence_fts USING fts5(
+                source_type, evidence_class, source_id, session_id, message_id, file_path, url, quote,
+                content='memory_evidence',
+                content_rowid='rowid',
+                tokenize='unicode61'
+            );
+            CREATE TRIGGER IF NOT EXISTS memory_evidence_fts_ai AFTER INSERT ON memory_evidence BEGIN
+                INSERT INTO memory_evidence_fts(rowid, source_type, evidence_class, source_id, session_id, message_id, file_path, url, quote)
+                VALUES (new.rowid, new.source_type, new.evidence_class, new.source_id, new.session_id, new.message_id, new.file_path, new.url, new.quote);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_evidence_fts_ad AFTER DELETE ON memory_evidence BEGIN
+                INSERT INTO memory_evidence_fts(memory_evidence_fts, rowid, source_type, evidence_class, source_id, session_id, message_id, file_path, url, quote)
+                VALUES ('delete', old.rowid, old.source_type, old.evidence_class, old.source_id, old.session_id, old.message_id, old.file_path, old.url, old.quote);
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_evidence_fts_au AFTER UPDATE ON memory_evidence BEGIN
+                INSERT INTO memory_evidence_fts(memory_evidence_fts, rowid, source_type, evidence_class, source_id, session_id, message_id, file_path, url, quote)
+                VALUES ('delete', old.rowid, old.source_type, old.evidence_class, old.source_id, old.session_id, old.message_id, old.file_path, old.url, old.quote);
+                INSERT INTO memory_evidence_fts(rowid, source_type, evidence_class, source_id, session_id, message_id, file_path, url, quote)
+                VALUES (new.rowid, new.source_type, new.evidence_class, new.source_id, new.session_id, new.message_id, new.file_path, new.url, new.quote);
+            END;",
+        )?;
+        if !evidence_fts_existed {
+            let _ = conn.execute_batch(
+                "INSERT INTO memory_evidence_fts(memory_evidence_fts) VALUES('rebuild');",
             );
         }
 

@@ -36,6 +36,10 @@ import type {
   CompileRun,
   CompileRunStatus,
 } from "@/types/knowledge"
+import {
+  knowledgeCompileErrorDetail,
+  knowledgeCompileOperationErrorToast,
+} from "./knowledgeCompileFeedback"
 
 interface KnowledgeCompilePanelProps {
   kbId: string | null
@@ -84,7 +88,11 @@ export default function KnowledgeCompilePanel({
       )
     } catch (e) {
       logger.warn("knowledge", "KnowledgeCompilePanel::loadRuns", "load failed", e)
-      toast.error(t("knowledge.compile.loadFailed", "Couldn't load source-to-note runs"))
+      const failureToast = knowledgeCompileOperationErrorToast("loadRuns", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setLoadingRuns(false)
     }
@@ -113,13 +121,17 @@ export default function KnowledgeCompilePanel({
             list[0]?.id ??
             null
           )
-        })
-      } catch (e) {
-        logger.warn("knowledge", "KnowledgeCompilePanel::loadProposals", "load failed", e)
-        toast.error(t("knowledge.compile.proposalsLoadFailed", "Couldn't load proposals"))
-      } finally {
-        setLoadingProposals(false)
-      }
+      })
+    } catch (e) {
+      logger.warn("knowledge", "KnowledgeCompilePanel::loadProposals", "load failed", e)
+      const failureToast = knowledgeCompileOperationErrorToast("loadProposals", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
+    } finally {
+      setLoadingProposals(false)
+    }
     },
     [kbId, selectedRunId, t],
   )
@@ -143,14 +155,22 @@ export default function KnowledgeCompilePanel({
         } else if (run.status === "cancelled") {
           toast.message(t("knowledge.compile.cancelled", "Source-to-note run cancelled"))
         } else if (run.status === "failed") {
-          toast.error(run.error || t("knowledge.compile.failed", "Source-to-note run failed"))
+          const failureToast = knowledgeCompileOperationErrorToast("runFailed", t, run.error)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
         }
         await loadRuns()
         await loadProposals(run.id)
         onAfterRun?.()
       } catch (e) {
         logger.warn("knowledge", "KnowledgeCompilePanel::start", "compile failed", e)
-        toast.error(t("knowledge.compile.startFailed", "Couldn't organize sources into notes"))
+        const failureToast = knowledgeCompileOperationErrorToast("startCompile", t, e)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
       } finally {
         setStarting(false)
       }
@@ -175,7 +195,11 @@ export default function KnowledgeCompilePanel({
       toast.message(t("knowledge.compile.cancelled", "Source-to-note run cancelled"))
     } catch (e) {
       logger.warn("knowledge", "KnowledgeCompilePanel::cancel", "cancel failed", e)
-      toast.error(t("knowledge.compile.cancelFailed", "Couldn't cancel run"))
+      const failureToast = knowledgeCompileOperationErrorToast("cancelRun", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setCanceling(false)
     }
@@ -201,10 +225,14 @@ export default function KnowledgeCompilePanel({
       } catch (e) {
         logger.warn("knowledge", "KnowledgeCompilePanel::decide", "decision failed", e)
         await loadProposals(selectedRunId)
+        const failureToast = knowledgeCompileOperationErrorToast(
+          approve ? "applyProposal" : "rejectProposal",
+          t,
+          e,
+        )
         toast.error(
-          approve
-            ? t("knowledge.compile.applyFailed", "Couldn't apply proposal")
-            : t("knowledge.compile.rejectFailed", "Couldn't reject proposal"),
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
         )
       } finally {
         setBusyProposalId(null)
@@ -412,7 +440,7 @@ export default function KnowledgeCompilePanel({
                   </div>
                   {selectedRun.error ? (
                     <div className="mt-1 truncate text-[11px] text-destructive">
-                      {selectedRun.error}
+                      {knowledgeCompileErrorDetail(selectedRun.error) ?? selectedRun.error}
                     </div>
                   ) : (
                     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -456,7 +484,8 @@ export default function KnowledgeCompilePanel({
                     </div>
                     {selectedProposal.error ? (
                       <div className="mt-1 truncate text-[11px] text-destructive">
-                        {selectedProposal.error}
+                        {knowledgeCompileErrorDetail(selectedProposal.error) ??
+                          selectedProposal.error}
                       </div>
                     ) : null}
                   </div>

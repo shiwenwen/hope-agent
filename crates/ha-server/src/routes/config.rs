@@ -1,4 +1,4 @@
-use axum::Json;
+use axum::{extract::Path, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -20,6 +20,11 @@ fn load_config() -> Result<ha_core::config::AppConfig, AppError> {
 #[derive(Debug, Deserialize)]
 pub struct ConfigBody<T> {
     pub config: T,
+}
+
+#[derive(Deserialize)]
+pub struct CredentialsBody<T> {
+    pub credentials: T,
 }
 
 // ── User Config ─────────────────────────────────────────────────
@@ -309,6 +314,74 @@ pub async fn save_memory_budget_config(
         Ok(())
     })
     .await?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+/// `GET /api/config/external-memory-providers` -- get additive external memory providers.
+pub async fn get_external_memory_providers_config(
+) -> Result<Json<ha_core::memory::ExternalMemoryProvidersConfig>, AppError> {
+    Ok(Json(
+        ha_core::config::cached_config().memory_providers.clone(),
+    ))
+}
+
+/// `GET /api/config/external-memory-providers/preflight` -- owner-only dry-run
+/// action plan for additive external memory provider sync. No network IO.
+pub async fn get_external_memory_providers_preflight(
+) -> Result<Json<ha_core::memory::ExternalMemoryProviderPreflightReport>, AppError> {
+    Ok(Json(
+        ha_core::memory::get_external_memory_provider_preflight(),
+    ))
+}
+
+/// `POST /api/config/external-memory-providers/sync` -- owner-only sync run
+/// report. Planned adapters fail closed and perform no network IO.
+pub async fn run_external_memory_provider_sync(
+) -> Result<Json<ha_core::memory::ExternalMemoryProviderSyncReport>, AppError> {
+    Ok(Json(
+        ha_core::memory::run_external_memory_provider_sync().await,
+    ))
+}
+
+/// Owner-only credential status; never returns the API key or full endpoint.
+pub async fn get_external_memory_provider_credential_status(
+    Path(provider_id): Path<String>,
+) -> Result<Json<ha_core::memory::ExternalMemoryProviderCredentialStatus>, AppError> {
+    Ok(Json(
+        ha_core::memory::get_external_memory_provider_credential_status(&provider_id)?,
+    ))
+}
+
+/// Persist one provider's endpoint/auth record in the restricted credential store.
+pub async fn save_external_memory_provider_credentials(
+    Path(provider_id): Path<String>,
+    Json(body): Json<CredentialsBody<ha_core::memory::ExternalMemoryProviderCredentialInput>>,
+) -> Result<Json<ha_core::memory::ExternalMemoryProviderCredentialStatus>, AppError> {
+    let mut credentials = body.credentials;
+    if credentials.provider_id != provider_id {
+        return Err(AppError::bad_request(
+            "provider id in path and credential body must match",
+        ));
+    }
+    credentials.provider_id = provider_id;
+    Ok(Json(
+        ha_core::memory::save_external_memory_provider_credentials(credentials).await?,
+    ))
+}
+
+/// Clear one provider's restricted credential file and readiness metadata.
+pub async fn clear_external_memory_provider_credentials(
+    Path(provider_id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::memory::clear_external_memory_provider_credentials(&provider_id)?;
+    Ok(Json(json!({ "cleared": true })))
+}
+
+/// `PUT /api/config/external-memory-providers` -- save additive external memory providers.
+pub async fn save_external_memory_providers_config(
+    Json(body): Json<ConfigBody<ha_core::memory::ExternalMemoryProvidersConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::memory::save_external_memory_providers_config(body.config, "http")?;
     Ok(Json(json!({ "saved": true })))
 }
 

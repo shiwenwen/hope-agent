@@ -547,16 +547,18 @@ impl AssistantAgent {
         let provider_label = adapter.provider_format().label();
 
         self.reset_chat_flags();
-        // Awareness + active_memory each write their own independent suffix
-        // slot and never read the other; run them concurrently so the worst
-        // case is max(awareness_timeout, active_memory_timeout) instead of
-        // their sum (was up to 13s with LlmDigest + active_memory both
-        // timing out, now ≤8s).
+        self.configure_retrieval_planner_context(message);
+        // Dynamic context refreshers write independent slots / trace ledgers
+        // and never read each other; run them concurrently so the worst case
+        // stays bounded by the slowest refresher instead of their sum.
         tokio::join!(
             self.refresh_awareness_suffix(message),
             self.refresh_active_memory_suffix(message),
             self.refresh_related_notes_suffix(message),
+            self.refresh_experience_memory_trace(message),
+            self.refresh_graph_memory_trace(message),
         );
+        self.refresh_static_memory_refs();
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -747,6 +749,7 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            let procedure_suffix = self.current_procedure_memory_suffix();
             let related_notes_suffix = self.current_related_notes_suffix();
             // Two-step: cheap existence probe first (one SQL row, no Vec
             // alloc), then list+format only when there's actually an active
@@ -774,6 +777,7 @@ impl AssistantAgent {
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                procedure_memory_suffix: procedure_suffix.as_deref().map(|s| s.as_str()),
                 related_notes_suffix: related_notes_suffix.as_deref().map(|s| s.as_str()),
                 task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,

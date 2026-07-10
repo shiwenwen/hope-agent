@@ -66,6 +66,14 @@ import {
   formatMessageTime,
   type ContextUsageInfo,
 } from "../chatUtils"
+import {
+  memoryKindLabel,
+  memoryOriginLabel,
+  retrievalLayerLabel,
+  retrievalLayerReasonLabel,
+  retrievalLayerStatusLabel,
+  retrievalTraceStatusLabel,
+} from "../message/memoryTraceFormat"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "../cacheUsageDisplay"
 import {
   type CompactResult,
@@ -101,6 +109,13 @@ import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
 import { useSessionKnowledge } from "./useSessionKnowledge"
 import type { WorkspaceTaskExecutionState } from "./taskExecutionState"
+import {
+  buildWorkspaceMemoryDiagnostics,
+  formatWorkspaceMemoryDiagnosticsMarkdown,
+  workspaceMemoryDiagnosticsCopyErrorToast,
+  type WorkspaceMemoryLayerSummary,
+} from "./workspaceMemoryDiagnostics"
+import { workspaceSourceOpenErrorToast } from "./workspaceSourceFeedback"
 import { PANEL_SCROLL_FADE } from "../right-panel/panelFade"
 import {
   formatGitRef,
@@ -309,11 +324,23 @@ function FileRow({
 function SourceRow({ source }: { source: SessionUrlSource }) {
   const { t } = useTranslation()
   const faviconUrl = useSafeFavicon(source.url)
+  const openSource = useCallback(() => {
+    openExternalUrl(source.url, {
+      onError: (e) => {
+        logger.error("ui", "WorkspaceSource::open", "Open source failed", e)
+        const failure = workspaceSourceOpenErrorToast(t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
+      },
+    })
+  }, [source.url, t])
   return (
     <IconTip label={source.url}>
       <button
         type="button"
-        onClick={() => openExternalUrl(source.url)}
+        onClick={openSource}
         className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-secondary/45"
       >
         {faviconUrl ? (
@@ -475,6 +502,229 @@ function StatusPill({
     >
       <span className="truncate">{label}</span>
     </span>
+  )
+}
+
+function compactCountEntries(counts: Record<string, number>, max = 4): Array<[string, number]> {
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, max)
+}
+
+function traceTone(status: string | undefined): "muted" | "good" | "warn" | "danger" | "info" {
+  switch (status) {
+    case "used":
+      return "good"
+    case "candidates":
+      return "info"
+    case "partial":
+      return "warn"
+    case "degraded":
+      return "danger"
+    case "disabled":
+    case "no_context":
+      return "muted"
+    default:
+      return "muted"
+  }
+}
+
+function dominantLayerStatus(layer: WorkspaceMemoryLayerSummary): string {
+  if (layer.skipped > 0) return "skipped"
+  if (layer.disabled > 0) return "disabled"
+  if (layer.used > 0) return "used"
+  if (layer.candidate > 0) return "candidate"
+  if (layer.empty > 0) return "empty"
+  return "empty"
+}
+
+function MemoryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-md border border-border/60 bg-secondary/25 px-2 py-1.5">
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</div>
+    </div>
+  )
+}
+
+function turnToneClass(status: string, degraded: boolean): string {
+  if (degraded) return "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+  if (status === "used") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+  if (status === "candidates") return "border-blue-500/35 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+  return "border-border bg-muted/50 text-muted-foreground"
+}
+
+function MemoryDiagnosticsSection({
+  messages,
+  incognito,
+}: {
+  messages: Message[]
+  incognito: boolean
+}) {
+  const { t } = useTranslation()
+  const diagnostics = useMemo(() => buildWorkspaceMemoryDiagnostics(messages), [messages])
+  const latestStatus = diagnostics.latest?.status
+
+  const handleCopy = useCallback(async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable")
+      await navigator.clipboard.writeText(formatWorkspaceMemoryDiagnosticsMarkdown(diagnostics))
+      toast.success(t("workspace.memoryDiagnostics.copyDone", "记忆诊断已复制"))
+    } catch (e) {
+      logger.error("ui", "WorkspaceMemoryDiagnostics::copy", "Copy diagnostics failed", e)
+      const failure = workspaceMemoryDiagnosticsCopyErrorToast(t, e)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
+    }
+  }, [diagnostics, t])
+
+  return (
+    <WorkspaceSection
+      title={t("workspace.sectionMemoryDiagnostics", "记忆诊断")}
+      count={diagnostics.turns}
+      icon={Brain}
+      meta={
+        diagnostics.turns > 0 && latestStatus ? (
+          <StatusPill
+            label={retrievalTraceStatusLabel(latestStatus, t)}
+            tone={traceTone(latestStatus)}
+          />
+        ) : null
+      }
+    >
+      {diagnostics.turns === 0 ? (
+        <EmptyHint>
+          {incognito
+            ? t("workspace.memoryDiagnostics.emptyIncognito", "无痕会话不会读取长期记忆")
+            : t("workspace.memoryDiagnostics.empty", "本会话还没有记忆诊断")}
+        </EmptyHint>
+      ) : (
+        <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-1.5">
+            <MemoryMetric label={t("workspace.memoryDiagnostics.turns", "轮次")} value={diagnostics.turns} />
+            <MemoryMetric label={t("workspace.memoryDiagnostics.contextRefs", "入上下文")} value={diagnostics.contextRefCount} />
+            <MemoryMetric label={t("workspace.memoryDiagnostics.candidates", "候选")} value={diagnostics.candidateRefCount} />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            {compactCountEntries(diagnostics.kindCounts).map(([kind, count]) => (
+              <span
+                key={kind}
+                className="inline-flex max-w-full items-center rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+              >
+                <span className="truncate">{memoryKindLabel({ kind }, t)}</span>
+                <span className="ml-1 tabular-nums">{count}</span>
+              </span>
+            ))}
+            {diagnostics.droppedCount > 0 ? (
+              <StatusPill
+                label={`${t("workspace.memoryDiagnostics.dropped", "裁剪")} ${diagnostics.droppedCount}`}
+                tone="warn"
+              />
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="ml-auto h-7 px-2 text-[11px]"
+              onClick={handleCopy}
+            >
+              <Copy className="mr-1 h-3 w-3" />
+              {t("workspace.memoryDiagnostics.copy", "复制诊断")}
+            </Button>
+          </div>
+
+          {Object.keys(diagnostics.originCounts).length > 0 ? (
+            <div className="space-y-1 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                {t("workspace.memoryDiagnostics.origins", "来源对比")}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {compactCountEntries(diagnostics.originCounts, 5).map(([origin, count]) => (
+                  <span
+                    key={origin}
+                    className="inline-flex max-w-full items-center rounded-full border border-border/60 bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground"
+                  >
+                    <span className="truncate">{memoryOriginLabel(origin, t)}</span>
+                    <span className="ml-1 tabular-nums">{count}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {diagnostics.recentTurns.length > 0 ? (
+            <div className="space-y-1 rounded-md border border-border/50 bg-secondary/20 px-2 py-1.5">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                {t("workspace.memoryDiagnostics.recentTurns", "最近轮次")}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {diagnostics.recentTurns.map((turn) => (
+                  <span
+                    key={turn.index}
+                    className={cn(
+                      "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] tabular-nums",
+                      turnToneClass(turn.status, turn.degraded),
+                    )}
+                    title={`${retrievalTraceStatusLabel(turn.status, t)} · ${turn.contextRefCount}/${turn.candidateRefCount}`}
+                  >
+                    #{turn.index + 1}
+                    <span className="ml-1 text-muted-foreground">
+                      {turn.contextRefCount}/{turn.candidateRefCount}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="space-y-1">
+            {diagnostics.layers.slice(0, 5).map((layer) => {
+              const status = dominantLayerStatus(layer)
+              return (
+                <div
+                  key={layer.layer}
+                  className="flex min-w-0 items-center gap-2 rounded-md border border-border/50 bg-secondary/25 px-2 py-1.5 text-xs"
+                >
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
+                    {retrievalLayerLabel(layer.layer, t)}
+                  </span>
+                  <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                    {layer.refCount} refs
+                  </span>
+                  <StatusPill
+                    label={retrievalLayerStatusLabel(status, t)}
+                    tone={status === "used" ? "good" : status === "candidate" ? "info" : status === "skipped" ? "warn" : "muted"}
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          {diagnostics.degradedLayers.length > 0 ? (
+            <div className="space-y-1 rounded-md border border-amber-500/25 bg-amber-500/5 px-2 py-1.5">
+              {diagnostics.degradedLayers.map((layer) => (
+                <div key={`${layer.layer}:${layer.status}:${layer.reason ?? ""}`} className="flex min-w-0 items-center gap-2 text-[11px]">
+                  <CircleAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="min-w-0 flex-1 truncate text-foreground/80">
+                    {retrievalLayerLabel(layer.layer, t)}
+                    {layer.reason ? ` · ${retrievalLayerReasonLabel(layer.reason, t)}` : ""}
+                  </span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">x{layer.count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+              {t("workspace.memoryDiagnostics.noDegraded", "本会话未记录记忆层降级")}
+            </div>
+          )}
+        </div>
+      )}
+    </WorkspaceSection>
   )
 }
 
@@ -1160,7 +1410,7 @@ function KnowledgeSection({
   messages: Message[]
 }) {
   const { t } = useTranslation()
-  const { attachments, activity } = useSessionKnowledge(sessionId, projectId, {
+  const { attachments, activity, loadErrorDetail } = useSessionKnowledge(sessionId, projectId, {
     incognito,
     messages,
   })
@@ -1173,6 +1423,14 @@ function KnowledgeSection({
       count={attachments.length}
       icon={BookText}
     >
+      {loadErrorDetail && (
+        <KnowledgeLoadWarning
+          title={t("workspace.kbAttachmentsLoadFailed", "无法读取已挂载知识空间")}
+          detail={t("workspace.kbLoadDetail", "详细信息：{{error}}", {
+            error: loadErrorDetail,
+          })}
+        />
+      )}
       {hasContent ? (
         <div className="space-y-2">
           {attachments.length > 0 && (
@@ -1245,10 +1503,22 @@ function KnowledgeSection({
             </div>
           )}
         </div>
-      ) : (
+      ) : loadErrorDetail ? null : (
         <EmptyHint>{t("workspace.emptyKnowledge", "未挂载知识空间")}</EmptyHint>
       )}
     </WorkspaceSection>
+  )
+}
+
+function KnowledgeLoadWarning({ title, detail }: { title: string; detail?: string | null }) {
+  return (
+    <div className="mb-2 flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-200">
+      <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0">
+        <div className="font-medium">{title}</div>
+        {detail && <div className="mt-0.5 break-words opacity-85">{detail}</div>}
+      </div>
+    </div>
   )
 }
 
@@ -1403,6 +1673,8 @@ export default function WorkspacePanel({
           onViewSystemPrompt={onViewSystemPrompt}
           systemPromptLoading={systemPromptLoading}
         />
+
+        <MemoryDiagnosticsSection messages={messages} incognito={incognito} />
 
         <EnvironmentSection
           sessionId={sessionId}

@@ -792,10 +792,39 @@ fn build_router_with_cors(
         // Memory
         .route("/memory", post(routes::memory::add_memory))
         .route("/memory", get(routes::memory::list_memories))
+        .route("/claims/schema", get(routes::memory::claim_schema_metadata))
         .route("/claims", get(routes::memory::list_claims))
+        .route("/claims/page", get(routes::memory::list_claims_page))
+        .route(
+            "/claims/conflict-summaries",
+            post(routes::memory::claim_conflict_summaries),
+        )
+        .route(
+            "/claims/evidence-summaries",
+            post(routes::memory::claim_evidence_summaries),
+        )
+        .route(
+            "/claims/review-summaries",
+            post(routes::memory::claim_review_summaries),
+        )
+        .route("/claims/{id}/graph", get(routes::memory::claim_graph))
+        .route(
+            "/claims/{id}/conflicts",
+            get(routes::memory::claim_conflicts),
+        )
+        .route(
+            "/claims/{id}/conflict-details",
+            get(routes::memory::claim_conflict_details),
+        )
         .route("/claims/{id}", get(routes::memory::get_claim))
         .route("/claims/{id}", patch(routes::memory::update_claim))
         .route("/claims/{id}/forget", post(routes::memory::forget_claim))
+        .route("/memory/history", get(routes::memory::memory_history))
+        .route(
+            "/memory/history/page",
+            get(routes::memory::memory_history_page),
+        )
+        .route("/memory/audit/page", get(routes::memory::memory_audit_page))
         .route("/memory/{id}", get(routes::memory::get_memory))
         .route("/memory/{id}", put(routes::memory::update_memory))
         .route("/memory/{id}", delete(routes::memory::delete_memory))
@@ -810,6 +839,63 @@ fn build_router_with_cors(
         )
         .route("/memory/count", get(routes::memory::memory_count))
         .route("/memory/stats", get(routes::memory::memory_stats))
+        .route("/memory/health", get(routes::memory::memory_health))
+        .route("/memory/repair", post(routes::memory::memory_repair))
+        .route(
+            "/memory/db-snapshot/restore-preview",
+            post(routes::memory::memory_db_snapshot_restore_preview),
+        )
+        .route(
+            "/memory/db-snapshot/restore",
+            post(routes::memory::memory_db_snapshot_restore),
+        )
+        .route("/memory/episodes", post(routes::memory::add_episode))
+        .route(
+            "/memory/episodes/page",
+            post(routes::memory::list_episodes_page),
+        )
+        .route("/memory/episodes/{id}", get(routes::memory::get_episode))
+        .route(
+            "/memory/episodes/{id}",
+            patch(routes::memory::update_episode),
+        )
+        .route(
+            "/memory/episodes/{id}/archive",
+            post(routes::memory::archive_episode),
+        )
+        .route(
+            "/memory/episodes/{id}/restore",
+            post(routes::memory::restore_episode),
+        )
+        .route(
+            "/memory/episodes/{id}/promote-procedure",
+            post(routes::memory::promote_episode_to_procedure),
+        )
+        .route("/memory/procedures", post(routes::memory::add_procedure))
+        .route(
+            "/memory/procedures/page",
+            post(routes::memory::list_procedures_page),
+        )
+        .route(
+            "/memory/procedures/{id}",
+            get(routes::memory::get_procedure),
+        )
+        .route(
+            "/memory/procedures/{id}",
+            patch(routes::memory::update_procedure),
+        )
+        .route(
+            "/memory/procedures/{id}/archive",
+            post(routes::memory::archive_procedure),
+        )
+        .route(
+            "/memory/procedures/{id}/restore",
+            post(routes::memory::restore_procedure),
+        )
+        .route(
+            "/memory/experience/history/page",
+            post(routes::memory::experience_history_page),
+        )
         .route(
             "/memory/import-from-ai-prompt",
             get(routes::memory::import_from_ai_prompt),
@@ -820,8 +906,55 @@ fn build_router_with_cors(
         .route("/memory/reembed-start", post(routes::memory::reembed_start))
         .route("/memory/export", post(routes::memory::export_memory))
         .route(
+            "/memory/backup/export",
+            post(routes::memory::export_memory_backup),
+        )
+        .route(
+            "/memory/backup/export-archive",
+            post(routes::memory::export_memory_backup_archive),
+        )
+        .route(
+            "/memory/backup/export-encrypted",
+            post(routes::memory::export_encrypted_memory_backup),
+        )
+        .route(
+            "/memory/backup/preview",
+            post(routes::memory::preview_memory_backup)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/preview-archive",
+            post(routes::memory::preview_memory_backup_archive)
+                .layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-legacy",
+            post(routes::memory::restore_legacy_memory_backup)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-legacy-archive",
+            post(routes::memory::restore_legacy_memory_backup_archive)
+                .layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-structured",
+            post(routes::memory::restore_structured_memory_backup)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/backup/restore-structured-archive",
+            post(routes::memory::restore_structured_memory_backup_archive)
+                .layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
+        )
+        .route(
             "/memory/import",
             post(routes::memory::import_memory).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
+        .route(
+            "/memory/import/preview",
+            post(routes::memory::preview_import_memory)
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
         )
         .route("/memory/find-similar", post(routes::memory::find_similar))
         .route(
@@ -1013,6 +1146,28 @@ fn build_router_with_cors(
         .route(
             "/config/memory-budget",
             put(routes::config::save_memory_budget_config),
+        )
+        .route(
+            "/config/external-memory-providers",
+            get(routes::config::get_external_memory_providers_config),
+        )
+        .route(
+            "/config/external-memory-providers/preflight",
+            get(routes::config::get_external_memory_providers_preflight),
+        )
+        .route(
+            "/config/external-memory-providers/sync",
+            post(routes::config::run_external_memory_provider_sync),
+        )
+        .route(
+            "/config/external-memory-providers/{provider_id}/credentials",
+            get(routes::config::get_external_memory_provider_credential_status)
+                .put(routes::config::save_external_memory_provider_credentials)
+                .delete(routes::config::clear_external_memory_provider_credentials),
+        )
+        .route(
+            "/config/external-memory-providers",
+            put(routes::config::save_external_memory_providers_config),
         )
         .route(
             "/config/notification",
@@ -1364,6 +1519,10 @@ fn build_router_with_cors(
         // Dreaming (offline memory consolidation, Phase B3)
         .route("/dreaming/run", post(routes::dreaming::run_now))
         .route("/dreaming/resolver", post(routes::dreaming::run_resolver))
+        .route(
+            "/dreaming/resolver/preflight",
+            get(routes::dreaming::resolver_preflight),
+        )
         .route("/dreaming/profile/run", post(routes::dreaming::run_profile))
         .route(
             "/dreaming/profile",
@@ -1377,6 +1536,11 @@ fn build_router_with_cors(
         .route("/dreaming/status", get(routes::dreaming::status))
         .route("/dreaming/last-report", get(routes::dreaming::last_report))
         .route("/dreaming/idle-status", get(routes::dreaming::idle_status))
+        .route("/dreaming/decisions", get(routes::dreaming::list_decisions))
+        .route(
+            "/dreaming/decisions/page",
+            get(routes::dreaming::list_decisions_page),
+        )
         .route("/dreaming/runs", get(routes::dreaming::list_runs))
         .route("/dreaming/runs/{id}", get(routes::dreaming::get_run))
         .route(

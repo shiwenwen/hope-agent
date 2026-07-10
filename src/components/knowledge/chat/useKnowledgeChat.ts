@@ -14,6 +14,11 @@ import type {
 } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
 import type { KbChatThread } from "@/types/knowledge"
+import {
+  knowledgeChatLoadIssue,
+  type KnowledgeChatLoadIssue,
+  type KnowledgeChatLoadOperation,
+} from "./knowledgeChatFeedback"
 
 const PAGE_SIZE = 30
 /** Thread-history page size (separate from the per-thread message page). */
@@ -72,6 +77,9 @@ export interface UseKnowledgeChatReturn {
    *  session-guarded: never blanks the view on a transient error and never
    *  clobbers a thread the user has since switched to. */
   reconcileThread: (sessionId: string) => Promise<void>
+
+  // Load/degraded-state feedback
+  loadIssues: KnowledgeChatLoadIssue[]
 }
 
 /**
@@ -98,6 +106,7 @@ export function useKnowledgeChat(
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [threads, setThreads] = useState<KbChatThread[]>([])
   const [threadsHasMore, setThreadsHasMore] = useState(false)
+  const [loadIssues, setLoadIssues] = useState<KnowledgeChatLoadIssue[]>([])
   // Pagination cursor for the history list. Query + offset live in refs so
   // `loadMoreThreads` keeps the active filter without re-arming on every render.
   const threadsQueryRef = useRef<string | undefined>(undefined)
@@ -126,6 +135,21 @@ export function useKnowledgeChat(
   const [activeModel, setActiveModel] = useState<ActiveModel | null>(null)
   const [reasoningEffort, setReasoningEffort] = useState("medium")
 
+  const clearLoadIssue = useCallback((operation: KnowledgeChatLoadOperation) => {
+    setLoadIssues((prev) => prev.filter((issue) => issue.operation !== operation))
+  }, [])
+
+  const recordLoadIssue = useCallback(
+    (operation: KnowledgeChatLoadOperation, error: unknown) => {
+      const next = knowledgeChatLoadIssue(operation, error)
+      setLoadIssues((prev) => [
+        next,
+        ...prev.filter((issue) => issue.operation !== operation),
+      ])
+    },
+    [],
+  )
+
   useEffect(() => {
     currentSessionIdRef.current = currentSessionId
   }, [currentSessionId])
@@ -134,29 +158,44 @@ export function useKnowledgeChat(
     try {
       const list = await getTransport().call<AgentSummaryForSidebar[]>("list_agents")
       setAgents(list)
+      clearLoadIssue("loadAgents")
       return list
     } catch (e) {
       logger.error("ui", "KnowledgeChat::loadAgents", "Failed to load agents", e)
+      recordLoadIssue("loadAgents", e)
       return []
     }
-  }, [])
+  }, [clearLoadIssue, recordLoadIssue])
 
   const loadModels = useCallback(
     async (agentId: string): Promise<ModelSnapshot | null> => {
       const version = ++modelLoadVersionRef.current
       try {
-        const [models, active, settings, agentConfig] = await Promise.all([
+        const [models, active, settings, agentConfigResult] = await Promise.all([
           getTransport().call<AvailableModel[]>("get_available_models"),
           getTransport().call<ActiveModel | null>("get_active_model"),
           getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
           getTransport()
             .call<AgentConfig>("get_agent_config", { id: agentId })
-            .catch(() => null),
+            .then((config) => ({ config, error: null as unknown }))
+            .catch((error) => ({ config: null as AgentConfig | null, error })),
         ])
         // A newer loadModels (e.g. bootstrap's default-agent load vs the
         // thread's real-agent load, or a fast note switch) superseded us —
         // don't let this stale result win the last-writer race.
         if (modelLoadVersionRef.current !== version) return null
+        const agentConfig = agentConfigResult.config
+        if (agentConfigResult.error) {
+          logger.error(
+            "ui",
+            "KnowledgeChat::loadAgentConfig",
+            "Failed to load agent config",
+            agentConfigResult.error,
+          )
+          recordLoadIssue("loadAgentConfig", agentConfigResult.error)
+        } else {
+          clearLoadIssue("loadAgentConfig")
+        }
         setAvailableModels(models)
         let displayModel = active
         const manualOverride = manualModelOverrideRef.current
@@ -182,13 +221,15 @@ export function useKnowledgeChat(
           : undefined
         const effort = agentConfig?.model?.reasoningEffort ?? settings.reasoning_effort
         setReasoningEffort(normalizeEffortForModel(currentModel, effort, (key) => key))
+        clearLoadIssue("loadModels")
         return { models, displayModel, defaultEffort: effort }
       } catch (e) {
         logger.error("ui", "KnowledgeChat::loadModels", "Failed to load models", e)
+        recordLoadIssue("loadModels", e)
         return null
       }
     },
-    [],
+    [clearLoadIssue, recordLoadIssue],
   )
 
   // Replace-load for SWITCHING to a thread (clears + repopulates). For
@@ -208,16 +249,19 @@ export function useKnowledgeChat(
       setHasMore(hasMoreFromApi)
       setOldestDbId(rawMsgs[0]?.id ?? null)
       setLoadingMore(false)
+      clearLoadIssue("loadThread")
       return true
     } catch (e) {
       if (switchVersionRef.current !== version) return false
       logger.error("ui", "KnowledgeChat::loadMessages", "Failed to load messages", e)
-      setMessages([])
+      recordLoadIssue("loadThread", e)
+      const cached = sessionCacheRef.current.get(sessionId)
+      setMessages(cached ?? [])
       setHasMore(false)
       setOldestDbId(null)
       return false
     }
-  }, [])
+  }, [clearLoadIssue, recordLoadIssue])
 
   // Reconcile the CURRENT thread with DB truth after a turn ends. Merge-based:
   // preserves paged-in scrollback + optimistic/streamed messages, swallows a
@@ -260,14 +304,16 @@ export function useKnowledgeChat(
         setThreads(list)
         setThreadsHasMore(list.length >= THREADS_PAGE)
         threadsOffsetRef.current = list.length
+        clearLoadIssue("loadThreads")
       } catch (e) {
         if (v !== threadsLoadVersionRef.current) return
         logger.error("ui", "KnowledgeChat::reloadThreads", "Failed to list threads", e)
+        recordLoadIssue("loadThreads", e)
         setThreads([])
         setThreadsHasMore(false)
       }
     },
-    [kbId],
+    [kbId, clearLoadIssue, recordLoadIssue],
   )
 
   // Append the next history page. Offset-based; a thread reordering between pages
@@ -294,13 +340,15 @@ export function useKnowledgeChat(
       })
       setThreadsHasMore(list.length >= THREADS_PAGE)
       threadsOffsetRef.current = offset + list.length
+      clearLoadIssue("loadMoreThreads")
     } catch (e) {
       if (v !== threadsLoadVersionRef.current) return
       logger.error("ui", "KnowledgeChat::loadMoreThreads", "Failed to page threads", e)
+      recordLoadIssue("loadMoreThreads", e)
     } finally {
       threadsLoadingRef.current = false
     }
-  }, [kbId, threadsHasMore])
+  }, [kbId, threadsHasMore, clearLoadIssue, recordLoadIssue])
 
   // reloadSessions for useChatStream compat — refresh the thread list so a newly
   // auto-created session surfaces in history without a manual reload.
@@ -365,6 +413,7 @@ export function useKnowledgeChat(
           } else {
             await loadThreadMessages(meta.id)
           }
+          clearLoadIssue("loadDefaultThread")
         } else {
           setCurrentSessionId(null)
           setMessages([])
@@ -373,9 +422,18 @@ export function useKnowledgeChat(
           // A draft has no in-flight turn — clear any stuck spinner from the
           // note we just left.
           setLoading(false)
+          clearLoadIssue("loadDefaultThread")
         }
       } catch (e) {
-        if (!cancelled) logger.error("ui", "KnowledgeChat::defaultLoad", "Failed", e)
+        if (!cancelled) {
+          logger.error("ui", "KnowledgeChat::defaultLoad", "Failed", e)
+          recordLoadIssue("loadDefaultThread", e)
+          setCurrentSessionId(null)
+          setMessages([])
+          setHasMore(false)
+          setOldestDbId(null)
+          setLoading(false)
+        }
       }
       // Reset the history filter on KB / note switch (the popover's search box
       // remounts empty, so keep threadsQueryRef in sync).
@@ -404,12 +462,14 @@ export function useKnowledgeChat(
       })
       setHasMore(more)
       setOldestDbId(older[0]?.id ?? oldestDbId)
+      clearLoadIssue("loadMoreMessages")
     } catch (e) {
       logger.error("ui", "KnowledgeChat::loadMore", "Failed", e)
+      recordLoadIssue("loadMoreMessages", e)
     } finally {
       setLoadingMore(false)
     }
-  }, [hasMore, loadingMore, oldestDbId])
+  }, [hasMore, loadingMore, oldestDbId, clearLoadIssue, recordLoadIssue])
 
   const handleModelChange = useCallback((key: string) => {
     const [providerId, modelId] = key.split("::")
@@ -518,5 +578,6 @@ export function useKnowledgeChat(
     handleNewThread,
     switchThread,
     reconcileThread,
+    loadIssues,
   }
 }

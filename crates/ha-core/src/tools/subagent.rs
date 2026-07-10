@@ -14,6 +14,7 @@ pub(crate) fn subagent_capability_enabled(agent_id: &str, agent_config: &AgentCo
     let app_config = crate::config::cached_config();
     let ctx = super::dispatch::DispatchContext {
         agent_id,
+        incognito: false,
         mcp_enabled: agent_config.capabilities.mcp_enabled,
         memory_enabled: agent_config.memory.enabled,
         tools_filter: &agent_config.capabilities.tools,

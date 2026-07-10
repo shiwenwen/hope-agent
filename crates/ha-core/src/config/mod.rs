@@ -1040,6 +1040,11 @@ pub struct AppConfig {
     /// Memory deduplication thresholds
     #[serde(default)]
     pub dedup: crate::memory::DedupConfig,
+    /// Additive external memory providers. Default disabled; local memory
+    /// remains the source of truth and agent-plane recall/write paths ignore
+    /// this until a concrete owner-approved adapter is wired.
+    #[serde(default)]
+    pub memory_providers: crate::memory::ExternalMemoryProvidersConfig,
     /// Hybrid search weight configuration
     #[serde(default)]
     pub hybrid_search: crate::memory::HybridSearchConfig,
@@ -1378,6 +1383,7 @@ impl Default for AppConfig {
             memory_selection: crate::memory::MemorySelectionConfig::default(),
             memory_budget: crate::memory::MemoryBudgetConfig::default(),
             dedup: crate::memory::DedupConfig::default(),
+            memory_providers: crate::memory::ExternalMemoryProvidersConfig::default(),
             hybrid_search: crate::memory::HybridSearchConfig::default(),
             temporal_decay: crate::memory::TemporalDecayConfig::default(),
             mmr: crate::memory::MmrConfig::default(),

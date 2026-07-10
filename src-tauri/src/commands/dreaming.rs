@@ -19,6 +19,13 @@ pub async fn dreaming_run_resolver() -> Result<dreaming::ResolverReport, CmdErro
     Ok(dreaming::run_resolver_cycle(dreaming::DreamTrigger::Manual).await)
 }
 
+/// Read-only Deep resolver preflight for the Dashboard. Maps to
+/// `GET /api/dreaming/resolver/preflight` on the HTTP side.
+#[tauri::command]
+pub async fn dreaming_resolver_preflight() -> Result<dreaming::ResolverPreflightReport, CmdError> {
+    Ok(dreaming::resolver_preflight())
+}
+
 /// Run one Memory Profile synthesis cycle (manual = LLM rewrite) and return
 /// its summary. Maps to `POST /api/dreaming/profile/run`.
 #[tauri::command]
@@ -100,6 +107,58 @@ pub async fn dreaming_list_runs(
 #[tauri::command]
 pub async fn dreaming_get_run(id: String) -> Result<Option<dreaming::DreamingRunDetail>, CmdError> {
     dreaming::get_run(&id).map_err(Into::into)
+}
+
+/// Query durable decision rows directly. Owner-plane Review History helper;
+/// maps to `GET /api/dreaming/decisions`.
+#[tauri::command]
+pub async fn dreaming_list_decisions(
+    limit: Option<usize>,
+    offset: Option<usize>,
+    query: Option<String>,
+    decision_type: Option<String>,
+    scope_type: Option<String>,
+    scope_id: Option<String>,
+    since: Option<String>,
+    target_type: Option<String>,
+) -> Result<Vec<dreaming::DreamingDecisionListItem>, CmdError> {
+    dreaming::list_decisions(dreaming::DreamingDecisionListFilter {
+        limit,
+        offset,
+        query,
+        decision_type,
+        scope_type,
+        scope_id,
+        since,
+        target_type,
+    })
+    .map_err(Into::into)
+}
+
+/// Query durable decision rows with total-match metadata. Owner-plane Review
+/// History helper; maps to `GET /api/dreaming/decisions/page`.
+#[tauri::command]
+pub async fn dreaming_list_decisions_page(
+    limit: Option<usize>,
+    offset: Option<usize>,
+    query: Option<String>,
+    decision_type: Option<String>,
+    scope_type: Option<String>,
+    scope_id: Option<String>,
+    since: Option<String>,
+    target_type: Option<String>,
+) -> Result<dreaming::DreamingDecisionListResponse, CmdError> {
+    dreaming::list_decisions_page(dreaming::DreamingDecisionListFilter {
+        limit,
+        offset,
+        query,
+        decision_type,
+        scope_type,
+        scope_id,
+        since,
+        target_type,
+    })
+    .map_err(Into::into)
 }
 
 /// Resolve a redacted, length-capped excerpt for an evidence ref (Evidence

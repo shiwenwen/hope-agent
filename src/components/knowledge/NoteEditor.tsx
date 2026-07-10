@@ -279,7 +279,9 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
             // Drop `|alias` / `#anchor` so the shared ref cache keys match the
             // transclusion view's (both resolve to the same target note).
             fetchNoteRef(kb, cleanEmbedRef(reference), bustRef.current).then((res) =>
-              res ? { title: res.title, excerpt: noteExcerpt(res.content) } : null,
+              res.status === "resolved"
+                ? { title: res.note.title, excerpt: noteExcerpt(res.note.content) }
+                : null,
             ),
         ),
         notePreviewTheme,
@@ -506,6 +508,8 @@ const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEd
               cacheBustKey={embedCacheKey}
               onOpenNote={onOpenNote}
               seen={embedSeen}
+              highlightLine={revealTarget?.line}
+              highlightToken={revealTarget}
             />
           ) : (
             <MarkdownRenderer content={value} />

@@ -29,7 +29,7 @@ export interface ModelChainEditorProps {
   /** `null` = inheriting from whatever this field falls back to. */
   value: ModelChainRef | null
   onChange: (next: ModelChainRef | null) => void
-  availableModels: AvailableModel[]
+  availableModels: AvailableModel[] | null | undefined
   /** Placeholder shown on the primary selector when `value` is `null`. */
   inheritLabel: string
   /**
@@ -116,9 +116,10 @@ export function ModelChainEditor({
   const { t } = useTranslation()
   const [addingFallback, setAddingFallback] = useState(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const models = Array.isArray(availableModels) ? availableModels : []
 
   const modelDisplayName = (ref: { providerId: string; modelId: string }) => {
-    const m = availableModels.find(
+    const m = models.find(
       (m) => m.providerId === ref.providerId && m.modelId === ref.modelId,
     )
     return m ? `${m.providerName} / ${m.modelName}` : `${ref.providerId}::${ref.modelId}`
@@ -158,7 +159,7 @@ export function ModelChainEditor({
     onChange({ ...value, fallbacks: arrayMove(fallbacks, oldIndex, newIndex) })
   }
 
-  const availableForFallback = availableModels.filter(
+  const availableForFallback = models.filter(
     (m) =>
       !fallbacks.some((f) => f.providerId === m.providerId && f.modelId === m.modelId) &&
       !(value?.primary.providerId === m.providerId && value?.primary.modelId === m.modelId),
@@ -169,7 +170,7 @@ export function ModelChainEditor({
   // automation::run's try-each-in-order loop wastes a retry re-attempting
   // the identical provider+model before reaching any genuinely different
   // fallback.
-  const availableForPrimary = availableModels.filter(
+  const availableForPrimary = models.filter(
     (m) => !fallbacks.some((f) => f.providerId === m.providerId && f.modelId === m.modelId),
   )
 

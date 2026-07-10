@@ -49,6 +49,10 @@ import {
   type MemoryEmbeddingSetDefaultResult,
   type MemoryEmbeddingState,
 } from "@/types/embedding-models"
+import {
+  embeddingModelOperationErrorToast,
+  type EmbeddingModelOperation,
+} from "./embeddingModelFeedback"
 
 const PROVIDER_TYPES: EmbeddingProviderType[] = ["openai-compatible", "google"]
 const CUSTOM_TEMPLATE_VALUE = "__custom_template__"
@@ -156,6 +160,17 @@ export default function EmbeddingModelsPanel() {
 
   const activeId = memoryState.selection.enabled ? memoryState.selection.modelConfigId : undefined
 
+  const showOperationError = useCallback(
+    (operation: EmbeddingModelOperation, error: unknown) => {
+      const failure = embeddingModelOperationErrorToast(operation, t, error)
+      toast.error(
+        failure.title,
+        failure.description ? { description: failure.description } : undefined,
+      )
+    },
+    [t],
+  )
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -169,11 +184,11 @@ export default function EmbeddingModelsPanel() {
       setMemoryState(nextState)
     } catch (e) {
       logger.error("settings", "EmbeddingModelsPanel::load", "Failed to load", e)
-      toast.error(String(e))
+      showOperationError("load", e)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showOperationError])
 
   useEffect(() => {
     void load()
@@ -256,7 +271,7 @@ export default function EmbeddingModelsPanel() {
       toast.success(t("common.saved"))
     } catch (e) {
       logger.error("settings", "EmbeddingModelsPanel::save", "Failed to save", e)
-      toast.error(String(e))
+      showOperationError("save", e)
     } finally {
       setSaving(false)
     }
@@ -268,7 +283,7 @@ export default function EmbeddingModelsPanel() {
       await getTransport().call("embedding_model_config_test", { config: model })
       toast.success(t("settings.embeddingModels.testOk"))
     } catch (e) {
-      toast.error(String(e))
+      showOperationError("test", e)
     } finally {
       setTestingId(null)
     }
@@ -289,7 +304,7 @@ export default function EmbeddingModelsPanel() {
         toast.success(t("settings.embeddingModels.defaultSet"))
       }
     } catch (e) {
-      toast.error(String(e))
+      showOperationError("setDefault", e)
     } finally {
       setPendingDefault(null)
     }
@@ -302,7 +317,7 @@ export default function EmbeddingModelsPanel() {
       await load()
       toast.success(t("settings.embeddingModels.deleted"))
     } catch (e) {
-      toast.error(String(e))
+      showOperationError("delete", e)
     } finally {
       setPendingDelete(null)
     }

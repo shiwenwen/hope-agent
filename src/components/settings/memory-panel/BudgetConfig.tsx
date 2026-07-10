@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Check, ChevronRight, Loader2, Ruler, Save } from "lucide-react"
+import { AlertCircle, Check, ChevronRight, Loader2, Ruler, Save } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { toast } from "sonner"
 import {
   DEFAULT_MEMORY_BUDGET,
   type MemoryBudgetConfig,
   type SqliteSectionBudgets,
 } from "../types"
 import MemoryBudgetInputs from "./MemoryBudgetInputs"
+import {
+  memoryBudgetOperationErrorToast,
+  type MemoryBudgetOperationErrorToast,
+} from "./memoryBudgetOperationFeedback"
 
 function budgetsEqual(a: SqliteSectionBudgets, b: SqliteSectionBudgets): boolean {
   return (
@@ -37,20 +42,27 @@ export default function BudgetConfig() {
   const [config, setConfig] = useState<MemoryBudgetConfig>(DEFAULT_MEMORY_BUDGET)
   const [original, setOriginal] = useState<MemoryBudgetConfig>(DEFAULT_MEMORY_BUDGET)
   const [loaded, setLoaded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<MemoryBudgetOperationErrorToast | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   const load = useCallback(async () => {
+    setLoading(true)
     try {
       const cfg = await getTransport().call<MemoryBudgetConfig>("get_memory_budget_config")
       setConfig(cfg)
       setOriginal(cfg)
       setLoaded(true)
+      setLoadError(null)
     } catch (e) {
       logger.error("settings", "BudgetConfig::load", "Failed to load memory budget", e)
-      setLoaded(true)
+      setLoaded(false)
+      setLoadError(memoryBudgetOperationErrorToast("load", t, e))
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     load()
@@ -71,6 +83,11 @@ export default function BudgetConfig() {
     } catch (e) {
       logger.error("settings", "BudgetConfig::save", "Failed to save memory budget", e)
       setSaveStatus("failed")
+      const failureToast = memoryBudgetOperationErrorToast("save", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
       setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
@@ -100,39 +117,65 @@ export default function BudgetConfig() {
             {t("settings.memoryBudget.desc")}
           </p>
 
-          <MemoryBudgetInputs value={config} onChange={setConfig} />
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              onClick={handleSave}
-              disabled={saving || !dirty}
-              variant={
-                saveStatus === "saved"
-                  ? "outline"
-                  : saveStatus === "failed"
-                    ? "destructive"
-                    : "default"
-              }
-              size="sm"
-              className="gap-1.5"
-            >
-              {saving ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : saveStatus === "saved" ? (
-                <Check className="h-3.5 w-3.5 text-green-600" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
+          {loading ? (
+            <div className="flex items-center gap-2 rounded-md border border-border-soft/60 px-3 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("common.loading", "Loading...")}
+            </div>
+          ) : loadError ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                {loadError.title}
+              </div>
+              {loadError.description && (
+                <div className="mt-1 break-all text-muted-foreground">{loadError.description}</div>
               )}
-              {saveStatus === "saved"
-                ? t("common.saved")
-                : saveStatus === "failed"
-                  ? t("common.retry")
-                  : t("common.save")}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving}>
-              {t("settings.memoryBudget.resetToDefaults")}
-            </Button>
-          </div>
+              <button
+                type="button"
+                className="mt-2 font-medium text-foreground underline underline-offset-2"
+                onClick={() => void load()}
+              >
+                {t("common.retry", "Retry")}
+              </button>
+            </div>
+          ) : loaded ? (
+            <>
+              <MemoryBudgetInputs value={config} onChange={setConfig} />
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <Button
+                  onClick={handleSave}
+                  disabled={saving || !dirty}
+                  variant={
+                    saveStatus === "saved"
+                      ? "outline"
+                      : saveStatus === "failed"
+                        ? "destructive"
+                        : "default"
+                  }
+                  size="sm"
+                  className="gap-1.5"
+                >
+                  {saving ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : saveStatus === "saved" ? (
+                    <Check className="h-3.5 w-3.5 text-green-600" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5" />
+                  )}
+                  {saveStatus === "saved"
+                    ? t("common.saved")
+                    : saveStatus === "failed"
+                      ? t("common.retry")
+                      : t("common.save")}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving}>
+                  {t("settings.memoryBudget.resetToDefaults")}
+                </Button>
+              </div>
+            </>
+          ) : null}
         </div>
       )}
     </div>

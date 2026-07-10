@@ -244,10 +244,10 @@ pub fn ensure_default_agent() -> Result<()> {
     // Write agent.json
     let config = default_agent_json(&locale, Some(avatar_str));
     let json = serde_json::to_string_pretty(&config)?;
-    std::fs::write(&config_path, json)?;
+    crate::platform::write_atomic(&config_path, json.as_bytes())?;
 
     // Write agent.md
-    std::fs::write(dir.join(AGENT_MD), default_agent_md(&locale))?;
+    crate::platform::write_atomic(&dir.join(AGENT_MD), default_agent_md(&locale).as_bytes())?;
 
     Ok(())
 }
@@ -487,7 +487,7 @@ pub fn save_agent_config(id: &str, config: &AgentConfig) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("agent.json");
     let json = serde_json::to_string_pretty(config)?;
-    std::fs::write(&path, json)?;
+    crate::platform::write_atomic(&path, json.as_bytes())?;
     Ok(())
 }
 
@@ -518,7 +518,7 @@ pub fn save_agent_markdown(id: &str, file: &str, content: &str) -> Result<()> {
     let dir = paths::agent_dir(id)?;
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(file);
-    std::fs::write(&path, content)?;
+    crate::platform::write_atomic(&path, content.as_bytes())?;
     Ok(())
 }
 

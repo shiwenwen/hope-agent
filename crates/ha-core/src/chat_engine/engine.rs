@@ -1187,8 +1187,37 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     persister.flush_remaining_thinking();
                     let trailing_text = persister.take_trailing_text();
-                    let assistant_msg =
+                    let mut assistant_msg =
                         persister.build_assistant_message(&trailing_text, thinking, duration_ms);
+                    let active_trace = agent.current_active_memory_trace();
+                    let used_refs = agent.current_used_memory_refs();
+                    let retrieval_planner_trace = agent.current_retrieval_planner_trace(&used_refs);
+                    if active_trace.is_some()
+                        || !used_refs.is_empty()
+                        || retrieval_planner_trace.is_some()
+                    {
+                        let mut meta = serde_json::Map::new();
+                        if let Some(trace) = active_trace {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_ACTIVE_MEMORY.to_string(),
+                                serde_json::to_value(&*trace).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        if !used_refs.is_empty() {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_USED_MEMORY_REFS.to_string(),
+                                serde_json::to_value(used_refs).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        if let Some(trace) = retrieval_planner_trace {
+                            meta.insert(
+                                session::ATTACHMENT_META_KEY_RETRIEVAL_PLANNER.to_string(),
+                                serde_json::to_value(trace).unwrap_or(serde_json::Value::Null),
+                            );
+                        }
+                        assistant_msg.attachments_meta =
+                            serde_json::to_string(&serde_json::Value::Object(meta)).ok();
+                    }
                     let assistant_id = db.append_message(&session_id, &assistant_msg).ok();
                     if let Some(message_id) = assistant_id {
                         let usage = persister.usage();

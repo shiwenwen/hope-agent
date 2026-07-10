@@ -555,6 +555,7 @@ impl ToolExecContext {
         let app_config = crate::config::cached_config();
         let dispatch_ctx = super::dispatch::DispatchContext {
             agent_id,
+            incognito: self.incognito,
             mcp_enabled: agent_cfg.capabilities.mcp_enabled,
             memory_enabled: agent_cfg.memory.enabled,
             tools_filter: &agent_cfg.capabilities.tools,
@@ -569,6 +570,14 @@ impl ToolExecContext {
                 "Agent tool switch: tool '{}' is enabled but not configured. {}",
                 canonical, config_hint
             )),
+            super::dispatch::ToolFate::Hidden
+                if self.incognito && super::is_memory_tool(canonical) =>
+            {
+                Some(format!(
+                    "Incognito restriction: long-term memory tool '{}' is unavailable in this session.",
+                    canonical
+                ))
+            }
             super::dispatch::ToolFate::Hidden => Some(format!(
                 "Agent tool switch: tool '{}' is disabled for this agent.",
                 canonical
@@ -1944,7 +1953,8 @@ pub async fn execute_tool_with_context(
                      This may be caused by network issues, an unresponsive API, or a slow provider. \
                      Please check your network connection and provider configuration, \
                      or increase toolTimeout in Settings > System.",
-                    name, hard_timeout.as_secs()
+                    name,
+                    hard_timeout.as_secs()
                 ))
             }
         }
@@ -2573,6 +2583,27 @@ mod tests {
         assert_eq!(result, output);
         assert!(result.contains(IMAGE_BASE64_PREFIX));
         assert!(!result.contains(IMAGE_FILE_PREFIX));
+    }
+
+    #[tokio::test]
+    async fn incognito_blocks_memory_tier_before_handler() {
+        let ctx = ToolExecContext {
+            incognito: true,
+            ..ToolExecContext::default()
+        };
+
+        let err = super::execute_tool_with_context(
+            crate::tools::TOOL_RECALL_MEMORY,
+            &json!({ "query": "anything" }),
+            &ctx,
+        )
+        .await
+        .expect_err("incognito must hide memory-tier tools before handler execution");
+
+        assert!(
+            err.to_string().contains("Incognito restriction"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
@@ -9,6 +11,11 @@ import { Button } from "@/components/ui/button"
 import { ChevronRight, Settings2 } from "lucide-react"
 import type { useMemoryData } from "./useMemoryData"
 import TemporalDecayConfig from "./TemporalDecayConfig"
+import {
+  memoryAdvancedConfigOperationErrorToast,
+  type MemoryAdvancedConfigOperation,
+  type MemoryAdvancedConfigOperationErrorToast,
+} from "./memoryAdvancedConfigFeedback"
 
 interface HybridSearchConfig { vectorWeight: number; textWeight: number; rrfK: number }
 interface MmrConfig { enabled: boolean; lambda: number }
@@ -32,17 +39,89 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
   const [multimodalConfig, setMultimodalConfig] = useState<MultimodalConfig>({ enabled: false, modalities: ["image", "audio"], maxFileBytes: 10 * 1024 * 1024 })
   const [selectionConfig, setSelectionConfig] = useState<MemorySelectionConfig>({ enabled: false, threshold: 8, maxSelected: 5 })
   const [searchTuningExpanded, setSearchTuningExpanded] = useState(false)
+  const [advancedConfigLoadError, setAdvancedConfigLoadError] =
+    useState<MemoryAdvancedConfigOperationErrorToast | null>(null)
+  const saveSeqRef = useRef<Record<string, number>>({})
+
+  const loadAdvancedConfigs = useCallback(
+    (isCancelled?: () => boolean) => {
+      setAdvancedConfigLoadError(null)
+
+      const loadConfig = <T,>(command: string, apply: (config: T) => void) => {
+        void getTransport()
+          .call<T>(command)
+          .then((config) => {
+            if (!isCancelled?.()) apply(config)
+          })
+          .catch((e) => {
+            logger.warn("settings", "HybridSearchConfig::load", `Failed to load ${command}`, e)
+            if (isCancelled?.()) return
+            const failure = memoryAdvancedConfigOperationErrorToast("load", t, e)
+            setAdvancedConfigLoadError((current) => current ?? failure)
+          })
+      }
+
+      loadConfig<HybridSearchConfig>("get_hybrid_search_config", setHybridConfig)
+      loadConfig<MmrConfig>("get_mmr_config", setMmrConfig)
+      loadConfig<EmbeddingCacheConfig>("get_embedding_cache_config", setCacheConfig)
+      loadConfig<MultimodalConfig>("get_multimodal_config", setMultimodalConfig)
+      loadConfig<MemorySelectionConfig>("get_memory_selection_config", setSelectionConfig)
+    },
+    [t],
+  )
 
   useEffect(() => {
-    getTransport().call<HybridSearchConfig>("get_hybrid_search_config").then(setHybridConfig).catch(() => {})
-    getTransport().call<MmrConfig>("get_mmr_config").then(setMmrConfig).catch(() => {})
-    getTransport().call<EmbeddingCacheConfig>("get_embedding_cache_config").then(setCacheConfig).catch(() => {})
-    getTransport().call<MultimodalConfig>("get_multimodal_config").then(setMultimodalConfig).catch(() => {})
-    getTransport().call<MemorySelectionConfig>("get_memory_selection_config").then(setSelectionConfig).catch(() => {})
-  }, [])
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) loadAdvancedConfigs(() => cancelled)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [loadAdvancedConfigs])
+
+  const saveAdvancedConfig = useCallback(
+    async <T,>(
+      operation: Exclude<MemoryAdvancedConfigOperation, "load">,
+      command: string,
+      config: T,
+      rollback: () => void,
+    ) => {
+      const seq = (saveSeqRef.current[operation] ?? 0) + 1
+      saveSeqRef.current[operation] = seq
+      try {
+        await getTransport().call(command, { config })
+      } catch (e) {
+        logger.error("settings", "HybridSearchConfig::save", `Failed to save ${command}`, e)
+        if (saveSeqRef.current[operation] !== seq) return
+        rollback()
+        const failure = memoryAdvancedConfigOperationErrorToast(operation, t, e)
+        toast.error(failure.title, failure.description ? { description: failure.description } : undefined)
+      }
+    },
+    [t],
+  )
 
   return (
     <>
+      {advancedConfigLoadError && (
+        <div className="mt-4 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+          <div className="font-medium text-foreground">{advancedConfigLoadError.title}</div>
+          {advancedConfigLoadError.description && (
+            <div className="mt-1 break-all text-muted-foreground">
+              {advancedConfigLoadError.description}
+            </div>
+          )}
+          <button
+            type="button"
+            className="mt-2 font-medium text-foreground underline underline-offset-2"
+            onClick={() => loadAdvancedConfigs()}
+          >
+            {t("common.retry", "Retry")}
+          </button>
+        </div>
+      )}
+
       {/* Dedup thresholds (advanced) */}
       <div className="mt-6 pt-4 border-t border-border/50">
         <Button
@@ -66,9 +145,12 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 value={dedupConfig.thresholdHigh}
                 integer={false}
                 onValueCommit={(value) => {
+                  const previous = dedupConfig
                   const updated = { ...dedupConfig, thresholdHigh: value }
                   setDedupConfig(updated)
-                  getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
+                  void saveAdvancedConfig("saveDedup", "save_dedup_config", updated, () =>
+                    setDedupConfig(previous),
+                  )
                 }}
                 className="h-7 text-xs w-24"
               />
@@ -82,9 +164,12 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 value={dedupConfig.thresholdMerge}
                 integer={false}
                 onValueCommit={(value) => {
+                  const previous = dedupConfig
                   const updated = { ...dedupConfig, thresholdMerge: value }
                   setDedupConfig(updated)
-                  getTransport().call("save_dedup_config", { config: updated }).catch(() => {})
+                  void saveAdvancedConfig("saveDedup", "save_dedup_config", updated, () =>
+                    setDedupConfig(previous),
+                  )
                 }}
                 className="h-7 text-xs w-24"
               />
@@ -121,9 +206,12 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 value={[hybridConfig.vectorWeight]}
                 min={0} max={1} step={0.1}
                 onValueChange={([v]) => {
+                  const previous = hybridConfig
                   const updated = { ...hybridConfig, vectorWeight: v, textWeight: parseFloat((1 - v).toFixed(1)) }
                   setHybridConfig(updated)
-                  getTransport().call("save_hybrid_search_config", { config: updated }).catch(() => {})
+                  void saveAdvancedConfig("saveHybrid", "save_hybrid_search_config", updated, () =>
+                    setHybridConfig(previous),
+                  )
                 }}
               />
             </div>
@@ -138,9 +226,12 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <Switch
                   checked={mmrConfig.enabled}
                   onCheckedChange={(v) => {
+                    const previous = mmrConfig
                     const updated = { ...mmrConfig, enabled: v }
                     setMmrConfig(updated)
-                    getTransport().call("save_mmr_config", { config: updated }).catch(() => {})
+                    void saveAdvancedConfig("saveMmr", "save_mmr_config", updated, () =>
+                      setMmrConfig(previous),
+                    )
                   }}
                 />
               </div>
@@ -155,9 +246,12 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                     value={[mmrConfig.lambda]}
                     min={0} max={1} step={0.1}
                     onValueChange={([v]) => {
+                      const previous = mmrConfig
                       const updated = { ...mmrConfig, lambda: v }
                       setMmrConfig(updated)
-                      getTransport().call("save_mmr_config", { config: updated }).catch(() => {})
+                      void saveAdvancedConfig("saveMmr", "save_mmr_config", updated, () =>
+                        setMmrConfig(previous),
+                      )
                     }}
                   />
                   <div className="flex justify-between text-[10px] text-muted-foreground/50">
@@ -175,9 +269,12 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <Switch
                   checked={cacheConfig.enabled}
                   onCheckedChange={(v) => {
+                    const previous = cacheConfig
                     const updated = { ...cacheConfig, enabled: v }
                     setCacheConfig(updated)
-                    getTransport().call("save_embedding_cache_config", { config: updated }).catch(() => {})
+                    void saveAdvancedConfig("saveCache", "save_embedding_cache_config", updated, () =>
+                      setCacheConfig(previous),
+                    )
                   }}
                 />
               </div>
@@ -191,9 +288,15 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <Switch
                   checked={multimodalConfig.enabled}
                   onCheckedChange={(v) => {
+                    const previous = multimodalConfig
                     const updated = { ...multimodalConfig, enabled: v }
                     setMultimodalConfig(updated)
-                    getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
+                    void saveAdvancedConfig(
+                      "saveMultimodal",
+                      "save_multimodal_config",
+                      updated,
+                      () => setMultimodalConfig(previous),
+                    )
                   }}
                 />
               </div>
@@ -206,12 +309,18 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                       <Switch
                         checked={multimodalConfig.modalities.includes("image")}
                         onCheckedChange={(checked) => {
+                          const previous = multimodalConfig
                           const mods = checked
                             ? [...multimodalConfig.modalities, "image"]
                             : multimodalConfig.modalities.filter(m => m !== "image")
                           const updated = { ...multimodalConfig, modalities: mods }
                           setMultimodalConfig(updated)
-                          getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
+                          void saveAdvancedConfig(
+                            "saveMultimodal",
+                            "save_multimodal_config",
+                            updated,
+                            () => setMultimodalConfig(previous),
+                          )
                         }}
                       />
                       {t("settings.memoryMultimodalImage")}
@@ -220,12 +329,18 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                       <Switch
                         checked={multimodalConfig.modalities.includes("audio")}
                         onCheckedChange={(checked) => {
+                          const previous = multimodalConfig
                           const mods = checked
                             ? [...multimodalConfig.modalities, "audio"]
                             : multimodalConfig.modalities.filter(m => m !== "audio")
                           const updated = { ...multimodalConfig, modalities: mods }
                           setMultimodalConfig(updated)
-                          getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
+                          void saveAdvancedConfig(
+                            "saveMultimodal",
+                            "save_multimodal_config",
+                            updated,
+                            () => setMultimodalConfig(previous),
+                          )
                         }}
                       />
                       {t("settings.memoryMultimodalAudio")}
@@ -237,9 +352,15 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                       min={1} max={50}
                       value={Math.round(multimodalConfig.maxFileBytes / (1024 * 1024))}
                       onValueCommit={(mb) => {
+                        const previous = multimodalConfig
                         const updated = { ...multimodalConfig, maxFileBytes: mb * 1024 * 1024 }
                         setMultimodalConfig(updated)
-                        getTransport().call("save_multimodal_config", { config: updated }).catch(() => {})
+                        void saveAdvancedConfig(
+                          "saveMultimodal",
+                          "save_multimodal_config",
+                          updated,
+                          () => setMultimodalConfig(previous),
+                        )
                       }}
                       className="h-7 text-xs w-16"
                     />
@@ -259,9 +380,15 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <Switch
                   checked={selectionConfig.enabled}
                   onCheckedChange={(v) => {
+                    const previous = selectionConfig
                     const updated = { ...selectionConfig, enabled: v }
                     setSelectionConfig(updated)
-                    getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
+                    void saveAdvancedConfig(
+                      "saveSelection",
+                      "save_memory_selection_config",
+                      updated,
+                      () => setSelectionConfig(previous),
+                    )
                   }}
                 />
               </div>
@@ -277,9 +404,15 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                       max={50}
                       value={selectionConfig.threshold}
                       onValueCommit={(threshold) => {
+                        const previous = selectionConfig
                         const updated = { ...selectionConfig, threshold }
                         setSelectionConfig(updated)
-                        getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
+                        void saveAdvancedConfig(
+                          "saveSelection",
+                          "save_memory_selection_config",
+                          updated,
+                          () => setSelectionConfig(previous),
+                        )
                       }}
                       className="h-7 text-xs w-20"
                     />
@@ -296,9 +429,15 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                       max={20}
                       value={selectionConfig.maxSelected}
                       onValueCommit={(maxSelected) => {
+                        const previous = selectionConfig
                         const updated = { ...selectionConfig, maxSelected }
                         setSelectionConfig(updated)
-                        getTransport().call("save_memory_selection_config", { config: updated }).catch(() => {})
+                        void saveAdvancedConfig(
+                          "saveSelection",
+                          "save_memory_selection_config",
+                          updated,
+                          () => setSelectionConfig(previous),
+                        )
                       }}
                       className="h-7 text-xs w-20"
                     />

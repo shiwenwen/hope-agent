@@ -92,6 +92,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         // Inject awareness + active memory as leading system items (same as
         // openai_responses_adapter — keeps `instructions` cache-friendly).
         let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
+        if let Some(procedure_suffix) = req.procedure_memory_suffix {
+            if !procedure_suffix.is_empty() {
+                api_input.insert(0, json!({ "role": "system", "content": procedure_suffix }));
+            }
+        }
         if let Some(active_suffix) = req.active_memory_suffix {
             if !active_suffix.is_empty() {
                 api_input.insert(0, json!({ "role": "system", "content": active_suffix }));

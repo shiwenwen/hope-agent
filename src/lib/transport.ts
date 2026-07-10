@@ -247,6 +247,40 @@ export interface Transport {
   exportSession(args: ExportSessionArgs): Promise<ExportSessionResult | null>;
 
   /**
+   * Export the memory system as a ZIP package. The package contains the normal
+   * `memory-backup.json` plus large attachment sidecar files.
+   *
+   * - Tauri mode: opens the native save dialog and writes via
+   *   `memory_backup_export_archive`.
+   * - HTTP mode: streams `POST /api/memory/backup/export-archive` and returns
+   *   a Blob plus filename for browser download.
+   */
+  exportMemoryBackupArchive(defaultFilename?: string): Promise<ExportSessionResult | null>;
+
+  /**
+   * Preview / restore a ZIP memory backup package selected in the browser UI.
+   *
+   * Tauri mode serializes bytes through IPC; HTTP mode POSTs the Blob as the
+   * raw request body so large sidecar packages do not get JSON/base64 wrapped.
+   */
+  previewMemoryBackupArchive(file: File): Promise<unknown>;
+  restoreMemoryBackupLegacyArchive(
+    file: File,
+    options?: { dedup?: boolean },
+  ): Promise<unknown>;
+  restoreMemoryBackupStructuredArchive(
+    file: File,
+    options?: {
+      restoreClaims?: boolean;
+      restoreProfileSnapshots?: boolean;
+      restoreEpisodes?: boolean;
+      restoreProcedures?: boolean;
+      restoreExperienceHistory?: boolean;
+      allowProfileScopeConflicts?: boolean;
+    },
+  ): Promise<unknown>;
+
+  /**
    * Build a URL / asset-src for raw file bytes inside a project/session
    * workspace — used for image & PDF preview and downloads.
    *

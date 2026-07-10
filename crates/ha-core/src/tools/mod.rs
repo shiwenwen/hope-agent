@@ -263,6 +263,22 @@ pub(crate) async fn emit_model_runtime_timeout_metadata(
 
 // ── Shared Helpers ────────────────────────────────────────────────
 
+/// True for built-in long-term memory tools. These tools are governed by the
+/// Memory tier gate (`memoryExtract.enabled`, agent memory switch, incognito)
+/// and must stay aligned across schema generation, tool_search, prompt text,
+/// and execution-layer defense in depth.
+pub fn is_memory_tool(name: &str) -> bool {
+    matches!(
+        name,
+        TOOL_RECALL_MEMORY
+            | TOOL_SAVE_MEMORY
+            | TOOL_UPDATE_MEMORY
+            | TOOL_DELETE_MEMORY
+            | TOOL_MEMORY_GET
+            | TOOL_UPDATE_CORE_MEMORY
+    )
+}
+
 /// True for built-in tools that are useless without an attached knowledge base:
 /// all `note_*` tools plus `session_to_note` (they all resolve a `kb` through
 /// `effective_kb_access` and hard-fail when no KB is reachable). Used to drop

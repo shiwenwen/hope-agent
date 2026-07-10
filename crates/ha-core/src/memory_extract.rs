@@ -231,6 +231,14 @@ pub async fn run_extraction(
         );
         return;
     }
+    if !crate::memory::load_extract_config().enabled {
+        app_info!(
+            "memory",
+            "auto_extract",
+            "Skipping extraction because long-term memory is turned off"
+        );
+        return;
+    }
     if let Err(e) = do_extraction(
         messages,
         agent_id,
@@ -301,6 +309,7 @@ async fn do_extraction(
     // augmented combined prompt; users who opt out keep the existing prompts
     // and skip the extra tokens.
     let claims_enabled = global_extract.extract_claims;
+    let claims_review_first = global_extract.review_first;
     let prompt_template = select_extract_prompt(claims_enabled, reflect_enabled);
     let prompt = prompt_template
         .replace("{EXISTING}", &existing_summary)
@@ -466,7 +475,12 @@ async fn do_extraction(
         let sid = session_id.to_string();
         let scope_for_claims = scope.clone();
         let linked = tokio::task::spawn_blocking(move || {
-            dual_write_claims(claim_candidates, &sid, &scope_for_claims)
+            dual_write_claims(
+                claim_candidates,
+                &sid,
+                &scope_for_claims,
+                claims_review_first,
+            )
         })
         .await
         .unwrap_or(0);
@@ -528,6 +542,7 @@ fn dual_write_claims(
     candidates: Vec<crate::memory::claims::ClaimCandidate>,
     session_id: &str,
     scope: &MemoryScope,
+    review_first: bool,
 ) -> usize {
     let Some(backend) = crate::get_memory_backend() else {
         return 0;
@@ -571,7 +586,14 @@ fn dual_write_claims(
                     continue;
                 }
             };
-        match crate::memory::claims::write_claim_candidate(c, scope, session_id, None) {
+        let initial_status = review_first.then_some("needs_review");
+        match crate::memory::claims::write_claim_candidate_with_status(
+            c,
+            scope,
+            session_id,
+            None,
+            initial_status,
+        ) {
             Ok(outcome) => {
                 if let Err(e) = crate::memory::claims::link_claim_memory(
                     &outcome.claim_id,
@@ -632,6 +654,14 @@ pub async fn flush_before_compact(
             "flush",
             "Skipping flush_before_compact for incognito session {}",
             session_id
+        );
+        return Ok(0);
+    }
+    if !crate::memory::load_extract_config().enabled {
+        app_info!(
+            "memory",
+            "flush",
+            "Skipping flush_before_compact because long-term memory is turned off"
         );
         return Ok(0);
     }
@@ -942,6 +972,9 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
 
     // Check auto_extract is enabled
     let global_extract = crate::memory::load_extract_config();
+    if !global_extract.enabled {
+        return;
+    }
     let agent_def = crate::agent_loader::load_agent(agent_id);
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
     let auto_extract = agent_mem

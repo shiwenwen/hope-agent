@@ -334,8 +334,11 @@ pub fn build_system_prompt_with_session(
         // filtering and per-section sub-budgets are applied downstream by
         // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
         // consume the total budget first and Layer 3 picks up only the residual.
+        let app_cfg = crate::config::cached_config();
+        let long_term_memory_enabled = app_cfg.memory_extract.enabled;
+
         let memory_entries: Vec<crate::memory::MemoryEntry> =
-            if definition.config.memory.enabled && !incognito {
+            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
                 crate::get_memory_backend()
                     .and_then(|b| {
                         b.load_prompt_candidates_with_project(
@@ -351,7 +354,6 @@ pub fn build_system_prompt_with_session(
             };
 
         // Resolve the effective memory budget (agent override wins over global).
-        let app_cfg = crate::config::cached_config();
         let memory_budget = crate::agent_config::effective_memory_budget(
             &definition.config.memory,
             &app_cfg.memory_budget,
@@ -364,7 +366,8 @@ pub fn build_system_prompt_with_session(
         // synthesis — the default — never blanks the section). Global +
         // current-agent snapshots are concatenated here; the project profile is
         // shown in the read-only view but injected via the Context Pack later.
-        let profile_snapshot: Option<String> = if definition.config.memory.enabled
+        let profile_snapshot: Option<String> = if long_term_memory_enabled
+            && definition.config.memory.enabled
             && !incognito
             && app_cfg.dreaming.profile_synthesis.enabled
         {
@@ -390,33 +393,34 @@ pub fn build_system_prompt_with_session(
         // gate as the profile snapshot: memory on + not incognito. Empty on the
         // dual-track default (no claims yet) → None → no injection. Dynamic
         // per-turn claim recall is served separately by Active Memory v2.
-        let context_pack = if definition.config.memory.enabled && !incognito {
-            let mut scopes = vec![
-                crate::memory::MemoryScope::Global,
-                crate::memory::MemoryScope::Agent {
-                    id: agent_id.to_string(),
-                },
-            ];
-            if let Some(p) = project.as_ref() {
-                scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
-            }
-            let pack = crate::memory::dreaming::build_context_pack(
-                &scopes,
-                &crate::memory::dreaming::ContextPackOptions::default(),
-            );
-            if !pack.source_digest.is_empty() {
-                crate::app_debug!(
-                    "memory",
-                    "context_pack",
-                    "context pack: {} pinned claim(s) for agent {}",
-                    pack.source_digest.len(),
-                    agent_id
+        let context_pack =
+            if long_term_memory_enabled && definition.config.memory.enabled && !incognito {
+                let mut scopes = vec![
+                    crate::memory::MemoryScope::Global,
+                    crate::memory::MemoryScope::Agent {
+                        id: agent_id.to_string(),
+                    },
+                ];
+                if let Some(p) = project.as_ref() {
+                    scopes.push(crate::memory::MemoryScope::Project { id: p.id.clone() });
+                }
+                let pack = crate::memory::dreaming::build_context_pack(
+                    &scopes,
+                    &crate::memory::dreaming::ContextPackOptions::default(),
                 );
-            }
-            (!pack.is_empty()).then_some(pack)
-        } else {
-            None
-        };
+                if !pack.source_digest.is_empty() {
+                    crate::app_debug!(
+                        "memory",
+                        "context_pack",
+                        "context pack: {} pinned claim(s) for agent {}",
+                        pack.source_digest.len(),
+                        agent_id
+                    );
+                }
+                (!pack.is_empty()).then_some(pack)
+            } else {
+                None
+            };
 
         // Resolve agent home directory
         let agent_home = crate::paths::agent_home_dir(agent_id)

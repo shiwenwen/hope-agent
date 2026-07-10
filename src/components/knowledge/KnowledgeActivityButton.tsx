@@ -26,6 +26,11 @@ import {
   type LocalModelJobSnapshot,
   type LocalModelJobStatus,
 } from "@/types/local-model-jobs"
+import {
+  knowledgeJobsActionOperation,
+  knowledgeJobsErrorDetail,
+  knowledgeJobsErrorToast,
+} from "./knowledgeJobsFeedback"
 
 // The backend stamps model_id with this sentinel for an embedding-disabled,
 // FTS-only reindex (see knowledge/reembed.rs); a vector re-embed carries the
@@ -182,6 +187,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
     jobs: reembedJobs,
     activeCount: reembedActiveCount,
     dismiss: dismissReembedJob,
+    loadError: reembedLoadError,
   } = useKnowledgeReembedJobs()
   const importJobs = useKnowledgeImportJobs()
   const [open, setOpen] = useState(false)
@@ -208,6 +214,11 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
   const importActiveCount = useMemo(() => importJobs.filter(isImportJobActive).length, [importJobs])
   const activeCount = reembedActiveCount + importActiveCount
   const isEmpty = reembedJobs.length === 0 && importJobs.length === 0
+  const loadError = useMemo(
+    () =>
+      reembedLoadError ? knowledgeJobsErrorToast("loadJobs", t, reembedLoadError) : null,
+    [reembedLoadError, t],
+  )
 
   const runAction = useCallback(
     async (jobId: string, action: "cancel" | "retry" | "clear") => {
@@ -225,7 +236,11 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
           dismissReembedJob(jobId)
         }
       } catch (e) {
-        toast.error(String(e))
+        const failure = knowledgeJobsErrorToast(knowledgeJobsActionOperation(action), t, e)
+        toast.error(
+          failure.title,
+          failure.description ? { description: failure.description } : undefined,
+        )
       } finally {
         setActioning((prev) => {
           const next = { ...prev }
@@ -234,7 +249,7 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
         })
       }
     },
-    [dismissReembedJob],
+    [dismissReembedJob, t],
   )
 
   return (
@@ -268,6 +283,17 @@ export default function KnowledgeActivityButton({ kbs }: { kbs: KnowledgeBaseMet
             )}
           </div>
           <div className="max-h-[360px] overflow-y-auto p-2">
+            {loadError ? (
+              <div className="mb-2 rounded-md border border-destructive/25 bg-destructive/10 p-2 text-[11px] text-destructive">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {loadError.title}
+                </div>
+                {loadError.description ? (
+                  <div className="mt-1 leading-relaxed">{loadError.description}</div>
+                ) : null}
+              </div>
+            ) : null}
             {isEmpty ? (
               <div className="flex flex-col items-center justify-center gap-1.5 px-4 py-8 text-center">
                 <Activity className="h-6 w-6 text-muted-foreground/70" />
@@ -395,7 +421,11 @@ function ReembedJobRow({
         </div>
       )}
 
-      {job.error && <p className="mt-1.5 break-words text-[11px] text-destructive">{job.error}</p>}
+      {job.error && (
+        <p className="mt-1.5 break-words text-[11px] text-destructive">
+          {knowledgeJobsErrorDetail(job.error)}
+        </p>
+      )}
 
       <div className="mt-2 flex justify-end gap-1.5">
         {active && (

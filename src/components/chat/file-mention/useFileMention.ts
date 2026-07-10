@@ -38,6 +38,8 @@ import {
 } from "../skill-mention/skillTokens"
 import type { KbDraftAttachment, ReferenceableNote } from "@/types/knowledge"
 import type { ComposerInputHandle } from "../input/composerInputHandle"
+import { logger } from "@/lib/logger"
+import { noteMentionErrorDetail } from "../note-mention/noteMentionFeedback"
 
 const SEARCH_DEBOUNCE_MS = 180
 const MAX_NOTE_ROWS = 50
@@ -68,6 +70,8 @@ export interface UseFileMentionReturn {
   noteEntries: ReferenceableNote[]
   /** Knowledge-note section fetch in flight (drives its loading spinner). */
   notesLoading: boolean
+  /** Knowledge-note fetch failure detail (already redacted and bounded). */
+  noteLoadErrorDetail: string | null
   /** Whether a note source exists (drives the note section header/empty state). */
   noteCapable: boolean
   /** Built-in skill section rows (already filtered by the `@` token). */
@@ -127,6 +131,7 @@ export function useFileMention(
   const [truncated, setTruncated] = useState(false)
   const [allNotes, setAllNotes] = useState<ReferenceableNote[]>([])
   const [notesLoading, setNotesLoading] = useState(false)
+  const [noteLoadErrorDetail, setNoteLoadErrorDetail] = useState<string | null>(null)
   // Built-in skill catalog: fetched once when enabled (static per session,
   // OS-gated server-side), then filtered client-side by the `@` token.
   const [allSkills, setAllSkills] = useState<MentionableSkill[]>([])
@@ -296,10 +301,12 @@ export function useFileMention(
     if (!isOpen || !noteCapable) {
       setAllNotes([])
       setNotesLoading(false)
+      setNoteLoadErrorDetail(null)
       return
     }
     let cancelled = false
     setNotesLoading(true)
+    setNoteLoadErrorDetail(null)
     getTransport()
       .call<ReferenceableNote[]>("list_referenceable_notes_cmd", {
         sessionId: sessionId ?? undefined,
@@ -307,10 +314,17 @@ export function useFileMention(
         draftKbIds: sessionId ? undefined : draftKbIds,
       })
       .then((notes) => {
-        if (!cancelled) setAllNotes(notes)
+        if (!cancelled) {
+          setAllNotes(notes)
+          setNoteLoadErrorDetail(null)
+        }
       })
-      .catch(() => {
-        if (!cancelled) setAllNotes([])
+      .catch((e) => {
+        if (!cancelled) {
+          logger.error("chat", "useFileMention::loadNotes", "load referenceable notes failed", e)
+          setAllNotes([])
+          setNoteLoadErrorDetail(noteMentionErrorDetail(e))
+        }
       })
       .finally(() => {
         if (!cancelled) setNotesLoading(false)
@@ -381,6 +395,7 @@ export function useFileMention(
     fileSectionVisible ||
     !!error ||
     notesLoading ||
+    !!noteLoadErrorDetail ||
     agentEntries.length > 0 ||
     skillEntries.length > 0
 
@@ -585,6 +600,7 @@ export function useFileMention(
     entries,
     noteEntries,
     notesLoading,
+    noteLoadErrorDetail,
     noteCapable,
     skillEntries,
     skillCapable: skillEnabled,

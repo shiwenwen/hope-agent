@@ -1,8 +1,26 @@
 use crate::memory::types::*;
 use crate::truncate_utf8;
+use serde::{Deserialize, Serialize};
 
 /// Fallback per-entry cap for the deprecated single-budget `format_prompt_summary`.
 const LEGACY_ENTRY_MAX_CHARS: usize = 500;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptMemoryRef {
+    pub id: i64,
+    pub memory_type: String,
+    pub scope: String,
+    pub source: String,
+    pub section: String,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PromptSummaryWithRefs {
+    pub text: String,
+    pub refs: Vec<PromptMemoryRef>,
+}
 
 // ── Prompt Injection Protection ─────────────────────────────────
 
@@ -38,22 +56,40 @@ pub fn format_prompt_summary_v2(
     entry_max_chars: usize,
     profile_snapshot: Option<&str>,
 ) -> String {
+    format_prompt_summary_v2_with_refs(
+        entries,
+        budgets,
+        total_cap,
+        entry_max_chars,
+        profile_snapshot,
+    )
+    .text
+}
+
+pub fn format_prompt_summary_v2_with_refs(
+    entries: &[MemoryEntry],
+    budgets: &SqliteSectionBudgets,
+    total_cap: usize,
+    entry_max_chars: usize,
+    profile_snapshot: Option<&str>,
+) -> PromptSummaryWithRefs {
     // A profile snapshot can carry the `## User Profile` section on its own, so
     // an empty entry list must not short-circuit when a snapshot is present.
     let has_snapshot = profile_snapshot
         .map(str::trim)
         .is_some_and(|s| !s.is_empty());
     if (entries.is_empty() && !has_snapshot) || total_cap == 0 {
-        return String::new();
+        return PromptSummaryWithRefs::default();
     }
 
     let header = "# Memory\n\n";
     let truncated_marker = "\n\n[... truncated ...]";
     if header.len() + truncated_marker.len() >= total_cap {
-        return String::new();
+        return PromptSummaryWithRefs::default();
     }
 
     let mut result = header.to_string();
+    let mut refs = Vec::new();
     let mut total_used = header.len();
     let mut has_content = false;
     let mut any_exhausted = false;
@@ -84,7 +120,9 @@ pub fn format_prompt_summary_v2(
             )
         }
     };
-    if let Some(s) = push_section_if_fits(&mut result, &mut total_used, total_cap, &section) {
+    if let Some(s) =
+        push_section_if_fits(&mut result, &mut refs, &mut total_used, total_cap, &section)
+    {
         has_content |= section.had_entries;
         any_exhausted |= s;
     }
@@ -112,21 +150,23 @@ pub fn format_prompt_summary_v2(
             *section_budget,
             entry_max_chars,
         );
-        if let Some(s) = push_section_if_fits(&mut result, &mut total_used, total_cap, &section) {
+        if let Some(s) =
+            push_section_if_fits(&mut result, &mut refs, &mut total_used, total_cap, &section)
+        {
             has_content |= section.had_entries;
             any_exhausted |= s;
         }
     }
 
     if !has_content {
-        return String::new();
+        return PromptSummaryWithRefs::default();
     }
 
     if any_exhausted && total_used + truncated_marker.len() <= total_cap {
         result.push_str(truncated_marker);
     }
 
-    result
+    PromptSummaryWithRefs { text: result, refs }
 }
 
 /// Single-budget convenience wrapper for call sites that don't need
@@ -143,6 +183,7 @@ pub fn format_prompt_summary(entries: &[MemoryEntry], budget: usize) -> String {
 /// overflow the total cap (caller preserves prior state untouched).
 fn push_section_if_fits(
     result: &mut String,
+    refs: &mut Vec<PromptMemoryRef>,
     total_used: &mut usize,
     total_cap: usize,
     section: &SectionRender,
@@ -155,6 +196,7 @@ fn push_section_if_fits(
         return None;
     }
     result.push_str(&section.appended);
+    refs.extend(section.refs.iter().cloned());
     *total_used = would_use;
     Some(section.budget_exhausted)
 }
@@ -168,6 +210,8 @@ struct SectionRender {
     had_entries: bool,
     /// True iff rendering stopped short because the budget was exhausted mid-way.
     budget_exhausted: bool,
+    /// Memory refs for entries that actually rendered in this section.
+    refs: Vec<PromptMemoryRef>,
 }
 
 /// Render one `## Heading\n` section with bulleted entries under the budget.
@@ -182,6 +226,7 @@ fn render_section(
         appended: String::new(),
         had_entries: false,
         budget_exhausted: false,
+        refs: Vec::new(),
     };
     if entries.is_empty() {
         return empty;
@@ -203,6 +248,8 @@ fn render_section(
     let mut used = heading.len();
     let mut had_entries = false;
     let mut budget_exhausted = false;
+    let mut refs = Vec::new();
+    let section_label = prompt_section_label(heading);
 
     for entry in entries.iter() {
         let prefix = if entry.pinned { "★ " } else { "" };
@@ -222,6 +269,14 @@ fn render_section(
         used += line.len();
         out.push_str(&line);
         had_entries = true;
+        refs.push(PromptMemoryRef {
+            id: entry.id,
+            memory_type: entry.memory_type.as_str().to_string(),
+            scope: prompt_scope_label(&entry.scope),
+            source: entry.source.clone(),
+            section: section_label.clone(),
+            preview: safe_content,
+        });
     }
 
     if had_entries && remaining.saturating_sub(used) > 1 {
@@ -232,6 +287,7 @@ fn render_section(
         appended: out,
         had_entries,
         budget_exhausted,
+        refs,
     }
 }
 
@@ -245,6 +301,7 @@ fn render_snapshot_section(heading: &str, body: &str, remaining: usize) -> Secti
         appended: String::new(),
         had_entries: false,
         budget_exhausted: false,
+        refs: Vec::new(),
     };
     if heading.len() >= remaining {
         return SectionRender {
@@ -290,7 +347,20 @@ fn render_snapshot_section(heading: &str, body: &str, remaining: usize) -> Secti
         appended: out,
         had_entries: true,
         budget_exhausted,
+        refs: Vec::new(),
     }
+}
+
+fn prompt_scope_label(scope: &MemoryScope) -> String {
+    match scope {
+        MemoryScope::Global => "global".to_string(),
+        MemoryScope::Agent { id } => format!("agent:{id}"),
+        MemoryScope::Project { id } => format!("project:{id}"),
+    }
+}
+
+fn prompt_section_label(heading: &str) -> String {
+    heading.trim().trim_start_matches('#').trim().to_string()
 }
 
 /// Sanitize memory content before injecting into system prompt.
@@ -406,6 +476,29 @@ mod tests {
         let out = format_prompt_summary_v2(&all, &budgets, 1000, 500, None);
         assert!(out.contains("About the User"), "user section kept: {out}");
         assert!(out.contains("user loves ramen"), "user content kept: {out}");
+    }
+
+    #[test]
+    fn summary_with_refs_tracks_rendered_entries_only() {
+        let keep = entry(1, MemoryType::User, "user loves ramen", &[]);
+        let drop = entry(2, MemoryType::Project, "project fact with padding", &[]);
+        let budgets = SqliteSectionBudgets {
+            user_profile: 0,
+            about_user: 200,
+            preferences: 0,
+            project_context: 10,
+            references: 0,
+        };
+        let summary = format_prompt_summary_v2_with_refs(&[keep, drop], &budgets, 1000, 500, None);
+
+        assert!(summary.text.contains("user loves ramen"));
+        assert!(!summary.text.contains("project fact with padding"));
+        assert_eq!(summary.refs.len(), 1);
+        assert_eq!(summary.refs[0].id, 1);
+        assert_eq!(summary.refs[0].memory_type, "user");
+        assert_eq!(summary.refs[0].scope, "global");
+        assert_eq!(summary.refs[0].section, "About the User");
+        assert_eq!(summary.refs[0].preview, "user loves ramen");
     }
 
     #[test]

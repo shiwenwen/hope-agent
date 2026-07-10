@@ -26,6 +26,7 @@ import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 import type { Message } from "@/types/chat"
 import type { CompileProposal, QueryFileMode } from "@/types/knowledge"
+import { knowledgeQueryFilingErrorToast } from "./knowledgeQueryFilingFeedback"
 
 interface Props {
   kbId: string | null
@@ -115,7 +116,11 @@ export default function KnowledgeQueryFilingDialog({
       setProposal(result)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeQueryFilingDialog::generate", "filing failed", e)
-      toast.error(t("knowledge.queryFile.generateFailed", "Couldn't create filing proposal"))
+      const failureToast = knowledgeQueryFilingErrorToast("generateProposal", t, e)
+      toast.error(
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
+      )
     } finally {
       setGenerating(false)
     }
@@ -138,10 +143,14 @@ export default function KnowledgeQueryFilingDialog({
       onOpenChange(false)
     } catch (e) {
       logger.warn("knowledge", "KnowledgeQueryFilingDialog::decide", "decision failed", e)
+      const failureToast = knowledgeQueryFilingErrorToast(
+        approve ? "applyFiling" : "rejectFiling",
+        t,
+        e,
+      )
       toast.error(
-        approve
-          ? t("knowledge.queryFile.applyFailed", "Couldn't apply filing")
-          : t("knowledge.queryFile.rejectFailed", "Couldn't discard filing"),
+        failureToast.title,
+        failureToast.description ? { description: failureToast.description } : undefined,
       )
     } finally {
       setDeciding(null)

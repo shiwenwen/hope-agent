@@ -1000,6 +1000,7 @@ export default function ChatInput({
           entries={noteMention.entries}
           selectedIndex={noteMention.selectedIndex}
           loading={noteMention.loading}
+          loadErrorDetail={noteMention.loadErrorDetail}
           onSelect={noteMention.applyEntry}
           onHover={noteMention.setSelectedIndex}
         />
@@ -1010,6 +1011,7 @@ export default function ChatInput({
           entries={mention.entries}
           noteEntries={mention.noteEntries}
           notesLoading={mention.notesLoading}
+          noteLoadErrorDetail={mention.noteLoadErrorDetail}
           noteCapable={mention.noteCapable}
           skillEntries={mention.skillEntries}
           skillCapable={mention.skillCapable}

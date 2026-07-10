@@ -88,6 +88,8 @@ interface MessageListProps {
       | import("@/types/chat").FileChangesMetadata,
   ) => void
   onResume?: (message: string) => void
+  onOpenMemorySettings?: () => void
+  onOpenKnowledge?: () => void
   onAddQuickPrompt?: (content: string) => void
   renderMessageActions?: (msg: Message, index: number) => ReactNode
   displayMode?: ChatDisplayMode
@@ -653,6 +655,8 @@ export default function MessageList({
   onViewChildSession,
   onOpenDiff,
   onResume,
+  onOpenMemorySettings,
+  onOpenKnowledge,
   onAddQuickPrompt,
   renderMessageActions,
   displayMode = "bubble",
@@ -1568,6 +1572,8 @@ export default function MessageList({
                   onOpenDashboardTab={onOpenDashboardTab}
                   onOpenDiff={onOpenDiff}
                   onResume={onResume}
+                  onOpenMemorySettings={onOpenMemorySettings}
+                  onOpenKnowledge={onOpenKnowledge}
                   displayMode={displayMode}
                   footerFiles={row.item.footerFiles}
                   hideOwnFooterFiles={row.item.hideOwnFooterFiles}

@@ -71,6 +71,26 @@ pub fn mcp_credential_path(server_id: &str) -> Result<PathBuf> {
     Ok(mcp_credentials_dir()?.join(format!("{server_id}.json")))
 }
 
+/// External memory provider credentials directory:
+/// `~/.hope-agent/credentials/external-memory/`.
+pub fn external_memory_credentials_dir() -> Result<PathBuf> {
+    Ok(credentials_dir()?.join("external-memory"))
+}
+
+/// Per-provider external memory credential file. Callers must validate that
+/// `provider_id` is a normalized config id before using this path.
+pub fn external_memory_credential_path(provider_id: &str) -> Result<PathBuf> {
+    Ok(external_memory_credentials_dir()?.join(format!("{provider_id}.json")))
+}
+
+/// Durable per-provider sync ledger. It intentionally lives beside the
+/// credential record and is written with the same restricted permissions:
+/// hashes and remote ids can still reveal information about a user's memory
+/// inventory even though the ledger contains no API key.
+pub fn external_memory_sync_state_path(provider_id: &str) -> Result<PathBuf> {
+    Ok(external_memory_credentials_dir()?.join(format!("{provider_id}.sync.json")))
+}
+
 /// GitHub token used only by the Issue Reporting tool.
 pub fn github_issue_credential_path() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("github-issue.json"))

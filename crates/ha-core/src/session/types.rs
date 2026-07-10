@@ -11,6 +11,9 @@ use crate::plan::PlanModeState;
 pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
 pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
 pub const ATTACHMENT_META_KEY_TOOL_MEDIA_ITEMS: &str = "tool_media_items";
+pub const ATTACHMENT_META_KEY_ACTIVE_MEMORY: &str = "active_memory";
+pub const ATTACHMENT_META_KEY_USED_MEMORY_REFS: &str = "used_memory_refs";
+pub const ATTACHMENT_META_KEY_RETRIEVAL_PLANNER: &str = "retrieval_planner";
 
 /// Resolve the `attachments_meta` value for a user-message coming from the
 /// `chat` API surface (Tauri command + HTTP route). Centralizes the

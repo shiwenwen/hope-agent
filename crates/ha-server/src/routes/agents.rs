@@ -131,7 +131,7 @@ pub async fn save_agent_memory_md(
 ) -> Result<Json<Value>, AppError> {
     let dir = ha_core::paths::agent_dir(&id)?;
     std::fs::create_dir_all(&dir).map_err(|e| AppError::internal(e.to_string()))?;
-    std::fs::write(dir.join("memory.md"), body.content)
+    ha_core::platform::write_atomic(&dir.join("memory.md"), body.content.as_bytes())
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "saved": true })))
 }

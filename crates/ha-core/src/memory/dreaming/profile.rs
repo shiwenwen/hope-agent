@@ -24,9 +24,9 @@ use serde_json::json;
 
 use super::store;
 use super::triggers::{try_claim, DreamTrigger};
-use super::types::{DreamPhase, DreamRunStatus};
+use super::types::{DreamPhase, DreamRunStatus, ProfileSnapshotSourceRecord};
 use crate::automation::{self, ModelTaskSpec};
-use crate::memory::claims::{self, ResolveClaim};
+use crate::memory::claims::{self, EvidenceRecord, ResolveClaim};
 use crate::provider::ActiveModel;
 use crate::truncate_utf8;
 
@@ -41,6 +41,7 @@ const MAX_PROFILE_SCOPES: usize = 50;
 
 /// Per-bullet content cap so one verbose claim can't dominate a profile.
 const PROFILE_LINE_MAX_CHARS: usize = 240;
+const PROFILE_EVIDENCE_QUOTE_MAX_CHARS: usize = 180;
 
 /// Claim types excluded from the profile: a `reference` is a resource pointer
 /// (URL / file), not a stable trait about the user or project.
@@ -104,7 +105,113 @@ fn scope_label(scope_type: &str, scope_id: &str) -> String {
 /// `confidence * salience` (then newest), drop `reference` claims, keep the top
 /// `max_lines`, one capped first-line per bullet. Returns "" when nothing
 /// renders (caller skips writing an empty snapshot).
-fn render_scope_body(claims_in_scope: &[&ResolveClaim], max_lines: usize) -> String {
+#[derive(Debug, Clone)]
+struct RenderedProfileBody {
+    body: String,
+    sources: Vec<ProfileSnapshotSourceRecord>,
+}
+
+#[derive(Debug, Clone)]
+struct ProfileEvidenceSummary {
+    evidence_id: String,
+    evidence_class: String,
+    evidence_source_type: String,
+    evidence_quote: Option<String>,
+    evidence_session_id: Option<String>,
+    evidence_message_id: Option<String>,
+    evidence_file_path: Option<String>,
+    evidence_url: Option<String>,
+}
+
+fn profile_source_from_claim(
+    claim: &ResolveClaim,
+    line_index: Option<usize>,
+) -> ProfileSnapshotSourceRecord {
+    ProfileSnapshotSourceRecord {
+        line_index,
+        claim_id: claim.id.clone(),
+        claim_type: claim.claim_type.clone(),
+        content: claim.content.clone(),
+        confidence: claim.confidence,
+        salience: claim.salience,
+        evidence_id: None,
+        evidence_class: None,
+        evidence_source_type: None,
+        evidence_quote: None,
+        evidence_session_id: None,
+        evidence_message_id: None,
+        evidence_file_path: None,
+        evidence_url: None,
+    }
+}
+
+fn profile_evidence_summary(evidence: &EvidenceRecord) -> ProfileEvidenceSummary {
+    let evidence_quote = evidence
+        .quote
+        .as_deref()
+        .map(str::trim)
+        .filter(|q| !q.is_empty())
+        .map(|q| truncate_utf8(q, PROFILE_EVIDENCE_QUOTE_MAX_CHARS).to_string());
+    ProfileEvidenceSummary {
+        evidence_id: evidence.id.clone(),
+        evidence_class: evidence.evidence_class.clone(),
+        evidence_source_type: evidence.source_type.clone(),
+        evidence_quote,
+        evidence_session_id: evidence.session_id.clone(),
+        evidence_message_id: evidence.message_id.clone(),
+        evidence_file_path: evidence.file_path.clone(),
+        evidence_url: evidence.url.clone(),
+    }
+}
+
+fn best_profile_evidence(evidence: &[EvidenceRecord]) -> Option<ProfileEvidenceSummary> {
+    evidence
+        .iter()
+        .find(|e| {
+            e.quote
+                .as_deref()
+                .map(str::trim)
+                .is_some_and(|q| !q.is_empty())
+        })
+        .or_else(|| evidence.first())
+        .map(profile_evidence_summary)
+}
+
+fn load_profile_evidence_summaries(
+    claim_ids: Vec<String>,
+) -> HashMap<String, ProfileEvidenceSummary> {
+    let mut out = HashMap::new();
+    for claim_id in claim_ids {
+        let Some(detail) = claims::get_claim(&claim_id).ok().flatten() else {
+            continue;
+        };
+        if let Some(summary) = best_profile_evidence(&detail.evidence) {
+            out.insert(claim_id, summary);
+        }
+    }
+    out
+}
+
+fn enrich_profile_sources(
+    sources: &mut [ProfileSnapshotSourceRecord],
+    evidence_by_claim: &HashMap<String, ProfileEvidenceSummary>,
+) {
+    for source in sources {
+        let Some(evidence) = evidence_by_claim.get(&source.claim_id) else {
+            continue;
+        };
+        source.evidence_id = Some(evidence.evidence_id.clone());
+        source.evidence_class = Some(evidence.evidence_class.clone());
+        source.evidence_source_type = Some(evidence.evidence_source_type.clone());
+        source.evidence_quote = evidence.evidence_quote.clone();
+        source.evidence_session_id = evidence.evidence_session_id.clone();
+        source.evidence_message_id = evidence.evidence_message_id.clone();
+        source.evidence_file_path = evidence.evidence_file_path.clone();
+        source.evidence_url = evidence.evidence_url.clone();
+    }
+}
+
+fn render_scope_body(claims_in_scope: &[&ResolveClaim], max_lines: usize) -> RenderedProfileBody {
     let mut items: Vec<&&ResolveClaim> = claims_in_scope
         .iter()
         .filter(|c| !PROFILE_EXCLUDED_CLAIM_TYPES.contains(&c.claim_type.as_str()))
@@ -118,6 +225,7 @@ fn render_scope_body(claims_in_scope: &[&ResolveClaim], max_lines: usize) -> Str
     });
 
     let mut out = String::new();
+    let mut sources = Vec::new();
     let mut lines = 0usize;
     for c in items {
         if lines >= max_lines {
@@ -131,9 +239,10 @@ fn render_scope_body(claims_in_scope: &[&ResolveClaim], max_lines: usize) -> Str
         out.push_str("- ");
         out.push_str(capped);
         out.push('\n');
+        sources.push(profile_source_from_claim(c, Some(lines)));
         lines += 1;
     }
-    out
+    RenderedProfileBody { body: out, sources }
 }
 
 // ── LLM rewrite (manual only, best-effort) ──────────────────────
@@ -146,7 +255,7 @@ async fn rewrite_body_llm(
 ) -> Option<String> {
     let prompt =
         format!("{PROFILE_REWRITE_PROMPT}\n\nScope: {scope_label}\n\nDraft facts:\n{draft}");
-    let resp = automation::run(ModelTaskSpec {
+    let response = automation::run(ModelTaskSpec {
         purpose: "dreaming.profile_rewrite",
         chain: chain.to_vec(),
         session_key: "automation:dreaming",
@@ -155,7 +264,7 @@ async fn rewrite_body_llm(
     })
     .await
     .ok()?;
-    let text = resp.text.trim();
+    let text = response.text.trim();
     if text.is_empty() {
         return None;
     }
@@ -305,15 +414,17 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
         None
     };
 
-    let mut bodies: Vec<(ScopeKey, String)> = Vec::new();
+    let mut bodies: Vec<(ScopeKey, String, Vec<ProfileSnapshotSourceRecord>)> = Vec::new();
     for (key, claims_in_scope) in &scope_vec {
-        let mut body = render_scope_body(claims_in_scope, max_lines);
+        let rendered = render_scope_body(claims_in_scope, max_lines);
+        let mut body = rendered.body;
+        let mut sources = rendered.sources;
         if body.trim().is_empty() {
             // No profile-eligible active claims this round. If the scope had a
             // prior snapshot, write an empty tombstone so injection stops
             // surfacing a stale profile; otherwise write nothing.
             if last_at.contains_key(key) {
-                bodies.push((key.clone(), String::new()));
+                bodies.push((key.clone(), String::new(), Vec::new()));
             }
             continue;
         }
@@ -323,14 +434,35 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
                 rewrite_body_llm(chain, &label, &body, cfg.narrative_max_tokens).await
             {
                 body = rewritten;
+                for source in &mut sources {
+                    source.line_index = None;
+                }
             }
         }
-        bodies.push((key.clone(), body));
+        bodies.push((key.clone(), body, sources));
     }
     // Tombstone scopes that vanished from the active set entirely (their claims
     // all expired / merged / archived), so their old snapshot stops injecting.
     for key in stale_tombstones {
-        bodies.push((key, String::new()));
+        bodies.push((key, String::new(), Vec::new()));
+    }
+
+    let mut seen_claim_ids = HashSet::new();
+    let source_claim_ids: Vec<String> = bodies
+        .iter()
+        .flat_map(|(_, _, sources)| sources.iter().map(|source| source.claim_id.clone()))
+        .filter(|claim_id| seen_claim_ids.insert(claim_id.clone()))
+        .collect();
+    if !source_claim_ids.is_empty() {
+        let evidence_by_claim =
+            tokio::task::spawn_blocking(move || load_profile_evidence_summaries(source_claim_ids))
+                .await
+                .unwrap_or_default();
+        if !evidence_by_claim.is_empty() {
+            for (_, _, sources) in &mut bodies {
+                enrich_profile_sources(sources, &evidence_by_claim);
+            }
+        }
     }
 
     // 4. Persist snapshots + audit decisions off the async runtime.
@@ -340,19 +472,25 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
             return 0usize;
         };
         let mut n = 0usize;
-        for (key, body) in &bodies {
+        for (key, body, sources) in &bodies {
             let rationale = if body.is_empty() {
                 "profile cleared — no active claims remain for this scope"
             } else {
                 "profile snapshot synthesised from active claims"
             };
-            match s.insert_profile_snapshot(&key.0, &key.1, body, &run_for_apply) {
-                Ok(version) => {
+            match s.insert_profile_snapshot_with_sources(
+                &key.0,
+                &key.1,
+                body,
+                &run_for_apply,
+                sources,
+            ) {
+                Ok(inserted) => {
                     if let Err(e) = s.insert_profile_decision(
                         &run_for_apply,
                         &key.0,
                         &key.1,
-                        version,
+                        inserted.version,
                         rationale,
                     ) {
                         app_warn!(
@@ -456,7 +594,11 @@ mod tests {
             confidence,
             confidence_source: "derived".to_string(),
             salience,
+            valid_from: None,
             valid_until: None,
+            evidence_count: 1,
+            manual_evidence_count: 0,
+            max_evidence_weight: 1.0,
             created_at: created_at.to_string(),
             updated_at: created_at.to_string(),
         }
@@ -492,9 +634,14 @@ mod tests {
             "2026-01-01T00:00:00.000Z",
         );
         let refs: Vec<&ResolveClaim> = vec![&c1, &c2, &c3];
-        let body = render_scope_body(&refs, 2);
+        let rendered = render_scope_body(&refs, 2);
         // Top-2 by confidence*salience: high (0.81), mid (0.49).
-        assert_eq!(body, "- high\n- mid\n");
+        assert_eq!(rendered.body, "- high\n- mid\n");
+        assert_eq!(rendered.sources.len(), 2);
+        assert_eq!(rendered.sources[0].claim_id, c2.id);
+        assert_eq!(rendered.sources[0].line_index, Some(0));
+        assert_eq!(rendered.sources[1].claim_id, c3.id);
+        assert_eq!(rendered.sources[1].line_index, Some(1));
     }
 
     #[test]
@@ -518,8 +665,10 @@ mod tests {
             "2026-01-01T00:00:00.000Z",
         );
         let refs: Vec<&ResolveClaim> = vec![&c1, &c2];
-        let body = render_scope_body(&refs, 10);
-        assert_eq!(body, "- keep\n");
+        let rendered = render_scope_body(&refs, 10);
+        assert_eq!(rendered.body, "- keep\n");
+        assert_eq!(rendered.sources.len(), 1);
+        assert_eq!(rendered.sources[0].claim_id, c2.id);
     }
 
     #[test]
@@ -534,7 +683,91 @@ mod tests {
             "2026-01-01T00:00:00.000Z",
         );
         let refs: Vec<&ResolveClaim> = vec![&c1];
-        assert!(render_scope_body(&refs, 10).is_empty());
+        let rendered = render_scope_body(&refs, 10);
+        assert!(rendered.body.is_empty());
+        assert!(rendered.sources.is_empty());
+    }
+
+    fn evidence(
+        id: &str,
+        evidence_class: &str,
+        source_type: &str,
+        quote: Option<&str>,
+    ) -> EvidenceRecord {
+        EvidenceRecord {
+            id: id.to_string(),
+            claim_id: "claim-1".to_string(),
+            source_type: source_type.to_string(),
+            evidence_class: evidence_class.to_string(),
+            source_id: "source-1".to_string(),
+            session_id: Some("sess-1".to_string()),
+            message_id: Some("7".to_string()),
+            file_path: None,
+            url: None,
+            quote: quote.map(|s| s.to_string()),
+            redaction_status: "redacted".to_string(),
+            access_scope: serde_json::json!({}),
+            weight: 1.0,
+            created_at: "2026-01-01T00:00:00.000Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn best_profile_evidence_prefers_displayable_quote() {
+        let no_quote = evidence("ev-anchor", "assistant_inferred", "memory", None);
+        let with_quote = evidence(
+            "ev-quote",
+            "explicit_user_statement",
+            "session_message",
+            Some("User said they prefer concise Chinese replies."),
+        );
+        let summary = best_profile_evidence(&[no_quote, with_quote])
+            .expect("quoted evidence should be selected");
+        assert_eq!(summary.evidence_id, "ev-quote");
+        assert_eq!(summary.evidence_class, "explicit_user_statement");
+        assert_eq!(summary.evidence_source_type, "session_message");
+        assert_eq!(
+            summary.evidence_quote.as_deref(),
+            Some("User said they prefer concise Chinese replies.")
+        );
+        assert_eq!(summary.evidence_session_id.as_deref(), Some("sess-1"));
+        assert_eq!(summary.evidence_message_id.as_deref(), Some("7"));
+    }
+
+    #[test]
+    fn enrich_profile_sources_adds_evidence_summary() {
+        let c = claim(
+            "global",
+            None,
+            "user_profile",
+            "User prefers concise Chinese replies.",
+            0.9,
+            0.9,
+            "2026-01-01T00:00:00.000Z",
+        );
+        let mut sources = vec![profile_source_from_claim(&c, Some(0))];
+        let mut evidence_by_claim = HashMap::new();
+        evidence_by_claim.insert(
+            c.id.clone(),
+            ProfileEvidenceSummary {
+                evidence_id: "ev-1".to_string(),
+                evidence_class: "explicit_user_statement".to_string(),
+                evidence_source_type: "session_message".to_string(),
+                evidence_quote: Some("Concise Chinese, please.".to_string()),
+                evidence_session_id: Some("sess-1".to_string()),
+                evidence_message_id: Some("7".to_string()),
+                evidence_file_path: None,
+                evidence_url: None,
+            },
+        );
+        enrich_profile_sources(&mut sources, &evidence_by_claim);
+        assert_eq!(sources[0].evidence_id.as_deref(), Some("ev-1"));
+        assert_eq!(
+            sources[0].evidence_quote.as_deref(),
+            Some("Concise Chinese, please.")
+        );
+        assert_eq!(sources[0].evidence_session_id.as_deref(), Some("sess-1"));
+        assert_eq!(sources[0].evidence_message_id.as_deref(), Some("7"));
     }
 
     #[test]

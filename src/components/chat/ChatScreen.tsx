@@ -23,7 +23,17 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react"
-import type { ActiveModel, AvailableModel, Message, SessionMode, SandboxMode } from "@/types/chat"
+import type {
+  ActiveMemoryRecall,
+  ActiveMemoryRecallEvent,
+  ActiveModel,
+  AvailableModel,
+  Message,
+  SessionMessage,
+  SessionMeta,
+  SessionMode,
+  SandboxMode,
+} from "@/types/chat"
 import type { QuickPromptAddResult, QuickPromptConfig, QuickPromptItem } from "@/types/quickPrompts"
 import { normalizeEffortForModel } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
@@ -63,7 +73,11 @@ import { resolveAvailableDisplayModel } from "./modelSelection"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
-import { computeContextUsage, formatContextUsage } from "./chatUtils"
+import {
+  activeMemoryRecallToUsedRefs,
+  computeContextUsage,
+  formatContextUsage,
+} from "./chatUtils"
 import { recentUserInputHistory } from "./quick-prompts/messageQuickPrompts"
 import {
   COMPACT_CONTEXT_UPDATED_EVENT,
@@ -101,6 +115,11 @@ import { PlanPanel } from "./plan-mode/PlanPanel"
 import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { RightPanelShell } from "./right-panel/RightPanelShell"
 import { useProjects } from "./project/hooks/useProjects"
+import {
+  projectFocusLoadErrorToast,
+  projectFocusMissingToast,
+} from "./project/projectFocusFeedback"
+import { chatKnowledgeReferenceAttachErrorToast } from "./chatKnowledgeReferenceFeedback"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
 import {
@@ -120,9 +139,15 @@ import {
   CHAT_SIDEBAR_MIN_WIDTH,
   CHAT_SIDEBAR_WIDTH_STORAGE_KEY,
 } from "./sidebar/types"
-import { generateClientId } from "./chatScrollKeys"
+import { generateClientId, getLatestUserTurnKey } from "./chatScrollKeys"
 import type { Project, ProjectMeta } from "@/types/project"
 import type { KbDraftAttachment } from "@/types/knowledge"
+import type { ChatFocusTarget } from "@/components/chat/chatFocus"
+import {
+  chatFocusLoadErrorToast,
+  chatFocusMissingMessageToast,
+  chatFocusMissingSessionToast,
+} from "./chatFocusFeedback"
 
 /** A token to append to the chat composer on next render. `attachKbId` (set by the
  *  KnowledgeView "reference in chat" action) is auto-attached read-only so the
@@ -148,6 +173,10 @@ interface ChatScreenProps {
   onOpenDashboardTab?: (tab: string, initialReportId?: string | null) => void
   sessionsRefreshTrigger?: number
   onCurrentProjectChange?: (projectId: string | null) => void
+  externalChatFocus?: (ChatFocusTarget & { nonce: number }) | null
+  onExternalChatFocusHandled?: (nonce: number) => void
+  externalProjectFocus?: { projectId: string; nonce: number } | null
+  onExternalProjectFocusHandled?: (nonce: number) => void
   /** Token to append to the chat input on next render (e.g. `@plan:abcd:v0` or a
    *  `[[note]]` ref). */
   pendingChatInsert?: ChatInsert
@@ -155,6 +184,8 @@ interface ChatScreenProps {
   onChatInsertConsumed?: () => void
   /** Open the settings view, optionally to a specific section. */
   onOpenSettings?: (section?: SettingsSection) => void
+  /** Open the Knowledge Space view. */
+  onOpenKnowledge?: () => void
 }
 
 interface ManualCompactOverride {
@@ -284,6 +315,34 @@ function makeClientEventMessage(message: ClientEventMessage): Message {
   }
 }
 
+function attachActiveMemoryToLatestAssistant(
+  messages: Message[],
+  turnKey: string | null,
+  recall: ActiveMemoryRecall,
+): Message[] {
+  if (!turnKey) return messages
+  if (getLatestUserTurnKey(messages) !== turnKey) return messages
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i]
+    if (msg.role === "user") break
+    if (msg.role !== "assistant") continue
+    const usedMemoryRefs = activeMemoryRecallToUsedRefs(recall)
+    if (msg.activeMemory === recall && msg.usedMemoryRefs?.length === usedMemoryRefs.length) {
+      return messages
+    }
+    const next = messages.slice()
+    next[i] = {
+      ...msg,
+      activeMemory: recall,
+      ...(usedMemoryRefs.length > 0 ? { usedMemoryRefs } : {}),
+    }
+    return next
+  }
+
+  return messages
+}
+
 type BrowserExtensionRequiredPayload = {
   requirement?: string
   reason?: string
@@ -410,9 +469,14 @@ export default function ChatScreen({
   onOpenDashboardTab,
   sessionsRefreshTrigger,
   onCurrentProjectChange,
+  externalChatFocus,
+  onExternalChatFocusHandled,
+  externalProjectFocus,
+  onExternalProjectFocusHandled,
   pendingChatInsert,
   onChatInsertConsumed,
   onOpenSettings,
+  onOpenKnowledge,
 }: ChatScreenProps) {
   const { t } = useTranslation()
 
@@ -637,6 +701,9 @@ export default function ChatScreen({
   const activeSessionIdForProjectsRef = useRef<string | null>(initialSessionId ?? null)
   const {
     projects,
+    loading: projectsLoading,
+    loaded: projectsLoaded,
+    error: projectsError,
     createProject,
     updateProject,
     deleteProject,
@@ -709,6 +776,7 @@ export default function ChatScreen({
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
   const rawHandleSwitchSession = session.handleSwitchSession
+  const lastExternalChatFocusNonceRef = useRef<number | null>(null)
   const latestMessagesRef = useRef<Message[]>(session.messages)
   const incognitoComposerStateRef = useRef({
     input: "",
@@ -915,6 +983,61 @@ export default function ChatScreen({
     },
     [rawHandleSwitchSession, requestIncognitoLeaveConfirmation, session.currentSessionId],
   )
+
+  useEffect(() => {
+    if (!externalChatFocus) return
+    if (lastExternalChatFocusNonceRef.current === externalChatFocus.nonce) return
+    lastExternalChatFocusNonceRef.current = externalChatFocus.nonce
+    ;(async () => {
+      try {
+        await reloadSessions()
+        const sourceSession = await getTransport().call<SessionMeta | null>("get_session_cmd", {
+          sessionId: externalChatFocus.sessionId,
+        })
+        if (!sourceSession) {
+          const failureToast = chatFocusMissingSessionToast(t)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+          onExternalChatFocusHandled?.(externalChatFocus.nonce)
+          return
+        }
+        if (externalChatFocus.targetMessageId !== undefined) {
+          const [messages] = await getTransport().call<
+            [SessionMessage[], number, boolean, boolean]
+          >("load_session_messages_around_cmd", {
+            sessionId: externalChatFocus.sessionId,
+            targetMessageId: externalChatFocus.targetMessageId,
+            before: 1,
+            after: 1,
+          })
+          if (!messages.some((message) => message.id === externalChatFocus.targetMessageId)) {
+            const failureToast = chatFocusMissingMessageToast(t)
+            toast.error(
+              failureToast.title,
+              failureToast.description ? { description: failureToast.description } : undefined,
+            )
+            await handleSwitchSession(externalChatFocus.sessionId)
+            onExternalChatFocusHandled?.(externalChatFocus.nonce)
+            return
+          }
+        }
+        await handleSwitchSession(externalChatFocus.sessionId, {
+          targetMessageId: externalChatFocus.targetMessageId,
+        })
+        onExternalChatFocusHandled?.(externalChatFocus.nonce)
+      } catch (error) {
+        logger.warn("chat", "ChatScreen::externalChatFocus", "Failed to open source chat", error)
+        const failureToast = chatFocusLoadErrorToast(t, error)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
+        onExternalChatFocusHandled?.(externalChatFocus.nonce)
+      }
+    })()
+  }, [externalChatFocus, handleSwitchSession, onExternalChatFocusHandled, reloadSessions, t])
 
   const handleNewChatInProject = useCallback(
     async (projectId: string, defaultAgentId?: string | null) => {
@@ -1193,6 +1316,34 @@ export default function ChatScreen({
     setProjectOverviewTargetId(project.id)
     setProjectOverviewOpen(true)
   }, [])
+
+  useEffect(() => {
+    if (!externalProjectFocus) return
+    const project = projects.find((candidate) => candidate.id === externalProjectFocus.projectId)
+    if (project) {
+      setProjectOverviewTargetId(project.id)
+      setProjectOverviewOpen(true)
+      onExternalProjectFocusHandled?.(externalProjectFocus.nonce)
+      return
+    }
+    if (projectsLoading || !projectsLoaded) return
+    const failureToast = projectsError
+      ? projectFocusLoadErrorToast(t, projectsError)
+      : projectFocusMissingToast(t)
+    toast.error(
+      failureToast.title,
+      failureToast.description ? { description: failureToast.description } : undefined,
+    )
+    onExternalProjectFocusHandled?.(externalProjectFocus.nonce)
+  }, [
+    externalProjectFocus,
+    onExternalProjectFocusHandled,
+    projects,
+    projectsError,
+    projectsLoaded,
+    projectsLoading,
+    t,
+  ])
 
   const [deletingProject, setDeletingProject] = useState(false)
 
@@ -1625,6 +1776,11 @@ export default function ChatScreen({
         } catch (e) {
           // Non-fatal: the token is still inserted; the user can attach manually.
           logger.warn("ui", "ChatScreen::referenceInChat", "auto-attach KB failed", e)
+          const failure = chatKnowledgeReferenceAttachErrorToast(t, e)
+          toast.error(
+            failure.title,
+            failure.description ? { description: failure.description } : undefined,
+          )
         }
       }
       // Functional updater (not the captured `stream.input`): the `attach` await
@@ -1694,7 +1850,17 @@ export default function ChatScreen({
 
   // ── Memory extraction toast ────────────────────────────────
   const [memoryToast, setMemoryToast] = useState<{ count: number } | null>(null)
+  const [activeMemoryToast, setActiveMemoryToast] = useState<ActiveMemoryRecall | null>(null)
   const memoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const activeMemoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const messagesRef = useRef<Message[]>(session.messages)
+  const pendingActiveMemoryBySession = useRef<
+    Map<string, { turnKey: string | null; recall: ActiveMemoryRecall }>
+  >(new Map())
+
+  useEffect(() => {
+    messagesRef.current = session.messages
+  }, [session.messages])
 
   useEffect(() => {
     const unlisten = getTransport().listen("memory_extracted", (raw) => {
@@ -1711,6 +1877,40 @@ export default function ChatScreen({
       if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
     }
   }, [session.currentSessionId])
+
+  useEffect(() => {
+    const unlisten = getTransport().listen("memory:active_recall", (raw) => {
+      const event = raw as ActiveMemoryRecallEvent
+      if (event.sessionId !== session.currentSessionId || !event.recall?.summary) return
+      const turnKey = getLatestUserTurnKey(messagesRef.current)
+      pendingActiveMemoryBySession.current.set(event.sessionId, { turnKey, recall: event.recall })
+      session.updateSessionMessages(event.sessionId, (prev) =>
+        attachActiveMemoryToLatestAssistant(prev, turnKey, event.recall),
+      )
+      setActiveMemoryToast(event.recall)
+      if (activeMemoryToastTimer.current) clearTimeout(activeMemoryToastTimer.current)
+      activeMemoryToastTimer.current = setTimeout(() => setActiveMemoryToast(null), 6500)
+    })
+    return () => {
+      unlisten()
+      if (activeMemoryToastTimer.current) clearTimeout(activeMemoryToastTimer.current)
+    }
+  }, [session.currentSessionId, session.updateSessionMessages])
+
+  useEffect(() => {
+    const sid = session.currentSessionId
+    if (!sid) return
+    const pending = pendingActiveMemoryBySession.current.get(sid)
+    if (!pending) return
+    const next = attachActiveMemoryToLatestAssistant(
+      session.messages,
+      pending.turnKey,
+      pending.recall,
+    )
+    if (next !== session.messages) {
+      session.updateSessionMessages(sid, () => next)
+    }
+  }, [session.currentSessionId, session.messages, session.updateSessionMessages])
 
   // ── Load system prompt ──────────────────────────────────────────
   const loadSystemPrompt = useCallback(async () => {
@@ -2903,6 +3103,10 @@ export default function ChatScreen({
                 onResume={(message) => {
                   void stream.handleSend(message)
                 }}
+                onOpenMemorySettings={
+                  onOpenSettings ? () => onOpenSettings("memory") : undefined
+                }
+                onOpenKnowledge={onOpenKnowledge}
                 onAddQuickPrompt={incognitoEnabled ? undefined : handleAddQuickPrompt}
                 displayMode={displayMode}
                 autoCollapseCompletedTurns={autoCollapseCompletedTurns}
@@ -2919,25 +3123,57 @@ export default function ChatScreen({
                       "absolute inset-x-0 top-[48%] z-20 flex -translate-y-1/2 justify-center px-5 sm:px-8",
                   )}
                 >
-                  {memoryToast && (
+                  {(activeMemoryToast || memoryToast) && (
                     <div
                       className={cn(
-                        "absolute bottom-full mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
+                        "absolute bottom-full mb-2 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-300 z-10",
                         emptySessionInputHero
                           ? "inset-x-5 mx-auto max-w-[880px] sm:inset-x-8"
                           : "inset-x-3 mx-auto max-w-[880px]",
                       )}
                     >
-                      <Brain className="h-3.5 w-3.5 shrink-0" />
-                      <span>
-                        {t("settings.memoryExtractedToast", { count: memoryToast.count })}
-                      </span>
-                      <button
-                        onClick={() => setMemoryToast(null)}
-                        className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
-                      >
-                        ×
-                      </button>
+                      {activeMemoryToast && (
+                        <div className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary/8 px-3 py-1.5 text-xs text-foreground shadow-sm">
+                          <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">
+                                {t("memory.activeRecallToastTitle", "已引用记忆")}
+                              </span>
+                              {activeMemoryToast.selected && (
+                                <span className="truncate text-[10px] text-muted-foreground">
+                                  {activeMemoryToast.selected.sourceType} · {activeMemoryToast.selected.scope}
+                                </span>
+                              )}
+                            </div>
+                            <div className="truncate text-muted-foreground">
+                              {activeMemoryToast.summary}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setActiveMemoryToast(null)}
+                            className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                            aria-label={t("common.close", "关闭")}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
+                      {memoryToast && (
+                        <div className="flex items-center gap-2 rounded-lg bg-secondary/50 px-3 py-1.5 text-xs text-muted-foreground">
+                          <Brain className="h-3.5 w-3.5 shrink-0" />
+                          <span>
+                            {t("settings.memoryExtractedToast", { count: memoryToast.count })}
+                          </span>
+                          <button
+                            onClick={() => setMemoryToast(null)}
+                            className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                            aria-label={t("common.close", "关闭")}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
 

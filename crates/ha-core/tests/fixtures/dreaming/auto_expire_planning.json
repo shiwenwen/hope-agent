@@ -1,0 +1,89 @@
+{
+  "name": "auto_expire_planning",
+  "description": "Deep Resolver deterministic expiry sub-planner: valid_until expiry is isolated from graph/LLM classification, produces only Expire decisions, and produces no work when nothing has expired.",
+  "claims": [
+    {
+      "key": "expired_visit",
+      "scope": { "type": "agent", "id": "ev_auto_expire" },
+      "claim_type": "standing_rule",
+      "subject": "user",
+      "predicate": "visits",
+      "object": "berlin-old",
+      "content": "The user is visiting berlin-old.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "past",
+      "salience": 0.6
+    },
+    {
+      "key": "future_visit",
+      "scope": { "type": "agent", "id": "ev_auto_expire" },
+      "claim_type": "standing_rule",
+      "subject": "user",
+      "predicate": "visits",
+      "object": "tokyo-future",
+      "content": "The user is visiting tokyo-future.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "future",
+      "salience": 0.6
+    },
+    {
+      "key": "conflict_pnpm",
+      "scope": { "type": "agent", "id": "ev_auto_expire" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "uses_package_manager",
+      "object": "pnpm",
+      "content": "The user uses pnpm.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.6
+    },
+    {
+      "key": "conflict_bun",
+      "scope": { "type": "agent", "id": "ev_auto_expire" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "uses_package_manager",
+      "object": "bun",
+      "content": "The user uses bun.",
+      "evidence_class": "assistant_inferred",
+      "salience": 0.5
+    },
+    {
+      "key": "no_expire_future",
+      "scope": { "type": "agent", "id": "ev_auto_no_expire" },
+      "claim_type": "standing_rule",
+      "subject": "user",
+      "predicate": "travels_to",
+      "object": "seoul-future",
+      "content": "The user will travel to seoul-future.",
+      "evidence_class": "explicit_user_statement",
+      "valid_until": "future",
+      "salience": 0.6
+    },
+    {
+      "key": "no_expire_evergreen",
+      "scope": { "type": "agent", "id": "ev_auto_no_expire" },
+      "claim_type": "preference",
+      "subject": "user",
+      "predicate": "prefers_language",
+      "object": "Chinese",
+      "content": "The user prefers Chinese.",
+      "evidence_class": "explicit_user_statement",
+      "salience": 0.7
+    }
+  ],
+  "checks": {
+    "auto_expire_plan": [
+      {
+        "scope": { "type": "agent", "id": "ev_auto_expire" },
+        "expect_expire": ["expired_visit"],
+        "expect_absent": ["future_visit", "conflict_pnpm", "conflict_bun"]
+      },
+      {
+        "scope": { "type": "agent", "id": "ev_auto_no_expire" },
+        "expect_no_run": true,
+        "expect_absent": ["no_expire_future", "no_expire_evergreen"]
+      }
+    ]
+  }
+}

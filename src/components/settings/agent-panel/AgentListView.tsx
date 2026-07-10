@@ -5,11 +5,13 @@ import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
+  AlertCircle,
   ArrowLeft,
   Bot,
   ChevronRight,
   Download,
   Plus,
+  RefreshCw,
 } from "lucide-react"
 import type { AgentSummary, AgentConfig } from "./types"
 import { DEFAULT_PERSONALITY } from "./types"
@@ -17,6 +19,11 @@ import { isMainAgent } from "@/types/tools"
 import OpenClawImportDialog from "./OpenClawImportDialog"
 import DefaultAgentSection from "./DefaultAgentSection"
 import { AgentAvatarBadge } from "@/components/common/AgentSelectDisplay"
+import {
+  agentLoadOperationErrorToast,
+  agentOperationErrorToast,
+  type AgentLoadOperationErrorToast,
+} from "./agentLoadOperationFeedback"
 
 // ── Agent Create View ───────────────────────────────────────────
 
@@ -30,13 +37,13 @@ function AgentCreateView({
   const { t } = useTranslation()
   const [id, setId] = useState("")
   const [name, setName] = useState("")
-  const [error, setError] = useState("")
+  const [error, setError] = useState<AgentLoadOperationErrorToast | null>(null)
 
   const handleCreate = async () => {
     const trimmedId = id.trim().toLowerCase()
     if (!trimmedId) return
     if (!/^[a-z0-9][a-z0-9-]*$/.test(trimmedId)) {
-      setError(t("settings.agentNewIdHint"))
+      setError({ title: t("settings.agentNewIdHint") })
       return
     }
 
@@ -68,7 +75,7 @@ function AgentCreateView({
       window.dispatchEvent(new Event("agents-changed"))
       onCreated(trimmedId)
     } catch (e) {
-      setError(String(e))
+      setError(agentOperationErrorToast("save", t, e))
     }
   }
 
@@ -97,7 +104,7 @@ function AgentCreateView({
               value={id}
               onChange={(e) => {
                 setId(e.target.value)
-                setError("")
+                setError(null)
               }}
               placeholder={t("settings.agentNewIdPlaceholder")}
               autoFocus
@@ -122,7 +129,14 @@ function AgentCreateView({
             />
           </div>
 
-          {error && <p className="text-xs text-destructive px-1">{error}</p>}
+          {error && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+              <div className="font-medium text-destructive">{error.title}</div>
+              {error.description && (
+                <div className="mt-1 break-all text-muted-foreground">{error.description}</div>
+              )}
+            </div>
+          )}
 
           <Button onClick={handleCreate} disabled={!id.trim()}>
             {t("common.add")}
@@ -139,15 +153,19 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
   const { t } = useTranslation()
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [loading, setLoading] = useState(true)
+  const [listError, setListError] = useState<AgentLoadOperationErrorToast | null>(null)
   const [creating, setCreating] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
 
   async function reload() {
+    setLoading(true)
     try {
       const list = await getTransport().call<AgentSummary[]>("list_agents")
       setAgents(list)
+      setListError(null)
     } catch (e) {
       logger.error("settings", "AgentPanel::loadAgents", "Failed to load agents", e)
+      setListError(agentLoadOperationErrorToast(t, e))
     } finally {
       setLoading(false)
     }
@@ -207,13 +225,48 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
           <div className="animate-spin h-5 w-5 border-2 border-foreground border-t-transparent rounded-full" />
         </div>
       ) : agents.length === 0 ? (
-        <div className="text-center py-12">
-          <Bot className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">{t("settings.agentNoAgents")}</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">{t("settings.agentNoAgentsHint")}</p>
-        </div>
+        listError ? (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-xs">
+            <div className="flex items-center gap-1.5 font-medium text-foreground">
+              <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+              {listError.title}
+            </div>
+            {listError.description && (
+              <div className="mt-1 break-all text-muted-foreground">{listError.description}</div>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="mt-2 h-7 gap-1.5 px-2 text-xs"
+              onClick={() => void reload()}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {t("common.retry")}
+            </Button>
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Bot className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-sm text-muted-foreground">{t("settings.agentNoAgents")}</p>
+            <p className="text-xs text-muted-foreground/70 mt-1">{t("settings.agentNoAgentsHint")}</p>
+          </div>
+        )
       ) : (
         <div className="space-y-1">
+          {listError && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-500" />
+                {listError.title}
+              </div>
+              {listError.description && (
+                <div className="mt-1 break-all text-muted-foreground">
+                  {listError.description}
+                </div>
+              )}
+            </div>
+          )}
           {agents.map((agent) => (
             <Button
               key={agent.id}

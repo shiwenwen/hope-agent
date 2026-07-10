@@ -4,6 +4,10 @@ import { ClipboardCheck, Loader2 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import ClaimReviewActions, { type ReviewableClaim } from "./ClaimReviewActions"
+import {
+  claimReviewActionErrorToast,
+  type ClaimReviewActionErrorToast,
+} from "./claimReviewActionFeedback"
 
 // Mirrors the action fields of ha-core `ClaimRecord` plus the few display
 // columns the queue renders.
@@ -28,6 +32,7 @@ export default function NeedsReviewQueue() {
   const [claims, setClaims] = useState<ClaimRecord[]>([])
   const [loading, setLoading] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<ClaimReviewActionErrorToast | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -37,16 +42,17 @@ export default function NeedsReviewQueue() {
         limit: 100,
       })
       setClaims(list ?? [])
+      setLoadError(null)
       // Drop a stale expansion: a claim acted on usually leaves needs_review,
       // so its id is no longer in the list.
       setExpandedId((prev) => (prev && (list ?? []).some((c) => c.id === prev) ? prev : null))
     } catch (e) {
       logger.error("dashboard", "NeedsReviewQueue::list", "Failed to list review claims", e)
-      setClaims([])
+      setLoadError(claimReviewActionErrorToast("loadQueue", t, e))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     void load()
@@ -66,6 +72,14 @@ export default function NeedsReviewQueue() {
         {t("dashboard.dreaming.review.queueTitle")} ({claims.length})
         {loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
       </div>
+      {loadError && (
+        <div className="border-b border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs">
+          <div className="font-medium text-foreground">{loadError.title}</div>
+          {loadError.description && (
+            <div className="mt-1 break-all text-muted-foreground">{loadError.description}</div>
+          )}
+        </div>
+      )}
       <div className="max-h-[320px] overflow-y-auto">
         {claims.length === 0 ? (
           <div className="px-3 py-6 text-xs text-muted-foreground text-center">

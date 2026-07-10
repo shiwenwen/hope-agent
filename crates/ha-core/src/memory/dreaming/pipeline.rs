@@ -152,13 +152,28 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
     //    the same recent window).
     drain_pending(scope_key);
 
-    // 6. Resolve the model chain for the narrative side_query. Resolution
-    //    itself can't fail — an empty chain surfaces as a clear "no model
-    //    configured" error from `automation::run` inside `run_side_query`
-    //    below, handled by that call's own error branch.
+    // 6. Conservative Deep resolver automation: deterministic expiry plus a
+    //    bounded graph-informed LLM pass. Automatic conflict handling only
+    //    routes to Review Inbox; it never silently supersedes competing facts.
+    if cfg.deep_resolver.auto_expire_on_light_cycle || cfg.deep_resolver.auto_resolve_on_light_cycle
+    {
+        let sweep = super::resolver::run_auto_resolver_sweep(trigger).await;
+        if sweep.expired + sweep.merged + sweep.needs_review > 0 {
+            app_info!(
+                "memory",
+                "dreaming::run_cycle",
+                "automatic resolver changed {} claim(s) before light cycle {}",
+                sweep.expired + sweep.merged + sweep.needs_review,
+                run_id
+            );
+        }
+    }
+
+    // 7. Resolve the shared automation model chain. A missing chain becomes a
+    // bounded narrative failure below and never weakens the resolver sweep.
     let chain = resolve_dreaming_chain(&cfg);
 
-    // 7. Scan candidates off the async runtime.
+    // 8. Scan candidates off the async runtime.
     let scan_cfg = cfg.clone();
     let candidates = tokio::task::spawn_blocking(move || {
         scanner::collect_candidates(scan_cfg.scope_days, scan_cfg.candidate_limit)
@@ -189,7 +204,7 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         return report;
     }
 
-    // 8. Run the narrative side_query.
+    // 9. Run the narrative side_query.
     let narrative_out = match narrative::run_side_query(chain, &candidates, &cfg).await {
         Ok(out) => out,
         Err(e) => {
@@ -214,7 +229,7 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         }
     };
 
-    // 9. Apply promotions (flip pinned=true on each). Render the diary
+    // 10. Apply promotions (flip pinned=true on each). Render the diary
     //    before moving `narrative_out` so we only hold one copy of the
     //    promotion records across the closure boundary.
     let diary_md = narrative::render_diary_markdown(&narrative_out);
@@ -237,7 +252,7 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         );
     }
 
-    // 10. Write the diary markdown.
+    // 11. Write the diary markdown.
     let diary_path = match narrative::write_diary(&diary_md) {
         Ok(path) => Some(path.to_string_lossy().to_string()),
         Err(e) => {
@@ -271,7 +286,7 @@ async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
         note: None,
     };
 
-    // 11. Finalise: durable run + decision log + watermark (best-effort —
+    // 12. Finalise: durable run + decision log + watermark (best-effort —
     //     a store failure must never lose the cycle; the diary is on disk).
     if let Some(s) = store::store() {
         if let Err(e) = s.finish_run(&run_id, DreamRunStatus::Completed, &report) {
@@ -373,10 +388,8 @@ fn skipped(trigger: DreamTrigger, started: Instant, note: &str) -> DreamReport {
     }
 }
 
-/// Build an `AssistantAgent` for the narrative side_query.
-/// Honours `DreamingConfig.narrative_model` when set (format:
-/// `providerId:modelId`), falls back to the same heuristic as /recap.
-/// `pub(super)` so the Deep resolver reuses the same model resolution.
+/// Resolve the automation model chain for Dreaming. The legacy single-model
+/// field remains a compatibility fallback behind the typed override.
 pub(super) fn resolve_dreaming_chain(cfg: &DreamingConfig) -> Vec<crate::provider::ActiveModel> {
     let app_cfg = crate::config::cached_config();
     let override_chain = cfg

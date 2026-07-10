@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import type { WorkspaceEnvironmentState } from "./useWorkspaceEnvironment"
 import type { WorkspaceEnvironmentSnapshot } from "@/lib/transport"
 import type { BackgroundJobSnapshot } from "@/types/background-jobs"
+import type { Message } from "@/types/chat"
 import WorkspacePanel from "./WorkspacePanel"
 
 const envMock = vi.hoisted(() => ({
@@ -15,6 +16,11 @@ const envMock = vi.hoisted(() => ({
     loading: false,
     error: null,
   } as WorkspaceEnvironmentState,
+}))
+
+const transportMock = vi.hoisted(() => ({
+  call: vi.fn((name: string) => Promise.resolve(name === "get_background_job" ? null : [])),
+  listen: vi.fn(() => () => {}),
 }))
 
 vi.mock("react-i18next", () => ({
@@ -37,8 +43,8 @@ vi.mock("@/lib/transport-provider", () => ({
     supportsLocalFileOps: () => true,
     // KnowledgeSection (useSessionKnowledge) fetches attachments + subscribes to
     // knowledge:changed — stub both so the panel mounts in tests.
-    call: (name: string) => Promise.resolve(name === "get_background_job" ? null : []),
-    listen: () => () => {},
+    call: transportMock.call,
+    listen: transportMock.listen,
   }),
 }))
 
@@ -64,6 +70,11 @@ vi.mock("./useWorkspaceArtifacts", () => ({
 afterEach(() => {
   cleanup()
   envMock.state = { snapshot: null, loading: false, error: null }
+  transportMock.call.mockReset()
+  transportMock.call.mockImplementation((name: string) =>
+    Promise.resolve(name === "get_background_job" ? null : []),
+  )
+  transportMock.listen.mockClear()
 })
 
 function backgroundJob(patch: Partial<BackgroundJobSnapshot> = {}): BackgroundJobSnapshot {
@@ -207,5 +218,71 @@ describe("WorkspacePanel environment section", () => {
     fireEvent.click(screen.getByRole("button", { name: "收起任务" }))
 
     expect(onBackgroundJobExpandedChange).toHaveBeenCalledWith("job-1", false)
+  })
+
+  it("renders cross-turn memory diagnostics in the workspace section", () => {
+    const messages: Message[] = [
+      {
+        role: "assistant",
+        content: "带记忆的回答",
+        usedMemoryRefs: [
+          {
+            kind: "memory",
+            id: "m1",
+            origin: "active_memory",
+            role: "selected",
+            preview: "private preference",
+          },
+        ],
+        retrievalPlanner: {
+          status: "partial",
+          totalRefs: 1,
+          layers: [
+            {
+              layer: "active_memory",
+              status: "used",
+              refCount: 1,
+              selectedCount: 1,
+            },
+            {
+              layer: "knowledge",
+              status: "skipped",
+              refCount: 0,
+              skippedReason: "side_query_error",
+            },
+          ],
+        },
+      },
+    ]
+
+    renderPanel(null, { messages })
+
+    expect(screen.getByText("记忆诊断")).toBeTruthy()
+    expect(screen.getByText("Partially degraded")).toBeTruthy()
+    expect(screen.getByText("来源对比")).toBeTruthy()
+    expect(screen.getByText("最近轮次")).toBeTruthy()
+    expect(screen.getAllByText("Active recall").length).toBeGreaterThan(0)
+    expect(screen.getByText("#1")).toBeTruthy()
+    expect(screen.getByText(/recall failed/)).toBeTruthy()
+  })
+
+  it("shows knowledge attachment load failures instead of the empty attached state", async () => {
+    transportMock.call.mockImplementation((name: string) => {
+      if (name === "list_session_kbs_cmd") {
+        return Promise.reject(
+          new Error(
+            "Authorization: Bearer bearer-secret token=query-secret api_key=sk-live-secret",
+          ),
+        )
+      }
+      return Promise.resolve(name === "get_background_job" ? null : [])
+    })
+
+    renderPanel(null)
+
+    expect(await screen.findByText("无法读取已挂载知识空间")).toBeTruthy()
+    expect(await screen.findByText(/Authorization: Bearer \[redacted\]/)).toBeTruthy()
+    expect(screen.queryByText("未挂载知识空间")).toBeNull()
+    expect(screen.queryByText(/bearer-secret|query-secret|sk-live-secret/)).toBeNull()
   })
 })

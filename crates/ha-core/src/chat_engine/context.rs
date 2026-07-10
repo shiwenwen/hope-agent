@@ -166,6 +166,9 @@ pub(super) fn schedule_memory_extraction_after_turn(
         return 0;
     }
     let global_extract = crate::memory::load_extract_config();
+    if !global_extract.enabled {
+        return 0;
+    }
     let agent_def = crate::agent_loader::load_agent(agent_id);
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
 

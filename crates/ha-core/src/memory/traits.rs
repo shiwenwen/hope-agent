@@ -78,11 +78,97 @@ pub trait MemoryBackend: Send + Sync {
         offset: usize,
     ) -> Result<Vec<MemoryEntry>>;
 
+    /// List durable owner-visible audit events for ordinary legacy memories.
+    /// Backends without an audit stream can return an empty list.
+    fn history(&self, _limit: usize, _offset: usize) -> Result<Vec<MemoryHistoryRecord>> {
+        Ok(Vec::new())
+    }
+
+    /// Filter durable owner-visible audit events. Backends can override this
+    /// for indexed queries; the fallback preserves compatibility for remote or
+    /// minimal backends that only expose the latest audit rows.
+    fn history_filtered(&self, query: &MemoryHistoryQuery) -> Result<Vec<MemoryHistoryRecord>> {
+        self.history(query.limit.unwrap_or(20), query.offset.unwrap_or(0))
+    }
+
+    /// Page durable owner-visible audit events with a total count when the
+    /// backend can provide one. The default stays compatible with minimal
+    /// providers by returning a bounded estimate from the fetched page.
+    fn history_filtered_page(
+        &self,
+        query: &MemoryHistoryQuery,
+    ) -> Result<MemoryHistoryListResponse> {
+        let items = self.history_filtered(query)?;
+        let offset = query.offset.unwrap_or(0);
+        let total = offset + items.len();
+        let total_truncated = query
+            .limit
+            .is_some_and(|limit| limit > 0 && items.len() >= limit);
+        Ok(MemoryHistoryListResponse {
+            items,
+            total,
+            total_truncated,
+        })
+    }
+
+    /// Append audited legacy memory events during trusted owner restore. The
+    /// records must already be remapped to local memory ids by the caller.
+    fn import_history(&self, _records: &[MemoryHistoryRecord]) -> Result<usize> {
+        Ok(0)
+    }
+
+    /// List memories with optional source filtering. Backends that don't have
+    /// native source indexes may rely on the default fallback; SQLite overrides
+    /// this so Settings filters and counts stay exact without over-fetching.
+    fn list_filtered(
+        &self,
+        scope: Option<&MemoryScope>,
+        types: Option<&[MemoryType]>,
+        sources: Option<&[String]>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<MemoryEntry>> {
+        if sources.map(|s| s.is_empty()).unwrap_or(true) {
+            return self.list(scope, types, limit, offset);
+        }
+        let mut out = Vec::new();
+        let mut scanned = 0usize;
+        let page = limit.saturating_add(offset).max(50);
+        while out.len() < limit.saturating_add(offset) {
+            let batch = self.list(scope, types, page, scanned)?;
+            if batch.is_empty() {
+                break;
+            }
+            scanned = scanned.saturating_add(batch.len());
+            out.extend(
+                batch
+                    .into_iter()
+                    .filter(|m| sources.unwrap_or(&[]).iter().any(|s| s == &m.source)),
+            );
+            if scanned > 10_000 {
+                break;
+            }
+        }
+        Ok(out.into_iter().skip(offset).take(limit).collect())
+    }
+
     /// Search memories (FTS5 keyword search, future: hybrid with vectors)
     fn search(&self, query: &MemorySearchQuery) -> Result<Vec<MemoryEntry>>;
 
     /// Count memories with optional scope filter
     fn count(&self, scope: Option<&MemoryScope>) -> Result<usize>;
+
+    /// Count memories with optional source filtering.
+    fn count_filtered(
+        &self,
+        scope: Option<&MemoryScope>,
+        sources: Option<&[String]>,
+    ) -> Result<usize> {
+        if sources.map(|s| s.is_empty()).unwrap_or(true) {
+            return self.count(scope);
+        }
+        Ok(self.list_filtered(scope, None, sources, 10_000, 0)?.len())
+    }
 
     /// Build a summary string for system prompt injection (section ⑧)
     fn build_prompt_summary(&self, agent_id: &str, shared: bool, budget: usize) -> Result<String>;
@@ -139,6 +225,46 @@ pub trait MemoryBackend: Send + Sync {
 
     /// Get memory statistics
     fn stats(&self, scope: Option<&MemoryScope>) -> Result<MemoryStats>;
+
+    /// Read-only health diagnostics for the backend. Local backends should
+    /// override with store-specific checks; remote/provider backends can return
+    /// provider health without changing owner API shape.
+    fn health(&self) -> Result<MemoryHealth> {
+        let stats = self.stats(None)?;
+        Ok(MemoryHealth::new(self.backend_kind(), &stats))
+    }
+
+    /// Owner-only repair hook for rebuildable indexes. The default is
+    /// unsupported so remote/provider backends must opt in explicitly.
+    fn repair(&self, action: MemoryRepairAction) -> Result<MemoryRepairReport> {
+        anyhow::bail!(
+            "memory repair action {:?} is unsupported by backend '{}'",
+            action,
+            self.backend_kind()
+        )
+    }
+
+    /// Owner-only, read-only preflight for a raw SQLite database snapshot.
+    /// Implementations must not replace or mutate the active memory store.
+    fn db_snapshot_restore_preview(
+        &self,
+        _snapshot_path: &str,
+    ) -> Result<MemoryDbSnapshotRestorePreview> {
+        anyhow::bail!(
+            "memory DB snapshot restore preview is unsupported by backend '{}'",
+            self.backend_kind()
+        )
+    }
+
+    /// Owner-only explicit restore from a previously verified SQLite database
+    /// snapshot. Implementations must create a rollback snapshot before
+    /// changing the active store and must fail closed if preflight fails.
+    fn db_snapshot_restore(&self, _snapshot_path: &str) -> Result<MemoryDbSnapshotRestoreReport> {
+        anyhow::bail!(
+            "memory DB snapshot restore is unsupported by backend '{}'",
+            self.backend_kind()
+        )
+    }
 
     // ── Pin ──
 

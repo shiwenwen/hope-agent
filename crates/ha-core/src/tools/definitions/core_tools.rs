@@ -370,8 +370,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "scope": {
                         "type": "string",
-                        "enum": ["global", "agent"],
-                        "description": "Scope: global (shared across agents) or agent (private to current agent). Default: global"
+                        "enum": ["global", "agent", "project"],
+                        "description": "Scope: global (shared across agents), agent (private to current agent), or project (shared only inside the current project). Default: project when the current session belongs to a project; otherwise global."
                     },
                     "pinned": {
                         "type": "boolean",
@@ -2291,6 +2291,30 @@ mod tests {
                 "manage_cron schema must not expose '{forbidden}' — these overrides are owner-plane only"
             );
         }
+    }
+
+    #[test]
+    fn save_memory_schema_advertises_project_scope() {
+        let tool = get_available_tools()
+            .into_iter()
+            .find(|tool| tool.name == crate::tools::TOOL_SAVE_MEMORY)
+            .expect("save_memory schema");
+        let scope = &tool.parameters["properties"]["scope"];
+        let scope_enum = scope["enum"].as_array().expect("scope enum");
+
+        assert!(scope_enum
+            .iter()
+            .any(|value| value.as_str() == Some("global")));
+        assert!(scope_enum
+            .iter()
+            .any(|value| value.as_str() == Some("agent")));
+        assert!(scope_enum
+            .iter()
+            .any(|value| value.as_str() == Some("project")));
+        assert!(scope["description"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("current project"));
     }
 
     #[test]

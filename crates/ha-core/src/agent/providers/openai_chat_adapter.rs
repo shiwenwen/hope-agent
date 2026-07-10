@@ -89,6 +89,11 @@ fn build_chat_body(
             api_messages.push(json!({ "role": "system", "content": active_suffix }));
         }
     }
+    if let Some(procedure_suffix) = req.procedure_memory_suffix {
+        if !procedure_suffix.is_empty() {
+            api_messages.push(json!({ "role": "system", "content": procedure_suffix }));
+        }
+    }
     if let Some(related_suffix) = req.related_notes_suffix {
         if !related_suffix.is_empty() {
             api_messages.push(json!({ "role": "system", "content": related_suffix }));
