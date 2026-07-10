@@ -240,6 +240,14 @@ interface DrawMember {
   snippet: string
 }
 
+/** 把 oid 元素的当前 computedStyle 压成一行紧凑提示（带给模型省一次 get_artifact）。空则 ""。 */
+function formatStyleLine(styles: Record<string, string> | undefined): string {
+  if (!styles) return ""
+  const entries = Object.entries(styles).filter(([, v]) => v && v.trim())
+  if (entries.length === 0) return ""
+  return "\n当前样式：" + entries.map(([k, v]) => `${k}=${v}`).join("; ")
+}
+
 /** iframe 视口/滚动度量（B4-1，经 `ds_viewport` 桥回传；父层跨源无法直接读）。 */
 interface ViewportMetrics {
   scrollX: number
@@ -616,6 +624,29 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
           resolve(m)
         })
         win.postMessage({ type: "ds_draw_hit", id, regions }, "*")
+      })
+    },
+    [],
+  )
+  // 钉/批注带到对话时按 oid 取当前 computedStyle（省模型一次 get_artifact；富化 scope）。
+  const styleReqRef = useRef(new Map<number, (m: Record<string, Record<string, string>>) => void>())
+  const styleReqIdRef = useRef(0)
+  const requestElementStyles = useCallback(
+    (oids: number[]): Promise<Record<string, Record<string, string>>> => {
+      const win = iframeRef.current?.contentWindow
+      if (!win || oids.length === 0) return Promise.resolve({})
+      const id = ++styleReqIdRef.current
+      return new Promise((resolve) => {
+        const timer = window.setTimeout(() => {
+          styleReqRef.current.delete(id)
+          resolve({})
+        }, 1500)
+        styleReqRef.current.set(id, (m) => {
+          window.clearTimeout(timer)
+          styleReqRef.current.delete(id)
+          resolve(m)
+        })
+        win.postMessage({ type: "ds_style_query", id, oids }, "*")
       })
     },
     [],
@@ -1671,7 +1702,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 批注带到对话（批注 → composer quote chip，用户可补充后随 turn 发，AI 在完整对话
   // 上下文下迭代）。展开被折叠的对话栏并把反馈作为可删 quote 塞进 composer。
   const handleAddCommentToChat = useCallback(
-    (id: number) => {
+    async (id: number) => {
       const c = comments.find((x) => x.id === id)
       if (!c) return
       const label = c.snippet?.trim()
@@ -1681,8 +1712,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // 锚定元素时把 oid + 硬范围提示一并给 AI：让它用 design 的 edit_element(oid) 就地精改这一个
       // 元素、保留其它一切，而不是整段重造（内容被抹空的根因）。脱锚（oid 空）则只带反馈文字。
       const anchored = c.oid != null
+      // 增量（[8]）：带上该元素**当前 computedStyle** 富化 scope，省模型一次 get_artifact；跨源 round-trip。
+      const styleLine = anchored ? formatStyleLine((await requestElementStyles([c.oid as number]))[String(c.oid)]) : ""
       const content = anchored
-        ? `针对${context}（oid=${c.oid}）的反馈：${c.body}\n` +
+        ? `针对${context}（oid=${c.oid}）的反馈：${c.body}${styleLine}\n` +
           `请只改这一个元素：用 design 工具 edit_element(oid=${c.oid}, style/text/...) 就地精改，` +
           `保留其它一切；不确定当前样式先 get_artifact 读 source。别为这点改动重造整个产物。`
         : `针对${context}的反馈：${c.body}`
@@ -1694,7 +1727,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         content,
       })
     },
-    [comments, t, enqueueChatQuote],
+    [comments, t, enqueueChatQuote, requestElementStyles],
   )
 
   // 编辑模式选中元素 → 一键带到对话（不必先进批注模式）。复用 comment→chat 的同一 quote 注入，
@@ -1723,11 +1756,14 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
   // 批量带到对话（B4-2）：多条批注合成一个 scope-guarded 结构块（编号 + 元素 + 反馈），
   // 作为单条 quote 塞进 composer——对齐参照 <attached-preview-comments> 的「硬范围」约束。
   const handleBatchCommentsToChat = useCallback(
-    (ids: number[]) => {
+    async (ids: number[]) => {
       const chosen = ids
         .map((id) => comments.find((x) => x.id === id))
         .filter((c): c is (typeof comments)[number] => !!c)
       if (chosen.length === 0) return
+      // 增量（[8]）：批量取所有锚定 oid 的当前 computedStyle，逐条富化 scope（省模型 get_artifact）。
+      const anchoredOids = chosen.map((c) => c.oid).filter((o): o is number => o != null)
+      const styleMap = anchoredOids.length ? await requestElementStyles(anchoredOids) : {}
       const lines = chosen
         .map((c, i) => {
           const el = c.snippet?.trim()
@@ -1735,9 +1771,10 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
             : c.tag
               ? `<${c.tag}>`
               : t("design.comment.title", "批注")
-          // 锚定元素带上 oid，供 AI 对每条用 edit_element(oid) 就地精改。
+          // 锚定元素带上 oid + 当前样式，供 AI 对每条用 edit_element(oid) 就地精改。
           const oidTag = c.oid != null ? `（oid=${c.oid}）` : ""
-          return `${i + 1}. ${el}${oidTag}：${c.body}`
+          const styleLine = c.oid != null ? formatStyleLine(styleMap[String(c.oid)]) : ""
+          return `${i + 1}. ${el}${oidTag}：${c.body}${styleLine}`
         })
         .join("\n")
       const content =
@@ -1754,7 +1791,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         content,
       })
     },
-    [comments, t, enqueueChatQuote],
+    [comments, t, enqueueChatQuote, requestElementStyles],
   )
 
   // 反-slop 自查复查（B0-2）：recheck 对当前正文重跑自查、dismiss 用户判定无碍强制清标记。
@@ -1868,6 +1905,7 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
         active?: number
         count?: number
         members?: { oid: number; tag: string; snippet: string; relX: number; relY: number }[]
+        styles?: Record<string, Record<string, string>>
       }
       // 画框批注视口度量回传（B4-1，跨源；resolve 对应 requestViewportMetrics 的 promise）。
       if (d?.type === "ds_viewport_result" && typeof d.id === "number") {
@@ -1877,6 +1915,13 @@ export default function DesignView({ onBack, onOpenSettings }: DesignViewProps) 
       // 涂画命中的 oid 成员回传（resolve 对应 requestDrawHits 的 promise）。
       if (d?.type === "ds_draw_hit_result" && typeof d.id === "number") {
         drawHitReqRef.current.get(d.id)?.(Array.isArray(d.members) ? (d.members as DrawMember[]) : [])
+        return
+      }
+      // 批注 oid 的当前 computedStyle 回传（resolve 对应 requestElementStyles 的 promise）。
+      if (d?.type === "ds_style_query_result" && typeof d.id === "number") {
+        styleReqRef.current.get(d.id)?.(
+          (d.styles as Record<string, Record<string, string>>) ?? {},
+        )
         return
       }
       if (d?.type === "ds_selected" && d.payload) setSelected(d.payload)

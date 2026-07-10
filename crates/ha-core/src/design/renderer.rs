@@ -609,6 +609,17 @@ const INSPECTOR_BRIDGE: &str = r#"<script>
         clientHeight:de.clientHeight||window.innerHeight||0,
         scrollWidth:Math.max(de.scrollWidth||0,bo?bo.scrollWidth:0),
         scrollHeight:Math.max(de.scrollHeight||0,bo?bo.scrollHeight:0)},'*')}
+    else if(d.type==='ds_style_query'){
+      // 钉/批注带到对话时按 oid 批量取当前紧凑 computedStyle（省模型一次 get_artifact）。纯读取。
+      var qoids=Array.isArray(d.oids)?d.oids:[];
+      var SK=['color','background-color','font-family','font-size','font-weight','text-align',
+        'line-height','padding','margin','border-radius','display','width','height'];
+      var sout={};
+      qoids.forEach(function(o){var el=elByOid(String(o));if(!el)return;
+        var cs=getComputedStyle(el),mm={};
+        SK.forEach(function(k){var v=cs.getPropertyValue(k);if(v&&v!=='normal'&&v!=='auto'&&v!=='none')mm[k]=v});
+        sout[o]=mm;});
+      parent.postMessage({type:'ds_style_query_result',id:d.id,styles:sout},'*');}
     else if(d.type==='ds_draw_hit'){
       // 涂画+元素身份合一：父层传来**内容坐标系**的绘制区域（{x,y,w,h}，px = scrollX+n*clientWidth），
       // 回传被覆盖的 [data-ds-oid] 成员（与任一区域重叠面积 > 元素面积 50% 即命中，复用 lasso 判据，
