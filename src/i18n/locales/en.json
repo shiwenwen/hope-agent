@@ -6576,6 +6576,7 @@
       "title": "Deploy to Cloudflare Pages",
       "hint": "Publish this design as a public web page (*.pages.dev). You'll need a Cloudflare API Token (with Pages edit permission) and your Account ID — stored only on this machine, encrypted.",
       "accountId": "Account ID",
+      "accountFormat": "Account ID should be 32 hexadecimal characters",
       "token": "API Token",
       "getToken": "Get token",
       "tokenPh": "Paste API Token",

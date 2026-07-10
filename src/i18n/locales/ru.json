@@ -6576,6 +6576,7 @@
       "title": "Развернуть на Cloudflare Pages",
       "hint": "Опубликуйте этот дизайн как публичную веб-страницу (*.pages.dev). Нужны Cloudflare API Token (с правом редактирования Pages) и ваш Account ID — хранятся только на этом устройстве, в зашифрованном виде.",
       "accountId": "Account ID",
+      "accountFormat": "Account ID должен состоять из 32 шестнадцатеричных символов",
       "token": "API Token",
       "getToken": "Получить токен",
       "tokenPh": "Вставьте API Token",

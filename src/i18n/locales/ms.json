@@ -6576,6 +6576,7 @@
       "title": "Deploy ke Cloudflare Pages",
       "hint": "Terbitkan reka bentuk ini sebagai halaman web awam (*.pages.dev). Anda perlukan Cloudflare API Token (dengan kebenaran edit Pages) dan Account ID — disimpan hanya pada mesin ini, disulitkan.",
       "accountId": "Account ID",
+      "accountFormat": "Account ID mesti 32 aksara heksadesimal",
       "token": "API Token",
       "getToken": "Dapatkan token",
       "tokenPh": "Tampal API Token",

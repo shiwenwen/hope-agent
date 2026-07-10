@@ -6576,6 +6576,7 @@
       "title": "Cloudflare Pages에 배포",
       "hint": "이 디자인을 공개 웹페이지(*.pages.dev)로 게시합니다. Cloudflare API Token(Pages 편집 권한)과 Account ID가 필요하며, 이 기기에만 암호화되어 저장됩니다.",
       "accountId": "Account ID",
+      "accountFormat": "Account ID는 32자리 16진수여야 합니다",
       "token": "API Token",
       "getToken": "토큰 받기",
       "tokenPh": "API Token 붙여넣기",

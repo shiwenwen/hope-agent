@@ -6576,6 +6576,7 @@
       "title": "النشر على Cloudflare Pages",
       "hint": "انشر هذا التصميم كصفحة ويب عامة (*.pages.dev). تحتاج إلى Cloudflare API Token (بصلاحية تعديل Pages) و Account ID، ويُحفظان على هذا الجهاز فقط ومشفّرين.",
       "accountId": "Account ID",
+      "accountFormat": "يجب أن يتكون معرّف الحساب من 32 حرفًا ست عشريًا",
       "token": "API Token",
       "getToken": "الحصول على الرمز",
       "tokenPh": "الصق API Token",

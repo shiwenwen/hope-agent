@@ -6576,6 +6576,7 @@
       "title": "Cloudflare Pages'e dağıt",
       "hint": "Bu tasarımı herkese açık bir web sayfası (*.pages.dev) olarak yayımlayın. Bir Cloudflare API Token (Pages düzenleme izniyle) ve Account ID gerekir; yalnızca bu cihazda şifreli saklanır.",
       "accountId": "Account ID",
+      "accountFormat": "Account ID 32 onaltılık karakter olmalıdır",
       "token": "API Token",
       "getToken": "Token al",
       "tokenPh": "API Token'ı yapıştır",

@@ -10,6 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 import { SecretInput } from "@/components/ui/secret-input"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
@@ -36,6 +37,10 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
   const [deploying, setDeploying] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // 字段级校验：CF Account ID 是 32 位十六进制。填了但格式不对即标红（touched 后才提示，不空态就唠叨）。
+  const [accountTouched, setAccountTouched] = useState(false)
+  const accountInvalid =
+    accountTouched && accountId.trim().length > 0 && !/^[0-9a-fA-F]{32}$/.test(accountId.trim())
 
   // 渲染期重置：打开时清结果（避免 effect 内同步 setState）。
   const [prevOpen, setPrevOpen] = useState(false)
@@ -119,9 +124,20 @@ export function DesignDeployModal({ open, onClose, artifactId }: Props) {
               id="design-deploy-account"
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
+              onBlur={() => setAccountTouched(true)}
               placeholder="e.g. 0a1b2c3d…"
-              className="h-8 text-xs"
+              aria-invalid={accountInvalid}
+              aria-describedby={accountInvalid ? "design-deploy-account-err" : undefined}
+              className={cn(
+                "h-8 text-xs",
+                accountInvalid && "border-destructive focus-visible:ring-destructive",
+              )}
             />
+            {accountInvalid && (
+              <p id="design-deploy-account-err" role="alert" className="text-[11px] text-destructive">
+                {t("design.deploy.accountFormat", "Account ID 应为 32 位十六进制字符")}
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <label htmlFor="design-deploy-token" className="flex items-center justify-between text-xs font-medium">

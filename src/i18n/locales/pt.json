@@ -6576,6 +6576,7 @@
       "title": "Implantar no Cloudflare Pages",
       "hint": "Publique este design como uma página web pública (*.pages.dev). Você precisa de um API Token da Cloudflare (com permissão de edição de Pages) e seu Account ID, armazenados apenas neste computador, criptografados.",
       "accountId": "Account ID",
+      "accountFormat": "O Account ID deve ter 32 caracteres hexadecimais",
       "token": "API Token",
       "getToken": "Obter token",
       "tokenPh": "Cole o API Token",

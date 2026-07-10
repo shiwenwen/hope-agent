@@ -6576,6 +6576,7 @@
       "title": "Cloudflare Pages にデプロイ",
       "hint": "このデザインを公開ウェブページ（*.pages.dev）として公開します。Cloudflare API Token（Pages 編集権限）と Account ID が必要です。この端末にのみ暗号化して保存されます。",
       "accountId": "Account ID",
+      "accountFormat": "Account ID は32桁の16進数である必要があります",
       "token": "API Token",
       "getToken": "トークンを取得",
       "tokenPh": "API Token を貼り付け",

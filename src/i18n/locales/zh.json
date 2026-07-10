@@ -6576,6 +6576,7 @@
       "title": "部署到 Cloudflare Pages",
       "hint": "把这个设计发布成公开网页（*.pages.dev）。需要一个 Cloudflare API Token（Pages 编辑权限）和 Account ID，只保存在本机、加密存放。",
       "accountId": "Account ID",
+      "accountFormat": "Account ID 应为 32 位十六进制字符",
       "token": "API Token",
       "getToken": "获取 Token",
       "tokenPh": "粘贴 API Token",

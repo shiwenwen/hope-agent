@@ -6576,6 +6576,7 @@
       "title": "Triển khai lên Cloudflare Pages",
       "hint": "Xuất bản thiết kế này thành trang web công khai (*.pages.dev). Bạn cần Cloudflare API Token (có quyền chỉnh sửa Pages) và Account ID — chỉ lưu trên máy này, được mã hóa.",
       "accountId": "Account ID",
+      "accountFormat": "Account ID phải gồm 32 ký tự thập lục phân",
       "token": "API Token",
       "getToken": "Lấy token",
       "tokenPh": "Dán API Token",
