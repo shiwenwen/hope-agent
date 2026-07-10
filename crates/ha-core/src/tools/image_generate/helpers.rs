@@ -450,7 +450,7 @@ mod tests {
             .unwrap();
         assert_eq!(out.len(), 2, "two valid + two empty → two loaded");
         // More than MAX_INPUT_IMAGES is capped, not errored.
-        let many: Vec<String> = std::iter::repeat(ok).take(MAX_INPUT_IMAGES + 3).collect();
+        let many: Vec<String> = std::iter::repeat_n(ok, MAX_INPUT_IMAGES + 3).collect();
         let capped = load_input_images(&many).await.unwrap();
         assert_eq!(capped.len(), MAX_INPUT_IMAGES);
     }
