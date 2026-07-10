@@ -38,6 +38,24 @@ pub fn build_kit_html(
         tokens.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let root = tokens_root_css(&token_vec);
     let esc_name = html_escape(name);
+    // 真 dark / compact 变体：从单一 light token 集确定性派生（非 4 中性色表面切换）。
+    // dark 只覆盖 --ds-color-*（派生值均为安全 hex），compact 只覆盖尺寸。
+    let dark = super::theme::derive_dark(tokens);
+    let dark_vars: String = dark
+        .iter()
+        .filter(|(k, _)| k.starts_with("--ds-color-"))
+        .map(|(k, v)| format!("{k}:{v};"))
+        .collect();
+    let dark_css = format!("body.dark{{{dark_vars}}}");
+    let compact = super::theme::derive_compact(tokens);
+    let compact_vars: String = compact
+        .iter()
+        .filter(|(k, _)| {
+            k.starts_with("--ds-text-") || k.starts_with("--ds-space-") || k.starts_with("--ds-radius-")
+        })
+        .map(|(k, v)| format!("{k}:{v};"))
+        .collect();
+    let compact_css = format!("body.compact{{{compact_vars}}}");
 
     let colors = group(tokens, "--ds-color-");
     let texts = group(tokens, "--ds-text-");
@@ -178,7 +196,8 @@ pub fn build_kit_html(
 *{{box-sizing:border-box}}
 body{{margin:0;font-family:var(--ds-font-sans,system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif);
 background:var(--ds-color-bg,#fff);color:var(--ds-color-fg,#111827);line-height:1.55;padding:0 0 4rem}}
-body.dark{{--ds-color-bg:#0b1020;--ds-color-fg:#e5e7eb;--ds-color-muted:#1e293b;--ds-color-border:#334155}}
+{dark_css}
+{compact_css}
 header{{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:1rem;padding:1rem 1.5rem;
 border-bottom:1px solid var(--ds-color-border,#e5e7eb);background:var(--ds-color-bg,#fff)}}
 header h1{{font-size:1.15rem;margin:0;font-weight:650;letter-spacing:-.01em}}
@@ -230,7 +249,7 @@ border:1px solid var(--ds-color-border,#e5e7eb);border-radius:var(--ds-radius-md
 <style id="ds-live"></style>
 </head>
 <body>
-<header><h1>{name}</h1><button class="toggle" onclick="document.body.classList.toggle('dark')">明 / 暗</button></header>
+<header><h1>{name}</h1><button class="toggle" onclick="document.body.classList.toggle('dark')">明 / 暗</button><button class="toggle" style="margin-left:.5rem" onclick="document.body.classList.toggle('compact')">紧凑</button></header>
 <main>
 {logos}
 {colors}
@@ -263,6 +282,8 @@ window.addEventListener('message',function(e){{var d=e.data;if(d&&d.type==='ds_k
 </body></html>"##,
         name = esc_name,
         root = root,
+        dark_css = dark_css,
+        compact_css = compact_css,
         logos = section("Logo", &logo_html, "logos"),
         images = section("配图 · Imagery", &image_html, "imagery"),
         colors = section("色彩 · Colors", &color_swatches, "swatches"),

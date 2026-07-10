@@ -24,6 +24,7 @@ pub mod renderer;
 pub mod selfcheck;
 pub mod service;
 pub mod system;
+pub mod theme;
 pub mod threads;
 pub mod token_export;
 pub mod vision;
