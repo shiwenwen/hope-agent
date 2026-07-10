@@ -23,7 +23,7 @@ fn parse_status(status: &str) -> Result<TaskStatus, AppError> {
 pub async fn list_session_tasks(
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<Task>>, AppError> {
-    Ok(Json(db()?.list_tasks(&session_id)?))
+    Ok(Json(db()?.run(move |db| db.list_tasks(&session_id)).await?))
 }
 
 #[derive(Debug, Deserialize)]

@@ -75,7 +75,12 @@ import {
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
 import MentionComposerInput from "./MentionComposerInput"
+import type { ComposerPasteEvent } from "./MentionComposerInput"
 import type { ComposerInputHandle } from "./composerInputHandle"
+import {
+  createPastedTextAttachment,
+  shouldCreatePastedTextAttachment,
+} from "./pastedTextAttachment"
 import type { ContextUsageInfo } from "../chatUtils"
 import { contextUsageBarClass } from "../contextUsageColor"
 import type { AgentConfig } from "@/components/settings/types"
@@ -87,6 +92,7 @@ interface ChatInputProps {
   inputHistory?: string[]
   quickPrompts?: QuickPromptItem[]
   onSend: () => void
+  sendDisabled?: boolean
   loading: boolean
   availableModels: AvailableModel[]
   activeModel: ActiveModel | null
@@ -96,6 +102,7 @@ interface ChatInputProps {
   attachedFiles: File[]
   onAttachFiles: (files: File[]) => void
   onRemoveFile: (index: number) => void
+  onUpdateFile: (index: number, file: File) => void
   pendingQuotes?: PendingFileQuote[]
   onRemoveQuote?: (index: number) => void
   /** Click a staged quote chip to reveal that file in the file browser. */
@@ -204,6 +211,7 @@ export default function ChatInput({
   inputHistory = [],
   quickPrompts = [],
   onSend,
+  sendDisabled = false,
   loading,
   availableModels,
   activeModel,
@@ -213,6 +221,7 @@ export default function ChatInput({
   attachedFiles,
   onAttachFiles,
   onRemoveFile,
+  onUpdateFile,
   pendingQuotes,
   onRemoveQuote,
   onJumpToQuote,
@@ -335,7 +344,7 @@ export default function ChatInput({
     agentId: currentAgentId,
   }
   const slash = useSlashCommands(input, setComposerInput, slashActions, inputHandleRef)
-  const voice = useVoiceInput()
+  const voice = useVoiceInput(currentSessionId)
   const normalToolbarOpen = voice.state !== "recording" && voice.state !== "transcribing"
   // Read the latest `input` when transcription resolves — the user can keep
   // typing during the STT round-trip, and capturing `input` in the closure
@@ -605,23 +614,46 @@ export default function ChatInput({
   }, [normalToolbarOpen, toolbarCompact, sandboxCollapsed, permissionCollapsed])
 
   const handlePaste = useCallback(
-    (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
+    (e: ComposerPasteEvent) => {
+      const clipboardData = e.clipboardData
+      if (!clipboardData) return
+      const items = clipboardData.items
       const files: File[] = []
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        if (item.kind === "file") {
-          const file = item.getAsFile()
-          if (file) files.push(file)
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          if (item.kind === "file") {
+            const file = item.getAsFile()
+            if (file) files.push(file)
+          }
         }
       }
       if (files.length > 0) {
         e.preventDefault()
         onAttachFiles(files)
+        return
+      }
+
+      const pastedText = clipboardData.getData("text/plain")
+      if (shouldCreatePastedTextAttachment(pastedText)) {
+        e.preventDefault()
+        onAttachFiles([createPastedTextAttachment(pastedText)])
+
+        const selection = inputHandleRef.current?.getSelectionRange()
+        if (selection && selection.start !== selection.end) {
+          const current = inputRef.current
+          const next = current.slice(0, selection.start) + current.slice(selection.end)
+          setComposerInput(next)
+          requestAnimationFrame(() => {
+            const inputHandle = inputHandleRef.current
+            if (!inputHandle) return
+            inputHandle.focus()
+            inputHandle.setSelectionRange(selection.start, selection.start)
+          })
+        }
       }
     },
-    [onAttachFiles],
+    [onAttachFiles, setComposerInput],
   )
 
   const handleHistoryKeyDown = useCallback(
@@ -689,10 +721,13 @@ export default function ChatInput({
     [historyIndex, input, inputHandleRef, inputHistory, onInputChange],
   )
 
+  const sendUnavailable = sendDisabled || !hasSendableContent
+
   const handleSend = useCallback(() => {
+    if (sendUnavailable) return
     resetHistoryBrowsing()
     onSend()
-  }, [onSend, resetHistoryBrowsing])
+  }, [onSend, resetHistoryBrowsing, sendUnavailable])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
@@ -934,6 +969,17 @@ export default function ChatInput({
         className={cn(
           "relative min-w-0 overflow-visible rounded-input-dock border border-border-soft bg-surface-floating shadow-input-dock",
           hero && "shadow-floating",
+          incognitoEnabled &&
+            [
+              "[--color-surface-floating:hsl(0_0%_13%)]",
+              "[--color-surface-subtle:hsl(0_0%_16%)]",
+              "[--color-secondary:hsl(0_0%_17%)]",
+              "[--color-foreground:hsl(0_0%_96%)]",
+              "[--color-muted-foreground:hsl(0_0%_70%)]",
+              "[--color-border:hsl(0_0%_22%)]",
+              "[--color-border-soft:hsl(0_0%_22%)]",
+              "shadow-[0_18px_52px_hsl(0_0%_4%/0.24)]",
+            ],
         )}
       >
         {/* Slash Command Menu */}
@@ -1007,7 +1053,11 @@ export default function ChatInput({
         )}
 
         {/* Attached files preview (rendered above textarea) */}
-        <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
+        <AttachmentPreview
+          attachedFiles={attachedFiles}
+          onRemoveFile={onRemoveFile}
+          onUpdateFile={onUpdateFile}
+        />
 
         {/* Staged "quote to chat" references */}
         <AnimatedCollapse open={!!pendingQuotes?.length}>
@@ -1413,15 +1463,21 @@ export default function ChatInput({
                 )}
 
                 <IconTip
-                  label={loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")}
+                  label={
+                    loading && hasSendableContent && !sendDisabled
+                      ? t("chat.queueMessage")
+                      : t("chat.send")
+                  }
                 >
                   <Button
                     size="icon"
                     className="h-8 w-8 rounded-full shrink-0"
                     onClick={handleSend}
-                    disabled={!hasSendableContent}
+                    disabled={sendUnavailable}
                     aria-label={
-                      loading && hasSendableContent ? t("chat.queueMessage") : t("chat.send")
+                      loading && hasSendableContent && !sendDisabled
+                        ? t("chat.queueMessage")
+                        : t("chat.send")
                     }
                   >
                     <Send className="h-4 w-4" />

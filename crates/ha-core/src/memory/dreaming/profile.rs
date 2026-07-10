@@ -25,8 +25,9 @@ use serde_json::json;
 use super::store;
 use super::triggers::{try_claim, DreamTrigger};
 use super::types::{DreamPhase, DreamRunStatus, ProfileSnapshotSourceRecord};
-use crate::agent::AssistantAgent;
+use crate::automation::{self, ModelTaskSpec};
 use crate::memory::claims::{self, EvidenceRecord, ResolveClaim};
+use crate::provider::ActiveModel;
 use crate::truncate_utf8;
 
 use crate::util::now_rfc3339;
@@ -247,15 +248,23 @@ fn render_scope_body(claims_in_scope: &[&ResolveClaim], max_lines: usize) -> Ren
 // ── LLM rewrite (manual only, best-effort) ──────────────────────
 
 async fn rewrite_body_llm(
-    agent: &AssistantAgent,
+    chain: &[ActiveModel],
     scope_label: &str,
     draft: &str,
     max_tokens: u32,
 ) -> Option<String> {
     let prompt =
         format!("{PROFILE_REWRITE_PROMPT}\n\nScope: {scope_label}\n\nDraft facts:\n{draft}");
-    let resp = agent.side_query(&prompt, max_tokens).await.ok()?;
-    let text = resp.text.trim();
+    let response = automation::run(ModelTaskSpec {
+        purpose: "dreaming.profile_rewrite",
+        chain: chain.to_vec(),
+        session_key: "automation:dreaming",
+        instruction: &prompt,
+        max_tokens,
+    })
+    .await
+    .ok()?;
+    let text = response.text.trim();
     if text.is_empty() {
         return None;
     }
@@ -389,18 +398,17 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
     // 3. Rule-based body per scope; LLM rewrite on manual (best-effort).
     let use_llm = matches!(trigger, DreamTrigger::Manual);
     let max_lines = cfg.profile_synthesis.max_lines_per_scope.clamp(1, 100);
-    let agent = if use_llm {
-        match super::pipeline::build_dreaming_agent(&cfg).await {
-            Ok(a) => Some(a),
-            Err(e) => {
-                app_warn!(
-                    "memory",
-                    "dreaming::profile",
-                    "could not build agent for rewrite (using rule-based bodies): {}",
-                    e
-                );
-                None
-            }
+    let chain = if use_llm {
+        let chain = super::pipeline::resolve_dreaming_chain(&cfg);
+        if chain.is_empty() {
+            app_warn!(
+                "memory",
+                "dreaming::profile",
+                "no automation model configured for profile rewrite (using rule-based bodies)"
+            );
+            None
+        } else {
+            Some(chain)
         }
     } else {
         None
@@ -420,10 +428,10 @@ pub async fn run_profile_synthesis_cycle(trigger: DreamTrigger) -> ProfileReport
             }
             continue;
         }
-        if let Some(agent) = &agent {
+        if let Some(chain) = &chain {
             let label = scope_label(&key.0, &key.1);
             if let Some(rewritten) =
-                rewrite_body_llm(agent, &label, &body, cfg.narrative_max_tokens).await
+                rewrite_body_llm(chain, &label, &body, cfg.narrative_max_tokens).await
             {
                 body = rewritten;
                 for source in &mut sources {

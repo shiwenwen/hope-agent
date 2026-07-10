@@ -1,7 +1,8 @@
 use anyhow::Result;
 use serde_json::json;
 
-use crate::agent::AssistantAgent;
+use crate::automation::{self, ModelTaskSpec};
+use crate::provider::ActiveModel;
 use crate::truncate_utf8;
 
 use super::types::{AiSection, FacetSummary, QuantitativeStats, RecapProgress};
@@ -27,7 +28,7 @@ pub const SECTION_ORDER: &[&str] = &[
 /// Generate every AI section in parallel (except `at_a_glance`, which depends
 /// on the others and runs last).
 pub async fn generate_all_sections<F>(
-    agent: &AssistantAgent,
+    chain: &std::sync::Arc<Vec<ActiveModel>>,
     facets: &FacetSummary,
     quant: &QuantitativeStats,
     locale: &str,
@@ -58,7 +59,7 @@ where
         .iter()
         .map(|key| {
             run_section(
-                agent,
+                chain,
                 key,
                 super::i18n::localized_section_title(key, locale),
                 &context_str,
@@ -100,7 +101,7 @@ where
     // ── At a glance: built from the other sections' outputs ──
     let glance_input = sections_for_summary(&sections);
     let glance_title = super::i18n::localized_section_title("at_a_glance", locale).to_string();
-    match run_at_a_glance(agent, &glance_input, locale).await {
+    match run_at_a_glance(chain, &glance_input, locale).await {
         Ok(md) => {
             sections.insert(
                 0,
@@ -180,7 +181,7 @@ fn sections_for_summary(sections: &[AiSection]) -> String {
 }
 
 async fn run_section(
-    agent: &AssistantAgent,
+    chain: &std::sync::Arc<Vec<ActiveModel>>,
     key: &str,
     title: &str,
     context_json: &str,
@@ -188,12 +189,19 @@ async fn run_section(
 ) -> Result<String> {
     let instruction = section_prompt(key, title, context_json, locale);
     app_debug!("recap", "sections", "running section '{}'", key);
-    let res = agent.side_query(&instruction, SECTION_MAX_TOKENS).await?;
-    Ok(res.text.trim().to_string())
+    let out = automation::run(ModelTaskSpec {
+        purpose: "recap.sections",
+        chain: (**chain).clone(),
+        session_key: super::report::RECAP_SESSION_KEY,
+        instruction: &instruction,
+        max_tokens: SECTION_MAX_TOKENS,
+    })
+    .await?;
+    Ok(out.text.trim().to_string())
 }
 
 async fn run_at_a_glance(
-    agent: &AssistantAgent,
+    chain: &std::sync::Arc<Vec<ActiveModel>>,
     sections_md: &str,
     locale: &str,
 ) -> Result<String> {
@@ -210,8 +218,15 @@ async fn run_at_a_glance(
         directive = super::i18n::section_language_directive(locale),
         sections = truncate_utf8(sections_md, 12_000),
     );
-    let res = agent.side_query(&prompt, AT_A_GLANCE_MAX_TOKENS).await?;
-    Ok(res.text.trim().to_string())
+    let out = automation::run(ModelTaskSpec {
+        purpose: "recap.at_a_glance",
+        chain: (**chain).clone(),
+        session_key: super::report::RECAP_SESSION_KEY,
+        instruction: &prompt,
+        max_tokens: AT_A_GLANCE_MAX_TOKENS,
+    })
+    .await?;
+    Ok(out.text.trim().to_string())
 }
 
 fn section_prompt(key: &str, title: &str, context_json: &str, locale: &str) -> String {

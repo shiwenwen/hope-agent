@@ -7,6 +7,8 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use ha_core::blocking::run_blocking;
+
 use crate::error::AppError;
 
 // ── Query / Body Types ──────────────────────────────────────────
@@ -289,7 +291,7 @@ pub async fn claim_schema_metadata(
 /// `POST /api/memory` -- add a new memory entry.
 pub async fn add_memory(Json(body): Json<AddMemoryBody>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    let id = backend.add(body.entry)?;
+    let id = run_blocking(move || backend.add(body.entry)).await?;
     ha_core::memory::emit_memory_changed("add", Some(id), None);
     Ok(Json(json!({ "id": id })))
 }
@@ -300,7 +302,7 @@ pub async fn update_memory(
     Json(body): Json<UpdateMemoryBody>,
 ) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    backend.update(id, &body.content, &body.tags)?;
+    run_blocking(move || backend.update(id, &body.content, &body.tags)).await?;
     ha_core::memory::emit_memory_changed("update", Some(id), None);
     Ok(Json(json!({ "updated": true })))
 }
@@ -308,7 +310,7 @@ pub async fn update_memory(
 /// `DELETE /api/memory/{id}` -- delete a memory entry.
 pub async fn delete_memory(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    backend.delete(id)?;
+    run_blocking(move || backend.delete(id)).await?;
     ha_core::memory::emit_memory_changed("delete", Some(id), None);
     Ok(Json(json!({ "deleted": true })))
 }
@@ -316,8 +318,8 @@ pub async fn delete_memory(Path(id): Path<i64>) -> Result<Json<Value>, AppError>
 /// `GET /api/memory/{id}` -- get a single memory entry.
 pub async fn get_memory(Path(id): Path<i64>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    let entry = backend
-        .get(id)?
+    let entry = run_blocking(move || backend.get(id))
+        .await?
         .ok_or_else(|| AppError::not_found(format!("memory not found: {}", id)))?;
     Ok(Json(serde_json::to_value(entry)?))
 }
@@ -330,13 +332,16 @@ pub async fn list_memories(
     let scope = parse_scope(&q.scope, &q.agent_id);
     let types = parse_types(&q.types);
     let sources = parse_sources(&q.sources);
-    let entries = backend.list_filtered(
-        scope.as_ref(),
-        types.as_deref(),
-        sources.as_deref(),
-        q.limit.unwrap_or(50),
-        q.offset.unwrap_or(0),
-    )?;
+    let entries = run_blocking(move || {
+        backend.list_filtered(
+            scope.as_ref(),
+            types.as_deref(),
+            sources.as_deref(),
+            q.limit.unwrap_or(50),
+            q.offset.unwrap_or(0),
+        )
+    })
+    .await?;
     Ok(Json(entries))
 }
 
@@ -348,16 +353,17 @@ pub async fn memory_history(
     let actions = parse_history_actions(&q.actions)?;
     let memory_types = parse_types(&q.memory_types);
     let sources = parse_sources(&q.sources);
-    Ok(Json(backend.history_filtered(
-        &ha_core::memory::MemoryHistoryQuery {
-            query: q.query,
-            actions,
-            memory_types,
-            sources,
-            limit: q.limit,
-            offset: q.offset,
-        },
-    )?))
+    let query = ha_core::memory::MemoryHistoryQuery {
+        query: q.query,
+        actions,
+        memory_types,
+        sources,
+        limit: q.limit,
+        offset: q.offset,
+    };
+    Ok(Json(
+        run_blocking(move || backend.history_filtered(&query)).await?,
+    ))
 }
 
 /// `GET /api/memory/history/page` -- durable owner audit page with total count.
@@ -368,16 +374,17 @@ pub async fn memory_history_page(
     let actions = parse_history_actions(&q.actions)?;
     let memory_types = parse_types(&q.memory_types);
     let sources = parse_sources(&q.sources);
-    Ok(Json(backend.history_filtered_page(
-        &ha_core::memory::MemoryHistoryQuery {
-            query: q.query,
-            actions,
-            memory_types,
-            sources,
-            limit: q.limit,
-            offset: q.offset,
-        },
-    )?))
+    let query = ha_core::memory::MemoryHistoryQuery {
+        query: q.query,
+        actions,
+        memory_types,
+        sources,
+        limit: q.limit,
+        offset: q.offset,
+    };
+    Ok(Json(
+        run_blocking(move || backend.history_filtered_page(&query)).await?,
+    ))
 }
 
 /// `GET /api/memory/audit/page` -- owner-only unified audit page across
@@ -395,14 +402,17 @@ pub async fn memory_audit_page(
             )));
         }
     }
-    Ok(Json(ha_core::memory::memory_audit_page(q)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::memory_audit_page(q)).await?,
+    ))
 }
 
 /// `GET /api/claims` -- list structured claims (next-gen Dreaming, read-only).
 pub async fn list_claims(
     Query(q): Query<ListClaimsQuery>,
 ) -> Result<Json<Vec<ha_core::memory::claims::ClaimRecord>>, AppError> {
-    let claims = ha_core::memory::claims::list_claims(claim_list_filter_from_query(q)?)?;
+    let filter = claim_list_filter_from_query(q)?;
+    let claims = run_blocking(move || ha_core::memory::claims::list_claims(filter)).await?;
     Ok(Json(claims))
 }
 
@@ -410,9 +420,10 @@ pub async fn list_claims(
 pub async fn list_claims_page(
     Query(q): Query<ListClaimsQuery>,
 ) -> Result<Json<ha_core::memory::claims::ClaimListPage>, AppError> {
-    Ok(Json(ha_core::memory::claims::list_claims_page(
-        claim_list_filter_from_query(q)?,
-    )?))
+    let filter = claim_list_filter_from_query(q)?;
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::list_claims_page(filter)).await?,
+    ))
 }
 
 /// `GET /api/claims/{id}` -- a single claim plus its evidence + legacy-memory
@@ -420,7 +431,9 @@ pub async fn list_claims_page(
 pub async fn get_claim(
     Path(id): Path<String>,
 ) -> Result<Json<Option<ha_core::memory::claims::ClaimDetail>>, AppError> {
-    Ok(Json(ha_core::memory::claims::get_claim(&id)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::get_claim(&id)).await?,
+    ))
 }
 
 /// `GET /api/claims/{id}/graph` -- read-only entity context graph around one
@@ -429,7 +442,9 @@ pub async fn claim_graph(
     Path(id): Path<String>,
     Query(q): Query<ClaimConflictsQuery>,
 ) -> Result<Json<ha_core::memory::claims::ClaimGraphProjection>, AppError> {
-    Ok(Json(ha_core::memory::claims::claim_graph(&id, q.limit)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::claim_graph(&id, q.limit)).await?,
+    ))
 }
 
 /// `GET /api/claims/{id}/conflicts` -- owner-plane conflict candidates for one
@@ -438,9 +453,9 @@ pub async fn claim_conflicts(
     Path(id): Path<String>,
     Query(q): Query<ClaimConflictsQuery>,
 ) -> Result<Json<Vec<ha_core::memory::claims::ClaimRecord>>, AppError> {
-    Ok(Json(ha_core::memory::claims::list_claim_conflicts(
-        &id, q.limit,
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::list_claim_conflicts(&id, q.limit)).await?,
+    ))
 }
 
 /// `GET /api/claims/{id}/conflict-details` -- bounded conflict details for the
@@ -449,9 +464,10 @@ pub async fn claim_conflict_details(
     Path(id): Path<String>,
     Query(q): Query<ClaimConflictsQuery>,
 ) -> Result<Json<Vec<ha_core::memory::claims::ClaimDetail>>, AppError> {
-    Ok(Json(ha_core::memory::claims::list_claim_conflict_details(
-        &id, q.limit,
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::list_claim_conflict_details(&id, q.limit))
+            .await?,
+    ))
 }
 
 /// `POST /api/claims/conflict-summaries` -- batch owner-plane conflict counts
@@ -460,7 +476,8 @@ pub async fn claim_conflict_summaries(
     Json(body): Json<ClaimConflictSummariesBody>,
 ) -> Result<Json<Vec<ha_core::memory::claims::ClaimConflictSummary>>, AppError> {
     Ok(Json(
-        ha_core::memory::claims::list_claim_conflict_summaries(&body.ids)?,
+        run_blocking(move || ha_core::memory::claims::list_claim_conflict_summaries(&body.ids))
+            .await?,
     ))
 }
 
@@ -470,7 +487,8 @@ pub async fn claim_evidence_summaries(
     Json(body): Json<ClaimEvidenceSummariesBody>,
 ) -> Result<Json<Vec<ha_core::memory::claims::ClaimEvidenceSummary>>, AppError> {
     Ok(Json(
-        ha_core::memory::claims::list_claim_evidence_summaries(&body.ids)?,
+        run_blocking(move || ha_core::memory::claims::list_claim_evidence_summaries(&body.ids))
+            .await?,
     ))
 }
 
@@ -479,9 +497,10 @@ pub async fn claim_evidence_summaries(
 pub async fn claim_review_summaries(
     Json(body): Json<ClaimReviewSummariesBody>,
 ) -> Result<Json<Vec<ha_core::memory::claims::ClaimReviewSummary>>, AppError> {
-    Ok(Json(ha_core::memory::claims::list_claim_review_summaries(
-        &body.ids,
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::list_claim_review_summaries(&body.ids))
+            .await?,
+    ))
 }
 
 /// `PATCH /api/claims/{id}` -- user correction (Lucid Review, design §5.2):
@@ -493,7 +512,9 @@ pub async fn update_claim(
     Json(mut body): Json<ha_core::memory::claims::ClaimUpdate>,
 ) -> Result<Json<ha_core::memory::claims::ClaimActionOutcome>, AppError> {
     body.claim_id = id;
-    Ok(Json(ha_core::memory::claims::update_claim(body)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::claims::update_claim(body)).await?,
+    ))
 }
 
 /// `POST /api/claims/{id}/forget` -- forget a claim (design §5.3). Body:
@@ -503,11 +524,16 @@ pub async fn forget_claim(
     Path(id): Path<String>,
     Json(body): Json<ForgetClaimBody>,
 ) -> Result<Json<ha_core::memory::claims::ClaimActionOutcome>, AppError> {
-    Ok(Json(ha_core::memory::claims::forget_claim(
-        &id,
-        body.permanent.unwrap_or(false),
-        body.note.as_deref(),
-    )?))
+    Ok(Json(
+        run_blocking(move || {
+            ha_core::memory::claims::forget_claim(
+                &id,
+                body.permanent.unwrap_or(false),
+                body.note.as_deref(),
+            )
+        })
+        .await?,
+    ))
 }
 
 /// `GET /api/memory/backfill/plan` -- dry-run existing-memory backfill plan
@@ -536,7 +562,7 @@ pub async fn search_memories(
     Json(body): Json<SearchMemoryBody>,
 ) -> Result<Json<Vec<ha_core::memory::MemoryEntry>>, AppError> {
     let backend = get_backend()?;
-    let results = backend.search(&body.query)?;
+    let results = run_blocking(move || backend.search(&body.query)).await?;
     Ok(Json(results))
 }
 
@@ -545,7 +571,8 @@ pub async fn memory_count(Query(q): Query<CountQuery>) -> Result<Json<Value>, Ap
     let backend = get_backend()?;
     let scope = parse_scope(&q.scope, &q.agent_id);
     let sources = parse_sources(&q.sources);
-    let count = backend.count_filtered(scope.as_ref(), sources.as_deref())?;
+    let count =
+        run_blocking(move || backend.count_filtered(scope.as_ref(), sources.as_deref())).await?;
     Ok(Json(json!({ "count": count })))
 }
 
@@ -555,7 +582,7 @@ pub async fn memory_stats(
 ) -> Result<Json<ha_core::memory::MemoryStats>, AppError> {
     let backend = get_backend()?;
     let scope = parse_scope(&q.scope, &q.agent_id);
-    let stats = backend.stats(scope.as_ref())?;
+    let stats = run_blocking(move || backend.stats(scope.as_ref())).await?;
     Ok(Json(stats))
 }
 
@@ -563,7 +590,7 @@ pub async fn memory_stats(
 /// indexes, embedding coverage, and claim graph consistency.
 pub async fn memory_health() -> Result<Json<ha_core::memory::MemoryHealth>, AppError> {
     let backend = get_backend()?;
-    Ok(Json(backend.health()?))
+    Ok(Json(run_blocking(move || backend.health()).await?))
 }
 
 /// `POST /api/memory/repair` -- owner-only conservative repair for rebuildable
@@ -572,7 +599,7 @@ pub async fn memory_repair(
     Json(body): Json<RepairMemoryBody>,
 ) -> Result<Json<ha_core::memory::MemoryRepairReport>, AppError> {
     let backend = get_backend()?;
-    let report = backend.repair(body.action)?;
+    let report = run_blocking(move || backend.repair(body.action)).await?;
     ha_core::memory::emit_memory_changed("repair", None, None);
     Ok(Json(report))
 }
@@ -585,7 +612,7 @@ pub async fn memory_db_snapshot_restore_preview(
 ) -> Result<Json<ha_core::memory::MemoryDbSnapshotRestorePreview>, AppError> {
     let backend = get_backend()?;
     Ok(Json(
-        backend.db_snapshot_restore_preview(&body.snapshot_path)?,
+        run_blocking(move || backend.db_snapshot_restore_preview(&body.snapshot_path)).await?,
     ))
 }
 
@@ -596,7 +623,7 @@ pub async fn memory_db_snapshot_restore(
     Json(body): Json<DbSnapshotRestorePreviewBody>,
 ) -> Result<Json<ha_core::memory::MemoryDbSnapshotRestoreReport>, AppError> {
     let backend = get_backend()?;
-    let report = backend.db_snapshot_restore(&body.snapshot_path)?;
+    let report = run_blocking(move || backend.db_snapshot_restore(&body.snapshot_path)).await?;
     ha_core::memory::emit_memory_changed("db_snapshot_restore", None, None);
     Ok(Json(report))
 }
@@ -607,7 +634,7 @@ pub async fn memory_db_snapshot_restore(
 pub async fn add_episode(
     Json(body): Json<AddEpisodeBody>,
 ) -> Result<Json<ha_core::memory::MemoryEpisodeRecord>, AppError> {
-    let record = ha_core::memory::add_episode(body.episode)?;
+    let record = run_blocking(move || ha_core::memory::add_episode(body.episode)).await?;
     ha_core::memory::emit_memory_changed("episode_add", None, Some(1));
     Ok(Json(record))
 }
@@ -617,14 +644,18 @@ pub async fn add_episode(
 pub async fn list_episodes_page(
     Json(body): Json<EpisodePageBody>,
 ) -> Result<Json<ha_core::memory::MemoryEpisodeListPage>, AppError> {
-    Ok(Json(ha_core::memory::list_episodes_page(body.query)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::list_episodes_page(body.query)).await?,
+    ))
 }
 
 /// `GET /api/memory/episodes/{id}` -- fetch one episode.
 pub async fn get_episode(
     Path(id): Path<String>,
 ) -> Result<Json<Option<ha_core::memory::MemoryEpisodeRecord>>, AppError> {
-    Ok(Json(ha_core::memory::get_episode(&id)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::get_episode(&id)).await?,
+    ))
 }
 
 /// `PATCH /api/memory/episodes/{id}` -- owner-only correction for a durable
@@ -633,7 +664,7 @@ pub async fn update_episode(
     Path(id): Path<String>,
     Json(body): Json<UpdateEpisodeBody>,
 ) -> Result<Json<Option<ha_core::memory::MemoryEpisodeRecord>>, AppError> {
-    let record = ha_core::memory::update_episode(&id, body.patch)?;
+    let record = run_blocking(move || ha_core::memory::update_episode(&id, body.patch)).await?;
     if record.is_some() {
         ha_core::memory::emit_memory_changed("episode_update", None, Some(1));
     }
@@ -643,7 +674,7 @@ pub async fn update_episode(
 /// `POST /api/memory/episodes/{id}/archive` -- hide an episode from active
 /// owner views without deleting provenance.
 pub async fn archive_episode(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
-    let changed = ha_core::memory::archive_episode(&id)?;
+    let changed = run_blocking(move || ha_core::memory::archive_episode(&id)).await?;
     if changed {
         ha_core::memory::emit_memory_changed("episode_archive", None, Some(1));
     }
@@ -653,7 +684,7 @@ pub async fn archive_episode(Path(id): Path<String>) -> Result<Json<bool>, AppEr
 /// `POST /api/memory/episodes/{id}/restore` -- restore an archived episode to
 /// active owner views.
 pub async fn restore_episode(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
-    let changed = ha_core::memory::restore_episode(&id)?;
+    let changed = run_blocking(move || ha_core::memory::restore_episode(&id)).await?;
     if changed {
         ha_core::memory::emit_memory_changed("episode_restore", None, Some(1));
     }
@@ -664,7 +695,7 @@ pub async fn restore_episode(Path(id): Path<String>) -> Result<Json<bool>, AppEr
 pub async fn add_procedure(
     Json(body): Json<AddProcedureBody>,
 ) -> Result<Json<ha_core::memory::MemoryProcedureRecord>, AppError> {
-    let record = ha_core::memory::add_procedure(body.procedure)?;
+    let record = run_blocking(move || ha_core::memory::add_procedure(body.procedure)).await?;
     ha_core::memory::emit_memory_changed("procedure_add", None, Some(1));
     Ok(Json(record))
 }
@@ -675,8 +706,10 @@ pub async fn promote_episode_to_procedure(
     Path(id): Path<String>,
     Json(body): Json<PromoteEpisodeBody>,
 ) -> Result<Json<ha_core::memory::MemoryProcedureRecord>, AppError> {
-    let record =
-        ha_core::memory::promote_episode_to_procedure(&id, body.options.unwrap_or_default())?;
+    let record = run_blocking(move || {
+        ha_core::memory::promote_episode_to_procedure(&id, body.options.unwrap_or_default())
+    })
+    .await?;
     ha_core::memory::emit_memory_changed("procedure_add", None, Some(1));
     Ok(Json(record))
 }
@@ -685,14 +718,18 @@ pub async fn promote_episode_to_procedure(
 pub async fn list_procedures_page(
     Json(body): Json<ProcedurePageBody>,
 ) -> Result<Json<ha_core::memory::MemoryProcedureListPage>, AppError> {
-    Ok(Json(ha_core::memory::list_procedures_page(body.query)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::list_procedures_page(body.query)).await?,
+    ))
 }
 
 /// `GET /api/memory/procedures/{id}` -- fetch one procedure.
 pub async fn get_procedure(
     Path(id): Path<String>,
 ) -> Result<Json<Option<ha_core::memory::MemoryProcedureRecord>>, AppError> {
-    Ok(Json(ha_core::memory::get_procedure(&id)?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::get_procedure(&id)).await?,
+    ))
 }
 
 /// `PATCH /api/memory/procedures/{id}` -- owner-only correction for a durable
@@ -701,7 +738,7 @@ pub async fn update_procedure(
     Path(id): Path<String>,
     Json(body): Json<UpdateProcedureBody>,
 ) -> Result<Json<Option<ha_core::memory::MemoryProcedureRecord>>, AppError> {
-    let record = ha_core::memory::update_procedure(&id, body.patch)?;
+    let record = run_blocking(move || ha_core::memory::update_procedure(&id, body.patch)).await?;
     if record.is_some() {
         ha_core::memory::emit_memory_changed("procedure_update", None, Some(1));
     }
@@ -711,7 +748,7 @@ pub async fn update_procedure(
 /// `POST /api/memory/procedures/{id}/archive` -- hide a procedure from active
 /// owner views without deleting it.
 pub async fn archive_procedure(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
-    let changed = ha_core::memory::archive_procedure(&id)?;
+    let changed = run_blocking(move || ha_core::memory::archive_procedure(&id)).await?;
     if changed {
         ha_core::memory::emit_memory_changed("procedure_archive", None, Some(1));
     }
@@ -721,7 +758,7 @@ pub async fn archive_procedure(Path(id): Path<String>) -> Result<Json<bool>, App
 /// `POST /api/memory/procedures/{id}/restore` -- restore an archived procedure
 /// to active owner views.
 pub async fn restore_procedure(Path(id): Path<String>) -> Result<Json<bool>, AppError> {
-    let changed = ha_core::memory::restore_procedure(&id)?;
+    let changed = run_blocking(move || ha_core::memory::restore_procedure(&id)).await?;
     if changed {
         ha_core::memory::emit_memory_changed("procedure_restore", None, Some(1));
     }
@@ -734,9 +771,9 @@ pub async fn restore_procedure(Path(id): Path<String>) -> Result<Json<bool>, App
 pub async fn experience_history_page(
     Json(body): Json<ExperienceHistoryPageBody>,
 ) -> Result<Json<ha_core::memory::MemoryExperienceHistoryListPage>, AppError> {
-    Ok(Json(ha_core::memory::list_experience_history_page(
-        body.query,
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::list_experience_history_page(body.query)).await?,
+    ))
 }
 
 /// `GET /api/memory/import-from-ai-prompt` -- get the prompt template shown to the user
@@ -763,8 +800,9 @@ pub async fn toggle_pin(
     Json(body): Json<TogglePinBody>,
 ) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    backend.toggle_pin(id, body.pinned)?;
-    ha_core::memory::emit_memory_changed(if body.pinned { "pin" } else { "unpin" }, Some(id), None);
+    let pinned = body.pinned;
+    run_blocking(move || backend.toggle_pin(id, pinned)).await?;
+    ha_core::memory::emit_memory_changed(if pinned { "pin" } else { "unpin" }, Some(id), None);
     Ok(Json(json!({ "ok": true, "pinned": body.pinned })))
 }
 
@@ -776,7 +814,7 @@ pub struct DeleteBatchBody {
 /// `POST /api/memory/delete-batch` — delete multiple memories at once.
 pub async fn delete_batch(Json(body): Json<DeleteBatchBody>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    let deleted = backend.delete_batch(&body.ids)?;
+    let deleted = run_blocking(move || backend.delete_batch(&body.ids)).await?;
     ha_core::memory::emit_memory_changed("delete_batch", None, Some(deleted));
     Ok(Json(json!({ "deleted": deleted })))
 }
@@ -793,10 +831,11 @@ pub struct ReembedBody {
 /// background `MemoryReembed` job.
 pub async fn reembed(Json(body): Json<ReembedBody>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
-    let count = match body.ids {
-        Some(ids) if !ids.is_empty() => backend.reembed_batch(&ids)?,
-        _ => backend.reembed_all()?,
-    };
+    let count = run_blocking(move || match body.ids {
+        Some(ids) if !ids.is_empty() => backend.reembed_batch(&ids),
+        _ => backend.reembed_all(),
+    })
+    .await?;
     Ok(Json(json!({ "updated": count })))
 }
 
@@ -821,7 +860,9 @@ pub async fn reembed_start(
         .ok_or_else(|| {
             AppError::bad_request("No memory embedding model is currently active".to_string())
         })?;
-    let snapshot = ha_core::memory::start_memory_reembed_job(&model_id, body.mode, None)?;
+    let snapshot =
+        run_blocking(move || ha_core::memory::start_memory_reembed_job(&model_id, body.mode, None))
+            .await?;
     Ok(Json(snapshot))
 }
 
@@ -864,7 +905,7 @@ pub struct ExportMemoryBody {
 /// Mirrors the Tauri `memory_export` command.
 pub async fn export_memory(Json(body): Json<ExportMemoryBody>) -> Result<Json<String>, AppError> {
     let backend = get_backend()?;
-    let md = backend.export_markdown(body.scope.as_ref())?;
+    let md = run_blocking(move || backend.export_markdown(body.scope.as_ref())).await?;
     Ok(Json(md))
 }
 
@@ -873,16 +914,17 @@ pub async fn export_memory(Json(body): Json<ExportMemoryBody>) -> Result<Json<St
 /// plan rather than overwriting local memory directly.
 pub async fn export_memory_backup() -> Result<Json<ha_core::memory::MemoryBackupBundle>, AppError> {
     let backend = get_backend()?;
-    Ok(Json(ha_core::memory::export_backup_bundle(
-        backend.as_ref(),
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::export_backup_bundle(backend.as_ref())).await?,
+    ))
 }
 
 /// `POST /api/memory/backup/export-archive` — export a ZIP memory backup
 /// package containing the JSON bundle plus large attachment sidecars.
 pub async fn export_memory_backup_archive() -> Result<Response, AppError> {
     let backend = get_backend()?;
-    let archive = ha_core::memory::export_backup_archive(backend.as_ref())?;
+    let archive =
+        run_blocking(move || ha_core::memory::export_backup_archive(backend.as_ref())).await?;
     let mut response = (axum::http::StatusCode::OK, archive).into_response();
     response.headers_mut().insert(
         CONTENT_TYPE,
@@ -906,10 +948,12 @@ pub async fn export_encrypted_memory_backup(
     Json(body): Json<ExportEncryptedMemoryBackupBody>,
 ) -> Result<Json<ha_core::memory::MemoryEncryptedBackupBundle>, AppError> {
     let backend = get_backend()?;
-    Ok(Json(ha_core::memory::export_encrypted_backup_bundle(
-        backend.as_ref(),
-        &body.passphrase,
-    )?))
+    Ok(Json(
+        run_blocking(move || {
+            ha_core::memory::export_encrypted_backup_bundle(backend.as_ref(), &body.passphrase)
+        })
+        .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -968,11 +1012,14 @@ pub async fn preview_memory_backup(
 ) -> Result<Json<ha_core::memory::MemoryBackupImportPreview>, AppError> {
     let backend = get_backend()?;
     Ok(Json(
-        ha_core::memory::preview_backup_bundle_with_passphrase(
-            backend.as_ref(),
-            &body.content,
-            body.passphrase.as_deref(),
-        )?,
+        run_blocking(move || {
+            ha_core::memory::preview_backup_bundle_with_passphrase(
+                backend.as_ref(),
+                &body.content,
+                body.passphrase.as_deref(),
+            )
+        })
+        .await?,
     ))
 }
 
@@ -982,10 +1029,10 @@ pub async fn preview_memory_backup_archive(
     body: Bytes,
 ) -> Result<Json<ha_core::memory::MemoryBackupImportPreview>, AppError> {
     let backend = get_backend()?;
-    Ok(Json(ha_core::memory::preview_backup_archive(
-        backend.as_ref(),
-        &body,
-    )?))
+    Ok(Json(
+        run_blocking(move || ha_core::memory::preview_backup_archive(backend.as_ref(), &body))
+            .await?,
+    ))
 }
 
 /// `POST /api/memory/backup/restore-legacy` — apply only the safe legacy-memory
@@ -994,12 +1041,15 @@ pub async fn restore_legacy_memory_backup(
     Json(body): Json<RestoreLegacyMemoryBackupBody>,
 ) -> Result<Json<ha_core::memory::MemoryBackupRestoreResult>, AppError> {
     let backend = get_backend()?;
-    let result = ha_core::memory::restore_backup_legacy_memories_with_passphrase(
-        backend.as_ref(),
-        &body.content,
-        body.options.unwrap_or_default(),
-        body.passphrase.as_deref(),
-    )?;
+    let result = run_blocking(move || {
+        ha_core::memory::restore_backup_legacy_memories_with_passphrase(
+            backend.as_ref(),
+            &body.content,
+            body.options.unwrap_or_default(),
+            body.passphrase.as_deref(),
+        )
+    })
+    .await?;
     if result.import_result.created > 0 {
         ha_core::memory::emit_memory_changed(
             "backup_restore_legacy",
@@ -1017,13 +1067,16 @@ pub async fn restore_legacy_memory_backup_archive(
     body: Bytes,
 ) -> Result<Json<ha_core::memory::MemoryBackupRestoreResult>, AppError> {
     let backend = get_backend()?;
-    let result = ha_core::memory::restore_backup_legacy_memories_from_archive(
-        backend.as_ref(),
-        &body,
-        ha_core::memory::MemoryBackupRestoreOptions {
-            dedup: query.dedup.unwrap_or(true),
-        },
-    )?;
+    let result = run_blocking(move || {
+        ha_core::memory::restore_backup_legacy_memories_from_archive(
+            backend.as_ref(),
+            &body,
+            ha_core::memory::MemoryBackupRestoreOptions {
+                dedup: query.dedup.unwrap_or(true),
+            },
+        )
+    })
+    .await?;
     if result.import_result.created > 0 {
         ha_core::memory::emit_memory_changed(
             "backup_restore_legacy",
@@ -1042,12 +1095,15 @@ pub async fn restore_structured_memory_backup(
     Json(body): Json<RestoreStructuredMemoryBackupBody>,
 ) -> Result<Json<ha_core::memory::MemoryBackupStructuredRestoreResult>, AppError> {
     let backend = get_backend()?;
-    let result = ha_core::memory::restore_backup_structured_memory_with_passphrase(
-        backend.as_ref(),
-        &body.content,
-        body.options.unwrap_or_default(),
-        body.passphrase.as_deref(),
-    )?;
+    let result = run_blocking(move || {
+        ha_core::memory::restore_backup_structured_memory_with_passphrase(
+            backend.as_ref(),
+            &body.content,
+            body.options.unwrap_or_default(),
+            body.passphrase.as_deref(),
+        )
+    })
+    .await?;
     if result.restored_claims > 0 {
         ha_core::memory::emit_claim_changed(
             "backup_restore_structured",
@@ -1072,18 +1128,21 @@ pub async fn restore_structured_memory_backup_archive(
     body: Bytes,
 ) -> Result<Json<ha_core::memory::MemoryBackupStructuredRestoreResult>, AppError> {
     let backend = get_backend()?;
-    let result = ha_core::memory::restore_backup_structured_memory_from_archive(
-        backend.as_ref(),
-        &body,
-        ha_core::memory::MemoryBackupStructuredRestoreOptions {
-            restore_claims: query.restore_claims.unwrap_or(true),
-            restore_profile_snapshots: query.restore_profile_snapshots.unwrap_or(true),
-            restore_episodes: query.restore_episodes.unwrap_or(true),
-            restore_procedures: query.restore_procedures.unwrap_or(true),
-            restore_experience_history: query.restore_experience_history.unwrap_or(true),
-            allow_profile_scope_conflicts: query.allow_profile_scope_conflicts.unwrap_or(false),
-        },
-    )?;
+    let result = run_blocking(move || {
+        ha_core::memory::restore_backup_structured_memory_from_archive(
+            backend.as_ref(),
+            &body,
+            ha_core::memory::MemoryBackupStructuredRestoreOptions {
+                restore_claims: query.restore_claims.unwrap_or(true),
+                restore_profile_snapshots: query.restore_profile_snapshots.unwrap_or(true),
+                restore_episodes: query.restore_episodes.unwrap_or(true),
+                restore_procedures: query.restore_procedures.unwrap_or(true),
+                restore_experience_history: query.restore_experience_history.unwrap_or(true),
+                allow_profile_scope_conflicts: query.allow_profile_scope_conflicts.unwrap_or(false),
+            },
+        )
+    })
+    .await?;
     if result.restored_claims > 0 {
         ha_core::memory::emit_claim_changed(
             "backup_restore_structured",
@@ -1119,7 +1178,7 @@ pub async fn import_memory(
     let entries = ha_core::memory::parse_import(&body.content, &body.format)
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     let backend = get_backend()?;
-    let result = backend.import_entries(entries, body.dedup)?;
+    let result = run_blocking(move || backend.import_entries(entries, body.dedup)).await?;
     if result.created > 0 {
         ha_core::memory::emit_memory_changed("import", None, Some(result.created));
     }
@@ -1131,13 +1190,18 @@ pub async fn preview_import_memory(
     Json(body): Json<ImportMemoryBody>,
 ) -> Result<Json<ha_core::memory::MemoryImportPreview>, AppError> {
     let backend = get_backend()?;
-    Ok(Json(ha_core::memory::preview_import_with_backend(
-        backend.as_ref(),
-        &body.content,
-        &body.format,
-        None,
-        body.dedup,
-    )))
+    Ok(Json(
+        run_blocking(move || {
+            ha_core::memory::preview_import_with_backend(
+                backend.as_ref(),
+                &body.content,
+                &body.format,
+                None,
+                body.dedup,
+            )
+        })
+        .await,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1158,7 +1222,9 @@ pub async fn find_similar(
     let dedup_cfg = ha_core::memory::load_dedup_config();
     let threshold = body.threshold.unwrap_or(dedup_cfg.threshold_merge);
     let limit = body.limit.unwrap_or(5);
-    let results = backend.find_similar(&body.content, None, None, threshold, limit)?;
+    let results =
+        run_blocking(move || backend.find_similar(&body.content, None, None, threshold, limit))
+            .await?;
     Ok(Json(results))
 }
 

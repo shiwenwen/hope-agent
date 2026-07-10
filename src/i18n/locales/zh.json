@@ -591,9 +591,9 @@
     "incognitoAwarenessDisabled": "开启无痕时不可用行为感知",
     "incognitoChannelExclusive": "IM 渠道会话不能开启无痕——对方还会异步发消息，会话不能消失",
     "incognitoEmptyBody": "这次聊天不会出现在历史记录中，也不会使用或更新记忆、感知或统计；离开后本地副本会被删除。",
-    "incognitoEmptyTitle": "临时聊天",
+    "incognitoEmptyTitle": "无痕",
     "incognitoMutuallyExclusive": "当前会话不支持无痕",
-    "incognitoPreset": "新对话无痕预设",
+    "incognitoPreset": "开启无痕对话",
     "incognitoProjectExclusive": "Project 会话不能开启无痕——项目记忆和文件需要持久保留",
     "inputTokens": "输入",
     "inputTokensCumulative": "输入总计",
@@ -836,7 +836,18 @@
       "collapse": "折叠右侧面板",
       "expand": "展开右侧面板",
       "switch": "切换右侧面板"
-    }
+    },
+    "pastedTextAttachment": "粘贴的文本",
+    "pastedTextPreviewTitle": "粘贴的文本",
+    "pastedTextPreviewMeta": "{{lines}} 行 · {{chars}} 个字符",
+    "pastedTextPreviewOpen": "查看粘贴的文本",
+    "incognitoDisable": "关闭无痕对话",
+    "incognitoLeaveConfirmAction": "删除并离开",
+    "incognitoLeaveConfirmBody": "离开后，这次对话会从本机删除，无法从历史记录中恢复。",
+    "incognitoLeaveConfirmCancel": "留在当前对话",
+    "incognitoLeaveConfirmTitle": "离开无痕对话？",
+    "visionBridgeEngaged": "主模型不支持看图，已用 {{model}} 转述图片内容。",
+    "visionBridgeUnavailable": "视觉模型转述图片失败，已忽略该图片。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 认证令牌已失效，请重新登录以继续使用。",
@@ -1405,7 +1416,11 @@
       "ttft": "首Token耗时",
       "ttftTrend": "首 Token 耗时趋势 (TTFT)",
       "inputTokens": "输入令牌",
-      "outputTokens": "输出代币"
+      "outputTokens": "输出代币",
+      "byDomain": "按用途分布",
+      "byOperation": "按操作细分",
+      "operation": "操作",
+      "domain": "用途"
     },
     "tool": {
       "avgDuration": "平均耗时",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "记忆重嵌入"
         }
       }
+    },
+    "usageKind": {
+      "all": "全部用量",
+      "chat": "对话",
+      "side_query": "旁路查询",
+      "embedding": "嵌入",
+      "stt": "语音转文字",
+      "judge": "评判",
+      "summarize": "摘要",
+      "web_search": "网页搜索",
+      "image_generation": "图片生成",
+      "provider_test": "供应商测试",
+      "vision": "视觉"
     }
   },
   "diffPanel": {
@@ -2960,7 +2988,7 @@
       },
       "intro": "审批弹窗与「永远跳过审批」的全局开关、保护路径 / 编辑命令 / 危险命令模式列表，以及智能审批模式配置。",
       "judgeExtraPromptPlaceholder": "可选：附加给判官的提示词（白名单路径、信任命令等）",
-      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeModelPlaceholder": "选择裁判模型",
       "judgeModelTitle": "判官模型配置",
       "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路径模式时强制审批，不可 AllowAlways 跳过。支持 ~/ 展开、目录前缀（结尾 /）、通配（*.pem）。",
@@ -3069,7 +3097,9 @@
       "resetOverride": "恢复为全局配置",
       "sameAgentOnly": "仅同一 Agent",
       "sessionOverride": "会话级覆盖",
-      "title": "行为感知"
+      "title": "行为感知",
+      "extractionModel": "提取模型（可选）",
+      "extractionModelInherit": "复用当前对话 Agent（缓存友好）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3175,9 +3205,9 @@
         "stepInstallExtensionHint": "使用 Chrome 应用商店页面安装，然后回到这里刷新。",
         "openWebStore": "打开 Chrome 应用商店",
         "stepOpenExtensions": "打开 Chrome 扩展页",
-        "stepOpenExtensionsHint": "启用开发者模式，然后使用「加载已解压的扩展程序」。",
-        "stepLoadUnpacked": "加载已解压的扩展",
-        "alphaFallback": "Alpha 备选：加载已解压",
+        "stepOpenExtensionsHint": "先点击「显示文件夹」打开扩展目录；在 Chrome 扩展页启用开发者模式后，把该文件夹拖进去。也可以复制路径，再用「加载已解压/未打包」选择。",
+        "stepLoadUnpacked": "显示扩展文件夹",
+        "alphaFallback": "Alpha 备选：拖拽本地扩展",
         "stepInstallHost": "安装原生主机",
         "openChromeExtensions": "打开 chrome://extensions",
         "showFolder": "显示文件夹",
@@ -3251,7 +3281,7 @@
     "chatDisplayModeDesc": "选择聊天消息的默认布局。",
     "chatDisplayModeTimeline": "任务",
     "claims": {
-      "title": "结构化记忆",
+      "title": "记忆断言（Claims）",
       "desc": "带作用域、置信度与来源证据的结构化长期记忆。",
       "explainer": {
         "title": "这层记忆在做什么",
@@ -3263,7 +3293,7 @@
         "backfillTitle": "回填是什么",
         "backfillDesc": "回填会把旧的普通记忆登记为记忆断言，但不会立刻改变当前记忆注入。置顶的个人信息和偏好可能自动启用，其余会进入待审核。"
       },
-      "list": "结构化记忆列表",
+      "list": "记忆断言列表",
       "searchPlaceholder": "搜索结构化记忆…",
       "searchMatchedBy": "命中",
       "searchMatch_content": "内容",
@@ -3443,8 +3473,8 @@
         "llm_adjusted": "AI 调整",
         "user_confirmed": "用户确认"
       },
-      "empty": "暂无结构化记忆。",
-      "selectClaim": "选择一条结构化记忆查看其证据。",
+      "empty": "暂无记忆断言。",
+      "selectClaim": "选择一条记忆断言查看其证据。",
       "confidence": "置信度",
       "salience": "重要度",
       "evidence": "证据",
@@ -3698,7 +3728,7 @@
       "narrativeMaxTokensDesc": "叙事 side query 的输出预算。",
       "narrativeModel": "叙事模型",
       "narrativeModelClear": "清空",
-      "narrativeModelDefault": "跟随主对话 Agent",
+      "narrativeModelDefault": "跟随自动化默认链",
       "narrativeModelDesc": "覆盖打分用的模型。留空则跟随主对话 / recap 模型链。",
       "narrativeTimeoutSecs": "超时（秒）",
       "narrativeTimeoutSecsDesc": "side query 超过该秒数将被中止。",
@@ -3838,7 +3868,8 @@
       "matcherPlaceholder": "工具名 / 来源（支持正则），留空 = 全部",
       "addHandler": "添加处理器",
       "advanced": "高级",
-      "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。"
+      "slowHandlerWarning": "此处理器会内联运行 LLM / 子 Agent，每次该阻断事件触发都会拖慢。建议这里改用 command / http，或挪到观察型事件（如 PostToolUse）。",
+      "modelInheritDefault": "跟随自动化默认链"
     },
     "hours": "小时",
     "imageGenApiKey": "API Key",
@@ -3893,9 +3924,9 @@
       "tab": "知识空间"
     },
     "knowledgeCompile": {
-      "agent": "资料整理 Agent",
-      "agentDefault": "使用全局默认 Agent",
-      "agentDesc": "用于把来源资料整理成可审阅的笔记建议，未设置时继承全局默认 Agent。",
+      "agent": "整理模型",
+      "agentDefault": "跟随自动化默认链",
+      "agentDesc": "用于把来源资料整理成可审阅笔记建议的模型链。留空则跟随自动化默认链。",
       "errors": {
         "loadConfig": "加载资料整理 Agent 设置失败",
         "loadAgents": "加载资料整理 Agent 列表失败",
@@ -3979,7 +4010,10 @@
         "sourceConflict": "资料冲突",
         "openQuestionsMoc": "开放问题 MOC",
         "forAgentSummary": "For Agent 摘要"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "4 个基于 LLM 的生成器（自动标签、MOC 维护、记忆转笔记、资料冲突）共用此配置。",
+      "modelDefault": "跟随自动化默认链"
     },
     "knowledgeMediaRetention": {
       "saved": "已保存",
@@ -4720,8 +4754,8 @@
         "detail": "详细信息：{{error}}"
       }
     },
-    "memoryExtractClaims": "提取结构化记忆",
-    "memoryExtractClaimsDesc": "在普通记忆之外，额外提取带证据、可审核、可纠错的结构化记忆。",
+    "memoryExtractClaims": "提取记忆断言（beta）",
+    "memoryExtractClaimsDesc": "在记忆之外，额外提取带证据的记忆断言（双写）。",
     "memoryStructuredBadge": "结构化",
     "memoryExtractIdleTimeout": "空闲超时（分钟）",
     "memoryExtractMessageThreshold": "消息条数阈值",
@@ -4750,7 +4784,7 @@
     "memoryImportCopyDiagnosticsError": "复制导入预览诊断失败：{{error}}",
     "memoryImportFromAIParseBtn": "解析并导入",
     "memoryImportFromAIParseError": "解析失败：{{error}}",
-    "memoryImportFromAIPastePlaceholder": "把其他 AI 返回的 JSON 或 Markdown 记忆导出粘贴到这里…",
+    "memoryImportFromAIPastePlaceholder": "把其他 AI 返回的 JSON 数组粘贴到这里…",
     "memoryImportNoEntries": "没有发现可导入的记忆。",
     "memoryImportPreviewBtn": "预览",
     "memoryImportPreviewTitle": "导入预览",
@@ -5265,7 +5299,7 @@
       "dreaming": "梦境（Dreaming）",
       "manage": "记忆管理",
       "settings": "记忆设置",
-      "claims": "结构化记忆",
+      "claims": "记忆断言（Claims）",
       "profile": "画像"
     },
     "memoryTags": "标签",
@@ -5586,9 +5620,9 @@
     "proxyUrl": "代理地址",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "复盘报告",
-    "recapAnalysisAgent": "分析 Agent",
-    "recapAnalysisAgentDefault": "使用全局默认 Agent",
-    "recapAnalysisAgentDesc": "用于提取 facet 和生成报告章节的 Agent，未设置时继承全局默认 Agent",
+    "recapAnalysisAgent": "分析模型",
+    "recapAnalysisAgentDefault": "跟随自动化默认链",
+    "recapAnalysisAgentDesc": "用于提取 facet 和撰写报告章节的模型链。留空则跟随自动化默认链。",
     "recapCacheRetentionDays": "Facet 缓存保留天数",
     "recapCacheRetentionDaysDesc": "已缓存的会话 facet 保留时长，每 24h 后台扫描清理。设为 0 则永久保留。默认 180 天",
     "recapDefaultRangeDays": "默认时间范围（天）",
@@ -5864,7 +5898,8 @@
         },
         "reviewModel": {
           "label": "专用审核模型",
-          "help": "格式 provider:model。留空则复用主对话的缓存前缀。"
+          "help": "用于审核候选技能的模型链。留空则复用触发对话的缓存前缀（再退到自动化默认链）。",
+          "inheritDefault": "复用触发对话（缓存友好）"
         },
         "extraRejectCategories": {
           "label": "追加禁拍主题",
@@ -5971,7 +6006,10 @@
         "save": "保存精灵设置失败",
         "toggle": "更新精灵模式失败",
         "detail": "详细信息：{{error}}"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "精灵的建议调用是即发即弃——用完整的降级链没问题，不必只给单个模型。",
+      "modelDefault": "跟随自动化默认链"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page 的目标 URL 检查。注意：browser.evaluate 中 JS fetch 不在本拦截范围。",
     "ssrfDefaultPolicy": "默认策略",
@@ -6369,7 +6407,39 @@
     "memoryExternalProviderConnectionClear": "清除连接",
     "memoryExternalProviderConnectionSave": "保存连接",
     "memoryExternalProviderApiKeyRequired": "Supermemory Cloud 和自托管 endpoint 均必填",
-    "memoryExternalProviderApiKeyGeneric": "云端服务通常需要密钥；本地服务关闭鉴权时可以留空。"
+    "memoryExternalProviderApiKeyGeneric": "云端服务通常需要密钥；本地服务关闭鉴权时可以留空。",
+    "visionBridgeModel": "视觉桥模型",
+    "visionBridgeModelDesc": "仅当主模型不支持看图时生效。用一个单独的模型把图片转成文字描述，让对话继续。",
+    "visionBridgeModelClear": "关闭视觉桥",
+    "selectVisionBridgeModel": "选择视觉模型",
+    "modelChainRestoreInherit": "恢复为继承的默认值",
+    "automationModelChain": "自动化默认模型",
+    "automationModelChainDesc": "用于 Recap、Dreaming、资料整理等后台一次性 AI 任务的默认模型链（含降级），与上方的聊天默认模型相互独立；未设置时跟随聊天默认模型。",
+    "automationModelChainInherit": "跟随聊天默认模型",
+    "knowledgeVision": {
+      "model": "视觉模型",
+      "modelDesc": "导入知识空间时用于给图片做 OCR 的模型链。留空则跟随自动化默认链。",
+      "modelDefault": "跟随自动化默认链",
+      "ocrConcurrency": "扫描版 PDF OCR 并发数",
+      "maxOcrPages": "扫描版 PDF OCR 页数上限"
+    },
+    "noteTools": {
+      "title": "笔记工具模型",
+      "desc": "笔记提炼、MOC 生成、会话转笔记三个工具共用的模型。",
+      "modelDefault": "跟随自动化默认链"
+    },
+    "recallSummary": {
+      "title": "召回摘要",
+      "desc": "当 recall_memory / session_search 返回较多命中时，额外走一次 LLM 调用把它们压缩成一段简洁摘要，而不是返回原始片段。默认关闭——每次符合条件的检索会多花一次调用。",
+      "enabled": "启用摘要",
+      "minHits": "触发所需最小命中数",
+      "contextCharBudget": "上下文预算（字符）",
+      "timeoutSecs": "超时时间（秒）",
+      "maxTokens": "最大输出 token 数",
+      "includeHistory": "同时摘要对话历史命中",
+      "model": "模型",
+      "modelDefault": "跟随自动化默认链"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "打开设置",
@@ -7398,21 +7468,27 @@
       "similarScope": {
         "crossKb": "跨空间",
         "sameKb": "此空间"
-      }
+      },
+      "ocrRunning": "OCR 进行中…",
+      "ocrPartial": "OCR：部分页面失败",
+      "ocrFailed": "OCR 失败",
+      "ocrRetry": "重试失败页面",
+      "ocrRetryStarted": "正在重试失败页面…",
+      "ocrRetryFailed": "无法重试 OCR 页面"
     },
     "queryFile": {
-      "action": "归档",
+      "action": "文件",
       "applied": "提交至知识空间",
-      "apply": "应用",
-      "applyFailed": "无法应用归档",
-      "description": "写入前先创建一个可审阅的 diff。",
-      "empty": "选择这个答案要归档到哪里。",
+      "apply": "申请",
+      "applyFailed": "无法申请备案",
+      "description": "在写作之前创建一个审查差异。",
+      "empty": "选择这个答案应该落在哪里。",
       "errorDetail": "详细信息：{{error}}",
       "generateFailed": "无法创建归档提案",
-      "reject": "忽略",
-      "rejected": "已丢弃归档",
-      "rejectFailed": "无法丢弃归档",
-      "review": "预览",
+      "reject": "拒绝",
+      "rejected": "归档被放弃",
+      "rejectFailed": "无法放弃归档",
+      "review": "评论",
       "title": "归档答案",
       "titlePlaceholder": "标题",
       "mode": {

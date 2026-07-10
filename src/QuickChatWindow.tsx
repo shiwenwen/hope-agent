@@ -220,6 +220,11 @@ export default function QuickChatWindow() {
             onRemoveFile={(i) =>
               stream.setAttachedFiles((prev) => prev.filter((_, idx) => idx !== i))
             }
+            onUpdateFile={(index, file) =>
+              stream.setAttachedFiles((prev) =>
+                prev.map((existing, idx) => (idx === index ? file : existing)),
+              )
+            }
             pendingMessage={stream.pendingMessage}
             onCancelPending={() => stream.setPendingMessage(null)}
             onStop={stream.handleStop}

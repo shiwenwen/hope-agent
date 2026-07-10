@@ -295,42 +295,28 @@ async fn query_review_agent(
 ) -> Result<String> {
     let timeout = Duration::from_secs(cfg.timeout_secs);
 
-    // Precedence: explicit `review_model` override > main agent's cached
-    // prefix > recap's analysis agent fallback. The override path
-    // intentionally skips main_agent so users pinning a cheap model for
-    // review aren't double-charged via the main chat's cache.
-    if let Some(model_ref) = cfg
-        .review_model
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        let built = match build_review_agent_from_model_ref(model_ref).await {
-            Ok(opt) => opt,
-            Err(e) => {
-                app_warn!(
-                    "skills",
-                    "auto_review",
-                    "review_model '{}' build failed; falling back: {}",
-                    model_ref,
-                    e
-                );
-                None
-            }
-        };
-        if let Some(agent) = built {
-            let fut = agent.side_query(instruction, 4096);
-            let res = tokio::time::timeout(timeout, fut)
-                .await
-                .map_err(|_| anyhow::anyhow!("review side_query timed out (override agent)"))??;
-            return Ok(res.text);
-        }
-        app_warn!(
-            "skills",
-            "auto_review",
-            "review_model '{}' not found in providers; falling back",
-            model_ref
-        );
+    // Precedence: explicit override (`model_override`, or the deprecated
+    // `review_model` string) > main agent's cached prefix > automation
+    // default > chat default. The override path intentionally skips
+    // main_agent so users pinning a cheap model for review aren't
+    // double-charged via the main chat's cache.
+    let override_chain = cfg.model_override.clone().or_else(|| {
+        cfg.review_model
+            .as_deref()
+            .and_then(crate::automation::parse_legacy_model_string)
+    });
+    if let Some(chain) = override_chain {
+        let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+            purpose: "skills.auto_review",
+            chain: chain.into_vec(),
+            session_key: "automation:skills_auto_review",
+            instruction,
+            max_tokens: 4096,
+        });
+        let res = tokio::time::timeout(timeout, fut)
+            .await
+            .map_err(|_| anyhow::anyhow!("review side_query timed out (override model)"))??;
+        return Ok(res.text);
     }
 
     if let Some(agent) = main_agent {
@@ -342,31 +328,18 @@ async fn query_review_agent(
     }
 
     let config = cached_config();
-    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&config)
-        .await
-        .context("build fallback analysis agent for auto-review")?;
-    let fut = agent.side_query(instruction, 4096);
+    let chain = crate::automation::effective_chain(&config, None);
+    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+        purpose: "skills.auto_review",
+        chain,
+        session_key: "automation:skills_auto_review",
+        instruction,
+        max_tokens: 4096,
+    });
     let res = tokio::time::timeout(timeout, fut)
         .await
-        .map_err(|_| anyhow::anyhow!("review side_query timed out (fallback agent)"))??;
+        .map_err(|_| anyhow::anyhow!("review side_query timed out (fallback)"))??;
     Ok(res.text)
-}
-
-/// Parse a `providerId:modelId` override (e.g. `"anthropic:claude-haiku-4-5"`)
-/// and build a fresh `AssistantAgent` for it. Returns `None` when the
-/// provider / model isn't configured; callers fall back to the usual chain.
-async fn build_review_agent_from_model_ref(model_ref: &str) -> Result<Option<AssistantAgent>> {
-    let Some((provider_id, model_id)) = model_ref.split_once(':') else {
-        return Ok(None);
-    };
-    let config = cached_config();
-    let Some(prov) = crate::provider::find_provider(&config.providers, provider_id.trim()) else {
-        return Ok(None);
-    };
-    let agent = AssistantAgent::try_new_from_provider(prov, model_id.trim())
-        .await?
-        .with_failover_context(prov);
-    Ok(Some(agent))
 }
 
 fn parse_review_response(text: &str) -> Result<ReviewDecision> {

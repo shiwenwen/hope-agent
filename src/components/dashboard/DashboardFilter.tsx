@@ -28,6 +28,19 @@ interface Provider {
 }
 
 type RangeKey = "today" | "7d" | "30d" | "90d" | "all" | "custom"
+const USAGE_KIND_VALUES = [
+  "__all__",
+  "chat",
+  "side_query",
+  "embedding",
+  "stt",
+  "judge",
+  "summarize",
+  "web_search",
+  "image_generation",
+  "provider_test",
+  "vision",
+] as const
 
 function computeDateRange(key: RangeKey): { start: string | null; end: string | null } {
   if (key === "all") return { start: null, end: null }
@@ -113,12 +126,19 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       agentId: null,
       providerId: null,
       modelId: null,
+      usageKind: null,
+      operation: null,
     })
   }, [onChange])
 
   const hasActiveFilters = useMemo(
-    () => filter.agentId || filter.providerId || filter.modelId,
-    [filter.agentId, filter.providerId, filter.modelId],
+    () =>
+      filter.agentId ||
+      filter.providerId ||
+      filter.modelId ||
+      filter.usageKind ||
+      filter.operation,
+    [filter.agentId, filter.providerId, filter.modelId, filter.usageKind, filter.operation],
   )
   const selectedAgent = agents.find((a) => a.id === filter.agentId)
 
@@ -208,6 +228,26 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
         </SelectContent>
       </Select>
 
+      <Select
+        value={filter.usageKind ?? "__all__"}
+        onValueChange={(v) =>
+          onChange({ ...filter, usageKind: v === "__all__" ? null : v })
+        }
+      >
+        <SelectTrigger className="h-7 w-40 text-xs">
+          <SelectValue placeholder={t("dashboard.usageKind.all")} />
+        </SelectTrigger>
+        <SelectContent>
+          {USAGE_KIND_VALUES.map((value) => (
+            <SelectItem key={value} value={value}>
+              {value === "__all__"
+                ? t("dashboard.usageKind.all")
+                : t(`dashboard.usageKind.${value}`, value)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
       {/* Active model filter indicator */}
       {filter.modelId && (
         <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
@@ -215,6 +255,22 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
           <span className="font-medium">{filter.modelId}</span>
           <button
             onClick={() => onChange({ ...filter, modelId: null })}
+            className="ml-1 hover:text-foreground text-muted-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Active operation (purpose tag) filter indicator — drill-down only,
+          no dropdown; set by clicking a row in the Tokens tab's operation
+          table. */}
+      {filter.operation && (
+        <div className="flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-xs">
+          <span className="text-muted-foreground">{t("dashboard.token.operation")}:</span>
+          <span className="font-mono font-medium">{filter.operation}</span>
+          <button
+            onClick={() => onChange({ ...filter, operation: null })}
             className="ml-1 hover:text-foreground text-muted-foreground"
           >
             <X className="h-3 w-3" />

@@ -106,6 +106,7 @@ import { resolveWorkspaceTaskExecutionState } from "./workspace/taskExecutionSta
 import { messagesHaveFileActivity } from "./workspace/useSessionFileChanges"
 import { messagesHaveUrlActivity } from "./workspace/useSessionUrlSources"
 import { messagesHaveKnowledgeActivity } from "./workspace/useSessionKnowledge"
+import { messagesHaveBrowserActivity } from "./workspace/useSessionBrowserActivity"
 import SubagentSessionDialog from "./SubagentSessionDialog"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
@@ -154,6 +155,13 @@ export interface ChatInsert {
   token: string
   attachKbId?: string
 }
+
+type SwitchSessionOptions = { targetMessageId?: number; highlightTerms?: string[] }
+
+type IncognitoLeaveIntent =
+  | { type: "switchSession"; sessionId: string; opts?: SwitchSessionOptions }
+  | { type: "newChat"; agentId: string; opts?: { incognito?: boolean } }
+  | { type: "newProjectChat"; projectId: string; defaultAgentId?: string | null }
 
 interface ChatScreenProps {
   onOpenAgentSettings?: (agentId: string) => void
@@ -702,6 +710,7 @@ export default function ChatScreen({
     reorderProjects,
     moveSessionToProject,
     reloadProjects,
+    initialLoading: projectsInitialLoading,
   } = useProjects({
     includeArchived: true,
     activeSessionIdRef: activeSessionIdForProjectsRef,
@@ -766,69 +775,26 @@ export default function ChatScreen({
   const displayMode = defaultDisplayMode
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
-  const handleSwitchSession = session.handleSwitchSession
+  const rawHandleSwitchSession = session.handleSwitchSession
   const lastExternalChatFocusNonceRef = useRef<number | null>(null)
   const latestMessagesRef = useRef<Message[]>(session.messages)
+  const incognitoComposerStateRef = useRef({
+    input: "",
+    attachedFileCount: 0,
+    pendingQuoteCount: 0,
+    pendingMessage: "",
+    pendingSendCount: 0,
+  })
+  const clearDisposableIncognitoDraftRef = useRef<() => void>(() => {})
+  const confirmedIncognitoLeaveSessionIdsRef = useRef<Set<string>>(new Set())
   const [quickPrompts, setQuickPrompts] = useState<QuickPromptItem[]>([])
+  const [incognitoLeaveIntent, setIncognitoLeaveIntent] = useState<IncognitoLeaveIntent | null>(
+    null,
+  )
 
   useEffect(() => {
     latestMessagesRef.current = session.messages
   }, [session.messages])
-
-  useEffect(() => {
-    if (!externalChatFocus) return
-    if (lastExternalChatFocusNonceRef.current === externalChatFocus.nonce) return
-    lastExternalChatFocusNonceRef.current = externalChatFocus.nonce
-    ;(async () => {
-      try {
-        await reloadSessions()
-        const sourceSession = await getTransport().call<SessionMeta | null>("get_session_cmd", {
-          sessionId: externalChatFocus.sessionId,
-        })
-        if (!sourceSession) {
-          const failureToast = chatFocusMissingSessionToast(t)
-          toast.error(
-            failureToast.title,
-            failureToast.description ? { description: failureToast.description } : undefined,
-          )
-          onExternalChatFocusHandled?.(externalChatFocus.nonce)
-          return
-        }
-        if (externalChatFocus.targetMessageId !== undefined) {
-          const [messages] = await getTransport().call<
-            [SessionMessage[], number, boolean, boolean]
-          >("load_session_messages_around_cmd", {
-            sessionId: externalChatFocus.sessionId,
-            targetMessageId: externalChatFocus.targetMessageId,
-            before: 1,
-            after: 1,
-          })
-          if (!messages.some((message) => message.id === externalChatFocus.targetMessageId)) {
-            const failureToast = chatFocusMissingMessageToast(t)
-            toast.error(
-              failureToast.title,
-              failureToast.description ? { description: failureToast.description } : undefined,
-            )
-            await handleSwitchSession(externalChatFocus.sessionId)
-            onExternalChatFocusHandled?.(externalChatFocus.nonce)
-            return
-          }
-        }
-        await handleSwitchSession(externalChatFocus.sessionId, {
-          targetMessageId: externalChatFocus.targetMessageId,
-        })
-        onExternalChatFocusHandled?.(externalChatFocus.nonce)
-      } catch (error) {
-        logger.warn("chat", "ChatScreen::externalChatFocus", "Failed to open source chat", error)
-        const failureToast = chatFocusLoadErrorToast(t, error)
-        toast.error(
-          failureToast.title,
-          failureToast.description ? { description: failureToast.description } : undefined,
-        )
-        onExternalChatFocusHandled?.(externalChatFocus.nonce)
-      }
-    })()
-  }, [externalChatFocus, handleSwitchSession, onExternalChatFocusHandled, reloadSessions, t])
 
   const inputHistory = useMemo(() => recentUserInputHistory(session.messages), [session.messages])
 
@@ -914,12 +880,38 @@ export default function ChatScreen({
     [handleEffortChange, session.currentAgentId, session.currentSessionId, updateSessionMeta],
   )
 
+  const hasDisposableIncognitoContent = useCallback(() => {
+    const composer = incognitoComposerStateRef.current
+    return (
+      session.loading ||
+      session.messages.length > 0 ||
+      composer.input.trim().length > 0 ||
+      composer.pendingMessage.trim().length > 0 ||
+      composer.attachedFileCount > 0 ||
+      composer.pendingQuoteCount > 0 ||
+      composer.pendingSendCount > 0
+    )
+  }, [session.loading, session.messages.length])
+
+  const requestIncognitoLeaveConfirmation = useCallback(
+    (intent: IncognitoLeaveIntent) => {
+      if (!incognitoEnabled || !hasDisposableIncognitoContent()) return false
+      const sessionId = session.currentSessionId
+      if (sessionId && confirmedIncognitoLeaveSessionIdsRef.current.has(sessionId)) {
+        return false
+      }
+      setIncognitoLeaveIntent(intent)
+      return true
+    },
+    [hasDisposableIncognitoContent, incognitoEnabled, session.currentSessionId],
+  )
+
   // Enter a project draft (lazy project session): no DB row yet — resolve the
   // project's agent for display, reset draft state, and remember `draftProjectId`.
   // The session materializes inside the project on first send via the `chat`
   // command's `projectId`. Project + incognito are mutually exclusive, so
   // incognito is forced off here (and coerced server-side).
-  const handleNewChatInProject = useCallback(
+  const startNewChatInProjectNow = useCallback(
     async (projectId: string, defaultAgentId?: string | null) => {
       const project = projects.find((p) => p.id === projectId)
       let agentId = (defaultAgentId && defaultAgentId.trim()) || project?.defaultAgentId || null
@@ -938,7 +930,7 @@ export default function ChatScreen({
     [projects, handleNewChat],
   )
 
-  const handleStartNewChat = useCallback(
+  const startNewChatNow = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
       setDraftIncognito(opts?.incognito ?? false)
       setDraftKbAttachments([])
@@ -950,6 +942,125 @@ export default function ChatScreen({
       await handleNewChat(agentId)
     },
     [handleNewChat],
+  )
+
+  const runIncognitoLeaveIntent = useCallback(
+    async (intent: IncognitoLeaveIntent) => {
+      switch (intent.type) {
+        case "switchSession":
+          await rawHandleSwitchSession(intent.sessionId, intent.opts)
+          break
+        case "newChat":
+          await startNewChatNow(intent.agentId, intent.opts)
+          break
+        case "newProjectChat":
+          await startNewChatInProjectNow(intent.projectId, intent.defaultAgentId)
+          break
+      }
+    },
+    [rawHandleSwitchSession, startNewChatInProjectNow, startNewChatNow],
+  )
+
+  const handleConfirmIncognitoLeave = useCallback(() => {
+    const intent = incognitoLeaveIntent
+    if (!intent) return
+    const sessionId = session.currentSessionId
+    clearDisposableIncognitoDraftRef.current()
+    if (sessionId) confirmedIncognitoLeaveSessionIdsRef.current.add(sessionId)
+    setIncognitoLeaveIntent(null)
+    void runIncognitoLeaveIntent(intent)
+  }, [incognitoLeaveIntent, runIncognitoLeaveIntent, session.currentSessionId])
+
+  const handleSwitchSession = useCallback(
+    async (sessionId: string, opts?: SwitchSessionOptions) => {
+      if (!sessionId) return
+      if (sessionId === session.currentSessionId) {
+        await rawHandleSwitchSession(sessionId, opts)
+        return
+      }
+      if (requestIncognitoLeaveConfirmation({ type: "switchSession", sessionId, opts })) return
+      await rawHandleSwitchSession(sessionId, opts)
+    },
+    [rawHandleSwitchSession, requestIncognitoLeaveConfirmation, session.currentSessionId],
+  )
+
+  useEffect(() => {
+    if (!externalChatFocus) return
+    if (lastExternalChatFocusNonceRef.current === externalChatFocus.nonce) return
+    lastExternalChatFocusNonceRef.current = externalChatFocus.nonce
+    ;(async () => {
+      try {
+        await reloadSessions()
+        const sourceSession = await getTransport().call<SessionMeta | null>("get_session_cmd", {
+          sessionId: externalChatFocus.sessionId,
+        })
+        if (!sourceSession) {
+          const failureToast = chatFocusMissingSessionToast(t)
+          toast.error(
+            failureToast.title,
+            failureToast.description ? { description: failureToast.description } : undefined,
+          )
+          onExternalChatFocusHandled?.(externalChatFocus.nonce)
+          return
+        }
+        if (externalChatFocus.targetMessageId !== undefined) {
+          const [messages] = await getTransport().call<
+            [SessionMessage[], number, boolean, boolean]
+          >("load_session_messages_around_cmd", {
+            sessionId: externalChatFocus.sessionId,
+            targetMessageId: externalChatFocus.targetMessageId,
+            before: 1,
+            after: 1,
+          })
+          if (!messages.some((message) => message.id === externalChatFocus.targetMessageId)) {
+            const failureToast = chatFocusMissingMessageToast(t)
+            toast.error(
+              failureToast.title,
+              failureToast.description ? { description: failureToast.description } : undefined,
+            )
+            await handleSwitchSession(externalChatFocus.sessionId)
+            onExternalChatFocusHandled?.(externalChatFocus.nonce)
+            return
+          }
+        }
+        await handleSwitchSession(externalChatFocus.sessionId, {
+          targetMessageId: externalChatFocus.targetMessageId,
+        })
+        onExternalChatFocusHandled?.(externalChatFocus.nonce)
+      } catch (error) {
+        logger.warn("chat", "ChatScreen::externalChatFocus", "Failed to open source chat", error)
+        const failureToast = chatFocusLoadErrorToast(t, error)
+        toast.error(
+          failureToast.title,
+          failureToast.description ? { description: failureToast.description } : undefined,
+        )
+        onExternalChatFocusHandled?.(externalChatFocus.nonce)
+      }
+    })()
+  }, [externalChatFocus, handleSwitchSession, onExternalChatFocusHandled, reloadSessions, t])
+
+  const handleNewChatInProject = useCallback(
+    async (projectId: string, defaultAgentId?: string | null) => {
+      if (
+        requestIncognitoLeaveConfirmation({
+          type: "newProjectChat",
+          projectId,
+          defaultAgentId,
+        })
+      ) {
+        return
+      }
+      await startNewChatInProjectNow(projectId, defaultAgentId)
+    },
+    [requestIncognitoLeaveConfirmation, startNewChatInProjectNow],
+  )
+
+  const handleStartNewChat = useCallback(
+    async (agentId: string, opts?: { incognito?: boolean }) => {
+      if (requestIncognitoLeaveConfirmation({ type: "newChat", agentId, opts })) return
+      await startNewChatNow(agentId, opts)
+    },
+    [requestIncognitoLeaveConfirmation, startNewChatNow],
   )
 
   const handleStartNewChatFromCurrentContext = useCallback(async () => {
@@ -1580,6 +1691,33 @@ export default function ChatScreen({
   })
 
   useEffect(() => {
+    incognitoComposerStateRef.current = {
+      input: stream.input,
+      attachedFileCount: stream.attachedFiles.length,
+      pendingQuoteCount: stream.pendingQuotes.length,
+      pendingMessage: stream.pendingMessage ?? "",
+      pendingSendCount: stream.pendingSends.length,
+    }
+  }, [
+    stream.attachedFiles.length,
+    stream.input,
+    stream.pendingMessage,
+    stream.pendingQuotes.length,
+    stream.pendingSends.length,
+  ])
+
+  useLayoutEffect(() => {
+    clearDisposableIncognitoDraftRef.current = () => {
+      stream.setInput("")
+      stream.setAttachedFiles([])
+      stream.setPendingQuotes([])
+      for (const pending of stream.pendingSends) {
+        stream.discardPendingSend(pending.id)
+      }
+    }
+  }, [stream])
+
+  useEffect(() => {
     return getTransport().listen("permission:mode_changed", (payload) => {
       const data = payload as { sessionId?: unknown; mode?: unknown }
       if (typeof data.sessionId !== "string" || !isSessionMode(data.mode)) return
@@ -1897,7 +2035,7 @@ export default function ChatScreen({
           handleSessionEffortChange(action.effort)
           break
         case "switchAgent":
-          if (action.sessionId) session.handleSwitchSession(action.sessionId)
+          if (action.sessionId) void handleSwitchSession(action.sessionId)
           break
         case "stopStream":
           stream.handleStop()
@@ -2055,7 +2193,7 @@ export default function ChatScreen({
           // Desktop has no chat-to-session binding; both reduce to "switch
           // to that session". Reuse the sidebar's switch path so history /
           // pagination / agent restore behave identically.
-          void session.handleSwitchSession(action.sessionId)
+          void handleSwitchSession(action.sessionId)
           break
         }
         case "detachFromSession": {
@@ -2142,6 +2280,7 @@ export default function ChatScreen({
       planMode,
       loadSystemPrompt,
       handleNewChatInProject,
+      handleSwitchSession,
       refreshUnreadState,
       onOpenDashboardTab,
       runCompactContextForCurrentSession,
@@ -2321,6 +2460,12 @@ export default function ChatScreen({
     workspacePanelDismissedRef.current = false
     setShowWorkspacePanel(true)
     showRightPanelByUser("workspace")
+  }, [showRightPanelByUser])
+
+  const openBrowserPanel = useCallback(() => {
+    browserPanelDismissedRef.current = false
+    setShowBrowserPanel(true)
+    showRightPanelByUser("browser")
   }, [showRightPanelByUser])
 
   const openBackgroundJobsPanel = useCallback(
@@ -2506,7 +2651,9 @@ export default function ChatScreen({
   // Auto-open the BrowserPanel only on the first `browser:frame` of a session
   // and only if the user hasn't already dismissed it.
   useEffect(() => {
-    const unlisten = getTransport().listen("browser:frame", () => {
+    const unlisten = getTransport().listen("browser:frame", (raw) => {
+      const payload = parsePayload<{ sessionId?: string | null }>(raw)
+      if (payload?.sessionId && payload.sessionId !== session.currentSessionId) return
       if (browserPanelDismissedRef.current) return
       setShowBrowserPanel((prev) => (prev ? prev : true))
     })
@@ -2517,7 +2664,7 @@ export default function ChatScreen({
         // ignore
       }
     }
-  }, [])
+  }, [session.currentSessionId])
 
   useEffect(() => {
     const unlisten = getTransport().listen("browser:extension_required", (raw) => {
@@ -2573,6 +2720,7 @@ export default function ChatScreen({
     (taskProgressSnapshot?.total ?? 0) > 0 ||
     messagesHaveFileActivity(session.messages) ||
     messagesHaveUrlActivity(session.messages) ||
+    messagesHaveBrowserActivity(session.messages) ||
     messagesHaveKnowledgeActivity(session.messages)
   // 依赖里带 currentSessionId：切到「已有内容」的旧会话时 hasWorkspaceContent 不发生
   // false→true 跳变，靠 session 变化触发本 effect 重跑(配合 session-reset 复位
@@ -2623,6 +2771,7 @@ export default function ChatScreen({
 
   const emptySessionInputHero =
     session.messages.length === 0 &&
+    !session.historyLoading &&
     !session.loading &&
     !planMode.pendingQuestionGroup &&
     !planMode.planCardInfo &&
@@ -2641,13 +2790,15 @@ export default function ChatScreen({
         sessions={session.sessions}
         agents={session.agents}
         projects={projects}
+        projectsLoading={projectsInitialLoading}
         currentSessionId={session.currentSessionId}
         loadingSessionIds={session.loadingSessionIds}
+        sessionsLoading={session.sessionsLoading}
         panelWidth={panelWidth}
         sidebarCollapsed={sidebarCollapsed}
         onPanelWidthChange={setPanelWidth}
         onSidebarCollapsedChange={handleSidebarCollapsedChange}
-        onSwitchSession={session.handleSwitchSession}
+        onSwitchSession={handleSwitchSession}
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
@@ -2705,7 +2856,7 @@ export default function ChatScreen({
         onNewSessionInProject={(projectId, defaultAgentId) => {
           void handleNewChatInProject(projectId, defaultAgentId)
         }}
-        onOpenSession={(sid) => session.handleSwitchSession(sid)}
+        onOpenSession={(sid) => void handleSwitchSession(sid)}
         onUpdateProject={updateProject}
       />
 
@@ -2727,6 +2878,45 @@ export default function ChatScreen({
               disabled={deletingProject}
             >
               {deletingProject ? t("common.saving") : t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Incognito leave confirmation */}
+      <AlertDialog
+        open={!!incognitoLeaveIntent}
+        onOpenChange={(open) => {
+          if (!open) setIncognitoLeaveIntent(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("chat.incognitoLeaveConfirmTitle", {
+                defaultValue: "Leave incognito chat?",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("chat.incognitoLeaveConfirmBody", {
+                defaultValue:
+                  "After you leave, this chat will be deleted from this device and can't be restored from history.",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("chat.incognitoLeaveConfirmCancel", {
+                defaultValue: "Stay here",
+              })}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmIncognitoLeave}
+            >
+              {t("chat.incognitoLeaveConfirmAction", {
+                defaultValue: "Delete and leave",
+              })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2867,6 +3057,7 @@ export default function ChatScreen({
             <FileActionsContext.Provider value={fileActionsValue}>
               <MessageList
                 messages={session.messages}
+                historyLoading={session.historyLoading}
                 loading={session.loading}
                 executionState={
                   session.currentSessionId
@@ -2997,6 +3188,7 @@ export default function ChatScreen({
                       inputHistory={inputHistory}
                       quickPrompts={quickPrompts}
                       onSend={() => stream.handleSend()}
+                      sendDisabled={session.historyLoading}
                       loading={session.loading}
                       availableModels={availableModels}
                       activeModel={activeModel}
@@ -3009,6 +3201,11 @@ export default function ChatScreen({
                       }
                       onRemoveFile={(index) =>
                         stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+                      }
+                      onUpdateFile={(index, file) =>
+                        stream.setAttachedFiles((prev) =>
+                          prev.map((existing, i) => (i === index ? file : existing)),
+                        )
                       }
                       pendingQuotes={stream.pendingQuotes}
                       onRemoveQuote={(index) => {
@@ -3169,6 +3366,7 @@ export default function ChatScreen({
               close-only by user, then switchable from the title bar. */}
           {shouldRenderRightPanelContent && renderedExclusiveRightPanel === "browser" && (
             <BrowserPanel
+              sessionId={session.currentSessionId}
               panelWidth={rightPanelWidth}
               onPanelWidthChange={setRightPanelWidth}
               collapsed={rightPanelCollapsed}
@@ -3255,6 +3453,7 @@ export default function ChatScreen({
                 backgroundJobExpansionOverrides={backgroundJobExpansionOverrides}
                 onBackgroundJobExpandedChange={handleBackgroundJobExpandedChange}
                 onOpenBackgroundJobs={openBackgroundJobsPanel}
+                onOpenBrowserPanel={openBrowserPanel}
                 onViewSubagentSession={setSubagentPreviewSessionId}
                 onClose={() => {
                   workspacePanelDismissedRef.current = true

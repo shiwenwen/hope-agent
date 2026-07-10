@@ -154,6 +154,8 @@ Current conversation's latest user message:
 - 连续 3 次失败后清空旧 digest，避免 stale 信息持续注入
 - `digest_consecutive_failures` 计数器，成功时归零
 
+**模型解析**：`llmExtraction.modelOverride`（`ModelChain`）为 `None`（新字段默认值，即所有现存配置的状态）时复用当前 chat agent 的 `self.side_query(...)`，享受与主对话共享的 prompt cache 前缀；设置后改走 `crate::automation::run`（purpose `awareness.extraction`），换取独立/更便宜模型的能力，代价是放弃这份 cache 共享——用户主动选择的权衡，非免费升级。取代了原先读了但从未真正切换 agent 的 `extraction_agent`、以及全仓库零消费点的 `extraction_model` 两个死字段（已删除，不保留兼容读取）。详见 [模型 vs Agent 统一配置](automation-model.md)。
+
 ---
 
 ## 渲染格式（render.rs）
@@ -218,8 +220,7 @@ interface AwarenessConfig {
   semanticHintRegex: string  // 可自定义
   refreshOnCompaction: boolean // 默认 true
   llmExtraction: {
-    extractionAgent: string | null
-    extractionModel: { providerId, model } | null
+    modelOverride: ModelChain | null  // null（默认）= 复用当前 chat agent 的 side_query（cache-friendly）；设置后走 crate::automation::run（purpose "awareness.extraction"），见 automation-model.md
     minIntervalSecs: number  // 默认 300
     maxCandidates: number    // 默认 5
     digestMaxChars: number   // 默认 1200
@@ -318,7 +319,5 @@ Tauri 命令：`get_awareness_config` / `save_awareness_config` / `get_session_a
 
 ## 已知限制
 
-- `extraction_agent` 配置存在但暂不切换 provider，目前使用当前会话的 agent 跑 side_query（差异时 log 提示）
-- `extraction_model` 配置预留但未接线
 - 会话级覆盖 UI 仅支持 enable/disable + mode，高级字段需通过 API 或 `/awareness` 命令
 - 语义 hint 正则编译失败时 silently return false（每次重试编译，直到用户修复正则）

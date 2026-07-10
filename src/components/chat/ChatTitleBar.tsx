@@ -10,10 +10,10 @@ import {
   Copy,
   BarChart3,
   Pencil,
-  Zap,
   Check,
   X,
   FileText,
+  Folder,
   FolderCheck,
   FolderOpen,
   Layers,
@@ -47,8 +47,14 @@ import {
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./input/IncognitoToggle"
 import { logger } from "@/lib/logger"
+import { getTransport } from "@/lib/transport-provider"
 import AgentSwitcher from "./AgentSwitcher"
-import ProjectIcon from "./project/ProjectIcon"
+import { PROJECT_TEXT_COLOR_MAP } from "./project/colors"
+import {
+  DEFAULT_SIDEBAR_DISPLAY_MODE,
+  normalizeSidebarDisplayMode,
+  type SidebarDisplayMode,
+} from "./sidebar/types"
 import type {
   Message,
   AvailableModel,
@@ -211,10 +217,16 @@ export default function ChatTitleBar({
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleValue, setTitleValue] = useState("")
   const [exportOpen, setExportOpen] = useState(false)
+  const [sidebarDisplayMode, setSidebarDisplayMode] = useState<SidebarDisplayMode>(
+    DEFAULT_SIDEBAR_DISPLAY_MODE,
+  )
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   const currentSession = currentSessionId ? sessions.find((s) => s.id === currentSessionId) : null
   const sessionTitle = currentSession?.title || ""
+  const compactTitleAgent = sidebarDisplayMode === "compact"
+  const projectFolderColorClass =
+    (project?.color && PROJECT_TEXT_COLOR_MAP[project.color]) || "text-muted-foreground/70"
 
   const startEditTitle = useCallback(() => {
     setTitleValue(sessionTitle || t("chat.newChat") || "")
@@ -251,6 +263,33 @@ export default function ChatTitleBar({
   useEffect(() => {
     return () => {
       if (sessionIdCopiedTimer.current) clearTimeout(sessionIdCopiedTimer.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<string>("get_sidebar_display_mode")
+      .then((mode) => {
+        if (!cancelled) setSidebarDisplayMode(normalizeSidebarDisplayMode(mode))
+      })
+      .catch((err) => {
+        logger.error(
+          "ui",
+          "ChatTitleBar::loadSidebarDisplayMode",
+          "Failed to load sidebar display mode",
+          err,
+        )
+      })
+
+    const handleModeChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ mode?: unknown }>).detail
+      setSidebarDisplayMode(normalizeSidebarDisplayMode(detail?.mode))
+    }
+    window.addEventListener("sidebar-display-mode-changed", handleModeChanged)
+    return () => {
+      cancelled = true
+      window.removeEventListener("sidebar-display-mode-changed", handleModeChanged)
     }
   }, [])
 
@@ -299,6 +338,7 @@ export default function ChatTitleBar({
       </span>
     </IconTip>
   ) : null
+  const shouldShowWorkingDirChip = !project || workingDirSource === "session"
   const rightPanelControls = hasRightPanelControls ? (
     <div className="ml-1 flex items-center gap-0.5 border-l border-border-soft pl-1">
       {onToggleFilesPanel && (
@@ -431,10 +471,9 @@ export default function ChatTitleBar({
                 className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
                 title={project.description ?? project.name}
               >
-                <ProjectIcon project={project} size="xs" />
+                <Folder className={cn("h-3.5 w-3.5 shrink-0", projectFolderColorClass)} />
                 <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
               </button>
-              {workingDirChip}
             </div>
             <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
           </>
@@ -443,6 +482,7 @@ export default function ChatTitleBar({
           agents={agents}
           currentAgentId={currentAgentId}
           agentName={agentName || t("chat.mainAgent")}
+          compactLabel={compactTitleAgent}
           // Allow switching only before any messages exist — system prompt
           // and history are pinned to the agent once a message is sent.
           disabled={messages.length > 0 || !onChangeAgent}
@@ -491,11 +531,11 @@ export default function ChatTitleBar({
             )}
             {currentSession?.incognito && (
               <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
-                <Ghost className="h-3 w-3" />
+                <Ghost className="h-3 w-3" strokeWidth={1.75} />
                 {t("chat.incognito")}
               </span>
             )}
-            {!project && workingDirChip}
+            {shouldShowWorkingDirChip && workingDirChip}
           </>
         )}
       </div>
@@ -524,57 +564,6 @@ export default function ChatTitleBar({
               <Search className="h-4 w-4" />
             </button>
           </IconTip>
-        )}
-        {/* Compact Context Button */}
-        {currentSessionId && (
-          <div className="relative">
-            <IconTip label={t("chat.compactNow")}>
-              <button
-                className={cn(
-                  "pb-1.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50",
-                  compacting && "text-foreground",
-                )}
-                disabled={compacting || loading}
-                onClick={async () => {
-                  if (!currentSessionId) return
-                  try {
-                    const result = await onCompactContext?.()
-                    if (!result) return
-                    const msg = compactResultMessage(t, result)
-                    if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                    setCompactToast({ success: true, message: msg })
-                    compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
-                  } catch (e) {
-                    logger.error("ui", "ChatTitleBar::compact", "Compact failed", e)
-                    if (compactToastTimer.current) clearTimeout(compactToastTimer.current)
-                    setCompactToast({ success: false, message: t("chat.compactFailed") })
-                    compactToastTimer.current = setTimeout(() => setCompactToast(null), 3000)
-                  }
-                }}
-              >
-                <Zap className={cn("h-4 w-4 pointer-events-none", compacting && "animate-pulse")} />
-              </button>
-            </IconTip>
-            {compactToast && (
-              <div
-                className={cn(
-                  "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
-                  compactToast.success
-                    ? "border-border bg-popover text-popover-foreground"
-                    : "border-destructive/30 bg-destructive/10 text-destructive",
-                )}
-              >
-                <div className="flex items-center gap-1.5">
-                  {compactToast.success ? (
-                    <Check className="h-3 w-3 text-green-500" />
-                  ) : (
-                    <X className="h-3 w-3" />
-                  )}
-                  {compactToast.message}
-                </div>
-              </div>
-            )}
-          </div>
         )}
         {/* Session Status Button */}
         <div className="relative" ref={statusRef}>
@@ -843,6 +832,25 @@ export default function ChatTitleBar({
               )}
             </div>
           </FloatingMenu>
+          {compactToast && (
+            <div
+              className={cn(
+                "absolute top-full right-0 mt-1.5 z-50 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs shadow-lg animate-in fade-in slide-in-from-top-1 duration-200",
+                compactToast.success
+                  ? "border-border bg-popover text-popover-foreground"
+                  : "border-destructive/30 bg-destructive/10 text-destructive",
+              )}
+            >
+              <div className="flex items-center gap-1.5">
+                {compactToast.success ? (
+                  <Check className="h-3 w-3 text-green-500" />
+                ) : (
+                  <X className="h-3 w-3" />
+                )}
+                {compactToast.message}
+              </div>
+            </div>
+          )}
         </div>
         {/* Export Button — open the export-conversation dialog. */}
         {currentSessionId && (

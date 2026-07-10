@@ -7,7 +7,7 @@
 use anyhow::{Context, Result};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
 use crate::agent::Attachment;
@@ -16,6 +16,7 @@ use crate::paths;
 /// Pseudo-session id for pre-session attachments (uploads that predate a
 /// chat session). Maps to `~/.hope-agent/attachments/_temp/`.
 pub const TEMP_SESSION_ID: &str = "_temp";
+pub const PASTED_TEXT_SOURCE: &str = "pasted_text";
 
 /// Kind of media item — drives frontend rendering (image preview vs file card).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -159,11 +160,12 @@ pub fn persist_chat_user_attachments_meta(
 
     let mut meta_list = Vec::new();
     for att in attachments.iter_mut() {
-        let source = att.source.as_deref();
+        let source = att.source.clone();
+        let source_ref = source.as_deref();
         // File-browser quotes carry no bytes — persist them as structured quote
         // objects so history can render a friendly reference card (the model
         // already saw a `<file_reference>` via content.rs).
-        if source == Some("quote") {
+        if source_ref == Some("quote") {
             meta_list.push(json!({
                 "kind": "quote",
                 "name": att.name,
@@ -173,7 +175,7 @@ pub fn persist_chat_user_attachments_meta(
             }));
             continue;
         }
-        if !is_user_upload_source(source) {
+        if !is_user_upload_source(source_ref) {
             continue;
         }
         if let Some(ref b64_data) = att.data {
@@ -199,12 +201,12 @@ pub fn persist_chat_user_attachments_meta(
                             let size = std::fs::metadata(&canonical_final_path)
                                 .map(|m| m.len())
                                 .unwrap_or(decoded.len() as u64);
-                            meta_list.push(json!({
-                                "name": att.name,
-                                "mime_type": att.mime_type,
-                                "size": size,
-                                "path": canonical_final_path.to_string_lossy(),
-                            }));
+                            meta_list.push(user_attachment_meta(
+                                att,
+                                size,
+                                &canonical_final_path,
+                                source_ref,
+                            ));
                             continue;
                         }
                     }
@@ -229,12 +231,12 @@ pub fn persist_chat_user_attachments_meta(
                 }
             };
             att.file_path = Some(path.to_string_lossy().to_string());
-            meta_list.push(json!({
-                "name": att.name,
-                "mime_type": att.mime_type,
-                "size": decoded.len(),
-                "path": path.to_string_lossy(),
-            }));
+            meta_list.push(user_attachment_meta(
+                att,
+                decoded.len() as u64,
+                &path,
+                source_ref,
+            ));
             continue;
         }
 
@@ -278,12 +280,12 @@ pub fn persist_chat_user_attachments_meta(
         let size = std::fs::metadata(&canonical_final_path)
             .map(|m| m.len())
             .unwrap_or(0);
-        meta_list.push(json!({
-            "name": att.name,
-            "mime_type": att.mime_type,
-            "size": size,
-            "path": canonical_final_path.to_string_lossy(),
-        }));
+        meta_list.push(user_attachment_meta(
+            att,
+            size,
+            &canonical_final_path,
+            source_ref,
+        ));
     }
 
     if meta_list.is_empty() {
@@ -294,7 +296,20 @@ pub fn persist_chat_user_attachments_meta(
 }
 
 fn is_user_upload_source(source: Option<&str>) -> bool {
-    matches!(source, None | Some("upload"))
+    matches!(source, None | Some("upload") | Some(PASTED_TEXT_SOURCE))
+}
+
+fn user_attachment_meta(att: &Attachment, size: u64, path: &Path, source: Option<&str>) -> Value {
+    let mut meta = json!({
+        "name": &att.name,
+        "mime_type": &att.mime_type,
+        "size": size,
+        "path": path.to_string_lossy(),
+    });
+    if let (Some(source), Some(obj)) = (source, meta.as_object_mut()) {
+        obj.insert("source".to_string(), json!(source));
+    }
+    meta
 }
 
 fn save_bytes_in_dir(att_dir: &Path, file_name: &str, data: &[u8]) -> Result<PathBuf> {

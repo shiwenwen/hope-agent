@@ -1338,7 +1338,7 @@ SkillsPanel 列表中每个技能显示状态标签：
       "discardBlacklistDays": 30,
       // Gate 3 — LLM review
       "topKForDedup": 5,
-      "reviewModel": null,
+      "modelOverride": null,  // ModelChain；空则落 function_models.automation → 主 Agent，见 automation-model.md
       "candidateLimit": 24,
       "timeoutSecs": 90,
       "reviewSystemOverride": null,

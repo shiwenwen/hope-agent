@@ -19,19 +19,10 @@ import { AnimatedCollapse } from "@/components/ui/animated-presence"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
-import {
-  AgentSelectDisplay,
-  INHERIT_AGENT_SENTINEL,
-  InheritAgentSelectDisplay,
-} from "@/components/common/AgentSelectDisplay"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -40,6 +31,8 @@ import type {
   KnowledgeCompileConfig,
   KnowledgeMediaRetentionConfig,
   KnowledgeSearchConfig,
+  KnowledgeVisionConfig,
+  NoteToolsConfig,
   PassiveRecallConfig,
 } from "@/types/knowledge"
 import { KNOWLEDGE_SEARCH_DEFAULTS } from "@/types/knowledge"
@@ -71,17 +64,19 @@ import {
   type KnowledgePanelOperationErrorToast,
 } from "./knowledgePanelFeedback"
 
-interface AgentItem {
-  id: string
-  name: string
-  emoji?: string | null
-  avatar?: string | null
-}
 
 const EMPTY_STATE: EmbeddingSelectionState = {
   selection: { enabled: false, modelConfigId: null, activeSignature: null, lastReembeddedSignature: null },
   currentModel: null,
   needsReembed: false,
+}
+
+const DEFAULT_KNOWLEDGE_VISION_CONFIG: KnowledgeVisionConfig = {
+  modelOverride: null,
+  timeoutSecs: 90,
+  maxTokens: 4096,
+  ocrConcurrency: 3,
+  maxOcrPages: 40,
 }
 
 /**
@@ -220,6 +215,10 @@ export default function KnowledgePanel() {
 
       <CompileAgentSection />
 
+      <KnowledgeVisionSection />
+
+      <NoteToolsSection />
+
       <div className="flex items-center justify-between rounded-lg bg-secondary/30 px-3 py-3">
         <div>
           <div className="text-sm font-medium">{t("settings.knowledgeEmbedding.enabled")}</div>
@@ -304,28 +303,28 @@ export default function KnowledgePanel() {
 
 function CompileAgentSection() {
   const { t } = useTranslation()
-  const [config, setConfig] = useState<KnowledgeCompileConfig>({ agentId: null })
-  const [agents, setAgents] = useState<AgentItem[]>([])
+  const [config, setConfig] = useState<KnowledgeCompileConfig>({ modelOverride: null })
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [loadIssues, setLoadIssues] = useState<KnowledgePanelOperationErrorToast[]>([])
-  const confirmedConfigRef = useRef<KnowledgeCompileConfig>({ agentId: null })
+  const confirmedConfigRef = useRef<KnowledgeCompileConfig>({ modelOverride: null })
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       const issues: KnowledgePanelOperationErrorToast[] = []
-      const [configResult, agentsResult] = await Promise.allSettled([
+      const [configResult, modelsResult] = await Promise.allSettled([
         getTransport().call<KnowledgeCompileConfig>(
           "knowledge_compile_config_get_cmd",
         ),
-        getTransport().call<AgentItem[]>("list_agents"),
+        getTransport().call<AvailableModel[]>("get_available_models"),
       ])
 
       if (cancelled) return
 
       if (configResult.status === "fulfilled") {
-        const loadedConfig = { agentId: configResult.value.agentId?.trim() || null }
+        const loadedConfig = { modelOverride: configResult.value?.modelOverride ?? null }
         confirmedConfigRef.current = loadedConfig
         setConfig(loadedConfig)
       } else {
@@ -340,17 +339,17 @@ function CompileAgentSection() {
         )
       }
 
-      if (agentsResult.status === "fulfilled") {
-        setAgents(agentsResult.value)
+      if (modelsResult.status === "fulfilled") {
+        setAvailableModels(modelsResult.value)
       } else {
         logger.error(
           "settings",
           "KnowledgePanel::compileAgentAgents",
-          "Failed to load agents",
-          agentsResult.reason,
+          "Failed to load models",
+          modelsResult.reason,
         )
         issues.push(
-          knowledgeCompileAgentOperationErrorToast("loadAgents", t, agentsResult.reason),
+          knowledgeCompileAgentOperationErrorToast("loadAgents", t, modelsResult.reason),
         )
       }
 
@@ -363,20 +362,18 @@ function CompileAgentSection() {
     }
   }, [t])
 
-  const handleAgentChange = useCallback(
-    async (value: string) => {
-      const next: KnowledgeCompileConfig = {
-        agentId: value === INHERIT_AGENT_SENTINEL ? null : value,
-      }
+  const handleModelOverrideChange = useCallback(
+    async (next: ModelChainRef | null) => {
+      const nextConfig: KnowledgeCompileConfig = { modelOverride: next }
       const previous = confirmedConfigRef.current
-      setConfig(next)
+      setConfig(nextConfig)
       setSaving(true)
       try {
         const saved = await getTransport().call<KnowledgeCompileConfig>(
           "knowledge_compile_config_set_cmd",
-          { config: next },
+          { config: nextConfig },
         )
-        const savedConfig = { agentId: saved.agentId?.trim() || null }
+        const savedConfig = { modelOverride: saved.modelOverride ?? null }
         confirmedConfigRef.current = savedConfig
         setConfig(savedConfig)
       } catch (e) {
@@ -396,57 +393,21 @@ function CompileAgentSection() {
 
   if (!loaded) return null
 
-  const selectedAgentId = config.agentId?.trim() || null
-  const selectedAgent = selectedAgentId
-    ? agents.find((agent) => agent.id === selectedAgentId)
-    : undefined
-  const selectedAgentExists = selectedAgentId
-    ? agents.some((agent) => agent.id === selectedAgentId)
-    : false
-
   return (
     <div className="rounded-lg bg-secondary/30 px-3 py-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 sm:pr-4">
-          <div className="text-sm font-medium">{t("settings.knowledgeCompile.agent")}</div>
-          <div className="text-xs text-muted-foreground">
-            {t("settings.knowledgeCompile.agentDesc")}
-          </div>
+      <div className="min-w-0 mb-2">
+        <div className="text-sm font-medium">{t("settings.knowledgeCompile.agent")}</div>
+        <div className="text-xs text-muted-foreground">
+          {t("settings.knowledgeCompile.agentDesc")}
         </div>
-        <Select
-          value={selectedAgentId ?? INHERIT_AGENT_SENTINEL}
-          onValueChange={(value) => void handleAgentChange(value)}
-          disabled={saving}
-        >
-          <SelectTrigger className="h-8 w-full overflow-hidden text-sm sm:w-72">
-            <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-              {selectedAgentId ? (
-                <AgentSelectDisplay agent={selectedAgent} fallbackName={selectedAgentId} />
-              ) : (
-                <InheritAgentSelectDisplay label={t("settings.knowledgeCompile.agentDefault")} />
-              )}
-            </div>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem
-              value={INHERIT_AGENT_SENTINEL}
-              textValue={t("settings.knowledgeCompile.agentDefault")}
-            >
-              {t("settings.knowledgeCompile.agentDefault")}
-            </SelectItem>
-            {selectedAgentId && !selectedAgentExists && (
-              <SelectItem value={selectedAgentId} textValue={selectedAgentId}>
-                <AgentSelectDisplay fallbackName={selectedAgentId} />
-              </SelectItem>
-            )}
-            {agents.map((agent) => (
-              <SelectItem key={agent.id} value={agent.id} textValue={agent.name}>
-                <AgentSelectDisplay agent={agent} />
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
+      <ModelChainEditor
+        value={config.modelOverride ?? null}
+        onChange={(next) => void handleModelOverrideChange(next)}
+        availableModels={availableModels}
+        inheritLabel={t("settings.knowledgeCompile.agentDefault")}
+        className={saving ? "pointer-events-none opacity-60" : undefined}
+      />
       {loadIssues.length > 0 && (
         <div className="mt-2 space-y-1.5">
           {loadIssues.map((issue) => (
@@ -467,6 +428,165 @@ function CompileAgentSection() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function KnowledgeVisionSection() {
+  const { t } = useTranslation()
+  const [config, setConfig] = useState<KnowledgeVisionConfig>(DEFAULT_KNOWLEDGE_VISION_CONFIG)
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getTransport().call<KnowledgeVisionConfig>("knowledge_vision_config_get_cmd"),
+      getTransport().call<AvailableModel[]>("get_available_models").catch(() => []),
+    ])
+      .then(([cfg, models]) => {
+        if (cancelled) return
+        setConfig(
+          cfg
+            ? {
+                ...DEFAULT_KNOWLEDGE_VISION_CONFIG,
+                ...cfg,
+                modelOverride: cfg.modelOverride ?? null,
+              }
+            : DEFAULT_KNOWLEDGE_VISION_CONFIG,
+        )
+        setAvailableModels(models ?? [])
+        setLoaded(true)
+      })
+      .catch((e) => {
+        logger.error("settings", "KnowledgePanel::visionLoad", "Failed to load", e)
+        setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const saveConfig = useCallback(async (nextConfig: KnowledgeVisionConfig) => {
+    setConfig(nextConfig)
+    try {
+      const saved = await getTransport().call<KnowledgeVisionConfig>(
+        "knowledge_vision_config_set_cmd",
+        { config: nextConfig },
+      )
+      setConfig(saved)
+    } catch (e) {
+      logger.error("settings", "KnowledgePanel::visionSave", "Failed to save", e)
+      toast.error(String(e))
+    }
+  }, [])
+
+  const handleModelOverrideChange = useCallback(
+    (next: ModelChainRef | null) => void saveConfig({ ...config, modelOverride: next }),
+    [config, saveConfig],
+  )
+
+  if (!loaded) return null
+
+  return (
+    <div className="rounded-lg bg-secondary/30 px-3 py-3">
+      <div className="min-w-0 mb-2">
+        <div className="text-sm font-medium">{t("settings.knowledgeVision.model")}</div>
+        <div className="text-xs text-muted-foreground">
+          {t("settings.knowledgeVision.modelDesc")}
+        </div>
+      </div>
+      <ModelChainEditor
+        value={config.modelOverride ?? null}
+        onChange={handleModelOverrideChange}
+        availableModels={availableModels}
+        inheritLabel={t("settings.knowledgeVision.modelDefault")}
+      />
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <label className="space-y-1">
+          <span className="text-xs font-medium">
+            {t("settings.knowledgeVision.ocrConcurrency", "Scanned-PDF OCR concurrency")}
+          </span>
+          <DeferredNumberInput
+            min={1}
+            max={8}
+            value={config.ocrConcurrency}
+            onValueCommit={(value) => void saveConfig({ ...config, ocrConcurrency: value })}
+            className="h-8 text-xs"
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium">
+            {t("settings.knowledgeVision.maxOcrPages", "Scanned-PDF OCR page limit")}
+          </span>
+          <DeferredNumberInput
+            min={1}
+            max={120}
+            value={config.maxOcrPages}
+            onValueCommit={(value) => void saveConfig({ ...config, maxOcrPages: value })}
+            className="h-8 text-xs"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+function NoteToolsSection() {
+  const { t } = useTranslation()
+  const [config, setConfig] = useState<NoteToolsConfig>({ modelOverride: null })
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getTransport().call<NoteToolsConfig>("note_tools_config_get_cmd"),
+      getTransport().call<AvailableModel[]>("get_available_models").catch(() => []),
+    ])
+      .then(([cfg, models]) => {
+        if (cancelled) return
+        setConfig({ modelOverride: cfg?.modelOverride ?? null })
+        setAvailableModels(models ?? [])
+        setLoaded(true)
+      })
+      .catch((e) => {
+        logger.error("settings", "KnowledgePanel::noteToolsLoad", "Failed to load", e)
+        setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleModelOverrideChange = useCallback(async (next: ModelChainRef | null) => {
+    const nextConfig: NoteToolsConfig = { modelOverride: next }
+    setConfig(nextConfig)
+    try {
+      const saved = await getTransport().call<NoteToolsConfig>("note_tools_config_set_cmd", {
+        config: nextConfig,
+      })
+      setConfig({ modelOverride: saved.modelOverride ?? null })
+    } catch (e) {
+      logger.error("settings", "KnowledgePanel::noteToolsSave", "Failed to save", e)
+      toast.error(String(e))
+    }
+  }, [])
+
+  if (!loaded) return null
+
+  return (
+    <div className="rounded-lg bg-secondary/30 px-3 py-3">
+      <div className="min-w-0 mb-2">
+        <div className="text-sm font-medium">{t("settings.noteTools.title")}</div>
+        <div className="text-xs text-muted-foreground">{t("settings.noteTools.desc")}</div>
+      </div>
+      <ModelChainEditor
+        value={config.modelOverride ?? null}
+        onChange={(next) => void handleModelOverrideChange(next)}
+        availableModels={availableModels}
+        inheritLabel={t("settings.noteTools.modelDefault")}
+      />
     </div>
   )
 }

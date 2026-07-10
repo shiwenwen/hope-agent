@@ -247,7 +247,11 @@ pub async fn chat(
         // otherwise fall back to the last-used agent in global state.
         None => match project_id.as_deref() {
             Some(pid) => {
-                let project = state.project_db.get(pid).ok().flatten();
+                let project_db = state.project_db.clone();
+                let pid = pid.to_string();
+                let project =
+                    ha_core::blocking::run_blocking(move || project_db.get(&pid).ok().flatten())
+                        .await;
                 ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
             }
             None => state.current_agent_id.lock().await.clone(),
@@ -260,11 +264,14 @@ pub async fn chat(
             // Auto-create a new session; emit session_created after auto_title is set.
             // `project_id` binds the session to a project on this lazy-create
             // branch (None for plain chats); incognito is coerced off when set.
-            let meta = db.create_session_with_project(
-                &current_agent_id,
-                project_id.as_deref(),
-                incognito,
-            )?;
+            let meta = {
+                let agent_id = current_agent_id.clone();
+                let project_id = project_id.clone();
+                db.run(move |db| {
+                    db.create_session_with_project(&agent_id, project_id.as_deref(), incognito)
+                })
+                .await?
+            };
             new_session_created = Some(meta.id.clone());
             meta.id
         }
@@ -279,7 +286,11 @@ pub async fn chat(
         .map(str::trim)
         .filter(|effort| !effort.is_empty())
         .map(str::to_string);
-    let session_effort = db.get_session(&sid)?.and_then(|meta| meta.reasoning_effort);
+    let session_effort = {
+        let sid = sid.clone();
+        db.run(move |db| db.get_session(&sid)).await?
+    }
+    .and_then(|meta| meta.reasoning_effort);
     let global_effort = state.reasoning_effort.lock().await.clone();
     let effort = requested_effort
         .or(session_effort)
@@ -293,7 +304,12 @@ pub async fn chat(
         )));
     }
     *state.reasoning_effort.lock().await = effort.clone();
-    db.update_session_reasoning_effort(&sid, Some(&effort))?;
+    {
+        let sid = sid.clone();
+        let effort = effort.clone();
+        db.run(move |db| db.update_session_reasoning_effort(&sid, Some(&effort)))
+            .await?;
+    }
     let effort_ref_str = effort.clone();
 
     // Apply draft working dir picked before the session existed. Only honored on
@@ -301,16 +317,28 @@ pub async fn chat(
     // `set_session_working_dir` to change it. Validation errors are surfaced so
     // an invalid path doesn't silently get dropped.
     // Persist per-session permission mode if the caller supplied one.
-    if let Some(mode) = permission_mode_pending {
-        db.update_session_permission_mode(&sid, mode)?;
-    }
-    if let Some(mode) = sandbox_mode_pending {
-        db.update_session_sandbox_mode(&sid, mode)?;
+    if permission_mode_pending.is_some() || sandbox_mode_pending.is_some() {
+        let sid = sid.clone();
+        db.run(move |db| -> anyhow::Result<()> {
+            if let Some(mode) = permission_mode_pending {
+                db.update_session_permission_mode(&sid, mode)?;
+            }
+            if let Some(mode) = sandbox_mode_pending {
+                db.update_session_sandbox_mode(&sid, mode)?;
+            }
+            Ok(())
+        })
+        .await?;
     }
 
     if new_session_created.is_some() {
         if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
-            db.update_session_working_dir(&sid, Some(wd.clone()))?;
+            {
+                let sid = sid.clone();
+                let wd = wd.clone();
+                db.run(move |db| db.update_session_working_dir(&sid, Some(wd)))
+                    .await?;
+            }
             app_info!(
                 "session",
                 "chat",
@@ -375,7 +403,10 @@ pub async fn chat(
             // panel via the transient event channel (no `session_created`, so the
             // frontend never registers it).
             if new_session_created.is_some() && tool_scope.as_deref() == Some("knowledge") {
-                let _ = db.delete_session(&sid);
+                let _ = {
+                    let sid = sid.clone();
+                    db.run(move |db| db.delete_session(&sid)).await
+                };
                 let _ = on_event
                     .send(serde_json::json!({ "type": "text", "text": notice }).to_string());
                 return Ok(notice);
@@ -392,7 +423,14 @@ pub async fn chat(
             // helper the post-stream path uses, so the title shape stays
             // consistent across blocked-first-message and normal flows.
             if let Some(ref new_sid) = new_session_created {
-                let _ = ha_core::session::ensure_first_message_title(&db, new_sid, raw_prompt);
+                let _ = {
+                    let new_sid = new_sid.clone();
+                    let prompt = raw_prompt.to_string();
+                    db.run(move |db| {
+                        ha_core::session::ensure_first_message_title(db, &new_sid, &prompt)
+                    })
+                    .await
+                };
                 let event = serde_json::json!({
                     "type": "session_created",
                     "session_id": new_sid,
@@ -401,7 +439,12 @@ pub async fn chat(
                     let _ = on_event.send(json_str);
                 }
             }
-            let _ = db.append_message(&sid, &session::NewMessage::event(&notice));
+            let _ = {
+                let sid = sid.clone();
+                let notice = notice.clone();
+                db.run(move |db| db.append_message(&sid, &session::NewMessage::event(&notice)))
+                    .await
+            };
             let _ =
                 on_event.send(serde_json::json!({ "type": "text", "text": notice }).to_string());
             return Ok(notice);
@@ -427,8 +470,17 @@ pub async fn chat(
         }
     }
 
-    let attachments_meta =
-        ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut attachments)?;
+    let attachments_meta = {
+        let sid = sid.clone();
+        let mut moved = std::mem::take(&mut attachments);
+        let (meta, persisted) = ha_core::blocking::run_blocking(move || {
+            let meta = ha_core::attachments::persist_chat_user_attachments_meta(&sid, &mut moved)?;
+            anyhow::Ok((meta, moved))
+        })
+        .await?;
+        attachments = persisted;
+        meta
+    };
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(&effective_prompt)
@@ -438,14 +490,22 @@ pub async fn chat(
         plan_comment.as_ref(),
         attachments_meta,
     );
-    let user_message_id = db.append_message(&sid, &user_msg).ok();
-    let _turn = db.create_chat_turn_with_id(
-        &turn_id,
-        &sid,
-        ha_core::chat_engine::ChatSource::Desktop.as_str(),
-        None,
-        user_message_id,
-    )?;
+    let _user_message_id = {
+        let sid = sid.clone();
+        let turn_id = turn_id.clone();
+        db.run(move |db| -> anyhow::Result<Option<i64>> {
+            let user_message_id = db.append_message(&sid, &user_msg).ok();
+            db.create_chat_turn_with_id(
+                &turn_id,
+                &sid,
+                ha_core::chat_engine::ChatSource::Desktop.as_str(),
+                None,
+                user_message_id,
+            )?;
+            Ok(user_message_id)
+        })
+        .await?
+    };
 
     // Log chat start
     let msg_preview = if message.len() > 100 {
@@ -465,7 +525,12 @@ pub async fn chat(
 
     // Auto-generate fallback title from first user message if session has no title.
     // Prefer the displayed text so titles read naturally ("/drawio ..." rather than the expanded form).
-    let _ = session::ensure_first_message_title(&db, &sid, &effective_prompt);
+    let _ = {
+        let sid = sid.clone();
+        let prompt = effective_prompt.clone();
+        db.run(move |db| session::ensure_first_message_title(db, &sid, &prompt))
+            .await
+    };
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
     if let Some(ref new_sid) = new_session_created {
@@ -515,12 +580,20 @@ pub async fn chat(
         if ps != crate::plan::PlanModeState::Off {
             let applied = crate::plan::set_plan_state(&sid, ps).await;
             if applied {
-                let _ = db.update_session_plan_mode(&sid, ps);
+                let _ = {
+                    let sid = sid.clone();
+                    db.run(move |db| db.update_session_plan_mode(&sid, ps))
+                        .await
+                };
                 ps
             } else {
                 let current = crate::plan::get_plan_state(&sid).await;
                 if current != crate::plan::PlanModeState::Off {
-                    let _ = db.update_session_plan_mode(&sid, current);
+                    let _ = {
+                        let sid = sid.clone();
+                        db.run(move |db| db.update_session_plan_mode(&sid, current))
+                            .await
+                    };
                 }
                 current
             }
@@ -610,14 +683,17 @@ pub async fn chat(
     // /sessions/{id}/model and the new set_session_model Tauri command surface
     // their effect on subsequent turns. Plan Mode plan_model still wins.
     let session_pinned_model: Option<String> = if model_override.is_none() {
-        db.get_session(&sid).ok().flatten().and_then(|meta| {
-            match (meta.provider_id, meta.model_id) {
+        let sid2 = sid.clone();
+        db.run(move |db| db.get_session(&sid2))
+            .await
+            .ok()
+            .flatten()
+            .and_then(|meta| match (meta.provider_id, meta.model_id) {
                 (Some(p), Some(m)) if !p.is_empty() && !m.is_empty() => {
                     Some(format!("{}::{}", p, m))
                 }
                 _ => None,
-            }
-        })
+            })
     } else {
         None
     };
@@ -824,7 +900,51 @@ pub async fn chat(
                         .last_cache_read_input_tokens
                         .or(usage.cache_read_input_tokens);
                 }
-                let assistant_id = db.append_message(&sid, &assistant_msg).ok();
+                let assistant_id = {
+                    let sid = sid.clone();
+                    let agent_id = current_agent_id.clone();
+                    let captured_usage = captured_usage.clone();
+                    db.run(move |db| {
+                        let assistant_id = db.append_message(&sid, &assistant_msg).ok();
+                        let Some(message_id) = assistant_id else {
+                            return assistant_id;
+                        };
+                        if let Ok(usage) = captured_usage.lock() {
+                            let mut event = ha_core::model_usage::ModelUsageEvent::new(
+                                ha_core::model_usage::KIND_CHAT,
+                            )
+                            .with_usage(
+                                usage.input_tokens.unwrap_or(0) as u64,
+                                usage.output_tokens.unwrap_or(0) as u64,
+                                usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                                usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                            );
+                            event.request_key = Some(format!("message:{message_id}"));
+                            event.operation = Some("chat".to_string());
+                            event.source = Some(
+                                ha_core::chat_engine::ChatSource::Desktop
+                                    .as_str()
+                                    .to_string(),
+                            );
+                            event.model_id = usage.model.clone();
+                            event.session_id = Some(sid.clone());
+                            event.agent_id = Some(agent_id.clone());
+                            event.duration_ms = Some(duration_ms);
+                            event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
+                            if let Err(e) = db.insert_model_usage_event(&event) {
+                                ha_core::app_warn!(
+                                    "model_usage",
+                                    "chat",
+                                    "failed to record fallback chat usage for message {}: {}",
+                                    message_id,
+                                    e
+                                );
+                            }
+                        }
+                        assistant_id
+                    })
+                    .await
+                };
                 if cancel.load(Ordering::SeqCst) {
                     crate::chat_engine::save_agent_context(&db, &sid, agent);
                     let partial = ha_core::chat_engine::finalize::PartialMeta {
@@ -972,10 +1092,18 @@ pub async fn stop_chat(
                 .unwrap_or(true);
             if matches_turn {
                 active.cancel.store(true, Ordering::SeqCst);
-                let _ = state.session_db.mark_chat_turn_cancelling(
-                    &active.turn_id,
-                    session::ChatTurnInterruptReason::UserStop,
-                );
+                let _ = {
+                    let turn_id = active.turn_id.clone();
+                    state
+                        .session_db
+                        .run(move |db| {
+                            db.mark_chat_turn_cancelling(
+                                &turn_id,
+                                session::ChatTurnInterruptReason::UserStop,
+                            )
+                        })
+                        .await
+                };
                 ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
                     sid,
                     &active.turn_id,
@@ -999,23 +1127,36 @@ pub async fn stop_chat(
         // Legacy fallback for callers that cannot target a session. Keep the
         // old global flag, but all new UI paths pass a session id.
         state.chat_cancel.store(true, Ordering::SeqCst);
+        let mut cancelling_turn_ids = Vec::new();
         for active in crate::chat_engine::active_turn::all_current() {
             active.cancel.store(true, Ordering::SeqCst);
-            let _ = state.session_db.mark_chat_turn_cancelling(
-                &active.turn_id,
-                session::ChatTurnInterruptReason::UserStop,
-            );
             ha_core::chat_engine::stream_broadcast::broadcast_turn_status(
                 &active.session_id,
                 &active.turn_id,
                 session::ChatTurnStatus::Cancelling,
                 Some(session::ChatTurnInterruptReason::UserStop),
             );
+            cancelling_turn_ids.push(active.turn_id.clone());
             watchdog_turns.push((
                 active.session_id.clone(),
                 active.turn_id.clone(),
                 active.source,
             ));
+        }
+        // One blocking-pool hop for all the DB marks (a stalled DB otherwise
+        // multiplies into one queued task per turn).
+        if !cancelling_turn_ids.is_empty() {
+            let _ = state
+                .session_db
+                .run(move |db| {
+                    for turn_id in &cancelling_turn_ids {
+                        let _ = db.mark_chat_turn_cancelling(
+                            turn_id,
+                            session::ChatTurnInterruptReason::UserStop,
+                        );
+                    }
+                })
+                .await;
         }
         stopped = true;
     }

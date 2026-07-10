@@ -1146,14 +1146,30 @@ pub(crate) async fn tool_note_suggest_links(args: &Value, ctx: &ToolExecContext)
 
 // ── Tools: AI high-level operations (WS5, side_query driven) ─────
 
-/// Build a background analysis agent + run one bounded side-query, returning the
-/// trimmed text. Shared by the WS5 AI note tools (decoupled from the main chat
-/// agent via `recap.analysisAgent`, like recall-summary / dreaming).
-async fn run_kb_side_query(prompt: &str, max_tokens: u32) -> Result<String> {
+/// Run one bounded background model call via `crate::automation::run`,
+/// returning the trimmed text. Shared by the WS5 AI note tools
+/// (`note_distill` / `note_moc` / `session_to_note`) — one shared
+/// `note_tools.model_override` field, not per-tool, since all three already
+/// funnel through this one chokepoint; `purpose`/`session_key` stay
+/// per-call so cost/failover bookkeeping is still per-tool.
+async fn run_kb_side_query(
+    purpose: &'static str,
+    prompt: &str,
+    max_tokens: u32,
+    session_key: &str,
+) -> Result<String> {
     let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
-    let res = agent.side_query(prompt, max_tokens).await?;
-    Ok(res.text.trim().to_string())
+    let chain =
+        crate::automation::effective_chain(&config, config.note_tools.model_override.clone());
+    let out = crate::automation::run(crate::automation::ModelTaskSpec {
+        purpose,
+        chain,
+        session_key,
+        instruction: prompt,
+        max_tokens,
+    })
+    .await?;
+    Ok(out.text.trim().to_string())
 }
 
 /// Title → filesystem-safe note name (kept readable: collapse whitespace, strip
@@ -1321,7 +1337,11 @@ pub(crate) async fn tool_note_distill(args: &Value, ctx: &ToolExecContext) -> Re
          {{\"title\": string, \"content\": markdown string, \"tags\": [string]}}.\n\nSOURCE:\n{}",
         crate::truncate_utf8(&source_text, 16000)
     );
-    let out = run_kb_side_query(&prompt, 4096).await?;
+    let session_key = ctx
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "automation:note_tools.distill".to_string());
+    let out = run_kb_side_query("note_tools.distill", &prompt, 4096, &session_key).await?;
     let notes = parse_distilled(&out)?;
     if notes.is_empty() {
         bail!("distill produced no notes");
@@ -1438,7 +1458,12 @@ pub(crate) async fn tool_note_moc(args: &Value, ctx: &ToolExecContext) -> Result
     let slug = slugify(topic.unwrap_or_else(|| tag.as_deref().unwrap_or("topic")));
     let rel = moc_target_path(&scope, &format!("MOCs/{slug}.md"));
 
-    let body_md = strip_code_fence(&run_kb_side_query(&prompt, 2048).await?);
+    let session_key = ctx
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "automation:note_tools.moc".to_string());
+    let body_md =
+        strip_code_fence(&run_kb_side_query("note_tools.moc", &prompt, 2048, &session_key).await?);
     if body_md.trim().is_empty() {
         bail!("MOC generation returned empty content");
     }
@@ -1509,7 +1534,13 @@ pub(crate) async fn tool_session_to_note(args: &Value, ctx: &ToolExecContext) ->
          no code fence).\n\nCONVERSATION:\n{}",
         crate::truncate_utf8(&transcript, 16000)
     );
-    let body_md = strip_code_fence(&run_kb_side_query(&prompt, 3072).await?);
+    let session_key = ctx
+        .session_id
+        .clone()
+        .unwrap_or_else(|| "automation:note_tools.session_to_note".to_string());
+    let body_md = strip_code_fence(
+        &run_kb_side_query("note_tools.session_to_note", &prompt, 3072, &session_key).await?,
+    );
     if body_md.trim().is_empty() {
         bail!("session distillation returned empty content");
     }

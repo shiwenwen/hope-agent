@@ -74,6 +74,8 @@ fn parse_mode_from_args(args: &str) -> (GenerateMode, String) {
                 agent_id: agent,
                 provider_id: None,
                 model_id: None,
+                usage_kind: None,
+                operation: None,
             };
             (GenerateMode::Full { filters }, format!("last {} days", n))
         }

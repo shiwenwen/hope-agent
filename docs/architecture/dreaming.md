@@ -137,15 +137,15 @@ Dreaming 以三个独立可运行的 cycle 落地（均写 durable run + decisio
 
 1. **Light 固化**（`pipeline.rs`）：
    - **Scanner**（`scanner.rs`，`spawn_blocking`）：取近 `scopeDays` 天未 pin 的 `memories`（超取后客户端过滤到 `candidateLimit`）；为每条挂证据指针，**incognito 会话 fail-closed 剔除**。
-   - **Narrative**（`narrative.rs`，LLM `side_query`）：渲染候选 → 要求 JSON 信封 `{promotions:[{id,score,title,rationale}], diary}`；超时 `narrativeTimeoutSecs`；按 `promotion.minScore`（0.75）/ `maxPromote`（5）过滤排序。模型默认复用当前聊天 Agent，可由 `narrativeModel`（`provider:model`）覆盖。
+   - **Narrative**（`narrative.rs`，经 `crate::automation::run` 一次性 LLM 调用）：渲染候选 → 要求 JSON 信封 `{promotions:[{id,score,title,rationale}], diary}`；超时 `narrativeTimeoutSecs`；按 `promotion.minScore`（0.75）/ `maxPromote`（5）过滤排序。模型链解析（`resolve_dreaming_chain`，Deep Resolver 复用同一函数）：`modelOverride`（`ModelChain`）→ deprecated `narrativeModel`（`provider:model`，惰性解析）→ `function_models.automation` 全局默认链 → 聊天全局模型；真跨模型降级，详见 [模型 vs Agent 统一配置](automation-model.md)。
    - **Promotion**（`promotion.rs`，`spawn_blocking`）：对存活且未 pin 的记忆 `toggle_pin(true)`。
    - **Diary + Finalize**：写 `~/.hope-agent/memory/dreams/*.md`；`finish_run` + 每条 promotion 写 `promote` 决策。
 2. **Deep Resolver**（`resolver.rs`，`dreaming_run_resolver`）：
    - **Preflight**（`resolver_preflight`）：只读读取 active claims，输出 `ResolverPreflightReport`（`canRunManual`、`expiredCandidateCount`、`conflictGroupCount`、`groupsToAnalyze`、`blockingReasons` 等）；不调用 LLM、不改状态、不落审计 run，供 Dashboard 禁用按钮和解释“这次运行会做什么”。
    - **确定性过期**：扫所有 active claim，`valid_until < now` → `Expire` 决策（纯字符串比较，无 LLM）。
    - **统一分组**：按 `(scope_type, scope_id, claim_type, subject, predicate)` 分组，只取 >1 成员且 ≥2 种不同归一化 object 的组；过期候选在分类前剔除。claim 内容、图谱邻边和 LLM rationale 都按 untrusted data 处理，进 prompt 前 sanitize，落审计前脱敏并限长。
-   - **自动 graph-first sweep**：已知多值谓词（`uses` / `likes` / `works_on` 等）直接 graph-noop，避免把合法并存事实误判为冲突；其余组携带 alias 连通、对象 degree、邻边、证据数量 / 人工证据 / 最高权重和有效期信号，最多分析 `autoResolveMaxGroups`（默认 8，钳 `[1,20]`）。只有 `confidence >= autoResolveMinConfidence`（默认 0.92）才可写状态：冲突仅 `NeedsReview`；duplicates 还须 alias 连通或词法相似度 ≥ `autoMergeSimilarity`（默认 0.84）才 `Merge`；永不产生 `Supersede`。
-   - **手动完整分析**：每轮最多 `MAX_RESOLVER_GROUPS=50` 组各发一次 `side_query`。LLM 回 `duplicates → Merge`（保留最高置信 + 最新者，存档另一方）/ `conflict → NeedsReview` / `independent → no_op`，同样**绝不自动 supersede**。自动与手动运行都持跨进程 Deep lease，并把 graph-noop / LLM-noop / 截断 / 失败写入 durable run note 与事件。
+   - **自动 graph-first sweep**：已知多值谓词（`uses` / `likes` / `works_on` 等）直接 graph-noop，避免把合法并存事实误判为冲突；其余组携带 alias 连通、对象 degree、邻边、证据数量 / 人工证据 / 最高权重和有效期信号，最多分析 `autoResolveMaxGroups`（默认 8，钳 `[1,20]`）。只有 `confidence >= autoResolveMinConfidence`（默认 0.92）才可写状态：冲突仅 `NeedsReview`；duplicates 还须 alias 连通或词法相似度 ≥ `autoMergeSimilarity`（默认 0.84）才 `Merge`；永不产生 `Supersede`。每组调用经统一 `automation` 模型链，usage operation 为 `dreaming.resolver.auto`，便于单独观察后台治理 token 成本。
+   - **手动完整分析**：每轮最多 `MAX_RESOLVER_GROUPS=50` 组各发一次 `side_query`。LLM 回 `duplicates → Merge`（保留最高置信 + 最新者，存档另一方）/ `conflict → NeedsReview` / `independent → no_op`，同样**绝不自动 supersede**。usage operation 为 `dreaming.resolver.manual`；自动与手动运行都持跨进程 Deep lease，并把 graph-noop / LLM-noop / 截断 / 失败写入 durable run note 与事件。
 3. **Profile 合成**（`profile.rs`，`dreaming_run_profile`，受 `profileSynthesis.enabled` 门控、默认开）：按 scope 取 active claim、按 `confidence × salience` 排序取前 `maxLinesPerScope`（12，排除 `reference` 类）、规则式渲染 Markdown bullet。Idle/Cron 走规则式零 LLM；Manual 额外对每 scope 发一次 `side_query` 重写求流畅（只压缩重组、不创作）。写入 `memory_profile_snapshots`（version=MAX+1）。
 
 ```mermaid
@@ -258,7 +258,7 @@ claim 与 profile 经三条路径进入系统提示，与 legacy 记忆共存于
 | `candidateLimit` | `50` | 单轮候选上限 |
 | `narrativeMaxTokens` | `2048` | narrative side_query token 预算 |
 | `narrativeTimeoutSecs` | `60` | narrative 超时 |
-| `narrativeModel` | `null` | 专用模型 `provider:model`；null = 当前聊天 Agent |
+| `modelOverride` | `null` | 专用模型链 `ModelChain`；null = 落 `function_models.automation` → 聊天全局模型。deprecated `narrativeModel`（`provider:model`）仍惰性兼容 |
 | `profileSynthesis.{enabled, maxLinesPerScope}` | `true` / `12` | Profile 合成 / 每 scope 行数上限 |
 | `deepResolver.autoExpireOnLightCycle` | `true` | Light 后自动执行确定性过期 |
 | `deepResolver.autoResolveOnLightCycle` | `true` | Light 后自动执行保守 graph-first 分类 |

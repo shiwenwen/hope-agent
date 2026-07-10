@@ -4,6 +4,7 @@ use serde_json::{json, Value};
 use ha_core::{backup, crash_journal, guardian, paths};
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 /// `GET /api/crash/recovery-info`
 pub async fn get_crash_recovery_info() -> Result<Json<Value>, AppError> {
@@ -57,7 +58,11 @@ pub async fn clear_crash_history() -> Result<Json<Value>, AppError> {
 
 /// `GET /api/crash/backups`
 pub async fn list_backups() -> Result<Json<Vec<backup::BackupInfo>>, AppError> {
-    Ok(Json(backup::list_backups().map_err(AppError::internal)?))
+    Ok(Json(
+        run_blocking(backup::list_backups)
+            .await
+            .map_err(AppError::internal)?,
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -67,19 +72,27 @@ pub struct RestoreBody {
 
 /// `POST /api/crash/backups/restore`
 pub async fn restore_backup(Json(body): Json<RestoreBody>) -> Result<Json<Value>, AppError> {
-    backup::restore_backup(&body.name).map_err(AppError::internal)?;
+    run_blocking(move || backup::restore_backup(&body.name))
+        .await
+        .map_err(AppError::internal)?;
     Ok(Json(json!({ "restored": true })))
 }
 
 /// `POST /api/crash/backups`
 pub async fn create_backup() -> Result<Json<Value>, AppError> {
-    let name = backup::create_backup().map_err(AppError::internal)?;
+    let name = run_blocking(backup::create_backup)
+        .await
+        .map_err(AppError::internal)?;
     Ok(Json(json!({ "name": name })))
 }
 
 /// `GET /api/settings/backups` — list automatic config snapshots
 pub async fn list_settings_backups() -> Result<Json<Vec<backup::AutosaveEntry>>, AppError> {
-    Ok(Json(backup::list_autosaves().map_err(AppError::internal)?))
+    Ok(Json(
+        run_blocking(backup::list_autosaves)
+            .await
+            .map_err(AppError::internal)?,
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -91,7 +104,9 @@ pub struct RestoreAutosaveBody {
 pub async fn restore_settings_backup(
     Json(body): Json<RestoreAutosaveBody>,
 ) -> Result<Json<backup::AutosaveEntry>, AppError> {
-    let entry = backup::restore_autosave(&body.id).map_err(AppError::internal)?;
+    let entry = run_blocking(move || backup::restore_autosave(&body.id))
+        .await
+        .map_err(AppError::internal)?;
     Ok(Json(entry))
 }
 
@@ -109,6 +124,6 @@ pub struct GuardianBody {
 
 /// `PUT /api/crash/guardian`
 pub async fn set_guardian_enabled(Json(body): Json<GuardianBody>) -> Result<Json<Value>, AppError> {
-    guardian::set_enabled_in_config(body.enabled)?;
+    run_blocking(move || guardian::set_enabled_in_config(body.enabled)).await?;
     Ok(Json(json!({ "saved": true })))
 }

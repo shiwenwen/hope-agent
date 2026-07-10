@@ -35,6 +35,61 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }))
 
+vi.mock("@/components/ui/model-chain-editor", () => ({
+  ModelChainEditor: ({
+    value,
+    onChange,
+    availableModels,
+    inheritLabel,
+  }: {
+    value: {
+      primary: { providerId: string; modelId: string }
+      fallbacks: { providerId: string; modelId: string }[]
+    } | null
+    onChange: (
+      next: {
+        primary: { providerId: string; modelId: string }
+        fallbacks: { providerId: string; modelId: string }[]
+      } | null,
+    ) => void
+    availableModels?: Array<{
+      providerId: string
+      providerName: string
+      modelId: string
+      modelName: string
+    }> | null
+    inheritLabel: string
+  }) => (
+    <select
+      aria-label={inheritLabel}
+      value={value ? `${value.primary.providerId}::${value.primary.modelId}` : ""}
+      onChange={(event) => {
+        const selected = (availableModels ?? []).find(
+          (model) => `${model.providerId}::${model.modelId}` === event.target.value,
+        )
+        onChange(
+          selected
+            ? {
+                primary: { providerId: selected.providerId, modelId: selected.modelId },
+                fallbacks: [],
+              }
+            : null,
+        )
+      }}
+    >
+      <option value="">{inheritLabel}</option>
+      {(availableModels ?? []).map((model) => (
+        <option
+          key={`${model.providerId}::${model.modelId}`}
+          value={`${model.providerId}::${model.modelId}`}
+        >
+          {model.providerName} / {model.modelName}
+        </option>
+      ))}
+    </select>
+  ),
+}))
+
 const toastMock = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
@@ -115,8 +170,8 @@ function defaultKnowledgePanelCommandResponse(command: string) {
   if (command === "knowledge_embedding_get_cmd") {
     return { selection: { enabled: false }, currentModel: null, needsReembed: false }
   }
-  if (command === "knowledge_compile_config_get_cmd") return { agentId: null }
-  if (command === "list_agents") return []
+  if (command === "knowledge_compile_config_get_cmd") return { modelOverride: null }
+  if (command === "get_available_models") return []
   if (command === "kb_passive_recall_config_get_cmd") {
     return { enabled: false, topN: 3, maxChars: 800, cacheTtlSecs: 300, showSnippet: false }
   }
@@ -160,18 +215,18 @@ describe("KnowledgePanel", () => {
     expect(screen.queryByText(/knowledge-secret/)).toBeNull()
   })
 
-  it("shows source-to-note agent list load failures instead of a silent empty list", async () => {
+  it("shows source-to-note model list load failures instead of a silent empty list", async () => {
     transportMock.call.mockImplementation(async (command: string) => {
-      if (command === "knowledge_compile_config_get_cmd") return { agentId: "agent-1" }
-      if (command === "list_agents") throw new Error("agents token=agent-list-secret")
+      if (command === "knowledge_compile_config_get_cmd") return { modelOverride: null }
+      if (command === "get_available_models") throw new Error("models token=model-list-secret")
       return defaultKnowledgePanelCommandResponse(command)
     })
 
     render(<KnowledgePanel />)
 
     expect(await screen.findByText("Failed to load source-to-note agent list")).toBeTruthy()
-    expect(screen.getByText("Details: agents token=[redacted]")).toBeTruthy()
-    expect(screen.queryByText(/agent-list-secret/)).toBeNull()
+    expect(screen.getByText("Details: models token=[redacted]")).toBeTruthy()
+    expect(screen.queryByText(/model-list-secret/)).toBeNull()
   })
 
   it("shows passive related notes load failures instead of hiding the section", async () => {
@@ -352,13 +407,35 @@ describe("KnowledgePanel", () => {
     expect(screen.queryByText(/chunk-save-secret/)).toBeNull()
   })
 
-  it("rolls back the source-to-note agent selection when saving fails", async () => {
+  it("rolls back the source-to-note model selection when saving fails", async () => {
     transportMock.call.mockImplementation(async (command: string) => {
-      if (command === "knowledge_compile_config_get_cmd") return { agentId: "agent-1" }
-      if (command === "list_agents") {
+      if (command === "knowledge_compile_config_get_cmd") {
+        return { modelOverride: null }
+      }
+      if (command === "get_available_models") {
         return [
-          { id: "agent-1", name: "Agent One" },
-          { id: "agent-2", name: "Agent Two" },
+          {
+            providerId: "provider-1",
+            providerName: "Provider One",
+            apiType: "openai_chat",
+            modelId: "model-1",
+            modelName: "Model One",
+            inputTypes: ["text"],
+            contextWindow: 128000,
+            maxTokens: 8192,
+            reasoning: false,
+          },
+          {
+            providerId: "provider-2",
+            providerName: "Provider Two",
+            apiType: "openai_chat",
+            modelId: "model-2",
+            modelName: "Model Two",
+            inputTypes: ["text"],
+            contextWindow: 128000,
+            maxTokens: 8192,
+            reasoning: false,
+          },
         ]
       }
       if (command === "knowledge_compile_config_set_cmd") {
@@ -369,20 +446,17 @@ describe("KnowledgePanel", () => {
 
     render(<KnowledgePanel />)
 
-    expect(await screen.findByText("Agent One")).toBeTruthy()
-    fireEvent.pointerDown(screen.getByRole("combobox"), {
-      button: 0,
-      pointerId: 1,
-      pointerType: "mouse",
+    const compileSelector = await screen.findByRole("combobox", {
+      name: "settings.knowledgeCompile.agentDefault",
     })
-    fireEvent.click(await screen.findByText("Agent Two"))
+    fireEvent.change(compileSelector, { target: { value: "provider-2::model-2" } })
 
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith("Failed to save source-to-note agent setting", {
         description: "Details: save token=[redacted]",
       }),
     )
-    expect(screen.getByText("Agent One")).toBeTruthy()
+    expect(compileSelector).toHaveProperty("value", "")
     expect(screen.queryByText(/compile-secret/)).toBeNull()
   })
 })

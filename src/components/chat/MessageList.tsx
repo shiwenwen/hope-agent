@@ -37,6 +37,7 @@ import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
   messages: Message[]
+  historyLoading?: boolean
   loading: boolean
   executionState?: ChatTurnStatus | null
   agents: AgentSummaryForSidebar[]
@@ -592,7 +593,7 @@ function CompletedTurnCollapseSummary({
         type="button"
         aria-expanded={row.expanded}
         onClick={() => onToggle(row.key)}
-        className="group flex h-9 w-full cursor-pointer items-center gap-1.5 border-b border-border/50 px-0 text-left text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+        className="group flex h-9 w-full cursor-pointer items-center gap-1.5 border-b border-border/50 px-0 text-left text-sm font-medium text-muted-foreground/75 transition-colors hover:text-muted-foreground"
       >
         <span className="truncate">{label}</span>
         <ChevronRight
@@ -608,6 +609,7 @@ function CompletedTurnCollapseSummary({
 
 export default function MessageList({
   messages,
+  historyLoading = false,
   loading,
   executionState,
   agents,
@@ -938,11 +940,14 @@ export default function MessageList({
   // Baseline for entrance animation: only messages appended *after* this
   // session was opened animate in. The initial set renders statically — no
   // distracting cascade when entering an existing conversation. Render-time
-  // prop-derived state per React docs: rebase on session swap.
+  // prop-derived state per React docs: rebase on session swap and after async
+  // history hydration completes.
   const [animationBaseline, setAnimationBaseline] = useState(messages.length)
   const [animationBaselineSession, setAnimationBaselineSession] = useState(sessionKey)
-  if (animationBaselineSession !== sessionKey) {
+  const [animationBaselineHistoryLoading, setAnimationBaselineHistoryLoading] = useState(historyLoading)
+  if (animationBaselineSession !== sessionKey || animationBaselineHistoryLoading !== historyLoading) {
     setAnimationBaselineSession(sessionKey)
+    setAnimationBaselineHistoryLoading(historyLoading)
     setAnimationBaseline(messages.length)
   }
 
@@ -1432,8 +1437,9 @@ export default function MessageList({
     planCardData && planState && planState !== "off" && planState !== "planning",
   )
   const showEmpty = items.length === 0
+  const showHistoryLoading = showEmpty && historyLoading
   const hasFooterContent = Boolean(
-    pendingQuestionGroup || planCardVisible || planSubagentRunning || showEmpty,
+    pendingQuestionGroup || planCardVisible || planSubagentRunning || (showEmpty && !historyLoading),
   )
   // Show whenever user is scrolled away from bottom — independent of loading
   // state. Lets the user always have a one-click way back to latest.
@@ -1608,7 +1614,7 @@ export default function MessageList({
                   <span>{t("planMode.planningInProgress")}</span>
                 </div>
               )}
-              {showEmpty && !heroComposer && (
+              {showEmpty && !historyLoading && !heroComposer && (
                 <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
                   <ChatWelcomeHero incognito={incognito} />
                 </div>
@@ -1617,6 +1623,15 @@ export default function MessageList({
           </AnimatedCollapse>
         </div>
       </div>
+
+      {showHistoryLoading && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center px-4">
+          <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-surface-floating px-3 py-2 text-sm text-muted-foreground shadow-sm">
+            <span className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" />
+            <span>{t("chat.loadingSession", "正在加载会话…")}</span>
+          </div>
+        </div>
+      )}
 
       {compactUserAnchor && (compactUserAnchorVisible || compactUserAnchorMounted) && (
         <div

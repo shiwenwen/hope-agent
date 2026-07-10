@@ -1,7 +1,8 @@
 use crate::agent::AssistantAgent;
 use crate::commands::CmdError;
-use crate::provider::{self, ActiveModel, ApiType, AvailableModel};
+use crate::provider::{self, ActiveModel, ApiType, AvailableModel, ModelChain};
 use crate::AppState;
+use ha_core::blocking::run_blocking;
 use tauri::State;
 
 #[tauri::command]
@@ -27,8 +28,12 @@ pub(crate) async fn set_active_model_core(
     model_id: &str,
     state: &AppState,
 ) -> Result<(), CmdError> {
-    let provider =
-        ha_core::provider::set_active_model(provider_id.to_string(), model_id.to_string(), "ui")?;
+    let provider_id_owned = provider_id.to_string();
+    let model_id_owned = model_id.to_string();
+    let provider = run_blocking(move || {
+        ha_core::provider::set_active_model(provider_id_owned, model_id_owned, "ui")
+    })
+    .await?;
 
     // For Codex, use stored token info; otherwise build agent from provider.
     if provider.api_type == ApiType::Codex {
@@ -65,10 +70,63 @@ pub async fn set_fallback_models(
     models: Vec<ActiveModel>,
     _state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("fallback_models", "ui"), |store| {
+    ha_core::config::mutate_config_async(("fallback_models", "ui"), move |store| {
         store.fallback_models = models;
         Ok(())
     })
+    .await
+    .map_err(Into::into)
+}
+
+/// Vision bridge model (issue #434): the model used to transcribe images to text
+/// when the main model is text-only. `None` disables the bridge.
+#[tauri::command]
+pub async fn get_vision_model(
+    _state: State<'_, AppState>,
+) -> Result<Option<ActiveModel>, CmdError> {
+    Ok(ha_core::config::cached_config()
+        .function_models
+        .vision
+        .clone())
+}
+
+#[tauri::command]
+pub async fn set_vision_model(
+    model: Option<ActiveModel>,
+    _state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config_async(("function_models", "ui"), move |store| {
+        store.function_models.vision = model;
+        Ok(())
+    })
+    .await
+    .map_err(Into::into)
+}
+
+/// Automation default model chain: the fallback model(s) for background /
+/// one-shot tasks (Recap, Dreaming, Knowledge Compile, Skills auto_review,
+/// Hooks `prompt` handler, …) that don't need a full chat Agent. `None` =
+/// fall through to the chat `active_model`/`fallback_models` chain.
+#[tauri::command]
+pub async fn get_automation_model_chain(
+    _state: State<'_, AppState>,
+) -> Result<Option<ModelChain>, CmdError> {
+    Ok(ha_core::config::cached_config()
+        .function_models
+        .automation
+        .clone())
+}
+
+#[tauri::command]
+pub async fn set_automation_model_chain(
+    chain: Option<ModelChain>,
+    _state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config_async(("function_models", "ui"), move |store| {
+        store.function_models.automation = chain;
+        Ok(())
+    })
+    .await
     .map_err(Into::into)
 }
 

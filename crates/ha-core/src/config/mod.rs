@@ -12,13 +12,13 @@ mod persistence;
 #[cfg(test)]
 pub use persistence::replace_cache_for_test;
 pub use persistence::{
-    cached_config, config_health, load_config, mutate_config, reload_cache_from_disk, save_config,
-    ConfigHealth,
+    cached_config, config_health, load_config, mutate_config, mutate_config_async,
+    reload_cache_from_disk, save_config, ConfigHealth,
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::provider::{ActiveModel, ProviderConfig, ProxyConfig};
+use crate::provider::{ActiveModel, ModelChain, ProviderConfig, ProxyConfig};
 
 // ── Shortcut Config ─────────────────────────────────────────────
 
@@ -743,10 +743,19 @@ fn default_recap_cache_retention_days() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecapConfig {
-    /// Agent ID used to extract per-session facets and generate report sections.
-    /// `None` inherits the global default agent.
+    /// Deprecated — superseded by `model_override`. Agent ID used to extract
+    /// per-session facets and generate report sections. Kept for backward
+    /// compatibility: still consulted (resolved to an equivalent
+    /// `ModelChain` via the agent's own model config) when `model_override`
+    /// is unset, so existing configurations keep working, but the GUI no
+    /// longer writes this field.
     #[serde(default)]
     pub analysis_agent: Option<String>,
+    /// Model chain override for facet extraction and report section
+    /// generation. `None` = fall through to `function_models.automation`
+    /// (or the deprecated `analysis_agent`, if still set) → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
     /// Output language for generated reports. `None` or "auto" follows the
     /// global UI language (`AppConfig.language`, which itself may be "auto" →
     /// system locale). A specific locale code (e.g. "zh", "en") overrides it.
@@ -770,6 +779,7 @@ impl Default for RecapConfig {
     fn default() -> Self {
         Self {
             analysis_agent: None,
+            model_override: None,
             language: None,
             default_range_days: default_recap_default_range_days(),
             max_sessions_per_report: default_recap_max_sessions_per_report(),
@@ -977,6 +987,14 @@ pub struct AppConfig {
     /// toggles + auto-approve for the proposal review queue. Disabled by default.
     #[serde(default)]
     pub knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig,
+    /// Model selection for Knowledge's vision-capable ingestion (image OCR
+    /// import); see `crate::automation::run_vision`.
+    #[serde(default)]
+    pub knowledge_vision: crate::knowledge::KnowledgeVisionConfig,
+    /// Model selection for the standalone note-authoring tools (note_distill /
+    /// note_moc / session_to_note).
+    #[serde(default)]
+    pub note_tools: crate::knowledge::NoteToolsConfig,
     /// Read bridge ③ — passive related-notes prompt (Phase 3, D7): each user turn
     /// surfaces the top accessible-KB note titles as an independent untrusted
     /// cache block. Enabled by default because it is retrieval-only, title-only,
@@ -1099,8 +1117,8 @@ pub struct AppConfig {
     /// UI language preference: "auto" means follow system, otherwise a locale code like "zh", "en"
     #[serde(default = "default_language")]
     pub language: String,
-    /// Whether UI background effects (stars, weather) are enabled
-    #[serde(default = "crate::default_true")]
+    /// Whether UI background effects (stars, weather) are enabled. Default off.
+    #[serde(default)]
     pub ui_effects_enabled: bool,
     /// Prevent the host from idle-sleeping while the app runs (user setting,
     /// default off). When on, the primary process holds an OS sleep assertion
@@ -1277,6 +1295,35 @@ pub struct AppConfig {
     /// paths. See `crate::updater::AutoUpdateConfig`.
     #[serde(default)]
     pub auto_update: crate::updater::AutoUpdateConfig,
+
+    /// Per-function model overrides (issue #434). Currently just the vision
+    /// bridge: when the main model can't see images, a separately-configured
+    /// vision model transcribes them to text. Opt-in — `vision = None` keeps
+    /// the existing drop-image + placeholder behavior. See `agent::vision_bridge`.
+    #[serde(default)]
+    pub function_models: FunctionModelsConfig,
+}
+
+// ── Per-function model overrides (issue #434) ───────────────────────
+
+/// Model overrides keyed by function type. Extensible container so future
+/// function→model routing (tool-use, reasoning, …) can be added without
+/// reshaping `AppConfig`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FunctionModelsConfig {
+    /// Vision bridge model: transcribes images to text when the main model is
+    /// text-only. `None` = bridge disabled (drop image + placeholder, as before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vision: Option<ActiveModel>,
+    /// Default model chain for background/automation tasks (Recap, Dreaming,
+    /// Knowledge Compile, Skills auto_review, Hooks `prompt` handler, Smart
+    /// mode judge, session title, memory extraction, compaction summarizer —
+    /// see `crate::automation`). `None` = fall through to the chat `active_model`
+    /// / `fallback_models` chain. Independent of the main chat model so a
+    /// cheaper/faster model can be dedicated to these one-shot calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub automation: Option<ModelChain>,
 }
 
 // ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
@@ -1327,6 +1374,8 @@ impl Default for AppConfig {
             knowledge_search: crate::knowledge::KnowledgeSearchConfig::default(),
             knowledge_compile: crate::knowledge::KnowledgeCompileConfig::default(),
             knowledge_maintenance: crate::knowledge::maintenance::MaintenanceConfig::default(),
+            knowledge_vision: crate::knowledge::KnowledgeVisionConfig::default(),
+            note_tools: crate::knowledge::NoteToolsConfig::default(),
             knowledge_passive_recall: crate::knowledge::PassiveRecallConfig::default(),
             knowledge_media_retention: crate::knowledge::KnowledgeMediaRetentionConfig::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
@@ -1360,7 +1409,7 @@ impl Default for AppConfig {
             tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),
-            ui_effects_enabled: true,
+            ui_effects_enabled: false,
             prevent_sleep: false,
             sidebar_ui_mode: default_sidebar_ui_mode(),
             proxy: ProxyConfig::default(),
@@ -1396,6 +1445,7 @@ impl Default for AppConfig {
             disable_all_hooks: false,
             hooks_allow_project_scope: false,
             auto_update: crate::updater::AutoUpdateConfig::default(),
+            function_models: FunctionModelsConfig::default(),
         }
     }
 }

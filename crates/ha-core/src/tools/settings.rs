@@ -98,7 +98,10 @@ fn risk_level(category: &str) -> &'static str {
         | "knowledge_passive_recall"
         | "knowledge_search"
         | "cron"
-        | "sprite" => "medium",
+        | "function_models"
+        | "sprite"
+        | "knowledge_vision"
+        | "note_tools" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
@@ -221,6 +224,12 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         ),
         "sprite" => Some(
             "Knowledge-space sprite / inspiration mode: a proactive companion that, while the user works on a note, makes a bounded LLM call and may surface a transient suggestion bubble. ⚠️ `enabled` makes proactive (unprompted) LLM calls — has a cost. `proactive` (default true) biases it toward speaking vs. staying quiet. `triggers.*` toggle the occasions it may fire (editIdle / noteOpen / conversation / periodic / paste); `idleEditSecs` + `minChangeChars` gate edit-idle, `periodicSecs` the periodic streak, `pasteMinChars` the paste trigger. `cooldownSecs` / `maxPerSessionPerHour` throttle overall frequency; `senses.*` toggle which context (doc / edit / conversation / memory / awareness) is fused in."
+        ),
+        "knowledge_vision" => Some(
+            "Model chain for Knowledge's vision-capable ingestion (image OCR import, both the Sources panel batch import and chat \"Archive to Knowledge\") plus the scanned-PDF (no text layer) OCR fallback. `modelOverride` = null follows `function_models.automation` → chat default, filtered to vision-capable candidates only — non-vision models in the chain are silently skipped, not treated as failures. `timeoutSecs`/`maxTokens` bound the whole degradation attempt, not one candidate. `ocrConcurrency` (default 3, clamped [1,8]) bounds concurrent per-page vision calls for the scanned-PDF fallback; `maxOcrPages` (default 40, clamped [1,120]) caps how many pages of one scanned PDF get OCR'd."
+        ),
+        "note_tools" => Some(
+            "Shared model chain for the three standalone note-authoring tools (note_distill / note_moc / session_to_note) — one field covers all three since they share one code path. `modelOverride` = null follows `function_models.automation` → chat default."
         ),
         "stt_providers" => Some(
             "Read-only via this tool. STT provider configs carry API keys (apiKey / authProfiles[*].apiKey) plus provider-specific secrets in `extra` (Volcengine app_id / access_key, iFlytek app_id, Azure region key, etc.). The response from get_settings redacts every secret-bearing field — writes must go through Settings → Speech-to-Text so credentials stay out of conversation logs."
@@ -581,6 +590,9 @@ fn read_category(category: &str) -> Result<Value> {
         "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
         "local_llm_auto_maintenance" => Ok(serde_json::to_value(&cfg.local_llm)?),
         "smart_mode" => Ok(serde_json::to_value(&cfg.permission.smart)?),
+        // Vision bridge model reference — plain provider/model id, no credentials
+        // (the API key lives in the referenced ProviderConfig), so no redact.
+        "function_models" => Ok(serde_json::to_value(&cfg.function_models)?),
         "filesystem" => Ok(serde_json::to_value(&cfg.filesystem)?),
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
@@ -588,6 +600,8 @@ fn read_category(category: &str) -> Result<Value> {
         "knowledge_media_retention" => Ok(serde_json::to_value(&cfg.knowledge_media_retention)?),
         "knowledge_passive_recall" => Ok(serde_json::to_value(&cfg.knowledge_passive_recall)?),
         "knowledge_search" => Ok(serde_json::to_value(&cfg.knowledge_search)?),
+        "knowledge_vision" => Ok(serde_json::to_value(&cfg.knowledge_vision)?),
+        "note_tools" => Ok(serde_json::to_value(&cfg.note_tools)?),
         "sprite" => Ok(serde_json::to_value(&cfg.sprite)?),
         "mcp_global" => Ok(serde_json::to_value(&cfg.mcp_global)?),
         "mcp_servers" => Ok(redact_mcp_servers_value(serde_json::to_value(
@@ -748,7 +762,8 @@ fn get_all_overview() -> Result<String> {
             "deferred_tools", "async_tools", "timeout_policy", "cron", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "issue_reporting", "skills_auto_review", "recall_summary", "tool_call_narration",
-            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite"
+            "teams", "im_auto_transcribe", "knowledge_passive_recall", "knowledge_search", "sprite",
+            "knowledge_vision", "note_tools"
         ],
         "high": [
             "proxy", "shortcuts", "skills", "server",
@@ -1113,6 +1128,7 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "issue_reporting" => merge_field(&mut store.issue_reporting, values)?,
         "smart_mode" => merge_field(&mut store.permission.smart, values)?,
+        "function_models" => merge_field(&mut store.function_models, values)?,
         "filesystem" => merge_field(&mut store.filesystem, values)?,
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,
@@ -1142,6 +1158,12 @@ async fn update_app_config(category: &str, values: &Value) -> Result<String> {
             // Clamp so a skill write can't hammer the LLM (mirrors `sprite::set_config`).
             store.sprite = store.sprite.clamped();
         }
+        "knowledge_vision" => {
+            merge_field(&mut store.knowledge_vision, values)?;
+            // Clamp (mirrors `service::set_vision_config`).
+            store.knowledge_vision = store.knowledge_vision.clamped();
+        }
+        "note_tools" => merge_field(&mut store.note_tools, values)?,
         "mcp_global" => merge_field(&mut store.mcp_global, values)?,
         "local_llm_auto_maintenance" => {
             // Only the `enabled` toggle is writable through the skill —
@@ -1385,7 +1407,15 @@ mod tests {
 
     #[test]
     fn risk_level_medium_includes_new_categories() {
-        for cat in ["multimodal", "dreaming", "sprite", "knowledge_search"] {
+        for cat in [
+            "multimodal",
+            "dreaming",
+            "sprite",
+            "knowledge_search",
+            "function_models",
+            "knowledge_vision",
+            "note_tools",
+        ] {
             assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
         }
     }
@@ -1710,6 +1740,8 @@ mod tests {
             "dreaming",
             "knowledge_maintenance",
             "browser",
+            "knowledge_vision",
+            "note_tools",
         ] {
             assert!(
                 side_effect_note(cat).is_some(),

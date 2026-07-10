@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { FileArtifactSummary, SessionArtifacts } from "@/lib/transport"
+import type { BrowserActivityDto, FileArtifactSummary, SessionArtifacts } from "@/lib/transport"
 import type { Message } from "@/types/chat"
 import { useSessionFileChanges, type SessionFileEntry } from "./useSessionFileChanges"
 import { useSessionUrlSources, type SessionUrlSource } from "./useSessionUrlSources"
+import { useSessionBrowserActivity, type SessionBrowserActivity } from "./useSessionBrowserActivity"
 
 export interface WorkspaceArtifacts {
   files: SessionFileEntry[]
   sources: SessionUrlSource[]
+  browser: SessionBrowserActivity[]
   filesTruncated: boolean
   sourcesTruncated: boolean
+  browserTruncated: boolean
 }
 
 /** Backend file summary → `SessionFileEntry` (no historical diff — window-外
@@ -23,6 +26,20 @@ function backendFileToEntry(f: FileArtifactSummary): SessionFileEntry {
     readLines: f.readLines,
     linesAdded: f.linesAdded,
     linesRemoved: f.linesRemoved,
+  }
+}
+
+function backendBrowserToEntry(activity: BrowserActivityDto): SessionBrowserActivity {
+  return {
+    action: activity.action,
+    op: activity.op,
+    targetId: activity.targetId,
+    url: activity.url,
+    title: activity.title,
+    backend: activity.backend,
+    sessionId: activity.sessionId,
+    callId: activity.callId,
+    at: activity.at,
   }
 }
 
@@ -92,6 +109,11 @@ export function useWorkspaceArtifacts(
     () => [...liveSourcesChrono].reverse(), // unify to most-recent-first
     [liveSourcesChrono],
   )
+  const liveBrowserChrono = useSessionBrowserActivity(messages)
+  const liveBrowser = useMemo(
+    () => [...liveBrowserChrono].reverse(), // unify to most-recent-first
+    [liveBrowserChrono],
+  )
 
   // Fetched data is tagged with its session id; the derivation below ignores a
   // snapshot whose id no longer matches (stale fetch after a session switch).
@@ -99,8 +121,10 @@ export function useWorkspaceArtifacts(
     sid: string
     files: SessionFileEntry[]
     sources: SessionUrlSource[]
+    browser: SessionBrowserActivity[]
     filesTruncated: boolean
     sourcesTruncated: boolean
+    browserTruncated: boolean
   } | null>(null)
 
   // Monotonic request id: only the newest fetch's response is applied, so two
@@ -116,8 +140,10 @@ export function useWorkspaceArtifacts(
           sid,
           files: res.files.map(backendFileToEntry),
           sources: res.sources,
+          browser: (res.browser ?? []).map(backendBrowserToEntry),
           filesTruncated: res.filesTruncated,
           sourcesTruncated: res.sourcesTruncated,
+          browserTruncated: res.browserTruncated ?? false,
         })
       })
       .catch((e) => {
@@ -157,11 +183,30 @@ export function useWorkspaceArtifacts(
     () => mergeArtifacts(data?.sources ?? [], liveSources, (s) => s.url, reconcileSource),
     [data, liveSources],
   )
+  const browser = useMemo(
+    () =>
+      mergeArtifacts(
+        data?.browser ?? [],
+        liveBrowser,
+        (activity) =>
+          activity.callId ??
+          [
+            activity.at ?? "",
+            activity.action,
+            activity.op ?? "",
+            activity.targetId ?? "",
+            activity.url ?? "",
+          ].join(":"),
+      ),
+    [data, liveBrowser],
+  )
 
   return {
     files,
     sources,
+    browser,
     filesTruncated: data?.filesTruncated ?? false,
     sourcesTruncated: data?.sourcesTruncated ?? false,
+    browserTruncated: data?.browserTruncated ?? false,
   }
 }

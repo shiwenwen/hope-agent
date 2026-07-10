@@ -309,6 +309,14 @@ fn build_router_with_cors(
             post(routes::knowledge::kb_source_import_retry_failed),
         )
         .route(
+            "/knowledge/{kb_id}/sources/{source_id}/ocr-pages",
+            get(routes::knowledge::kb_source_ocr_pages),
+        )
+        .route(
+            "/knowledge/{kb_id}/sources/{source_id}/ocr-retry",
+            post(routes::knowledge::kb_source_ocr_retry),
+        )
+        .route(
             "/knowledge/{kb_id}/sources/similar",
             get(routes::knowledge::kb_source_similarity_groups),
         )
@@ -466,6 +474,16 @@ fn build_router_with_cors(
             "/knowledge/compile/config",
             get(routes::knowledge::knowledge_compile_config_get)
                 .post(routes::knowledge::knowledge_compile_config_set),
+        )
+        .route(
+            "/knowledge/vision/config",
+            get(routes::knowledge::knowledge_vision_config_get)
+                .post(routes::knowledge::knowledge_vision_config_set),
+        )
+        .route(
+            "/knowledge/note-tools/config",
+            get(routes::knowledge::note_tools_config_get)
+                .post(routes::knowledge::note_tools_config_set),
         )
         .route(
             "/knowledge/ai/rewrite",
@@ -745,6 +763,15 @@ fn build_router_with_cors(
         .route(
             "/models/fallback",
             post(routes::models::set_fallback_models),
+        )
+        .route(
+            "/models/vision",
+            get(routes::models::get_vision_model).put(routes::models::set_vision_model),
+        )
+        .route(
+            "/models/automation",
+            get(routes::models::get_automation_model_chain)
+                .put(routes::models::set_automation_model_chain),
         )
         .route(
             "/models/reasoning-effort",
@@ -1076,6 +1103,11 @@ fn build_router_with_cors(
         )
         .route("/config/recap", get(routes::config::get_recap_config))
         .route("/config/recap", put(routes::config::save_recap_config))
+        .route(
+            "/config/recall-summary",
+            get(routes::config::get_recall_summary_config)
+                .put(routes::config::save_recall_summary_config),
+        )
         .route("/config/dreaming", get(routes::config::get_dreaming_config))
         .route(
             "/config/dreaming",

@@ -1,4 +1,3 @@
-import { Ghost } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import alphaLogoUrl from "@/assets/alpha-logo.png"
@@ -16,12 +15,16 @@ export function ChatWelcomeHero({ incognito = false }: { incognito?: boolean }) 
 
   if (incognito) {
     return (
-      <div className="max-w-[360px] px-4 text-center text-muted-foreground">
-        <Ghost className="mx-auto mb-3 h-6 w-6" />
-        <div className="text-sm font-semibold text-foreground/70">
-          {t("chat.incognitoEmptyTitle")}
-        </div>
-        <p className="mt-2 text-sm leading-relaxed">{t("chat.incognitoEmptyBody")}</p>
+      <div className="mx-auto max-w-[680px] px-4 text-center">
+        <img
+          src={alphaLogoUrl}
+          alt=""
+          className="mx-auto mb-5 h-[72px] w-[72px] object-contain opacity-35 grayscale"
+          draggable={false}
+        />
+        <p className="mx-auto max-w-[620px] text-sm leading-relaxed text-muted-foreground">
+          {t("chat.incognitoEmptyBody")}
+        </p>
       </div>
     )
   }

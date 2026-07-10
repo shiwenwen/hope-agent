@@ -110,6 +110,33 @@ impl AssistantAgent {
     /// [`FailoverPolicy::side_query_default`]. Otherwise we issue a single
     /// direct one-shot call (legacy fast path).
     pub async fn side_query(&self, instruction: &str, max_tokens: u32) -> Result<SideQueryResult> {
+        self.side_query_tagged("agent.side_query", instruction, max_tokens)
+            .await
+    }
+
+    /// Same dispatch as [`Self::side_query`], but records the usage ledger's
+    /// `operation` under a caller-supplied tag instead of the generic
+    /// `"agent.side_query"`. Used by [`crate::automation::run`] so Recap /
+    /// Dreaming / Knowledge Compile / etc. show up as distinct rows in
+    /// `model_usage_events` instead of an undifferentiated pile.
+    pub(crate) async fn side_query_with_purpose(
+        &self,
+        purpose: &str,
+        instruction: &str,
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        self.side_query_tagged(purpose, instruction, max_tokens)
+            .await
+    }
+
+    async fn side_query_tagged(
+        &self,
+        operation: &str,
+        instruction: &str,
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        let operation = operation.to_string();
+        let started = std::time::Instant::now();
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
                 .build()
@@ -164,18 +191,36 @@ impl AssistantAgent {
             let result = self
                 .side_query_direct(&client, cached.as_deref(), instruction, max_tokens)
                 .await;
-            if let Err(e) = &result {
-                app_warn!(
-                    "agent",
-                    "side_query",
-                    "Side query failed: provider={} model={} path=direct cache_mode={} has_provider_config={} has_session_id={} err={}",
-                    expected_format.label(),
-                    model_id,
-                    cache_mode,
-                    self.provider_config.is_some(),
-                    self.session_id.is_some(),
-                    e
-                );
+            match &result {
+                Ok(res) => self.record_side_query_usage(
+                    &operation,
+                    "direct",
+                    max_tokens,
+                    started.elapsed().as_millis() as u64,
+                    Some(&res.usage),
+                    None,
+                ),
+                Err(e) => {
+                    self.record_side_query_usage(
+                        &operation,
+                        "direct",
+                        max_tokens,
+                        started.elapsed().as_millis() as u64,
+                        None,
+                        Some(e.to_string()),
+                    );
+                    app_warn!(
+                        "agent",
+                        "side_query",
+                        "Side query failed: provider={} model={} path=direct cache_mode={} has_provider_config={} has_session_id={} err={}",
+                        expected_format.label(),
+                        model_id,
+                        cache_mode,
+                        self.provider_config.is_some(),
+                        self.session_id.is_some(),
+                        e
+                    );
+                }
             }
             return result;
         };
@@ -258,8 +303,26 @@ impl AssistantAgent {
         .await;
 
         match exec_result {
-            Ok(result) => Ok(result),
+            Ok(result) => {
+                self.record_side_query_usage(
+                    &operation,
+                    "failover",
+                    max_tokens,
+                    started.elapsed().as_millis() as u64,
+                    Some(&result.usage),
+                    None,
+                );
+                Ok(result)
+            }
             Err(e) => {
+                self.record_side_query_usage(
+                    &operation,
+                    "failover",
+                    max_tokens,
+                    started.elapsed().as_millis() as u64,
+                    None,
+                    Some(e.to_string()),
+                );
                 app_warn!(
                     "agent",
                     "side_query",
@@ -333,13 +396,46 @@ impl AssistantAgent {
         })
     }
 
-    /// Independent one-shot call that can carry image attachments.
-    ///
-    /// Used by owner-plane workflows such as Knowledge Source OCR: no chat
-    /// history, no tools, no cached user prefix, and no execution loop. The
-    /// caller supplies a scoped system prompt so text inside the image is read
-    /// as untrusted source material rather than as instructions.
-    pub(crate) async fn independent_query_with_attachments(
+    fn record_side_query_usage(
+        &self,
+        operation: &str,
+        path: &str,
+        max_tokens: u32,
+        duration_ms: u64,
+        usage: Option<&crate::agent::types::ChatUsage>,
+        error: Option<String>,
+    ) {
+        let mut event =
+            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_SIDE_QUERY);
+        event.operation = Some(operation.to_string());
+        event.source = Some("side_query".to_string());
+        event.provider_id = self.provider_config.as_ref().map(|p| p.id.clone());
+        event.provider_name = self.provider_config.as_ref().map(|p| p.name.clone());
+        event.model_id = Some(self.provider.model().to_string());
+        event.session_id = self.session_id.clone();
+        event.agent_id = Some(self.agent_id.clone());
+        event.duration_ms = Some(duration_ms);
+        event.success = error.is_none();
+        event.error = error;
+        event.metadata = Some(json!({
+            "path": path,
+            "max_tokens": max_tokens,
+        }));
+        if let Some(usage) = usage {
+            event.input_tokens = Some(usage.input_tokens);
+            event.output_tokens = Some(usage.output_tokens);
+            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+        }
+        crate::model_usage::record_model_usage_best_effort(event);
+    }
+
+    /// Raw one-shot-with-attachments call — no usage recording. Both
+    /// [`Self::independent_query_with_attachments`] (records `KIND_SIDE_QUERY`)
+    /// and [`Self::transcribe_images_for_vision_bridge`] (records `KIND_VISION`)
+    /// wrap this so the shared client + Codex-OAuth-hydration + one_shot logic
+    /// lives in one place while the ledger kind differs per caller.
+    async fn run_one_shot_with_attachments(
         &self,
         system: &str,
         instruction: &str,
@@ -392,11 +488,128 @@ impl AssistantAgent {
                 },
             )
             .await?;
-
         Ok(SideQueryResult {
             text: result.text,
             usage: result.usage,
         })
+    }
+
+    /// Independent one-shot call that can carry image attachments.
+    ///
+    /// Used by [`crate::automation::run_vision`] (Knowledge Source OCR today):
+    /// no chat history, no tools, no cached user prefix, and no execution
+    /// loop. The caller supplies a scoped system prompt so text inside the
+    /// image is read as untrusted source material rather than as
+    /// instructions. `purpose` tags the usage ledger's `operation` column
+    /// (mirrors `side_query_with_purpose`) — this function has exactly one
+    /// caller today, so there's no separate untagged sibling to keep
+    /// source-compatible, unlike `side_query`/`side_query_with_purpose`.
+    pub(crate) async fn independent_query_with_attachments(
+        &self,
+        purpose: &str,
+        system: &str,
+        instruction: &str,
+        attachments: &[Attachment],
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        let operation = purpose.to_string();
+        let started = std::time::Instant::now();
+        match self
+            .run_one_shot_with_attachments(system, instruction, attachments, max_tokens)
+            .await
+        {
+            Ok(out) => {
+                self.record_side_query_usage(
+                    &operation,
+                    "independent_attachments",
+                    max_tokens,
+                    started.elapsed().as_millis() as u64,
+                    Some(&out.usage),
+                    None,
+                );
+                Ok(out)
+            }
+            Err(e) => {
+                self.record_side_query_usage(
+                    &operation,
+                    "independent_attachments",
+                    max_tokens,
+                    started.elapsed().as_millis() as u64,
+                    None,
+                    Some(e.to_string()),
+                );
+                Err(e)
+            }
+        }
+    }
+
+    /// Vision bridge (issue #434): transcribe images to text for a text-only
+    /// main model. Same one-shot-with-images path as
+    /// [`Self::independent_query_with_attachments`], but records usage under
+    /// `KIND_VISION` (with `session_id` so incognito sessions auto-skip the
+    /// ledger) instead of `KIND_SIDE_QUERY`, so the Dashboard tracks vision
+    /// transcription cost distinctly.
+    pub(crate) async fn transcribe_images_for_vision_bridge(
+        &self,
+        system: &str,
+        instruction: &str,
+        attachments: &[Attachment],
+        max_tokens: u32,
+        timeout: std::time::Duration,
+    ) -> Result<SideQueryResult> {
+        let started = std::time::Instant::now();
+        // Apply the timeout HERE (not at the caller) so a timed-out call still
+        // records a failure ledger row — a caller-side `tokio::time::timeout`
+        // would drop this future before the record below runs, silently
+        // undercounting slow/hung vision providers.
+        let call = self.run_one_shot_with_attachments(system, instruction, attachments, max_tokens);
+        let outcome = match tokio::time::timeout(timeout, call).await {
+            Ok(res) => res,
+            Err(_) => Err(anyhow::anyhow!(
+                "vision transcription timed out after {}s",
+                timeout.as_secs()
+            )),
+        };
+        self.record_vision_bridge_usage(
+            max_tokens,
+            started.elapsed().as_millis() as u64,
+            outcome.as_ref().ok().map(|o| &o.usage),
+            outcome.as_ref().err().map(|e| e.to_string()),
+        );
+        outcome
+    }
+
+    /// Ledger writer for [`Self::transcribe_images_for_vision_bridge`] —
+    /// mirrors [`Self::record_side_query_usage`] but stamps `KIND_VISION`.
+    fn record_vision_bridge_usage(
+        &self,
+        max_tokens: u32,
+        duration_ms: u64,
+        usage: Option<&crate::agent::types::ChatUsage>,
+        error: Option<String>,
+    ) {
+        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_VISION);
+        event.operation = Some("agent.vision_bridge_transcribe".to_string());
+        event.source = Some("vision_bridge".to_string());
+        event.provider_id = self.provider_config.as_ref().map(|p| p.id.clone());
+        event.provider_name = self.provider_config.as_ref().map(|p| p.name.clone());
+        event.model_id = Some(self.provider.model().to_string());
+        event.session_id = self.session_id.clone();
+        event.agent_id = Some(self.agent_id.clone());
+        event.duration_ms = Some(duration_ms);
+        event.success = error.is_none();
+        event.error = error;
+        // `path` mirrors record_side_query_usage so analytics can slice
+        // KIND_VISION rows the same way (side_query rows carry metadata.path).
+        event.metadata =
+            Some(json!({ "path": "vision_bridge_transcribe", "max_tokens": max_tokens }));
+        if let Some(usage) = usage {
+            event.input_tokens = Some(usage.input_tokens);
+            event.output_tokens = Some(usage.output_tokens);
+            event.cache_creation_input_tokens = Some(usage.cache_creation_input_tokens);
+            event.cache_read_input_tokens = Some(usage.cache_read_input_tokens);
+        }
+        crate::model_usage::record_model_usage_best_effort(event);
     }
 
     /// Bare one-shot LLM call against an arbitrary `ProviderConfig` + model.
@@ -409,7 +622,9 @@ impl AssistantAgent {
         model_id: &str,
         instruction: &str,
         max_tokens: u32,
+        session_id: Option<&str>,
     ) -> Result<String> {
+        let started = std::time::Instant::now();
         let client = crate::provider::apply_proxy(
             reqwest::Client::builder().user_agent(super::config::USER_AGENT),
         )
@@ -428,7 +643,42 @@ impl AssistantAgent {
                     user_content: None,
                 },
             )
-            .await?;
+            .await;
+        let result = match result {
+            Ok(result) => result,
+            Err(e) => {
+                let mut event =
+                    crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_JUDGE);
+                event.operation = Some("permission_judge".to_string());
+                event.source = Some("permission".to_string());
+                event.provider_id = Some(provider_config.id.clone());
+                event.provider_name = Some(provider_config.name.clone());
+                event.model_id = Some(model_id.to_string());
+                event.session_id = session_id.map(str::to_string);
+                event.duration_ms = Some(started.elapsed().as_millis() as u64);
+                event.success = false;
+                event.error = Some(e.to_string());
+                event.metadata = Some(json!({ "max_tokens": max_tokens }));
+                crate::model_usage::record_model_usage_best_effort(event);
+                return Err(e);
+            }
+        };
+        let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_JUDGE)
+            .with_usage(
+                result.usage.input_tokens,
+                result.usage.output_tokens,
+                result.usage.cache_creation_input_tokens,
+                result.usage.cache_read_input_tokens,
+            );
+        event.operation = Some("permission_judge".to_string());
+        event.source = Some("permission".to_string());
+        event.provider_id = Some(provider_config.id.clone());
+        event.provider_name = Some(provider_config.name.clone());
+        event.model_id = Some(model_id.to_string());
+        event.session_id = session_id.map(str::to_string);
+        event.duration_ms = Some(started.elapsed().as_millis() as u64);
+        event.metadata = Some(json!({ "max_tokens": max_tokens }));
+        crate::model_usage::record_model_usage_best_effort(event);
         Ok(result.text)
     }
 }

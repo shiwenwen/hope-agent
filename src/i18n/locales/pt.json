@@ -836,7 +836,18 @@
       "collapse": "Recolher painel direito",
       "expand": "Expandir painel direito",
       "switch": "Alternar painel direito"
-    }
+    },
+    "pastedTextAttachment": "Texto colado",
+    "pastedTextPreviewTitle": "Texto colado",
+    "pastedTextPreviewMeta": "{{lines}} linhas · {{chars}} caracteres",
+    "pastedTextPreviewOpen": "Ver texto colado",
+    "incognitoDisable": "Desativar conversa anônima",
+    "incognitoLeaveConfirmAction": "Apagar e sair",
+    "incognitoLeaveConfirmBody": "Ao sair, esta conversa será apagada deste dispositivo e não poderá ser restaurada pelo histórico.",
+    "incognitoLeaveConfirmCancel": "Ficar aqui",
+    "incognitoLeaveConfirmTitle": "Sair da conversa anônima?",
+    "visionBridgeEngaged": "O modelo principal não consegue ver imagens, então {{model}} as descreveu para ele.",
+    "visionBridgeUnavailable": "O modelo de visão não conseguiu descrever a imagem, então ela foi ignorada."
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -1405,7 +1416,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Tempo até o primeiro token (TTFT)",
       "inputTokens": "Tokens de entrada",
-      "outputTokens": "Tokens de saída"
+      "outputTokens": "Tokens de saída",
+      "byDomain": "Distribuição por domínio",
+      "byOperation": "Por operação",
+      "operation": "Operação",
+      "domain": "Domínio"
     },
     "tool": {
       "avgDuration": "Duração média",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "Re-embedding de memória"
         }
       }
+    },
+    "usageKind": {
+      "all": "Todo o uso",
+      "chat": "Chat",
+      "side_query": "Consulta paralela",
+      "embedding": "Incorporação",
+      "stt": "Fala para texto",
+      "judge": "Avaliação",
+      "summarize": "Resumo",
+      "web_search": "Pesquisa na web",
+      "image_generation": "Geração de imagens",
+      "provider_test": "Teste de provedor",
+      "vision": "Visão"
     }
   },
   "fileActions": {
@@ -2955,7 +2983,7 @@
       },
       "intro": "Alternância global YOLO, listas de padrões de caminhos protegidos / comandos de edição / comandos perigosos e configuração do modo de aprovação inteligente.",
       "judgeExtraPromptPlaceholder": "Opcional: instruções extras para o juiz (listas de caminhos permitidos, comandos confiáveis...)",
-      "judgeModelPlaceholder": "Modelo (ex.: claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Selecionar modelo juiz",
       "judgeModelTitle": "Configuração do modelo juiz",
       "judgeProviderPlaceholder": "ID do provedor (ex.: anthropic-1)",
       "protectedPathsDesc": "Chamadas de ferramentas que atingem estes caminhos forçam aprovação e não podem ser Permitir sempre. Suporta expansão ~/, prefixo de diretório (barra final) e globs *.pattern.",
@@ -3064,7 +3092,9 @@
       "resetOverride": "Redefinir para global",
       "sameAgentOnly": "Apenas mesmo Agent",
       "sessionOverride": "Override da sessão",
-      "title": "Consciência de comportamento"
+      "title": "Consciência de comportamento",
+      "extractionModel": "Modelo de extração (opcional)",
+      "extractionModelInherit": "Reutilizar o agente da conversa atual (favorável ao cache)"
     },
     "browser": {
       "activeBadge": "ativo",
@@ -3170,9 +3200,9 @@
         "stepInstallExtensionHint": "Use a página da Chrome Web Store, depois volte aqui e atualize.",
         "openWebStore": "Abrir a Chrome Web Store",
         "stepOpenExtensions": "Abrir extensões do Chrome",
-        "stepOpenExtensionsHint": "Ative o modo de desenvolvedor e use Carregar sem compactação.",
-        "stepLoadUnpacked": "Carregar a extensão sem compactação",
-        "alphaFallback": "Alternativa Alpha: carregar sem compactação",
+        "stepOpenExtensionsHint": "Clique primeiro em Mostrar pasta para abrir o diretório da extensão. Na página de extensões do Chrome, ative o modo de desenvolvedor e arraste essa pasta. Você também pode copiar o caminho e usar Carregar sem compactação.",
+        "stepLoadUnpacked": "Mostrar a pasta da extensão",
+        "alphaFallback": "Alternativa Alpha: arrastar extensão local",
         "stepInstallHost": "Instalar o host nativo",
         "openChromeExtensions": "Abrir chrome://extensions",
         "showFolder": "Mostrar pasta",
@@ -3246,7 +3276,7 @@
     "chatDisplayModeDesc": "Escolha o layout padrão para novas conversas e sessões sem substituição. O botão da barra de título afeta apenas a sessão atual.",
     "chatDisplayModeTimeline": "Tarefas",
     "claims": {
-      "title": "Memória estruturada",
+      "title": "Claims",
       "desc": "Memória estruturada de longo prazo com escopo, confiança e evidências.",
       "explainer": {
         "title": "Como esta camada funciona",
@@ -3693,7 +3723,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Usar o padrão de automação",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3833,7 +3863,8 @@
       "matcherPlaceholder": "nome da ferramenta / origem (regex ok), vazio = todos",
       "addHandler": "Adicionar handler",
       "advanced": "Avançado",
-      "slowHandlerWarning": "Este handler executa um LLM / subagente em linha e atrasará cada vez que este evento de bloqueio disparar. Prefira command / http aqui, ou mova-o para um evento de observação (ex.: PostToolUse)."
+      "slowHandlerWarning": "Este handler executa um LLM / subagente em linha e atrasará cada vez que este evento de bloqueio disparar. Prefira command / http aqui, ou mova-o para um evento de observação (ex.: PostToolUse).",
+      "modelInheritDefault": "Usar o padrão de automação"
     },
     "hours": "h",
     "imageGenApiKey": "API Key",
@@ -3888,9 +3919,9 @@
       "tab": "Conhecimento"
     },
     "knowledgeCompile": {
-      "agent": "Agente de organização de fontes",
-      "agentDefault": "Usar agente padrão global",
-      "agentDesc": "Agente usado para transformar fontes em sugestões de notas revisáveis. Quando não definido, herda o agente padrão global.",
+      "agent": "Modelo de compilação",
+      "agentDefault": "Usar o padrão de automação",
+      "agentDesc": "Cadeia de modelo usada para transformar fontes em sugestões de notas revisáveis. Vazio segue o padrão de automação.",
       "errors": {
         "loadConfig": "Falha ao carregar a configuração do agente de fonte para nota",
         "loadAgents": "Falha ao carregar a lista de agentes de fonte para nota",
@@ -3974,7 +4005,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Modelo",
+      "modelDesc": "Compartilhado pelos 4 geradores baseados em LLM (auto-tag, manutenção de MOC, memória→nota, conflito de fontes).",
+      "modelDefault": "Usar o padrão de automação"
     },
     "knowledgeMediaRetention": {
       "saved": "Salvo",
@@ -4750,8 +4784,8 @@
         "detail": "Details: {{error}}"
       }
     },
-    "memoryExtractClaims": "Extrair memória estruturada",
-    "memoryExtractClaimsDesc": "Também extrai memórias estruturadas, revisáveis e com evidências junto às memórias normais.",
+    "memoryExtractClaims": "Extrair claims (beta)",
+    "memoryExtractClaimsDesc": "Também extrai claims estruturados com evidências junto às memórias (escrita dupla).",
     "memoryStructuredBadge": "Estruturada",
     "memoryExtractIdleTimeout": "Timeout de inatividade (min)",
     "memoryExtractMessageThreshold": "Limite de mensagens",
@@ -4780,7 +4814,7 @@
     "memoryImportCopyDiagnosticsError": "Failed to copy memory import diagnostics: {{error}}",
     "memoryImportFromAIParseBtn": "Parsear e importar",
     "memoryImportFromAIParseError": "Falha ao parsear: {{error}}",
-    "memoryImportFromAIPastePlaceholder": "Paste JSON or a Markdown memory export returned by the other AI here...",
+    "memoryImportFromAIPastePlaceholder": "Cole o array JSON retornado pela outra IA aqui...",
     "memoryImportNoEntries": "No importable memories found.",
     "memoryImportPreviewBtn": "Preview",
     "memoryImportPreviewTitle": "Preview",
@@ -5295,7 +5329,7 @@
       "dreaming": "Dreaming",
       "manage": "Gerenciamento de memória",
       "settings": "Configurações de memória",
-      "claims": "Memória estruturada",
+      "claims": "Claims",
       "profile": "Perfil"
     },
     "memoryTags": "Tags",
@@ -5616,9 +5650,9 @@
     "proxyUrl": "URL do proxy",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agente de análise",
-    "recapAnalysisAgentDefault": "Usar agente padrão global",
-    "recapAnalysisAgentDesc": "Agente usado para extrair facets e escrever seções do relatório. Se não definido, herda o agente padrão global.",
+    "recapAnalysisAgent": "Modelo de análise",
+    "recapAnalysisAgentDefault": "Usar o padrão de automação",
+    "recapAnalysisAgentDesc": "Cadeia de modelo usada para extrair facetas e redigir as seções do relatório. Vazio segue o padrão de automação.",
     "recapCacheRetentionDays": "Retenção de cache de facets (dias)",
     "recapCacheRetentionDaysDesc": "Tempo de retenção dos facets em cache antes da limpeza diária. 0 = manter sempre. Padrão 180.",
     "recapDefaultRangeDays": "Intervalo padrão (dias)",
@@ -5894,7 +5928,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Cadeia de modelo usada para revisar habilidades candidatas. Vazio reutiliza o cache da conversa que acionou (recorrendo ao padrão de automação).",
+          "inheritDefault": "Reutilizar a conversa que acionou (favorável ao cache)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -6001,7 +6036,10 @@
         "save": "Falha ao salvar as configurações do duende",
         "toggle": "Falha ao atualizar o modo duende",
         "detail": "Detalhes: {{error}}"
-      }
+      },
+      "model": "Modelo",
+      "modelDesc": "A chamada de sugestão do Sprite é disparar-e-esquecer — uma cadeia de fallback completa funciona bem, não só um único modelo.",
+      "modelDefault": "Usar o padrão de automação"
     },
     "ssrfBrowserPolicyDesc": "Aplicado à URL alvo de page.goto / new_page. Nota: fetch() JS dentro de browser.evaluate está fora do escopo.",
     "ssrfDefaultPolicy": "Política padrão",
@@ -6369,7 +6407,39 @@
     "retrievalPlannerDesc": "Fuse memory, relationship, workflow, and knowledge candidates with stable scope-aware ranking.",
     "retrievalPlannerIntentAware": "Task-aware",
     "retrievalPlannerMaxTraceRefs": "Diagnostic references",
-    "retrievalPlannerMaxPerOrigin": "Candidates per source"
+    "retrievalPlannerMaxPerOrigin": "Candidates per source",
+    "visionBridgeModel": "Modelo de ponte de visão",
+    "visionBridgeModelDesc": "Usado apenas quando o modelo principal não consegue ver imagens. Um modelo separado converte imagens em descrições de texto para que a conversa continue.",
+    "visionBridgeModelClear": "Desativar a ponte de visão",
+    "selectVisionBridgeModel": "Selecionar modelo de visão",
+    "modelChainRestoreInherit": "Repor para o padrão herdado",
+    "automationModelChain": "Modelo padrão de automação",
+    "automationModelChainDesc": "Cadeia de modelo padrão (com substituto) para tarefas de IA de segundo plano únicas, como Recap, Dreaming e Compilação de conhecimento — independente do modelo padrão de chat acima. Deixe em branco para usar o modelo padrão de chat.",
+    "automationModelChainInherit": "Usar o modelo padrão de chat",
+    "knowledgeVision": {
+      "model": "Modelo de visão",
+      "modelDesc": "Cadeia de modelo usada para fazer OCR em imagens ao importá-las para um espaço de conhecimento. Vazio segue o padrão de automação.",
+      "modelDefault": "Usar o padrão de automação",
+      "ocrConcurrency": "Concorrência de OCR de PDF digitalizado",
+      "maxOcrPages": "Limite de páginas de OCR de PDF digitalizado"
+    },
+    "noteTools": {
+      "title": "Modelo das ferramentas de notas",
+      "desc": "Modelo compartilhado pelas ferramentas de destilação de notas, geração de MOC e sessão-para-nota.",
+      "modelDefault": "Usar o padrão de automação"
+    },
+    "recallSummary": {
+      "title": "Resumo de recall",
+      "desc": "Quando recall_memory / session_search retornam muitos resultados, comprime-os em um parágrafo conciso com uma chamada extra de LLM, em vez de retornar trechos brutos. Desativado por padrão — custa uma chamada extra por busca elegível.",
+      "enabled": "Ativar resumo",
+      "minHits": "Mínimo de resultados para acionar",
+      "contextCharBudget": "Orçamento de contexto (caracteres)",
+      "timeoutSecs": "Tempo limite (s)",
+      "maxTokens": "Máximo de tokens de saída",
+      "includeHistory": "Também resumir resultados do histórico da conversa",
+      "model": "Modelo",
+      "modelDefault": "Usar o padrão de automação"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Abrir configurações",
@@ -7398,7 +7468,13 @@
       "similarScope": {
         "crossKb": "Espaço cruzado",
         "sameKb": "Este espaço"
-      }
+      },
+      "ocrRunning": "OCR em andamento…",
+      "ocrPartial": "OCR: algumas páginas falharam",
+      "ocrFailed": "Falha no OCR",
+      "ocrRetry": "Repetir páginas com falha",
+      "ocrRetryStarted": "Repetindo páginas com falha…",
+      "ocrRetryFailed": "Não foi possível repetir as páginas de OCR"
     },
     "queryFile": {
       "action": "Arquivo",

@@ -271,6 +271,11 @@ fn gen_source_compile(kb_id: &str) -> Result<Vec<NewProposal>> {
     let uncompiled = sources
         .iter()
         .filter(|s| s.compiled_at.is_none())
+        // A source still mid-OCR (PartiallyExtracted) or that never
+        // finished extracting (Failed) has placeholder/incomplete content —
+        // compiling it would feed the LLM garbage and permanently mark it
+        // compiled, never to be revisited once the real content lands.
+        .filter(|s| s.status == crate::knowledge::types::KnowledgeSourceStatus::Ready)
         .filter(|s| !covered.contains(&source_compile_key("uncompiled", s)))
         .take(5)
         .cloned()
@@ -291,6 +296,7 @@ fn gen_source_compile(kb_id: &str) -> Result<Vec<NewProposal>> {
                 .map(|compiled| s.updated_at > compiled)
                 .unwrap_or(false)
         })
+        .filter(|s| s.status == crate::knowledge::types::KnowledgeSourceStatus::Ready)
         .filter(|s| !covered.contains(&source_compile_key("stale", s)))
         .take(5)
         .cloned()
@@ -795,7 +801,7 @@ async fn gen_auto_tag(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewPro
          mapping each note's PATH to an array of tag strings (no `#`, no commentary, no code \
          fence).\n\n{blocks}"
     );
-    let resp = run_side_query(&prompt, cfg).await?;
+    let resp = run_side_query("knowledge_maintenance.auto_tag", &prompt, cfg).await?;
     let map: Map<String, Value> = parse_json_object(&resp)?;
     let mut out = Vec::new();
     for (rel, title, _excerpt) in &collected {
@@ -876,7 +882,9 @@ async fn gen_moc_upkeep(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<NewP
              a one-line annotation each, linking every note with the [[wikilinks]] exactly as given. \
              Return ONLY the markdown body (no frontmatter, no code fence).\n\nNOTES:\n{list}"
         );
-        let body = strip_code_fence(&run_side_query(&prompt, cfg).await?);
+        let body = strip_code_fence(
+            &run_side_query("knowledge_maintenance.moc_upkeep", &prompt, cfg).await?,
+        );
         if body.trim().is_empty() {
             continue;
         }
@@ -934,7 +942,7 @@ async fn gen_memory_to_note(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec<
          {{\"title\": \"…\", \"body\": \"markdown…\"}} (no code fence). If there's no coherent theme, \
          return {{\"title\": \"\", \"body\": \"\"}}.\n\nFRAGMENTS:\n{joined}"
     );
-    let resp = run_side_query(&prompt, cfg).await?;
+    let resp = run_side_query("knowledge_maintenance.memory_to_note", &prompt, cfg).await?;
     let obj = parse_json_object(&resp)?;
     let title = obj
         .get("title")
@@ -1020,6 +1028,7 @@ async fn gen_source_conflict(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec
             if !matches!(
                 source.status,
                 crate::knowledge::types::KnowledgeSourceStatus::Ready
+                    | crate::knowledge::types::KnowledgeSourceStatus::PartiallyExtracted
             ) {
                 continue;
             }
@@ -1084,7 +1093,7 @@ async fn gen_source_conflict(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec
          {{\"conflicts\":[{{\"candidate\":0,\"summary\":\"...\",\"evidence\":\"...\"}}]}}. \
          If none are real conflicts, return {{\"conflicts\":[]}}.\n\n{blocks}"
     );
-    let resp = run_side_query(&prompt, cfg).await?;
+    let resp = run_side_query("knowledge_maintenance.source_conflict", &prompt, cfg).await?;
     let obj = parse_json_object(&resp)?;
     let Some(items) = obj.get("conflicts").and_then(|v| v.as_array()) else {
         return Ok(Vec::new());
@@ -1149,10 +1158,20 @@ async fn gen_source_conflict(kb_id: &str, cfg: &MaintenanceConfig) -> Result<Vec
 
 // ── LLM helper ───────────────────────────────────────────────────────
 
-async fn run_side_query(prompt: &str, cfg: &MaintenanceConfig) -> Result<String> {
+async fn run_side_query(
+    purpose: &'static str,
+    prompt: &str,
+    cfg: &MaintenanceConfig,
+) -> Result<String> {
     let config = crate::config::cached_config();
-    let (agent, _model) = crate::recap::report::build_analysis_agent(&config).await?;
-    let fut = agent.side_query(prompt, cfg.llm_max_tokens);
+    let chain = crate::automation::effective_chain(&config, cfg.model_override.clone());
+    let fut = crate::automation::run(crate::automation::ModelTaskSpec {
+        purpose,
+        chain,
+        session_key: "automation:knowledge_maintenance",
+        instruction: prompt,
+        max_tokens: cfg.llm_max_tokens,
+    });
     let res = tokio::time::timeout(std::time::Duration::from_secs(cfg.llm_timeout_secs), fut)
         .await
         .map_err(|_| anyhow!("maintenance LLM call timed out"))??;

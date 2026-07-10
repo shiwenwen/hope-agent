@@ -591,9 +591,9 @@
     "incognitoAwarenessDisabled": "開啟無痕時不可用行為感知",
     "incognitoChannelExclusive": "IM 頻道會話不能開啟無痕——對方還會非同步發訊息，會話不能消失",
     "incognitoEmptyBody": "這次聊天不會出現在歷史記錄中，也不會使用或更新記憶、感知或統計；離開後本機副本會被刪除。",
-    "incognitoEmptyTitle": "臨時聊天",
+    "incognitoEmptyTitle": "無痕",
     "incognitoMutuallyExclusive": "目前會話不支援無痕",
-    "incognitoPreset": "新對話無痕預設",
+    "incognitoPreset": "開啟無痕對話",
     "incognitoProjectExclusive": "Project 會話不能開啟無痕——專案記憶與檔案需要持續保留",
     "inputTokens": "輸入",
     "inputTokensCumulative": "輸入總計",
@@ -836,7 +836,18 @@
       "collapse": "折疊右側面板",
       "expand": "展開右側面板",
       "switch": "切換右側面板"
-    }
+    },
+    "pastedTextAttachment": "貼上的文字",
+    "pastedTextPreviewTitle": "貼上的文字",
+    "pastedTextPreviewMeta": "{{lines}} 行 · {{chars}} 個字元",
+    "pastedTextPreviewOpen": "查看貼上的文字",
+    "incognitoDisable": "關閉無痕對話",
+    "incognitoLeaveConfirmAction": "刪除並離開",
+    "incognitoLeaveConfirmBody": "離開後，這次對話會從本機刪除，無法從歷史記錄中復原。",
+    "incognitoLeaveConfirmCancel": "留在目前對話",
+    "incognitoLeaveConfirmTitle": "離開無痕對話？",
+    "visionBridgeEngaged": "主模型不支援看圖，已用 {{model}} 轉述圖片內容。",
+    "visionBridgeUnavailable": "視覺模型轉述圖片失敗，已忽略該圖片。"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",
@@ -1405,7 +1416,11 @@
       "ttft": "首Token耗時",
       "ttftTrend": "首 Token 耗時趨勢 (TTFT)",
       "inputTokens": "輸入令牌",
-      "outputTokens": "輸出代幣"
+      "outputTokens": "輸出代幣",
+      "byDomain": "依用途分佈",
+      "byOperation": "依操作細分",
+      "operation": "操作",
+      "domain": "用途"
     },
     "tool": {
       "avgDuration": "平均耗時",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "記憶重嵌入"
         }
       }
+    },
+    "usageKind": {
+      "all": "全部用量",
+      "chat": "對話",
+      "side_query": "旁路查詢",
+      "embedding": "嵌入",
+      "stt": "語音轉文字",
+      "judge": "評判",
+      "summarize": "摘要",
+      "web_search": "網頁搜尋",
+      "image_generation": "圖片生成",
+      "provider_test": "供應商測試",
+      "vision": "視覺"
     }
   },
   "fileActions": {
@@ -2960,7 +2988,7 @@
       },
       "intro": "審批彈窗與「永遠跳過審批」的全域開關、保護路徑 / 編輯命令 / 危險命令模式列表，以及智慧審批模式設定。",
       "judgeExtraPromptPlaceholder": "可選：附加給判官的提示詞（白名單路徑、信任命令等）",
-      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeModelPlaceholder": "選擇裁判模型",
       "judgeModelTitle": "判官模型設定",
       "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
       "protectedPathsDesc": "命中以下路徑模式時強制審批，不可 AllowAlways 跳過。支援 ~/ 展開、目錄前綴（結尾 /）、萬用字元（*.pem）。",
@@ -3069,7 +3097,9 @@
       "resetOverride": "重設為全域設定",
       "sameAgentOnly": "僅同一 Agent",
       "sessionOverride": "對話層級覆寫",
-      "title": "行為感知"
+      "title": "行為感知",
+      "extractionModel": "提取模型（選填）",
+      "extractionModelInherit": "複用目前對話 Agent（快取友善）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3175,9 +3205,9 @@
         "stepInstallExtensionHint": "使用 Chrome Web Store 頁面安裝，然後回到這裡重新整理。",
         "openWebStore": "開啟 Chrome Web Store",
         "stepOpenExtensions": "開啟 Chrome 擴充功能頁",
-        "stepOpenExtensionsHint": "啟用開發人員模式，然後使用「載入未封裝項目」。",
-        "stepLoadUnpacked": "載入未封裝的擴充功能",
-        "alphaFallback": "Alpha 備援：載入未封裝項目",
+        "stepOpenExtensionsHint": "先點擊「顯示資料夾」開啟擴充功能目錄；在 Chrome 擴充功能頁啟用開發人員模式後，把該資料夾拖進去。也可以複製路徑，再用「載入未封裝項目」選擇。",
+        "stepLoadUnpacked": "顯示擴充功能資料夾",
+        "alphaFallback": "Alpha 備援：拖曳本機擴充功能",
         "stepInstallHost": "安裝原生主機",
         "openChromeExtensions": "開啟 chrome://extensions",
         "showFolder": "顯示資料夾",
@@ -3251,7 +3281,7 @@
     "chatDisplayModeDesc": "選擇新對話和未單獨切換會話的預設佈局。標題列切換只影響目前會話。",
     "chatDisplayModeTimeline": "任務",
     "claims": {
-      "title": "結構化記憶",
+      "title": "記憶斷言（Claims）",
       "desc": "帶範圍、信賴度與來源證據的結構化長期記憶。",
       "explainer": {
         "title": "這層記憶在做什麼",
@@ -3698,7 +3728,7 @@
       "narrativeMaxTokensDesc": "敘事 side query 的輸出預算。",
       "narrativeModel": "敘事模型",
       "narrativeModelClear": "清空",
-      "narrativeModelDefault": "沿用主對話 Agent",
+      "narrativeModelDefault": "跟隨自動化預設鏈",
       "narrativeModelDesc": "覆寫評分使用的模型。留空則沿用主對話 / recap 模型鏈。",
       "narrativeTimeoutSecs": "逾時（秒）",
       "narrativeTimeoutSecsDesc": "side query 超過此秒數將中止。",
@@ -3838,7 +3868,8 @@
       "matcherPlaceholder": "工具名 / 來源（支援正規表示式），留空 = 全部",
       "addHandler": "新增處理器",
       "advanced": "進階",
-      "slowHandlerWarning": "此處理器會內聯執行 LLM / 子 Agent，每次該阻斷事件觸發都會拖慢。建議這裡改用 command / http，或移至觀察型事件（如 PostToolUse）。"
+      "slowHandlerWarning": "此處理器會內聯執行 LLM / 子 Agent，每次該阻斷事件觸發都會拖慢。建議這裡改用 command / http，或移至觀察型事件（如 PostToolUse）。",
+      "modelInheritDefault": "跟隨自動化預設鏈"
     },
     "hours": "小時",
     "imageGenApiKey": "API Key",
@@ -3893,9 +3924,9 @@
       "tab": "知識空間"
     },
     "knowledgeCompile": {
-      "agent": "資料整理 Agent",
-      "agentDefault": "使用全域預設 Agent",
-      "agentDesc": "用於將來源資料整理成可審閱的筆記建議，未設定時繼承全域預設 Agent。",
+      "agent": "整理模型",
+      "agentDefault": "跟隨自動化預設鏈",
+      "agentDesc": "用於把來源資料整理成可審閱筆記建議的模型鏈。留空則跟隨自動化預設鏈。",
       "errors": {
         "loadConfig": "載入資料整理 Agent 設定失敗",
         "loadAgents": "載入資料整理 Agent 列表失敗",
@@ -3979,7 +4010,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "4 個基於 LLM 的產生器（自動標籤、MOC 維護、記憶轉筆記、資料衝突）共用此設定。",
+      "modelDefault": "跟隨自動化預設鏈"
     },
     "knowledgeMediaRetention": {
       "saved": "已儲存",
@@ -4720,8 +4754,8 @@
         "detail": "詳細資訊：{{error}}"
       }
     },
-    "memoryExtractClaims": "擷取結構化記憶",
-    "memoryExtractClaimsDesc": "在普通記憶之外，額外擷取帶證據、可審核、可修正的結構化記憶。",
+    "memoryExtractClaims": "擷取記憶斷言（beta）",
+    "memoryExtractClaimsDesc": "在記憶之外，額外擷取帶證據的記憶斷言（雙寫）。",
     "memoryStructuredBadge": "結構化",
     "memoryExtractIdleTimeout": "空閒超時（分鐘）",
     "memoryExtractMessageThreshold": "消息條數閾值",
@@ -4750,7 +4784,7 @@
     "memoryImportCopyDiagnosticsError": "複製匯入預覽診斷失敗：{{error}}",
     "memoryImportFromAIParseBtn": "解析并導入",
     "memoryImportFromAIParseError": "解析失敗：{{error}}",
-    "memoryImportFromAIPastePlaceholder": "把其他 AI 返回的 JSON 或 Markdown 記憶匯出貼到這裡…",
+    "memoryImportFromAIPastePlaceholder": "把其他 AI 返回的 JSON 數組粘貼到這里…",
     "memoryImportNoEntries": "沒有發現可匯入的記憶。",
     "memoryImportPreviewBtn": "預覽",
     "memoryImportPreviewTitle": "匯入預覽",
@@ -5265,7 +5299,7 @@
       "dreaming": "夢境（Dreaming）",
       "manage": "記憶管理",
       "settings": "記憶設定",
-      "claims": "結構化記憶",
+      "claims": "記憶斷言（Claims）",
       "profile": "Profile"
     },
     "memoryTags": "標簽",
@@ -5586,9 +5620,9 @@
     "proxyUrl": "代理地址",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "復盤報告",
-    "recapAnalysisAgent": "分析 Agent",
-    "recapAnalysisAgentDefault": "使用全域預設 Agent",
-    "recapAnalysisAgentDesc": "用於擷取 facet 與撰寫報告章節的 Agent，未設定時繼承全域預設 Agent",
+    "recapAnalysisAgent": "分析模型",
+    "recapAnalysisAgentDefault": "跟隨自動化預設鏈",
+    "recapAnalysisAgentDesc": "用於提取 facet 和撰寫報告章節的模型鏈。留空則跟隨自動化預設鏈。",
     "recapCacheRetentionDays": "Facet 快取保留天數",
     "recapCacheRetentionDaysDesc": "已快取的會話 facet 保留時長，每 24 小時背景掃描清理。設為 0 則永久保留。預設 180 天",
     "recapDefaultRangeDays": "預設時間範圍（天）",
@@ -5864,7 +5898,8 @@
         },
         "reviewModel": {
           "label": "专用审核模型",
-          "help": "格式 provider:model。留空则复用主对话的缓存前缀。"
+          "help": "用於審核候選技能的模型鏈。留空則複用觸發對話的快取前綴（再退到自動化預設鏈）。",
+          "inheritDefault": "複用觸發對話（快取友善）"
         },
         "extraRejectCategories": {
           "label": "追加禁拍主题",
@@ -5971,7 +6006,10 @@
         "save": "儲存精靈設定失敗",
         "toggle": "更新精靈模式失敗",
         "detail": "詳細資訊：{{error}}"
-      }
+      },
+      "model": "模型",
+      "modelDesc": "精靈的建議呼叫是即發即棄——使用完整的降級鏈沒問題，不必只給單一模型。",
+      "modelDefault": "跟隨自動化預設鏈"
     },
     "ssrfBrowserPolicyDesc": "套用於 page.goto / new_page 的目標 URL。注意：browser.evaluate 中的 JS fetch() 不在此攔截範圍內。",
     "ssrfDefaultPolicy": "預設策略",
@@ -6369,7 +6407,39 @@
     "memoryExternalProviderConnectionClear": "清除連線",
     "memoryExternalProviderConnectionSave": "儲存連線",
     "memoryExternalProviderApiKeyRequired": "Supermemory Cloud 與自託管 endpoint 均必填",
-    "memoryExternalProviderApiKeyGeneric": "雲端服務通常需要金鑰；本機服務停用驗證時可以留空。"
+    "memoryExternalProviderApiKeyGeneric": "雲端服務通常需要金鑰；本機服務停用驗證時可以留空。",
+    "visionBridgeModel": "視覺橋模型",
+    "visionBridgeModelDesc": "僅當主模型不支援看圖時生效。用一個單獨的模型把圖片轉成文字描述，讓對話繼續。",
+    "visionBridgeModelClear": "關閉視覺橋",
+    "selectVisionBridgeModel": "選擇視覺模型",
+    "modelChainRestoreInherit": "恢復為繼承的預設值",
+    "automationModelChain": "自動化預設模型",
+    "automationModelChainDesc": "用於 Recap、Dreaming、資料整理等後台一次性 AI 任務的預設模型鏈（含降級），與上方的聊天預設模型相互獨立；未設定時跟隨聊天預設模型。",
+    "automationModelChainInherit": "跟隨聊天預設模型",
+    "knowledgeVision": {
+      "model": "視覺模型",
+      "modelDesc": "匯入知識空間時用於為圖片做 OCR 的模型鏈。留空則跟隨自動化預設鏈。",
+      "modelDefault": "跟隨自動化預設鏈",
+      "ocrConcurrency": "掃描版 PDF OCR 並發數",
+      "maxOcrPages": "掃描版 PDF OCR 頁數上限"
+    },
+    "noteTools": {
+      "title": "筆記工具模型",
+      "desc": "筆記萃取、MOC 生成、會談轉筆記三個工具共用的模型。",
+      "modelDefault": "跟隨自動化預設鏈"
+    },
+    "recallSummary": {
+      "title": "召回摘要",
+      "desc": "當 recall_memory / session_search 回傳較多命中時，額外呼叫一次 LLM 把它們壓縮成一段簡潔摘要，而非回傳原始片段。預設關閉——每次符合條件的檢索都會多花一次呼叫。",
+      "enabled": "啟用摘要",
+      "minHits": "觸發所需最小命中數",
+      "contextCharBudget": "內容脈絡預算（字元）",
+      "timeoutSecs": "逾時時間（秒）",
+      "maxTokens": "最大輸出 token 數",
+      "includeHistory": "同時摘要對話歷史命中",
+      "model": "模型",
+      "modelDefault": "跟隨自動化預設鏈"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "打開設置",
@@ -7398,21 +7468,27 @@
       "similarScope": {
         "crossKb": "跨空間",
         "sameKb": "此空間"
-      }
+      },
+      "ocrRunning": "OCR 執行中…",
+      "ocrPartial": "OCR：部分頁面失敗",
+      "ocrFailed": "OCR 失敗",
+      "ocrRetry": "重試失敗頁面",
+      "ocrRetryStarted": "正在重試失敗頁面…",
+      "ocrRetryFailed": "無法重試 OCR 頁面"
     },
     "queryFile": {
-      "action": "歸檔",
+      "action": "文件",
       "applied": "提交至知識空間",
-      "apply": "套用",
-      "applyFailed": "無法套用歸檔",
-      "description": "寫入前先建立一個可審閱的 diff。",
-      "empty": "選擇這則答案要歸檔到哪裡。",
+      "apply": "申請",
+      "applyFailed": "無法申請備案",
+      "description": "在寫作之前創建一個審查差異。",
+      "empty": "選擇這個答案應該落在哪裡。",
       "errorDetail": "詳細資訊：{{error}}",
       "generateFailed": "無法建立歸檔提案",
-      "reject": "忽略",
-      "rejected": "已丟棄歸檔",
-      "rejectFailed": "無法丟棄歸檔",
-      "review": "預覽",
+      "reject": "拒絕",
+      "rejected": "歸檔被放棄",
+      "rejectFailed": "無法放棄歸檔",
+      "review": "評論",
       "title": "歸檔答案",
       "titlePlaceholder": "標題",
       "mode": {

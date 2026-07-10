@@ -34,6 +34,22 @@ pub(super) fn process_file_attachments(
             ));
             continue;
         }
+        if att.source.as_deref() == Some(crate::attachments::PASTED_TEXT_SOURCE) {
+            let Some(file_path) = att.file_path.as_deref() else {
+                continue;
+            };
+            let size_attr = std::fs::metadata(file_path)
+                .map(|m| format!(" size_bytes=\"{}\"", m.len()))
+                .unwrap_or_default();
+            file_texts.push(format!(
+                "<file name=\"{}\" path=\"{}\" source=\"{}\"{}>\n[Pasted text was saved as a session attachment. Use the read tool with this path to inspect the full content when needed.]\n</file>",
+                escape_xml_attr(&att.name),
+                escape_xml_attr(file_path),
+                crate::attachments::PASTED_TEXT_SOURCE,
+                size_attr
+            ));
+            continue;
+        }
         if att.mime_type.starts_with("image/") {
             continue; // Images are handled as multimodal content blocks
         }
@@ -290,5 +306,31 @@ pub(super) fn build_user_content_for_provider(
         ProviderFormat::OpenAIResponses | ProviderFormat::Codex => {
             build_user_content_responses(message, attachments)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pasted_text_attachment_injects_reference_without_body() {
+        let attachments = vec![Attachment {
+            name: "pasted <text>.txt".to_string(),
+            mime_type: "text/plain".to_string(),
+            source: Some(crate::attachments::PASTED_TEXT_SOURCE.to_string()),
+            data: Some("this body should stay on disk".to_string()),
+            file_path: Some("/tmp/paste <secret>.txt".to_string()),
+            quote_lines: None,
+        }];
+
+        let (text, images) = process_file_attachments(&attachments);
+
+        assert!(images.is_empty());
+        assert!(text.contains("source=\"pasted_text\""));
+        assert!(text.contains("Use the read tool"));
+        assert!(text.contains("pasted &lt;text>.txt"));
+        assert!(text.contains("/tmp/paste &lt;secret>.txt"));
+        assert!(!text.contains("this body should stay on disk"));
     }
 }

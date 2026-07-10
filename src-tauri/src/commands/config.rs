@@ -16,10 +16,11 @@ pub async fn get_default_agent_id() -> Result<Option<String>, CmdError> {
 #[tauri::command]
 pub async fn set_default_agent_id(agent_id: Option<String>) -> Result<(), CmdError> {
     let normalized = ha_core::agent::resolver::normalize_default_agent_id(agent_id.as_deref());
-    ha_core::config::mutate_config(("default_agent", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("default_agent", "settings-ui"), move |store| {
         store.default_agent_id = normalized;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -35,10 +36,11 @@ pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfi
 pub async fn save_web_search_config(
     config: tools::web_search::WebSearchConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("web_search", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("web_search", "settings-ui"), move |store| {
         store.web_search = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -52,10 +54,11 @@ pub async fn get_web_fetch_config() -> Result<tools::web_fetch::WebFetchConfig, 
 pub async fn save_web_fetch_config(
     config: tools::web_fetch::WebFetchConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("web_fetch", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("web_fetch", "settings-ui"), move |store| {
         store.web_fetch = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -69,10 +72,11 @@ pub async fn get_issue_reporting_config(
 pub async fn save_issue_reporting_config(
     config: ha_core::issue_reporting::IssueReportingConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("issue_reporting", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("issue_reporting", "settings-ui"), move |store| {
         store.issue_reporting = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -98,10 +102,11 @@ pub async fn get_ssrf_config() -> Result<ha_core::security::ssrf::SsrfConfig, Cm
 
 #[tauri::command]
 pub async fn save_ssrf_config(config: ha_core::security::ssrf::SsrfConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("security.ssrf", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("security.ssrf", "settings-ui"), move |store| {
         store.ssrf = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -115,10 +120,11 @@ pub async fn get_filesystem_config() -> Result<ha_core::config::FilesystemConfig
 pub async fn save_filesystem_config(
     config: ha_core::config::FilesystemConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("filesystem", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("filesystem", "settings-ui"), move |store| {
         store.filesystem = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -130,10 +136,11 @@ pub async fn get_compact_config() -> Result<context_compact::CompactConfig, CmdE
 
 #[tauri::command]
 pub async fn save_compact_config(config: context_compact::CompactConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("compact", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("compact", "settings-ui"), move |store| {
         store.compact = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -147,10 +154,11 @@ pub async fn get_session_title_config(
 pub async fn save_session_title_config(
     config: ha_core::session_title::SessionTitleConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("session_title", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("session_title", "settings-ui"), move |store| {
         store.session_title = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -164,10 +172,11 @@ pub async fn get_notification_config() -> Result<ha_core::config::NotificationCo
 pub async fn save_notification_config(
     config: ha_core::config::NotificationConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("notification", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("notification", "settings-ui"), move |store| {
         store.notification = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -181,13 +190,14 @@ pub async fn get_auto_update_config() -> Result<ha_core::updater::AutoUpdateConf
 pub async fn set_auto_update_config(
     config: ha_core::updater::AutoUpdateConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("auto_update", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("auto_update", "settings-ui"), move |store| {
         store.auto_update = config;
         // Clamp the interval to the supported range on write so the stored
         // value matches what the loops actually use.
         store.auto_update.check_interval_hours = store.auto_update.clamped_interval_hours();
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -202,10 +212,11 @@ pub async fn get_startup_notification_config(
 pub async fn save_startup_notification_config(
     config: ha_core::config::StartupNotificationConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("startup_notification", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("startup_notification", "settings-ui"), move |store| {
         store.startup_notification = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -222,10 +233,11 @@ pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageG
 pub async fn save_image_generate_config(
     config: tools::image_generate::ImageGenConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("image_generate", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("image_generate", "settings-ui"), move |store| {
         store.image_generate = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -235,10 +247,14 @@ pub(crate) async fn compact_context_now_core(
     state: &AppState,
 ) -> Result<context_compact::CompactResult, CmdError> {
     let store = ha_core::config::load_config()?;
-    let meta = state
-        .session_db
-        .get_session(session_id)?
-        .ok_or_else(|| CmdError::msg("session not found"))?;
+    let meta = {
+        let session_id = session_id.to_string();
+        state
+            .session_db
+            .run(move |db| db.get_session(&session_id))
+            .await?
+    }
+    .ok_or_else(|| CmdError::msg("session not found"))?;
     let agent_id = meta.agent_id.clone();
     let agent_def = agent_loader::load_agent(&agent_id).ok();
     let agent_model_config = agent_def
@@ -379,10 +395,12 @@ pub async fn save_shortcut_config(
         }
     }
 
-    ha_core::config::mutate_config(("shortcuts", "settings-ui"), |store| {
-        store.shortcuts = config.clone();
+    let config_for_store = config.clone();
+    ha_core::config::mutate_config_async(("shortcuts", "settings-ui"), move |store| {
+        store.shortcuts = config_for_store;
         Ok(())
-    })?;
+    })
+    .await?;
 
     // Clear any pending chord state
     crate::shortcuts::clear_chord_state();
@@ -438,13 +456,11 @@ pub async fn get_quick_prompt_config() -> Result<ha_core::config::QuickPromptCon
 pub async fn add_quick_prompt(
     content: String,
 ) -> Result<ha_core::config::QuickPromptAddResult, CmdError> {
-    let mut result: Option<ha_core::config::QuickPromptAddResult> = None;
-    ha_core::config::mutate_config(("quick_prompts", "settings-ui"), |store| {
-        let added = store.quick_prompts.add_prompt(&content)?;
-        result = Some(added);
-        Ok(())
-    })?;
-    result.ok_or_else(|| CmdError::msg("failed to add quick prompt"))
+    ha_core::config::mutate_config_async(("quick_prompts", "settings-ui"), move |store| {
+        Ok(store.quick_prompts.add_prompt(&content)?)
+    })
+    .await
+    .map_err(Into::into)
 }
 
 // ── Server Config ───────────────────────────────────────────────
@@ -481,11 +497,12 @@ pub async fn get_server_config() -> Result<serde_json::Value, CmdError> {
 pub async fn save_server_config(
     config: ha_core::config::EmbeddedServerConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("server", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("server", "settings-ui"), move |store| {
         let next = config.merge_over_existing(&store.server);
         store.server = next;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -507,10 +524,11 @@ pub async fn get_proxy_config() -> Result<provider::ProxyConfig, CmdError> {
 
 #[tauri::command]
 pub async fn save_proxy_config(config: provider::ProxyConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("proxy", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("proxy", "settings-ui"), move |store| {
         store.proxy = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -534,10 +552,11 @@ pub async fn get_theme() -> Result<String, CmdError> {
 
 #[tauri::command]
 pub async fn set_theme(theme: String) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("theme", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("theme", "settings-ui"), move |store| {
         store.theme = theme;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -549,10 +568,11 @@ pub async fn get_language() -> Result<String, CmdError> {
 
 #[tauri::command]
 pub async fn set_language(language: String) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("language", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("language", "settings-ui"), move |store| {
         store.language = language;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -564,10 +584,11 @@ pub async fn get_ui_effects_enabled() -> Result<bool, CmdError> {
 
 #[tauri::command]
 pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("ui_effects", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("ui_effects", "settings-ui"), move |store| {
         store.ui_effects_enabled = enabled;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -581,10 +602,11 @@ pub async fn get_prevent_sleep_enabled() -> Result<bool, CmdError> {
 pub async fn set_prevent_sleep_enabled(enabled: bool) -> Result<(), CmdError> {
     // The OS sleep assertion is driven by the `config:changed` listener in
     // ha-core (`spawn_keep_awake_listener`); this only persists the toggle.
-    ha_core::config::mutate_config(("prevent_sleep", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("prevent_sleep", "settings-ui"), move |store| {
         store.prevent_sleep = enabled;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -598,10 +620,11 @@ pub async fn get_sidebar_display_mode() -> Result<String, CmdError> {
 
 #[tauri::command]
 pub async fn set_sidebar_display_mode(mode: String) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("sidebar_ui_mode", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("sidebar_ui_mode", "settings-ui"), move |store| {
         store.sidebar_ui_mode = ha_core::config::normalize_sidebar_ui_mode(&mode);
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -613,10 +636,11 @@ pub async fn get_tool_call_narration_enabled() -> Result<bool, CmdError> {
 
 #[tauri::command]
 pub async fn set_tool_call_narration_enabled(enabled: bool) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("tool_call_narration", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("tool_call_narration", "settings-ui"), move |store| {
         store.tool_call_narration_enabled = enabled;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -694,10 +718,11 @@ pub async fn get_tool_timeout() -> Result<u64, CmdError> {
 
 #[tauri::command]
 pub async fn set_tool_timeout(seconds: u64) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("tool_timeout", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("tool_timeout", "settings-ui"), move |store| {
         store.tool_timeout = seconds;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -711,10 +736,11 @@ pub async fn get_timeout_policy_config() -> Result<ha_core::config::TimeoutPolic
 pub async fn save_timeout_policy_config(
     config: ha_core::config::TimeoutPolicyConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("timeout_policy", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("timeout_policy", "settings-ui"), move |store| {
         store.timeout_policy = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -732,19 +758,24 @@ pub async fn get_approval_timeout_enabled() -> Result<bool, CmdError> {
 
 #[tauri::command]
 pub async fn set_approval_timeout(seconds: u64) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("approval_timeout", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("approval_timeout", "settings-ui"), move |store| {
         store.permission.approval_timeout_secs = seconds;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn set_approval_timeout_enabled(enabled: bool) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("approval_timeout_enabled", "settings-ui"), |store| {
-        store.permission.approval_timeout_enabled = enabled;
-        Ok(())
-    })
+    ha_core::config::mutate_config_async(
+        ("approval_timeout_enabled", "settings-ui"),
+        move |store| {
+            store.permission.approval_timeout_enabled = enabled;
+            Ok(())
+        },
+    )
+    .await
     .map_err(Into::into)
 }
 
@@ -759,10 +790,11 @@ pub async fn get_approval_timeout_action(
 pub async fn set_approval_timeout_action(
     action: ha_core::config::ApprovalTimeoutAction,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("approval_timeout_action", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("approval_timeout_action", "settings-ui"), move |store| {
         store.permission.approval_timeout_action = action;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -777,10 +809,14 @@ pub async fn get_unattended_approval_action(
 pub async fn set_unattended_approval_action(
     action: ha_core::config::UnattendedApprovalAction,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("unattended_approval_action", "settings-ui"), |store| {
-        store.permission.unattended_approval_action = action;
-        Ok(())
-    })
+    ha_core::config::mutate_config_async(
+        ("unattended_approval_action", "settings-ui"),
+        move |store| {
+            store.permission.unattended_approval_action = action;
+            Ok(())
+        },
+    )
+    .await
     .map_err(Into::into)
 }
 
@@ -792,10 +828,14 @@ pub async fn get_tool_result_disk_threshold() -> Result<usize, CmdError> {
 
 #[tauri::command]
 pub async fn set_tool_result_disk_threshold(bytes: usize) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("tool_result_disk_threshold", "settings-ui"), |store| {
-        store.tool_result_disk_threshold = if bytes == 0 { Some(0) } else { Some(bytes) };
-        Ok(())
-    })
+    ha_core::config::mutate_config_async(
+        ("tool_result_disk_threshold", "settings-ui"),
+        move |store| {
+            store.tool_result_disk_threshold = if bytes == 0 { Some(0) } else { Some(bytes) };
+            Ok(())
+        },
+    )
+    .await
     .map_err(Into::into)
 }
 
@@ -821,12 +861,13 @@ pub async fn get_tool_limits() -> Result<ToolLimitsConfig, CmdError> {
 
 #[tauri::command]
 pub async fn set_tool_limits(config: ToolLimitsConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("tool_limits", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("tool_limits", "settings-ui"), move |store| {
         store.image.max_images = config.max_images;
         store.pdf.max_pdfs = config.max_pdfs;
         store.pdf.max_vision_pages = config.max_vision_pages;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -845,10 +886,11 @@ pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), CmdE
             return Err(CmdError::msg("Temperature must be between 0.0 and 2.0"));
         }
     }
-    ha_core::config::mutate_config(("temperature", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("temperature", "settings-ui"), move |store| {
         store.temperature = temperature;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -860,10 +902,11 @@ pub async fn get_plan_subagent() -> Result<bool, CmdError> {
 
 #[tauri::command]
 pub async fn set_plan_subagent(enabled: bool) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("plan_subagent", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("plan_subagent", "settings-ui"), move |store| {
         store.plan_subagent = enabled;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -881,22 +924,27 @@ pub async fn get_ask_user_question_timeout_enabled() -> Result<bool, CmdError> {
 
 #[tauri::command]
 pub async fn set_ask_user_question_timeout(secs: u64) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("ask_user_question_timeout", "settings-ui"), |store| {
-        store.ask_user_question_timeout_secs = secs;
-        Ok(())
-    })
+    ha_core::config::mutate_config_async(
+        ("ask_user_question_timeout", "settings-ui"),
+        move |store| {
+            store.ask_user_question_timeout_secs = secs;
+            Ok(())
+        },
+    )
+    .await
     .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn set_ask_user_question_timeout_enabled(enabled: bool) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(
+    ha_core::config::mutate_config_async(
         ("ask_user_question_timeout_enabled", "settings-ui"),
-        |store| {
+        move |store| {
             store.ask_user_question_timeout_enabled = enabled;
             Ok(())
         },
     )
+    .await
     .map_err(Into::into)
 }
 
@@ -910,11 +958,32 @@ pub async fn get_recap_config() -> Result<ha_core::config::RecapConfig, CmdError
 
 #[tauri::command]
 pub async fn save_recap_config(config: ha_core::config::RecapConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("recap", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("recap", "settings-ui"), move |store| {
         store.recap = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
+}
+
+// ── Recall Summary Config ───────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_recall_summary_config() -> Result<ha_core::memory::RecallSummaryConfig, CmdError> {
+    Ok(ha_core::config::cached_config().recall_summary.clone())
+}
+
+#[tauri::command]
+pub async fn save_recall_summary_config(
+    config: ha_core::memory::RecallSummaryConfig,
+) -> Result<ha_core::memory::RecallSummaryConfig, CmdError> {
+    let to_save = config.clone();
+    ha_core::config::mutate_config_async(("recall_summary", "settings-ui"), move |store| {
+        store.recall_summary = to_save.clone();
+        Ok(())
+    })
+    .await?;
+    Ok(config)
 }
 
 // ── Dreaming Config ─────────────────────────────────────────────
@@ -929,10 +998,11 @@ pub async fn get_dreaming_config() -> Result<ha_core::memory::dreaming::Dreaming
 pub async fn save_dreaming_config(
     config: ha_core::memory::dreaming::DreamingConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("dreaming", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("dreaming", "settings-ui"), move |store| {
         store.dreaming = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -994,10 +1064,11 @@ pub async fn get_async_tools_config() -> Result<ha_core::config::AsyncToolsConfi
 pub async fn save_async_tools_config(
     config: ha_core::config::AsyncToolsConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("async_tools", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("async_tools", "settings-ui"), move |store| {
         store.async_tools = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -1011,10 +1082,11 @@ pub async fn get_cron_config() -> Result<ha_core::config::CronConfig, CmdError> 
 
 #[tauri::command]
 pub async fn save_cron_config(config: ha_core::config::CronConfig) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("cron", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("cron", "settings-ui"), move |store| {
         store.cron = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -1030,10 +1102,11 @@ pub async fn get_deferred_tools_config() -> Result<ha_core::config::DeferredTool
 pub async fn save_deferred_tools_config(
     config: ha_core::config::DeferredToolsConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("deferred_tools", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("deferred_tools", "settings-ui"), move |store| {
         store.deferred_tools = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -1055,10 +1128,11 @@ pub async fn get_awareness_config() -> Result<ha_core::awareness::AwarenessConfi
 pub async fn save_awareness_config(
     config: ha_core::awareness::AwarenessConfig,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("awareness", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("awareness", "settings-ui"), move |store| {
         store.awareness = config;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }
 
@@ -1068,7 +1142,8 @@ pub async fn get_session_awareness_override(
 ) -> Result<Option<String>, CmdError> {
     let db =
         ha_core::get_session_db().ok_or_else(|| CmdError::msg("Session DB not initialized"))?;
-    db.get_session_awareness_config_json(&session_id)
+    db.run(move |db| db.get_session_awareness_config_json(&session_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -1087,7 +1162,8 @@ pub async fn set_session_awareness_override(
     }
     let db =
         ha_core::get_session_db().ok_or_else(|| CmdError::msg("Session DB not initialized"))?;
-    db.set_session_awareness_config_json(&session_id, json.as_deref())
+    db.run(move |db| db.set_session_awareness_config_json(&session_id, json.as_deref()))
+        .await
         .map_err(Into::into)
 }
 
@@ -1112,11 +1188,12 @@ pub async fn get_hooks_config() -> Result<ha_core::hooks::config::HooksSettings,
 pub async fn save_hooks_config(
     config: ha_core::hooks::config::HooksSettings,
 ) -> Result<(), CmdError> {
-    ha_core::config::mutate_config(("hooks", "settings-ui"), |store| {
+    ha_core::config::mutate_config_async(("hooks", "settings-ui"), move |store| {
         store.disable_all_hooks = config.disable_all_hooks;
         store.hooks_allow_project_scope = config.allow_project_scope;
         store.hooks = config.hooks;
         Ok(())
     })
+    .await
     .map_err(Into::into)
 }

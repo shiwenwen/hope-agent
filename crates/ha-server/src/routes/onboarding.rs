@@ -14,9 +14,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 pub async fn get_state() -> Result<Json<OnboardingState>, AppError> {
-    Ok(Json(state::get_state()?))
+    Ok(Json(run_blocking(state::get_state).await?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -26,12 +27,12 @@ pub struct DraftPayload {
 }
 
 pub async fn save_draft(Json(p): Json<DraftPayload>) -> Result<Json<Value>, AppError> {
-    state::save_draft(p.step, p.draft)?;
+    run_blocking(move || state::save_draft(p.step, p.draft)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn mark_completed() -> Result<Json<Value>, AppError> {
-    state::mark_completed()?;
+    run_blocking(state::mark_completed).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -41,12 +42,12 @@ pub struct SkipPayload {
 }
 
 pub async fn mark_skipped(Json(p): Json<SkipPayload>) -> Result<Json<Value>, AppError> {
-    state::mark_skipped(&p.step_key)?;
+    run_blocking(move || state::mark_skipped(&p.step_key)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 pub async fn reset() -> Result<Json<Value>, AppError> {
-    state::reset()?;
+    run_blocking(state::reset).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -56,7 +57,7 @@ pub struct LanguagePayload {
 }
 
 pub async fn apply_language(Json(p): Json<LanguagePayload>) -> Result<Json<Value>, AppError> {
-    apply::apply_language(&p.language)?;
+    run_blocking(move || apply::apply_language(&p.language)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -73,12 +74,15 @@ pub struct ProfilePayload {
 }
 
 pub async fn apply_profile(Json(p): Json<ProfilePayload>) -> Result<Json<Value>, AppError> {
-    apply::apply_profile(ProfileStepInput {
-        name: p.name,
-        timezone: p.timezone,
-        ai_experience: p.ai_experience,
-        response_style: p.response_style,
-    })?;
+    run_blocking(move || {
+        apply::apply_profile(ProfileStepInput {
+            name: p.name,
+            timezone: p.timezone,
+            ai_experience: p.ai_experience,
+            response_style: p.response_style,
+        })
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -94,7 +98,7 @@ pub async fn apply_personality_preset(
     let preset = personality_preset_by_id(&p.preset_id).ok_or_else(|| {
         AppError::bad_request(format!("unknown personality preset: {}", p.preset_id))
     })?;
-    apply::apply_personality_preset(preset)?;
+    run_blocking(move || apply::apply_personality_preset(preset)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -105,9 +109,12 @@ pub struct SafetyPayload {
 }
 
 pub async fn apply_safety(Json(p): Json<SafetyPayload>) -> Result<Json<Value>, AppError> {
-    apply::apply_safety(SafetyStepInput {
-        approvals_enabled: p.approvals_enabled,
-    })?;
+    run_blocking(move || {
+        apply::apply_safety(SafetyStepInput {
+            approvals_enabled: p.approvals_enabled,
+        })
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -117,7 +124,7 @@ pub struct SkillsPayload {
 }
 
 pub async fn apply_skills(Json(p): Json<SkillsPayload>) -> Result<Json<Value>, AppError> {
-    apply::apply_skills(p.disabled)?;
+    run_blocking(move || apply::apply_skills(p.disabled)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -130,10 +137,13 @@ pub struct ServerPayload {
 }
 
 pub async fn apply_server(Json(p): Json<ServerPayload>) -> Result<Json<Value>, AppError> {
-    apply::apply_server(ServerStepInput {
-        bind_addr: p.bind_addr,
-        api_key: p.api_key,
-    })?;
+    run_blocking(move || {
+        apply::apply_server(ServerStepInput {
+            bind_addr: p.bind_addr,
+            api_key: p.api_key,
+        })
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 

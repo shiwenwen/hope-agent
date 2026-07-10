@@ -36,6 +36,7 @@ interface AgentSectionProps {
   onReorderAgents?: (agentIds: string[]) => void
   panelWidth: number
   displayMode: SidebarDisplayMode
+  motionDisabled?: boolean
 }
 
 const AGENT_CARD_MIN_WIDTH_PX = 156
@@ -152,9 +153,9 @@ function SortableAgentCard({
                   )}
                   <span
                     className={cn(
-                      "min-w-0 flex-1 truncate",
+                      "min-w-0 flex-1 truncate text-[13px] font-medium text-foreground",
                       isCompact && "text-[12px] leading-5",
-                      isSelected ? "text-primary font-medium" : "text-foreground/80",
+                      isSelected && "text-primary",
                     )}
                   >
                     {agent.name}
@@ -198,7 +199,7 @@ function SortableAgentCard({
         </Tooltip>
         <ContextMenuContent variant="floating">
           <ContextMenuItem onClick={() => onNewChat(agent.id, { incognito: true })}>
-            <Ghost className="h-3 w-3 mr-2" />
+            <Ghost className="h-3 w-3 mr-2" strokeWidth={1.75} />
             {t("chat.newIncognitoChat")}
           </ContextMenuItem>
           {onEditAgent && (
@@ -224,6 +225,7 @@ export default function AgentSection({
   onReorderAgents,
   panelWidth,
   displayMode,
+  motionDisabled = false,
 }: AgentSectionProps) {
   const { t } = useTranslation()
   const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -264,7 +266,11 @@ export default function AgentSection({
         onToggle={() => setAgentsExpanded(!agentsExpanded)}
         className="sticky top-0 z-20 mb-0 flex h-8 items-center border-b border-border/50 bg-surface-panel px-3"
       />
-      <AnimatedCollapse open={agentsExpanded} unmountOnExit={false}>
+      <AnimatedCollapse
+        open={agentsExpanded}
+        unmountOnExit={false}
+        durationMs={motionDisabled ? 0 : undefined}
+      >
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={agents.map((agent) => agent.id)} strategy={rectSortingStrategy}>
             <div

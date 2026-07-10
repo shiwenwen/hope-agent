@@ -236,6 +236,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   kb_search_cmd: { method: "GET", path: "/api/knowledge/search" },
   kb_file_read_cmd: { method: "GET", path: "/api/knowledge/{kbId}/files/read" },
   kb_file_extract_cmd: { method: "GET", path: "/api/knowledge/{kbId}/files/extract" },
+  kb_source_ocr_pages_cmd: { method: "GET", path: "/api/knowledge/{kbId}/sources/{sourceId}/ocr-pages" },
+  kb_source_ocr_retry_cmd: { method: "POST", path: "/api/knowledge/{kbId}/sources/{sourceId}/ocr-retry" },
+  knowledge_vision_config_get_cmd: { method: "GET", path: "/api/knowledge/vision/config" },
+  knowledge_vision_config_set_cmd: { method: "POST", path: "/api/knowledge/vision/config" },
+  note_tools_config_get_cmd: { method: "GET", path: "/api/knowledge/note-tools/config" },
+  note_tools_config_set_cmd: { method: "POST", path: "/api/knowledge/note-tools/config" },
 
   // -- Project file browser (workspace-scoped filesystem) --
   project_fs_list: { method: "GET", path: "/api/fs/list" },
@@ -360,6 +366,10 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_active_model: { method: "POST", path: "/api/models/active" },
   get_fallback_models: { method: "GET", path: "/api/models/fallback" },
   set_fallback_models: { method: "POST", path: "/api/models/fallback" },
+  get_vision_model: { method: "GET", path: "/api/models/vision" },
+  set_vision_model: { method: "PUT", path: "/api/models/vision" },
+  get_automation_model_chain: { method: "GET", path: "/api/models/automation" },
+  set_automation_model_chain: { method: "PUT", path: "/api/models/automation" },
   set_reasoning_effort: { method: "POST", path: "/api/models/reasoning-effort" },
   get_current_settings: { method: "GET", path: "/api/models/settings" },
   get_global_temperature: { method: "GET", path: "/api/models/temperature" },
@@ -637,6 +647,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Recap --
   get_recap_config: { method: "GET", path: "/api/config/recap" },
   save_recap_config: { method: "PUT", path: "/api/config/recap" },
+  get_recall_summary_config: { method: "GET", path: "/api/config/recall-summary" },
+  save_recall_summary_config: { method: "PUT", path: "/api/config/recall-summary" },
   get_dreaming_config: { method: "GET", path: "/api/config/dreaming" },
   save_dreaming_config: { method: "PUT", path: "/api/config/dreaming" },
   recap_generate: { method: "POST", path: "/api/recap/generate" },

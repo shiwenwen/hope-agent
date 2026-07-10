@@ -18,6 +18,7 @@ import {
   Cpu,
   Database,
   EyeOff,
+  ExternalLink,
   FileText,
   Files,
   FolderGit2,
@@ -56,10 +57,7 @@ import { openExternalUrl } from "@/lib/openExternalUrl"
 import { useSafeFavicon } from "@/hooks/useSafeFavicon"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
-import {
-  type BackgroundJobSnapshot,
-  isBackgroundJobActive,
-} from "@/types/background-jobs"
+import { type BackgroundJobSnapshot, isBackgroundJobActive } from "@/types/background-jobs"
 import { SessionBackgroundJobsList } from "../background-jobs/SessionBackgroundJobsList"
 import type { WorkspaceGitSnapshot } from "@/lib/transport"
 import {
@@ -105,6 +103,7 @@ import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import type { PlanModeState } from "@/components/chat/plan-mode/usePlanMode"
 import type { SessionFileEntry } from "./useSessionFileChanges"
 import type { SessionUrlSource } from "./useSessionUrlSources"
+import type { SessionBrowserActivity } from "./useSessionBrowserActivity"
 import { useWorkspaceArtifacts } from "./useWorkspaceArtifacts"
 import { useWorkspaceEnvironment } from "./useWorkspaceEnvironment"
 import { useScrollPagedRender } from "./useScrollPagedRender"
@@ -168,6 +167,8 @@ interface WorkspacePanelProps {
   onBackgroundJobExpandedChange?: (jobId: string, expanded: boolean) => void
   /** R4:打开独立「后台任务」面板（完整列表和单项管理在那里处理）。 */
   onOpenBackgroundJobs?: () => void
+  /** 切到实时 BrowserPanel。工作台里的浏览器活动行用它查看当前画面。 */
+  onOpenBrowserPanel?: () => void
   /** 打开子 agent 实时会话弹层，不切换当前主会话。 */
   onViewSubagentSession?: (sessionId: string) => void
   onClose: () => void
@@ -346,7 +347,9 @@ function SourceRow({ source }: { source: SessionUrlSource }) {
         ) : (
           <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{domainOf(source.url)}</span>
+        <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
+          {domainOf(source.url)}
+        </span>
         {source.origin === "web_search" && (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
             <Search className="h-2.5 w-2.5" />
@@ -354,6 +357,111 @@ function SourceRow({ source }: { source: SessionUrlSource }) {
           </span>
         )}
       </button>
+    </IconTip>
+  )
+}
+
+function browserActivityLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  activity: SessionBrowserActivity,
+): string {
+  const op = activity.op
+  switch (activity.action) {
+    case "navigate":
+      return t("workspace.browserAction.navigate", "导航")
+    case "tabs":
+      if (op === "new") return t("workspace.browserAction.newTab", "新标签")
+      if (op === "claim") return t("workspace.browserAction.claim", "接管")
+      if (op === "select") return t("workspace.browserAction.select", "切换")
+      if (op === "close") return t("workspace.browserAction.close", "关闭")
+      return t("workspace.browserAction.tabs", "标签页")
+    case "act":
+      return op
+        ? t("workspace.browserAction.actWithOp", "{{op}}", { op })
+        : t("workspace.browserAction.act", "操作")
+    case "snapshot":
+      if (op === "screenshot" || op === "image")
+        return t("workspace.browserAction.screenshot", "截图")
+      if (op === "pdf") return t("workspace.browserAction.pdf", "PDF")
+      return t("workspace.browserAction.snapshot", "快照")
+    case "observe":
+      return t("workspace.browserAction.observe", "观察")
+    case "control":
+      if (op === "scroll") return t("workspace.browserAction.scroll", "滚动")
+      if (op === "evaluate") return t("workspace.browserAction.evaluate", "脚本")
+      if (op === "wait_for") return t("workspace.browserAction.wait", "等待")
+      return t("workspace.browserAction.control", "控制")
+    case "profile":
+      return t("workspace.browserAction.profile", "浏览器")
+    case "status":
+      return t("workspace.browserAction.status", "状态")
+  }
+}
+
+function BrowserActivityRow({
+  activity,
+  onOpenBrowserPanel,
+}: {
+  activity: SessionBrowserActivity
+  onOpenBrowserPanel?: () => void
+}) {
+  const { t } = useTranslation()
+  const faviconUrl = useSafeFavicon(activity.url ?? "")
+  const label = browserActivityLabel(t, activity)
+  const title = activity.title || (activity.url ? domainOf(activity.url) : label)
+  const subtitle = activity.url || activity.targetId || activity.backend || ""
+  const time = activity.at ? new Date(activity.at).toLocaleTimeString() : ""
+
+  return (
+    <IconTip label={subtitle || title}>
+      <div className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-secondary/45">
+        {faviconUrl ? (
+          <img
+            src={faviconUrl}
+            alt=""
+            className="h-3.5 w-3.5 shrink-0 rounded-[3px] bg-background/70 object-contain"
+          />
+        ) : (
+          <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left"
+          onClick={onOpenBrowserPanel}
+          disabled={!onOpenBrowserPanel}
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-xs font-medium text-foreground/90">{title}</span>
+            <span className="inline-flex shrink-0 rounded-full bg-secondary/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {label}
+            </span>
+          </div>
+          {subtitle ? (
+            <div className="truncate pt-0.5 text-[10px] text-muted-foreground/70">{subtitle}</div>
+          ) : null}
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          {activity.backend ? (
+            <span className="rounded bg-secondary/70 px-1.5 py-0.5 text-[10px] uppercase text-muted-foreground">
+              {activity.backend}
+            </span>
+          ) : null}
+          {time ? <span className="text-[10px] text-muted-foreground/60">{time}</span> : null}
+          {activity.url ? (
+            <IconTip label={t("chat.browserPanel.openExternal")}>
+              <button
+                type="button"
+                className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                onClick={() => {
+                  if (activity.url) openExternalUrl(activity.url)
+                }}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          ) : null}
+        </div>
+      </div>
     </IconTip>
   )
 }
@@ -654,7 +762,9 @@ function EnvRow({
       <Icon className={cn("h-3.5 w-3.5 shrink-0", iconClass)} />
       <span className="w-14 shrink-0 text-muted-foreground">{label}</span>
       <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">{value}</span>
-      {detail ? <span className="max-w-[45%] shrink-0 truncate text-muted-foreground">{detail}</span> : null}
+      {detail ? (
+        <span className="max-w-[45%] shrink-0 truncate text-muted-foreground">{detail}</span>
+      ) : null}
     </>
   )
   const row = onClick ? (
@@ -682,7 +792,10 @@ function planStateLabel(t: ReturnType<typeof useTranslation>["t"], state: PlanMo
   }
 }
 
-function gitSyncLabel(t: ReturnType<typeof useTranslation>["t"], git: WorkspaceGitSnapshot | null): string | null {
+function gitSyncLabel(
+  t: ReturnType<typeof useTranslation>["t"],
+  git: WorkspaceGitSnapshot | null,
+): string | null {
   if (!git) return null
   const { sync } = git
   switch (sync.state) {
@@ -707,7 +820,6 @@ function gitSyncLabel(t: ReturnType<typeof useTranslation>["t"], git: WorkspaceG
 /** Shared action-button styling for the session card (matches the status popover). */
 const SESSION_ACTION_BTN =
   "rounded-md border border-border/50 px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-50"
-
 
 /**
  * 会话卡 —— 把标题栏状态悬浮窗的能力「复刻一份」到工作台。模型 / 认证、上下文用量条
@@ -755,9 +867,12 @@ function SessionSection({
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Clear the "copied" reset timer on unmount so it can't fire after the card
   // is closed / the session switched (leaked timer + stale setState).
-  useEffect(() => () => {
-    if (copyTimer.current) clearTimeout(copyTimer.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current)
+    },
+    [],
+  )
 
   const currentModel = useMemo(
     () => resolveCurrentModel(activeModel, availableModels),
@@ -861,7 +976,10 @@ function SessionSection({
               ) : null}
               <button
                 type="button"
-                className={cn(SESSION_ACTION_BTN, "inline-flex flex-1 items-center justify-center gap-1")}
+                className={cn(
+                  SESSION_ACTION_BTN,
+                  "inline-flex flex-1 items-center justify-center gap-1",
+                )}
                 onClick={handleViewContext}
               >
                 <BarChart3 className="h-3 w-3" />
@@ -873,7 +991,11 @@ function SessionSection({
 
         {/* 核心 — Agent */}
         <div className="space-y-0.5">
-          <EnvRow icon={Bot} label={t("chat.statusAgent")} value={agentName || t("chat.mainAgent")} />
+          <EnvRow
+            icon={Bot}
+            label={t("chat.statusAgent")}
+            value={agentName || t("chat.mainAgent")}
+          />
         </div>
 
         {/* 展开更多 / 收起 */}
@@ -884,7 +1006,9 @@ function SessionSection({
           className="flex w-full items-center justify-center gap-1 rounded-md py-1 text-[11px] text-muted-foreground transition-colors hover:bg-secondary/45 hover:text-foreground"
         >
           {showMore ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          {showMore ? t("workspace.sessionShowLess", "收起") : t("workspace.sessionShowMore", "展开更多")}
+          {showMore
+            ? t("workspace.sessionShowLess", "收起")
+            : t("workspace.sessionShowMore", "展开更多")}
         </button>
 
         <AnimatedCollapse open={showMore}>
@@ -1018,17 +1142,17 @@ function EnvironmentSection({
   const env = useWorkspaceEnvironment(sessionId, { turnActive, refreshKey: environmentRefreshKey })
   const dangerous = useDangerousModeStatus()
   const isLocalRuntime = useMemo(() => getTransport().supportsLocalFileOps(), [])
-  const status = resolveWorkspaceEnvironmentStatus(
-    env.snapshot,
-    effectiveWorkingDir,
-    !!env.error,
-  )
+  const status = resolveWorkspaceEnvironmentStatus(env.snapshot, effectiveWorkingDir, !!env.error)
   const statusLabel = t(status.labelKey, status.fallback)
   const workingDir = env.snapshot?.workingDir.path ?? effectiveWorkingDir ?? null
   const workingDirName = env.snapshot?.workingDir.name ?? (workingDir ? basename(workingDir) : null)
   const source =
     env.snapshot?.workingDir.source ??
-    (workingDirSource === "project" ? "project" : workingDirSource === "session" ? "session" : "none")
+    (workingDirSource === "project"
+      ? "project"
+      : workingDirSource === "session"
+        ? "session"
+        : "none")
   const sourceLabel = workingDirSourceLabelKey(source)
   const git = env.snapshot?.git ?? null
   const currentWorktree = git?.worktrees.find((w) => w.isCurrent) ?? null
@@ -1062,7 +1186,11 @@ function EnvironmentSection({
           sessionMeta.channelInfo.chatType,
       }
     : sessionMeta?.isCron
-      ? { icon: CalendarClock, value: t("workspace.environment.sourceCron", "定时任务"), detail: null }
+      ? {
+          icon: CalendarClock,
+          value: t("workspace.environment.sourceCron", "定时任务"),
+          detail: null,
+        }
       : sessionMeta?.parentSessionId
         ? {
             icon: Bot,
@@ -1164,7 +1292,9 @@ function EnvironmentSection({
               icon={GitBranch}
               label={t("workspace.environment.branch", "分支")}
               value={formatGitRef(git)}
-              detail={git.detached ? t("fileBrowser.gitDetached", "detached") : git.head ?? undefined}
+              detail={
+                git.detached ? t("fileBrowser.gitDetached", "detached") : (git.head ?? undefined)
+              }
             />
             {currentWorktree || git.worktrees.length > 1 ? (
               <EnvRow
@@ -1219,7 +1349,11 @@ function EnvironmentSection({
               <EnvRow
                 icon={GitPullRequest}
                 label={t("workspace.environment.sync", "同步")}
-                value={syncLabel ?? git.sync.upstream ?? t("workspace.environment.syncUnknown", "同步状态未知")}
+                value={
+                  syncLabel ??
+                  git.sync.upstream ??
+                  t("workspace.environment.syncUnknown", "同步状态未知")
+                }
                 detail={git.sync.upstream ?? git.sync.remote ?? undefined}
                 tone={
                   git.sync.state === "diverged"
@@ -1472,15 +1606,13 @@ export default function WorkspacePanel({
   backgroundJobExpansionOverrides,
   onBackgroundJobExpandedChange,
   onOpenBackgroundJobs,
+  onOpenBrowserPanel,
   onViewSubagentSession,
   onClose,
 }: WorkspacePanelProps) {
   const { t } = useTranslation()
-  const { files, sources, filesTruncated, sourcesTruncated } = useWorkspaceArtifacts(
-    sessionId,
-    messages,
-    { incognito, turnActive },
-  )
+  const { files, sources, browser, filesTruncated, sourcesTruncated, browserTruncated } =
+    useWorkspaceArtifacts(sessionId, messages, { incognito, turnActive })
 
   const {
     visible: visibleFiles,
@@ -1492,6 +1624,11 @@ export default function WorkspacePanel({
     hasMore: hasMoreSources,
     setSentinel: setSourcesSentinel,
   } = useScrollPagedRender(sources, { step: RENDER_STEP, resetKey: sessionId })
+  const {
+    visible: visibleBrowser,
+    hasMore: hasMoreBrowser,
+    setSentinel: setBrowserSentinel,
+  } = useScrollPagedRender(browser, { step: RENDER_STEP, resetKey: sessionId })
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
@@ -1548,9 +1685,17 @@ export default function WorkspacePanel({
 
         {/* 进度 — 复用 TaskProgressPanel(自带「任务 · N/M」折叠头)。 */}
         {taskSnapshot && taskSnapshot.total > 0 ? (
-          <TaskProgressPanel snapshot={taskSnapshot} variant="card" executionState={taskExecutionState} />
+          <TaskProgressPanel
+            snapshot={taskSnapshot}
+            variant="card"
+            executionState={taskExecutionState}
+          />
         ) : (
-          <WorkspaceSection title={t("workspace.sectionProgress", "进度")} count={0} icon={LayoutDashboard}>
+          <WorkspaceSection
+            title={t("workspace.sectionProgress", "进度")}
+            count={0}
+            icon={LayoutDashboard}
+          >
             <EmptyHint>{t("workspace.emptyProgress", "暂无任务")}</EmptyHint>
           </WorkspaceSection>
         )}
@@ -1565,7 +1710,11 @@ export default function WorkspacePanel({
         />
 
         {/* 输出 — 本会话碰到的文件(读 + 改),定高内部滚动 + 滚动增量渲染。 */}
-        <WorkspaceSection title={t("workspace.sectionOutput", "输出")} count={files.length} icon={Files}>
+        <WorkspaceSection
+          title={t("workspace.sectionOutput", "输出")}
+          count={files.length}
+          icon={Files}
+        >
           {files.length > 0 ? (
             <div className="max-h-[40vh] space-y-1 overflow-y-auto pr-0.5">
               {visibleFiles.map((entry) => (
@@ -1586,7 +1735,11 @@ export default function WorkspacePanel({
         </WorkspaceSection>
 
         {/* 来源 — web_search 命中 + 正文链接,定高内部滚动 + 滚动增量渲染。 */}
-        <WorkspaceSection title={t("workspace.sectionSources", "来源")} count={sources.length} icon={Globe}>
+        <WorkspaceSection
+          title={t("workspace.sectionSources", "来源")}
+          count={sources.length}
+          icon={Globe}
+        >
           {sources.length > 0 ? (
             <div className="max-h-[40vh] space-y-0.5 overflow-y-auto pr-0.5">
               {visibleSources.map((source) => (
@@ -1597,6 +1750,32 @@ export default function WorkspacePanel({
             </div>
           ) : (
             <EmptyHint>{t("workspace.emptySources", "还没有引用来源")}</EmptyHint>
+          )}
+        </WorkspaceSection>
+
+        {/* 浏览器 — 本会话浏览器工具活动。实时画面仍在 BrowserPanel。 */}
+        <WorkspaceSection
+          title={t("workspace.sectionBrowser", "浏览器")}
+          count={browser.length}
+          icon={Monitor}
+        >
+          {browser.length > 0 ? (
+            <div className="max-h-[40vh] space-y-0.5 overflow-y-auto pr-0.5">
+              {visibleBrowser.map((activity, index) => (
+                <BrowserActivityRow
+                  key={
+                    activity.callId ??
+                    `${activity.at ?? index}:${activity.action}:${activity.op ?? ""}:${activity.url ?? ""}`
+                  }
+                  activity={activity}
+                  onOpenBrowserPanel={onOpenBrowserPanel}
+                />
+              ))}
+              {hasMoreBrowser && <div ref={setBrowserSentinel} className="h-px" />}
+              {browserTruncated && <TruncatedNote />}
+            </div>
+          ) : (
+            <EmptyHint>{t("workspace.emptyBrowser", "还没有浏览器活动")}</EmptyHint>
           )}
         </WorkspaceSection>
 

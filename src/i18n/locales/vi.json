@@ -836,7 +836,18 @@
       "collapse": "Thu gọn bảng bên phải",
       "expand": "Mở rộng bảng bên phải",
       "switch": "Chuyển bảng bên phải"
-    }
+    },
+    "pastedTextAttachment": "Văn bản đã dán",
+    "pastedTextPreviewTitle": "Văn bản đã dán",
+    "pastedTextPreviewMeta": "{{lines}} dòng · {{chars}} ký tự",
+    "pastedTextPreviewOpen": "Xem văn bản đã dán",
+    "incognitoDisable": "Tắt cuộc trò chuyện ẩn danh",
+    "incognitoLeaveConfirmAction": "Xóa và rời đi",
+    "incognitoLeaveConfirmBody": "Sau khi rời đi, cuộc trò chuyện này sẽ bị xóa khỏi thiết bị này và không thể khôi phục từ lịch sử.",
+    "incognitoLeaveConfirmCancel": "Ở lại đây",
+    "incognitoLeaveConfirmTitle": "Rời cuộc trò chuyện ẩn danh?",
+    "visionBridgeEngaged": "Mô hình chính không xem được hình ảnh, nên {{model}} đã mô tả chúng thay cho nó.",
+    "visionBridgeUnavailable": "Mô hình thị giác không mô tả được hình ảnh, nên hình ảnh đã bị bỏ qua."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1405,7 +1416,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Thời gian đến token đầu tiên (TTFT)",
       "inputTokens": "Mã thông báo đầu vào",
-      "outputTokens": "Mã thông báo đầu ra"
+      "outputTokens": "Mã thông báo đầu ra",
+      "byDomain": "Phân bố theo miền",
+      "byOperation": "Theo thao tác",
+      "operation": "Thao tác",
+      "domain": "Miền"
     },
     "tool": {
       "avgDuration": "Thời lượng trung bình",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "Re-embedding bộ nhớ"
         }
       }
+    },
+    "usageKind": {
+      "all": "Tất cả sử dụng",
+      "chat": "Trò chuyện",
+      "side_query": "Truy vấn phụ",
+      "embedding": "Nhúng",
+      "stt": "Chuyển giọng nói thành văn bản",
+      "judge": "Đánh giá",
+      "summarize": "Tóm tắt",
+      "web_search": "Tìm kiếm web",
+      "image_generation": "Tạo hình ảnh",
+      "provider_test": "Kiểm tra nhà cung cấp",
+      "vision": "Thị giác"
     }
   },
   "fileActions": {
@@ -2955,7 +2983,7 @@
       },
       "intro": "Công tắc YOLO toàn cục, danh sách mẫu đường dẫn bảo vệ / lệnh chỉnh sửa / lệnh nguy hiểm, và cấu hình chế độ phê duyệt thông minh.",
       "judgeExtraPromptPlaceholder": "Tùy chọn: hướng dẫn thêm cho giám khảo (danh sách đường dẫn cho phép, lệnh tin cậy...)",
-      "judgeModelPlaceholder": "Mô hình (vd: claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Chọn mô hình giám khảo",
       "judgeModelTitle": "Cấu hình mô hình giám khảo",
       "judgeProviderPlaceholder": "ID provider (vd: anthropic-1)",
       "protectedPathsDesc": "Lần gọi công cụ chạm tới các đường dẫn này sẽ bắt buộc phê duyệt và không thể Luôn cho phép. Hỗ trợ mở rộng ~/, tiền tố thư mục (kết thúc bằng /) và glob *.pattern.",
@@ -3064,7 +3092,9 @@
       "resetOverride": "Đặt lại về toàn cục",
       "sameAgentOnly": "Chỉ cùng Agent",
       "sessionOverride": "Ghi đè phiên",
-      "title": "Nhận biết hành vi"
+      "title": "Nhận biết hành vi",
+      "extractionModel": "Mô hình trích xuất (tùy chọn)",
+      "extractionModelInherit": "Dùng lại agent trò chuyện hiện tại (thân thiện với bộ nhớ đệm)"
     },
     "browser": {
       "activeBadge": "đang dùng",
@@ -3170,9 +3200,9 @@
         "stepInstallExtensionHint": "Cài qua trang Chrome Web Store, sau đó quay lại đây và làm mới.",
         "openWebStore": "Mở Chrome Web Store",
         "stepOpenExtensions": "Mở trang tiện ích mở rộng Chrome",
-        "stepOpenExtensionsHint": "Bật Chế độ nhà phát triển, rồi dùng Tải tiện ích đã giải nén.",
-        "stepLoadUnpacked": "Tải tiện ích đã giải nén",
-        "alphaFallback": "Phương án Alpha: tải tiện ích đã giải nén",
+        "stepOpenExtensionsHint": "Nhấn Hiện thư mục trước để mở thư mục tiện ích. Trên trang tiện ích mở rộng Chrome, bật Chế độ nhà phát triển rồi kéo thư mục đó vào. Bạn cũng có thể sao chép đường dẫn và dùng Tải tiện ích đã giải nén.",
+        "stepLoadUnpacked": "Hiện thư mục tiện ích",
+        "alphaFallback": "Phương án Alpha: kéo tiện ích cục bộ",
         "stepInstallHost": "Cài đặt native host",
         "openChromeExtensions": "Mở chrome://extensions",
         "showFolder": "Hiện thư mục",
@@ -3246,7 +3276,7 @@
     "chatDisplayModeDesc": "Chọn bố cục mặc định cho cuộc trò chuyện mới và phiên chưa ghi đè. Nút trên thanh tiêu đề chỉ ảnh hưởng phiên hiện tại.",
     "chatDisplayModeTimeline": "Tác vụ",
     "claims": {
-      "title": "Bộ nhớ có cấu trúc",
+      "title": "Claims",
       "desc": "Bộ nhớ dài hạn có cấu trúc với phạm vi, độ tin cậy và bằng chứng.",
       "explainer": {
         "title": "Lớp này hoạt động như thế nào",
@@ -3693,7 +3723,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Theo mặc định tự động hóa",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3833,7 +3863,8 @@
       "matcherPlaceholder": "tên công cụ / nguồn (regex được), trống = tất cả",
       "addHandler": "Thêm trình xử lý",
       "advanced": "Nâng cao",
-      "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse)."
+      "slowHandlerWarning": "Trình xử lý này chạy LLM / sub-agent nội tuyến và sẽ làm chậm mỗi lần sự kiện chặn này kích hoạt. Hãy ưu tiên command / http ở đây, hoặc chuyển sang sự kiện quan sát (vd. PostToolUse).",
+      "modelInheritDefault": "Theo mặc định tự động hóa"
     },
     "hours": "giờ",
     "imageGenApiKey": "API Key",
@@ -3888,9 +3919,9 @@
       "tab": "Kiến thức"
     },
     "knowledgeCompile": {
-      "agent": "Agent sắp xếp nguồn",
-      "agentDefault": "Dùng Agent mặc định toàn cục",
-      "agentDesc": "Agent dùng để chuyển nguồn thành đề xuất ghi chú có thể xem lại. Khi chưa đặt, sẽ kế thừa Agent mặc định toàn cục.",
+      "agent": "Mô hình biên soạn",
+      "agentDefault": "Theo mặc định tự động hóa",
+      "agentDesc": "Chuỗi mô hình dùng để biến nguồn tài liệu thành đề xuất ghi chú có thể xét duyệt. Để trống sẽ theo mặc định tự động hóa.",
       "errors": {
         "loadConfig": "Không tải được thiết lập Agent nguồn-thành-ghi chú",
         "loadAgents": "Không tải được danh sách Agent nguồn-thành-ghi chú",
@@ -3974,7 +4005,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Mô hình",
+      "modelDesc": "Dùng chung cho cả 4 bộ tạo dựa trên LLM (gắn thẻ tự động, bảo trì MOC, bộ nhớ→ghi chú, xung đột nguồn).",
+      "modelDefault": "Theo mặc định tự động hóa"
     },
     "knowledgeMediaRetention": {
       "saved": "Đã lưu",
@@ -4750,8 +4784,8 @@
         "detail": "Details: {{error}}"
       }
     },
-    "memoryExtractClaims": "Trích xuất bộ nhớ có cấu trúc",
-    "memoryExtractClaimsDesc": "Trích xuất thêm các bộ nhớ có cấu trúc, có bằng chứng và có thể duyệt cùng với bộ nhớ thường.",
+    "memoryExtractClaims": "Trích xuất claim (beta)",
+    "memoryExtractClaimsDesc": "Trích xuất thêm các claim có cấu trúc kèm bằng chứng song song với bộ nhớ (ghi kép).",
     "memoryStructuredBadge": "Có cấu trúc",
     "memoryExtractIdleTimeout": "Hết thời gian chờ (phút)",
     "memoryExtractMessageThreshold": "Ngưỡng tin nhắn",
@@ -4780,7 +4814,7 @@
     "memoryImportCopyDiagnosticsError": "Failed to copy memory import diagnostics: {{error}}",
     "memoryImportFromAIParseBtn": "Phân tích & nhập",
     "memoryImportFromAIParseError": "Phân tích thất bại: {{error}}",
-    "memoryImportFromAIPastePlaceholder": "Paste JSON or a Markdown memory export returned by the other AI here...",
+    "memoryImportFromAIPastePlaceholder": "Dán mảng JSON do AI khác trả về vào đây...",
     "memoryImportNoEntries": "No importable memories found.",
     "memoryImportPreviewBtn": "Preview",
     "memoryImportPreviewTitle": "Preview",
@@ -5295,7 +5329,7 @@
       "dreaming": "Dreaming",
       "manage": "Quản lý bộ nhớ",
       "settings": "Cài đặt bộ nhớ",
-      "claims": "Bộ nhớ có cấu trúc",
+      "claims": "Claims",
       "profile": "Hồ sơ"
     },
     "memoryTags": "Thẻ",
@@ -5616,9 +5650,9 @@
     "proxyUrl": "URL proxy",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agent phân tích",
-    "recapAnalysisAgentDefault": "Dùng agent mặc định toàn cục",
-    "recapAnalysisAgentDesc": "Agent dùng để trích xuất facet và viết phần báo cáo. Nếu không đặt, kế thừa agent mặc định toàn cục.",
+    "recapAnalysisAgent": "Mô hình phân tích",
+    "recapAnalysisAgentDefault": "Theo mặc định tự động hóa",
+    "recapAnalysisAgentDesc": "Chuỗi mô hình dùng để trích xuất facet và viết các mục báo cáo. Để trống sẽ theo mặc định tự động hóa.",
     "recapCacheRetentionDays": "Thời gian lưu cache facet (ngày)",
     "recapCacheRetentionDaysDesc": "Thời gian giữ facet đã cache trước khi dọn dẹp hằng ngày. 0 = giữ mãi. Mặc định 180.",
     "recapDefaultRangeDays": "Khoảng thời gian mặc định (ngày)",
@@ -5894,7 +5928,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Chuỗi mô hình dùng để xét duyệt kỹ năng ứng viên. Để trống sẽ dùng lại bộ nhớ đệm của cuộc trò chuyện kích hoạt (rồi mới về mặc định tự động hóa).",
+          "inheritDefault": "Dùng lại cuộc trò chuyện kích hoạt (thân thiện với bộ nhớ đệm)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -6001,7 +6036,10 @@
         "save": "Không thể lưu cài đặt tinh linh",
         "toggle": "Không thể cập nhật chế độ tinh linh",
         "detail": "Chi tiết: {{error}}"
-      }
+      },
+      "model": "Mô hình",
+      "modelDesc": "Lệnh gợi ý của Sprite là gửi-rồi-quên — dùng cả chuỗi dự phòng đầy đủ cũng không sao, không cần chỉ một mô hình.",
+      "modelDefault": "Theo mặc định tự động hóa"
     },
     "ssrfBrowserPolicyDesc": "Áp dụng cho URL đích của page.goto / new_page. Lưu ý: JS fetch() bên trong browser.evaluate không nằm trong phạm vi.",
     "ssrfDefaultPolicy": "Chính sách mặc định",
@@ -6369,7 +6407,39 @@
     "retrievalPlannerDesc": "Fuse memory, relationship, workflow, and knowledge candidates with stable scope-aware ranking.",
     "retrievalPlannerIntentAware": "Task-aware",
     "retrievalPlannerMaxTraceRefs": "Diagnostic references",
-    "retrievalPlannerMaxPerOrigin": "Candidates per source"
+    "retrievalPlannerMaxPerOrigin": "Candidates per source",
+    "visionBridgeModel": "Mô hình cầu nối thị giác",
+    "visionBridgeModelDesc": "Chỉ dùng khi mô hình chính không xem được hình ảnh. Một mô hình riêng chuyển hình ảnh thành mô tả văn bản để cuộc trò chuyện tiếp tục.",
+    "visionBridgeModelClear": "Tắt cầu nối thị giác",
+    "selectVisionBridgeModel": "Chọn mô hình thị giác",
+    "modelChainRestoreInherit": "Đặt lại về mặc định kế thừa",
+    "automationModelChain": "Mô hình mặc định tự động hóa",
+    "automationModelChainDesc": "Chuỗi mô hình mặc định (có dự phòng) cho các tác vụ AI nền một lần như Recap, Dreaming và Biên soạn tri thức — độc lập với mô hình trò chuyện mặc định ở trên. Để trống sẽ dùng mô hình trò chuyện mặc định.",
+    "automationModelChainInherit": "Theo mô hình trò chuyện mặc định",
+    "knowledgeVision": {
+      "model": "Mô hình thị giác",
+      "modelDesc": "Chuỗi mô hình dùng để OCR hình ảnh khi nhập vào không gian tri thức. Để trống sẽ theo mặc định tự động hóa.",
+      "modelDefault": "Theo mặc định tự động hóa",
+      "ocrConcurrency": "Số luồng OCR đồng thời cho PDF quét",
+      "maxOcrPages": "Giới hạn số trang OCR cho PDF quét"
+    },
+    "noteTools": {
+      "title": "Mô hình công cụ ghi chú",
+      "desc": "Mô hình dùng chung cho công cụ chắt lọc ghi chú, tạo MOC và chuyển phiên thành ghi chú.",
+      "modelDefault": "Theo mặc định tự động hóa"
+    },
+    "recallSummary": {
+      "title": "Tóm tắt khi gợi nhớ",
+      "desc": "Khi recall_memory / session_search trả về nhiều kết quả, nén chúng thành một đoạn tóm tắt ngắn gọn bằng một lệnh gọi LLM bổ sung thay vì trả về đoạn trích thô. Mặc định tắt — tốn thêm một lệnh gọi cho mỗi lần tìm kiếm đủ điều kiện.",
+      "enabled": "Bật tóm tắt",
+      "minHits": "Số kết quả tối thiểu để kích hoạt",
+      "contextCharBudget": "Ngân sách ngữ cảnh (ký tự)",
+      "timeoutSecs": "Thời gian chờ (giây)",
+      "maxTokens": "Số token đầu ra tối đa",
+      "includeHistory": "Cũng tóm tắt các kết quả trong lịch sử trò chuyện",
+      "model": "Mô hình",
+      "modelDefault": "Theo mặc định tự động hóa"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Mở cài đặt",
@@ -7398,7 +7468,13 @@
       "similarScope": {
         "crossKb": "Xuyên không gian",
         "sameKb": "Không gian này"
-      }
+      },
+      "ocrRunning": "Đang chạy OCR…",
+      "ocrPartial": "OCR: một số trang bị lỗi",
+      "ocrFailed": "OCR thất bại",
+      "ocrRetry": "Thử lại các trang bị lỗi",
+      "ocrRetryStarted": "Đang thử lại các trang bị lỗi…",
+      "ocrRetryFailed": "Không thể thử lại các trang OCR"
     },
     "queryFile": {
       "action": "Tập tin",

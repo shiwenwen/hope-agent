@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use ha_core::skills::{self, commands as core};
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 const SOURCE: &str = "http";
 
@@ -43,13 +44,13 @@ pub struct DirBody {
 
 /// `POST /api/skills/extra-dirs`
 pub async fn add_extra_skills_dir(Json(body): Json<DirBody>) -> Result<Json<Value>, AppError> {
-    core::add_extra_skills_dir(body.dir, SOURCE)?;
+    run_blocking(move || core::add_extra_skills_dir(body.dir, SOURCE)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `DELETE /api/skills/extra-dirs?dir=...`
 pub async fn remove_extra_skills_dir(Query(body): Query<DirBody>) -> Result<Json<Value>, AppError> {
-    core::remove_extra_skills_dir(&body.dir, SOURCE)?;
+    run_blocking(move || core::remove_extra_skills_dir(&body.dir, SOURCE)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -73,7 +74,7 @@ pub async fn toggle_skill(
     Path(name): Path<String>,
     Json(body): Json<ToggleBody>,
 ) -> Result<Json<Value>, AppError> {
-    core::toggle_skill(name, body.enabled, SOURCE)?;
+    run_blocking(move || core::toggle_skill(name, body.enabled, SOURCE)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -84,7 +85,7 @@ pub async fn get_skill_env_check() -> Result<Json<Value>, AppError> {
 
 /// `PUT /api/skills/env-check`
 pub async fn set_skill_env_check(Json(body): Json<ToggleBody>) -> Result<Json<Value>, AppError> {
-    core::set_skill_env_check(body.enabled, SOURCE)?;
+    run_blocking(move || core::set_skill_env_check(body.enabled, SOURCE)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -106,7 +107,7 @@ pub async fn set_skill_env_var(
     Path(name): Path<String>,
     Json(body): Json<EnvVarBody>,
 ) -> Result<Json<Value>, AppError> {
-    core::set_skill_env_var(name, body.key, body.value, SOURCE)?;
+    run_blocking(move || core::set_skill_env_var(name, body.key, body.value, SOURCE)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -120,7 +121,7 @@ pub async fn remove_skill_env_var(
     Path(name): Path<String>,
     Query(q): Query<RemoveEnvVarQuery>,
 ) -> Result<Json<Value>, AppError> {
-    core::remove_skill_env_var(&name, &q.key, SOURCE)?;
+    run_blocking(move || core::remove_skill_env_var(&name, &q.key, SOURCE)).await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -219,7 +220,8 @@ pub struct PromotionBody {
 pub async fn set_auto_review_promotion(
     Json(body): Json<PromotionBody>,
 ) -> Result<Json<Value>, AppError> {
-    core::set_auto_review_promotion(body.auto, "http")
+    run_blocking(move || core::set_auto_review_promotion(body.auto, "http"))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "ok": true, "auto": body.auto })))
 }
@@ -240,7 +242,8 @@ pub struct EnabledBody {
 pub async fn set_auto_review_enabled(
     Json(body): Json<EnabledBody>,
 ) -> Result<Json<Value>, AppError> {
-    core::set_auto_review_enabled(body.enabled, "http")
+    run_blocking(move || core::set_auto_review_enabled(body.enabled, "http"))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "ok": true, "enabled": body.enabled })))
 }
@@ -265,7 +268,8 @@ pub struct PatchConfigBody {
 pub async fn set_auto_review_config(
     Json(body): Json<PatchConfigBody>,
 ) -> Result<Json<Value>, AppError> {
-    let snapshot = core::set_auto_review_config_patch(body.patch, SOURCE)
+    let snapshot = run_blocking(move || core::set_auto_review_config_patch(body.patch, SOURCE))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     serde_json::to_value(snapshot)
         .map(Json)
@@ -285,7 +289,8 @@ pub struct ResetConfigBody {
 pub async fn reset_auto_review_config(
     Json(body): Json<ResetConfigBody>,
 ) -> Result<Json<Value>, AppError> {
-    let snapshot = core::reset_auto_review_config(body.fields, SOURCE)
+    let snapshot = run_blocking(move || core::reset_auto_review_config(body.fields, SOURCE))
+        .await
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     serde_json::to_value(snapshot)
         .map(Json)

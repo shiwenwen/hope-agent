@@ -80,7 +80,7 @@ pub async fn list_runs(Query(q): Query<ListRunsQuery>) -> Result<Json<Vec<AcpRun
         ))
     } else if let Some(db) = ha_core::get_session_db() {
         if let Some(pid) = q.parent_session_id {
-            Ok(Json(db.list_acp_runs(&pid)?))
+            Ok(Json(db.run(move |db| db.list_acp_runs(&pid)).await?))
         } else {
             Ok(Json(Vec::new()))
         }
@@ -118,8 +118,10 @@ pub async fn get_config() -> Result<Json<AcpControlConfig>, AppError> {
 
 /// `PUT /api/acp/config`
 pub async fn set_config(Json(config): Json<AcpControlConfig>) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    store.acp_control = config;
-    ha_core::config::save_config(&store)?;
+    ha_core::config::mutate_config_async(("acp_control", "http"), move |store| {
+        store.acp_control = config;
+        Ok(())
+    })
+    .await?;
     Ok(Json(json!({ "saved": true })))
 }

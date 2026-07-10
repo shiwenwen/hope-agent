@@ -1733,7 +1733,7 @@ pub async fn execute_tool_with_context(
             TOOL_GREP => grep::tool_grep(args, dispatch_ctx).await,
             TOOL_FIND => find::tool_find(args, dispatch_ctx).await,
             TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args, dispatch_ctx).await,
-            TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
+            TOOL_WEB_SEARCH => web_search::tool_web_search(args, dispatch_ctx).await,
             TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
             TOOL_SAVE_MEMORY => memory::tool_save_memory(args, dispatch_ctx).await,
             TOOL_RECALL_MEMORY => memory::tool_recall_memory(args).await,

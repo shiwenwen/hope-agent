@@ -126,7 +126,7 @@ export function MessageTimelineItem({
       </div>
       <div
         className={cn(
-          "message-markdown-content min-w-0 break-words text-sm leading-relaxed text-foreground/85 select-text",
+          "message-markdown-content min-w-0 break-words text-sm leading-relaxed text-foreground select-text",
           dense ? "pb-0.5" : "pb-2",
           contentClassName,
         )}

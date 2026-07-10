@@ -23,9 +23,7 @@ pub mod render;
 pub mod session;
 pub mod types;
 
-pub use config::{
-    resolve_for_session, AwarenessConfig, AwarenessMode, ExtractionModelRef, LlmExtractionConfig,
-};
+pub use config::{resolve_for_session, AwarenessConfig, AwarenessMode, LlmExtractionConfig};
 pub use dirty::{mark_all_except, on_other_session_activity, take_dirty};
 pub use peek_tool::{peek_sessions_schema, run_peek_sessions};
 pub use registry::{active_since, active_snapshot, touch_active_session};

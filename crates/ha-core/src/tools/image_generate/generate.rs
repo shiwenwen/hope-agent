@@ -8,6 +8,48 @@ use super::output::*;
 use super::types::*;
 use crate::tools::execution::ToolExecContext;
 
+fn record_image_generation_usage(
+    ctx: &ToolExecContext,
+    entry: &ImageGenProviderEntry,
+    display_name: &str,
+    model_name: &str,
+    size: &str,
+    n: u32,
+    aspect_ratio: Option<&str>,
+    resolution: Option<&str>,
+    is_edit: bool,
+    input_image_count: usize,
+    attempt: u32,
+    duration_ms: u64,
+    success: bool,
+    error: Option<String>,
+    output_image_count: Option<usize>,
+) {
+    let mut event =
+        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_IMAGE_GENERATION);
+    event.operation = Some("tool.image_generate".to_string());
+    event.source = Some("tool".to_string());
+    event.provider_id = Some(entry.id.clone());
+    event.provider_name = Some(display_name.to_string());
+    event.model_id = Some(model_name.to_string());
+    event.session_id = ctx.session_id.clone();
+    event.agent_id = ctx.agent_id.clone();
+    event.duration_ms = Some(duration_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(serde_json::json!({
+        "size": size,
+        "n": n,
+        "aspect_ratio": aspect_ratio,
+        "resolution": resolution,
+        "is_edit": is_edit,
+        "input_image_count": input_image_count,
+        "attempt": attempt,
+        "output_image_count": output_image_count,
+    }));
+    crate::model_usage::record_model_usage_best_effort(event);
+}
+
 // ── Tool Entry Point (with Failover) ────────────────────────────
 
 pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> Result<String> {
@@ -235,8 +277,26 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
                 input_images: &input_images,
             };
 
+            let attempt_started = std::time::Instant::now();
             match impl_.generate(params).await {
                 Ok(result) => {
+                    record_image_generation_usage(
+                        ctx,
+                        entry,
+                        display,
+                        model_name,
+                        size,
+                        n,
+                        aspect_ratio,
+                        effective_resolution,
+                        is_edit,
+                        input_images.len(),
+                        attempt,
+                        attempt_started.elapsed().as_millis() as u64,
+                        true,
+                        None,
+                        Some(result.images.len()),
+                    );
                     return build_success_result(
                         result,
                         display,
@@ -250,6 +310,24 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
                     );
                 }
                 Err(e) => {
+                    let err_string = e.to_string();
+                    record_image_generation_usage(
+                        ctx,
+                        entry,
+                        display,
+                        model_name,
+                        size,
+                        n,
+                        aspect_ratio,
+                        effective_resolution,
+                        is_edit,
+                        input_images.len(),
+                        attempt,
+                        attempt_started.elapsed().as_millis() as u64,
+                        false,
+                        Some(err_string.clone()),
+                        None,
+                    );
                     let reason = crate::failover::classify_error(&e.to_string());
                     let reason_label = format!("{:?}", reason);
 
@@ -272,7 +350,6 @@ pub(crate) async fn tool_image_generate(args: &Value, ctx: &ToolExecContext) -> 
                         continue;
                     }
 
-                    let err_string = e.to_string();
                     let err_preview = crate::truncate_utf8(&err_string, 200);
                     failover_log.push(format!(
                         "{}/{} failed ({}): {}",

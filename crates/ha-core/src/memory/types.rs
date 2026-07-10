@@ -1877,10 +1877,20 @@ pub struct MemoryExtractConfig {
     pub enabled: bool,
     #[serde(default = "crate::default_true")]
     pub auto_extract: bool,
+    /// Deprecated — superseded by `modelOverride`. Kept for backward
+    /// compatibility: still read when `modelOverride` is unset, but the GUI
+    /// no longer writes these two fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_provider_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extract_model_id: Option<String>,
+    /// Model override for auto-extraction. `None` = fall through to the
+    /// deprecated `extractProviderId`/`extractModelId` pair (if both set) →
+    /// the current session's own model. Per-agent `memory.extractProviderId`/
+    /// `extractModelId` (`AgentModelConfig`) still takes precedence over all
+    /// of this when set — unchanged, not part of this reshape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ActiveModel>,
     /// Auto-extract memories before context compaction (Tier 3 summarization)
     #[serde(default = "crate::default_true")]
     pub flush_before_compact: bool,
@@ -1939,6 +1949,7 @@ impl Default for MemoryExtractConfig {
             auto_extract: true,
             extract_provider_id: None,
             extract_model_id: None,
+            model_override: None,
             flush_before_compact: true,
             extract_token_threshold: default_extract_token_threshold(),
             extract_time_threshold_secs: default_extract_time_threshold_secs(),

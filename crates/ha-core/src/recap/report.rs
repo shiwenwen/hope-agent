@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use crate::agent::AssistantAgent;
 use crate::config::AppConfig;
 use crate::cron;
 use crate::dashboard::{
@@ -8,9 +7,9 @@ use crate::dashboard::{
     query_model_efficiency, query_overview_with_delta, query_top_sessions,
 };
 use crate::logging::LogDB;
-use crate::provider::{find_provider, resolve_model_chain, ActiveModel};
+use crate::provider::ActiveModel;
 use crate::session::SessionDB;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
 use super::aggregate::roll_up;
@@ -28,7 +27,9 @@ pub struct RecapContext {
     pub log_db: Arc<LogDB>,
     pub cron_db: Arc<cron::CronDB>,
     pub recap_db: Arc<RecapDb>,
-    pub agent: AssistantAgent,
+    /// Resolved model chain for facet extraction + section generation. See
+    /// `crate::automation`.
+    pub chain: Arc<Vec<ActiveModel>>,
     pub analysis_model: String,
     /// Resolved output language (locale code) for this report run.
     pub locale: String,
@@ -37,14 +38,14 @@ pub struct RecapContext {
 }
 
 impl RecapContext {
-    /// Build a context using the configured analysis agent (or a sensible
+    /// Build a context using the configured analysis model (or a sensible
     /// fallback when none is configured). Pulls DB handles from the global
     /// OnceLock singletons — recap is driven from slash commands / HTTP
     /// routes that all share the same process-level state.
     pub async fn from_globals(cancel: CancellationToken) -> Result<Self> {
         let config = (*crate::config::cached_config()).clone();
         let recap_db = super::api::recap_db()?;
-        let (agent, analysis_model) = build_analysis_agent(&config).await?;
+        let (chain, analysis_model) = resolve_recap_chain(&config)?;
         let session_db = crate::require_session_db()?.clone();
         let log_db = crate::require_log_db()?.clone();
         let cron_db = crate::require_cron_db()?.clone();
@@ -54,7 +55,7 @@ impl RecapContext {
             log_db,
             cron_db,
             recap_db,
-            agent,
+            chain: Arc::new(chain),
             analysis_model,
             locale,
             config_snapshot: config,
@@ -63,175 +64,47 @@ impl RecapContext {
     }
 }
 
-/// Build an `AssistantAgent` for recap analysis, preferring the configured
-/// `recap.analysisAgent`. When unset, inherit the global default agent, then
-/// resolve that agent's model chain in the same order as regular chat.
-pub async fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, String)> {
-    build_analysis_agent_inner(config, false).await
-}
+/// Stable key for `PROFILE_STICKY`/`PROFILE_COOLDOWNS` bookkeeping and the
+/// usage ledger's `session_id` column — recap runs aren't tied to one chat
+/// session, so this is a fixed synthetic key shared across all recap calls.
+pub(super) const RECAP_SESSION_KEY: &str = "automation:recap";
 
-/// Build an analysis-style one-shot agent from an explicit agent id. `None`
-/// inherits the global default agent. This is shared by non-recap workflows that
-/// need the same model-chain/fallback behavior without borrowing
-/// `recap.analysisAgent`.
-pub async fn build_analysis_agent_with_explicit_agent(
-    config: &AppConfig,
-    agent_id: Option<&str>,
-) -> Result<(AssistantAgent, String)> {
-    let explicit = normalize_agent_id(agent_id);
-    build_analysis_agent_from_explicit(config, explicit, false).await
-}
-
-/// Build an analysis agent that can accept image attachments.
-///
-/// Used by owner-plane OCR workflows. Models explicitly marked as text-only
-/// are skipped up front so image imports fail with a configuration error
-/// instead of a late provider 400 after the source import has started writing.
-pub async fn build_vision_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, String)> {
-    build_analysis_agent_inner(config, true).await
-}
-
-async fn build_analysis_agent_inner(
-    config: &AppConfig,
-    require_vision: bool,
-) -> Result<(AssistantAgent, String)> {
-    let explicit = normalize_agent_id(config.recap.analysis_agent.as_deref());
-    build_analysis_agent_from_explicit(config, explicit, require_vision).await
-}
-
-async fn build_analysis_agent_from_explicit(
-    config: &AppConfig,
-    explicit: Option<String>,
-    require_vision: bool,
-) -> Result<(AssistantAgent, String)> {
-    let inherited = normalize_agent_id(config.default_agent_id.as_deref())
-        .unwrap_or_else(|| crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID.to_string());
-
-    let mut candidate_agent_ids = Vec::new();
-    candidate_agent_ids.push(explicit.clone().unwrap_or_else(|| inherited.clone()));
-    if explicit.is_some() && !candidate_agent_ids.iter().any(|id| id == &inherited) {
-        candidate_agent_ids.push(inherited.clone());
+/// Resolve recap's model chain: `recap.model_override` (new) → the
+/// deprecated `recap.analysisAgent` (resolved to an equivalent chain via that
+/// agent's own model config, unchanged from the old behavior) →
+/// `automation::effective_chain`'s own fallback (`function_models.automation`
+/// → chat default). Also returns a display label for `RecapReport.meta.analysis_model`.
+fn resolve_recap_chain(config: &AppConfig) -> Result<(Vec<ActiveModel>, String)> {
+    let override_chain = config.recap.model_override.clone().or_else(|| {
+        config
+            .recap
+            .analysis_agent
+            .as_deref()
+            .and_then(|id| crate::automation::resolve_legacy_agent_chain(config, id))
+    });
+    let chain = crate::automation::effective_chain(config, override_chain);
+    if chain.is_empty() {
+        return Err(anyhow!(
+            "no LLM provider available — configure a provider before running analysis tasks"
+        ));
     }
-    if inherited != crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID
-        && !candidate_agent_ids
-            .iter()
-            .any(|id| id == crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID)
-    {
-        candidate_agent_ids.push(crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID.to_string());
-    }
-
-    let mut last_error: Option<anyhow::Error> = None;
-    for agent_id in candidate_agent_ids {
-        match build_analysis_agent_for_id(config, &agent_id, require_vision).await {
-            Ok(built) => return Ok(built),
-            Err(err) => {
-                app_warn!(
-                    "recap",
-                    "report",
-                    "analysis agent '{}' unavailable, trying fallback: {}",
-                    agent_id,
-                    err
-                );
-                last_error = Some(err);
-            }
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| {
-        if require_vision {
-            anyhow!("no vision-capable LLM model configured — configure a model that accepts image input before importing image sources")
-        } else {
-            anyhow!("no LLM provider available — configure a provider before running analysis tasks")
-        }
-    }))
-}
-
-fn normalize_agent_id(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-async fn build_analysis_agent_for_id(
-    config: &AppConfig,
-    agent_id: &str,
-    require_vision: bool,
-) -> Result<(AssistantAgent, String)> {
-    let agent_def = crate::agent_loader::load_agent(agent_id)
-        .with_context(|| format!("failed to load agent '{}'", agent_id))?;
-    let model_chain = analysis_model_chain(config, &agent_def.config.model);
-
-    for model_ref in model_chain {
-        let Some(prov) = find_provider(&config.providers, &model_ref.provider_id) else {
-            continue;
-        };
-        if require_vision && !prov.model_supports_vision(&model_ref.model_id) {
-            continue;
-        }
-        let mut agent = AssistantAgent::try_new_from_provider(prov, &model_ref.model_id)
-            .await?
-            .with_failover_context(prov);
-        agent.set_agent_id(agent_id);
-        agent.set_temperature(agent_def.config.model.temperature.or(config.temperature));
-        return Ok((agent, format!("{} / {}", agent_id, model_ref)));
-    }
-
-    if require_vision {
-        Err(anyhow!(
-            "no vision-capable model configured for analysis agent '{}'",
-            agent_id
-        ))
+    // Label the whole configured chain, not just the primary: `automation::run`
+    // genuinely fails over per-call (facet extraction is one call per
+    // session, potentially concurrent), so any individual fact in the
+    // report may actually have been produced by a fallback if the primary
+    // was transiently unavailable — a label naming only `chain[0]` would
+    // claim a certainty the chain's whole design contract doesn't provide.
+    let primary_label = crate::automation::model_label(config, &chain[0]);
+    let label = if chain.len() > 1 {
+        format!(
+            "{primary_label} (+{} fallback{})",
+            chain.len() - 1,
+            if chain.len() > 2 { "s" } else { "" }
+        )
     } else {
-        Err(anyhow!(
-            "no usable model configured for analysis agent '{}'",
-            agent_id
-        ))
-    }
-}
-
-fn analysis_model_chain(
-    config: &AppConfig,
-    agent_model: &crate::agent_config::AgentModelConfig,
-) -> Vec<ActiveModel> {
-    let (primary, fallbacks) = resolve_model_chain(agent_model, config);
-    let mut chain = Vec::new();
-
-    if let Some(primary) = primary {
-        push_model_dedup(&mut chain, primary);
-    }
-    for fallback in fallbacks {
-        push_model_dedup(&mut chain, fallback);
-    }
-
-    if let Some((provider_id, model_id)) = config.providers.iter().find_map(|provider| {
-        if !provider.enabled {
-            return None;
-        }
-        provider
-            .models
-            .first()
-            .map(|model| (provider.id.clone(), model.id.clone()))
-    }) {
-        push_model_dedup(
-            &mut chain,
-            ActiveModel {
-                provider_id,
-                model_id,
-            },
-        );
-    }
-
-    chain
-}
-
-fn push_model_dedup(chain: &mut Vec<ActiveModel>, model: ActiveModel) {
-    if !chain
-        .iter()
-        .any(|item| item.provider_id == model.provider_id && item.model_id == model.model_id)
-    {
-        chain.push(model);
-    }
+        primary_label
+    };
+    Ok((chain, label))
 }
 
 /// Top-level entry: extract facets, run dashboard queries, generate
@@ -273,7 +146,7 @@ where
     let facets = extract_facets_for_candidates(
         &ctx.session_db,
         &ctx.recap_db,
-        &ctx.agent,
+        &ctx.chain,
         &ctx.analysis_model,
         &ctx.locale,
         candidates,
@@ -302,7 +175,7 @@ where
 
     let facet_summary = roll_up(&facets);
     let sections = generate_all_sections(
-        &ctx.agent,
+        &ctx.chain,
         &facet_summary,
         &quantitative,
         &ctx.locale,

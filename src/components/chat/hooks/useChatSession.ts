@@ -40,6 +40,7 @@ export interface UseChatSessionReturn {
   setCurrentAgentId: React.Dispatch<React.SetStateAction<string>>
   agentName: string
   setAgentName: React.Dispatch<React.SetStateAction<string>>
+  historyLoading: boolean
   loading: boolean
   setLoading: React.Dispatch<React.SetStateAction<boolean>>
   loadingSessionIds: Set<string>
@@ -49,6 +50,7 @@ export interface UseChatSessionReturn {
   hasMoreAfter: boolean
   loadingMoreAfter: boolean
   hasMoreSessions: boolean
+  sessionsLoading: boolean
   loadingMoreSessions: boolean
   /**
    * Search-jump intent for MessageList: which message to scroll to + which
@@ -139,6 +141,7 @@ export function useChatSession({
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [currentAgentId, setCurrentAgentId] = useState<string>(DEFAULT_AGENT_ID)
   const [agentName, setAgentName] = useState("")
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const [pendingScrollIntent, setPendingScrollIntent] = useState<
@@ -165,6 +168,7 @@ export function useChatSession({
   // list `sessions` in their deps (which would invalidate them on every
   // streaming meta tick and cascade re-renders into the sidebar tree).
   const sessionsRef = useRef<SessionMeta[]>([])
+  const agentsRef = useRef<AgentSummaryForSidebar[]>([])
   // Tracks the previous `currentSessionId` so the effect below can fire
   // `purge_session_if_incognito` exactly once per swap.
   const previousSessionIdRef = useRef<string | null>(null)
@@ -182,6 +186,10 @@ export function useChatSession({
     sessionsRef.current = sessions
   }, [sessions])
 
+  useEffect(() => {
+    agentsRef.current = agents
+  }, [agents])
+
   // --- Session pagination sub-hook ---
   const {
     hasMore,
@@ -192,6 +200,7 @@ export function useChatSession({
     loadingMoreAfter,
     hasMoreSessions,
     // setHasMoreSessions not needed at this level
+    sessionsLoading,
     loadingMoreSessions,
     handleLoadMore,
     handleLoadMoreAfter,
@@ -280,6 +289,28 @@ export function useChatSession({
       })
     },
     [],
+  )
+
+  const activateSessionShell = useCallback(
+    (sessionId: string, opts: { clearMessages: boolean; hasMoreAfter?: boolean }) => {
+      currentSessionIdRef.current = sessionId
+      if (opts.clearMessages) {
+        setMessages([])
+        setPendingScrollIntent(null)
+      }
+      setHasMore(false)
+      setHasMoreAfter(opts.hasMoreAfter ?? false)
+      setLoading(loadingSessionsRef.current.has(sessionId))
+      setCurrentSessionId(sessionId)
+
+      const meta = sessionsRef.current.find((s) => s.id === sessionId)
+      if (meta) {
+        setCurrentAgentId(meta.agentId)
+        const agent = agentsRef.current.find((a) => a.id === meta.agentId)
+        if (agent) setAgentName(agent.name)
+      }
+    },
+    [setHasMore, setHasMoreAfter],
   )
 
   // Per-session ref cleanup shared by explicit-delete / incognito purge /
@@ -640,6 +671,8 @@ export function useChatSession({
       // were away converge into the cached view within ~1 RTT.
       const cached = sessionCacheRef.current.get(sessionId)
       if (targetMessageId === undefined && cached) {
+        setHistoryLoading(false)
+        currentSessionIdRef.current = sessionId
         setMessages(cached)
         setHasMore(hasMoreRef.current.get(sessionId) ?? false)
         setHasMoreAfter(hasMoreAfterRef.current.get(sessionId) ?? false)
@@ -671,6 +704,13 @@ export function useChatSession({
           })
         }
       } else {
+        const alreadyCurrent = sessionId === currentSessionIdRef.current
+        setHistoryLoading(true)
+        if (!alreadyCurrent) {
+          // Make the navigation visible immediately. The message window is filled
+          // below when the DB/transport round-trip finishes.
+          activateSessionShell(sessionId, { clearMessages: true })
+        }
         try {
           let msgs: SessionMessage[]
           let hasMoreBefore: boolean
@@ -701,6 +741,7 @@ export function useChatSession({
           }
           const displayMessages = await materializeMessages(sessionId, msgs, sessionsRef)
           if (switchVersionRef.current !== version) return // stale switch
+          setHistoryLoading(false)
           sessionCacheRef.current.set(sessionId, displayMessages)
           hasMoreRef.current.set(sessionId, hasMoreBefore)
           hasMoreAfterRef.current.set(sessionId, hasMoreAfterFlag)
@@ -714,9 +755,13 @@ export function useChatSession({
           setHasMore(hasMoreBefore)
           setHasMoreAfter(hasMoreAfterFlag)
           setLoading(loadingSessionsRef.current.has(sessionId))
+          currentSessionIdRef.current = sessionId
           setCurrentSessionId(sessionId)
           touchSessionCacheLru(sessionId)
         } catch (e) {
+          if (switchVersionRef.current === version && currentSessionIdRef.current === sessionId) {
+            setHistoryLoading(false)
+          }
           logger.error("session", "ChatScreen::switchSession", "Failed to load session", {
             sessionId,
             error: e,
@@ -734,24 +779,18 @@ export function useChatSession({
 
       if (switchVersionRef.current !== version) return // stale switch
 
-      // Use fresh sessions list for session lookup
-      const [currentSessions] = await getTransport()
-        .call<[SessionMeta[], number]>("list_sessions_cmd", {})
-        .catch(() => [[] as SessionMeta[], 0] as [SessionMeta[], number])
-      const currentAgents = await getTransport()
-        .call<AgentSummaryForSidebar[]>("list_agents")
-        .catch(() => [] as AgentSummaryForSidebar[])
-      let session = currentSessions.find((s) => s.id === sessionId)
+      let session = sessionsRef.current.find((s) => s.id === sessionId)
       if (!session) {
         const fetchedSession = await getTransport()
           .call<SessionMeta | null>("get_session_cmd", { sessionId })
           .catch(() => null)
+        if (switchVersionRef.current !== version) return // stale switch
         session = fetchedSession ?? undefined
       }
       if (session) {
         upsertSessionMeta(session)
         setCurrentAgentId(session.agentId)
-        const agent = currentAgents.find((a) => a.id === session.agentId)
+        const agent = agentsRef.current.find((a) => a.id === session.agentId)
         if (agent) setAgentName(agent.name)
 
         // Restore the model used in this session (if still available)
@@ -768,6 +807,7 @@ export function useChatSession({
             const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
               id: session.agentId,
             })
+            if (switchVersionRef.current !== version) return // stale switch
             if (agentConfig.model.primary) {
               const modelExists = availableModels.some(
                 (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
@@ -777,6 +817,12 @@ export function useChatSession({
                 // Mark session as read and refresh (await + log; see #6 below).
                 try {
                   await getTransport().call("mark_session_read_cmd", { sessionId })
+                  if (switchVersionRef.current !== version) return // stale switch
+                  updateSessionMeta(sessionId, (prev) =>
+                    prev.unreadCount === 0 && prev.channelUnreadCount === 0
+                      ? prev
+                      : { ...prev, unreadCount: 0, channelUnreadCount: 0 },
+                  )
                 } catch (e) {
                   logger.warn(
                     "session",
@@ -805,6 +851,12 @@ export function useChatSession({
       // error instead of swallowing it (#6 — was fire-and-forget + silent).
       try {
         await getTransport().call("mark_session_read_cmd", { sessionId })
+        if (switchVersionRef.current !== version) return // stale switch
+        updateSessionMeta(sessionId, (prev) =>
+          prev.unreadCount === 0 && prev.channelUnreadCount === 0
+            ? prev
+            : { ...prev, unreadCount: 0, channelUnreadCount: 0 },
+        )
       } catch (e) {
         logger.warn(
           "session",
@@ -824,10 +876,12 @@ export function useChatSession({
       setActiveModel,
       reloadSessions,
       onSidebarAggregatesChanged,
+      activateSessionShell,
       setHasMore,
       setHasMoreAfter,
       touchSessionCacheLru,
       upsertSessionMeta,
+      updateSessionMeta,
     ],
   )
 
@@ -866,6 +920,7 @@ export function useChatSession({
       // Save current session to cache
       // (cache is already maintained by updateSessionMessages)
       const cachedAgent = agents.find((a) => a.id === agentId)
+      setHistoryLoading(false)
       setMessages([])
       setCurrentSessionId(null)
       setLoading(false)
@@ -932,6 +987,7 @@ export function useChatSession({
         if (currentSessionIdRef.current === sessionId) {
           setMessages([])
           setCurrentSessionId(null)
+          setHistoryLoading(false)
           setLoading(false)
           setHasMore(false)
           setHasMoreAfter(false)
@@ -971,6 +1027,7 @@ export function useChatSession({
     setCurrentAgentId,
     agentName,
     setAgentName,
+    historyLoading,
     loading,
     setLoading,
     loadingSessionIds,
@@ -980,6 +1037,7 @@ export function useChatSession({
     hasMoreAfter,
     loadingMoreAfter,
     hasMoreSessions,
+    sessionsLoading,
     loadingMoreSessions,
     pendingScrollIntent,
     clearPendingScrollIntent,

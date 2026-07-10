@@ -232,10 +232,17 @@ pub struct DreamingConfig {
     #[serde(default = "default_narrative_timeout_secs")]
     pub narrative_timeout_secs: u64,
 
-    /// Optional dedicated `provider_id:model_id` for the narrative call.
-    /// None = use the active chat agent (cache-friendly side_query).
+    /// Deprecated — superseded by `model_override`. Dedicated
+    /// `provider_id:model_id` string for the narrative call. Kept for
+    /// backward compatibility: still parsed when `model_override` is unset,
+    /// but the GUI no longer writes this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub narrative_model: Option<String>,
+    /// Model chain override for the narrative call. `None` = fall through to
+    /// the deprecated `narrative_model` (if still set) → `function_models.automation`
+    /// → chat default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_override: Option<crate::provider::ModelChain>,
 
     /// Profile Synthesis (Phase 4). On by default.
     #[serde(default)]
@@ -259,6 +266,7 @@ impl Default for DreamingConfig {
             narrative_max_tokens: default_narrative_max_tokens(),
             narrative_timeout_secs: default_narrative_timeout_secs(),
             narrative_model: None,
+            model_override: None,
             profile_synthesis: ProfileSynthesisConfig::default(),
             deep_resolver: DeepResolverConfig::default(),
         }

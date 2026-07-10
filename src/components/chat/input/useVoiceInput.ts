@@ -99,7 +99,7 @@ function deriveFilename(mimeType: string): string {
  * The picked path is opaque to the caller (`ChatInput`); the only new
  * surface is `partialText` for showing live preview while streaming.
  */
-export function useVoiceInput(): UseVoiceInputResult {
+export function useVoiceInput(currentSessionId?: string | null): UseVoiceInputResult {
   const { t } = useTranslation()
   const recorder = useAudioRecorder()
   const streamer = usePcm16Streamer()
@@ -191,6 +191,7 @@ export function useVoiceInput(): UseVoiceInputResult {
         const raw = await getTransport().call<unknown>("stt_start_session", {
           providerId,
           modelId,
+          sessionId: currentSessionId ?? null,
           options: { sampleRateHz: 16000 },
         })
         const sessionId = unwrapSessionId(raw)
@@ -234,7 +235,7 @@ export function useVoiceInput(): UseVoiceInputResult {
         setErrorMessage(t("voice.failed"))
       }
     },
-    [streamer, subscribeSessionEvents, teardownSession, t],
+    [streamer, subscribeSessionEvents, teardownSession, t, currentSessionId],
   )
 
   const start = useCallback(async () => {
@@ -342,6 +343,7 @@ export function useVoiceInput(): UseVoiceInputResult {
       setTranscribing(true)
       const base64 = await blobToBase64(blob)
       const transcript = await getTransport().call<Transcript>("stt_transcribe_blob", {
+        sessionId: currentSessionId ?? null,
         mimeType,
         filename: deriveFilename(mimeType),
         base64,
@@ -379,7 +381,7 @@ export function useVoiceInput(): UseVoiceInputResult {
     } finally {
       setMode(null)
     }
-  }, [recorder, t])
+  }, [recorder, t, currentSessionId])
 
   const stopAndTranscribe = useCallback(async (): Promise<string> => {
     if (mode === "streaming") return finalizeStreaming()

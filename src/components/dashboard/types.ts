@@ -7,6 +7,8 @@ export interface DashboardFilter {
   agentId: string | null
   providerId: string | null
   modelId: string | null
+  usageKind: string | null
+  operation: string | null
 }
 
 export interface OverviewStats {
@@ -43,10 +45,66 @@ export interface TokenByModel {
   avgTtftMs: number | null
 }
 
+export interface TokenByKind {
+  kind: string
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  estimatedCostUsd: number
+  avgDurationMs: number | null
+  avgTtftMs: number | null
+}
+
+export interface TokenByOperation {
+  operation: string
+  domain: string
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  estimatedCostUsd: number
+  avgDurationMs: number | null
+  avgTtftMs: number | null
+}
+
+export interface TokenByDomain {
+  domain: string
+  callCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
+  estimatedCostUsd: number
+  avgDurationMs: number | null
+  avgTtftMs: number | null
+}
+
 export interface DashboardTokenData {
   trend: TokenUsageTrend[]
   byModel: TokenByModel[]
+  byKind: TokenByKind[]
+  byOperation: TokenByOperation[]
+  byDomain: TokenByDomain[]
   totalCostUsd: number
+}
+
+/**
+ * `domain` is a code-defined, ever-growing set of purpose-tag prefixes (see
+ * docs/architecture/automation-model.md §2.5) — too many to keep a 12-locale
+ * translation in sync with every new tag. This gives every domain a readable
+ * fallback label with zero i18n keys required; `t("dashboard.operationDomain.
+ * ${domain}", humanizeDomain(domain))` can still override individual domains
+ * later without blocking anything on this list being complete.
+ */
+export function humanizeDomain(domain: string): string {
+  return domain
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
 }
 
 export interface ToolUsageStats {

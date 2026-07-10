@@ -11,6 +11,138 @@ use crate::provider::{apply_proxy, apply_proxy_from_config, ApiType, ProviderCon
 use crate::truncate_utf8;
 use serde_json::{json, Value};
 
+#[derive(Debug, Clone, Copy, Default)]
+struct UsageParts {
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_creation_input_tokens: u64,
+    cache_read_input_tokens: u64,
+}
+
+fn extract_anthropic_usage(response_body: &Value) -> UsageParts {
+    let usage = response_body.get("usage");
+    UsageParts {
+        input_tokens: usage
+            .and_then(|u| u.get("input_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        output_tokens: usage
+            .and_then(|u| u.get("output_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        cache_creation_input_tokens: usage
+            .and_then(|u| u.get("cache_creation_input_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        cache_read_input_tokens: usage
+            .and_then(|u| u.get("cache_read_input_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+    }
+}
+
+fn extract_openai_usage(response_body: &Value) -> UsageParts {
+    let usage = response_body.get("usage");
+    UsageParts {
+        input_tokens: usage
+            .and_then(|u| u.get("input_tokens").or_else(|| u.get("prompt_tokens")))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        output_tokens: usage
+            .and_then(|u| {
+                u.get("output_tokens")
+                    .or_else(|| u.get("completion_tokens"))
+            })
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: usage
+            .and_then(|u| u.get("prompt_tokens_details"))
+            .and_then(|d| d.get("cached_tokens"))
+            .or_else(|| {
+                usage
+                    .and_then(|u| u.get("input_tokens_details"))
+                    .and_then(|d| d.get("cached_tokens"))
+            })
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+    }
+}
+
+fn extract_embedding_input_tokens(response_body: &Value) -> Option<u64> {
+    response_body
+        .get("usage")
+        .and_then(|u| {
+            u.get("prompt_tokens")
+                .or_else(|| u.get("input_tokens"))
+                .or_else(|| u.get("total_tokens"))
+        })
+        .or_else(|| {
+            response_body.get("usageMetadata").and_then(|u| {
+                u.get("promptTokenCount")
+                    .or_else(|| u.get("inputTokenCount"))
+                    .or_else(|| u.get("totalTokenCount"))
+            })
+        })
+        .and_then(|v| v.as_u64())
+}
+
+fn record_provider_test_usage(
+    config: &ProviderConfig,
+    model_id: &str,
+    operation: &'static str,
+    latency_ms: u64,
+    success: bool,
+    status: Option<u16>,
+    usage: UsageParts,
+    error: Option<String>,
+) {
+    let mut event =
+        crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_PROVIDER_TEST)
+            .with_usage(
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_creation_input_tokens,
+                usage.cache_read_input_tokens,
+            );
+    event.operation = Some(operation.to_string());
+    event.source = Some("provider_test".to_string());
+    event.provider_id = Some(config.id.clone());
+    event.provider_name = Some(config.name.clone());
+    event.model_id = Some(model_id.to_string());
+    event.duration_ms = Some(latency_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(json!({
+        "api_type": config.api_type.display_name(),
+        "status": status,
+    }));
+    crate::model_usage::record_model_usage_best_effort(event);
+}
+
+fn record_embedding_test_usage(
+    provider_name: &str,
+    model_id: &str,
+    latency_ms: u64,
+    success: bool,
+    status: Option<u16>,
+    input_tokens: Option<u64>,
+    error: Option<String>,
+) {
+    let mut event = crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_EMBEDDING);
+    event.operation = Some("provider.test_embedding".to_string());
+    event.source = Some("provider_test".to_string());
+    event.provider_name = Some(provider_name.to_string());
+    event.model_id = Some(model_id.to_string());
+    event.input_tokens = input_tokens;
+    event.output_tokens = Some(0);
+    event.duration_ms = Some(latency_ms);
+    event.success = success;
+    event.error = error;
+    event.metadata = Some(json!({ "status": status }));
+    crate::model_usage::record_model_usage_best_effort(event);
+}
+
 /// Ping an embedding provider with a single "test" document and return a JSON
 /// string describing success/dimensions/latency. Never panics — on transport
 /// or API errors returns `Err(json_string)` with the same shape.
@@ -109,10 +241,21 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                     let latency = start.elapsed().as_millis() as u64;
 
                     if status == 200 {
-                        let dims = serde_json::from_str::<serde_json::Value>(&resp_text)
-                            .ok()
-                            .and_then(|v| v["embedding"]["values"].as_array().map(|a| a.len()))
+                        let response_body: Value =
+                            serde_json::from_str(&resp_text).unwrap_or(Value::Null);
+                        let dims = response_body["embedding"]["values"]
+                            .as_array()
+                            .map(|a| a.len())
                             .unwrap_or(0);
+                        record_embedding_test_usage(
+                            "Google",
+                            &model,
+                            latency,
+                            true,
+                            Some(status),
+                            extract_embedding_input_tokens(&response_body),
+                            None,
+                        );
                         Ok(serde_json::to_string(&serde_json::json!({
                             "success": true,
                             "message": format!("Embedding 连接成功（{}维）", dims),
@@ -123,6 +266,15 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         }))
                         .unwrap_or_default())
                     } else {
+                        record_embedding_test_usage(
+                            "Google",
+                            &model,
+                            latency,
+                            false,
+                            Some(status),
+                            None,
+                            Some(format!("API 错误 ({})", status)),
+                        );
                         Err(serde_json::to_string(&serde_json::json!({
                             "success": false,
                             "message": format!("API 错误 ({})", status),
@@ -134,13 +286,25 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         .unwrap_or_default())
                     }
                 }
-                Err(e) => Err(serde_json::to_string(&serde_json::json!({
-                    "success": false,
-                    "message": format!("连接失败: {}", e),
-                    "url": display_url,
-                    "latencyMs": start.elapsed().as_millis() as u64,
-                }))
-                .unwrap_or_default()),
+                Err(e) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    record_embedding_test_usage(
+                        "Google",
+                        &model,
+                        latency,
+                        false,
+                        None,
+                        None,
+                        Some(format!("连接失败: {}", e)),
+                    );
+                    Err(serde_json::to_string(&serde_json::json!({
+                        "success": false,
+                        "message": format!("连接失败: {}", e),
+                        "url": display_url,
+                        "latencyMs": latency,
+                    }))
+                    .unwrap_or_default())
+                }
             }
         }
         _ => {
@@ -194,14 +358,22 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                     let latency = start.elapsed().as_millis() as u64;
 
                     if status == 200 {
-                        let dims = serde_json::from_str::<serde_json::Value>(&resp_text)
-                            .ok()
-                            .and_then(|v| {
-                                v["data"].as_array()?.first()?["embedding"]
-                                    .as_array()
-                                    .map(|a| a.len())
-                            })
+                        let response_body: Value =
+                            serde_json::from_str(&resp_text).unwrap_or(Value::Null);
+                        let dims = response_body["data"]
+                            .as_array()
+                            .and_then(|items| items.first())
+                            .and_then(|item| item["embedding"].as_array().map(|a| a.len()))
                             .unwrap_or(0);
+                        record_embedding_test_usage(
+                            "OpenAI-compatible",
+                            &model,
+                            latency,
+                            true,
+                            Some(status),
+                            extract_embedding_input_tokens(&response_body),
+                            None,
+                        );
                         Ok(serde_json::to_string(&serde_json::json!({
                             "success": true,
                             "message": format!("Embedding 连接成功（{}维）", dims),
@@ -213,6 +385,15 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         .unwrap_or_default())
                     } else if status == 401 || status == 403 {
                         let detail = truncate_utf8(&resp_text, 500);
+                        record_embedding_test_usage(
+                            "OpenAI-compatible",
+                            &model,
+                            latency,
+                            false,
+                            Some(status),
+                            None,
+                            Some(format!("认证失败 ({})", status)),
+                        );
                         Err(serde_json::to_string(&serde_json::json!({
                             "success": false,
                             "message": format!("认证失败 ({})", status),
@@ -225,6 +406,15 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         .unwrap_or_default())
                     } else {
                         let detail = truncate_utf8(&resp_text, 500);
+                        record_embedding_test_usage(
+                            "OpenAI-compatible",
+                            &model,
+                            latency,
+                            false,
+                            Some(status),
+                            None,
+                            Some(format!("API 错误 ({})", status)),
+                        );
                         Err(serde_json::to_string(&serde_json::json!({
                             "success": false,
                             "message": format!("API 错误 ({})", status),
@@ -236,13 +426,25 @@ pub async fn test_embedding(config: memory::EmbeddingConfig) -> Result<String, S
                         .unwrap_or_default())
                     }
                 }
-                Err(e) => Err(serde_json::to_string(&serde_json::json!({
-                    "success": false,
-                    "message": format!("连接失败: {}", e),
-                    "url": url,
-                    "latencyMs": start.elapsed().as_millis() as u64,
-                }))
-                .unwrap_or_default()),
+                Err(e) => {
+                    let latency = start.elapsed().as_millis() as u64;
+                    record_embedding_test_usage(
+                        "OpenAI-compatible",
+                        &model,
+                        latency,
+                        false,
+                        None,
+                        None,
+                        Some(format!("连接失败: {}", e)),
+                    );
+                    Err(serde_json::to_string(&serde_json::json!({
+                        "success": false,
+                        "message": format!("连接失败: {}", e),
+                        "url": url,
+                        "latencyMs": latency,
+                    }))
+                    .unwrap_or_default())
+                }
             }
         }
     }
@@ -608,6 +810,16 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 .send()
                 .await
                 .map_err(|e| {
+                    record_provider_test_usage(
+                        &config,
+                        &probe_model,
+                        "provider.test_provider",
+                        t.elapsed().as_millis() as u64,
+                        false,
+                        None,
+                        UsageParts::default(),
+                        Some(format!("连接失败: {}", e)),
+                    );
                     build_result!(false, format!("连接失败: {}", e), &url, 0, "x-api-key")
                 })?;
             let status = resp.status().as_u16();
@@ -619,14 +831,39 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                 "latencyMs": t.elapsed().as_millis() as u64
             }));
 
-            if resp.status().is_success() || status == 400 || status == 404 {
+            let is_success = resp.status().is_success();
+            if status == 200 {
+                let body_text = resp.text().await.unwrap_or_default();
+                let response_body: Value =
+                    serde_json::from_str(&body_text).unwrap_or(json!(body_text));
+                record_provider_test_usage(
+                    &config,
+                    &probe_model,
+                    "provider.test_provider",
+                    t.elapsed().as_millis() as u64,
+                    true,
+                    Some(status),
+                    extract_anthropic_usage(&response_body),
+                    None,
+                );
+                return Ok(build_result!(true, "连接成功", &url, status, "x-api-key"));
+            } else {
+                record_provider_test_usage(
+                    &config,
+                    &probe_model,
+                    "provider.test_provider",
+                    t.elapsed().as_millis() as u64,
+                    false,
+                    Some(status),
+                    UsageParts::default(),
+                    Some(format!("模型探测返回 {}", status)),
+                );
+            }
+
+            if is_success || status == 400 || status == 404 {
                 return Ok(build_result!(
                     true,
-                    if status == 200 {
-                        "连接成功"
-                    } else {
-                        "认证成功（模型名需调整）"
-                    },
+                    "认证成功（模型名需调整）",
                     &url,
                     status,
                     "x-api-key"
@@ -644,6 +881,16 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                     .send()
                     .await
                     .map_err(|e| {
+                        record_provider_test_usage(
+                            &config,
+                            &probe_model,
+                            "provider.test_provider",
+                            t2.elapsed().as_millis() as u64,
+                            false,
+                            None,
+                            UsageParts::default(),
+                            Some(format!("连接失败: {}", e)),
+                        );
                         build_result!(false, format!("连接失败: {}", e), &url, 0, "Bearer")
                     })?;
                 let status2 = resp2.status().as_u16();
@@ -655,10 +902,45 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                     "latencyMs": t2.elapsed().as_millis() as u64
                 }));
 
-                if resp2.status().is_success() || status2 == 400 || status2 == 404 {
+                let is_success2 = resp2.status().is_success();
+                if status2 == 200 {
+                    let body_text = resp2.text().await.unwrap_or_default();
+                    let response_body: Value =
+                        serde_json::from_str(&body_text).unwrap_or(json!(body_text));
+                    record_provider_test_usage(
+                        &config,
+                        &probe_model,
+                        "provider.test_provider",
+                        t2.elapsed().as_millis() as u64,
+                        true,
+                        Some(status2),
+                        extract_anthropic_usage(&response_body),
+                        None,
+                    );
                     return Ok(build_result!(
                         true,
                         "连接成功（Bearer 认证）",
+                        &url,
+                        status2,
+                        "Bearer"
+                    ));
+                } else {
+                    record_provider_test_usage(
+                        &config,
+                        &probe_model,
+                        "provider.test_provider",
+                        t2.elapsed().as_millis() as u64,
+                        false,
+                        Some(status2),
+                        UsageParts::default(),
+                        Some(format!("模型探测返回 {}", status2)),
+                    );
+                }
+
+                if is_success2 || status2 == 400 || status2 == 404 {
+                    return Ok(build_result!(
+                        true,
+                        "认证成功（模型名需调整）",
                         &url,
                         status2,
                         "Bearer"
@@ -747,20 +1029,45 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
             match chat_req.send().await {
                 Ok(chat_resp) => {
                     let status = chat_resp.status().as_u16();
+                    let is_success = chat_resp.status().is_success();
                     steps.push(json!({
                         "endpoint": &chat_url,
                         "method": "POST",
                         "status": status,
                         "latencyMs": t2.elapsed().as_millis() as u64
                     }));
-                    if chat_resp.status().is_success() || status == 400 || status == 404 {
+                    if status == 200 {
+                        let body_text = chat_resp.text().await.unwrap_or_default();
+                        let response_body: Value =
+                            serde_json::from_str(&body_text).unwrap_or(json!(body_text));
+                        record_provider_test_usage(
+                            &config,
+                            &probe_model,
+                            "provider.test_provider",
+                            t2.elapsed().as_millis() as u64,
+                            true,
+                            Some(status),
+                            extract_openai_usage(&response_body),
+                            None,
+                        );
+                        return Ok(build_result!(true, "连接成功", &chat_url, status, "Bearer"));
+                    } else {
+                        record_provider_test_usage(
+                            &config,
+                            &probe_model,
+                            "provider.test_provider",
+                            t2.elapsed().as_millis() as u64,
+                            false,
+                            Some(status),
+                            UsageParts::default(),
+                            Some(format!("模型探测返回 {}", status)),
+                        );
+                    }
+
+                    if is_success || status == 400 || status == 404 {
                         Ok(build_result!(
                             true,
-                            if status == 200 {
-                                "连接成功"
-                            } else {
-                                "认证成功（模型名需调整）"
-                            },
+                            "认证成功（模型名需调整）",
                             &chat_url,
                             status,
                             "Bearer"
@@ -788,6 +1095,16 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                     }
                 }
                 Err(e) => {
+                    record_provider_test_usage(
+                        &config,
+                        &probe_model,
+                        "provider.test_provider",
+                        t2.elapsed().as_millis() as u64,
+                        false,
+                        None,
+                        UsageParts::default(),
+                        Some(format!("连接失败: {}", e)),
+                    );
                     steps.push(json!({
                         "endpoint": &chat_url,
                         "method": "POST",
@@ -862,20 +1179,51 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
             match responses_req.send().await {
                 Ok(responses_resp) => {
                     let status = responses_resp.status().as_u16();
+                    let is_success = responses_resp.status().is_success();
                     steps.push(json!({
                         "endpoint": &responses_url,
                         "method": "POST",
                         "status": status,
                         "latencyMs": t2.elapsed().as_millis() as u64
                     }));
-                    if responses_resp.status().is_success() || status == 400 || status == 404 {
+                    if status == 200 {
+                        let body_text = responses_resp.text().await.unwrap_or_default();
+                        let response_body: Value =
+                            serde_json::from_str(&body_text).unwrap_or(json!(body_text));
+                        record_provider_test_usage(
+                            &config,
+                            &probe_model,
+                            "provider.test_provider",
+                            t2.elapsed().as_millis() as u64,
+                            true,
+                            Some(status),
+                            extract_openai_usage(&response_body),
+                            None,
+                        );
+                        return Ok(build_result!(
+                            true,
+                            "连接成功",
+                            &responses_url,
+                            status,
+                            "Bearer"
+                        ));
+                    } else {
+                        record_provider_test_usage(
+                            &config,
+                            &probe_model,
+                            "provider.test_provider",
+                            t2.elapsed().as_millis() as u64,
+                            false,
+                            Some(status),
+                            UsageParts::default(),
+                            Some(format!("模型探测返回 {}", status)),
+                        );
+                    }
+
+                    if is_success || status == 400 || status == 404 {
                         Ok(build_result!(
                             true,
-                            if status == 200 {
-                                "连接成功"
-                            } else {
-                                "认证成功（模型名需调整）"
-                            },
+                            "认证成功（模型名需调整）",
                             &responses_url,
                             status,
                             "Bearer"
@@ -903,6 +1251,16 @@ pub async fn test_provider(mut config: ProviderConfig) -> Result<String, String>
                     }
                 }
                 Err(e) => {
+                    record_provider_test_usage(
+                        &config,
+                        &probe_model,
+                        "provider.test_provider",
+                        t2.elapsed().as_millis() as u64,
+                        false,
+                        None,
+                        UsageParts::default(),
+                        Some(format!("连接失败: {}", e)),
+                    );
                     steps.push(json!({
                         "endpoint": &responses_url,
                         "method": "POST",
@@ -988,6 +1346,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                     .send()
                     .await
                     .map_err(|e| {
+                        record_provider_test_usage(
+                            &config,
+                            &model_id,
+                            "provider.test_model",
+                            start.elapsed().as_millis() as u64,
+                            false,
+                            None,
+                            UsageParts::default(),
+                            Some(format!("连接失败: {}", e)),
+                        );
                         serde_json::to_string(&serde_json::json!({
                             "success": false, "message": format!("连接失败: {}", e),
                             "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
@@ -1003,6 +1371,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
             let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    latency,
+                    true,
+                    Some(status),
+                    extract_anthropic_usage(&response_body),
+                    None,
+                );
                 let reply = extract_anthropic_reply(&response_body);
                 let truncated =
                     response_body.get("stop_reason").and_then(|v| v.as_str()) == Some("max_tokens");
@@ -1016,6 +1394,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                     &response_body,
                 )
             } else {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    latency,
+                    false,
+                    Some(status),
+                    UsageParts::default(),
+                    Some(format!("模型测试失败 ({})", status)),
+                );
                 Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,
@@ -1046,6 +1434,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                 req = req.header("Authorization", format!("Bearer {}", config.api_key));
             }
             let resp = req.send().await.map_err(|e| {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    start.elapsed().as_millis() as u64,
+                    false,
+                    None,
+                    UsageParts::default(),
+                    Some(format!("连接失败: {}", e)),
+                );
                 serde_json::to_string(&serde_json::json!({
                     "success": false, "message": format!("连接失败: {}", e),
                     "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
@@ -1060,6 +1458,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
             let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    latency,
+                    true,
+                    Some(status),
+                    extract_openai_usage(&response_body),
+                    None,
+                );
                 let reply = extract_chat_reply(&response_body);
                 let truncated = response_body
                     .get("choices")
@@ -1078,6 +1486,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                     &response_body,
                 )
             } else {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    latency,
+                    false,
+                    Some(status),
+                    UsageParts::default(),
+                    Some(format!("模型测试失败 ({})", status)),
+                );
                 Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,
@@ -1108,6 +1526,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                 req = req.header("Authorization", format!("Bearer {}", config.api_key));
             }
             let resp = req.send().await.map_err(|e| {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    start.elapsed().as_millis() as u64,
+                    false,
+                    None,
+                    UsageParts::default(),
+                    Some(format!("连接失败: {}", e)),
+                );
                 serde_json::to_string(&json!({
                     "success": false, "message": format!("连接失败: {}", e),
                     "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
@@ -1122,6 +1550,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
             let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    latency,
+                    true,
+                    Some(status),
+                    extract_openai_usage(&response_body),
+                    None,
+                );
                 let reply = extract_responses_reply(&response_body);
                 // Responses sets status="incomplete" when the output was cut off
                 // (incomplete_details.reason="max_output_tokens").
@@ -1137,6 +1575,16 @@ pub async fn test_model(mut config: ProviderConfig, model_id: String) -> Result<
                     &response_body,
                 )
             } else {
+                record_provider_test_usage(
+                    &config,
+                    &model_id,
+                    "provider.test_model",
+                    latency,
+                    false,
+                    Some(status),
+                    UsageParts::default(),
+                    Some(format!("模型测试失败 ({})", status)),
+                );
                 Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,

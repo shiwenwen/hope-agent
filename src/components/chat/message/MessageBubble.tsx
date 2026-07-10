@@ -1516,6 +1516,17 @@ function MessageBubbleInner({
         </div>
       )
     }
+    if (eventPayload?.type === "vision_bridge") {
+      return (
+        <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center">
+          {eventPayload.status === "unavailable"
+            ? t("chat.visionBridgeUnavailable")
+            : t("chat.visionBridgeEngaged", {
+                model: String(eventPayload.model_id || ""),
+              })}
+        </div>
+      )
+    }
     if (eventPayload?.type === "profile_rotation") {
       return <ProfileRotationBanner event={eventPayload as ProfileRotationEvent} />
     }

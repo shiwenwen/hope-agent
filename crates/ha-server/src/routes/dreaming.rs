@@ -44,6 +44,7 @@ pub struct EvidenceQuoteQuery {
 }
 
 use crate::error::AppError;
+use ha_core::blocking::run_blocking;
 
 /// `POST /api/dreaming/run` — kick off a cycle inline (trigger=manual).
 pub async fn run_now() -> Result<Json<dreaming::DreamReport>, AppError> {
@@ -78,7 +79,7 @@ pub async fn run_profile() -> Result<Json<dreaming::ProfileReport>, AppError> {
 /// (read-only profile view). Owner-plane.
 pub async fn list_profile_snapshots() -> Result<Json<Vec<dreaming::ProfileSnapshotRecord>>, AppError>
 {
-    Ok(Json(dreaming::list_profile_snapshots()?))
+    Ok(Json(run_blocking(dreaming::list_profile_snapshots).await?))
 }
 
 /// `GET /api/dreaming/diaries?limit=N` — list available Dream Diary
@@ -123,7 +124,9 @@ pub async fn idle_status() -> Result<Json<Value>, AppError> {
 pub async fn list_runs(
     Query(q): Query<ListRunsQuery>,
 ) -> Result<Json<Vec<dreaming::DreamingRunRecord>>, AppError> {
-    Ok(Json(dreaming::list_runs(q.limit, q.offset)?))
+    Ok(Json(
+        run_blocking(move || dreaming::list_runs(q.limit, q.offset)).await?,
+    ))
 }
 
 /// `GET /api/dreaming/runs/{id}` — a single run plus its decision log.
@@ -131,7 +134,7 @@ pub async fn list_runs(
 pub async fn get_run(
     Path(id): Path<String>,
 ) -> Result<Json<Option<dreaming::DreamingRunDetail>>, AppError> {
-    Ok(Json(dreaming::get_run(&id)?))
+    Ok(Json(run_blocking(move || dreaming::get_run(&id)).await?))
 }
 
 /// `GET /api/dreaming/decisions` — owner-plane durable decision history query
@@ -182,5 +185,7 @@ pub async fn list_decisions_page(
 pub async fn evidence_quote(
     Query(q): Query<EvidenceQuoteQuery>,
 ) -> Result<Json<dreaming::EvidenceQuote>, AppError> {
-    Ok(Json(dreaming::evidence_quote(&q.session_id, q.message_id)))
+    Ok(Json(
+        run_blocking(move || dreaming::evidence_quote(&q.session_id, q.message_id)).await,
+    ))
 }

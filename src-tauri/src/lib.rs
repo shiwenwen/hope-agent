@@ -178,6 +178,10 @@ pub fn run() {
             commands::provider::set_active_model,
             commands::provider::get_fallback_models,
             commands::provider::set_fallback_models,
+            commands::provider::get_vision_model,
+            commands::provider::set_vision_model,
+            commands::provider::get_automation_model_chain,
+            commands::provider::set_automation_model_chain,
             commands::provider::has_providers,
             // Legacy auth
             commands::auth::initialize_agent,
@@ -559,6 +563,9 @@ pub fn run() {
             // Recap
             commands::config::get_recap_config,
             commands::config::save_recap_config,
+            // Recall Summary
+            commands::config::get_recall_summary_config,
+            commands::config::save_recall_summary_config,
             // Dreaming
             commands::config::get_dreaming_config,
             commands::config::save_dreaming_config,
@@ -669,6 +676,8 @@ pub fn run() {
             commands::knowledge::kb_source_import_runs_list_cmd,
             commands::knowledge::kb_source_import_run_detail_cmd,
             commands::knowledge::kb_source_import_retry_failed_cmd,
+            commands::knowledge::kb_source_ocr_pages_cmd,
+            commands::knowledge::kb_source_ocr_retry_cmd,
             commands::knowledge::kb_source_similarity_groups_cmd,
             commands::knowledge::kb_source_similarity_dismiss_cmd,
             commands::knowledge::kb_source_similarity_resolve_cmd,
@@ -690,6 +699,10 @@ pub fn run() {
             commands::knowledge::kb_query_file_cmd,
             commands::knowledge::knowledge_compile_config_get_cmd,
             commands::knowledge::knowledge_compile_config_set_cmd,
+            commands::knowledge::knowledge_vision_config_get_cmd,
+            commands::knowledge::knowledge_vision_config_set_cmd,
+            commands::knowledge::note_tools_config_get_cmd,
+            commands::knowledge::note_tools_config_set_cmd,
             commands::knowledge::kb_schema_profile_cmd,
             commands::knowledge::kb_schema_issues_cmd,
             commands::knowledge::kb_note_source_refs_cmd,

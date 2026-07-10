@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react"
+import { flushSync } from "react-dom"
 import { useTranslation } from "react-i18next"
 import {
   AlertDialog,
@@ -14,7 +15,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import { FloatingMenu } from "@/components/ui/floating-menu"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { Bot, ListCollapse, MessageSquarePlus, PanelLeft, Rows3, Search, X } from "lucide-react"
+import { Bot, ListCollapse, Loader2, MessageSquarePlus, PanelLeft, Rows3, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
@@ -59,8 +60,10 @@ export default function ChatSidebar({
   sessions,
   agents,
   projects = [],
+  projectsLoading = false,
   currentSessionId,
   loadingSessionIds,
+  sessionsLoading = false,
   panelWidth,
   sidebarCollapsed,
   onPanelWidthChange,
@@ -86,7 +89,7 @@ export default function ChatSidebar({
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpandedState] = useState(() =>
-    readStoredBoolean(AGENTS_EXPANDED_STORAGE_KEY, true),
+    readStoredBoolean(AGENTS_EXPANDED_STORAGE_KEY, false),
   )
   const [projectsExpanded, setProjectsExpandedState] = useState(() =>
     readStoredBoolean(PROJECTS_EXPANDED_STORAGE_KEY, true),
@@ -97,6 +100,7 @@ export default function ChatSidebar({
   const [sidebarDisplayMode, setSidebarDisplayMode] = useState<SidebarDisplayMode>(
     DEFAULT_SIDEBAR_DISPLAY_MODE,
   )
+  const [sidebarDisplayModeReady, setSidebarDisplayModeReady] = useState(false)
 
   const setAgentsExpanded = useCallback((expanded: boolean) => {
     setAgentsExpandedState(expanded)
@@ -168,15 +172,20 @@ export default function ChatSidebar({
     getTransport()
       .call<string>("get_sidebar_display_mode")
       .then((mode) => {
-        if (!cancelled) setSidebarDisplayMode(normalizeSidebarDisplayMode(mode))
+        if (!cancelled) {
+          setSidebarDisplayMode(normalizeSidebarDisplayMode(mode))
+          setSidebarDisplayModeReady(true)
+        }
       })
       .catch((err) => {
         logger.error("chat", "ChatSidebar::loadDisplayMode", "failed to load sidebar mode", err)
+        if (!cancelled) setSidebarDisplayModeReady(true)
       })
 
     const handleModeChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ mode?: unknown }>).detail
       setSidebarDisplayMode(normalizeSidebarDisplayMode(detail?.mode))
+      setSidebarDisplayModeReady(true)
     }
     window.addEventListener("sidebar-display-mode-changed", handleModeChanged)
     return () => {
@@ -318,6 +327,12 @@ export default function ChatSidebar({
     }
   }, [showNewChatMenu])
 
+  useEffect(() => {
+    if (agents.length <= 1 && showNewChatMenu) {
+      setShowNewChatMenu(false)
+    }
+  }, [agents.length, showNewChatMenu])
+
   const getAgentInfo = useCallback(
     (agentId: string) => {
       return agents.find((a) => a.id === agentId)
@@ -360,6 +375,22 @@ export default function ChatSidebar({
     searchInputRef.current?.focus({ preventScroll: true })
   }, [])
 
+  const sidebarContentReady = sidebarDisplayModeReady && !sessionsLoading && !projectsLoading
+  const [sidebarMotionEnabled, setSidebarMotionEnabled] = useState(false)
+
+  useEffect(() => {
+    if (!sidebarContentReady) {
+      setSidebarMotionEnabled(false)
+    }
+  }, [sidebarContentReady])
+
+  const enableSidebarMotion = useCallback(() => {
+    if (!sidebarContentReady || sidebarMotionEnabled) return
+    flushSync(() => setSidebarMotionEnabled(true))
+  }, [sidebarContentReady, sidebarMotionEnabled])
+
+  const sidebarMotionDisabled = !sidebarMotionEnabled
+
   const handleSearchSurfaceMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const target = e.target as HTMLElement | null
@@ -394,6 +425,7 @@ export default function ChatSidebar({
       selectedAgentId={selectedAgentId}
       currentSessionId={currentSessionId}
       loadingSessionIds={loadingSessionIds}
+      sessionsLoading={sessionsLoading}
       loadingMoreSessions={loadingMoreSessions}
       onSwitchSession={onSwitchSession}
       onDeleteClick={handleDeleteClick}
@@ -426,6 +458,7 @@ export default function ChatSidebar({
         className={cn(
           "relative h-full shrink-0",
           !isResizing &&
+            !sidebarMotionDisabled &&
             "transition-[width] duration-[250ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width] motion-reduce:transition-none",
         )}
       >
@@ -434,8 +467,12 @@ export default function ChatSidebar({
             style={{ width: panelWidth }}
             aria-hidden={sidebarCollapsed}
             inert={sidebarCollapsed ? true : undefined}
+            onPointerDownCapture={enableSidebarMotion}
+            onKeyDownCapture={enableSidebarMotion}
             className={cn(
-              "h-full border-r border-border-soft bg-surface-panel shadow-panel flex flex-col transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] [contain:layout_paint] motion-reduce:transition-none",
+              "h-full border-r border-border-soft bg-surface-panel shadow-panel flex flex-col [contain:layout_paint]",
+              !sidebarMotionDisabled &&
+                "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[opacity,transform] motion-reduce:transition-none",
               sidebarCollapsed
                 ? "pointer-events-none -translate-x-4 opacity-0"
                 : "translate-x-0 opacity-100",
@@ -493,7 +530,7 @@ export default function ChatSidebar({
                       onClick={() => {
                         if (agents.length === 1) {
                           onNewChat(agents[0].id)
-                        } else {
+                        } else if (agents.length > 1) {
                           setShowNewChatMenu(!showNewChatMenu)
                         }
                       }}
@@ -503,7 +540,7 @@ export default function ChatSidebar({
                   </IconTip>
                   {/* Agent selector popup */}
                   <FloatingMenu
-                    open={showNewChatMenu}
+                    open={showNewChatMenu && agents.length > 1}
                     positionClassName="right-0 top-full mt-1"
                     originClassName="origin-top-right"
                     className="ha-menu-from-top min-w-[180px] p-1.5"
@@ -566,7 +603,10 @@ export default function ChatSidebar({
             </div>
 
             <div
-              className="flex-1 overflow-y-auto overflow-x-hidden [overscroll-behavior-y:none]"
+              className={cn(
+                "flex-1 overflow-y-auto overflow-x-hidden [overscroll-behavior-y:none]",
+                sidebarMotionDisabled && "[&_*]:!animate-none [&_*]:!transition-none",
+              )}
               onScroll={(e) => {
                 if (isHistorySearching) return
                 if (!hasMoreSessions || loadingMoreSessions || !onLoadMoreSessions) return
@@ -577,23 +617,30 @@ export default function ChatSidebar({
                 }
               }}
             >
-              {isHistorySearching ? (
+              {!sidebarContentReady ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              ) : isHistorySearching ? (
                 sessionListNode
               ) : (
                 <>
                   {/* Collapsible Agents section */}
-                  <AgentSection
-                    agents={agents}
-                    agentsExpanded={agentsExpanded}
-                    setAgentsExpanded={setAgentsExpanded}
-                    selectedAgentId={selectedAgentId}
-                    toggleAgentFilter={toggleAgentFilter}
-                    onNewChat={onNewChat}
-                    onEditAgent={onEditAgent}
-                    onReorderAgents={onReorderAgents}
-                    panelWidth={panelWidth}
-                    displayMode={sidebarDisplayMode}
-                  />
+                  {agents.length > 1 && (
+                    <AgentSection
+                      agents={agents}
+                      agentsExpanded={agentsExpanded}
+                      setAgentsExpanded={setAgentsExpanded}
+                      selectedAgentId={selectedAgentId}
+                      toggleAgentFilter={toggleAgentFilter}
+                      onNewChat={onNewChat}
+                      onEditAgent={onEditAgent}
+                      onReorderAgents={onReorderAgents}
+                      panelWidth={panelWidth}
+                      displayMode={sidebarDisplayMode}
+                      motionDisabled={sidebarMotionDisabled}
+                    />
+                  )}
 
                   {/* Projects section — shown below agents. Falls back silently
                       when no handler is wired (backwards-compat). */}
@@ -626,6 +673,7 @@ export default function ChatSidebar({
                       getAgentInfo={getAgentInfo}
                       formatRelativeTime={formatRelativeTime}
                       displayMode={sidebarDisplayMode}
+                      motionDisabled={sidebarMotionDisabled}
                     />
                   )}
 
@@ -640,7 +688,9 @@ export default function ChatSidebar({
             color does not occupy a strip of the conversation canvas. */}
         <div
           className={cn(
-            "absolute inset-y-0 right-0 z-20 cursor-col-resize transition-[width,opacity,background-color] duration-200 ease-out hover:bg-primary/30 active:bg-primary/50",
+            "absolute inset-y-0 right-0 z-20 cursor-col-resize hover:bg-primary/30 active:bg-primary/50",
+            !sidebarMotionDisabled &&
+              "transition-[width,opacity,background-color] duration-200 ease-out",
             sidebarCollapsed ? "w-0 pointer-events-none opacity-0" : "w-1 opacity-100",
           )}
           onMouseDown={handleDragStart}

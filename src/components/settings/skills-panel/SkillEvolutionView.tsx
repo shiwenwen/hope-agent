@@ -19,6 +19,8 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { SKILLS_EVENTS } from "@/types/skills"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
+import type { AvailableModel } from "@/components/ui/model-selector"
 import type { SkillSummary } from "../types"
 import DraftReviewSection from "./DraftReviewSection"
 
@@ -41,7 +43,9 @@ interface AutoReviewConfig {
   discardBlacklistDays: number
   // Gate 3
   topKForDedup: number
+  /** Deprecated — superseded by `modelOverride`. Read-only display concern. */
   reviewModel?: string | null
+  modelOverride?: ModelChainRef | null
   candidateLimit: number
   timeoutSecs: number
   reviewSystemOverride?: string | null
@@ -128,18 +132,21 @@ export default function SkillEvolutionView({
   const [saveStatus, setSaveStatus] = useState<Record<string, SaveStatus>>({})
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
   const [confirmResetAll, setConfirmResetAll] = useState(false)
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
 
   const reload = useCallback(async () => {
     try {
-      const [next, recent] = await Promise.all([
+      const [next, recent, models] = await Promise.all([
         getTransport().call<AutoReviewConfig>("get_skills_auto_review_config"),
         getTransport().call<RecentReject[]>(
           "get_skills_auto_review_recent_rejects",
           { limit: 20 },
         ),
+        getTransport().call<AvailableModel[]>("get_available_models").catch(() => []),
       ])
       setCfg(next)
       setRejects(recent ?? [])
+      setAvailableModels(models)
     } catch (e) {
       logger.error(
         "settings",
@@ -871,15 +878,19 @@ export default function SkillEvolutionView({
         subtitle={t("settings.skillsEvolution.sections.advanced.subtitle")}
         warning
       >
-        <StringField
+        <FieldRow
           label={t("settings.skillsEvolution.fields.reviewModel.label")}
           help={t("settings.skillsEvolution.fields.reviewModel.help")}
-          value={cfg.reviewModel ?? ""}
-          onChange={(v) => void patchField("reviewModel", v || null)}
-          onReset={() => void resetField("reviewModel")}
-          status={saveStatus.reviewModel}
-          placeholder="anthropic:claude-haiku-4-5"
-        />
+          status={saveStatus.modelOverride}
+          onReset={() => void resetField("modelOverride")}
+        >
+          <ModelChainEditor
+            value={cfg.modelOverride ?? null}
+            onChange={(next) => void patchField("modelOverride", next)}
+            availableModels={availableModels}
+            inheritLabel={t("settings.skillsEvolution.fields.reviewModel.inheritDefault")}
+          />
+        </FieldRow>
         <ListField
           label={t(
             "settings.skillsEvolution.fields.extraRejectCategories.label",
@@ -1135,42 +1146,6 @@ function NumField({
         />
         {unit && <span className="text-xs text-muted-foreground">{unit}</span>}
       </div>
-    </FieldRow>
-  )
-}
-
-function StringField({
-  label,
-  help,
-  value,
-  onChange,
-  onReset,
-  status,
-  placeholder,
-}: {
-  label: string
-  help: string
-  value: string
-  onChange: (v: string) => void
-  onReset: () => void
-  status?: SaveStatus
-  placeholder?: string
-}) {
-  const [local, setLocal] = useState(value)
-  useEffect(() => {
-    setLocal(value)
-  }, [value])
-  return (
-    <FieldRow label={label} help={help} status={status} onReset={onReset}>
-      <Input
-        value={local}
-        placeholder={placeholder}
-        onChange={(e) => setLocal(e.target.value)}
-        onBlur={() => {
-          if (local !== value) onChange(local)
-        }}
-        className="h-8 font-mono text-xs"
-      />
     </FieldRow>
   )
 }

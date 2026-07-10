@@ -49,7 +49,10 @@ pub async fn get_auto_maintenance() -> Result<Json<AutoMaintenanceState>, AppErr
 pub async fn set_auto_maintenance(
     Json(body): Json<SetAutoMaintenanceBody>,
 ) -> Result<Json<Value>, AppError> {
-    auto_maintainer::set_auto_maintenance_enabled(body.enabled)?;
+    ha_core::blocking::run_blocking(move || {
+        auto_maintainer::set_auto_maintenance_enabled(body.enabled)
+    })
+    .await?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -58,7 +61,7 @@ pub async fn set_auto_maintenance(
 /// distinguish "user flipped settings toggle" from "user clicked Turn off
 /// in alert dialog".
 pub async fn disable() -> Result<Json<Value>, AppError> {
-    auto_maintainer::disable_via_alert_dialog()?;
+    ha_core::blocking::run_blocking(auto_maintainer::disable_via_alert_dialog).await?;
     Ok(Json(json!({ "ok": true })))
 }
 

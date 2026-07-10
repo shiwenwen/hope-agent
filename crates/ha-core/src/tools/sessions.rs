@@ -513,8 +513,48 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
             );
 
             let cancel = Arc::new(AtomicBool::new(false));
-            match agent.chat(message, &[], None, cancel, |_delta| {}).await {
+            let started = std::time::Instant::now();
+            let captured_usage: Arc<std::sync::Mutex<crate::chat_engine::CapturedUsage>> =
+                Arc::new(std::sync::Mutex::new(Default::default()));
+            let captured_usage_for_cb = captured_usage.clone();
+            match agent
+                .chat(message, &[], None, cancel, move |delta| {
+                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
+                        if event.get("type").and_then(|t| t.as_str()) == Some("usage") {
+                            if let Ok(mut usage) = captured_usage_for_cb.lock() {
+                                usage.absorb_event(&event);
+                            }
+                        }
+                    }
+                })
+                .await
+            {
                 Ok((response, _thinking)) => {
+                    if let Ok(usage) = captured_usage.lock() {
+                        let mut event =
+                            crate::model_usage::ModelUsageEvent::new(crate::model_usage::KIND_CHAT)
+                                .with_usage(
+                                    usage.input_tokens.unwrap_or(0) as u64,
+                                    usage.output_tokens.unwrap_or(0) as u64,
+                                    usage.cache_creation_input_tokens.unwrap_or(0) as u64,
+                                    usage.cache_read_input_tokens.unwrap_or(0) as u64,
+                                );
+                        event.operation = Some("chat.session_send".to_string());
+                        event.source = Some("tool".to_string());
+                        event.provider_id = Some(model_ref.provider_id.clone());
+                        event.provider_name = Some(prov.name.clone());
+                        event.model_id = Some(
+                            usage
+                                .model
+                                .clone()
+                                .unwrap_or_else(|| model_ref.model_id.clone()),
+                        );
+                        event.session_id = Some(session_id.to_string());
+                        event.agent_id = Some(agent_id.to_string());
+                        event.duration_ms = Some(started.elapsed().as_millis() as u64);
+                        event.ttft_ms = usage.ttft_ms.map(|v| v.max(0) as u64);
+                        crate::model_usage::record_model_usage_best_effort(event);
+                    }
                     if idx > 0 {
                         app_info!(
                             "tool",

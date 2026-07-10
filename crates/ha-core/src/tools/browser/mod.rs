@@ -21,7 +21,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::agent::MEDIA_ITEMS_PREFIX;
 use crate::attachments::{self, MediaItem, MediaKind};
@@ -43,7 +43,7 @@ pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> 
         .ok_or_else(|| anyhow!("Missing 'action' parameter"))?;
     let session_id = ctx.session_id.as_deref();
 
-    match action {
+    let result = match action {
         "status" => action_status(args).await,
         "profile" => action_profile(args, session_id).await,
         "tabs" => action_tabs(args, session_id).await,
@@ -56,7 +56,45 @@ pub(crate) async fn tool_browser(args: &Value, ctx: &super::ToolExecContext) -> 
             "Unknown browser action: '{}'. Valid: status / profile / tabs / navigate / snapshot / act / observe / control",
             other
         )),
+    };
+    if result.is_ok() {
+        emit_browser_activity_metadata(ctx, args, action).await;
     }
+    result
+}
+
+async fn emit_browser_activity_metadata(ctx: &super::ToolExecContext, args: &Value, action: &str) {
+    if ctx.metadata_sink.is_none() {
+        return;
+    }
+    let info = browser::frame::current_frame_info(ctx.session_id.as_deref())
+        .await
+        .ok()
+        .flatten();
+    let op = get_str(args, "op")
+        .or_else(|| get_str(args, "kind"))
+        .or_else(|| get_str(args, "format"));
+    let arg_url = get_str(args, "url");
+    let target_id = get_str(args, "target_id")
+        .or_else(|| get_str(args, "page_id"))
+        .map(str::to_string)
+        .or_else(|| info.as_ref().and_then(|i| i.target_id.clone()));
+    let url = arg_url
+        .map(str::to_string)
+        .or_else(|| info.as_ref().and_then(|i| i.url.clone()));
+    ctx.emit_metadata(json!({
+        "kind": "browser_activity",
+        "action": action,
+        "op": op,
+        "targetId": target_id,
+        "url": url,
+        "title": info.as_ref().and_then(|i| i.title.clone()),
+        "backend": info.as_ref().map(|i| i.backend.clone()),
+        "sessionId": info.as_ref().and_then(|i| i.session_id.clone()).or_else(|| ctx.session_id.clone()),
+        "callId": ctx.tool_call_id,
+        "at": chrono::Utc::now().timestamp_millis(),
+    }))
+    .await;
 }
 
 // ── Param helpers ────────────────────────────────────────────────────────
@@ -514,7 +552,7 @@ async fn tabs_new(args: &Value, session_id: Option<&str>) -> Result<String> {
             tab.url = target.to_string();
         }
     }
-    browser::frame::emit_frame_async();
+    browser::frame::emit_frame_async(session_id.map(str::to_string));
     Ok(format!(
         "New page created: {} (url: {})",
         tab.target_id, tab.url
@@ -545,7 +583,7 @@ async fn tabs_select(args: &Value, session_id: Option<&str>) -> Result<String> {
         .ok_or_else(|| anyhow!("tabs.select requires 'target_id'"))?;
     let backend = acquire_browser_backend(session_id, "tabs.select").await?;
     backend.select_page(target).await?;
-    browser::frame::emit_frame_async();
+    browser::frame::emit_frame_async(session_id.map(str::to_string));
     Ok(format!("Switched to page: {}", target))
 }
 
@@ -582,7 +620,7 @@ async fn tabs_claim(args: &Value, session_id: Option<&str>) -> Result<String> {
     let steal = get_bool(args, "steal").unwrap_or(false);
     let backend = require_extension_tabs("tabs.claim", session_id).await?;
     backend.claim_page(target, steal).await?;
-    browser::frame::emit_frame_async();
+    browser::frame::emit_frame_async(session_id.map(str::to_string));
     Ok(if steal {
         format!("Claimed user Chrome tab with lease steal: {}", target)
     } else {
@@ -626,7 +664,7 @@ async fn action_navigate(args: &Value, session_id: Option<&str>) -> Result<Strin
         }
     };
     if result.is_ok() {
-        browser::frame::emit_frame_async();
+        browser::frame::emit_frame_async(session_id.map(str::to_string));
     }
     result
 }
@@ -1038,7 +1076,7 @@ async fn action_act(args: &Value, session_id: Option<&str>) -> Result<String> {
     let result = backend.act(kind, params).await;
     // Always emit a frame after an act attempt — even on failure the page
     // state may have changed (partial fill, click that did nothing, etc.).
-    browser::frame::emit_frame_async();
+    browser::frame::emit_frame_async(session_id.map(str::to_string));
     result
 }
 

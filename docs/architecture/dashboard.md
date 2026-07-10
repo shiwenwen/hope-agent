@@ -1,13 +1,14 @@
 # Dashboard 数据大盘架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-07-07
 
 ## 概述
 
 Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 10 个文件，采用「筛选器 + 查询函数」的管道式架构。
 
 核心设计原则：
-- **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL AND incognito = 0`，排除定时任务会话、子 Agent 会话和无痕会话
-- **统一筛选**：所有查询接受同一个 `DashboardFilter` 结构体，支持时间范围 + Agent/Provider/Model 维度筛选
+- **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL AND incognito = 0`，排除定时任务会话、子 Agent 会话和无痕会话；模型用量总账仅硬排无痕，会统计 cron / subagent / 后台维护等所有非无痕模型请求
+- **模型用量总账**：Dashboard token / cost 总量来自 `session.db.model_usage_events`，覆盖 chat / side_query / summarize / embedding / STT / judge / web_search / image_generation / provider_test 等入口；Provider 原始 usage 返回多少记多少，未返回 token 时只记录调用次数与耗时
+- **统一筛选**：所有查询接受同一个 `DashboardFilter` 结构体，支持时间范围 + Agent/Provider/Model/UsageKind 维度筛选
 - **成本估算内联**：Token 统计查询自动附带基于硬编码定价表的 USD 成本估算
 - **进程级系统指标**：通过 sysinfo crate 采集当前进程的 CPU/内存/磁盘 IO 实时快照
 
@@ -19,7 +20,7 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | `types.rs` | 全部数据结构定义（20+ 个 struct） |
 | `queries.rs` | 7 个聚合查询函数 |
 | `detail_queries.rs` | 5 个详情列表查询函数 |
-| `filters.rs` | 筛选器构建（session / log 两套） |
+| `filters.rs` | 筛选器构建（session / model_usage / log 三套） |
 | `cost.rs` | 模型定价表与成本计算引擎 |
 | `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
 | `learning.rs` | Learning Tracker 4 个查询 + 9 个事件常量（埋点写入 `session.db.learning_events`） |
@@ -47,7 +48,7 @@ graph TB
     end
 
     subgraph 数据源
-        SDB[(SessionDB<br/>sessions + messages<br/>+ subagent_runs)]
+        SDB[(SessionDB<br/>sessions + messages<br/>+ model_usage_events<br/>+ subagent_runs)]
         LDB[(LogDB<br/>logs)]
         CDB[(CronDB<br/>cron_jobs<br/>+ cron_run_logs)]
         SYS[sysinfo<br/>进程级指标]
@@ -72,7 +73,7 @@ graph TB
 
 ### DashboardFilter
 
-所有查询的统一入参，5 个可选维度：
+所有查询的统一入参，7 个可选维度：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -81,6 +82,8 @@ graph TB
 | `agent_id` | `Option<String>` | 按 Agent ID 筛选 |
 | `provider_id` | `Option<String>` | 按 Provider ID 筛选 |
 | `model_id` | `Option<String>` | 按模型 ID 筛选 |
+| `usage_kind` | `Option<String>` | 按模型调用类型筛选（`chat` / `side_query` / `summarize` / `embedding` / `stt` / `judge` / `web_search` / `image_generation` / `provider_test`） |
+| `operation` | `Option<String>` | 按 `model_usage_events.operation`（purpose 标签，见 [`automation-model.md`](automation-model.md) §2.5）精确匹配筛选。无下拉框，只能通过点击 Token 用量趋势 tab 的 operation 明细表下钻写入，与 `model_id` 的下钻方式一致 |
 
 所有字段均为空字符串安全 -- 空字符串等价于 `None`，不会生成 WHERE 子句。
 
@@ -109,6 +112,10 @@ fn build_session_filter(
 
 用于 LogDB 查询，仅支持 `start_date`、`end_date`、`agent_id` 三个维度（日志表无 provider/model 字段）。
 
+### build_model_usage_filter
+
+用于 `model_usage_events` 查询，支持 `start_date`、`end_date`、`agent_id`、`provider_id`、`model_id`、`usage_kind`、`operation`。该过滤器不自动排除 cron / subagent，因为模型用量总量要覆盖所有非无痕模型请求；无痕会话在写入 `model_usage_events` 时 fail-closed 跳过。
+
 ### params_ref 辅助函数
 
 将 `Vec<Box<dyn ToSql>>` 转换为 `Vec<&dyn ToSql>`，适配 rusqlite 的参数绑定 API。
@@ -136,7 +143,7 @@ fn build_session_filter(
 | `estimated_cost_usd` | `f64` | 估算总成本（按模型分组计算后汇总） |
 | `avg_ttft_ms` | `Option<f64>` | 平均首 Token 响应时间 |
 
-**实现要点**：成本估算通过 `GROUP BY s.model_id` 按模型分组计算后求和，而非用总 token 数一次性估算，确保多模型场景下定价准确。
+**实现要点**：`total_input_tokens`、`total_output_tokens`、`estimated_cost_usd`、`avg_ttft_ms` 取自 `model_usage_events`；成本估算通过 `GROUP BY u.model_id` 按模型分组计算后求和，而非用总 token 数一次性估算，确保多模型场景下定价准确。
 
 ### 2. Token 用量趋势
 
@@ -148,6 +155,10 @@ fn build_session_filter(
   - `date` / `input_tokens` / `output_tokens` / `avg_ttft_ms`
 - `by_model: Vec<TokenByModel>` -- 按模型分组，按总 token 降序
   - `model_id` / `provider_name` / `input_tokens` / `output_tokens` / `estimated_cost_usd` / `avg_ttft_ms`
+- `by_kind: Vec<TokenByKind>` -- 按模型调用类型分组，按总 token 降序
+  - `kind` / `call_count` / `input_tokens` / `output_tokens` / `cache_creation_input_tokens` / `cache_read_input_tokens` / `estimated_cost_usd` / `avg_duration_ms` / `avg_ttft_ms`
+- `by_operation: Vec<TokenByOperation>` -- 按 `operation`（purpose 标签，见 [`automation-model.md`](automation-model.md) §2.5）分组，字段形状同 `TokenByKind` 再加 `operation`/`domain` 两列，按总 token 降序。~33 个精确标签，用作二级下钻表，`operation` 列原样等宽展示不翻译（同 `ErrorByCategory.category`/`ToolUsageStats` 明细行的既有惯例——代码内定义、还在增长的技术标签不值得背 12 语言翻译债）
+- `by_domain: Vec<TokenByDomain>` -- 对 `by_operation` 结果按 `domain` 在内存里再做一次 rollup（不发第二次 SQL），`domain` 由 `operation_domain(operation)` 纯函数按第一个 `.` 切分派生（不是查表，新增 purpose 标签零代码改动就能正确分桶），~15-18 个，用作一级主图表；`domain` 走 `t("dashboard.operationDomain.${domain}", humanizeDomain(domain))` 翻译优先 + 人性化 fallback，零阻塞上线
 - `total_cost_usd: f64` -- 所有模型成本之和
 
 ### 3. 工具使用统计

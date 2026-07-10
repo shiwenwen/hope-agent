@@ -14,7 +14,13 @@ use crate::routes::helpers::session_db;
 
 /// `GET /api/plan/{session_id}/mode`
 pub async fn get_plan_mode(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
-    if let Ok(Some(meta)) = session_db()?.get_session(&session_id) {
+    let meta_lookup = {
+        let session_id = session_id.clone();
+        session_db()?
+            .run(move |db| db.get_session(&session_id))
+            .await
+    };
+    if let Ok(Some(meta)) = meta_lookup {
         if meta.plan_mode == PlanModeState::Off {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
             return Ok(Json(json!({ "state": "off" })));

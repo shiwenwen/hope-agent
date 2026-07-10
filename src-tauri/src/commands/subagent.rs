@@ -10,7 +10,8 @@ pub async fn list_subagent_runs(
 ) -> Result<Vec<subagent::SubagentRun>, CmdError> {
     state
         .session_db
-        .list_subagent_runs(&session_id)
+        .run(move |db| db.list_subagent_runs(&session_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -21,7 +22,8 @@ pub async fn get_subagent_run(
 ) -> Result<Option<subagent::SubagentRun>, CmdError> {
     state
         .session_db
-        .get_subagent_run(&run_id)
+        .run(move |db| db.get_subagent_run(&run_id))
+        .await
         .map_err(Into::into)
 }
 
@@ -32,17 +34,22 @@ pub async fn get_subagent_runs_batch(
 ) -> Result<std::collections::HashMap<String, subagent::SubagentRun>, CmdError> {
     state
         .session_db
-        .get_subagent_runs_batch(&run_ids)
+        .run(move |db| db.get_subagent_runs_batch(&run_ids))
+        .await
         .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn kill_subagent(run_id: String, state: State<'_, AppState>) -> Result<String, CmdError> {
     // Verify run exists
-    let run = state
-        .session_db
-        .get_subagent_run(&run_id)?
-        .ok_or_else(|| CmdError::msg(format!("Sub-agent run '{}' not found", run_id)))?;
+    let run = {
+        let run_id = run_id.clone();
+        state
+            .session_db
+            .run(move |db| db.get_subagent_run(&run_id))
+            .await?
+    }
+    .ok_or_else(|| CmdError::msg(format!("Sub-agent run '{}' not found", run_id)))?;
 
     if run.status.is_terminal() {
         return Ok(format!(
@@ -53,14 +60,20 @@ pub async fn kill_subagent(run_id: String, state: State<'_, AppState>) -> Result
 
     let cancelled = state.subagent_cancels.cancel(&run_id);
     if !cancelled {
-        let _ = state.session_db.update_subagent_status(
-            &run_id,
-            subagent::SubagentStatus::Killed,
-            None,
-            Some("Killed from UI"),
-            None,
-            None,
-        );
+        let run_id = run_id.clone();
+        let _ = state
+            .session_db
+            .run(move |db| {
+                db.update_subagent_status(
+                    &run_id,
+                    subagent::SubagentStatus::Killed,
+                    None,
+                    Some("Killed from UI"),
+                    None,
+                    None,
+                )
+            })
+            .await;
     }
     Ok(format!("Sub-agent '{}' killed", run_id))
 }

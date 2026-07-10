@@ -6,7 +6,8 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { DeferredNumberInput } from "@/components/ui/deferred-number-input"
 import { Switch } from "@/components/ui/switch"
-import { ModelSelector, type AvailableModel } from "@/components/ui/model-selector"
+import type { AvailableModel } from "@/components/ui/model-selector"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
 import CronExpressionBuilder from "@/components/cron/CronExpressionBuilder"
 import { buildCronFromVisual, parseCronToVisual } from "@/components/cron/cronHelpers"
 import type { CronFrequency } from "@/components/cron/CronJobForm.types"
@@ -14,8 +15,6 @@ import {
   dreamingSettingsOperationErrorToast,
   type DreamingSettingsOperationErrorToast,
 } from "./dreamingSettingsOperationFeedback"
-
-const NARRATIVE_MODEL_DEFAULT = "__default__"
 
 interface IdleTriggerConfig {
   enabled: boolean
@@ -51,7 +50,9 @@ interface DreamingConfig {
   candidateLimit: number
   narrativeMaxTokens: number
   narrativeTimeoutSecs: number
+  /** Deprecated — superseded by `modelOverride`. Read-only display concern. */
   narrativeModel?: string | null
+  modelOverride?: ModelChainRef | null
   profileSynthesis: ProfileSynthesisConfig
   deepResolver?: DeepResolverConfig
 }
@@ -369,8 +370,6 @@ export default function DreamingPanel() {
       ? Math.max(0, idleStatus.lastActivityEpochSecs + idleStatus.idleMinutes * 60 - now)
       : null
 
-  const narrativeModelValue = cfg.narrativeModel ?? NARRATIVE_MODEL_DEFAULT
-
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6">
       {/* ── Status row ── */}
@@ -605,29 +604,12 @@ export default function DreamingPanel() {
                 )}
               </div>
             )}
-            <div className="flex gap-2 items-center">
-              <ModelSelector
-                value={
-                  narrativeModelValue === NARRATIVE_MODEL_DEFAULT ? "" : narrativeModelValue
-                }
-                onChange={(providerId, modelId) =>
-                  save({ ...cfg, narrativeModel: `${providerId}:${modelId}` })
-                }
-                availableModels={availableModels}
-                placeholder={t("settings.dreaming.narrativeModelDefault")}
-                separator=":"
-                className="flex-1"
-              />
-              {cfg.narrativeModel && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground underline"
-                  onClick={() => save({ ...cfg, narrativeModel: null })}
-                >
-                  {t("settings.dreaming.narrativeModelClear")}
-                </button>
-              )}
-            </div>
+            <ModelChainEditor
+              value={cfg.modelOverride ?? null}
+              onChange={(next) => save({ ...cfg, modelOverride: next })}
+              availableModels={availableModels}
+              inheritLabel={t("settings.dreaming.narrativeModelDefault")}
+            />
           </div>
         </Section>
 

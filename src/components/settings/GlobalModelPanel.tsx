@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -19,6 +19,7 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { GripVertical, Layers, Plus, X, RotateCcw } from "lucide-react"
 import { ModelSelector } from "@/components/ui/model-selector"
+import { ModelChainEditor, type ModelChainRef } from "@/components/ui/model-chain-editor"
 import { Slider } from "@/components/ui/slider"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -87,6 +88,8 @@ export default function GlobalModelPanel() {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [activeModel, setActiveModel] = useState<ActiveModelRef | null>(null)
   const [fallbackModels, setFallbackModels] = useState<ActiveModelRef[]>([])
+  const [visionModel, setVisionModel] = useState<ActiveModelRef | null>(null)
+  const [automationChain, setAutomationChain] = useState<ModelChainRef | null>(null)
   const [loading, setLoading] = useState(true)
   const [addingFallback, setAddingFallback] = useState(false)
   const [globalTemperature, setGlobalTemperature] = useState<number | null>(null)
@@ -94,16 +97,20 @@ export default function GlobalModelPanel() {
   useEffect(() => {
     async function load() {
       try {
-        const [models, active, fallbacks, temp] = await Promise.all([
+        const [models, active, fallbacks, temp, vision, automation] = await Promise.all([
           getTransport().call<AvailableModel[]>("get_available_models"),
           getTransport().call<ActiveModelRef | null>("get_active_model"),
           getTransport().call<ActiveModelRef[]>("get_fallback_models"),
           getTransport().call<number | null>("get_global_temperature"),
+          getTransport().call<ActiveModelRef | null>("get_vision_model"),
+          getTransport().call<ModelChainRef | null>("get_automation_model_chain"),
         ])
         setAvailableModels(models)
         setActiveModel(active)
         setFallbackModels(fallbacks)
         setGlobalTemperature(temp)
+        setVisionModel(vision)
+        setAutomationChain(automation)
       } catch (e) {
         logger.error("settings", "GlobalModelPanel::load", "Failed to load model settings", e)
       } finally {
@@ -126,6 +133,51 @@ export default function GlobalModelPanel() {
       setActiveModel({ providerId, modelId })
     } catch (e) {
       logger.error("settings", "GlobalModelPanel::setDefault", "Failed to set default model", e)
+    }
+  }
+
+  // Only vision-capable models can serve as the vision bridge.
+  const visionCapableModels = useMemo(
+    () => availableModels.filter((m) => m.inputTypes.includes("image")),
+    [availableModels],
+  )
+
+  const handleSetVisionModel = async (providerId: string, modelId: string) => {
+    try {
+      await getTransport().call("set_vision_model", { model: { providerId, modelId } })
+      setVisionModel({ providerId, modelId })
+    } catch (e) {
+      logger.error("settings", "GlobalModelPanel::setVisionModel", "Failed to set vision model", e)
+    }
+  }
+
+  const handleClearVisionModel = async () => {
+    try {
+      await getTransport().call("set_vision_model", { model: null })
+      setVisionModel(null)
+    } catch (e) {
+      logger.error(
+        "settings",
+        "GlobalModelPanel::clearVisionModel",
+        "Failed to clear vision model",
+        e,
+      )
+    }
+  }
+
+  const handleChangeAutomationChain = async (next: ModelChainRef | null) => {
+    const previous = automationChain
+    setAutomationChain(next)
+    try {
+      await getTransport().call("set_automation_model_chain", { chain: next })
+    } catch (e) {
+      setAutomationChain(previous)
+      logger.error(
+        "settings",
+        "GlobalModelPanel::setAutomationChain",
+        "Failed to save automation model chain",
+        e,
+      )
     }
   }
 
@@ -269,6 +321,60 @@ export default function GlobalModelPanel() {
             <span>{t("settings.addFallback")}</span>
           </Button>
         )}
+      </div>
+
+      <div className="border-t border-border/50 mb-6 mt-6" />
+
+      {/* Vision Bridge Model */}
+      <div>
+        <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+          {t("settings.visionBridgeModel")}
+        </div>
+        <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+          {t("settings.visionBridgeModelDesc")}
+        </p>
+
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <ModelSelector
+              value={visionModel ? `${visionModel.providerId}::${visionModel.modelId}` : ""}
+              onChange={(providerId, modelId) => handleSetVisionModel(providerId, modelId)}
+              availableModels={visionCapableModels}
+              placeholder={t("settings.selectVisionBridgeModel")}
+            />
+          </div>
+          {visionModel && (
+            <IconTip label={t("settings.visionBridgeModelClear")}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 text-muted-foreground/50 hover:text-foreground"
+                onClick={handleClearVisionModel}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t border-border/50 mb-6 mt-6" />
+
+      {/* Automation Default Model Chain */}
+      <div>
+        <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
+          {t("settings.automationModelChain")}
+        </div>
+        <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
+          {t("settings.automationModelChainDesc")}
+        </p>
+
+        <ModelChainEditor
+          value={automationChain}
+          onChange={handleChangeAutomationChain}
+          availableModels={availableModels}
+          inheritLabel={t("settings.automationModelChainInherit")}
+        />
       </div>
 
       <div className="border-t border-border/50 mb-6 mt-6" />

@@ -8,6 +8,7 @@ import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "./ChatInput"
 import IncognitoToggle from "./IncognitoToggle"
+import { getPastedTextFileMeta } from "./pastedTextAttachment"
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -27,7 +28,11 @@ vi.mock("./MentionComposerInput", async () => {
         value?: string
         onChange?: (v: string) => void
         onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
-        onPaste?: (e: React.ClipboardEvent<HTMLElement>) => void
+        onPaste?: (e: {
+          clipboardData: DataTransfer | null
+          preventDefault: () => void
+          defaultPrevented?: boolean
+        }) => void
         onSelectionChange?: () => void
         readOnly?: boolean
       },
@@ -61,7 +66,7 @@ vi.mock("./MentionComposerInput", async () => {
           props.onChange?.(e.currentTarget.textContent ?? ""),
         onKeyDown: props.onKeyDown,
         onSelect: props.onSelectionChange,
-        onPaste: props.onPaste,
+        onPaste: (e: React.ClipboardEvent<HTMLElement>) => props.onPaste?.(e),
       })
     }),
   }
@@ -167,6 +172,7 @@ function renderChatInput(overrides: Partial<Parameters<typeof ChatInput>[0]> = {
     attachedFiles: [],
     onAttachFiles: vi.fn(),
     onRemoveFile: vi.fn(),
+    onUpdateFile: vi.fn(),
     permissionMode: "default",
     onPermissionModeChange: vi.fn(),
     sandboxMode: "off",
@@ -241,6 +247,18 @@ describe("ChatInput", () => {
     expect(onSend).toHaveBeenCalledTimes(1)
   })
 
+  test("blocks mouse and keyboard sends while send is disabled", () => {
+    const onSend = vi.fn()
+    renderChatInput({ input: "hello", onSend, sendDisabled: true })
+
+    const sendButton = screen.getByRole("button", { name: "chat.send" }) as HTMLButtonElement
+    expect(sendButton.disabled).toBe(true)
+    fireEvent.click(sendButton)
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" })
+
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   test("allows sending when only attachments are present", () => {
     const onSend = vi.fn()
     const file = new File(["image"], "photo.png", { type: "image/png" })
@@ -251,6 +269,28 @@ describe("ChatInput", () => {
 
     fireEvent.click(sendButton)
     expect(onSend).toHaveBeenCalledTimes(1)
+  })
+
+  test("turns long pasted text into a staged text attachment", async () => {
+    const onAttachFiles = vi.fn()
+    const onInputChange = vi.fn()
+    renderChatInput({ onAttachFiles, onInputChange })
+
+    const longText = "# THIS IS AN AUTO ATTACHMENT\n" + "line\n".repeat(40)
+    fireEvent.paste(screen.getByRole("textbox"), {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => (type === "text/plain" ? longText : ""),
+      },
+    })
+
+    expect(onInputChange).not.toHaveBeenCalled()
+    expect(onAttachFiles).toHaveBeenCalledTimes(1)
+    const files = onAttachFiles.mock.calls[0]?.[0] as File[]
+    expect(files).toHaveLength(1)
+    expect(files[0].type).toBe("text/plain")
+    expect(await files[0].text()).toBe(longText)
+    expect(getPastedTextFileMeta(files[0])?.source).toBe("pasted_text")
   })
 
   test("keeps the input dock from clipping upward toolbar menus", () => {

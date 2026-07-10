@@ -10,8 +10,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use chrono::Local;
 
-use crate::agent::AssistantAgent;
+use crate::automation::{self, ModelTaskSpec};
 use crate::memory::MemoryEntry;
+use crate::provider::ActiveModel;
 
 use std::collections::HashMap;
 
@@ -63,14 +64,20 @@ Candidate memories (most recent first):\n\
 /// Execute the side_query and parse both the promotion list and the diary
 /// narrative. Applies thresholds server-side.
 pub async fn run_side_query(
-    agent: &AssistantAgent,
+    chain: Vec<ActiveModel>,
     candidates: &[MemoryEntry],
     cfg: &DreamingConfig,
 ) -> Result<NarrativeOutput> {
     let prompt = build_prompt(candidates, cfg);
     let result = tokio::time::timeout(
         Duration::from_secs(cfg.narrative_timeout_secs.max(5)),
-        agent.side_query(&prompt, cfg.narrative_max_tokens),
+        automation::run(ModelTaskSpec {
+            purpose: "dreaming.narrative",
+            chain,
+            session_key: "automation:dreaming",
+            instruction: &prompt,
+            max_tokens: cfg.narrative_max_tokens,
+        }),
     )
     .await
     .context("dreaming narrative side_query timed out")?

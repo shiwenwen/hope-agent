@@ -836,7 +836,18 @@
       "collapse": "右パネルを折りたたむ",
       "expand": "右側のパネルを展開します",
       "switch": "右パネルを切り替えます"
-    }
+    },
+    "pastedTextAttachment": "貼り付けたテキスト",
+    "pastedTextPreviewTitle": "貼り付けたテキスト",
+    "pastedTextPreviewMeta": "{{lines}} 行 · {{chars}} 文字",
+    "pastedTextPreviewOpen": "貼り付けたテキストを表示",
+    "incognitoDisable": "シークレットチャットをオフ",
+    "incognitoLeaveConfirmAction": "削除して離れる",
+    "incognitoLeaveConfirmBody": "離れると、このチャットはこのデバイスから削除され、履歴から復元できません。",
+    "incognitoLeaveConfirmCancel": "このチャットに残る",
+    "incognitoLeaveConfirmTitle": "シークレットチャットを離れますか？",
+    "visionBridgeEngaged": "メインモデルは画像を扱えないため、{{model}} が画像の内容を説明しました。",
+    "visionBridgeUnavailable": "画像モデルが画像を説明できなかったため、この画像は無視されました。"
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -1405,7 +1416,11 @@
       "ttft": "TTFT",
       "ttftTrend": "初回トークン到達時間 (TTFT)",
       "inputTokens": "入力トークン",
-      "outputTokens": "出力トークン"
+      "outputTokens": "出力トークン",
+      "byDomain": "ドメイン別分布",
+      "byOperation": "操作別内訳",
+      "operation": "操作",
+      "domain": "ドメイン"
     },
     "tool": {
       "avgDuration": "平均所要時間",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "メモリ再埋め込み"
         }
       }
+    },
+    "usageKind": {
+      "all": "すべての使用",
+      "chat": "チャット",
+      "side_query": "サイドクエリ",
+      "embedding": "埋め込み",
+      "stt": "音声認識",
+      "judge": "判定",
+      "summarize": "要約",
+      "web_search": "ウェブ検索",
+      "image_generation": "画像生成",
+      "provider_test": "プロバイダーテスト",
+      "vision": "ビジョン"
     }
   },
   "fileActions": {
@@ -2955,7 +2983,7 @@
       },
       "intro": "グローバル YOLO 切り替え、保護パス / 編集コマンド / 危険コマンドのパターンリスト、Smart 承認モードの設定です。",
       "judgeExtraPromptPlaceholder": "任意: 判定モデルへの追加指示（パスの許可リスト、信頼済みコマンドなど）",
-      "judgeModelPlaceholder": "モデル（例: claude-haiku-4-5）",
+      "judgeModelPlaceholder": "ジャッジモデルを選択",
       "judgeModelTitle": "判定モデル設定",
       "judgeProviderPlaceholder": "Provider ID（例: anthropic-1）",
       "protectedPathsDesc": "これらのパスに触れるツール呼び出しは承認を強制され、常に許可にはできません。~/ 展開、ディレクトリ接頭辞（末尾 /）、*.pattern の glob に対応します。",
@@ -3064,7 +3092,9 @@
       "resetOverride": "グローバルに戻す",
       "sameAgentOnly": "同じ Agent のみ",
       "sessionOverride": "セッションオーバーライド",
-      "title": "行動認識"
+      "title": "行動認識",
+      "extractionModel": "抽出モデル（任意）",
+      "extractionModelInherit": "現在のチャット Agent を再利用（キャッシュに優しい）"
     },
     "browser": {
       "activeBadge": "使用中",
@@ -3170,9 +3200,9 @@
         "stepInstallExtensionHint": "Chrome Web Store のページからインストールし、ここに戻って更新してください。",
         "openWebStore": "Chrome Web Store を開く",
         "stepOpenExtensions": "Chrome 拡張機能ページを開く",
-        "stepOpenExtensionsHint": "Developer mode（デベロッパーモード）を有効にし、パッケージ化されていない拡張機能を読み込んでください。",
-        "stepLoadUnpacked": "パッケージ化されていない拡張機能を読み込む",
-        "alphaFallback": "Alpha 代替手段：パッケージ化されていない拡張機能を読み込む",
+        "stepOpenExtensionsHint": "まず「フォルダを表示」をクリックして拡張機能フォルダを開きます。Chrome 拡張機能ページでデベロッパーモードを有効にし、そのフォルダをドラッグしてください。パスをコピーして「パッケージ化されていない拡張機能を読み込む」から選ぶこともできます。",
+        "stepLoadUnpacked": "拡張機能フォルダを表示",
+        "alphaFallback": "Alpha 代替手段：ローカル拡張機能をドラッグ",
         "stepInstallHost": "ネイティブホストをインストール",
         "openChromeExtensions": "chrome://extensions を開く",
         "showFolder": "フォルダを表示",
@@ -3246,7 +3276,7 @@
     "chatDisplayModeDesc": "新しい会話と個別指定のないセッションの既定レイアウトを選びます。タイトルバーの切り替えは現在のセッションだけに適用されます。",
     "chatDisplayModeTimeline": "タスク",
     "claims": {
-      "title": "構造化メモリ",
+      "title": "構造化メモリ Claims",
       "desc": "スコープ・信頼度・出典を備えた構造化長期記憶。",
       "explainer": {
         "title": "このレイヤーの役割",
@@ -3693,7 +3723,7 @@
       "narrativeMaxTokensDesc": "ナラティブ side query の出力予算。",
       "narrativeModel": "ナラティブモデル",
       "narrativeModelClear": "クリア",
-      "narrativeModelDefault": "メインチャット Agent を継承",
+      "narrativeModelDefault": "自動化のデフォルトに従う",
       "narrativeModelDesc": "スコアリングに使うモデルを上書き。空欄ならメインチャット / recap のモデルチェーンを継承します。",
       "narrativeTimeoutSecs": "タイムアウト（秒）",
       "narrativeTimeoutSecsDesc": "side query が指定秒数を超えたら中止します。",
@@ -3833,7 +3863,8 @@
       "matcherPlaceholder": "ツール名 / ソース（正規表現可）、空 = すべて",
       "addHandler": "ハンドラーを追加",
       "advanced": "詳細",
-      "slowHandlerWarning": "このハンドラーは LLM / サブエージェントをインラインで実行するため、このブロッキングイベントが発火するたびに遅延します。ここでは command / http を推奨、または観測イベント（PostToolUse など）へ移してください。"
+      "slowHandlerWarning": "このハンドラーは LLM / サブエージェントをインラインで実行するため、このブロッキングイベントが発火するたびに遅延します。ここでは command / http を推奨、または観測イベント（PostToolUse など）へ移してください。",
+      "modelInheritDefault": "自動化のデフォルトに従う"
     },
     "hours": "時間",
     "imageGenApiKey": "API キー",
@@ -3888,9 +3919,9 @@
       "tab": "ナレッジ"
     },
     "knowledgeCompile": {
-      "agent": "資料整理エージェント",
-      "agentDefault": "グローバル既定エージェントを使用",
-      "agentDesc": "ソース資料をレビュー可能なノート提案に整理するエージェントです。未設定の場合はグローバル既定エージェントを継承します。",
+      "agent": "整理モデル",
+      "agentDefault": "自動化のデフォルトに従う",
+      "agentDesc": "ソースをレビュー可能なノート提案に変換するモデルチェーン。空の場合は自動化のデフォルトに従います。",
       "errors": {
         "loadConfig": "ソースからノートへのエージェント設定の読み込みに失敗しました",
         "loadAgents": "ソースからノートへのエージェント一覧の読み込みに失敗しました",
@@ -3974,7 +4005,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "モデル",
+      "modelDesc": "4 つの LLM ベースの生成器（自動タグ、MOC 整備、メモリ→ノート、ソース矛盾）で共用します。",
+      "modelDefault": "自動化のデフォルトに従う"
     },
     "knowledgeMediaRetention": {
       "saved": "保存しました",
@@ -4750,8 +4784,8 @@
         "detail": "Details: {{error}}"
       }
     },
-    "memoryExtractClaims": "構造化メモリを抽出",
-    "memoryExtractClaimsDesc": "通常の記憶に加えて、証拠付きでレビュー可能な構造化メモリも抽出します。",
+    "memoryExtractClaims": "クレーム抽出（ベータ）",
+    "memoryExtractClaimsDesc": "記憶に加えて、証拠付きの構造化クレームも抽出（二重書き込み）。",
     "memoryStructuredBadge": "構造化",
     "memoryExtractIdleTimeout": "アイドルタイムアウト（分）",
     "memoryExtractMessageThreshold": "メッセージ数閾値",
@@ -4780,7 +4814,7 @@
     "memoryImportCopyDiagnosticsError": "Failed to copy memory import diagnostics: {{error}}",
     "memoryImportFromAIParseBtn": "解析してインポート",
     "memoryImportFromAIParseError": "解析に失敗しました: {{error}}",
-    "memoryImportFromAIPastePlaceholder": "Paste JSON or a Markdown memory export returned by the other AI here...",
+    "memoryImportFromAIPastePlaceholder": "他の AI が返した JSON 配列をここに貼り付けてください...",
     "memoryImportNoEntries": "No importable memories found.",
     "memoryImportPreviewBtn": "Preview",
     "memoryImportPreviewTitle": "Preview",
@@ -5295,7 +5329,7 @@
       "dreaming": "ドリーミング",
       "manage": "記憶管理",
       "settings": "記憶設定",
-      "claims": "構造化メモリ",
+      "claims": "Claims",
       "profile": "プロフィール"
     },
     "memoryTags": "タグ",
@@ -5616,9 +5650,9 @@
     "proxyUrl": "プロキシ URL",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "レポート",
-    "recapAnalysisAgent": "分析エージェント",
-    "recapAnalysisAgentDefault": "グローバル既定のエージェントを使用",
-    "recapAnalysisAgentDesc": "Facet 抽出とレポート章の生成に使用するエージェント。未設定の場合はグローバル既定のエージェントを継承します。",
+    "recapAnalysisAgent": "分析モデル",
+    "recapAnalysisAgentDefault": "自動化のデフォルトに従う",
+    "recapAnalysisAgentDesc": "facet の抽出とレポート章の生成に使うモデルチェーン。空の場合は自動化のデフォルトに従います。",
     "recapCacheRetentionDays": "Facet キャッシュ保持日数",
     "recapCacheRetentionDaysDesc": "キャッシュされた facet の保持期間。毎日のスイープで削除されます。0 で無期限。デフォルト 180。",
     "recapDefaultRangeDays": "既定の期間（日）",
@@ -5894,7 +5928,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "候補スキルのレビューに使うモデルチェーン。空の場合はトリガー元の会話のキャッシュを再利用します（さらに自動化のデフォルトにフォールバック）。",
+          "inheritDefault": "トリガー元の会話を再利用（キャッシュに優しい）"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -6001,7 +6036,10 @@
         "save": "スプライト設定を保存できませんでした",
         "toggle": "スプライトモードを更新できませんでした",
         "detail": "詳細: {{error}}"
-      }
+      },
+      "model": "モデル",
+      "modelDesc": "精霊の提案呼び出しは投げっぱなしなので、単一モデルに限らずフォールバックチェーン全体を使えます。",
+      "modelDefault": "自動化のデフォルトに従う"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page のターゲット URL に適用。注：browser.evaluate 内の JS fetch は対象外。",
     "ssrfDefaultPolicy": "既定ポリシー",
@@ -6369,7 +6407,39 @@
     "retrievalPlannerDesc": "Fuse memory, relationship, workflow, and knowledge candidates with stable scope-aware ranking.",
     "retrievalPlannerIntentAware": "Task-aware",
     "retrievalPlannerMaxTraceRefs": "Diagnostic references",
-    "retrievalPlannerMaxPerOrigin": "Candidates per source"
+    "retrievalPlannerMaxPerOrigin": "Candidates per source",
+    "visionBridgeModel": "ビジョンブリッジモデル",
+    "visionBridgeModelDesc": "メインモデルが画像を扱えない場合にのみ使用されます。別のモデルが画像をテキストの説明に変換し、会話を継続できるようにします。",
+    "visionBridgeModelClear": "ビジョンブリッジをオフにする",
+    "selectVisionBridgeModel": "ビジョンモデルを選択",
+    "modelChainRestoreInherit": "継承したデフォルトに戻す",
+    "automationModelChain": "自動化のデフォルトモデル",
+    "automationModelChainDesc": "Recap・Dreaming・ナレッジコンパイルなどのバックグラウンド一括 AI タスク用のデフォルトモデルチェーン（フォールバック付き）。上記のチャットデフォルトモデルとは独立しています。未設定の場合はチャットデフォルトモデルにフォールバックします。",
+    "automationModelChainInherit": "チャットのデフォルトモデルに従う",
+    "knowledgeVision": {
+      "model": "ビジョンモデル",
+      "modelDesc": "知識スペースに画像を取り込む際に OCR に使うモデルチェーン。空の場合は自動化のデフォルトに従います。",
+      "modelDefault": "自動化のデフォルトに従う",
+      "ocrConcurrency": "スキャンPDFのOCR同時実行数",
+      "maxOcrPages": "スキャンPDFのOCRページ上限"
+    },
+    "noteTools": {
+      "title": "ノートツールのモデル",
+      "desc": "ノート抽出・MOC 生成・セッションからノート作成の各ツールが共用するモデルです。",
+      "modelDefault": "自動化のデフォルトに従う"
+    },
+    "recallSummary": {
+      "title": "想起の要約",
+      "desc": "recall_memory / session_search が多くのヒットを返したとき、生の断片を返す代わりに追加の LLM 呼び出しで 1 段落の簡潔な要約に圧縮します。デフォルトはオフ——該当する検索ごとに 1 回分の呼び出しコストがかかります。",
+      "enabled": "要約を有効化",
+      "minHits": "発動に必要な最小ヒット数",
+      "contextCharBudget": "コンテキスト予算（文字数）",
+      "timeoutSecs": "タイムアウト（秒）",
+      "maxTokens": "最大出力トークン数",
+      "includeHistory": "会話履歴のヒットも要約する",
+      "model": "モデル",
+      "modelDefault": "自動化のデフォルトに従う"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "設定を開く",
@@ -7398,7 +7468,13 @@
       "similarScope": {
         "crossKb": "クロススペース",
         "sameKb": "この空間"
-      }
+      },
+      "ocrRunning": "OCR実行中…",
+      "ocrPartial": "OCR：一部のページが失敗",
+      "ocrFailed": "OCR に失敗しました",
+      "ocrRetry": "失敗したページを再試行",
+      "ocrRetryStarted": "失敗したページを再試行しています…",
+      "ocrRetryFailed": "OCR ページを再試行できませんでした"
     },
     "queryFile": {
       "action": "ファイル",

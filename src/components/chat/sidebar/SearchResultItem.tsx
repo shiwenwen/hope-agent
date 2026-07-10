@@ -92,7 +92,7 @@ export default function SearchResultItem({
       role="button"
       tabIndex={0}
       className={cn(
-        "flex items-start gap-2.5 w-full px-2.5 py-2 rounded-lg text-left transition-colors group cursor-pointer",
+        "flex items-start gap-2.5 w-full px-2.5 py-2 rounded-lg text-left group cursor-pointer",
         displayMode === "compact" && "gap-1.5 px-2 py-1.5 rounded-md",
         isActive
           ? "bg-secondary/70 border border-border/50"

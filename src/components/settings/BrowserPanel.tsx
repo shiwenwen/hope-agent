@@ -911,13 +911,16 @@ export default function BrowserPanel() {
                                 <div className="font-medium text-foreground">
                                   {t("settings.browser.extension.alphaFallback")}
                                 </div>
+                                <div className="text-muted-foreground">
+                                  {t("settings.browser.extension.stepOpenExtensionsHint")}
+                                </div>
                                 <PathLine value={extensionStatus.unpackedExtensionPath} />
                                 <div className="flex flex-wrap gap-2">
-                                  <GuideButton icon={ExternalLink} onClick={openChromeExtensions} busy={busy !== null}>
-                                    {t("settings.browser.extension.openChromeExtensions")}
-                                  </GuideButton>
                                   <GuideButton icon={FolderOpen} onClick={() => void revealInstallPath(t("settings.browser.extension.extensionFolderLabel"), extensionStatus.unpackedExtensionPath)} busy={busy !== null || !extensionStatus.unpackedExtensionPath}>
                                     {t("settings.browser.extension.showFolder")}
+                                  </GuideButton>
+                                  <GuideButton icon={ExternalLink} onClick={openChromeExtensions} busy={busy !== null}>
+                                    {t("settings.browser.extension.openChromeExtensions")}
                                   </GuideButton>
                                   <GuideButton icon={Copy} onClick={() => void copyInstallValue(t("settings.browser.extension.extensionPathLabel"), extensionStatus.unpackedExtensionPath)} busy={busy !== null || !extensionStatus.unpackedExtensionPath}>
                                     {t("settings.browser.extension.copyPath")}
@@ -928,15 +931,7 @@ export default function BrowserPanel() {
                           </>
                         ) : (
                           <>
-                            <SetupStep n={1} title={t("settings.browser.extension.stepOpenExtensions")}>
-                              <div className="text-muted-foreground">
-                                {t("settings.browser.extension.stepOpenExtensionsHint")}
-                              </div>
-                              <GuideButton icon={ExternalLink} onClick={openChromeExtensions} busy={busy !== null}>
-                                {t("settings.browser.extension.openChromeExtensions")}
-                              </GuideButton>
-                            </SetupStep>
-                            <SetupStep n={2} title={t("settings.browser.extension.stepLoadUnpacked")}>
+                            <SetupStep n={1} title={t("settings.browser.extension.stepLoadUnpacked")}>
                               <PathLine value={extensionStatus?.unpackedExtensionPath} fallback={t("settings.browser.extension.extensionPathUnavailable")} />
                               <div className="flex flex-wrap gap-2">
                                 <GuideButton icon={FolderOpen} onClick={() => void revealInstallPath(t("settings.browser.extension.extensionFolderLabel"), extensionStatus?.unpackedExtensionPath)} busy={busy !== null || !extensionStatus?.unpackedExtensionPath}>
@@ -946,6 +941,14 @@ export default function BrowserPanel() {
                                   {t("settings.browser.extension.copyPath")}
                                 </GuideButton>
                               </div>
+                            </SetupStep>
+                            <SetupStep n={2} title={t("settings.browser.extension.stepOpenExtensions")}>
+                              <div className="text-muted-foreground">
+                                {t("settings.browser.extension.stepOpenExtensionsHint")}
+                              </div>
+                              <GuideButton icon={ExternalLink} onClick={openChromeExtensions} busy={busy !== null}>
+                                {t("settings.browser.extension.openChromeExtensions")}
+                              </GuideButton>
                             </SetupStep>
                             <SetupStep n={3} title={t("settings.browser.extension.stepInstallHost")}>
                               <PathLine value={extensionStatus?.nativeHostBinaryHint} fallback={t("settings.browser.extension.hostPathUnavailable")} />

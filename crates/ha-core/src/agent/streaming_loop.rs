@@ -647,6 +647,24 @@ impl AssistantAgent {
         // dispatch overhead in the hot SSE path).
         let on_delta_dyn: &(dyn Fn(&str) + Send + Sync) = on_delta;
 
+        // Vision bridge (issue #434): when the main model can't see images and a
+        // vision model is configured, prepare it once for the turn. Per round
+        // (below, at api_messages build) we transcribe any not-yet-cached images
+        // and rewrite the ephemeral api_messages copy so a text-only model gets
+        // text descriptions instead of raw images. `None` when the main model is
+        // vision-capable or no bridge is configured → existing behavior.
+        let vision_bridge = if self
+            .provider_config
+            .as_deref()
+            .map(|pc| !pc.model_supports_vision(model))
+            .unwrap_or(false)
+        {
+            super::vision_bridge::prepare(self.session_id.as_deref(), self.session_is_incognito())
+        } else {
+            None
+        };
+        let mut vision_notice_sent = false;
+
         for round in 0..max_rounds {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -702,7 +720,32 @@ impl AssistantAgent {
             } else {
                 system_prompt.as_str()
             };
-            let api_messages = crate::context_compact::prepare_messages_for_api(&messages);
+            let mut api_messages = crate::context_compact::prepare_messages_for_api(&messages);
+            // Vision bridge: transcribe not-yet-cached images (once each) and
+            // rewrite this round's ephemeral api_messages in place. Round 0
+            // covers user images; round N covers tool images appended by the
+            // previous round. `conversation_history` is untouched (reversible).
+            if let Some(ref bridge) = vision_bridge {
+                let report = bridge
+                    .apply(&mut api_messages, adapter.provider_format(), cancel)
+                    .await;
+                if !vision_notice_sent && report != super::vision_bridge::ApplyReport::Idle {
+                    let status = if report == super::vision_bridge::ApplyReport::Engaged {
+                        "engaged"
+                    } else {
+                        "unavailable"
+                    };
+                    on_delta(
+                        &json!({
+                            "type": "vision_bridge",
+                            "status": status,
+                            "model_id": bridge.vision_model_id(),
+                        })
+                        .to_string(),
+                    );
+                    vision_notice_sent = true;
+                }
+            }
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();

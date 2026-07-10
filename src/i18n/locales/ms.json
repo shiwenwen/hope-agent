@@ -836,7 +836,18 @@
       "collapse": "Runtuhkan panel kanan",
       "expand": "Kembangkan panel kanan",
       "switch": "Tukar panel kanan"
-    }
+    },
+    "pastedTextAttachment": "Teks ditampal",
+    "pastedTextPreviewTitle": "Teks ditampal",
+    "pastedTextPreviewMeta": "{{lines}} baris · {{chars}} aksara",
+    "pastedTextPreviewOpen": "Lihat teks ditampal",
+    "incognitoDisable": "Matikan sembang inkognito",
+    "incognitoLeaveConfirmAction": "Padam dan keluar",
+    "incognitoLeaveConfirmBody": "Selepas anda keluar, sembang ini akan dipadam daripada peranti ini dan tidak boleh dipulihkan daripada sejarah.",
+    "incognitoLeaveConfirmCancel": "Kekal di sini",
+    "incognitoLeaveConfirmTitle": "Tinggalkan sembang inkognito?",
+    "visionBridgeEngaged": "Model utama tidak dapat melihat imej, jadi {{model}} menerangkannya bagi pihaknya.",
+    "visionBridgeUnavailable": "Model penglihatan tidak dapat menerangkan imej itu, jadi ia diabaikan."
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -1405,7 +1416,11 @@
       "ttft": "TTFT",
       "ttftTrend": "Masa ke Token Pertama (TTFT)",
       "inputTokens": "Token input",
-      "outputTokens": "Token keluaran"
+      "outputTokens": "Token keluaran",
+      "byDomain": "Taburan mengikut domain",
+      "byOperation": "Mengikut operasi",
+      "operation": "Operasi",
+      "domain": "Domain"
     },
     "tool": {
       "avgDuration": "Tempoh purata",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "Embed semula memori"
         }
       }
+    },
+    "usageKind": {
+      "all": "Semua penggunaan",
+      "chat": "Sembang",
+      "side_query": "Pertanyaan sampingan",
+      "embedding": "Pembenaman",
+      "stt": "Ucapan ke teks",
+      "judge": "Penilaian",
+      "summarize": "Ringkasan",
+      "web_search": "Carian web",
+      "image_generation": "Penjanaan imej",
+      "provider_test": "Ujian pembekal",
+      "vision": "Penglihatan"
     }
   },
   "fileActions": {
@@ -2955,7 +2983,7 @@
       },
       "intro": "Togol YOLO global, senarai corak laluan dilindungi / arahan suntingan / arahan berbahaya, dan konfigurasi mod kelulusan pintar.",
       "judgeExtraPromptPlaceholder": "Pilihan: arahan tambahan untuk hakim (senarai putih laluan, arahan dipercayai...)",
-      "judgeModelPlaceholder": "Model (cth. claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Pilih model hakim",
       "judgeModelTitle": "Konfigurasi Model Hakim",
       "judgeProviderPlaceholder": "ID Provider (cth. anthropic-1)",
       "protectedPathsDesc": "Panggilan alat yang mengenai laluan ini memaksa kelulusan dan tidak boleh dijadikan Sentiasa Benarkan. Menyokong pengembangan ~/, awalan direktori (diakhiri /), dan glob *.pattern.",
@@ -3064,7 +3092,9 @@
       "resetOverride": "Set semula ke global",
       "sameAgentOnly": "Agent sama sahaja",
       "sessionOverride": "Tulis ganti sesi",
-      "title": "Behavior Awareness"
+      "title": "Behavior Awareness",
+      "extractionModel": "Model pengekstrakan (pilihan)",
+      "extractionModelInherit": "Guna semula ejen sembang semasa (mesra cache)"
     },
     "browser": {
       "activeBadge": "aktif",
@@ -3170,9 +3200,9 @@
         "stepInstallExtensionHint": "Guna halaman Chrome Web Store, kemudian kembali ke sini dan muat semula.",
         "openWebStore": "Buka Chrome Web Store",
         "stepOpenExtensions": "Buka sambungan Chrome",
-        "stepOpenExtensionsHint": "Aktifkan Mod pembangun, kemudian guna Muatkan tanpa pakej.",
-        "stepLoadUnpacked": "Muatkan sambungan tanpa pakej",
-        "alphaFallback": "Sandaran Alpha: muatkan tanpa pakej",
+        "stepOpenExtensionsHint": "Klik Tunjuk folder dahulu untuk membuka direktori sambungan. Pada halaman sambungan Chrome, aktifkan Mod pembangun dan seret folder itu masuk. Anda juga boleh menyalin laluan dan menggunakan Muatkan tanpa pakej.",
+        "stepLoadUnpacked": "Tunjuk folder sambungan",
+        "alphaFallback": "Sandaran Alpha: seret sambungan setempat",
         "stepInstallHost": "Pasang hos asli",
         "openChromeExtensions": "Buka chrome://extensions",
         "showFolder": "Tunjuk folder",
@@ -3246,7 +3276,7 @@
     "chatDisplayModeDesc": "Pilih susun atur lalai untuk perbualan baharu dan sesi tanpa override. Togol bar tajuk hanya mempengaruhi sesi semasa.",
     "chatDisplayModeTimeline": "Tugasan",
     "claims": {
-      "title": "Memori berstruktur",
+      "title": "Claims",
       "desc": "Ingatan jangka panjang berstruktur dengan skop, keyakinan dan bukti.",
       "explainer": {
         "title": "Cara lapisan ini berfungsi",
@@ -3693,7 +3723,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Ikut lalai automasi",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3833,7 +3863,8 @@
       "matcherPlaceholder": "nama alat / sumber (regex ok), kosong = semua",
       "addHandler": "Tambah pengendali",
       "advanced": "Lanjutan",
-      "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse)."
+      "slowHandlerWarning": "Pengendali ini menjalankan LLM / sub-ejen secara inline dan akan melambatkan setiap kali peristiwa menyekat ini dipicu. Utamakan command / http di sini, atau alihkan ke peristiwa pemerhatian (cth. PostToolUse).",
+      "modelInheritDefault": "Ikut lalai automasi"
     },
     "hours": "jam",
     "imageGenApiKey": "API Key",
@@ -3888,9 +3919,9 @@
       "tab": "Pengetahuan"
     },
     "knowledgeCompile": {
-      "agent": "Ejen penyusunan sumber",
-      "agentDefault": "Gunakan ejen lalai global",
-      "agentDesc": "Ejen yang menukar sumber kepada cadangan nota yang boleh disemak. Jika tidak ditetapkan, ia mewarisi ejen lalai global.",
+      "agent": "Model penyusunan",
+      "agentDefault": "Ikut lalai automasi",
+      "agentDesc": "Rantaian model yang digunakan untuk menukar sumber kepada cadangan nota yang boleh disemak. Kosong akan ikut lalai automasi.",
       "errors": {
         "loadConfig": "Gagal memuatkan tetapan ejen sumber-ke-nota",
         "loadAgents": "Gagal memuatkan senarai ejen sumber-ke-nota",
@@ -3974,7 +4005,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Dikongsi oleh keempat-empat penjana berasaskan LLM (auto-tag, penyelenggaraan MOC, memori→nota, konflik sumber).",
+      "modelDefault": "Ikut lalai automasi"
     },
     "knowledgeMediaRetention": {
       "saved": "Disimpan",
@@ -4750,8 +4784,8 @@
         "detail": "Details: {{error}}"
       }
     },
-    "memoryExtractClaims": "Ekstrak memori berstruktur",
-    "memoryExtractClaimsDesc": "Turut mengekstrak memori berstruktur yang boleh disemak dan berasaskan bukti bersama memori biasa.",
+    "memoryExtractClaims": "Ekstrak claim (beta)",
+    "memoryExtractClaimsDesc": "Turut mengekstrak claim berstruktur berasaskan bukti bersama ingatan (tulis dua).",
     "memoryStructuredBadge": "Berstruktur",
     "memoryExtractIdleTimeout": "Tamat masa melahu (min)",
     "memoryExtractMessageThreshold": "Ambang mesej",
@@ -4780,7 +4814,7 @@
     "memoryImportCopyDiagnosticsError": "Failed to copy memory import diagnostics: {{error}}",
     "memoryImportFromAIParseBtn": "Urai & Import",
     "memoryImportFromAIParseError": "Gagal mengurai: {{error}}",
-    "memoryImportFromAIPastePlaceholder": "Paste JSON or a Markdown memory export returned by the other AI here...",
+    "memoryImportFromAIPastePlaceholder": "Tampalkan array JSON yang dikembalikan oleh AI lain di sini...",
     "memoryImportNoEntries": "No importable memories found.",
     "memoryImportPreviewBtn": "Preview",
     "memoryImportPreviewTitle": "Preview",
@@ -5295,7 +5329,7 @@
       "dreaming": "Dreaming",
       "manage": "Pengurusan ingatan",
       "settings": "Tetapan ingatan",
-      "claims": "Memori berstruktur",
+      "claims": "Claims",
       "profile": "Profil"
     },
     "memoryTags": "Tag",
@@ -5616,9 +5650,9 @@
     "proxyUrl": "URL proksi",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Agen analisis",
-    "recapAnalysisAgentDefault": "Guna agen lalai global",
-    "recapAnalysisAgentDesc": "Agen yang digunakan untuk mengekstrak facet dan menulis bahagian laporan. Jika tidak ditetapkan, mewarisi agen lalai global.",
+    "recapAnalysisAgent": "Model analisis",
+    "recapAnalysisAgentDefault": "Ikut lalai automasi",
+    "recapAnalysisAgentDesc": "Rantaian model yang digunakan untuk mengekstrak facet dan menulis bahagian laporan. Kosong akan ikut lalai automasi.",
     "recapCacheRetentionDays": "Pengekalan cache facet (hari)",
     "recapCacheRetentionDaysDesc": "Tempoh facet yang dicache disimpan sebelum dipadam oleh penyapuan harian. 0 = kekal selamanya. Lalai 180.",
     "recapDefaultRangeDays": "Julat lalai (hari)",
@@ -5894,7 +5928,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Rantaian model yang digunakan untuk menyemak kemahiran calon. Kosong akan guna semula cache sembang pencetus (kembali kepada lalai automasi).",
+          "inheritDefault": "Guna semula sembang pencetus (mesra cache)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -6001,7 +6036,10 @@
         "save": "Gagal menyimpan tetapan sprite",
         "toggle": "Gagal mengemas kini mod sprite",
         "detail": "Butiran: {{error}}"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Panggilan cadangan Sprite adalah hantar-dan-lupa — rantaian sandaran penuh tidak menjadi masalah, bukan hanya satu model sahaja.",
+      "modelDefault": "Ikut lalai automasi"
     },
     "ssrfBrowserPolicyDesc": "Terpakai pada URL sasaran page.goto / new_page. Nota: fetch() JS di dalam browser.evaluate tidak dicakupi.",
     "ssrfDefaultPolicy": "Dasar lalai",
@@ -6369,7 +6407,39 @@
     "retrievalPlannerDesc": "Fuse memory, relationship, workflow, and knowledge candidates with stable scope-aware ranking.",
     "retrievalPlannerIntentAware": "Task-aware",
     "retrievalPlannerMaxTraceRefs": "Diagnostic references",
-    "retrievalPlannerMaxPerOrigin": "Candidates per source"
+    "retrievalPlannerMaxPerOrigin": "Candidates per source",
+    "visionBridgeModel": "Model jambatan penglihatan",
+    "visionBridgeModelDesc": "Hanya digunakan apabila model utama tidak dapat melihat imej. Model berasingan menukar imej menjadi penerangan teks supaya perbualan boleh diteruskan.",
+    "visionBridgeModelClear": "Matikan jambatan penglihatan",
+    "selectVisionBridgeModel": "Pilih model penglihatan",
+    "modelChainRestoreInherit": "Tetapkan semula ke lalai yang diwarisi",
+    "automationModelChain": "Model lalai automasi",
+    "automationModelChainDesc": "Rantaian model lalai (dengan model sandaran) untuk tugas AI latar belakang sekali sahaja seperti Recap, Dreaming dan Penyusunan Pengetahuan — bebas daripada model sembang lalai di atas. Biarkan kosong untuk kembali kepada model sembang lalai.",
+    "automationModelChainInherit": "Ikut model sembang lalai",
+    "knowledgeVision": {
+      "model": "Model penglihatan",
+      "modelDesc": "Rantaian model yang digunakan untuk OCR imej semasa mengimportnya ke ruang pengetahuan. Kosong akan ikut lalai automasi.",
+      "modelDefault": "Ikut lalai automasi",
+      "ocrConcurrency": "Kesegerakan OCR PDF imbasan",
+      "maxOcrPages": "Had halaman OCR PDF imbasan"
+    },
+    "noteTools": {
+      "title": "Model alatan nota",
+      "desc": "Model yang dikongsi oleh alatan penyulingan nota, penjanaan MOC, dan sesi-ke-nota.",
+      "modelDefault": "Ikut lalai automasi"
+    },
+    "recallSummary": {
+      "title": "Ringkasan panggilan semula",
+      "desc": "Apabila recall_memory / session_search memulangkan banyak padanan, ia dimampatkan menjadi satu perenggan ringkas melalui panggilan LLM tambahan dan bukannya memulangkan cebisan mentah. Dimatikan secara lalai — mengenakan satu panggilan tambahan bagi setiap carian yang layak.",
+      "enabled": "Dayakan ringkasan",
+      "minHits": "Padanan minimum untuk mencetuskan",
+      "contextCharBudget": "Bajet konteks (aksara)",
+      "timeoutSecs": "Had masa (saat)",
+      "maxTokens": "Token output maksimum",
+      "includeHistory": "Ringkaskan padanan sejarah perbualan juga",
+      "model": "Model",
+      "modelDefault": "Ikut lalai automasi"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Buka tetapan",
@@ -7398,7 +7468,13 @@
       "similarScope": {
         "crossKb": "Ruang silang",
         "sameKb": "Ruang ini"
-      }
+      },
+      "ocrRunning": "OCR sedang berjalan…",
+      "ocrPartial": "OCR: sebahagian halaman gagal",
+      "ocrFailed": "OCR gagal",
+      "ocrRetry": "Cuba semula halaman yang gagal",
+      "ocrRetryStarted": "Mencuba semula halaman yang gagal…",
+      "ocrRetryFailed": "Tidak dapat mencuba semula halaman OCR"
     },
     "queryFile": {
       "action": "Fail",

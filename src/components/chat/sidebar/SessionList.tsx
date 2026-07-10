@@ -44,6 +44,7 @@ interface SessionListProps {
   selectedAgentId: string | null
   currentSessionId: string | null
   loadingSessionIds: Set<string>
+  sessionsLoading?: boolean
   loadingMoreSessions?: boolean
   onSwitchSession: (
     sessionId: string,
@@ -85,6 +86,7 @@ export default function SessionList({
   selectedAgentId,
   currentSessionId,
   loadingSessionIds,
+  sessionsLoading = false,
   loadingMoreSessions,
   onSwitchSession,
   onDeleteClick,
@@ -111,6 +113,8 @@ export default function SessionList({
   const { t } = useTranslation()
 
   const isSearching = searchQuery.trim().length > 0
+  const showInitialSessionLoading =
+    !isSearching && sessionsLoading && sessions.length === 0 && filteredSessions.length === 0
 
   // Cron sessions live in the cron panel's "conversations" timeline now, never
   // the main sidebar — drop them from search results entirely. This is the base
@@ -199,7 +203,7 @@ export default function SessionList({
               <ContextMenuTrigger asChild>
                 <button
                   className={cn(
-                    "relative px-2 py-1 text-[11px] rounded-md transition-colors whitespace-nowrap",
+                    "relative px-2 py-1 text-[11px] rounded-md whitespace-nowrap",
                     isActive
                       ? "text-foreground font-semibold"
                       : "text-muted-foreground hover:text-foreground/70",
@@ -230,9 +234,9 @@ export default function SessionList({
       {/* Search results or session list */}
       {isSearching ? (
         <div
-          key={`search-${sessionFilter}-${displayMode}`}
+          key={`search-${sessionFilter}`}
           className={cn(
-            "p-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
+            "p-2",
             displayMode === "compact" ? "space-y-1" : "space-y-0.5",
           )}
         >
@@ -287,13 +291,17 @@ export default function SessionList({
         </div>
       ) : (
         <div
-          key={`sessions-${sessionFilter}-${selectedAgentId ?? "all"}-${displayMode}`}
+          key={`sessions-${sessionFilter}-${selectedAgentId ?? "all"}`}
           className={cn(
-            "p-2 animate-in fade-in-0 slide-in-from-bottom-1 duration-150",
+            "p-2",
             displayMode === "compact" ? "space-y-1" : "space-y-0.5",
           )}
         >
-          {filteredSessions.length === 0 ? (
+          {showInitialSessionLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : filteredSessions.length === 0 ? (
             <div className="text-center py-8">
               <MessageSquare className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
               <p className="text-xs text-muted-foreground/60">

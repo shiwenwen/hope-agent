@@ -24,8 +24,9 @@ use serde_json::json;
 use super::store;
 use super::triggers::{try_claim, DreamTrigger};
 use super::types::{DreamPhase, DreamRunStatus};
-use crate::agent::AssistantAgent;
+use crate::automation::{self, ModelTaskSpec};
 use crate::memory::claims::{self, ResolveClaim};
+use crate::provider::ActiveModel;
 
 use crate::util::now_rfc3339;
 
@@ -755,16 +756,25 @@ fn map_auto_verdict_to_decisions(
 }
 
 async fn classify_group(
-    agent: &AssistantAgent,
+    chain: &[ActiveModel],
     group: &[&ResolveClaim],
     signals: &GraphGroupSignals,
+    purpose: &'static str,
 ) -> Option<GroupVerdict> {
     let graph_json = serde_json::to_string_pretty(signals).unwrap_or_else(|_| "{}".to_string());
     let prompt = RESOLVER_GROUP_PROMPT
         .replace("{CLAIMS}", &render_group(group))
         .replace("{GRAPH_SIGNALS}", &graph_json);
-    let resp = match agent.side_query(&prompt, 512).await {
-        Ok(r) => r.text,
+    let resp = match automation::run(ModelTaskSpec {
+        purpose,
+        chain: chain.to_vec(),
+        session_key: "automation:dreaming",
+        instruction: &prompt,
+        max_tokens: 512,
+    })
+    .await
+    {
+        Ok(result) => result.text,
         Err(e) => {
             app_warn!(
                 "memory",
@@ -781,12 +791,12 @@ async fn classify_group(
 /// Ask the LLM to classify one group, mapping the verdict to manual decisions.
 /// Best-effort: on LLM / parse failure the group is left untouched (no-op).
 async fn analyze_group(
-    agent: &AssistantAgent,
+    chain: &[ActiveModel],
     all_claims: &[ResolveClaim],
     group: &[&ResolveClaim],
 ) -> Vec<ResolverDecision> {
     let signals = graph_group_signals(all_claims, group);
-    classify_group(agent, group, &signals)
+    classify_group(chain, group, &signals, "dreaming.resolver.manual")
         .await
         .map(|verdict| map_verdict_to_decisions(group, &verdict))
         .unwrap_or_default()
@@ -967,22 +977,19 @@ pub async fn run_resolver_cycle(trigger: DreamTrigger) -> ResolverReport {
         groups.truncate(MAX_RESOLVER_GROUPS);
     }
 
-    // 3. LLM per group (only build the agent if there's a group to judge).
+    // 3. LLM per group through the shared automation chain.
     let mut group_decisions: Vec<ResolverDecision> = Vec::new();
     if !groups.is_empty() {
-        match super::pipeline::build_dreaming_agent(&cfg).await {
-            Ok(agent) => {
-                for g in &groups {
-                    group_decisions.extend(analyze_group(&agent, &claims, g).await);
-                }
-            }
-            Err(e) => {
-                app_warn!(
-                    "memory",
-                    "dreaming::resolver",
-                    "could not build resolver agent: {}",
-                    e
-                );
+        let chain = super::pipeline::resolve_dreaming_chain(&cfg);
+        if chain.is_empty() {
+            app_warn!(
+                "memory",
+                "dreaming::resolver",
+                "no automation model configured for conflict resolution"
+            );
+        } else {
+            for g in &groups {
+                group_decisions.extend(analyze_group(&chain, &claims, g).await);
             }
         }
     }
@@ -1165,39 +1172,36 @@ pub(super) async fn run_auto_resolver_sweep(trigger: DreamTrigger) -> ResolverRe
     let mut llm_noop_groups = 0usize;
     let mut llm_failed = false;
     if !groups.is_empty() {
-        match super::pipeline::build_dreaming_agent(&cfg).await {
-            Ok(agent) => {
-                for group in &groups {
-                    let signals = graph_group_signals(&claims, group);
-                    match classify_group(&agent, group, &signals).await {
-                        Some(verdict) => {
-                            let decisions = map_auto_verdict_to_decisions(
-                                group,
-                                &verdict,
-                                &signals,
-                                &cfg.deep_resolver,
-                            );
-                            if decisions.is_empty() {
-                                llm_noop_groups += 1;
-                            }
-                            group_decisions.extend(decisions);
-                        }
-                        None => {
-                            llm_failed = true;
+        let chain = super::pipeline::resolve_dreaming_chain(&cfg);
+        if chain.is_empty() {
+            llm_failed = true;
+            llm_noop_groups = groups.len();
+            app_warn!(
+                "memory",
+                "dreaming::resolver",
+                "no automation model configured for automatic conflict resolution"
+            );
+        } else {
+            for group in &groups {
+                let signals = graph_group_signals(&claims, group);
+                match classify_group(&chain, group, &signals, "dreaming.resolver.auto").await {
+                    Some(verdict) => {
+                        let decisions = map_auto_verdict_to_decisions(
+                            group,
+                            &verdict,
+                            &signals,
+                            &cfg.deep_resolver,
+                        );
+                        if decisions.is_empty() {
                             llm_noop_groups += 1;
                         }
+                        group_decisions.extend(decisions);
+                    }
+                    None => {
+                        llm_failed = true;
+                        llm_noop_groups += 1;
                     }
                 }
-            }
-            Err(e) => {
-                llm_failed = true;
-                llm_noop_groups = groups.len();
-                app_warn!(
-                    "memory",
-                    "dreaming::resolver",
-                    "could not build automatic resolver agent: {}",
-                    e
-                );
             }
         }
     }

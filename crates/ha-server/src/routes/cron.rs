@@ -3,6 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use ha_core::blocking::run_blocking;
 use ha_core::cron;
 
 use crate::error::AppError;
@@ -10,12 +11,14 @@ use crate::routes::helpers::{cron_db as db, session_db};
 
 /// `GET /api/cron/jobs`
 pub async fn list_jobs() -> Result<Json<Vec<cron::CronJob>>, AppError> {
-    Ok(Json(db()?.list_jobs()?))
+    let db = db()?;
+    Ok(Json(run_blocking(move || db.list_jobs()).await?))
 }
 
 /// `GET /api/cron/jobs/{id}`
 pub async fn get_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    let job = db()?.get_job(&id)?;
+    let db = db()?;
+    let job = run_blocking(move || db.get_job(&id)).await?;
     Ok(Json(serde_json::to_value(job)?))
 }
 
@@ -34,7 +37,8 @@ pub struct UpdateJobBody {
 
 /// `POST /api/cron/jobs`
 pub async fn create_job(Json(body): Json<CreateJobBody>) -> Result<Json<cron::CronJob>, AppError> {
-    Ok(Json(db()?.add_job(&body.job)?))
+    let db = db()?;
+    Ok(Json(run_blocking(move || db.add_job(&body.job)).await?))
 }
 
 /// `PUT /api/cron/jobs/{id}`
@@ -42,13 +46,15 @@ pub async fn update_job(
     Path(_id): Path<String>,
     Json(body): Json<UpdateJobBody>,
 ) -> Result<Json<Value>, AppError> {
-    db()?.update_job(&body.job)?;
+    let db = db()?;
+    run_blocking(move || db.update_job(&body.job)).await?;
     Ok(Json(json!({ "updated": true })))
 }
 
 /// `DELETE /api/cron/jobs/{id}`
 pub async fn delete_job(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    cron::delete_job_and_sessions(db()?, session_db()?, &id)?;
+    let (cdb, sdb) = (db()?, session_db()?);
+    run_blocking(move || cron::delete_job_and_sessions(cdb, sdb, &id)).await?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -62,7 +68,8 @@ pub async fn toggle_job(
     Path(id): Path<String>,
     Json(body): Json<ToggleBody>,
 ) -> Result<Json<Value>, AppError> {
-    db()?.toggle_job(&id, body.enabled)?;
+    let db = db()?;
+    run_blocking(move || db.toggle_job(&id, body.enabled)).await?;
     Ok(Json(json!({ "toggled": true })))
 }
 
@@ -79,9 +86,12 @@ pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
             "run-now is unavailable on this instance: scheduled jobs only run on the primary",
         ));
     }
-    let job = db()?
-        .get_job(&id)?
-        .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;
+    let job = {
+        let db = db()?;
+        let id = id.clone();
+        run_blocking(move || db.get_job(&id)).await?
+    }
+    .ok_or_else(|| AppError::not_found(format!("job not found: {}", id)))?;
     let cdb = db()?.clone();
     let sdb = session_db()?.clone();
     tokio::spawn(async move {
@@ -95,7 +105,10 @@ pub async fn run_now(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
 pub async fn jobs_referencing_account(
     Path(account_id): Path<String>,
 ) -> Result<Json<Vec<cron::CronAccountRef>>, AppError> {
-    Ok(Json(db()?.jobs_referencing_account(&account_id)?))
+    let db = db()?;
+    Ok(Json(
+        run_blocking(move || db.jobs_referencing_account(&account_id)).await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,11 +122,13 @@ pub async fn get_run_logs(
     Path(id): Path<String>,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<Vec<cron::CronRunLog>>, AppError> {
-    Ok(Json(db()?.get_run_logs(
-        &id,
-        q.limit.unwrap_or(50).min(200),
-        q.offset.unwrap_or(0),
-    )?))
+    let db = db()?;
+    Ok(Json(
+        run_blocking(move || {
+            db.get_run_logs(&id, q.limit.unwrap_or(50).min(200), q.offset.unwrap_or(0))
+        })
+        .await?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,24 +144,24 @@ pub async fn run_timeline(
 ) -> Result<Json<Vec<cron::CronTimelineRow>>, AppError> {
     let limit = q.limit.unwrap_or(50).min(200);
     let offset = q.offset.unwrap_or(0);
-    Ok(Json(cron::cron_run_timeline(
-        db()?,
-        session_db()?,
-        limit,
-        offset,
-    )?))
+    let (cdb, sdb) = (db()?, session_db()?);
+    Ok(Json(
+        run_blocking(move || cron::cron_run_timeline(cdb, sdb, limit, offset)).await?,
+    ))
 }
 
 /// `GET /api/cron/unread` — total unread across all cron sessions (badge).
 /// Returns a bare number to mirror the Tauri `cron_unread_total` command shape.
 pub async fn unread_total() -> Result<Json<i64>, AppError> {
-    Ok(Json(session_db()?.cron_unread_total()?))
+    Ok(Json(session_db()?.run(|db| db.cron_unread_total()).await?))
 }
 
 /// `POST /api/cron/read-all` — mark every cron session read (badge → 0).
 /// Returns the count of updated sessions (mirrors the Tauri command shape).
 pub async fn mark_all_read() -> Result<Json<usize>, AppError> {
-    let n = session_db()?.mark_all_cron_sessions_read()?;
+    let n = session_db()?
+        .run(|db| db.mark_all_cron_sessions_read())
+        .await?;
     if let Some(bus) = ha_core::get_event_bus() {
         bus.emit("cron:unread_changed", json!({ "total": 0 }));
     }
@@ -169,5 +184,8 @@ pub async fn get_calendar_events(
     let end_dt = chrono::DateTime::parse_from_rfc3339(&q.end)
         .map_err(|e| AppError::bad_request(format!("Invalid end date: {}", e)))?
         .with_timezone(&chrono::Utc);
-    Ok(Json(db()?.get_calendar_events(&start_dt, &end_dt)?))
+    let db = db()?;
+    Ok(Json(
+        run_blocking(move || db.get_calendar_events(&start_dt, &end_dt)).await?,
+    ))
 }

@@ -836,7 +836,18 @@
       "collapse": "Sağ paneli daralt",
       "expand": "Sağ paneli genişlet",
       "switch": "Sağ paneli değiştir"
-    }
+    },
+    "pastedTextAttachment": "Yapıştırılan metin",
+    "pastedTextPreviewTitle": "Yapıştırılan metin",
+    "pastedTextPreviewMeta": "{{lines}} satır · {{chars}} karakter",
+    "pastedTextPreviewOpen": "Yapıştırılan metni görüntüle",
+    "incognitoDisable": "Gizli sohbeti kapat",
+    "incognitoLeaveConfirmAction": "Sil ve çık",
+    "incognitoLeaveConfirmBody": "Ayrıldığınızda bu sohbet bu cihazdan silinir ve geçmişten geri yüklenemez.",
+    "incognitoLeaveConfirmCancel": "Burada kal",
+    "incognitoLeaveConfirmTitle": "Gizli sohbetten çıkılsın mı?",
+    "visionBridgeEngaged": "Ana model görselleri göremediği için {{model}} onları onun yerine tanımladı.",
+    "visionBridgeUnavailable": "Görsel modeli görseli tanımlayamadı, bu yüzden görsel atlandı."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -1405,7 +1416,11 @@
       "ttft": "TTFT",
       "ttftTrend": "İlk Token Süresi (TTFT)",
       "inputTokens": "Giriş jetonları",
-      "outputTokens": "Çıkış jetonları"
+      "outputTokens": "Çıkış jetonları",
+      "byDomain": "Alana Göre Dağılım",
+      "byOperation": "İşleme Göre Ayrım",
+      "operation": "İşlem",
+      "domain": "Alan"
     },
     "tool": {
       "avgDuration": "Ort. süre",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "Bellek yeniden embedding"
         }
       }
+    },
+    "usageKind": {
+      "all": "Tüm kullanım",
+      "chat": "Sohbet",
+      "side_query": "Yan sorgu",
+      "embedding": "Gömme",
+      "stt": "Konuşmadan metne",
+      "judge": "Değerlendirme",
+      "summarize": "Özetleme",
+      "web_search": "Web araması",
+      "image_generation": "Görsel oluşturma",
+      "provider_test": "Sağlayıcı testi",
+      "vision": "Görsel"
     }
   },
   "fileActions": {
@@ -2955,7 +2983,7 @@
       },
       "intro": "Genel YOLO anahtarı, korunan yol / düzenleme komutu / tehlikeli komut desen listeleri ve Akıllı onay modu yapılandırması.",
       "judgeExtraPromptPlaceholder": "İsteğe bağlı: yargıç için ek talimatlar (yol izin listeleri, güvenilir komutlar...)",
-      "judgeModelPlaceholder": "Model (örn. claude-haiku-4-5)",
+      "judgeModelPlaceholder": "Hakem modeli seç",
       "judgeModelTitle": "Yargıç Model Yapılandırması",
       "judgeProviderPlaceholder": "Sağlayıcı ID’si (örn. anthropic-1)",
       "protectedPathsDesc": "Bu yollara dokunan araç çağrıları onayı zorunlu kılar ve Her zaman izin ver yapılamaz. ~/ genişletme, dizin öneki (sonunda /) ve *.pattern glob desteği vardır.",
@@ -3064,7 +3092,9 @@
       "resetOverride": "Globale sıfırla",
       "sameAgentOnly": "Yalnızca aynı Agent",
       "sessionOverride": "Oturum geçersiz kılma",
-      "title": "Davranış Farkındalığı"
+      "title": "Davranış Farkındalığı",
+      "extractionModel": "Çıkarım modeli (isteğe bağlı)",
+      "extractionModelInherit": "Mevcut sohbet ajanını yeniden kullan (önbellek dostu)"
     },
     "browser": {
       "activeBadge": "aktif",
@@ -3170,9 +3200,9 @@
         "stepInstallExtensionHint": "Chrome Web Store sayfasını kullanın, ardından buraya dönüp yenileyin.",
         "openWebStore": "Chrome Web Store'u aç",
         "stepOpenExtensions": "Chrome uzantılarını aç",
-        "stepOpenExtensionsHint": "Geliştirici modunu etkinleştirin, ardından Paketlenmemişi yükle'yi kullanın.",
-        "stepLoadUnpacked": "Paketlenmemiş uzantıyı yükle",
-        "alphaFallback": "Alpha yedeği: paketlenmemişi yükle",
+        "stepOpenExtensionsHint": "Önce Klasörü göster'e tıklayıp uzantı dizinini açın. Chrome uzantıları sayfasında Geliştirici modunu etkinleştirin ve bu klasörü sürükleyin. İsterseniz yolu kopyalayıp Paketlenmemişi yükle ile de seçebilirsiniz.",
+        "stepLoadUnpacked": "Uzantı klasörünü göster",
+        "alphaFallback": "Alpha yedeği: yerel uzantıyı sürükle",
         "stepInstallHost": "Yerel ana bilgisayarı kur",
         "openChromeExtensions": "chrome://extensions'ı aç",
         "showFolder": "Klasörü göster",
@@ -3246,7 +3276,7 @@
     "chatDisplayModeDesc": "Yeni konuşmalar ve geçersiz kılma olmayan oturumlar için varsayılan düzeni seçin. Başlık çubuğu geçişi yalnızca geçerli oturumu etkiler.",
     "chatDisplayModeTimeline": "Görev",
     "claims": {
-      "title": "Yapılandırılmış bellek",
+      "title": "İddialar (Claims)",
       "desc": "Kapsam, güven ve kanıt içeren yapılandırılmış uzun süreli bellek.",
       "explainer": {
         "title": "Bu katman nasıl çalışır",
@@ -3693,7 +3723,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "Otomasyon varsayılanını kullan",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3833,7 +3863,8 @@
       "matcherPlaceholder": "araç adı / kaynak (regex olabilir), boş = tümü",
       "addHandler": "İşleyici ekle",
       "advanced": "Gelişmiş",
-      "slowHandlerWarning": "Bu işleyici LLM / alt ajanı satır içi çalıştırır ve bu engelleyici olay her tetiklendiğinde gecikmeye yol açar. Burada command / http tercih edin veya bir gözlem olayına (örn. PostToolUse) taşıyın."
+      "slowHandlerWarning": "Bu işleyici LLM / alt ajanı satır içi çalıştırır ve bu engelleyici olay her tetiklendiğinde gecikmeye yol açar. Burada command / http tercih edin veya bir gözlem olayına (örn. PostToolUse) taşıyın.",
+      "modelInheritDefault": "Otomasyon varsayılanını kullan"
     },
     "hours": "sa",
     "imageGenApiKey": "API Key",
@@ -3888,9 +3919,9 @@
       "tab": "Bilgi"
     },
     "knowledgeCompile": {
-      "agent": "Kaynak düzenleme ajanı",
-      "agentDefault": "Genel varsayılan ajanı kullan",
-      "agentDesc": "Kaynakları incelenebilir not önerilerine dönüştüren ajan. Ayarlanmadığında genel varsayılan ajanı devralır.",
+      "agent": "Derleme modeli",
+      "agentDefault": "Otomasyon varsayılanını kullan",
+      "agentDesc": "Kaynakları incelenebilir not önerilerine dönüştürmek için kullanılan model zinciri. Boşsa otomasyon varsayılanı kullanılır.",
       "errors": {
         "loadConfig": "Kaynak-not ajanı ayarı yüklenemedi",
         "loadAgents": "Kaynak-not ajan listesi yüklenemedi",
@@ -3974,7 +4005,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "LLM tabanlı 4 üreticinin tümü tarafından paylaşılır (otomatik etiketleme, MOC bakımı, bellek→not, kaynak çakışması).",
+      "modelDefault": "Otomasyon varsayılanını kullan"
     },
     "knowledgeMediaRetention": {
       "saved": "Kaydedildi",
@@ -4750,8 +4784,8 @@
         "detail": "Details: {{error}}"
       }
     },
-    "memoryExtractClaims": "Yapılandırılmış belleği çıkar",
-    "memoryExtractClaimsDesc": "Normal belleklerin yanında kanıta dayalı, gözden geçirilebilir yapılandırılmış bellekleri de çıkarır.",
+    "memoryExtractClaims": "İddiaları çıkar (beta)",
+    "memoryExtractClaimsDesc": "Belleklerin yanı sıra kanıta dayalı yapılandırılmış iddiaları da çıkarır (çift yazma).",
     "memoryStructuredBadge": "Yapılandırılmış",
     "memoryExtractIdleTimeout": "Boşta zaman aşımı (dk)",
     "memoryExtractMessageThreshold": "Mesaj eşiği",
@@ -4780,7 +4814,7 @@
     "memoryImportCopyDiagnosticsError": "Failed to copy memory import diagnostics: {{error}}",
     "memoryImportFromAIParseBtn": "Ayrıştır ve içe aktar",
     "memoryImportFromAIParseError": "Ayrıştırma başarısız: {{error}}",
-    "memoryImportFromAIPastePlaceholder": "Paste JSON or a Markdown memory export returned by the other AI here...",
+    "memoryImportFromAIPastePlaceholder": "Diğer AI tarafından döndürülen JSON dizisini buraya yapıştırın...",
     "memoryImportNoEntries": "No importable memories found.",
     "memoryImportPreviewBtn": "Preview",
     "memoryImportPreviewTitle": "Preview",
@@ -5295,7 +5329,7 @@
       "dreaming": "Dreaming",
       "manage": "Hafıza yönetimi",
       "settings": "Hafıza ayarları",
-      "claims": "Yapılandırılmış bellek",
+      "claims": "Claims",
       "profile": "Profil"
     },
     "memoryTags": "Etiketler",
@@ -5616,9 +5650,9 @@
     "proxyUrl": "Proxy URL",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "Recap",
-    "recapAnalysisAgent": "Analiz ajanı",
-    "recapAnalysisAgentDefault": "Genel varsayılan ajanı kullan",
-    "recapAnalysisAgentDesc": "Facet çıkarmak ve rapor bölümlerini yazmak için kullanılan ajan. Belirlenmediğinde genel varsayılan ajanı devralır.",
+    "recapAnalysisAgent": "Analiz modeli",
+    "recapAnalysisAgentDefault": "Otomasyon varsayılanını kullan",
+    "recapAnalysisAgentDesc": "Facet çıkarımı ve rapor bölümlerini yazmak için kullanılan model zinciri. Boşsa otomasyon varsayılanı kullanılır.",
     "recapCacheRetentionDays": "Facet önbellek saklama (gün)",
     "recapCacheRetentionDaysDesc": "Önbelleğe alınmış facet’lerin günlük temizlikten önce saklanma süresi. 0 = süresiz. Varsayılan 180.",
     "recapDefaultRangeDays": "Varsayılan aralık (gün)",
@@ -5894,7 +5928,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "Aday becerileri incelemek için kullanılan model zinciri. Boşsa tetikleyen sohbetin önbelleği yeniden kullanılır (otomasyon varsayılanına geri döner).",
+          "inheritDefault": "Tetikleyen sohbeti yeniden kullan (önbellek dostu)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -6001,7 +6036,10 @@
         "save": "Peri ayarları kaydedilemedi",
         "toggle": "Peri modu güncellenemedi",
         "detail": "Ayrıntılar: {{error}}"
-      }
+      },
+      "model": "Model",
+      "modelDesc": "Sprite'ın öneri çağrısı gönder-ve-unut şeklindedir — tek bir model yerine tam bir yedekleme zinciri kullanılabilir.",
+      "modelDefault": "Otomasyon varsayılanını kullan"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page hedef URL'sine uygulanır. Not: browser.evaluate içindeki JS fetch() kapsam dışıdır.",
     "ssrfDefaultPolicy": "Varsayılan politika",
@@ -6369,7 +6407,39 @@
     "retrievalPlannerDesc": "Fuse memory, relationship, workflow, and knowledge candidates with stable scope-aware ranking.",
     "retrievalPlannerIntentAware": "Task-aware",
     "retrievalPlannerMaxTraceRefs": "Diagnostic references",
-    "retrievalPlannerMaxPerOrigin": "Candidates per source"
+    "retrievalPlannerMaxPerOrigin": "Candidates per source",
+    "visionBridgeModel": "Görsel köprü modeli",
+    "visionBridgeModelDesc": "Yalnızca ana model görselleri göremediğinde kullanılır. Ayrı bir model, sohbetin devam edebilmesi için görselleri metin açıklamalarına dönüştürür.",
+    "visionBridgeModelClear": "Görsel köprüyü kapat",
+    "selectVisionBridgeModel": "Görsel modeli seç",
+    "modelChainRestoreInherit": "Devralınan varsayılana sıfırla",
+    "automationModelChain": "Otomasyon varsayılan modeli",
+    "automationModelChainDesc": "Recap, Dreaming ve Bilgi Derleme gibi arka planda çalışan tek seferlik AI görevleri için varsayılan model zinciri (yedekli); yukarıdaki varsayılan sohbet modelinden bağımsızdır. Ayarlanmazsa varsayılan sohbet modeline döner.",
+    "automationModelChainInherit": "Varsayılan sohbet modelini kullan",
+    "knowledgeVision": {
+      "model": "Görsel modeli",
+      "modelDesc": "Görselleri bir bilgi alanına aktarırken OCR için kullanılan model zinciri. Boşsa otomasyon varsayılanı kullanılır.",
+      "modelDefault": "Otomasyon varsayılanını kullan",
+      "ocrConcurrency": "Taranmış PDF OCR eşzamanlılığı",
+      "maxOcrPages": "Taranmış PDF OCR sayfa sınırı"
+    },
+    "noteTools": {
+      "title": "Not araçları modeli",
+      "desc": "Not damıtma, MOC oluşturma ve oturumdan-nota araçlarının paylaştığı model.",
+      "modelDefault": "Otomasyon varsayılanını kullan"
+    },
+    "recallSummary": {
+      "title": "Hatırlama özetleme",
+      "desc": "recall_memory / session_search çok sayıda sonuç döndürdüğünde, ham parçaları döndürmek yerine ek bir LLM çağrısıyla tek bir kısa paragrafa sıkıştırır. Varsayılan olarak kapalıdır — uygun her aramada bir çağrı daha maliyetlidir.",
+      "enabled": "Özetlemeyi etkinleştir",
+      "minHits": "Tetiklenmesi için gereken minimum sonuç sayısı",
+      "contextCharBudget": "Bağlam bütçesi (karakter)",
+      "timeoutSecs": "Zaman aşımı (sn)",
+      "maxTokens": "Maksimum çıktı token sayısı",
+      "includeHistory": "Konuşma geçmişi sonuçlarını da özetle",
+      "model": "Model",
+      "modelDefault": "Otomasyon varsayılanını kullan"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "Ayarları aç",
@@ -7398,7 +7468,13 @@
       "similarScope": {
         "crossKb": "Çapraz alan",
         "sameKb": "Bu alan"
-      }
+      },
+      "ocrRunning": "OCR çalışıyor…",
+      "ocrPartial": "OCR: bazı sayfalar başarısız oldu",
+      "ocrFailed": "OCR başarısız oldu",
+      "ocrRetry": "Başarısız sayfaları yeniden dene",
+      "ocrRetryStarted": "Başarısız sayfalar yeniden deneniyor…",
+      "ocrRetryFailed": "OCR sayfaları yeniden denenemedi"
     },
     "queryFile": {
       "action": "Dosya",

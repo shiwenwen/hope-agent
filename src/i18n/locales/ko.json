@@ -836,7 +836,18 @@
       "collapse": "오른쪽 패널 접기",
       "expand": "오른쪽 패널 펼치기",
       "switch": "오른쪽 패널 전환"
-    }
+    },
+    "pastedTextAttachment": "붙여넣은 텍스트",
+    "pastedTextPreviewTitle": "붙여넣은 텍스트",
+    "pastedTextPreviewMeta": "{{lines}}줄 · {{chars}}자",
+    "pastedTextPreviewOpen": "붙여넣은 텍스트 보기",
+    "incognitoDisable": "시크릿 대화 끄기",
+    "incognitoLeaveConfirmAction": "삭제하고 나가기",
+    "incognitoLeaveConfirmBody": "나가면 이 대화가 이 기기에서 삭제되며 기록에서 복원할 수 없습니다.",
+    "incognitoLeaveConfirmCancel": "현재 대화에 머무르기",
+    "incognitoLeaveConfirmTitle": "시크릿 대화를 나가시겠어요?",
+    "visionBridgeEngaged": "기본 모델이 이미지를 볼 수 없어 {{model}}이(가) 이미지 내용을 설명했습니다.",
+    "visionBridgeUnavailable": "비전 모델이 이미지를 설명하지 못해 해당 이미지는 제외되었습니다."
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1405,7 +1416,11 @@
       "ttft": "TTFT",
       "ttftTrend": "첫 토큰 도달 시간 (TTFT)",
       "inputTokens": "입력 토큰",
-      "outputTokens": "출력 토큰"
+      "outputTokens": "출력 토큰",
+      "byDomain": "도메인별 분포",
+      "byOperation": "작업별 세부 내역",
+      "operation": "작업",
+      "domain": "도메인"
     },
     "tool": {
       "avgDuration": "평균 소요",
@@ -1486,6 +1501,19 @@
           "memory_reembed": "메모리 재임베딩"
         }
       }
+    },
+    "usageKind": {
+      "all": "모든 사용",
+      "chat": "채팅",
+      "side_query": "사이드 쿼리",
+      "embedding": "임베딩",
+      "stt": "음성 인식",
+      "judge": "판정",
+      "summarize": "요약",
+      "web_search": "웹 검색",
+      "image_generation": "이미지 생성",
+      "provider_test": "제공자 테스트",
+      "vision": "비전"
     }
   },
   "fileActions": {
@@ -2955,7 +2983,7 @@
       },
       "intro": "전역 YOLO 토글, 보호 경로 / 편집 명령 / 위험 명령 패턴 목록, Smart 승인 모드 설정입니다.",
       "judgeExtraPromptPlaceholder": "선택 사항: 판정 모델에 전달할 추가 지침(경로 허용 목록, 신뢰할 명령 등)",
-      "judgeModelPlaceholder": "모델(예: claude-haiku-4-5)",
+      "judgeModelPlaceholder": "심사 모델 선택",
       "judgeModelTitle": "판정 모델 설정",
       "judgeProviderPlaceholder": "Provider ID(예: anthropic-1)",
       "protectedPathsDesc": "이 경로에 닿는 도구 호출은 승인이 강제되며 항상 허용할 수 없습니다. ~/ 확장, 디렉터리 접두사(끝 /), *.pattern glob을 지원합니다.",
@@ -3064,7 +3092,9 @@
       "resetOverride": "전역으로 초기화",
       "sameAgentOnly": "동일 Agent만",
       "sessionOverride": "세션 오버라이드",
-      "title": "행동 인식"
+      "title": "행동 인식",
+      "extractionModel": "추출 모델(선택 사항)",
+      "extractionModelInherit": "현재 채팅 에이전트 재사용(캐시 친화적)"
     },
     "browser": {
       "activeBadge": "사용 중",
@@ -3170,9 +3200,9 @@
         "stepInstallExtensionHint": "Chrome Web Store 페이지에서 설치한 후 여기로 돌아와 새로고침하세요.",
         "openWebStore": "Chrome Web Store 열기",
         "stepOpenExtensions": "Chrome 확장 프로그램 페이지 열기",
-        "stepOpenExtensionsHint": "개발자 모드를 켠 후 압축해제된 확장 프로그램을 로드하세요.",
-        "stepLoadUnpacked": "압축해제된 확장 프로그램 로드",
-        "alphaFallback": "Alpha 대체: 압축해제된 확장 프로그램 로드",
+        "stepOpenExtensionsHint": "먼저 폴더 표시를 눌러 확장 프로그램 폴더를 엽니다. Chrome 확장 프로그램 페이지에서 개발자 모드를 켠 뒤 해당 폴더를 끌어다 놓으세요. 경로를 복사한 뒤 압축해제된 확장 프로그램 로드로 선택할 수도 있습니다.",
+        "stepLoadUnpacked": "확장 프로그램 폴더 표시",
+        "alphaFallback": "Alpha 대체: 로컬 확장 프로그램 끌어다 놓기",
         "stepInstallHost": "네이티브 호스트 설치",
         "openChromeExtensions": "chrome://extensions 열기",
         "showFolder": "폴더 표시",
@@ -3246,7 +3276,7 @@
     "chatDisplayModeDesc": "새 대화와 별도 전환이 없는 세션의 기본 레이아웃을 선택합니다. 제목 표시줄 전환은 현재 세션에만 적용됩니다.",
     "chatDisplayModeTimeline": "작업",
     "claims": {
-      "title": "구조화 메모리",
+      "title": "구조화 메모리 Claims",
       "desc": "범위·신뢰도·출처 근거를 갖춘 구조화 장기 기억.",
       "explainer": {
         "title": "이 계층이 하는 일",
@@ -3693,7 +3723,7 @@
       "narrativeMaxTokensDesc": "Output budget for the narrative side query.",
       "narrativeModel": "Narrative model",
       "narrativeModelClear": "Clear",
-      "narrativeModelDefault": "Follow active chat agent",
+      "narrativeModelDefault": "자동화 기본값 따르기",
       "narrativeModelDesc": "Override the model used for narrative scoring. Empty falls back to the active chat / recap model chain.",
       "narrativeTimeoutSecs": "Timeout (seconds)",
       "narrativeTimeoutSecsDesc": "Side query is aborted after this many seconds.",
@@ -3833,7 +3863,8 @@
       "matcherPlaceholder": "도구 이름 / 소스(정규식 가능), 비어 있음 = 전체",
       "addHandler": "핸들러 추가",
       "advanced": "고급",
-      "slowHandlerWarning": "이 핸들러는 LLM / 서브에이전트를 인라인으로 실행하므로 이 차단 이벤트가 발생할 때마다 지연됩니다. 여기서는 command / http를 권장하거나 관찰 이벤트(PostToolUse 등)로 옮기세요."
+      "slowHandlerWarning": "이 핸들러는 LLM / 서브에이전트를 인라인으로 실행하므로 이 차단 이벤트가 발생할 때마다 지연됩니다. 여기서는 command / http를 권장하거나 관찰 이벤트(PostToolUse 등)로 옮기세요.",
+      "modelInheritDefault": "자동화 기본값 따르기"
     },
     "hours": "시간",
     "imageGenApiKey": "API 키",
@@ -3888,9 +3919,9 @@
       "tab": "지식"
     },
     "knowledgeCompile": {
-      "agent": "자료 정리 Agent",
-      "agentDefault": "전역 기본 Agent 사용",
-      "agentDesc": "소스 자료를 검토 가능한 노트 제안으로 정리하는 Agent입니다. 설정하지 않으면 전역 기본 Agent를 상속합니다.",
+      "agent": "정리 모델",
+      "agentDefault": "자동화 기본값 따르기",
+      "agentDesc": "원본 자료를 검토 가능한 노트 제안으로 정리하는 모델 체인입니다. 비워두면 자동화 기본값을 따릅니다.",
       "errors": {
         "loadConfig": "소스-노트 Agent 설정을 불러오지 못했습니다",
         "loadAgents": "소스-노트 Agent 목록을 불러오지 못했습니다",
@@ -3974,7 +4005,10 @@
         "sourceConflict": "Source conflicts",
         "openQuestionsMoc": "Open Questions MOC",
         "forAgentSummary": "For Agent summaries"
-      }
+      },
+      "model": "모델",
+      "modelDesc": "LLM 기반 생성기 4개(자동 태그, MOC 정비, 메모리→노트, 소스 충돌)가 공유합니다.",
+      "modelDefault": "자동화 기본값 따르기"
     },
     "knowledgeMediaRetention": {
       "saved": "저장됨",
@@ -4750,8 +4784,8 @@
         "detail": "Details: {{error}}"
       }
     },
-    "memoryExtractClaims": "구조화 메모리 추출",
-    "memoryExtractClaimsDesc": "일반 메모리와 함께 근거가 있고 검토 가능한 구조화 메모리도 추출합니다.",
+    "memoryExtractClaims": "클레임 추출 (베타)",
+    "memoryExtractClaimsDesc": "메모리와 함께 근거 기반 구조화 클레임도 추출 (이중 기록).",
     "memoryStructuredBadge": "구조화",
     "memoryExtractIdleTimeout": "유휴 시간 초과 (분)",
     "memoryExtractMessageThreshold": "메시지 임계값",
@@ -4780,7 +4814,7 @@
     "memoryImportCopyDiagnosticsError": "Failed to copy memory import diagnostics: {{error}}",
     "memoryImportFromAIParseBtn": "파싱 후 가져오기",
     "memoryImportFromAIParseError": "파싱 실패: {{error}}",
-    "memoryImportFromAIPastePlaceholder": "Paste JSON or a Markdown memory export returned by the other AI here...",
+    "memoryImportFromAIPastePlaceholder": "다른 AI 가 반환한 JSON 배열을 여기에 붙여넣기...",
     "memoryImportNoEntries": "No importable memories found.",
     "memoryImportPreviewBtn": "Preview",
     "memoryImportPreviewTitle": "Preview",
@@ -5295,7 +5329,7 @@
       "dreaming": "Dreaming",
       "manage": "기억 관리",
       "settings": "기억 설정",
-      "claims": "구조화 메모리",
+      "claims": "Claims",
       "profile": "프로필"
     },
     "memoryTags": "태그",
@@ -5616,9 +5650,9 @@
     "proxyUrl": "프록시 URL",
     "proxyUrlPlaceholder": "http://127.0.0.1:7890",
     "recap": "리캡",
-    "recapAnalysisAgent": "분석 에이전트",
-    "recapAnalysisAgentDefault": "전역 기본 에이전트 사용",
-    "recapAnalysisAgentDesc": "Facet 추출 및 리포트 섹션 작성에 사용하는 에이전트. 설정하지 않으면 전역 기본 에이전트를 상속합니다.",
+    "recapAnalysisAgent": "분석 모델",
+    "recapAnalysisAgentDefault": "자동화 기본값 따르기",
+    "recapAnalysisAgentDesc": "facet 추출과 리포트 섹션 작성에 사용되는 모델 체인입니다. 비워두면 자동화 기본값을 따릅니다.",
     "recapCacheRetentionDays": "Facet 캐시 보존 기간 (일)",
     "recapCacheRetentionDaysDesc": "캐시된 facet 보존 기간. 매일 스윕으로 삭제됩니다. 0 = 영구 보존. 기본값 180.",
     "recapDefaultRangeDays": "기본 기간 (일)",
@@ -5894,7 +5928,8 @@
         },
         "reviewModel": {
           "label": "Dedicated review model",
-          "help": "Format: provider:model. Empty reuses the main chat's cached prefix."
+          "help": "후보 스킬 검토에 사용되는 모델 체인입니다. 비워두면 트리거한 대화의 캐시를 재사용합니다(다시 자동화 기본값으로 대체).",
+          "inheritDefault": "트리거한 대화 재사용(캐시 친화적)"
         },
         "extraRejectCategories": {
           "label": "Extra reject categories",
@@ -6001,7 +6036,10 @@
         "save": "스프라이트 설정을 저장하지 못했습니다",
         "toggle": "스프라이트 모드를 업데이트하지 못했습니다",
         "detail": "세부 정보: {{error}}"
-      }
+      },
+      "model": "모델",
+      "modelDesc": "스프라이트의 제안 호출은 결과를 기다리지 않으므로, 단일 모델이 아니라 전체 폴백 체인을 사용해도 됩니다.",
+      "modelDefault": "자동화 기본값 따르기"
     },
     "ssrfBrowserPolicyDesc": "page.goto / new_page의 대상 URL에 적용. 참고: browser.evaluate 내부의 JS fetch()는 범위 밖입니다.",
     "ssrfDefaultPolicy": "기본 정책",
@@ -6369,7 +6407,39 @@
     "retrievalPlannerDesc": "Fuse memory, relationship, workflow, and knowledge candidates with stable scope-aware ranking.",
     "retrievalPlannerIntentAware": "Task-aware",
     "retrievalPlannerMaxTraceRefs": "Diagnostic references",
-    "retrievalPlannerMaxPerOrigin": "Candidates per source"
+    "retrievalPlannerMaxPerOrigin": "Candidates per source",
+    "visionBridgeModel": "비전 브리지 모델",
+    "visionBridgeModelDesc": "기본 모델이 이미지를 볼 수 없을 때만 사용됩니다. 별도의 모델이 이미지를 텍스트 설명으로 변환해 대화를 이어갑니다.",
+    "visionBridgeModelClear": "비전 브리지 끄기",
+    "selectVisionBridgeModel": "비전 모델 선택",
+    "modelChainRestoreInherit": "상속된 기본값으로 재설정",
+    "automationModelChain": "자동화 기본 모델",
+    "automationModelChainDesc": "Recap, Dreaming, 지식 정리 등 백그라운드 일회성 AI 작업에 쓰이는 기본 모델 체인(대체 모델 포함)입니다. 위의 채팅 기본 모델과는 독립적입니다. 설정하지 않으면 채팅 기본 모델을 따릅니다.",
+    "automationModelChainInherit": "채팅 기본 모델 따르기",
+    "knowledgeVision": {
+      "model": "비전 모델",
+      "modelDesc": "지식 공간으로 이미지를 가져올 때 OCR에 사용하는 모델 체인입니다. 비워두면 자동화 기본값을 따릅니다.",
+      "modelDefault": "자동화 기본값 따르기",
+      "ocrConcurrency": "스캔 PDF OCR 동시 실행 수",
+      "maxOcrPages": "스캔 PDF OCR 페이지 제한"
+    },
+    "noteTools": {
+      "title": "노트 도구 모델",
+      "desc": "노트 추출, MOC 생성, 세션→노트 변환 도구가 공유하는 모델입니다.",
+      "modelDefault": "자동화 기본값 따르기"
+    },
+    "recallSummary": {
+      "title": "회상 요약",
+      "desc": "recall_memory / session_search가 히트를 많이 반환할 때, 원본 스니펫 대신 추가 LLM 호출로 한 문단의 간결한 요약으로 압축합니다. 기본값은 꺼짐 — 조건을 만족하는 검색마다 호출이 한 번 더 발생합니다.",
+      "enabled": "요약 활성화",
+      "minHits": "발동에 필요한 최소 히트 수",
+      "contextCharBudget": "컨텍스트 예산(문자)",
+      "timeoutSecs": "제한 시간(초)",
+      "maxTokens": "최대 출력 토큰 수",
+      "includeHistory": "대화 기록 히트도 요약",
+      "model": "모델",
+      "modelDefault": "자동화 기본값 따르기"
+    }
   },
   "shortcuts": {
     "actionOpenSettings": "설정 열기",
@@ -7398,7 +7468,13 @@
       "similarScope": {
         "crossKb": "교차 공간",
         "sameKb": "이 공간"
-      }
+      },
+      "ocrRunning": "OCR 진행 중…",
+      "ocrPartial": "OCR: 일부 페이지 실패",
+      "ocrFailed": "OCR 실패",
+      "ocrRetry": "실패한 페이지 재시도",
+      "ocrRetryStarted": "실패한 페이지를 재시도하는 중…",
+      "ocrRetryFailed": "OCR 페이지를 재시도할 수 없습니다"
     },
     "queryFile": {
       "action": "파일",
