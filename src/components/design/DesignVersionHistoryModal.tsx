@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Copy, Hand, History, Loader2, RotateCcw, Search, Sparkles, TriangleAlert, Undo2 } from "lucide-react"
+import { Check, Copy, Hand, History, Loader2, Monitor, RotateCcw, Search, Smartphone, Sparkles, Tablet, TriangleAlert, Undo2 } from "lucide-react"
 
 import {
   AlertDialog,
@@ -82,6 +82,8 @@ export function DesignVersionHistoryModal({
   const [loadingContent, setLoadingContent] = useState(false)
   const [query, setQuery] = useState("")
   const [restoring, setRestoring] = useState(false)
+  // 版本预览视口切换（决策增量）：在恢复前确认历史版本在手机/平板下的样子。复用主预览的设备宽度。
+  const [verViewport, setVerViewport] = useState<"desktop" | "tablet" | "mobile">("desktop")
   const [confirm, setConfirm] = useState(false)
   const [promptOpen, setPromptOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -429,19 +431,61 @@ export function DesignVersionHistoryModal({
                 )}
 
                 <div className="relative min-h-0 flex-1 bg-muted/30">
+                  {/* 视口切换：desktop 全宽 / tablet 820 / mobile 390，非 desktop 居中设备框。 */}
+                  <div className="absolute right-2 top-2 z-10 flex gap-0.5 rounded-md border bg-background/90 p-0.5 shadow-sm">
+                    {(
+                      [
+                        ["desktop", Monitor],
+                        ["tablet", Tablet],
+                        ["mobile", Smartphone],
+                      ] as const
+                    ).map(([v, Icon]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setVerViewport(v)}
+                        aria-label={v}
+                        aria-pressed={verViewport === v}
+                        className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded",
+                          verViewport === v
+                            ? "bg-primary text-primary-foreground"
+                            : "text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                      </button>
+                    ))}
+                  </div>
                   {loadingContent && (
-                    <div className="absolute inset-0 flex items-center justify-center">
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="absolute inset-0 flex items-center justify-center"
+                    >
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                      <span className="sr-only">{t("common.loading", "加载中...")}</span>
                     </div>
                   )}
-                  {html != null && (
-                    <iframe
-                      title={t("design.history", "版本历史")}
-                      srcDoc={html}
-                      sandbox="allow-scripts"
-                      className="h-full w-full border-0 bg-white"
-                    />
-                  )}
+                  {html != null &&
+                    (verViewport === "desktop" ? (
+                      <iframe
+                        title={t("design.history", "版本历史")}
+                        srcDoc={html}
+                        sandbox="allow-scripts"
+                        className="h-full w-full border-0 bg-white"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center overflow-auto p-4">
+                        <iframe
+                          title={t("design.history", "版本历史")}
+                          srcDoc={html}
+                          sandbox="allow-scripts"
+                          style={{ width: verViewport === "tablet" ? 820 : 390 }}
+                          className="h-full max-h-full shrink-0 rounded-[1.25rem] border-[6px] border-neutral-800 bg-white shadow-xl dark:border-neutral-700"
+                        />
+                      </div>
+                    ))}
                 </div>
               </>
             )}
