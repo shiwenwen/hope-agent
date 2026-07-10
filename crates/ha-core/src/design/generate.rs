@@ -115,6 +115,15 @@ fn parse_sections(text: &str) -> ArtifactParts {
 }
 
 /// CSS-first 生成 prompt（两入口共用）。CSS 段在 body 前，让流式预览先有样式。
+/// 精简 craft doctrine：前置塑造产物**默认质量**（a11y / 全状态覆盖 / 表单校验 / anti-slop /
+/// 动效纪律），比事后 LLM 评审更省返工。距 OD 的成文 craft/*.md 提炼而来、逐字节稳定（防注入）。
+const CRAFT_DOCTRINE: &str = "CRAFT — bake these in by default:\n\
+- Accessibility: every <img> has meaningful alt; interactive elements are real <button>/<a> with a visible :focus-visible ring; text/background contrast >= 4.5:1; never encode meaning by color alone.\n\
+- State coverage: if the design implies data / loading / empty / error, render the populated state AND design the empty and error states — never a blank panel or a dead end.\n\
+- Forms: label every field (<label for> or aria-label); show inline validation text, not just a red border; the primary button says exactly what it does.\n\
+- Anti-slop: do NOT use indigo/violet (#6366f1 and friends) as the accent unless the brand demands it; no blue->cyan \"trust\" gradient; no emoji as icons (use inline SVG); no walls of ALL-CAPS; no fabricated metrics; spend one bold accent and keep everything else quiet.\n\
+- Motion: honor prefers-reduced-motion; keep any animation purposeful.";
+
 fn build_generation_prompt(
     brief: &str,
     kind: ArtifactKind,
@@ -144,12 +153,13 @@ Output EXACTLY three sections in this order and NOTHING else (no prose, no markd
 Emit CSS FIRST so a live preview can apply styles before the body paints:\n\
 <<<CSS>>>\n(all CSS)\n<<<BODY>>>\n(the inner HTML that goes inside <body>)\n<<<JS>>>\n(optional JS; may be empty)\n\n\
 Hard rules: self-contained, ZERO network (no CDN, no remote fonts, no remote images — use inline \
-SVG or CSS gradients for any imagery); responsive; accessible.\n\nBRIEF:\n{brief}",
+SVG or CSS gradients for any imagery); responsive; accessible.\n\n{craft}\n\nBRIEF:\n{brief}",
         kind = kind.as_str(),
         common = super::recipe::COMMON_GUIDANCE,
         guidance = resolve_guidance(kind, recipe_id),
         tokens = token_list,
         system = system_block,
+        craft = CRAFT_DOCTRINE,
         brief = truncate(brief, 4000),
     ))
 }
