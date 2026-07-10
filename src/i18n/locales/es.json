@@ -590,6 +590,25 @@
     },
     "hoursAgo": "hace {{count}}h",
     "howCanIHelp": "Programa, busca, crea, automatiza — solo dilo",
+    "projectWelcomeTitle": "¿Qué deberíamos construir en <project>{{project}}</project>? Cuéntame tu idea",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "Ubicarme",
+        "prompt": "Ayúdame a ubicarme en {{project}}: módulos principales, puntos de entrada y cosas importantes para desarrollar."
+      },
+      "build": {
+        "title": "Dar forma a una idea",
+        "prompt": "Tengo una idea para {{project}}. Primero divídela en pasos prácticos de implementación."
+      },
+      "review": {
+        "title": "Mirar el código",
+        "prompt": "Revisa {{project}} en busca de mejoras o zonas de riesgo y dame sugerencias concretas."
+      },
+      "fix": {
+        "title": "Seguir un problema",
+        "prompt": "Ayúdame a investigar un problema o fallo en {{project}}. Encuentra la causa primero y luego propone una solución."
+      }
+    },
     "incognito": "Incógnito",
     "incognitoAwarenessDisabled": "La conciencia de comportamiento no está disponible mientras el modo incógnito esté activo",
     "incognitoChannelExclusive": "Las sesiones de canal IM no pueden ser incógnitas — la otra parte puede seguir enviando mensajes de forma asíncrona",

@@ -590,6 +590,25 @@
     },
     "hoursAgo": "{{count}} giờ trước",
     "howCanIHelp": "Lập trình, tìm kiếm, sáng tạo, tự động hóa — cứ nói nhé",
+    "projectWelcomeTitle": "Chúng ta nên xây dựng gì trong <project>{{project}}</project>? Hãy nói ý tưởng của bạn",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "Nắm dự án",
+        "prompt": "Hãy giúp tôi nắm nhanh {{project}}: các mô-đun chính, điểm vào và những điều cần chú ý khi phát triển."
+      },
+      "build": {
+        "title": "Gọt ý tưởng",
+        "prompt": "Tôi có một ý tưởng cho {{project}}. Trước tiên hãy chia nó thành các bước triển khai thực tế."
+      },
+      "review": {
+        "title": "Xem qua mã",
+        "prompt": "Hãy xem {{project}} để tìm điểm có thể cải thiện hoặc có rủi ro, rồi đưa ra đề xuất cụ thể."
+      },
+      "fix": {
+        "title": "Lần theo lỗi",
+        "prompt": "Hãy giúp tôi điều tra một vấn đề hoặc lỗi trong {{project}}. Tìm nguyên nhân trước, rồi đề xuất cách sửa."
+      }
+    },
     "incognito": "Ẩn danh",
     "incognitoAwarenessDisabled": "Nhận biết hành vi không khả dụng khi bật ẩn danh",
     "incognitoChannelExclusive": "Phiên kênh IM không thể ẩn danh — phía bên kia có thể tiếp tục gửi tin nhắn không đồng bộ",

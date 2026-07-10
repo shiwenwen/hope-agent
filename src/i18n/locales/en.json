@@ -590,6 +590,25 @@
     },
     "hoursAgo": "{{count}}h ago",
     "howCanIHelp": "Code, search, create, automate — just say the word",
+    "projectWelcomeTitle": "What should we build in <project>{{project}}</project>? Share what's on your mind",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "Get oriented",
+        "prompt": "Help me get oriented in {{project}}: the main modules, entry points, and what to watch while developing."
+      },
+      "build": {
+        "title": "Shape an idea",
+        "prompt": "I have an idea for {{project}}. Break it into practical implementation steps first."
+      },
+      "review": {
+        "title": "Look over code",
+        "prompt": "Look through {{project}} for code worth improving or risky spots, then give me concrete suggestions."
+      },
+      "fix": {
+        "title": "Track a problem",
+        "prompt": "Help me investigate an issue or failure in {{project}}. Find the cause first, then propose a fix."
+      }
+    },
     "incognito": "Incognito",
     "incognitoAwarenessDisabled": "Behavior awareness is unavailable while incognito is on",
     "incognitoChannelExclusive": "IM Channel sessions can't be incognito — the counterparty can keep messaging asynchronously",

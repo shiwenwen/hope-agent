@@ -590,6 +590,25 @@
     },
     "hoursAgo": "{{count}} sa önce",
     "howCanIHelp": "Kodla, ara, oluştur, otomatikleştir — sadece söyle",
+    "projectWelcomeTitle": "<project>{{project}}</project> içinde ne inşa edelim? Aklındakini söyle",
+    "projectWelcomeSuggestions": {
+      "explore": {
+        "title": "Projeye alış",
+        "prompt": "Önce {{project}} içindeki ana modülleri, giriş noktalarını ve geliştirme sırasında dikkat edilecekleri hızlıca çıkar."
+      },
+      "build": {
+        "title": "Fikri şekillendir",
+        "prompt": "{{project}} için bir fikrim var. Önce bunu uygulanabilir geliştirme adımlarına böl."
+      },
+      "review": {
+        "title": "Koda bak",
+        "prompt": "{{project}} içinde iyileştirilebilecek veya riskli yerleri gözden geçirip somut öneriler ver."
+      },
+      "fix": {
+        "title": "Sorunu izle",
+        "prompt": "{{project}} içindeki bir sorun veya hatayı araştırmama yardım et. Önce nedeni bul, sonra düzeltme öner."
+      }
+    },
     "incognito": "Gizli",
     "incognitoAwarenessDisabled": "Gizli mod açıkken davranış farkındalığı kullanılamaz",
     "incognitoChannelExclusive": "IM Kanal oturumları gizli olamaz — karşı taraf asenkron olarak mesaj göndermeye devam edebilir",
